@@ -1,0 +1,224 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@import "../config/inwardUi.theme.css";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Any app drawer open — block clicks on page content behind the overlay */
+html[data-app-drawer-open] .imp-panel-no-select main {
+  pointer-events: none;
+}
+
+@keyframes slide-in-from-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+.animate-in {
+  animation-fill-mode: both;
+}
+
+.slide-in-from-right {
+  animation-name: slide-in-from-right;
+}
+
+.duration-300 {
+  animation-duration: 300ms;
+}
+
+/* Out entry: light accent travels around active tab border (transform — all browsers) */
+@keyframes packing-tab-ring-spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.out-entry-packing-tab-active {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border: none !important;
+  border-radius: 0.5rem 0.5rem 0 0 !important;
+  background: #4338ca !important;
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(30, 27, 75, 0.25);
+}
+
+.out-entry-packing-tab-active::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 220%;
+  height: 220%;
+  transform: translate(-50%, -50%);
+  background: conic-gradient(
+    from 0deg,
+    #6366f1 0deg,
+    #6366f1 252deg,
+    #818cf8 266deg,
+    #a5b4fc 278deg,
+    #e0e7ff 288deg,
+    #a5b4fc 300deg,
+    #818cf8 312deg,
+    #6366f1 324deg,
+    #6366f1 360deg
+  );
+  animation: packing-tab-ring-spin 1.35s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.out-entry-packing-tab-active::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: calc(0.5rem - 3px) calc(0.5rem - 3px) 0 0;
+  background: #4f46e5;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.out-entry-packing-tab-active > * {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .out-entry-packing-tab-active {
+    border: 2px solid #818cf8 !important;
+  }
+
+  .out-entry-packing-tab-active::before {
+    display: none;
+  }
+}
+
+/* Bottom snackbar (W3Schools-like): centred, slide + fade; uses translate so left:50% layout works */
+@keyframes app-snackbar-fade-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 100%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes app-snackbar-fade-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, 100%);
+  }
+}
+
+.app-snackbar-banner--show {
+  animation: app-snackbar-fade-in 0.5s ease forwards;
+}
+
+.app-snackbar-banner--hide {
+  animation: app-snackbar-fade-out 0.5s ease forwards;
+}
+
+/* Dashboard panel: no mouse drag-select on chrome; inputs stay selectable */
+.imp-panel-no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.imp-panel-no-select input:not([type="checkbox"]):not([type="radio"]),
+.imp-panel-no-select textarea,
+.imp-panel-no-select select,
+.imp-panel-no-select [contenteditable]:not([contenteditable="false"]) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Compact toasts — bottom-left (fixed width; auto width breaks stacked/collapsed layout) */
+.imp-toast-container.Toastify__toast-container {
+  --toastify-toast-width: 300px;
+  --toastify-toast-min-height: 44px;
+  --toastify-toast-padding: 10px 12px;
+  width: 300px !important;
+  max-width: min(300px, calc(100vw - 24px)) !important;
+  padding: 0 !important;
+  z-index: 10050;
+}
+
+.imp-toast-container.Toastify__toast-container--bottom-left {
+  bottom: 12px !important;
+  left: 12px !important;
+}
+
+.imp-toast-container .Toastify__toast.imp-toast {
+  width: 100% !important;
+  min-height: var(--toastify-toast-min-height);
+  margin-bottom: 8px;
+  padding: var(--toastify-toast-padding);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.35;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.14);
+  font-family: inherit;
+}
+
+.imp-toast-container .imp-toast-body {
+  padding: 0;
+  margin: 0;
+  white-space: normal;
+  word-break: normal;
+  flex: 1;
+}
+
+.imp-toast-container .Toastify__toast-icon {
+  width: 18px;
+  margin-inline-end: 8px;
+}
+
+.imp-toast-container .Toastify__close-button {
+  opacity: 0.75;
+  align-self: center;
+  padding: 2px;
+}
+
+.imp-toast-container .Toastify__close-button > svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* iOS Safari: inputs below 16px trigger focus zoom — keep tap targets readable on phones */
+@media (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}

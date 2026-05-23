@@ -1,0 +1,219 @@
+const isLive = process.env.NEXT_PUBLIC_API_MODE === "live";
+const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+
+export const BACKEND_URL = isLive
+  ? hostname.includes(process.env.NEXT_PUBLIC_BACKEND_URL_DOMAIN) ? process.env.NEXT_PUBLIC_BACKEND_URL_INSIDE : process.env.NEXT_PUBLIC_BACKEND_URL_OUTSIDE
+  : process.env.NEXT_PUBLIC_BACKEND_URL_DEV;
+
+export const API_BASE_URL = `${BACKEND_URL}/api`;
+export const FILE_BASE_URL = BACKEND_URL;
+export const COOKIE_NAME = "auth_token";
+
+const ENDPOINTS = {
+  USERS: {
+    LIST: "/users/list",
+    ME: "/users/me",
+    GET: "/users/get",
+    CREATE: "/users/create",
+    UPDATE: "/users/update",
+    DELETE: "/users/delete",
+    LOGIN: "/users/login",
+    LOGOUT: "/users/logout",
+    VIEWS: "/users/helper",
+    IMS_LIST: "/users/ims-list",
+  },
+
+  MODULES: {
+    LIST: "/modules/list",
+    GET: "/modules/get",
+    CREATE: "/modules/create",
+    UPDATE: "/modules/update",
+    TOGGLE_STATUS: "/modules/toggle-status",
+    VIEWS: "/modules/helper",
+  },
+
+  CATEGORY: {
+    VIEWS: "/category/helper",
+  },
+
+  PERMISSIONS: {
+    LIST: "/permissions/list",
+    CREATE: "/permissions/create",
+    BULK_CREATE: "/permissions/bulk-create",
+    GET: "/permissions/get",
+    UPDATE: "/permissions/update",
+    DELETE: "/permissions/delete",
+  },
+
+  TRAINING_VIDEOS: {
+    LIST: "/training-videos/list",
+    GET: "/training-videos/get",
+    CREATE: "/training-videos/create",
+    UPDATE: "/training-videos/update",
+    APPROVE: "/training-videos/approve",
+    DELETE: "/training-videos/delete",
+    VIEWS: "/training-videos/helper",
+    SOPS: {
+      LIST: "/training-videos/sops/list",
+      GET: "/training-videos/sops/get",
+      CREATE: "/training-videos/sops/create",
+      UPDATE: "/training-videos/sops/update",
+      DELETE: "/training-videos/sops/delete",
+      HELPER: "/training-videos/sops/helper",
+    },
+  },
+
+  MASTER: {
+    ITEMS: {
+      LIST: "/master/items/list",
+      GET: "/master/items/get",
+      VIEWS: "/master/items/helper",
+    },
+    LEDGERS: {
+      LIST: "/master/ledgers/list",
+      GET: "/master/ledgers/get",
+      VIEWS: "/master/ledgers/helper",
+    },
+    PARTY_RATES: { 
+      LIST: "/master/party-rates/list",
+      VIEWS: "/master/party-rates/helper",
+      RESOLVE_CUST_CODE: "/master/party-rates/resolve-cust-code",
+    },
+    DAILY_PROD: { 
+      LIST: "/master/daily-prod/list",
+      VIEWS: "/master/daily-prod/helper",
+      PACK_BY_FY: "/master/daily-prod/pack-by-fy",
+    },
+  },
+
+    LOCATIONS: {
+    LIST:   "/locations/list",
+    GET:    "/locations/get",
+    CREATE: "/locations/create",
+    UPDATE: "/locations/update",
+    DELETE: "/locations/delete",
+    VIEWS: "/locations/helper",
+  },
+
+  ACTIVITY_LOGS: {
+    LIST:   "/activity-logs/list",
+  },
+
+  BOX_TRANSACTION_LOGS: {
+    LIST: "/box-transaction-logs/list",
+  },
+
+  PACKING_STANDARD: {
+    LIST: "/packing-standard/list",
+    GET: "/packing-standard/get",
+    CREATE: "/packing-standard/create",
+    UPDATE: "/packing-standard/update",
+    DELETE: "/packing-standard/delete",
+    VIEWS: "/packing-standard/helper",
+  },
+
+  STOCK_ADJUSTMENT: {
+    LIST: "/stock-adjustment/list",
+    GET: "/stock-adjustment/get",
+    CREATE: "/stock-adjustment/create",
+    UPDATE: "/stock-adjustment/update",
+    DELETE: "/stock-adjustment/delete",
+    VIEWS: "/stock-adjustment/helper",
+  },
+
+  BOXES: {
+    LIST: "/boxes/list",
+    IN_HAND_BY_PACKING: "/boxes/in-hand-by-packing",
+    VIEWS: "/boxes/helper",
+    GET: "/boxes/get",
+    CREATE: "/boxes/create",
+    UPDATE: "/boxes/update",
+    DELETE: "/boxes/delete",
+    
+    // sticker
+    STICKER_FETCH:    "/boxes/sticker/fetch",
+    STICKER_GENERATE: "/boxes/sticker/generate",
+    STICKER_PREVIEW: "/boxes/sticker/preview",
+    STICKER_REMOVE: "/boxes/sticker/remove",
+  
+    // download tracking
+    STICKER_DOWNLOAD:         "/boxes/sticker/download",
+    STICKER_DOWNLOAD_BULK:    "/boxes/sticker/download-bulk",
+    STICKER_RENDER_SINGLE:    "/boxes/sticker/render-single",
+    STICKER_RENDER_BULK:      "/boxes/sticker/render-bulk",
+  
+    // customer override
+    STICKER_OVERRIDE_CUST: "/boxes/sticker/override-cust",
+  
+    // history & reports
+    STICKER_DOWNLOAD_HISTORY: "/boxes/sticker/download-history",
+    STICKER_DOWNLOAD_SUMMARY: "/boxes/sticker/download-summary",
+    STICKER_MANAGEMENT_LIST: "/boxes/sticker/management-list",
+    STICKER_OVERRIDE_REQUEST: "/boxes/sticker/override/request",
+    STICKER_OVERRIDE_UPDATE: "/boxes/sticker/override/update",
+    STICKER_OVERRIDE_LIST: "/boxes/sticker/override/list",
+    STICKER_OVERRIDE_APPROVE: "/boxes/sticker/override/approve",
+  },
+
+  INVENTORY_INWARDS: {
+    LIST: "/inventory-inwards/list",
+    GET: "/inventory-inwards/get",
+    CREATE: "/inventory-inwards/create",
+    UPDATE: "/inventory-inwards/update",
+    DELETE: "/inventory-inwards/delete",
+    VIEWS: "/inventory-inwards/helper",
+    VALIDATE_BOX_LOCATION: "/inventory-inwards/validate-box-location",
+    BATCH_SCAN_BOXES: "/inventory-inwards/batch-scan-boxes",
+  },
+
+  FORWARDING_NOTES: {
+    LIST: "/forwarding-notes/list",
+    LIST_ITEMS: "/forwarding-notes/list-items",
+    VIEWS: "/forwarding-notes/helper",
+    GET: "/forwarding-notes/get",
+    CREATE: "/forwarding-notes/create",
+    UPDATE: "/forwarding-notes/update",
+    UPDATE_BILL: "/forwarding-notes/update-bill",
+    DELETE: "/forwarding-notes/delete",
+    UNLOCK_LOCK: "/forwarding-notes/unlock-lock",
+    AVAILABLE_BOXES: "/forwarding-notes/available-boxes",
+    PRINT_BILL: "/forwarding-notes/print-bill",
+    TRANSPORTERS: "/forwarding-notes/transporter-helper",
+  },
+
+  FORWARDING_NOTE_ITEMS: {
+    LIST: "/forwarding-note-items/list",
+    GET: "/forwarding-note-items/get",
+    CREATE: "/forwarding-note-items/create",
+    UPDATE: "/forwarding-note-items/update",
+    DELETE: "/forwarding-note-items/delete",
+  },
+
+  OUT_ENTRIES: {
+    LIST: "/out-entries/list",
+    GET: "/out-entries/get",
+    CREATE: "/out-entries/create",
+    UPDATE: "/out-entries/update",
+    DELETE: "/out-entries/delete",
+    VIEWS: "/out-entries/helper",
+    VERIFY_BOX: "/out-entries/verify-box",
+    BATCH_SCAN_BOXES: "/out-entries/batch-scan-boxes",
+    GET_FUID_DETAILS: "/out-entries/get-details",
+    LOCK_FUID: "/out-entries/lock-fuid",
+  },
+
+  INVENTORY_REPORT: {
+    LIST: "/inventory-report/list",
+  },
+
+  APP_CONFIG: {
+    LIST: "/app-config/list",
+    UPDATE: "/app-config",
+  },
+
+  DASHBOARD: {
+    STATS: "/dashboard/stats",
+  },
+};
+
+export { ENDPOINTS };
