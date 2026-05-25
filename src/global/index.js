@@ -28,6 +28,12 @@ export {
 } from "./boxUid";
 
 export {
+  getCurrentIndianFinancialYearStartYear,
+  getCurrentIndianFinancialYearLabel,
+  getBoxNoUidPrefixFromFinancialYear,
+} from "@/utils/indianFinancialYear";
+
+export {
   SCAN_SNACK_DUR,
   buildScanSnackbarState,
   useScanSnackbarActions,

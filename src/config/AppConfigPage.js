@@ -23,7 +23,7 @@ const COMPANY_LAYOUT = [
 ];
 
 const APPLICATION_LAYOUT = [
-  ["inward_location_validation", "default_list_view_span_days", "box_no_uid_prefix"],
+  ["inward_location_validation", "default_list_view_span_days"],
   ["box_qr_public_base_url"],
 ];
 
@@ -188,9 +188,6 @@ export default function AppConfigPage() {
           applyListViewSpanFromSession({
             inward_location_validation: String(res.data.config_value).trim().toLowerCase() === "true",
           });
-        }
-        if (row.key === "box_no_uid_prefix" && res.data?.config_value != null) {
-          applyListViewSpanFromSession({ box_no_uid_prefix: res.data.config_value });
         }
       }
       toast.success("Configuration saved successfully");

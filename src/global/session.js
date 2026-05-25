@@ -1,4 +1,4 @@
-import { BOX_NO_UID_PREFIX_FALLBACK, normalizeBoxNoUidPrefix } from "./boxUid";
+import { getBoxNoUidPrefixFromFinancialYear } from "@/utils/indianFinancialYear";
 
 const LIST_MIN = 1;
 const LIST_MAX = 3650;
@@ -8,7 +8,6 @@ let listViewSpanDays = LIST_VIEW_SPAN_FALLBACK;
 const listViewListeners = new Set();
 
 let inwardLocationValidationEnabled = false;
-let boxNoUidPrefix = BOX_NO_UID_PREFIX_FALLBACK;
 
 function clampListSpan(n) {
   const x = parseInt(String(n), 10);
@@ -40,13 +39,11 @@ export function isInwardLocationValidationEnabled() {
   return inwardLocationValidationEnabled;
 }
 
-export function setBoxNoUidPrefix(value) {
-  const n = normalizeBoxNoUidPrefix(value);
-  boxNoUidPrefix = n || BOX_NO_UID_PREFIX_FALLBACK;
-}
+/** @deprecated Prefix is derived from Indian FY; kept for callers that still set session. */
+export function setBoxNoUidPrefix() {}
 
 export function getBoxNoUidPrefix() {
-  return boxNoUidPrefix;
+  return getBoxNoUidPrefixFromFinancialYear();
 }
 
 export function applySessionFromLogin(payload) {
@@ -55,8 +52,5 @@ export function applySessionFromLogin(payload) {
   }
   if (payload?.inward_location_validation != null) {
     setInwardLocationValidationEnabled(payload.inward_location_validation === true);
-  }
-  if (payload?.box_no_uid_prefix != null && String(payload.box_no_uid_prefix).trim() !== "") {
-    setBoxNoUidPrefix(payload.box_no_uid_prefix);
   }
 }

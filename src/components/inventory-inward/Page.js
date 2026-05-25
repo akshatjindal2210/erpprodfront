@@ -1,14 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw, Locate, Box, Edit3, Trash2, X } from "lucide-react";
+import { Plus, RefreshCw, Locate, Box, Edit3, Trash2, X, Warehouse, PackageOpen, List, Boxes } from "lucide-react";
 import { toast } from "react-toastify";
 import { inventoryInwardService } from "@/services/inventoryInward";
-import dayjs from "dayjs";
 import { useViewDateFilterDefaults } from "@/helpers/dateFilterDefaults";
 
 // Components
-import InwardModal from "@/components/inventory-inward/InwardModal"; 
+import InwardModal from "@/components/inventory-inward/InwardModal";
 import DeleteModal from "@/components/common/DeleteModal";
 import DateRangeFilter from "@/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/components/common/ListPageFilterStrip";
@@ -23,9 +22,44 @@ import { useListDrawerHotkeys } from "@/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/helpers/clientListSearch";
 import { formatDateTime } from "@/helpers/utilHelper";
 
+const PAGE_TABS = {
+  STORE_IN: "store_in",
+  PACKING_AREA: "packing_area",
+};
+
+/** Packing Area tab: summary by packing vs individual boxes */
+const PACKING_VIEWS = {
+  SUMMARY: "summary",
+  BOXES: "boxes",
+};
+
+/** Same segmented tab style as Forwarding Note (Summary / Item-wise). */
+function SegmentedTabs({ tabs, active, onChange, className = "" }) {
+  return (
+    <div className={`flex bg-slate-100 p-1 border border-slate-200 shrink-0 ${className}`}>
+      {tabs.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => onChange(id)}
+          className={`px-3 py-1 text-[10px] font-bold uppercase flex items-center gap-1.5 transition-all ${
+            active === id ? "bg-white shadow-sm text-indigo-600" : "text-slate-500 hover:bg-slate-200"
+          }`}
+        >
+          {Icon ? <Icon size={14} /> : null}
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function InwardPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("inventory_inwards", "view"), [canAccess]);
+
+  const [pageTab, setPageTab] = useState(PAGE_TABS.STORE_IN);
+  const isStoreIn = pageTab === PAGE_TABS.STORE_IN;
 
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
@@ -35,23 +69,41 @@ export default function InwardPage() {
   const [params, setParams] = useState({
     pageSize: 1000,
     status: "all",
-    fromDate: dateFilterDefaults.from, toDate: dateFilterDefaults.to, sortKey: "in_uid", sortDir: "desc"
+    fromDate: dateFilterDefaults.from,
+    toDate: dateFilterDefaults.to,
+    sortKey: "in_uid",
+    sortDir: "desc",
+  });
+
+  const [packingView, setPackingView] = useState(PACKING_VIEWS.SUMMARY);
+  const [packingFilterPn, setPackingFilterPn] = useState("");
+  const [packingParams, setPackingParams] = useState({
+    pageSize: 1000,
+    sortKey: "packing_number",
+    sortDir: "asc",
+  });
+  const [packingBoxParams, setPackingBoxParams] = useState({
+    pageSize: 1000,
+    sortKey: "box_no_uid",
+    sortDir: "asc",
   });
 
   useEffect(() => {
     if (dateFilterDefaults.from || dateFilterDefaults.to) {
-      setParams(prev => ({
+      setParams((prev) => ({
         ...prev,
         fromDate: dateFilterDefaults.from,
-        toDate: dateFilterDefaults.to
+        toDate: dateFilterDefaults.to,
       }));
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const [tempSearch, setTempSearch] = useState("");
   const [allRows, setAllRows] = useState([]);
+  const [packingRows, setPackingRows] = useState([]);
+  const [packingBoxRows, setPackingBoxRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
-  const [selected, setSelected] = useState(null); 
+  const [selected, setSelected] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("add");
   const [editItem, setEditItem] = useState(null);
@@ -84,15 +136,78 @@ export default function InwardPage() {
     }
   }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status]);
 
+  const fetchPackingArea = useCallback(async () => {
+    setLoading(true);
+    try {
+      const base = {
+        sortBy: packingParams.sortKey || undefined,
+        order: packingParams.sortDir.toUpperCase(),
+      };
+      const { data } = await fetchAllListPages(async (page, limit) => {
+        const body = await inventoryInwardService.getPackingAreaList({ ...base, page, limit });
+        return { data: body.data ?? [], total: body.total ?? 0 };
+      }, packingParams.pageSize);
+      setPackingRows(data);
+      setDisplayLimit(100);
+    } catch (err) {
+      toast.error(err?.message || "Failed to load packing area");
+      setPackingRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [packingParams.pageSize, packingParams.sortKey, packingParams.sortDir]);
+
+  const fetchPackingAreaBoxes = useCallback(async () => {
+    setLoading(true);
+    try {
+      const base = {
+        sortBy: packingBoxParams.sortKey || undefined,
+        order: packingBoxParams.sortDir.toUpperCase(),
+        ...(packingFilterPn ? { packing_number: packingFilterPn } : {}),
+      };
+      const { data } = await fetchAllListPages(async (page, limit) => {
+        const body = await inventoryInwardService.getPackingAreaBoxes({ ...base, page, limit });
+        return { data: body.data ?? [], total: body.total ?? 0 };
+      }, packingBoxParams.pageSize);
+      setPackingBoxRows(data);
+      setDisplayLimit(100);
+    } catch (err) {
+      toast.error(err?.message || "Failed to load packing area boxes");
+      setPackingBoxRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [packingBoxParams.pageSize, packingBoxParams.sortKey, packingBoxParams.sortDir, packingFilterPn]);
+
+  const isPackingBoxView = !isStoreIn && packingView === PACKING_VIEWS.BOXES;
+
   useEffect(() => {
-    fetchInwards();
-  }, [fetchInwards]);
+    if (isStoreIn) fetchInwards();
+    else if (isPackingBoxView) fetchPackingAreaBoxes();
+    else fetchPackingArea();
+  }, [isStoreIn, isPackingBoxView, fetchInwards, fetchPackingArea, fetchPackingAreaBoxes]);
+
+  const activeSourceRows = isStoreIn
+    ? allRows
+    : isPackingBoxView
+      ? packingBoxRows
+      : packingRows;
+  const activeSortKey = isStoreIn
+    ? params.sortKey
+    : isPackingBoxView
+      ? packingBoxParams.sortKey
+      : packingParams.sortKey;
+  const activeSortDir = isStoreIn
+    ? params.sortDir
+    : isPackingBoxView
+      ? packingBoxParams.sortDir
+      : packingParams.sortDir;
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
-    if (q) return applyClientSearch(allRows, tempSearch);
-    return sortRowsByKey(allRows, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+    if (q) return applyClientSearch(activeSourceRows, tempSearch);
+    return sortRowsByKey(activeSourceRows, activeSortKey, activeSortDir);
+  }, [activeSourceRows, tempSearch, activeSortKey, activeSortDir]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -104,6 +219,7 @@ export default function InwardPage() {
   }, [loading, items.length, totalItems]);
 
   const handleFilterApply = (data) => {
+    if (!isStoreIn) return;
     setParams((prev) => ({
       ...prev,
       fromDate: data.fromDate,
@@ -114,37 +230,101 @@ export default function InwardPage() {
 
   const handleReset = () => {
     setTempSearch("");
-    setParams({
-      pageSize: 1000,
-      status: "all",
-      fromDate: dateFilterDefaults.from,
-      toDate: dateFilterDefaults.to,
-      sortKey: "in_uid",
-      sortDir: "desc",
-    });
+    if (isStoreIn) {
+      setParams({
+        pageSize: 1000,
+        status: "all",
+        fromDate: dateFilterDefaults.from,
+        toDate: dateFilterDefaults.to,
+        sortKey: "in_uid",
+        sortDir: "desc",
+      });
+    } else if (isPackingBoxView) {
+      setPackingFilterPn("");
+      setPackingBoxParams({
+        pageSize: 1000,
+        sortKey: "box_no_uid",
+        sortDir: "asc",
+      });
+    } else {
+      setPackingFilterPn("");
+      setPackingParams({
+        pageSize: 1000,
+        sortKey: "packing_number",
+        sortDir: "asc",
+      });
+    }
   };
 
-  const extraFilters = useMemo(() => [
-    { 
-      label: "Status", key: "approvedStatus", value: params.status, 
-      options: [
-        { label: "All Status", value: "all" }, 
-        { label: "Approved", value: "approved" }, 
-        { label: "Pending", value: "pending" }
-      ] 
-    },
-  ], [params.status]);
+  const handleTabChange = (tab) => {
+    setPageTab(tab);
+    setPackingView(PACKING_VIEWS.SUMMARY);
+    setPackingFilterPn("");
+    setSelected(null);
+    setTempSearch("");
+    setDisplayLimit(100);
+  };
 
-  const selectedRecord = useMemo(() => filteredRows.find((i) => i.in_uid === selected), [filteredRows, selected]);
+  const handlePackingViewChange = (view) => {
+    setPackingView(view);
+    if (view === PACKING_VIEWS.SUMMARY) setPackingFilterPn("");
+    setSelected(null);
+    setDisplayLimit(100);
+  };
+
+  const handleRefresh = () => {
+    if (isStoreIn) fetchInwards();
+    else if (isPackingBoxView) fetchPackingAreaBoxes();
+    else fetchPackingArea();
+  };
+
+  const extraFilters = useMemo(
+    () =>
+      isStoreIn
+        ? [
+            {
+              label: "Status",
+              key: "approvedStatus",
+              value: params.status,
+              options: [
+                { label: "All Status", value: "all" },
+                { label: "Approved", value: "approved" },
+                { label: "Pending", value: "pending" },
+              ],
+            },
+          ]
+        : [],
+    [isStoreIn, params.status]
+  );
+
+  const getRowIdForList = useCallback(
+    (item) => {
+      if (isStoreIn) return item.in_uid;
+      if (isPackingBoxView) return item.box_uid;
+      return item.packing_number;
+    },
+    [isStoreIn, isPackingBoxView]
+  );
 
   const getSelectedRow = useCallback(
-    () => filteredRows.find((i) => i.in_uid === selected),
-    [filteredRows, selected]
+    () => filteredRows.find((i) => getRowIdForList(i) === selected),
+    [filteredRows, selected, getRowIdForList]
   );
+
+  const selectedRecord = useMemo(() => getSelectedRow(), [getSelectedRow]);
+
+  const openBoxesForSelectedPacking = () => {
+    const row = getSelectedRow();
+    if (!row?.packing_number) return;
+    setPackingFilterPn(String(row.packing_number).trim());
+    setPackingView(PACKING_VIEWS.BOXES);
+    setSelected(null);
+    setDisplayLimit(100);
+  };
 
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "inventory_inwards",
-    modalOpen: modalOpen || finderOpen,
+    modalOpen: modalOpen || finderOpen || !isStoreIn,
     selectedId: selected,
     getSelectedRow,
     openAdd: useCallback(() => {
@@ -159,23 +339,38 @@ export default function InwardPage() {
     }, []),
   });
 
-  const HEADERS = [
+  const STORE_IN_HEADERS = [
     ["Inward UID", "in_uid", (v) => <span className="font-bold text-indigo-600 text-[10px]">{v}</span>, { fixed: true, width: "120px" }],
-    ["Packing No", "packing_number", (v) => {
-      const s = v != null ? String(v).trim() : "";
-      const readable = s ? s.split(/\s*\|\s*/).map((x) => x.trim()).filter(Boolean).join(" · ") : "";
-      return (
-        <span className="font-bold text-slate-800 text-[10px] tracking-tight whitespace-normal break-words max-w-[min(340px,90vw)] inline-block align-top leading-snug" title={s || undefined}>
-          {readable || "—"}
-        </span>
-      );
-    }, { fixed: true, width: "200px" }],
+    [
+      "Packing No",
+      "packing_number",
+      (v) => {
+        const s = v != null ? String(v).trim() : "";
+        const readable = s ? s.split(/\s*\|\s*/).map((x) => x.trim()).filter(Boolean).join(" · ") : "";
+        return (
+          <span
+            className="font-bold text-slate-800 text-[10px] tracking-tight whitespace-normal break-words max-w-[min(340px,90vw)] inline-block align-top leading-snug"
+            title={s || undefined}
+          >
+            {readable || "—"}
+          </span>
+        );
+      },
+      { fixed: true, width: "200px" },
+    ],
     ["Remarks", "remarks", (v) => <span className="text-slate-500 text-[10px] truncate block">{v || "—"}</span>, { width: "200px" }],
-    ["Status", "approved", (v) => (
-      <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
-        {v ? "● AUTHORIZED" : "○ PENDING"}
-      </span>
-    ), { width: "120px" }],
+    [
+      "Status",
+      "approved",
+      (v) => (
+        <span
+          className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}
+        >
+          {v ? "● AUTHORIZED" : "○ PENDING"}
+        </span>
+      ),
+      { width: "120px" },
+    ],
     ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
     ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
     ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
@@ -184,27 +379,215 @@ export default function InwardPage() {
     ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 
+  const PACKING_AREA_BOX_HEADERS = [
+    [
+      "Box UID",
+      "box_no_uid",
+      (v) => <span className="font-bold text-indigo-600 text-[10px]">{v || "—"}</span>,
+      { fixed: true, width: "160px" },
+    ],
+    [
+      "Packing No",
+      "packing_number",
+      (v) => <span className="font-bold text-slate-800 text-[10px]">{v || "—"}</span>,
+      { width: "180px" },
+    ],
+    [
+      "Qty",
+      "qty",
+      (v) => <span className="font-black text-emerald-700 text-[11px] tabular-nums">{Number(v) || 0}</span>,
+      { width: "80px" },
+    ],
+    [
+      "Loose",
+      "is_loose",
+      (v) => (
+        <span
+          className={`px-2 py-0.5 text-[9px] font-black uppercase border ${
+            v ? "bg-slate-100 text-slate-600 border-slate-200" : "bg-white text-slate-400 border-slate-100"
+          }`}
+        >
+          {v ? "YES" : "NO"}
+        </span>
+      ),
+      { width: "80px" },
+    ],
+    [
+      "Created At",
+      "created_at",
+      (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
+      { width: "150px" },
+    ],
+  ];
+
+  const PACKING_AREA_HEADERS = [
+    [
+      "Packing No",
+      "packing_number",
+      (v) => (
+        <span className="font-bold text-slate-800 text-[10px] tracking-tight">{v || "—"}</span>
+      ),
+      { fixed: true, width: "220px" },
+    ],
+    [
+      "Stock (Qty)",
+      "stock_qty",
+      (v) => (
+        <span className="font-black text-emerald-700 text-[11px] tabular-nums">{Number(v) || 0}</span>
+      ),
+      { width: "120px" },
+    ],
+    [
+      "Unassigned Boxes",
+      "box_count",
+      (v) => (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-200">
+          <Box size={10} />
+          {Number(v) || 0}
+        </span>
+      ),
+      { width: "140px" },
+    ],
+  ];
+
+  const headers = isStoreIn
+    ? STORE_IN_HEADERS
+    : isPackingBoxView
+      ? PACKING_AREA_BOX_HEADERS
+      : PACKING_AREA_HEADERS;
+
+  const handleSort = (key) => {
+    setDisplayLimit(100);
+    if (isStoreIn) {
+      setParams((p) => ({
+        ...p,
+        sortKey: key,
+        sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
+      }));
+    } else if (isPackingBoxView) {
+      setPackingBoxParams((p) => ({
+        ...p,
+        sortKey: key,
+        sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
+      }));
+    } else {
+      setPackingParams((p) => ({
+        ...p,
+        sortKey: key,
+        sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
+      }));
+    }
+  };
+
+  const cardConfig = isStoreIn
+    ? {
+        titleKey: "packing_number",
+        badgeIndices: [7],
+        detailIndices: [1, 2, 4],
+        footerKey: "created_at",
+      }
+    : isPackingBoxView
+      ? {
+          titleKey: "box_no_uid",
+          badgeIndices: [2],
+          detailKeys: ["packing_number", "is_loose"],
+          footerKey: "created_at",
+        }
+      : {
+          titleKey: "packing_number",
+          badgeIndices: [2],
+          detailKeys: ["stock_qty"],
+        };
+
   return (
     <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden">
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
-        
         <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2 flex-wrap">
-              <button 
-                onClick={() => setFinderOpen(true)} 
+              <SegmentedTabs
+                className="mr-2"
+                active={pageTab}
+                onChange={handleTabChange}
+                tabs={[
+                  { id: PAGE_TABS.STORE_IN, label: "Store In", icon: Warehouse },
+                  { id: PAGE_TABS.PACKING_AREA, label: "Packing Area", icon: PackageOpen },
+                ]}
+              />
+
+              {!isStoreIn && (
+                <SegmentedTabs
+                  className="mr-2"
+                  active={packingView}
+                  onChange={handlePackingViewChange}
+                  tabs={[
+                    { id: PACKING_VIEWS.SUMMARY, label: "By Packing", icon: List },
+                    { id: PACKING_VIEWS.BOXES, label: "By Box", icon: Boxes },
+                  ]}
+                />
+              )}
+
+              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
+
+              <button
+                onClick={() => setFinderOpen(true)}
                 className="h-9 px-4 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shadow-none"
               >
                 <Locate size={14} className="text-indigo-600" />
                 <span>Finder</span>
               </button>
-              <ActionButton module="inventory_inwards" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
-              <ActionButton module="inventory_inwards" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none" />
-              <ActionButton module="inventory_inwards" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
-              
+
+              {!isStoreIn && packingView === PACKING_VIEWS.SUMMARY && selectedRecord?.packing_number && (
+                <button
+                  type="button"
+                  onClick={openBoxesForSelectedPacking}
+                  className="h-9 px-4 border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shadow-none"
+                >
+                  <Boxes size={14} />
+                  View Boxes
+                </button>
+              )}
+
+              {isStoreIn && (
+                <>
+                  <ActionButton
+                    module="inventory_inwards"
+                    action="add"
+                    label="New"
+                    icon={Plus}
+                    onClick={openNewModal}
+                    className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none"
+                  />
+                  <ActionButton
+                    module="inventory_inwards"
+                    action="edit"
+                    variant="outline"
+                    label="Edit"
+                    icon={Edit3}
+                    disabled={!selected}
+                    record={selectedRecord}
+                    onClick={openEditModal}
+                    className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none"
+                  />
+                  <ActionButton
+                    module="inventory_inwards"
+                    action="delete"
+                    variant="danger"
+                    label="Delete"
+                    icon={Trash2}
+                    disabled={!selected}
+                    onClick={() => setDeleteItem(selectedRecord)}
+                    className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none"
+                  />
+                </>
+              )}
+
               <div className="hidden sm:block w-px h-6 bg-slate-200 mx-1" />
-              
-              <button onClick={() => fetchInwards()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center transition-all">
+
+              <button
+                onClick={handleRefresh}
+                className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center transition-all"
+              >
                 <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
               </button>
             </div>
@@ -212,10 +595,44 @@ export default function InwardPage() {
             <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />
           </div>
 
+          {!isStoreIn && packingFilterPn && isPackingBoxView && (
+            <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50 border border-amber-200">
+              <span className="text-[10px] font-bold text-amber-800 uppercase">
+                Filtered by packing no.: {packingFilterPn}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setPackingFilterPn("");
+                  setDisplayLimit(100);
+                }}
+                className="text-amber-600 hover:text-amber-900 flex items-center gap-1 font-bold text-[10px] uppercase"
+              >
+                <X size={14} /> Clear filter
+              </button>
+            </div>
+          )}
+
           {selected && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase">Selected: {selectedRecord?.packing_number}</span>
-              <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
+              <span className="text-[10px] font-bold text-indigo-600 uppercase">
+                Selected:{" "}
+                {isStoreIn
+                  ? selectedRecord?.packing_number
+                  : isPackingBoxView
+                    ? selectedRecord?.box_no_uid
+                    : selectedRecord?.packing_number}
+                {!isStoreIn && !isPackingBoxView && selectedRecord?.box_count != null
+                  ? ` · ${selectedRecord.box_count} box(es) · ${selectedRecord.stock_qty ?? 0} total qty`
+                  : ""}
+                {isPackingBoxView && selectedRecord
+                  ? ` · Packing ${selectedRecord.packing_number} · Qty ${selectedRecord.qty ?? 0}`
+                  : ""}
+              </span>
+              <button
+                onClick={() => setSelected(null)}
+                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
+              >
                 <X size={14} /> Clear
               </button>
             </div>
@@ -223,66 +640,103 @@ export default function InwardPage() {
         </div>
 
         <ListPageFilterStrip>
-          <DateRangeFilter 
-            key={`${params.fromDate}-${params.toDate}`}
-            fromDate={params.fromDate} 
-            toDate={params.toDate} 
-            extraFilters={extraFilters} 
-            onApply={handleFilterApply} 
+          <DateRangeFilter
+            key={`${pageTab}-${params.fromDate}-${params.toDate}`}
+            fromDate={isStoreIn ? params.fromDate : ""}
+            toDate={isStoreIn ? params.toDate : ""}
+            extraFilters={extraFilters}
+            onApply={handleFilterApply}
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            searchPlaceholder="Search packing..."
-            searchLabel="Search Packing No"
-            minDate={dateFilterDefaults.minDate}
-            maxDate={dateFilterDefaults.maxDate}
+            searchPlaceholder={
+              isStoreIn
+                ? "Search packing no..."
+                : isPackingBoxView
+                  ? "Search box UID or packing no..."
+                  : "Search packing no..."
+            }
+            searchLabel={
+              isStoreIn
+                ? "Search packing no."
+                : isPackingBoxView
+                  ? "Search box UID or packing no."
+                  : "Search packing no."
+            }
+            minDate={isStoreIn ? dateFilterDefaults.minDate : undefined}
+            maxDate={isStoreIn ? dateFilterDefaults.maxDate : undefined}
+            showDate={isStoreIn}
           />
         </ListPageFilterStrip>
 
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
           <div className="flex-1 overflow-hidden flex flex-col">
-            <DataTable headers={HEADERS} data={items} loading={loading} viewMode={viewMode}
-              {...tableHotkeyProps}
-              onSort={(key) => {
-                setDisplayLimit(100);
-                setParams((p) => ({
-                  ...p,
-                  sortKey: key,
-                  sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
-                }));
-              }}
-              sortKey={params.sortKey}
-              sortDir={params.sortDir}
+            <DataTable
+              key={`${pageTab}-${packingView}-${viewMode}`}
+              headers={headers}
+              data={items}
+              loading={loading}
+              viewMode={viewMode}
+              {...(isStoreIn ? tableHotkeyProps : {})}
+              onSort={handleSort}
+              sortKey={activeSortKey}
+              sortDir={activeSortDir}
               selectedId={selected}
               onSelect={setSelected}
               allowCopy={true}
-              getRowId={(item) => item.in_uid}
+              getRowId={getRowIdForList}
               onLoadMore={handleLoadMore}
               hasMore={items.length < totalItems}
               totalItems={totalItems}
-              cardConfig={{ 
-                titleKey: "packing_number", 
-                badgeIndices: [7], 
-                detailIndices: [1, 2, 4], 
-                footerKey: "created_at" 
-              }}
+              cardConfig={cardConfig}
             />
           </div>
         </div>
 
         <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Inward Entries
+            {isStoreIn
+              ? `Showing ${items.length} of ${totalItems} store-in entries`
+              : isPackingBoxView
+                ? `Showing ${items.length} of ${totalItems} boxes (packing area, in-hand, no location assigned)`
+                : `Showing ${items.length} of ${totalItems} packing numbers (awaiting location)`}
           </span>
           <div className="flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
           </div>
         </div>
       </div>
 
-      <InwardModal open={modalOpen} onClose={() => { setModalOpen(false); setEditItem(null); }} onSuccess={() => { fetchInwards(); setSelected(null); }} editData={editItem} mode={modalMode} />
-      <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={() => { fetchInwards(); setSelected(null); }} service={inventoryInwardService} entityLabel="Inward Entry" idKey="in_uid" moduleSlug="inventory_inwards" />
+      {isStoreIn && (
+        <>
+          <InwardModal
+            open={modalOpen}
+            onClose={() => {
+              setModalOpen(false);
+              setEditItem(null);
+            }}
+            onSuccess={() => {
+              fetchInwards();
+              setSelected(null);
+            }}
+            editData={editItem}
+            mode={modalMode}
+          />
+          <DeleteModal
+            item={deleteItem}
+            onClose={() => setDeleteItem(null)}
+            onSuccess={() => {
+              fetchInwards();
+              setSelected(null);
+            }}
+            service={inventoryInwardService}
+            entityLabel="Inward Entry"
+            idKey="in_uid"
+            moduleSlug="inventory_inwards"
+          />
+        </>
+      )}
       {finderOpen && <LocationFinderDrawer open={finderOpen} onClose={() => setFinderOpen(false)} />}
     </div>
   );

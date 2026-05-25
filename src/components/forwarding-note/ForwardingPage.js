@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Truck, FileText, Info, List, Package, Unlock, Printer } from "lucide-react";
+import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Truck, FileText, Info, List, Package, Lock, Unlock, Printer } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 
@@ -21,18 +21,69 @@ import { useViewDateFilterDefaults } from "@/helpers/dateFilterDefaults";
 
 import { useCanAccess } from "@/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/hooks/useListDrawerHotkeys";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/helpers/clientListSearch";
+import { printFromBackendHtml } from "@/utils/printHtmlDocument";
 
-function openBillPrintWindow(html) {
-  const win = window.open("", "_blank", "width=900,height=1000");
-  if (!win) return false;
-  win.document.write(html || "");
-  win.document.close();
-  win.focus();
-  setTimeout(() => {
-    win.print();
-    win.close();
-  }, 500);
-  return true;
+/** Search matches visible table cells (raw + formatted labels). */
+function forwardingTableSearchParts(row, reportType = "summary") {
+  const parts = [];
+  const push = (...vals) => {
+    for (const v of vals) {
+      if (v == null || v === "") continue;
+      parts.push(String(v));
+    }
+  };
+  const pushNum = (...vals) => {
+    for (const v of vals) {
+      if (v == null || v === "") continue;
+      parts.push(String(v));
+      const n = Number(v);
+      if (Number.isFinite(n)) parts.push(n.toLocaleString());
+    }
+  };
+  const pushDate = (...vals) => {
+    for (const v of vals) {
+      if (!v) continue;
+      const formatted = formatDateTime(v);
+      if (formatted && formatted !== "—") parts.push(formatted);
+    }
+  };
+
+  push(row.fuid);
+
+  if (reportType === "item_wise") {
+    push(row.item_code, row.item_dcode, row.packing_number);
+    pushNum(row.box, row.box_qty, row.loose_box, row.loose_box_qty, row.total_qty);
+    push(`${row.box || 0} Boxes`, `Qty: ${Number(row.box_qty || 0).toLocaleString()}`);
+    push(`${row.loose_box || 0} Boxes`, `Qty: ${Number(row.loose_box_qty || 0).toLocaleString()}`);
+  }
+
+  push(row.bill_no, row.bill_no ? null : "N/A");
+  push(row.acc_name, row.acc_code);
+  pushNum(reportType === "item_wise" ? row.total_qty : row.total_items);
+  pushDate(row.timestamp, row.created_at, row.updated_at, row.approved_at, row.out_entry_locked_at, row.bill_updated_at);
+
+  push(
+    row.approved ? "AUTHORIZED" : "PENDING",
+    row.approved ? "● AUTHORIZED" : "○ PENDING"
+  );
+  push(row.out_entry_locked ? "LOCKED" : "UNLOCKED");
+
+  push(row.transporter_name, row.transporter_name ? null : "Direct Party");
+  push(row.vehicle_number, row.vehicle_number ? null : "NO VEHICLE");
+
+  push(row.po_number, row.po_number ? null : "N/A");
+  pushNum(row.cartage);
+
+  push(
+    row.created_by_name,
+    row.updated_by_name,
+    row.approved_by_name,
+    row.out_entry_locked_by_name,
+    row.bill_updated_by_name
+  );
+
+  return parts;
 }
 
 export default function ForwardingPage() {
@@ -41,16 +92,14 @@ export default function ForwardingPage() {
   const canEditBill = useMemo(() => canAccess("forwarding_note_master", "edit").allowed, [canAccess]);
   const role = useSelector(state => state.auth.role);
 
-  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [totalItems, setTotalItems] = useState(0);
   const [viewMode, handleViewMode] = useViewMode();
   const [reportType, setReportType] = useState("summary");
 
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [params, setParams] = useState({
-    page: 1, pageSize: 100, search: "", status: "all", lockStatus: "all",
+    pageSize: 1000, status: "all", lockStatus: "all",
     fromDate: dateFilterDefaults.from, toDate: dateFilterDefaults.to, sortKey: "fuid", sortDir: "desc"
   });
 
@@ -65,6 +114,8 @@ export default function ForwardingPage() {
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const [tempSearch, setTempSearch] = useState("");
+  const [allRows, setAllRows] = useState([]);
+  const [displayLimit, setDisplayLimit] = useState(100);
   const [selectedId, setSelectedId] = useState(null); 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("add"); 
@@ -73,15 +124,12 @@ export default function ForwardingPage() {
   const [billDraft, setBillDraft] = useState("");
   const [billSaving, setBillSaving] = useState(false);
 
-  const fetchData = useCallback(async (page = 1, isLoadMore = false) => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const apiParams = {
-        page: page,
-        limit: params.pageSize,
+      const base = {
         sortBy: params.sortKey || undefined,
         order: params.sortDir.toUpperCase(),
-        search: params.search || undefined,
         filters: {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
@@ -91,39 +139,51 @@ export default function ForwardingPage() {
       };
 
       const service = reportType === "summary" ? forwardingNoteService : { getAll: forwardingNoteService.getAllItems };
-      const body = await service.getAll(apiParams);
-      const newItems = body.data ?? [];
+      const { data } = await fetchAllListPages(async (page, limit) => {
+        const body = await service.getAll({ ...base, page, limit });
+        return { data: body.data ?? [], total: body.total ?? 0 };
+      }, params.pageSize);
 
-      if (isLoadMore) {
-        setItems(prev => [...prev, ...newItems]);
-        setParams(prev => ({ ...prev, page: page }));
-      } else {
-        setItems(newItems);
-        setParams(prev => ({ ...prev, page: 1 }));
-      }
-      setTotalItems(body.total ?? 0);
+      setAllRows(data);
+      setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load data");
+      setAllRows([]);
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.search, params.fromDate, params.toDate, params.status, params.lockStatus, reportType]);
+  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status, params.lockStatus, reportType]);
 
   useEffect(() => { 
-    fetchData(1, false); 
+    fetchData(); 
   }, [fetchData]);
+
+  const filteredRows = useMemo(() => {
+    const q = String(tempSearch || "").trim();
+    if (q) {
+      return applyClientSearch(allRows, tempSearch, {
+        getParts: (row) => forwardingTableSearchParts(row, reportType),
+      });
+    }
+    return sortRowsByKey(allRows, params.sortKey, params.sortDir);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir, reportType]);
+
+  useEffect(() => {
+    setDisplayLimit(100);
+  }, [tempSearch]);
+
+  const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
+  const totalItems = filteredRows.length;
 
   const handleLoadMore = useCallback(() => {
     if (!loading && items.length < totalItems) {
-      fetchData(params.page + 1, true);
+      setDisplayLimit((n) => n + 100);
     }
-  }, [loading, items.length, totalItems, fetchData, params.page]);
+  }, [loading, items.length, totalItems]);
 
   const handleFilterApply = (data) => {
     setParams(prev => ({ 
       ...prev, 
-      page: 1, 
-      search: tempSearch.trim(), 
       fromDate: data.fromDate, 
       toDate: data.toDate, 
       status: data.approvedStatus || prev.status,
@@ -134,9 +194,7 @@ export default function ForwardingPage() {
   const handleReset = () => {
     setTempSearch("");
     setParams({
-      page: 1,
-      pageSize: 100,
-      search: "",
+      pageSize: 1000,
       status: "all",
       lockStatus: "all",
       fromDate: dateFilterDefaults.from,
@@ -186,8 +244,8 @@ export default function ForwardingPage() {
     try {
       const res = await forwardingNoteService.printBill({ fuid });
       if (!res?.success || !res?.html) throw new Error(res?.message || "Bill HTML missing");
-      const ok = openBillPrintWindow(res.html);
-      if (!ok) toast.error("Pop-up blocked. Allow pop-ups to open print dialog.");
+      const ok = printFromBackendHtml(res.html);
+      if (!ok) toast.error("Could not open print preview. Try again.");
     } catch (err) {
       toast.error(err?.message || "Failed to generate bill");
     } finally {
@@ -238,10 +296,22 @@ export default function ForwardingPage() {
     try {
       await forwardingNoteService.unlockLock(selectedRecord.fuid);
       toast.success("Forwarding note unlocked successfully.");
-      fetchData(1, false);
+      fetchData();
       setSelectedId(null);
     } catch (err) {
       toast.error(err?.message || "Failed to unlock forwarding note.");
+    }
+  };
+
+  const handleLock = async () => {
+    if (!selectedRecord?.fuid) return;
+    try {
+      await forwardingNoteService.lockLock(selectedRecord.fuid);
+      toast.success("Forwarding note locked successfully.");
+      fetchData();
+      setSelectedId(null);
+    } catch (err) {
+      toast.error(err?.message || "Failed to lock forwarding note.");
     }
   };
 
@@ -264,10 +334,10 @@ export default function ForwardingPage() {
         bill_updated_by_name: saved?.bill_updated_by_name ?? null,
         bill_updated_at: saved?.bill_updated_at ?? null,
       };
-      setItems((prev) =>
+      setAllRows((prev) =>
         prev.map((row) => (row.fuid === fuid ? { ...row, ...auditPatch } : row))
       );
-      await fetchData(1, false);
+      await fetchData();
     } catch (err) {
       toast.error(err?.message || "Failed to save bill number");
     } finally {
@@ -417,20 +487,31 @@ export default function ForwardingPage() {
                 {billPrinting ? "…" : "Print Bill"}
               </button>
               {role === "super_admin" && (
-                <button
-                  onClick={handleUnlock}
-                  disabled={!selectedId || !isSelectedLocked}
-                  className="rounded-none h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Super Admin: unlock out-entry lock"
-                >
-                  <Unlock size={14} />
-                  Unlock
-                </button>
+                <>
+                  <button
+                    onClick={handleLock}
+                    disabled={!selectedId || isSelectedLocked}
+                    className="rounded-none h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Super Admin: lock for out entry"
+                  >
+                    <Lock size={14} />
+                    Lock
+                  </button>
+                  <button
+                    onClick={handleUnlock}
+                    disabled={!selectedId || !isSelectedLocked}
+                    className="rounded-none h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Super Admin: unlock out-entry lock"
+                  >
+                    <Unlock size={14} />
+                    Unlock
+                  </button>
+                </>
               )}
               
               <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
               
-              <button onClick={() => fetchData(1, false)} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all">
+              <button onClick={() => fetchData()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all">
                 <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
                 <span className="hidden xs:inline">Refresh</span>
               </button>
@@ -510,7 +591,7 @@ export default function ForwardingPage() {
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            searchPlaceholder="Search PO, Vehicle, Bill..."
+            searchPlaceholder="Search table..."
             searchLabel="Quick Search"
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
@@ -519,14 +600,14 @@ export default function ForwardingPage() {
 
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
           <DataTable
-            key={`${reportType}-${params.search}`}
+            key={`${reportType}-${tempSearch}`}
             headers={HEADERS}
             data={items}
             allowCopy={true}
             loading={loading}
             viewMode={viewMode}
             {...tableHotkeyProps}
-            onSort={(key) => setParams(p => ({ ...p, sortKey: key, sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc", page: 1 }))}
+            onSort={(key) => setParams(p => ({ ...p, sortKey: key, sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc" }))}
             sortKey={params.sortKey}
             sortDir={params.sortDir}
             selectedId={selectedId}
@@ -567,7 +648,7 @@ export default function ForwardingPage() {
         <ForwardingModal 
             open={modalOpen} 
             onClose={() => { setModalOpen(false); setSelectedId(null); }} 
-            onSuccess={() => { fetchData(1, false); setSelectedId(null); }} 
+            onSuccess={() => { fetchData(); setSelectedId(null); }} 
             editData={modalMode === "add" ? null : modalRecord} 
             mode={modalMode} 
         />
@@ -577,7 +658,7 @@ export default function ForwardingPage() {
         <DeleteModal 
             item={modalRecord} 
             onClose={() => setIsDeleting(false)} 
-            onSuccess={() => { fetchData(1, false); setSelectedId(null); setIsDeleting(false); }} 
+            onSuccess={() => { fetchData(); setSelectedId(null); setIsDeleting(false); }} 
             service={forwardingNoteService} 
             entityLabel="Forwarding Note" 
             idKey="fuid"

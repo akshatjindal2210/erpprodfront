@@ -16,6 +16,7 @@ export const forwardingNoteService = {
   updateBill:  (fuid, bill_no) => api(ENDPOINTS.FORWARDING_NOTES.UPDATE_BILL, { method: "POST", body: { fuid, bill_no } }),
   delete:      (fuid) => api(ENDPOINTS.FORWARDING_NOTES.DELETE, { method: "POST", body: { fuid } }),
   unlockLock:  (fuid) => api(ENDPOINTS.FORWARDING_NOTES.UNLOCK_LOCK, { method: "POST", body: { fuid } }),
+  lockLock:    (fuid) => api(ENDPOINTS.FORWARDING_NOTES.LOCK_LOCK, { method: "POST", body: { fuid } }),
   getAvailableBoxes: (data) => api(ENDPOINTS.FORWARDING_NOTES.AVAILABLE_BOXES, { method: "POST", body: data }),
   /** Full note + items; opens print dialog (user can “Save as PDF”). Optional `company_info`: { name, address } */
   printBill: (body) => api(ENDPOINTS.FORWARDING_NOTES.PRINT_BILL, { method: "POST", body }),

@@ -157,6 +157,8 @@ const ENDPOINTS = {
 
   INVENTORY_INWARDS: {
     LIST: "/inventory-inwards/list",
+    PACKING_AREA_LIST: "/inventory-inwards/packing-area-list",
+    PACKING_AREA_BOXES: "/inventory-inwards/packing-area-boxes",
     GET: "/inventory-inwards/get",
     CREATE: "/inventory-inwards/create",
     UPDATE: "/inventory-inwards/update",
@@ -176,6 +178,7 @@ const ENDPOINTS = {
     UPDATE_BILL: "/forwarding-notes/update-bill",
     DELETE: "/forwarding-notes/delete",
     UNLOCK_LOCK: "/forwarding-notes/unlock-lock",
+    LOCK_LOCK: "/forwarding-notes/lock-lock",
     AVAILABLE_BOXES: "/forwarding-notes/available-boxes",
     PRINT_BILL: "/forwarding-notes/print-bill",
     TRANSPORTERS: "/forwarding-notes/transporter-helper",

@@ -314,7 +314,8 @@ function StickerBreakdownPanel({
   showSwipeHint = false,
 }) {
   return (
-    <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0">
+      <div className="h-full flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0">
+      {/* <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0"> */}
       <div className="px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center gap-1.5 min-w-0 shrink-0">
         <div className="flex items-center gap-1.5 lg:gap-2 min-w-0 flex-1">
           <Box className="w-4 h-4 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-600" aria-hidden />
@@ -322,7 +323,8 @@ function StickerBreakdownPanel({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-0 lg:p-1 touch-pan-y">
+      {/* <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-0 lg:p-1 touch-pan-y"> */}
+      <div className="flex-1 h-full min-h-0 overflow-y-auto overscroll-contain p-0 lg:p-1 touch-pan-y">
         {loadingGenerated ? (
           <div className="h-full min-h-[160px] w-full flex items-center justify-center text-slate-500 gap-2 px-2">
             <Loader2 className="animate-spin shrink-0" size={14} />
@@ -462,8 +464,12 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewScale, setPreviewScale] = useState(1);
-  const previewWrapRef = useRef(null);
+  const [previewLayout, setPreviewLayout] = useState({
+    scale: 1,
+    w: STICKER_PREVIEW_W_PX,
+    h: STICKER_PREVIEW_H_PX,
+  });
+  const previewAreaRef = useRef(null);
   const sopAckRef = useRef(null);
   const sopSectionRef = useRef(null);
   const stickerBodyScrollRef = useRef(null);
@@ -494,20 +500,23 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
 
   useLayoutEffect(() => {
     if (!previewOpen || !previewHtml || previewLoading) return undefined;
-    const el = previewWrapRef.current;
-    if (!el) return undefined;
+    const area = previewAreaRef.current;
+    if (!area) return undefined;
     const run = () => {
-      const cw = el.clientWidth;
-      const ch = el.clientHeight;
-      if (cw <= 0 || ch <= 0) return;
-      const sw = cw / STICKER_PREVIEW_W_PX;
-      const sh = ch / STICKER_PREVIEW_H_PX;
-      const s = Math.min(1, sw, sh);
-      setPreviewScale(Number.isFinite(s) && s > 0 ? s : 1);
+      const availW = area.clientWidth;
+      const availH = area.clientHeight;
+      if (availW <= 0 || availH <= 0) return;
+      const s = Math.min(1, availW / STICKER_PREVIEW_W_PX, availH / STICKER_PREVIEW_H_PX);
+      const scale = Number.isFinite(s) && s > 0 ? s : 1;
+      setPreviewLayout({
+        scale,
+        w: Math.round(STICKER_PREVIEW_W_PX * scale),
+        h: Math.round(STICKER_PREVIEW_H_PX * scale),
+      });
     };
     run();
     const ro = new ResizeObserver(run);
-    ro.observe(el);
+    ro.observe(area);
     return () => ro.disconnect();
   }, [previewOpen, previewHtml, previewLoading]);
 
@@ -759,7 +768,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       setPreviewOpen(false);
       setPreviewHtml("");
       setPreviewLoading(false);
-      setPreviewScale(1);
+      setPreviewLayout({ scale: 1, w: STICKER_PREVIEW_W_PX, h: STICKER_PREVIEW_H_PX });
       setCustomerChanging(false);
       return;
     }
@@ -1172,7 +1181,9 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                     />
                   </div>
                 </aside>
-                <section className="flex-1 flex flex-col min-w-0 min-h-[min(44vh,380px)] h-[min(44vh,380px)] overflow-hidden bg-white">
+                {/* <section className="flex-1 flex flex-col min-w-0 min-h-[min(44vh,380px)] h-[min(44vh,380px)] overflow-hidden bg-white"> */}
+                {/* <section className="flex-1 min-h-0 h-full flex flex-col min-w-0 overflow-hidden bg-white"> */}
+                <section className="flex-1 flex flex-col min-w-0 min-h-[82vh] h-[82vh] lg:min-h-[92vh] lg:h-[92vh] overflow-hidden bg-white">
                   <StickerBreakdownPanel
                     loadingGenerated={loadingGenerated}
                     displayStickerRows={displayStickerRows}
@@ -1210,7 +1221,8 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                   ))}
                 </div>
 
-                <div className="mx-1.5 sm:mx-2 mb-1.5 sm:mb-2 flex-1 min-h-[120px] max-h-[min(34dvh,240px)] sm:max-h-[min(40dvh,300px)] overflow-hidden bg-white border border-slate-200 flex flex-col">
+                {/* <div className="mx-1.5 sm:mx-2 mb-1.5 sm:mb-2 flex-1 min-h-[120px] max-h-[min(34dvh,240px)] sm:max-h-[min(40dvh,300px)] overflow-hidden bg-white border border-slate-200 flex flex-col"> */}
+                <div className="mx-1.5 sm:mx-2 mb-1.5 sm:mb-2 flex-1 min-h-0 h-full overflow-hidden bg-white border border-slate-200 flex flex-col">
                   {stickerTab === "breakdown" ? (
                     <StickerBreakdownPanel
                       loadingGenerated={loadingGenerated}
@@ -1273,7 +1285,8 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
           onClick={() => !previewLoading && setPreviewOpen(false)}
         >
           <div
-            className="bg-white rounded-t-xl sm:rounded-xl shadow-2xl max-w-[min(100%,calc(5.7in+1.5rem))] w-full max-h-[min(92dvh,640px)] flex flex-col overflow-hidden border border-slate-200"
+            className="bg-white rounded-t-xl sm:rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-200"
+            style={{ width: "min(calc(5.7in + 2.5rem), calc(100vw - 1rem))", maxHeight: "92dvh" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-2 px-2.5 sm:px-4 py-2 border-b border-slate-200 bg-slate-50 shrink-0">
@@ -1295,7 +1308,10 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                 <X size={18} />
               </button>
             </div>
-            <div className="flex-1 min-h-0 flex justify-center items-center p-2 sm:p-4 bg-slate-200/80 overflow-y-auto">
+            <div
+              ref={previewAreaRef}
+              className="flex flex-1 min-h-[calc(3.6in+2rem)] max-h-[calc(92dvh-3.25rem)] justify-center items-center p-4 sm:p-5 bg-slate-200/80 overflow-hidden"
+            >
               {previewLoading ? (
                 <div className="flex flex-col items-center justify-center gap-2 py-8 sm:py-12 text-slate-600">
                   <Loader2 className="animate-spin w-6 h-6 sm:w-8 sm:h-8" />
@@ -1303,18 +1319,20 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                 </div>
               ) : previewHtml ? (
                 <div
-                  ref={previewWrapRef}
-                  className="relative overflow-hidden bg-white rounded border border-slate-300 shadow-md mx-auto shrink-0"
-                  style={{ width: "min(5.7in, calc(100vw - 1.25rem))", aspectRatio: "57 / 36", maxHeight: "min(52dvh, 220px)" }}
+                  className="relative shrink-0 overflow-hidden bg-white shadow-lg"
+                  style={{ width: previewLayout.w, height: previewLayout.h }}
+                  title="Print layout (5.7in × 3.6in)"
                 >
                   <iframe
                     title="Sticker print preview"
                     srcDoc={previewHtml}
-                    className="absolute left-1/2 top-1/2 bg-white border-0"
+                    scrolling="no"
+                    className="block border-0 pointer-events-none bg-white"
                     style={{
                       width: STICKER_PREVIEW_W_PX,
                       height: STICKER_PREVIEW_H_PX,
-                      transform: `translate(-50%, -50%) scale(${previewScale})`,
+                      transform: `scale(${previewLayout.scale})`,
+                      transformOrigin: "top left",
                     }}
                   />
                 </div>
