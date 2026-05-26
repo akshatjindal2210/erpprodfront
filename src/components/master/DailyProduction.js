@@ -221,7 +221,7 @@ export default function DailyProductionPage() {
   };
 
   const HEADERS = [
-    ["Doc No", "doc_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v}</span>, { width: "100px", fixed: true }],
+    ["Packing No", "doc_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v}</span>, { width: "100px", fixed: true }],
     ["Date", "doc_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{dayjs(v).format("DD/MM/YYYY")}</span>, { width: "100px" }],
     ["Job Card", "job_card_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v}</span>, { width: "120px" }],
     ["Quantity", "total_qty", (v) => (

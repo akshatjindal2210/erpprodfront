@@ -25,6 +25,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
    * "toolbar" — sharp corners to match list filter strips next to `ListPageSearchField`.
    */
   variant = "form",
+  emptyMessage = "No options available",
 }) {
   const isToolbar = variant === "toolbar";
   const triggerRadius = isToolbar ? "rounded-none" : "rounded-lg";
@@ -295,7 +296,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           </div>
         ) : items.length === 0 ? (
           <li className="p-8 text-center text-slate-400 text-xs flex flex-col gap-2">
-            <span>{searchText.trim() ? "No results found" : (apiMessage || "No locations available")}</span>
+            <span>{searchText.trim() ? "No results found" : (apiMessage || emptyMessage)}</span>
             {!searchText.trim() && apiMessage && <span className="text-[10px] text-slate-500 font-normal leading-relaxed">{apiMessage}</span>}
           </li>
         ) : (
@@ -341,7 +342,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       )}
       <div 
         ref={triggerRef} 
-        className={`w-full border border-slate-300 ${triggerRadius} px-3 h-9 flex items-center gap-2 transition-all duration-200 ${
+        className={`w-full min-w-0 border border-slate-300 ${triggerRadius} px-2 sm:px-3 h-9 flex items-center gap-1.5 sm:gap-2 overflow-hidden transition-all duration-200 ${
           disabled ? 'bg-slate-50 cursor-not-allowed opacity-75 border-slate-200' : 
           open ? 'bg-white border-slate-500 shadow-sm cursor-text' : 
           error ? 'bg-white border-rose-400 ring-rose-50 ring-1 cursor-text' : 
@@ -360,7 +361,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           } 
         }}
       >
-        <Search size={14} className={open ? "text-indigo-500" : "text-slate-400"} />
+        <Search size={14} className={`shrink-0 ${open ? "text-indigo-500" : "text-slate-400"}`} />
         <input 
           ref={inputRef} type="text" value={searchText} 
           onChange={(e) => {
@@ -373,9 +374,9 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder} disabled={disabled} autoComplete="off" 
-          className="flex-1 bg-transparent outline-none text-slate-700 placeholder:text-slate-400 text-[12px] font-medium"
+          className="flex-1 min-w-0 bg-transparent outline-none text-slate-700 placeholder:text-slate-400 text-[12px] font-medium truncate"
         />
-        <div className="flex items-center gap-1.5 ml-auto pl-2 border-l border-slate-100">
+        <div className="flex items-center gap-1 shrink-0 pl-1.5 sm:pl-2 border-l border-slate-100">
           {searchText && !disabled && (
             <button type="button" onClick={handleClear} className="text-slate-300 hover:text-rose-500 transition-colors">
               <X size={14} />

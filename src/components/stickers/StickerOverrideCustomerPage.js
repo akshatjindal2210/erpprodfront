@@ -217,7 +217,7 @@ export default function StickerOverrideCustomerPage() {
         },
       });
 
-      const ok = printFromBackendHtml(res?.html);
+      const ok = printFromBackendHtml(res?.html, { title: res?.print_title });
       if (!ok) {
         toast.error("Could not open print preview. Try again.");
       } else {

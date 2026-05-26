@@ -17,6 +17,10 @@ import { useCanAccess } from "@/hooks/useCanAccess";
 import { detectQrType, parseBoxScanRaw, parseStickerScan } from "@/helpers/qrScan";
 import { prepareQrScanSession } from "@/helpers/scanFeedback";
 import { pickBoxFromViewsResponse } from "@/helpers/boxViewsLookup";
+import {
+  isBoxEligibleForOverrideCustomer,
+  overrideCustomerScanRejectMessage,
+} from "@/utils/boxInventory";
 import { useHtml5QrScanner } from "@/hooks/useHtml5QrScanner";
 import QrScannerOverlay from "@/components/common/QrScannerOverlay";
 import { focusFirstError } from "@/utils/formFocus";
@@ -209,6 +213,9 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
       });
       const box = pickBoxFromViewsResponse(res);
       if (box?.box_no_uid) {
+        if (!isBoxEligibleForOverrideCustomer(box)) {
+          return { rejected: res?.reject_reason || overrideCustomerScanRejectMessage(box) };
+        }
         return enrichOverrideBoxCustomer(
           {
             ...box,
@@ -216,6 +223,9 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
           },
           sopPermissionType === "authorize" ? "authorize" : sopPermissionType === "edit" ? "edit" : "view"
         );
+      }
+      if (res?.reject_reason) {
+        return { rejected: res.reject_reason };
       }
     } catch {
       // continue
@@ -234,12 +244,14 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
           String(r.box_no_uid).toLowerCase() === code.toLowerCase() ||
           String(r.box_uid) === code
       );
-      return found
-        ? enrichOverrideBoxCustomer(
-            found,
-            sopPermissionType === "authorize" ? "authorize" : sopPermissionType === "edit" ? "edit" : "view"
-          )
-        : null;
+      if (!found) return null;
+      if (!isBoxEligibleForOverrideCustomer(found)) {
+        return { rejected: overrideCustomerScanRejectMessage(found) };
+      }
+      return enrichOverrideBoxCustomer(
+        found,
+        sopPermissionType === "authorize" ? "authorize" : sopPermissionType === "edit" ? "edit" : "view"
+      );
     } catch {
       return null;
     }
@@ -282,6 +294,11 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
     setLoading(true);
     try {
       const found = await resolveBoxFromInput(rawCode);
+
+      if (found?.rejected) {
+        showScanToast("error", "box-not-eligible", found.rejected);
+        return;
+      }
 
       if (!found) {
         showScanToast(

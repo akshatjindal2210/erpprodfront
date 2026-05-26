@@ -45,6 +45,11 @@ export function boxTransactionSearchText(row, typeLabels = {}) {
     add(details.location_id);
     if (Array.isArray(details.box_no_uids)) {
       details.box_no_uids.forEach(add);
+    } else if (typeof details.box_no_uids === "string") {
+      details.box_no_uids.split(/[\s,;]+/).forEach((s) => add(s.trim()));
+    }
+    if (Array.isArray(details.box_sticker_entries)) {
+      details.box_sticker_entries.forEach((e) => add(e?.box_no_uid));
     }
     if (Array.isArray(details.box_uids)) {
       details.box_uids.forEach(add);

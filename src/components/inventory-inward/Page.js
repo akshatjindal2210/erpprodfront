@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, RefreshCw, Locate, Box, Edit3, Trash2, X, Warehouse, PackageOpen, List, Boxes } from "lucide-react";
 import { toast } from "react-toastify";
+import dayjs from "dayjs";
 import { inventoryInwardService } from "@/services/inventoryInward";
 import { useViewDateFilterDefaults } from "@/helpers/dateFilterDefaults";
 
@@ -58,7 +59,7 @@ export default function InwardPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("inventory_inwards", "view"), [canAccess]);
 
-  const [pageTab, setPageTab] = useState(PAGE_TABS.STORE_IN);
+  const [pageTab, setPageTab] = useState(PAGE_TABS.PACKING_AREA);
   const isStoreIn = pageTab === PAGE_TABS.STORE_IN;
 
   const [loading, setLoading] = useState(true);
@@ -79,6 +80,8 @@ export default function InwardPage() {
   const [packingFilterPn, setPackingFilterPn] = useState("");
   const [packingParams, setPackingParams] = useState({
     pageSize: 1000,
+    fromDate: dateFilterDefaults.from,
+    toDate: dateFilterDefaults.to,
     sortKey: "packing_number",
     sortDir: "asc",
   });
@@ -91,6 +94,11 @@ export default function InwardPage() {
   useEffect(() => {
     if (dateFilterDefaults.from || dateFilterDefaults.to) {
       setParams((prev) => ({
+        ...prev,
+        fromDate: dateFilterDefaults.from,
+        toDate: dateFilterDefaults.to,
+      }));
+      setPackingParams((prev) => ({
         ...prev,
         fromDate: dateFilterDefaults.from,
         toDate: dateFilterDefaults.to,
@@ -136,12 +144,21 @@ export default function InwardPage() {
     }
   }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status]);
 
+  const packingDateFilters = useMemo(
+    () => ({
+      ...(packingParams.fromDate ? { from_date: packingParams.fromDate } : {}),
+      ...(packingParams.toDate ? { to_date: packingParams.toDate } : {}),
+    }),
+    [packingParams.fromDate, packingParams.toDate]
+  );
+
   const fetchPackingArea = useCallback(async () => {
     setLoading(true);
     try {
       const base = {
         sortBy: packingParams.sortKey || undefined,
         order: packingParams.sortDir.toUpperCase(),
+        filters: packingDateFilters,
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await inventoryInwardService.getPackingAreaList({ ...base, page, limit });
@@ -155,7 +172,12 @@ export default function InwardPage() {
     } finally {
       setLoading(false);
     }
-  }, [packingParams.pageSize, packingParams.sortKey, packingParams.sortDir]);
+  }, [
+    packingParams.pageSize,
+    packingParams.sortKey,
+    packingParams.sortDir,
+    packingDateFilters,
+  ]);
 
   const fetchPackingAreaBoxes = useCallback(async () => {
     setLoading(true);
@@ -163,6 +185,7 @@ export default function InwardPage() {
       const base = {
         sortBy: packingBoxParams.sortKey || undefined,
         order: packingBoxParams.sortDir.toUpperCase(),
+        filters: packingDateFilters,
         ...(packingFilterPn ? { packing_number: packingFilterPn } : {}),
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
@@ -177,7 +200,13 @@ export default function InwardPage() {
     } finally {
       setLoading(false);
     }
-  }, [packingBoxParams.pageSize, packingBoxParams.sortKey, packingBoxParams.sortDir, packingFilterPn]);
+  }, [
+    packingBoxParams.pageSize,
+    packingBoxParams.sortKey,
+    packingBoxParams.sortDir,
+    packingFilterPn,
+    packingDateFilters,
+  ]);
 
   const isPackingBoxView = !isStoreIn && packingView === PACKING_VIEWS.BOXES;
 
@@ -219,12 +248,19 @@ export default function InwardPage() {
   }, [loading, items.length, totalItems]);
 
   const handleFilterApply = (data) => {
-    if (!isStoreIn) return;
-    setParams((prev) => ({
+    if (isStoreIn) {
+      setParams((prev) => ({
+        ...prev,
+        fromDate: data.fromDate,
+        toDate: data.toDate,
+        status: data.approvedStatus || prev.status,
+      }));
+      return;
+    }
+    setPackingParams((prev) => ({
       ...prev,
       fromDate: data.fromDate,
       toDate: data.toDate,
-      status: data.approvedStatus || prev.status,
     }));
   };
 
@@ -250,6 +286,8 @@ export default function InwardPage() {
       setPackingFilterPn("");
       setPackingParams({
         pageSize: 1000,
+        fromDate: dateFilterDefaults.from,
+        toDate: dateFilterDefaults.to,
         sortKey: "packing_number",
         sortDir: "asc",
       });
@@ -420,23 +458,57 @@ export default function InwardPage() {
     ],
   ];
 
+  const packingDetailCell = (v) => (
+    <span className="text-slate-500 text-[10px]">{v != null && String(v).trim() !== "" ? v : "—"}</span>
+  );
+
   const PACKING_AREA_HEADERS = [
+    [ "Packing No", "packing_number", (v) => (<span className="font-mono font-bold text-slate-800 text-[10px] tracking-tight">{v || "—"}</span>), { fixed: true, width: "100px" } ],
     [
-      "Packing No",
-      "packing_number",
-      (v) => (
-        <span className="font-bold text-slate-800 text-[10px] tracking-tight">{v || "—"}</span>
-      ),
-      { fixed: true, width: "220px" },
+      "Date",
+      "doc_dt",
+      (v) =>
+        v ? (
+          <span className="text-slate-600 font-bold text-[10px] uppercase">{dayjs(v).format("DD/MM/YYYY")}</span>
+        ) : (
+          packingDetailCell(null)
+        ),
+      { width: "100px" },
     ],
     [
-      "Stock (Qty)",
-      "stock_qty",
+      "Job Card",
+      "job_card_no",
       (v) => (
-        <span className="font-black text-emerald-700 text-[11px] tabular-nums">{Number(v) || 0}</span>
+        <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>
       ),
       { width: "120px" },
     ],
+    [
+      "Quantity",
+      "stock_qty",
+      (v) => (
+        <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
+          {parseFloat(v || 0).toLocaleString()}
+        </span>
+      ),
+      { width: "100px" },
+    ],
+    ["Customer", "acc_name", (v, row) => (
+      <div className="flex flex-col leading-tight min-w-0">
+        <span className="text-slate-800 font-bold text-[10px] uppercase whitespace-normal break-words leading-snug hyphens-auto" title={v}>{v || "Unknown"}</span>
+      </div>
+    ), { width: "250px", wrap: true }],
+    ["Item Details", "item_code", (v, row) => (
+      <div className="flex flex-col leading-tight">
+        <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v}>{v}</span>
+      </div>
+    )],
+    ["Item Description", "item_desc", (v, row) => (
+      <div className="flex flex-col leading-tight">
+        <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v}>{v}</span>
+      </div>
+    ), { width: "220px" }],
+    
     [
       "Unassigned Boxes",
       "box_count",
@@ -446,7 +518,7 @@ export default function InwardPage() {
           {Number(v) || 0}
         </span>
       ),
-      { width: "140px" },
+      { width: "130px" },
     ],
   ];
 
@@ -495,8 +567,9 @@ export default function InwardPage() {
         }
       : {
           titleKey: "packing_number",
-          badgeIndices: [2],
-          detailKeys: ["stock_qty"],
+          badgeIndices: [8],
+          detailKeys: ["job_card_no", "acc_name", "item_code", "stock_qty"],
+          footerKey: "doc_dt",
         };
 
   return (
@@ -641,9 +714,9 @@ export default function InwardPage() {
 
         <ListPageFilterStrip>
           <DateRangeFilter
-            key={`${pageTab}-${params.fromDate}-${params.toDate}`}
-            fromDate={isStoreIn ? params.fromDate : ""}
-            toDate={isStoreIn ? params.toDate : ""}
+            key={`${pageTab}-${isStoreIn ? params.fromDate : packingParams.fromDate}-${isStoreIn ? params.toDate : packingParams.toDate}`}
+            fromDate={isStoreIn ? params.fromDate : packingParams.fromDate}
+            toDate={isStoreIn ? params.toDate : packingParams.toDate}
             extraFilters={extraFilters}
             onApply={handleFilterApply}
             onReset={handleReset}
@@ -663,9 +736,9 @@ export default function InwardPage() {
                   ? "Search box UID or packing no."
                   : "Search packing no."
             }
-            minDate={isStoreIn ? dateFilterDefaults.minDate : undefined}
-            maxDate={isStoreIn ? dateFilterDefaults.maxDate : undefined}
-            showDate={isStoreIn}
+            minDate={dateFilterDefaults.minDate}
+            maxDate={dateFilterDefaults.maxDate}
+            showDate
           />
         </ListPageFilterStrip>
 
@@ -699,7 +772,7 @@ export default function InwardPage() {
               ? `Showing ${items.length} of ${totalItems} store-in entries`
               : isPackingBoxView
                 ? `Showing ${items.length} of ${totalItems} boxes (packing area, in-hand, no location assigned)`
-                : `Showing ${items.length} of ${totalItems} packing numbers (awaiting location)`}
+                : `Showing ${items.length} of ${totalItems} packings with generated stickers (awaiting location)`}
           </span>
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />

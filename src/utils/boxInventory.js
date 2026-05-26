@@ -54,6 +54,21 @@ export function isBoxInHand(box) {
   return true;
 }
 
+/** In-hand or outward OK; deleted / SA minus (removed) not OK. */
+export function isBoxEligibleForOverrideCustomer(box) {
+  if (!box || box.is_deleted) return false;
+  if (isStockAdjustmentOut(box) || isBoxStockAdjustmentOut(box)) return false;
+  return true;
+}
+
+export function overrideCustomerScanRejectMessage(box) {
+  if (!box || box.is_deleted) return "Box not found or was removed.";
+  if (isStockAdjustmentOut(box) || isBoxStockAdjustmentOut(box)) {
+    return "This box was removed via stock adjustment (minus) and cannot be used for customer override.";
+  }
+  return "Box is not available for customer override.";
+}
+
 export function boxInventoryStatus(box) {
   if (!box || box.is_deleted) return "deleted";
   const fromApi = box.inventory_status;

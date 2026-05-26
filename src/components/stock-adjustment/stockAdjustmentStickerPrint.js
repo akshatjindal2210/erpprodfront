@@ -29,7 +29,7 @@ export async function printStockAdjustmentAddStickers({ adjustmentId, packingNo,
     device_type: getDeviceType(),
     download_source: STICKER_DOWNLOAD_SOURCE_KEYS.stock_adjustment,
   });
-  const opened = printFromBackendHtml(res?.html);
+  const opened = printFromBackendHtml(res?.html, { title: res?.print_title });
   if (!opened) return { ok: false, reason: "popup_blocked" };
   return { ok: true };
 }

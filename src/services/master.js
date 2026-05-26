@@ -125,7 +125,9 @@ export const masterService = {
     } = params;
     const mustUseServerFilter =
       rest?.filters?.sticker_generated === true ||
-      String(rest?.filters?.sticker_generated || "").toLowerCase() === "true";
+      String(rest?.filters?.sticker_generated || "").toLowerCase() === "true" ||
+      rest?.filters?.in_hand_inventory === true ||
+      String(rest?.filters?.in_hand_inventory || "").toLowerCase() === "true";
 
     if (!mustUseServerFilter && cache.items) {
       return getFilteredFromCache(cache.items, rest);

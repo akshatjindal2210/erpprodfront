@@ -881,11 +881,11 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           />
         ) : (
           <>
-            {/* FUID Selection — select + confirm one row; hint below */}
-            <div className="space-y-1 min-w-0" data-field="fuid">
-              <div className="flex flex-row items-end gap-2 min-w-0">
-                <div className="flex-1 min-w-0">
+            <div className="space-y-2 min-w-0 w-full" data-field="fuid">
+              <div className="flex flex-col sm:flex-row sm:items-end gap-2 min-w-0 w-full">
+                <div className="flex-1 min-w-0 w-full">
                   <SearchableSelect
+                    className="min-w-0 w-full"
                     label="Forwarding Note (FUID)"
                     value={form.fuid}
                     onChange={(id) => handleChange("fuid", id)}
@@ -924,7 +924,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                           ? "Loading forwarding note…"
                           : undefined
                     }
-                    className="h-9 shrink-0 px-3 sm:px-4 bg-indigo-600 text-white font-bold text-[10px] sm:text-[11px] rounded-lg disabled:opacity-60 whitespace-nowrap self-end"
+                    className="h-9 w-full sm:w-auto sm:min-w-[5.5rem] shrink-0 px-4 bg-indigo-600 text-white font-bold text-[11px] rounded-lg disabled:opacity-60 whitespace-nowrap sm:self-end"
                   >
                     {loading ? "…" : "Confirm"}
                   </button>
@@ -940,11 +940,13 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                 aria-expanded={dispatchDetailsOpen}
                 aria-label={dispatchDetailsOpen ? "Collapse dispatch details" : "Expand dispatch details"}
                 onClick={() => setDispatchDetailsOpen((o) => !o)}
-                className="w-full px-2.5 py-1.5 flex items-center justify-between gap-2 text-left hover:bg-slate-50 transition-colors border-b border-slate-100 min-h-[40px]"
+                className="w-full px-2.5 py-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-left hover:bg-slate-50 transition-colors border-b border-slate-100 min-h-[40px]"
               >
-                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Dispatch details</span>
+                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wide min-w-0 flex-1">
+                  Dispatch details
+                </span>
                 <span
-                  className={`ml-auto mr-2 shrink-0 px-2 py-0.5 text-[8px] font-black uppercase border ${
+                  className={`shrink-0 px-2 py-0.5 text-[8px] font-black uppercase border ${
                     fuidDetails.approved === true || fuidDetails.approved === "true" || fuidDetails.approved === 1
                       ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                       : "bg-amber-50 text-amber-800 border-amber-200"
@@ -954,7 +956,10 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                     ? "FN approved"
                     : "FN not approved"}
                 </span>
-                <ChevronRight className={`text-slate-400 shrink-0 transition-transform ${dispatchDetailsOpen ? "rotate-90" : ""}`} size={16} />
+                <ChevronRight
+                  className={`text-slate-400 shrink-0 ml-auto transition-transform ${dispatchDetailsOpen ? "rotate-90" : ""}`}
+                  size={16}
+                />
               </button>
               {dispatchDetailsOpen && (
                 <div className="px-2.5 pb-2">

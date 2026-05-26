@@ -13,6 +13,7 @@ import ListPageFilterStrip from "@/components/common/ListPageFilterStrip";
 import ViewToggle from "@/components/ui/ViewToggle";
 import { useCanAccess } from "@/hooks/useCanAccess";
 import BoxTransactionLogDetailModal from "@/components/log/BoxTransactionLogDetailModal";
+import BoxStickerNosCell, { getBoxStickerEntries } from "@/components/log/BoxStickerNosCell";
 import { filterBoxTransactionLogs } from "@/utils/boxTransactionLogSearch";
 import { sortRowsByKey } from "@/helpers/clientListSearch";
 import { formatDateTime } from "@/helpers/utilHelper";
@@ -30,6 +31,7 @@ const TYPE_COLORS = {
   sa_delete: "bg-rose-50 text-rose-600 border-rose-100",
   sa_qty_update: "bg-blue-50 text-blue-600 border-blue-100",
   box_soft_delete: "bg-slate-50 text-slate-600 border-slate-100",
+  override_customer: "bg-violet-50 text-violet-600 border-violet-100",
 };
 
 export default function BoxTransactionLogPage() {
@@ -170,20 +172,15 @@ export default function BoxTransactionLogPage() {
 
   const copyModuleEntity = useCallback((row) => {
     const parts = [
-      row?.source_module?.replace(/_/g, " ") || "—",
-      `REF: ${row?.source_id || "N/A"}`,
+      row?.source_module?.replace(/_/g, " ") || "—",`REF: ${row?.source_id || "N/A"}`,
     ];
-    if (row?.packing_number) parts.push(`PKG: ${row.packing_number}`);
+    // if (row?.packing_number) parts.push(`PKG: ${row.packing_number}`);
     return parts.join(" | ");
   }, []);
 
   const HEADERS = useMemo(
     () => [
-      [
-        "#",
-        "_row",
-        (_v, _row, i) => i + 1,
-        {
+      [ "#", "_row", (_v, _row, i) => i + 1, {
           fixed: true,
           width: "50px",
           align: "center",
@@ -192,10 +189,7 @@ export default function BoxTransactionLogPage() {
         },
       ],
 
-      [
-        "Type",
-        "transaction_type",
-        (v) => {
+      [ "Type", "transaction_type", (v) => {
           const cls = TYPE_COLORS[v] || "bg-slate-50 text-slate-600 border-slate-100";
           return (
             <span className={`px-2 py-0.5 border text-[9px] font-bold ${cls}`} title={v}>
@@ -210,27 +204,14 @@ export default function BoxTransactionLogPage() {
         },
       ],
 
-      [
-        "Box Sticker No.",
-        "box_no_uids_display",
-        (v) => (
-          <span
-            className="font-mono text-[9px] text-slate-700 leading-snug break-words line-clamp-3 block max-w-[280px]"
-            title={v || undefined}
-          >
-            {v || "—"}
-          </span>
-        ),
-        {
-          width: "280px",
-          copyValue: (row) => row.box_no_uids_display || "—",
+      [ "Box Sticker No.", "box_no_uids_display", (_v, row) => <BoxStickerNosCell row={row} />, {
+          width: "340px",
+          wrap: true,
+          copyValue: (row) => getBoxStickerEntries(row).map((e) => e.box_no_uid).join(", ") || "—",
         },
       ],
 
-      [
-        "Box Count",
-        "box_count",
-        (v) => (
+      [ "Box Count", "box_count", (v) => (
           <span className="tabular-nums font-bold text-[11px] text-slate-800">{v != null ? v : "—"}</span>
         ),
         {
@@ -240,10 +221,7 @@ export default function BoxTransactionLogPage() {
         },
       ],
 
-      [
-        "Qty",
-        "total_qty",
-        (v) => (
+      [ "Qty", "total_qty", (v) => (
           <span className="tabular-nums font-bold text-[11px] text-slate-800">{v != null ? v : "—"}</span>
         ),
         {
@@ -253,43 +231,13 @@ export default function BoxTransactionLogPage() {
         },
       ],
 
-      [
-        "Box Type",
-        "box_kind",
-        (v) => {
-          const kind = v || "—";
-          const cls =
-            kind === "Loose"
-              ? "bg-amber-50 text-amber-800 border-amber-200"
-              : kind === "Standard"
-                ? "bg-sky-50 text-sky-800 border-sky-200"
-                : String(kind).includes("Loose")
-                  ? "bg-violet-50 text-violet-800 border-violet-200"
-                  : "bg-slate-50 text-slate-600 border-slate-200";
-          return (
-            <span className={`px-1.5 py-0.5 border text-[9px] font-bold whitespace-nowrap ${cls}`}>{kind}</span>
-          );
-        },
-        {
-          width: "110px",
-          align: "center",
-          copyValue: (row) => row.box_kind || "—",
-        },
-      ],
-
-      [
-        "Module / Entity",
-        "source_module",
-        (v, row) => (
+      [ "Module / Entity", "source_module", (v, row) => (
           <div className="flex flex-col leading-tight min-w-[140px]">
             <div className="flex items-center gap-1 text-slate-700">
               <Layers size={10} />
               <span className="font-bold capitalize text-[11px]">{v?.replace(/_/g, " ")}</span>
             </div>
             <span className="text-[9px] text-indigo-500 font-mono ml-3">REF: {row.source_id || "N/A"}</span>
-            {row.packing_number ? (
-              <span className="text-[9px] text-slate-500 font-mono ml-3">PKG: {row.packing_number}</span>
-            ) : null}
           </div>
         ),
         {
@@ -297,25 +245,9 @@ export default function BoxTransactionLogPage() {
           copyValue: (row) => copyModuleEntity(row),
         },
       ],
-      [
-        "User Name",
-        "user_name",
-        (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>,
-        {
-          width: "110px",
-          copyValue: (row) => row.user_name || "System",
-        },
-      ],
-      [
-        "Created At",
-        "created_at",
-        (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-        {
-          width: "150px",
-          align: "right",
-          copyValue: (row) => formatDateTime(row.created_at) || "—",
-        },
-      ],
+
+      ["Created By", "user_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
     ],
     [labelForType, copyModuleEntity]
   );
@@ -405,7 +337,7 @@ export default function BoxTransactionLogPage() {
             cardConfig={{
               titleKey: "user_name",
               badgeIndices: [1],
-              detailIndices: [2, 3, 4, 5, 6],
+              detailIndices: [2, 3, 4, 5],
               footerKey: "created_at",
               className: "rounded-none border border-slate-200 shadow-none",
             }}

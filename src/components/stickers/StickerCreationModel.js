@@ -86,7 +86,15 @@ function stickerLockedAccFromSummary(summaryRows) {
 function buildStickerPrintMeta(selectedRow, sticker) {
   const accCode = sticker?.acc_code ?? selectedRow?.acc_code;
   const accName = sticker?.acc_name ?? selectedRow?.acc_name;
+  const packingNo =
+    selectedRow?.doc_no != null && String(selectedRow.doc_no).trim() !== ""
+      ? String(selectedRow.doc_no).trim()
+      : sticker?.packing_number != null && String(sticker.packing_number).trim() !== ""
+        ? String(sticker.packing_number).trim()
+        : null;
   return {
+    packing_number: packingNo,
+    doc_no: packingNo,
     itemdcode: selectedRow?.itemdcode,
     item_code: selectedRow?.item_code,
     itemdesc: selectedRow?.itemdesc || selectedRow?.description || "",
@@ -1037,7 +1045,11 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         download_source: downloadSource,
         sticker_meta: buildStickerPrintMeta(selectedRow, sticker),
       });
-      printFromBackendHtml(res.html);
+      printFromBackendHtml(res.html, {
+        title:
+          res.print_title ??
+          (selectedRow?.doc_no ? `Packing No. ${String(selectedRow.doc_no).trim()}` : undefined),
+      });
       setDlTracking((prev) => ({ ...prev, [String(sticker.box_uid)]: true }));
     } catch (err) {
       toast.error(err?.message || "Sticker print failed.");
@@ -1056,7 +1068,11 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         download_source: downloadSource,
         sticker_meta: buildStickerPrintMeta(selectedRow, generated[0]),
       });
-      printFromBackendHtml(res.html);
+      printFromBackendHtml(res.html, {
+        title:
+          res.print_title ??
+          (selectedRow?.doc_no ? `Packing No. ${String(selectedRow.doc_no).trim()}` : undefined),
+      });
       const all = {};
       generated.forEach((s) => {
         if (s.box_uid != null && s.box_uid !== "") all[String(s.box_uid)] = true;

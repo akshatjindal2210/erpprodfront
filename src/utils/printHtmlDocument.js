@@ -1,12 +1,32 @@
-/**
- * Print a full HTML document without opening a focused pop-up window.
- * Uses a hidden iframe so the main app tab keeps focus; print runs in the iframe only.
- * @returns {boolean} false if printing could not be started (e.g. no document)
- */
-export function printFromBackendHtml(html) {
+function extractHtmlDocumentTitle(markup) {
+  const m = String(markup ?? "").match(/<title[^>]*>([^<]*)<\/title>/i);
+  return m?.[1]?.trim() || "";
+}
+
+function resolvePrintDocumentTitle(html, options) {
+  if (typeof options === "string" && options.trim()) return options.trim();
+  if (options && typeof options === "object") {
+    const t = options.title ?? options.print_title;
+    if (t != null && String(t).trim()) return String(t).trim();
+  }
+  return extractHtmlDocumentTitle(html);
+}
+
+export function printFromBackendHtml(html, options) {
   if (typeof document === "undefined") return false;
   const markup = html != null ? String(html) : "";
   if (!markup.trim()) return false;
+
+  const documentTitle = resolvePrintDocumentTitle(markup, options);
+  let previousParentTitle = null;
+
+  const restoreParentTitle = () => {
+    if (previousParentTitle === null) return;
+    try {
+      document.title = previousParentTitle;
+    } catch {}
+    previousParentTitle = null;
+  };
 
   const iframe = document.createElement("iframe");
   iframe.setAttribute("title", "Print preview");
@@ -31,27 +51,41 @@ export function printFromBackendHtml(html) {
   }
 
   let cleaned = false;
-  let objectUrl = null;
 
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
     try {
-      win.removeEventListener("afterprint", cleanup);
-    } catch {
-      /* ignore */
-    }
-    if (objectUrl) {
-      URL.revokeObjectURL(objectUrl);
-      objectUrl = null;
-    }
+      win.removeEventListener("afterprint", onAfterPrint);
+    } catch {}
+    try {
+      window.removeEventListener("afterprint", onAfterPrint);
+    } catch {}
+    restoreParentTitle();
     iframe.remove();
+  };
+
+  const onAfterPrint = () => cleanup();
+
+  const applyDocumentTitle = () => {
+    if (!documentTitle) return;
+    try {
+      const doc = win.document;
+      if (doc) doc.title = documentTitle;
+    } catch {}
+    try {
+      if (previousParentTitle === null) previousParentTitle = document.title;
+      document.title = documentTitle;
+    } catch {}
   };
 
   const schedulePrint = () => {
     if (cleaned) return;
+    applyDocumentTitle();
     try {
-      win.addEventListener("afterprint", cleanup, { once: true });
+      win.addEventListener("afterprint", onAfterPrint, { once: true });
+      window.addEventListener("afterprint", onAfterPrint, { once: true });
+      win.focus();
       win.print();
     } catch {
       cleanup();
@@ -66,6 +100,7 @@ export function printFromBackendHtml(html) {
       schedulePrint();
       return;
     }
+    applyDocumentTitle();
     const imgs = Array.from(doc.images || []);
     const pending = imgs.filter((img) => !img.complete);
     if (!pending.length) {
@@ -81,20 +116,10 @@ export function printFromBackendHtml(html) {
       img.addEventListener("load", done, { once: true });
       img.addEventListener("error", done, { once: true });
     });
-    // Base64 QR images should load instantly; short cap avoids long stalls
     setTimeout(schedulePrint, 350);
   };
 
-  const onFrameLoaded = () => {
-    queueMicrotask(triggerPrintWhenReady);
-  };
-
   try {
-    const blob = new Blob([markup], { type: "text/html;charset=utf-8" });
-    objectUrl = URL.createObjectURL(blob);
-    iframe.addEventListener("load", onFrameLoaded, { once: true });
-    iframe.src = objectUrl;
-  } catch {
     const doc = win.document;
     if (!doc) {
       cleanup();
@@ -103,11 +128,15 @@ export function printFromBackendHtml(html) {
     doc.open();
     doc.write(markup);
     doc.close();
+    applyDocumentTitle();
     if (doc.readyState === "complete") {
       queueMicrotask(triggerPrintWhenReady);
     } else {
-      iframe.addEventListener("load", onFrameLoaded, { once: true });
+      iframe.addEventListener("load", () => queueMicrotask(triggerPrintWhenReady), { once: true });
     }
+  } catch {
+    cleanup();
+    return false;
   }
 
   return true;

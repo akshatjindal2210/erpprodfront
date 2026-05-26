@@ -82,7 +82,7 @@ async function printBulkStickersAfterStockAdjustmentAdd({
     download_source: STICKER_DOWNLOAD_SOURCE_KEYS.stock_adjustment,
     sticker_meta: stickerMeta,
   });
-  const opened = printFromBackendHtml(res?.html);
+  const opened = printFromBackendHtml(res?.html, { title: res?.print_title });
   if (!opened) return { ok: false, reason: "popup_blocked" };
   return { ok: true };
 }
@@ -106,7 +106,7 @@ async function printBulkStickersBeforeStockAdjustmentMinus({ packingNo, boxUids,
     download_source: STICKER_DOWNLOAD_SOURCE_KEYS.stock_adjustment,
     sticker_meta: stickerMeta,
   });
-  const opened = printFromBackendHtml(res?.html);
+  const opened = printFromBackendHtml(res?.html, { title: res?.print_title });
   if (!opened) return { ok: false, reason: "popup_blocked" };
   return { ok: true };
 }

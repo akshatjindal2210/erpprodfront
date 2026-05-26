@@ -332,9 +332,11 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
   };
 
   const fetchFilteredItems = async (search, currentIdx) => {
-    const res = await masterService.getItemsViews({ 
-      ...search, 
-      filters: { sticker_generated: true } 
+    const res = await masterService.getItemsViews({
+      ...search,
+      permission_module: "forwarding_note_master",
+      permission_action: "view",
+      filters: { in_hand_inventory: true },
     });
     const list = Array.isArray(res?.data) ? res.data : [];
     const selectedInOtherRows = new Set(
@@ -797,18 +799,15 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                       label="Search Item"
                       value={item.item_dcode}
                       onChange={(id, raw) => handleItemChange(idx, id, raw)}
-                      fetchService={(search) => fetchFilteredItems({ 
-                        ...search, 
-                        permission_module: "forwarding_note_master", 
-                        permission_action: "view" 
-                      }, idx)}
-                      getByIdService={(id) => masterService.getItemViewById(id, { 
-                        permission_module: "forwarding_note_master", 
-                        permission_action: "view" 
+                      fetchService={(search) => fetchFilteredItems(search, idx)}
+                      getByIdService={(id) => masterService.getItemViewById(id, {
+                        permission_module: "forwarding_note_master",
+                        permission_action: "view",
                       })}
                       dataKey="id"
                       labelKey="item_code"
                       subLabelKey="itemdesc"
+                      emptyMessage="No items with in-hand stock"
                     />
                   </div>
 

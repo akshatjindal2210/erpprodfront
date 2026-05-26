@@ -13,6 +13,7 @@ import {
   MasterDetailMetrics,
   MasterDetailProse,
 } from "@/components/master/MasterDetailLayout";
+import { getBoxStickerEntries } from "@/utils/boxTransactionStickerEntries";
 
 const SHOWN_DETAIL_KEYS = new Set([
   "count",
@@ -55,18 +56,7 @@ function formatScalar(value) {
 export default function BoxTransactionLogDetailModal({ open, onClose, row, labelForType }) {
   const details = useMemo(() => parseDetails(row?.details), [row?.details]);
 
-  const stickerNos = useMemo(() => {
-    if (Array.isArray(details.box_no_uids) && details.box_no_uids.length) {
-      return details.box_no_uids.map((u) => String(u).trim()).filter(Boolean);
-    }
-    if (row?.box_no_uids_display) {
-      return String(row.box_no_uids_display)
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-    }
-    return [];
-  }, [details.box_no_uids, row?.box_no_uids_display]);
+  const stickerEntries = useMemo(() => getBoxStickerEntries(row), [row]);
 
   const extraEntries = useMemo(() => {
     return Object.entries(details).filter(
@@ -124,12 +114,20 @@ export default function BoxTransactionLogDetailModal({ open, onClose, row, label
           ) : null}
         </MasterDetailGrid>
 
-        <MasterDetailSection label={`Box sticker no. (${stickerNos.length})`} tone="indigo">
-          {stickerNos.length ? (
+        <MasterDetailSection label={`Box sticker no. (${stickerEntries.length})`} tone="indigo">
+          {stickerEntries.length ? (
             <div className="max-h-48 overflow-y-auto space-y-1 normal-case">
-              {stickerNos.map((no) => (
-                <p key={no} className="font-mono text-[10px] text-slate-800 tracking-tight break-all">
-                  {no}
+              {stickerEntries.map((e) => (
+                <p
+                  key={e.box_no_uid}
+                  className={`font-mono text-[10px] tracking-tight break-all ${
+                    e.is_loose
+                      ? "text-amber-800 font-bold bg-amber-50 border border-amber-200 px-1 py-0.5"
+                      : "text-slate-800"
+                  }`}
+                  title={e.is_loose ? "Loose box" : undefined}
+                >
+                  {e.box_no_uid}
                 </p>
               ))}
             </div>

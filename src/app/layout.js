@@ -10,7 +10,7 @@ import PwaSecurityGuards from "@/components/pwa/PwaSecurityGuards";
 export const metadata = {
   title: "JFL IT Services",
   description: "JFL IT Solutions.",
-  manifest: "/manifest.webmanifest",
+  // manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -30,6 +30,9 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="manifest" href="/manifest.webmanifest" crossOrigin="use-credentials" />
+      </head>
       <body className="antialiased">
         <ReduxProvider>
           <SocketProvider>
