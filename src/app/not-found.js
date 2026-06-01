@@ -29,7 +29,7 @@ export default function NotFound() {
             Lost in the Cloud?
           </h2>
           <p className="text-slate-500 text-sm leading-relaxed max-w-[280px] mx-auto">
-            The page you're looking for doesn't exist or has been moved to a new location.
+            The page you&apos;re looking for doesn&apos;t exist or has been moved to a new location.
           </p>
         </div>
 

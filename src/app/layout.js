@@ -1,11 +1,11 @@
 import "./globals.css";
 import "react-toastify/dist/ReactToastify.css";
-import ReduxProvider from "@/components/ReduxProvider";
-import AppToastContainer from "@/components/common/AppToastContainer";
-import SocketProvider from "@/components/SocketProvider";
-import PwaRegister from "@/components/pwa/PwaRegister";
-import PwaDevBypass from "@/components/pwa/PwaDevBypass";
-import PwaSecurityGuards from "@/components/pwa/PwaSecurityGuards";
+import ReduxProvider from "@/core/components/providers/ReduxProvider";
+import AppToastContainer from "@/core/components/common/AppToastContainer";
+import SocketProvider from "@/core/components/providers/SocketProvider";
+import PwaRegister from "@/features/shared/pwa/components/PwaRegister";
+import PwaDevBypass from "@/features/shared/pwa/components/PwaDevBypass";
+import PwaSecurityGuards from "@/features/shared/pwa/components/PwaSecurityGuards";
 
 export const metadata = {
   title: "JFL IT Services",

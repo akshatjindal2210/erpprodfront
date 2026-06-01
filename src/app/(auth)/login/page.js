@@ -1,4 +1,4 @@
-import UserLogin from "@/components/auth/page";
+import UserLogin from "@/features/shared/auth/pages/Login";
 import React from "react";
 
 function page() {
@@ -6,3 +6,4 @@ function page() {
 }
 
 export default page;
+

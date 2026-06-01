@@ -1,0 +1,15 @@
+export const ROUTES = {
+  SETTINGS: "/settings",
+  SETTINGS_USERS: "/settings/users",
+  USERS: "/settings/users",
+  SETTINGS_MODULES: "/settings/modules",
+  MODULES: "/settings/modules",
+  SETTINGS_APP_CONFIG: "/settings/app-configuration",
+  APP_CONFIG: "/settings/app-configuration",
+  SETTINGS_TRAINING: "/settings/training",
+  TRAINING: "/settings/training",
+  SETTINGS_DEPARTMENTS: "/settings/departments",
+  DEPARTMENTS: "/settings/departments",
+  SETTINGS_DESIGNATIONS: "/settings/designations",
+  DESIGNATIONS: "/settings/designations",
+};
