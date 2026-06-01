@@ -6,6 +6,7 @@ import { userService }     from "@/features/apps/task/services/userApi";
 import { categoryService } from "@/features/apps/task/services/categoryApi";
 import { PRIORITIES, TASK_STATUSES, RECURRENCE_TYPES, WEEKDAYS, MONTHS, TASK_STATUSES_OPTIONS, } from "@/features/apps/task/components/common/Constants";
 import { extractList, mapTaskUserToOption }  from "@/features/apps/task/helpers/utilHelper";
+import { parseArr } from "@/features/apps/task/helpers/formArrays";
 import { compareLabelAsc } from "@/features/apps/task/helpers/sortOptions";
 import SelectField      from "../common/SelectField";
 import SearchableSelect from "../common/SearchableSelect";
@@ -637,11 +638,6 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
       const s = String(val);
       return s.includes("T") ? s.split("T")[0] : s.split(" ")[0];
     };
-    const parseArr = (val) => {
-      if (Array.isArray(val)) return val;
-      if (!val) return [];
-      try { return JSON.parse(val); } catch { return []; }
-    };
 
     // Handle both boolean + integer
     /*
@@ -755,15 +751,19 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
       if (form.assigned_by && form.assigned_to && String(form.assigned_by) === String(form.assigned_to))
         e.assigned_to = "Assigner and Level-1 cannot be the same";
 
-      const badSub = form.sub_users.find((s) => String(s.user_id) === String(form.assigned_to));
+      const subs = Array.isArray(form.sub_users) ? form.sub_users : [];
+      const badSub = subs.find((s) => String(s.user_id) === String(form.assigned_to));
       if (badSub) e.sub_users = "Sub-user cannot be same as Level-1";
     }
 
     // Validate recurring only in create mode
     if (!isEdit && form.is_recurring) {
-      if (form.recurrence_type === "weekly"  && form.recurrence_weekdays.length    === 0) e.recurring = "Select at least one day";
-      if (form.recurrence_type === "monthly" && form.recurrence_month_dates.length === 0) e.recurring = "Select at least one date";
-      if (form.recurrence_type === "yearly"  && form.recurrence_year_dates.length  === 0) e.recurring = "Select at least one date";
+      const weekdays = Array.isArray(form.recurrence_weekdays) ? form.recurrence_weekdays : [];
+      const monthDates = Array.isArray(form.recurrence_month_dates) ? form.recurrence_month_dates : [];
+      const yearDates = Array.isArray(form.recurrence_year_dates) ? form.recurrence_year_dates : [];
+      if (form.recurrence_type === "weekly"  && weekdays.length === 0) e.recurring = "Select at least one day";
+      if (form.recurrence_type === "monthly" && monthDates.length === 0) e.recurring = "Select at least one date";
+      if (form.recurrence_type === "yearly"  && yearDates.length === 0) e.recurring = "Select at least one date";
     }
 
     return e;
@@ -783,11 +783,12 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
 
     if (!isSelf) {
       payload.status = form.status;
+      const subs = Array.isArray(form.sub_users) ? form.sub_users : [];
 
       if (!isEdit) {
         payload.assigned_by = form.assigned_by || null;
         payload.assigned_to = form.assigned_to || null;
-        payload.sub_users   = form.sub_users.length > 0 ? form.sub_users : null;
+        payload.sub_users   = subs.length > 0 ? subs : null;
       } else if (canEditAssignment) {
         const activeL1 = taskDetail?.assignment_chain?.find(
           (a) => a.role === "level_one" && (a.is_active === 1 || a.is_active === true)
@@ -806,13 +807,13 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
             .filter((a) => a.role === "sub_user")
             .map((a) => ({ user_id: a.assigned_to_id, note: a.note ?? "" }))
         );
-        const currentSubs = normalizeSubs(form.sub_users);
+        const currentSubs = normalizeSubs(subs);
 
         if (String(form.assigned_to || "") !== originalL1) {
           payload.assigned_to = form.assigned_to || null;
         }
         if (JSON.stringify(currentSubs) !== JSON.stringify(originalSubs)) {
-          payload.sub_users = form.sub_users;
+          payload.sub_users = subs;
         }
         if (canEditAssignedBy && String(form.assigned_by || "") !== String(taskDetail?.assigned_by_id ?? "")) {
           payload.assigned_by = form.assigned_by || null;
@@ -842,7 +843,6 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     const errs = validate();
-    console.log(errs)
     if (Object.keys(errs).length) {
       setErrors(errs);
       toast.error("Please fix the errors");

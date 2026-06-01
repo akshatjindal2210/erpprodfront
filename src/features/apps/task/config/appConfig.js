@@ -16,11 +16,19 @@ const ALL   = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.USER, ROLES.TEAM];
 const STAFF = [ROLES.SUPER_ADMIN, ROLES.ADMIN];
 const SUPER = [ROLES.SUPER_ADMIN];
 
+// ─── Dashboard visibility toggle ─────────────────────────────────────────────
+// true  = hide Dashboard from user/team (admin & super_admin only)
+// false = show Dashboard to all roles (original behaviour)
+// To enable user dashboard in the future, set this to false — no other changes needed.
+export const HIDE_DASHBOARD_FROM_USERS = true;
+
+const DASHBOARD_ROLES = HIDE_DASHBOARD_FROM_USERS ? STAFF : ALL;
+
 // ════════════════════════════════════════════════════════════════════════════
 // 2. SIDEBAR MENU
 // ════════════════════════════════════════════════════════════════════════════
 export const SIDEBAR_MENU = [
-  { name: "Dashboard",      icon: LayoutDashboard, href: "/task/dashboard",                roles: ALL   },
+  { name: "Dashboard",      icon: LayoutDashboard, href: "/task/dashboard",                roles: DASHBOARD_ROLES },
   { name: "Tasks",          icon: CheckSquare,     href: "/task/dashboard/tasks",          roles: ALL   },
   { name: "Reports",        icon: ListCheck,       href: "/task/dashboard/reports",        roles: ALL   },
   { name: "Recurring Task", icon: Recycle,         href: "/task/dashboard/recurring-task", roles: ALL   },
@@ -33,7 +41,7 @@ export const SIDEBAR_MENU = [
 // 3. NAVBAR SEARCH PAGES
 // ════════════════════════════════════════════════════════════════════════════
 export const NAVBAR_PAGES = [
-  { label: "Dashboard",       path: "/task/dashboard",                   icon: "🏠",     category: "Main",        roles: ALL   },
+  { label: "Dashboard",       path: "/task/dashboard",                   icon: "🏠",     category: "Main",        roles: DASHBOARD_ROLES },
   { label: "Tasks",           path: "/task/dashboard/tasks",             icon: "✅",     category: "Management",  roles: ALL   },
   { label: "Reports",         path: "/task/dashboard/reports",           icon: "✅",     category: "Management",  roles: ALL   },
   { label: "Recurring Task",  path: "/task/dashboard/recurring-task",    icon: "✅",     category: "Management",  roles: ALL   },
@@ -122,10 +130,14 @@ export const FEATURE_PERMISSIONS = {
     update: SUPER,
     delete: SUPER,
   },
+  dashboard: {
+    read: DASHBOARD_ROLES,
+  },
 };
 
 // ─── path → feature map ───────────────────────────────────────────────────────
 const PATH_FEATURE_MAP = {
+  "/task/dashboard":              { feature: "dashboard",   action: "read" },
   "/task/dashboard/users":        { feature: "users",       action: "read" },
   "/task/dashboard/category":     { feature: "category",    action: "read" },
   "/task/dashboard/holidays":     { feature: "holiday",     action: "read" },
@@ -140,6 +152,18 @@ const PATH_FEATURE_MAP = {
 // ════════════════════════════════════════════════════════════════════════════
 // 7. HELPER FUNCTIONS
 // ════════════════════════════════════════════════════════════════════════════
+
+export function getTaskHomePath(role) {
+  if (!HIDE_DASHBOARD_FROM_USERS) return "/task/dashboard";
+  const normalizedRole = role === "executive_assistant" ? "team" : role;
+  return STAFF.includes(normalizedRole) ? "/task/dashboard" : "/task/dashboard/tasks";
+}
+
+export function canViewTaskDashboard(role) {
+  if (!HIDE_DASHBOARD_FROM_USERS) return true;
+  const normalizedRole = role === "executive_assistant" ? "team" : role;
+  return STAFF.includes(normalizedRole);
+}
 
 export function getSidebarMenu(role) {
   if (!role) return [];
@@ -168,6 +192,9 @@ export function hasAccess(role, path) {
   const normalizedRole = role === "executive_assistant" ? "team" : role;
   const rule = PATH_FEATURE_MAP[path];
   if (!rule) return true;
+
+  // When HIDE_DASHBOARD_FROM_USERS is false, /task/dashboard is open to all roles
+  if (rule.feature === "dashboard" && !HIDE_DASHBOARD_FROM_USERS) return true;
 
   const permissions = FEATURE_PERMISSIONS[rule.feature];
   if (!permissions) return false;

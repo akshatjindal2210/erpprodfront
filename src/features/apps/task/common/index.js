@@ -50,4 +50,5 @@ export {
   buildReportTaskListApiParams,
   applyReportDisplayTaskFilter,
 } from "@/features/apps/task/helpers/reportTaskListParams";
+export { parseArr, asArray } from "@/features/apps/task/helpers/formArrays";
 

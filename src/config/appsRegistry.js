@@ -1,6 +1,7 @@
 import { Boxes, Home, ListTodo, Settings } from "lucide-react";
 import { ROUTES } from "@/config/routes";
 import { userHasAppAccess } from "@/config/moduleAppRegistry";
+import { getTaskHomePath } from "@/features/apps/task/config/appConfig";
 
 export const APP_SHELL = {
   PORTAL: "portal",
@@ -73,7 +74,10 @@ export function getLauncherApps(role = null, permissions = [], appAccess = {}) {
     const hasAccess = userHasAppAccess(appId, role, permissions, appAccess);
     // console.log(`App: ${app.id}, appId: ${appId}, hasAccess: ${hasAccess}`);
     return hasAccess;
-  });
+  }).map((app) =>
+    // Task launcher entry — user home path controlled by HIDE_DASHBOARD_FROM_USERS in appConfig
+    app.id === "task" ? { ...app, href: getTaskHomePath(role) } : app
+  );
 }
 
 export function isPortalShellPath(pathname) {

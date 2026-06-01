@@ -6,6 +6,7 @@ import { userService }     from "@/features/apps/task/services/userApi";
 import { categoryService } from "@/features/apps/task/services/categoryApi";
 import { PRIORITIES, TASK_STATUSES, RECURRENCE_TYPES, WEEKDAYS, MONTHS, TASK_STATUSES_OPTIONS, } from "@/features/apps/task/components/common/Constants";
 import { extractList, mapTaskUserToOption }  from "@/features/apps/task/helpers/utilHelper";
+import { parseArr } from "@/features/apps/task/helpers/formArrays";
 import { compareLabelAsc } from "@/features/apps/task/helpers/sortOptions";
 import SelectField      from "../common/SelectField";
 import SearchableSelect from "../common/SearchableSelect";
@@ -645,12 +646,6 @@ export default function RecurringTaskModal({open, onClose, onSuccess, editTask, 
           const res = await recurringTaskService.getById(editTask.recurring_id);
           const data = res.data.data;
 
-          const parseArr = (val) => {
-            if (!val) return [];
-            if (Array.isArray(val)) return val;
-            try { return JSON.parse(val); } catch { return []; }
-          };
-
           // Collect attachments from chat
           const chatAttachments = (data.chat || []).flatMap(c => 
             (c.attachments || []).map(a => ({
@@ -702,11 +697,6 @@ export default function RecurringTaskModal({open, onClose, onSuccess, editTask, 
       if (!val) return "";
       const s = String(val);
       return s.includes("T") ? s.split("T")[0] : s.split(" ")[0];
-    };
-    const parseArr = (val) => {
-      if (Array.isArray(val)) return val;
-      if (!val) return [];
-      try { return JSON.parse(val); } catch { return []; }
     };
 
     // Handle both boolean + integer

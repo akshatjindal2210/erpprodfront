@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useSelector } from "react-redux";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { userService } from "@/features/apps/task/services/userApi";
 import UnauthorizedBanner from "@/features/apps/task/components/UnauthorizedBanner";
 
@@ -17,10 +17,11 @@ import TaskChartRow        from "@/features/apps/task/components/dashboard/TaskC
 import DeptAndRemindersRow from "@/features/apps/task/components/dashboard/DeptAndRemindersRow";
 import TasksAndUsersRow    from "@/features/apps/task/components/dashboard/TasksAndUsersRow";
 
-// ── User components
+// ── User components (shown when HIDE_DASHBOARD_FROM_USERS = false)
 import UserTasksSection  from "@/features/apps/task/components/dashboard/UserTasksSection";
 import UserChartsRow     from "@/features/apps/task/components/dashboard/UserChartsRow";
 import UserAssignedTasks from "@/features/apps/task/components/dashboard/UserAssignedTasks";
+import { canViewTaskDashboard } from "@/features/apps/task/config/appConfig";
 
 // ── API Mappers ───────────────────────────────────────────────────────────────
 function mapStaffResponse(apiData) {
@@ -59,15 +60,24 @@ const EMPTY_USER  = mapUserResponse({});
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function RootDashboard() {
+  const router     = useRouter();
   const userRole   = useSelector((state) => state.auth.role);
   const isStaff    = userRole === "super_admin" || userRole === "admin";
+  const showDashboard = canViewTaskDashboard(userRole);
   const params     = useSearchParams();
 
   const [data,     setData]    = useState(isStaff ? EMPTY_STAFF : EMPTY_USER);
   const [loading,  setLoading] = useState(true);
   const [lastSync, setLastSync]= useState(new Date());
 
+  useEffect(() => {
+    if (!showDashboard) {
+      router.replace("/task/dashboard/tasks");
+    }
+  }, [showDashboard, router]);
+
   const fetchStats = async () => {
+    if (!showDashboard) return;
     setLoading(true);
     try {
       const res = await userService.getStats();
@@ -81,7 +91,9 @@ export default function RootDashboard() {
     }
   };
 
-  useEffect(() => { fetchStats(); }, []);
+  useEffect(() => { if (showDashboard) fetchStats(); }, [showDashboard]);
+
+  if (!showDashboard) return null;
 
   const userPieData = isStaff ? [
     { name: "Active",    value: data.activeUsers    ?? 0 },
@@ -93,13 +105,13 @@ export default function RootDashboard() {
   return (
     <div className="p-4 md:p-5 bg-slate-100 min-h-screen text-slate-800 space-y-5">
 
-      {/* Unauthorized banner — tab dikhega jab RouteGuard redirect kare */}
+      {/* Unauthorized banner — shown when RouteGuard redirects here */}
       {params.get("unauthorized") === "true" && <UnauthorizedBanner />}
 
       <DashboardHeader loading={loading} lastSync={lastSync} onRefresh={fetchStats} userRole={userRole} />
       <QuickActions />
 
-      {/* Staff Dashboard */}
+      {/* Staff Dashboard — admin / super_admin */}
       {isStaff && (
         <>
           <UsersSection rootUsers={data.rootUsers} loading={loading} />
@@ -117,7 +129,7 @@ export default function RootDashboard() {
         </>
       )}
 
-      {/* User Dashboard */}
+      {/* User Dashboard — only when HIDE_DASHBOARD_FROM_USERS = false */}
       {!isStaff && (
         <>
           <UserTasksSection tasks={data.tasks} loading={loading} />

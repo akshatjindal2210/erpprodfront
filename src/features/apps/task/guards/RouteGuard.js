@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useSelector } from "react-redux";
 import { selectRole, selectPermissions, selectAppAccess } from "@/core/store/slices/authSlice";
 import { userHasAppAccess } from "@/config/moduleAppRegistry";
-import { hasAccess } from "@/features/apps/task/config/appConfig";
+import { hasAccess, getTaskHomePath } from "@/features/apps/task/config/appConfig";
 
 export default function RouteGuard({ children }) {
   const router   = useRouter();
@@ -33,7 +33,7 @@ export default function RouteGuard({ children }) {
     // 2. Check Code Level Access (Role-based)
     if (!hasAccess(role, pathname)) {
       setStatus("denied");
-      router.replace("/task/dashboard?unauthorized=true");
+      router.replace(`${getTaskHomePath(role)}?unauthorized=true`);
       return;
     }
 
