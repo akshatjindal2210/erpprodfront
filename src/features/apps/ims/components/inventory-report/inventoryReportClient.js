@@ -99,7 +99,7 @@ export function buildFilterOptionsFromRows(rows = []) {
   return {
     items: [...items.values()].sort((a, b) => byLabel(a, b, "item_code")),
     customers: [...customers.values()].sort((a, b) => byLabel(a, b, "acc_name")),
-    packings: [...packings.values()].sort((a, b) => byLabel(b, a, "packing_number")),
+    packings: [...packings.values()].sort((a, b) => byLabel(a, b, "packing_number")),
     locations: [...locations.values()].sort((a, b) => byLabel(a, b, "location_no")),
   };
 }

@@ -27,10 +27,13 @@ export function isPwaInstallRequired() {
   return !isAppDevelopment();
 }
 
-/** List hotkey display keys — matches DataTable / Drawer (Ctrl+Alt+* in browser, Ctrl+* in PWA). */
-export function getListHotkeyParts(key, isPwa) {
-  const letter = String(key || "").trim().charAt(0).toUpperCase();
-  if (!letter) return ["CTRL"];
-  if (isPwa) return ["CTRL", letter];
-  return ["CTRL", "ALT", letter];
+/** Quick Access / toolbar: Ctrl+Alt+key in browser, Ctrl+key in PWA. */
+export function getListHotkeyParts(letter, isPwa) {
+  const key = String(letter || "")
+    .trim()
+    .charAt(0)
+    .toUpperCase();
+  if (!key) return ["CTRL"];
+  if (isPwa) return ["CTRL", key];
+  return ["CTRL", "ALT", key];
 }

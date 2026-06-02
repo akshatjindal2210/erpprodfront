@@ -19,11 +19,13 @@ export default function MasterDataPreloader() {
     const product = isAllowed(canAccess("product_master", "view"));
     const customer = isAllowed(canAccess("customer_master", "view"));
     const packing = isAllowed(canAccess("packing_standard", "view"));
+    const packingEntry = isAllowed(canAccess("packing_entry", "view"));
     const overrideCust =
       isAllowed(canAccess("change_override_customer", "view")) ||
       isAllowed(canAccess("change_override_customer", "edit")) ||
       isAllowed(canAccess("change_override_customer", "add"));
     return {
+      packingEntry,
       items: product
         ? "product_master"
         : packing
@@ -35,7 +37,9 @@ export default function MasterDataPreloader() {
           ? "change_override_customer"
           : packing
             ? "packing_standard"
-            : null,
+            : packingEntry
+              ? "packing_entry"
+              : null,
     };
   }, [canAccess]);
 
@@ -74,13 +78,34 @@ export default function MasterDataPreloader() {
             })
             .catch(() => {})
         );
+      } else if (gates.ledgers === "packing_entry") {
+        tasks.push(
+          masterService
+            .getLedgersViews({
+              permission_module: "packing_entry",
+              permission_action: "view",
+            })
+            .catch(() => {})
+        );
+      }
+      if (gates.packingEntry) {
+        tasks.push(
+          masterService
+            .getDailyProdViews({
+              permission_module: "packing_entry",
+              permission_action: "view",
+              page: 1,
+              limit: 100,
+            })
+            .catch(() => {})
+        );
       }
       await Promise.all(tasks);
     };
 
     const timer = setTimeout(preload, 2000);
     return () => clearTimeout(timer);
-  }, [gates.items, gates.ledgers]);
+  }, [gates.items, gates.ledgers, gates.packingEntry]);
 
   return null;
 }

@@ -57,7 +57,18 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
     return () => mq?.removeEventListener?.("change", sync);
   }, []);
 
-  const listKeys = (key) => getListHotkeyParts(key, isPwa);
+  const shortcutRows = useMemo(
+    () => [
+      { id: "save", label: "Save / Submit", parts: ["CTRL", "S"] },
+      { id: "closeOverlay", label: "Close Modal / Form", parts: ["ESC"] },
+      { id: "copyRow", label: "Copy Row Data", parts: ["CTRL", "C"] },
+      { id: "authorize", label: "Authorize Selected", parts: ["CTRL", "A"] },
+      { id: "listNew", label: "New Form (list)", parts: getListHotkeyParts("n", isPwa) },
+      { id: "listEdit", label: "Edit Selected (list)", parts: getListHotkeyParts("e", isPwa) },
+      { id: "listPrint", label: "Print Selected (list)", parts: getListHotkeyParts("p", isPwa) },
+    ],
+    [isPwa]
+  );
 
   const currentModule = useMemo(() => {
     for (const item of NAV_REGISTRY) {
@@ -257,13 +268,9 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
             </div>
 
             <div className="grid grid-cols-1 gap-2">
-              <ShortcutRow label="Save / Submit" parts={["CTRL", "S"]} />
-              <ShortcutRow label="Close Modal / Form" parts={["ESC"]} />
-              <ShortcutRow label="Copy Row Data" parts={["CTRL", "C"]} />
-              <ShortcutRow label="Authorize Selected" parts={["CTRL", "A"]} />
-              <ShortcutRow label="New Form (list)" parts={listKeys("n")} />
-              <ShortcutRow label="Edit Selected (list)" parts={listKeys("e")} />
-              <ShortcutRow label="Print Selected (list)" parts={listKeys("p")} />
+              {shortcutRows.map((row) => (
+                <ShortcutRow key={row.id} label={row.label} parts={row.parts} />
+              ))}
             </div>
 
           </div>

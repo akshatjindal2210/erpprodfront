@@ -12,6 +12,7 @@ import { masterService } from "@/features/apps/ims/services/master";
 import { STICKER_DOWNLOAD_SOURCE_KEYS, formatStandardBoxNoUid, parseStandardBoxNoUid, getBoxNoUidPrefix } from "@/core/utils/global";
 import { printFromBackendHtml } from "@/features/apps/ims/utils/printHtmlDocument";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
+import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 
 /** Physical sticker card size in CSS px (96px/in) — matches backend `buildStickerCardHtml` 5.7in × 3.6in. */
 const STICKER_PREVIEW_W_PX = 5.7 * 96;
@@ -130,10 +131,11 @@ function uniqueCategoriesFromStandards(allStandards, itemdcode, accCode) {
       });
     }
   });
-  return uniqueCats;
+  return sortSelectRowsAsc(uniqueCats, "name");
 }
 
 function StickerDetailCards({selectedRow, packing, generated, isMultiple, categories, selectedCategory, onCategoryChange, onCustomerChange, customerSelectDisabled, customerChanging}) {
+  const categoriesAsc = useMemo(() => sortSelectRowsAsc(categories, "name"), [categories]);
   return (
     <>
       <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
@@ -173,7 +175,7 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
               className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-[12px] lg:text-sm font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-500"
             >
               {isMultiple && <option value="" disabled>Select Category</option>}
-              {categories.map(cat => (
+              {categoriesAsc.map(cat => (
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
             </select>
@@ -514,6 +516,11 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
     return selectedRow.packing_details || {};
   }, [selectedRow]);
 
+  const stickersByDocAsc = useMemo(
+    () => sortSelectRowsAsc(stickers, "doc_no"),
+    [stickers]
+  );
+
   useLayoutEffect(() => {
     if (!previewOpen || !previewHtml || previewLoading) return undefined;
     const area = previewAreaRef.current;
@@ -689,7 +696,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         data.acc_code
       );
 
-      setCategories(uniqueCats);
+      setCategories(sortSelectRowsAsc(uniqueCats, "name"));
       setIsMultiple(uniqueCats.length > 1);
 
       // 2. Fetch sticker history for the specific document
@@ -703,7 +710,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         const key = `${row.doc_no}_${row.acc_code || ""}`;
         return idx === arr.findIndex((x) => `${x.doc_no}_${x.acc_code || ""}` === key);
       });
-      setStickers(list);
+      setStickers(sortSelectRowsAsc(list, "doc_no"));
       
       if (list.length > 0) {
         const firstRow = await enrichRowPartyRateCustCode(list[0], list[0].acc_code || data.acc_code);
@@ -829,7 +836,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
           selectedRow.itemdcode,
           accCode
         );
-        setCategories(uniqueCats);
+        setCategories(sortSelectRowsAsc(uniqueCats, "name"));
         setIsMultiple(uniqueCats.length > 1);
 
         let catId = selectedCategory;
@@ -1132,7 +1139,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
             <div className="bg-white border-b px-2 md:px-4 py-1.5 sm:py-2 md:py-3 flex flex-col md:flex-row items-stretch md:items-center gap-1.5 sm:gap-2 md:gap-3 shadow-sm z-10 w-full max-w-full min-w-0 shrink-0">
               
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full md:flex-1 min-w-0 pb-1 -mb-1">
-                {stickers.map(s => (
+                {stickersByDocAsc.map(s => (
                   <div 
                     key={`${s.doc_no}_${s.acc_code || ""}`}
                     role="button"

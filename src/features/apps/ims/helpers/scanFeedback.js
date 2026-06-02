@@ -156,11 +156,6 @@ export function isCameraPermissionWarm() {
   }
 }
 
-/** @deprecated Use {@link isCameraPermissionWarm} */
-export function isCameraPermissionWarmForToday() {
-  return isCameraPermissionWarm();
-}
-
 let cameraWarmInFlight = null;
 
 /**

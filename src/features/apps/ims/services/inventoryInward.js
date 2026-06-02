@@ -1,5 +1,6 @@
 import { api } from "@/core/api/apiClient";
 import { ENDPOINTS } from "@/features/apps/ims/config/endpoints";
+import { imsApiViews } from "@/features/apps/ims/helpers/sortDropdownResponse";
 
 export const inventoryInwardService = {
   getAll:  (params) => api(ENDPOINTS.INVENTORY_INWARDS.LIST,   { method: "POST", body: params }),
@@ -9,7 +10,7 @@ export const inventoryInwardService = {
   create:  (data) => api(ENDPOINTS.INVENTORY_INWARDS.CREATE, { method: "POST", body: data }),
   update:  (in_uid, data) => api(ENDPOINTS.INVENTORY_INWARDS.UPDATE, { method: "POST", body: { in_uid, ...data } }),
   delete:  (in_uid) => api(ENDPOINTS.INVENTORY_INWARDS.DELETE, { method: "POST", body: { in_uid } }),
-  getViews: (params) => api(ENDPOINTS.INVENTORY_INWARDS.VIEWS, { method: "POST", body: params }),
+  getViews: (params) => imsApiViews(ENDPOINTS.INVENTORY_INWARDS.VIEWS, params, "location_no"),
   getViewById: (id, perms = {}) => api(ENDPOINTS.INVENTORY_INWARDS.VIEWS, { method: "POST", body: { id, ...perms } }),
   validateBoxAtLocation: (location_id, box_no_uid) =>
     api(ENDPOINTS.INVENTORY_INWARDS.VALIDATE_BOX_LOCATION, {

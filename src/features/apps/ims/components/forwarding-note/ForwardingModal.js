@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Check, Loader2, Shield, Package, Trash2, Plus, AlertCircle } from "lucide-react";
 import { toast } from "react-toastify";
 
@@ -9,7 +9,11 @@ import { masterService }         from "@/features/apps/ims/services/master";
 import Drawer                    from "@/core/components/ui/Drawer";
 import ModuleSopAcknowledgment   from "@/core/components/common/ModuleSopAcknowledgment";
 import SearchableSelect          from "@/core/components/common/SearchableSelect";
+import { applyClientSearch } from "@/features/apps/ims/helpers/clientListSearch";
+import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
+import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 import RemarksTextarea           from "@/core/components/common/RemarksTextarea";
+import FormPanelLoader           from "@/core/components/common/FormPanelLoader";
 import { OK_INPUT }              from "@/core/components/common/Constants";
 import { useCanAccess }          from "@/core/hooks/useCanAccess";
 import { focusFirstError } from "@/core/utils/formFocus";
@@ -102,11 +106,13 @@ const reorderBoxesForSelection = (boxes = [], loosePriority = false) => {
 };
 
 export default function ForwardingModal({ open, onClose, onSuccess, editData, mode = "add" }) {
-  const [loading, setLoading]         = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [formReady, setFormReady]     = useState(false);
   const [form, setForm]               = useState(INITIAL_FORM);
   const [errors, setErrors]           = useState({});
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
+  const formItemsRef = useRef(form.items);
   const [transporterOpts, setTransporterOpts] = useState([]);
   const [transporterOpen, setTransporterOpen] = useState(false);
 
@@ -120,89 +126,196 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
   const showApproval = canAuthorize && (mode === "add" || mode === "approve");
 
   const [transporterHighlight, setTransporterHighlight] = useState(-1);
+  /** In-hand stock items — loaded once per modal open; dropdown search is client-only. */
+  const [inHandItemCatalog, setInHandItemCatalog] = useState(null);
 
-  // ── Reset ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const initData = async () => {
-      if (open) {
-        if (editData) {
-          setLoading(true);
+    formItemsRef.current = form.items;
+  }, [form.items]);
+
+  const inHandItemsPerms = useMemo(
+    () => ({
+      permission_module: "forwarding_note_master",
+      permission_action: "view",
+    }),
+    []
+  );
+
+  useEffect(() => {
+    if (!open || !formReady) {
+      setInHandItemCatalog(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await masterService.getInHandItemsViews(inHandItemsPerms);
+        if (!cancelled) {
+          setInHandItemCatalog(Array.isArray(res?.data) ? res.data : []);
+        }
+      } catch {
+        if (!cancelled) setInHandItemCatalog([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, formReady, inHandItemsPerms]);
+
+  const getItemById = useCallback(
+    (id) => {
+      if (Array.isArray(inHandItemCatalog)) {
+        const match = inHandItemCatalog.find((item) => String(item.id) === String(id));
+        if (match) return Promise.resolve({ data: match });
+      }
+      return masterService.getItemViewById(id, {
+        permission_module: "forwarding_note_master",
+        permission_action: "view",
+      });
+    },
+    [inHandItemCatalog]
+  );
+
+  const buildInHandItemFetchService = useCallback((catalog, currentIdx) => {
+    return async ({ search = "", page = 1, limit = 50 } = {}) => {
+      if (!Array.isArray(catalog)) return { data: [] };
+
+      const selectedInOtherRows = new Set(
+        formItemsRef.current
+          .filter((_, rowIdx) => rowIdx !== currentIdx)
+          .map((row) => String(row.item_dcode))
+          .filter(Boolean)
+      );
+      let list = catalog.filter((item) => !selectedInOtherRows.has(String(item.id)));
+
+      const q = String(search || "").trim();
+      if (q) {
+        list = applyClientSearch(list, q, {
+          getParts: (item) => [item.item_code, item.itemdesc, item.item_desc].filter(Boolean),
+        });
+      } else {
+        list = sortSelectRowsAsc(list, "item_code", ["itemdesc"]);
+      }
+
+      const start = (Math.max(1, Number(page) || 1) - 1) * (Number(limit) || 50);
+      return { data: list.slice(start, start + (Number(limit) || 50)), total: list.length };
+    };
+  }, []);
+
+  const itemRowFetchServices = useMemo(() => {
+    if (!Array.isArray(inHandItemCatalog)) {
+      return form.items.map(() => async () => ({ data: [] }));
+    }
+    return form.items.map((_, idx) => buildInHandItemFetchService(inHandItemCatalog, idx));
+  }, [form.items.length, inHandItemCatalog, buildInHandItemFetchService]);
+
+  // ── Bootstrap (show loader until form is hydrated — no blank fields) ───────
+  useEffect(() => {
+    if (!open) {
+      setFormReady(false);
+      setForm(INITIAL_FORM);
+      setTransporterOpts([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setFormReady(false);
+    setErrors({});
+
+    const hydrate = async () => {
+      const fuid = editData?.fuid;
+      const needsFetch = Boolean(fuid && (isEdit || isApprove));
+
+      if (!needsFetch) {
+        if (!cancelled) {
+          setForm({ ...INITIAL_FORM, items: [{ ...INITIAL_ITEM_ROW }] });
+          setFormReady(true);
+        }
+        return;
+      }
+
+      try {
+        const res = await forwardingNoteService.getById(fuid);
+        if (cancelled) return;
+        if (!res.success || !res.data) {
+          throw new Error(res?.message || "Failed to load forwarding note details.");
+        }
+        const fullData = res.data;
+
+        const itemsWithStock = await Promise.all((fullData.items || []).map(async (i) => {
+          let available_boxes = [];
+          let fg_qty = i.total_qty || 0;
+
           try {
-            // Fetch full data including items from backend to ensure real-time accuracy
-            const res = await forwardingNoteService.getById(editData.fuid);
-            if (res.success && res.data) {
-              const fullData = res.data;
-              
-              // Map items and fetch stock for each in parallel
-              const itemsWithStock = await Promise.all((fullData.items || []).map(async (i) => {
-                let available_boxes = [];
-                let fg_qty = i.total_qty || 0;
-                
-                try {
-                  const stockRes = await forwardingNoteService.getAvailableBoxes({ item_dcode: i.item_dcode });
-                  if (stockRes.success) {
-                    available_boxes = sortBoxesForFifo(stockRes.data || []);
-                    fg_qty = sumQty(available_boxes);
-                  }
-                } catch (e) {
-                  console.error("Stock fetch error", e);
-                }
-
-                // Edit mode: if saved breakdown had loose boxes, keep loose-priority checked.
-                const loosePriorityFromSaved =
-                  Array.isArray(i.breakdowns) &&
-                  i.breakdowns.some(
-                    (bd) => Number(bd?.loose_box || 0) > 0 || Number(bd?.loose_box_qty || 0) > 0
-                  );
-
-                // Auto-select boxes based on saved qty to restore the "selected" state.
-                const orderedBoxes = reorderBoxesForSelection(available_boxes, loosePriorityFromSaved);
-                const selected_boxes = selectBoxesByQty(orderedBoxes, i.total_qty);
-
-                return {
-                  ...i,
-                  item_dcode:      i.item_dcode,
-                  item_code:       i.item_code,
-                  itemdesc:        i.itemdesc,
-                  available_boxes,
-                  selected_boxes, 
-                  loose_priority:  loosePriorityFromSaved,
-                  fg_qty,
-                  dispatch_qty:    i.total_qty || "",
-                  dispatch_std:    i.total_qty || "",
-                  fetching:        false,
-                  original_breakdowns: i.breakdowns || []
-                };
-              }));
-
-              setForm({
-                acc_code: fullData.acc_code || "",
-                po_number: fullData.po_number || "",
-                transporter_sel_id: "",
-                transporter_name: fullData.transporter_name || "",
-                transporter_id: fullData.transporter_id || "",
-                vehicle_number: fullData.vehicle_number || "",
-                cartage: fullData.cartage ?? "",
-                customer_qty: fullData.customer_qty ?? "",
-                remarks: fullData.remarks || "",
-                approved: isApprove ? (fullData?.approved ?? false) : false,
-                items: itemsWithStock,
-              });
+            const stockRes = await forwardingNoteService.getAvailableBoxes({
+              item_dcode: i.item_dcode,
+              exclude_fuid: fuid || undefined,
+            });
+            if (stockRes.success) {
+              available_boxes = sortBoxesForFifo(stockRes.data || []);
+              fg_qty = sumQty(available_boxes);
             }
-          } catch (err) {
-            toast.error(err?.message || "Failed to load forwarding note details.");
-          } finally {
-            setLoading(false);
+          } catch (e) {
+            console.error("Stock fetch error", e);
           }
-        } else {
+
+          const loosePriorityFromSaved =
+            Array.isArray(i.breakdowns) &&
+            i.breakdowns.some(
+              (bd) => Number(bd?.loose_box || 0) > 0 || Number(bd?.loose_box_qty || 0) > 0
+            );
+
+          const orderedBoxes = reorderBoxesForSelection(available_boxes, loosePriorityFromSaved);
+          const selected_boxes = selectBoxesByQty(orderedBoxes, i.total_qty);
+
+          return {
+            ...i,
+            item_dcode: i.item_dcode,
+            item_code: i.item_code,
+            itemdesc: i.itemdesc,
+            available_boxes,
+            selected_boxes,
+            loose_priority: loosePriorityFromSaved,
+            fg_qty,
+            dispatch_qty: i.total_qty || "",
+            dispatch_std: i.total_qty || "",
+            fetching: false,
+            original_breakdowns: i.breakdowns || [],
+          };
+        }));
+
+        if (cancelled) return;
+
+        setForm({
+          acc_code: fullData.acc_code || "",
+          po_number: fullData.po_number || "",
+          transporter_sel_id: "",
+          transporter_name: fullData.transporter_name || "",
+          transporter_id: fullData.transporter_id || "",
+          vehicle_number: fullData.vehicle_number || "",
+          cartage: fullData.cartage ?? "",
+          customer_qty: fullData.customer_qty ?? "",
+          remarks: fullData.remarks || "",
+          approved: isApprove ? (fullData?.approved ?? false) : false,
+          items: itemsWithStock,
+        });
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(err?.message || "Failed to load forwarding note details.");
           setForm({ ...INITIAL_FORM, items: [{ ...INITIAL_ITEM_ROW }] });
         }
-        setErrors({});
+      } finally {
+        if (!cancelled) setFormReady(true);
       }
     };
 
-    initData();
-  }, [open, editData, isApprove]);
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, editData?.fuid, isEdit, isApprove]);
 
   // ── Form helpers ───────────────────────────────────────────────────────────
   const handleInputChange = (k, value) => {
@@ -228,17 +341,18 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
         acc_code: Number(accCode),
         search,
       });
-      setTransporterOpts(Array.isArray(res?.data) ? res.data : []);
+      const list = Array.isArray(res?.data) ? res.data : [];
+      setTransporterOpts(withSortedViewsData(list, "transporter_name"));
     } catch {
       setTransporterOpts([]);
     }
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !formReady) return;
     if (!form.acc_code) { setTransporterOpts([]); return; }
     loadTransporterSuggestions(form.acc_code, "");
-  }, [open, form.acc_code, loadTransporterSuggestions]);
+  }, [open, formReady, form.acc_code, loadTransporterSuggestions]);
 
   const handleTransporterPick = (opt) => {
     setForm((prev) => ({
@@ -303,7 +417,10 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     });
 
     try {
-      const res = await forwardingNoteService.getAvailableBoxes({ item_dcode: id });
+      const res = await forwardingNoteService.getAvailableBoxes({
+        item_dcode: id,
+        exclude_fuid: editData?.fuid || undefined,
+      });
       if (res.success) {
         const fifoBoxes = sortBoxesForFifo(res.data || []);
         const fg_qty = sumQty(fifoBoxes);
@@ -312,7 +429,11 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
           fg_qty,
           fetching: false,
         });
-        if (res.count === 0) toast.info("No stock available in the warehouse for this item.");
+        if (res.count === 0) {
+          toast.info(
+            "No remaining stock for this item (warehouse empty or qty already reserved on other forwarding notes)."
+          );
+        }
       }
     } catch (err) {
       updateItemRow(idx, { fetching: false });
@@ -329,23 +450,6 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       dispatch_qty: qty || "",
       selected_boxes: selected,
     });
-  };
-
-  const fetchFilteredItems = async (search, currentIdx) => {
-    const res = await masterService.getItemsViews({
-      ...search,
-      permission_module: "forwarding_note_master",
-      permission_action: "view",
-      filters: { in_hand_inventory: true },
-    });
-    const list = Array.isArray(res?.data) ? res.data : [];
-    const selectedInOtherRows = new Set(
-      form.items
-        .filter((_, rowIdx) => rowIdx !== currentIdx)
-        .map((row) => String(row.item_dcode))
-        .filter(Boolean)
-    );
-    return list.filter((item) => !selectedInOtherRows.has(String(item.id)));
   };
 
   const handleBoxChange = (idx, type) => {
@@ -414,7 +518,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     if (!validItems.length) return toast.error("Please add at least one item with boxes to proceed.");
     if (!sopAckRef.current?.assertAcknowledged()) return;
 
-    setLoading(true);
+    setSaving(true);
     try {
       let finalApproved = form.approved;
       if (statusOverride !== null) {
@@ -476,9 +580,19 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     } catch (err) {
       toast.error(err?.message || "An unexpected error occurred.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
+
+  const hydrateLabel = isApprove
+    ? "Loading approval data..."
+    : isEdit
+      ? "Loading forwarding note..."
+      : "Preparing form...";
+
+  const hydrateHint = isEdit || isApprove
+    ? "Fetching note, items, and available stock."
+    : "Setting up a new forwarding note.";
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const confirmedTotal = form.items.reduce((s, i) => {
@@ -506,33 +620,33 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
       {/* Right — buttons */}
       <div className="flex items-center gap-3">
-        <button onClick={onClose} disabled={loading} className="px-5 py-2.5 text-sm font-bold text-slate-500">
+        <button onClick={onClose} disabled={saving} className="px-5 py-2.5 text-sm font-bold text-slate-500">
           Cancel
         </button>
         {isApprove ? (
           <>
             <button
               onClick={() => handleSave(false)}
-              disabled={loading}
-              className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+              disabled={!formReady || saving}
+              className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-40"
             >
               Keep Pending
             </button>
             <button
               onClick={() => handleSave(true)}
-              disabled={loading}
-              className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100"
+              disabled={!formReady || saving}
+              className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40"
             >
-              {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
+              {saving ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
             </button>
           </>
         ) : (
           <button
             onClick={() => handleSave()}
-            disabled={loading || isQtyExceeded}
+            disabled={!formReady || saving || isQtyExceeded}
             className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400 disabled:cursor-not-allowed"
           >
-            {loading ? (
+            {saving ? (
               <><Loader2 size={18} className="animate-spin" /> Processing</>
             ) : (
               <><Check size={18} /> Save</>
@@ -549,14 +663,20 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={() => handleSave(isApprove ? true : undefined)}
+      onSubmit={() => {
+        if (!formReady || saving) return;
+        handleSave(isApprove ? true : undefined);
+      }}
       title={isApprove ? "Approve Note" : isEdit ? "Edit Note" : "New Forwarding Note"}
       description="Create note for dispatch"
       footer={footer}
       maxWidth="max-w-4xl"
     >
       <div ref={formRef} className="space-y-4 pb-4">
-
+        {!formReady ? (
+          <FormPanelLoader label={hydrateLabel} hint={hydrateHint} minHeight="min-h-[280px]" />
+        ) : (
+        <>
         {isEdit && editData?.approved && (
           <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
             <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
@@ -799,11 +919,8 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                       label="Search Item"
                       value={item.item_dcode}
                       onChange={(id, raw) => handleItemChange(idx, id, raw)}
-                      fetchService={(search) => fetchFilteredItems(search, idx)}
-                      getByIdService={(id) => masterService.getItemViewById(id, {
-                        permission_module: "forwarding_note_master",
-                        permission_action: "view",
-                      })}
+                      fetchService={itemRowFetchServices[idx]}
+                      getByIdService={getItemById}
                       dataKey="id"
                       labelKey="item_code"
                       subLabelKey="itemdesc"
@@ -975,12 +1092,13 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
         <ModuleSopAcknowledgment
           ref={sopAckRef}
-          key={`${open}-${sopPermissionType}`}
+          key={`${open}-${sopPermissionType}-${editData?.fuid ?? "new"}`}
           moduleSlug="forwarding_note_master"
           permissionType={sopPermissionType}
-          isOpen={open}
+          isOpen={open && formReady}
         />
-
+        </>
+        )}
       </div>
     </Drawer>
   );

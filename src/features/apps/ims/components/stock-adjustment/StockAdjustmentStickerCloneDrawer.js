@@ -16,9 +16,10 @@ import { loadPackingContext } from "./loadPackingContext";
 import StockAdjustmentStickerDetailCards from "./StockAdjustmentStickerDetailCards";
 import { masterService } from "@/features/apps/ims/services/master";
 import { focusFirstError } from "@/core/utils/formFocus";
+import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
+import { rowInIndianFinancialYear } from "@/core/utils/indianFinancialYear";
 
 const FIELD_ORDER = ["addNumBoxes", "addExtraBoxes", "addPerBoxQty", "minusBoxes"];
-import { rowInIndianFinancialYear } from "@/core/utils/indianFinancialYear";
 import { formatStockAdjustmentBoxNoUid, isLooseBoxComparedToStandard, parseOptionalStandardQtyPerBox, parseStockAdjustmentBoxIndex } from "@/features/apps/ims/utils/stockAdjustmentPacking";
 import { hydrateStockAdjustmentStickerView } from "./hydrateStockAdjustmentStickerView";
 import {
@@ -1019,8 +1020,33 @@ export default function StockAdjustmentStickerCloneDrawer({
         imsRes = { ...imsRes, records: recs };
       }
 
+      let prefillMeta = null;
+      if (gateEntryType === "add" && imsRes?.records?.length) {
+        const first = imsRes.records[0];
+        prefillMeta = {
+          itemdcode: first.itemdcode ?? first.ItemDcode ?? null,
+          acc_code: first.acc_code ?? null,
+          acc_name: first.acc_name ?? null,
+          item_code: first.item_code ?? null,
+          item_desc: first.itemdesc ?? first.item_desc ?? null,
+          job_card_no: first.jobcardno ?? first.job_card_no ?? null,
+          total_qty: first.QTY != null ? String(first.QTY) : null,
+          doc_dt: first.doc_dt || first.docdt || null,
+          doc_no: first.docno != null ? String(first.docno) : pn,
+          party_rate_cust_code:
+            imsRes.party_rate_cust_code != null &&
+            String(imsRes.party_rate_cust_code).trim() !== ""
+              ? String(imsRes.party_rate_cust_code).trim()
+              : null,
+          standard_qty_per_box: parseOptionalStandardQtyPerBox(imsRes.standard_qty_per_box),
+        };
+      }
+
       const data = await loadPackingContext(pn, {
         forMinus: gateEntryType === "minus",
+        financialYear: fySelected || undefined,
+        prefillMeta,
+        fetchBoxes: gateEntryType === "minus",
       });
       if (!data) {
         toast.error("Load failed");
@@ -1029,44 +1055,11 @@ export default function StockAdjustmentStickerCloneDrawer({
 
       let previewPayload;
       if (gateEntryType === "add") {
-        const first = imsRes.records[0];
-        const base = data.dailyprod;
-        const partyFromPackFy =
-          imsRes?.party_rate_cust_code != null && String(imsRes.party_rate_cust_code).trim() !== ""
-            ? String(imsRes.party_rate_cust_code).trim()
-            : null;
-        const mergedDaily =
-          base?.itemdcode != null
-            ? {
-                ...base,
-                acc_name: first.acc_name ?? base.acc_name,
-                total_qty: first.QTY != null ? String(first.QTY) : base.total_qty,
-                doc_dt: first.doc_dt || first.docdt || base.doc_dt,
-                doc_no: first.docno != null ? String(first.docno) : base.doc_no ?? pn,
-                job_card_no: first.jobcardno || base.job_card_no,
-                party_rate_cust_code: partyFromPackFy,
-              }
-            : {
-                itemdcode: first.itemdcode,
-                acc_code: first.acc_code,
-                acc_name: first.acc_name,
-                item_code: first.item_code,
-                item_desc: first.itemdesc,
-                job_card_no: first.jobcardno,
-                total_qty: first.QTY != null ? String(first.QTY) : null,
-                doc_dt: first.doc_dt || first.docdt,
-                doc_no: first.docno != null ? String(first.docno) : pn,
-                party_rate_cust_code: partyFromPackFy,
-              };
-        if (mergedDaily?.itemdcode == null) {
+        if (data.dailyprod?.itemdcode == null) {
           toast.error("IMS pack row is missing an item code.");
           return;
         }
-        previewPayload = {
-          ...data,
-          dailyprod: mergedDaily,
-          standard_qty_per_box: parseOptionalStandardQtyPerBox(imsRes.standard_qty_per_box),
-        };
+        previewPayload = data;
       } else {
         if (!data.boxes || data.boxes.length === 0) {
           toast.error("No in-hand boxes in inventory for this packing number");
@@ -1290,7 +1283,7 @@ export default function StockAdjustmentStickerCloneDrawer({
                 className={FIELD_CONTROL}
               >
                 <option value="">Select…</option>
-                {GATE_ADD_MINUS.map((o) => (
+                {sortFilterOptionsAsc(GATE_ADD_MINUS).map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>

@@ -3,11 +3,17 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Loader2, Search, X, AlertCircle, CheckCircle2 } from "lucide-react";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "./ListPageSearchField";
+import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 
 const PAGE_SIZE = 50;
 
 function toSearchText(value) {
   return String(value ?? "");
+}
+
+function getDisplayLabel(item, labelKey) {
+  if (!item || typeof item !== "object") return "";
+  return toSearchText(item[labelKey]).trim();
 }
 
 export default function SearchableSelect({ value, onChange, fetchService, getByIdService, dataKey = "id", labelKey = "name", subLabelKey = "", 
@@ -28,6 +34,8 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   emptyMessage = "No options available",
   /** Override trigger height to align with sibling inputs (e.g. "h-10"). */
   heightClass = "h-9",
+  /** Input + list show only `labelKey` text — never raw id/value fallback. */
+  labelOnlyDisplay = false,
 }) {
   const isToolbar = variant === "toolbar";
   const triggerRadius = isToolbar ? "rounded-none" : "rounded-lg";
@@ -80,19 +88,28 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     try {
       const res = await fetchService({ search: query, page: p, limit: PAGE_SIZE });
       const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
-      
+
       if (res?.message && list.length === 0) {
         setApiMessage(res.message);
       }
 
-      setItems(prev => p === 1 ? list : [...prev, ...list]);
+      let nextItems = list;
+      setItems((prev) => {
+        const merged = p === 1 ? list : [...prev, ...list];
+        nextItems = merged.length < 2 ? merged : sortSelectRowsAsc(merged, labelKey);
+        if (labelOnlyDisplay) {
+          nextItems = nextItems.filter((item) => getDisplayLabel(item, labelKey));
+        }
+        return nextItems;
+      });
       setHasMore(list.length === PAGE_SIZE);
       setPage(p);
       
       if (p === 1) {
-        // When opening/searching, try to highlight the already selected item first
-        const selectedIdx = value ? list.findIndex(item => String(item[dataKey]) === String(value)) : -1;
-        setActiveIndex(selectedIdx !== -1 ? selectedIdx : (list.length > 0 ? 0 : -1));
+        const selectedIdx = value
+          ? nextItems.findIndex((item) => String(item[dataKey]) === String(value))
+          : -1;
+        setActiveIndex(selectedIdx !== -1 ? selectedIdx : (nextItems.length > 0 ? 0 : -1));
       }
     } catch (err) {
       if (p === 1) setItems([]);
@@ -100,7 +117,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [fetchService, labelKey, dataKey, value]);
+  }, [fetchService, labelKey, dataKey, value, labelOnlyDisplay]);
 
   // 3. FIXED: Single useEffect for Fetching (Removed the duplicate)
   useEffect(() => {
@@ -150,12 +167,13 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       const item = res?.data || res;
       if (item?.[dataKey]) {
         setSelected(item);
-        setSearch(toSearchText(item[labelKey]));
+        const label = getDisplayLabel(item, labelKey);
+        setSearch(labelOnlyDisplay ? label : label || toSearchText(item[labelKey]) || String(value));
       }
     }).catch(() => {
-      setSearch(String(value));
+      setSearch(labelOnlyDisplay ? "" : String(value));
     });
-  }, [value, dataKey, labelKey, getByIdService]);
+  }, [value, dataKey, labelKey, getByIdService, labelOnlyDisplay]);
 
   // 5. Click Outside logic
   useEffect(() => {
@@ -170,16 +188,16 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         !clickedInAnyPortal
       ) {
         setOpen(false);
-        setSearch(selected ? toSearchText(selected[labelKey]) : "");
+        setSearch(selected ? (labelOnlyDisplay ? getDisplayLabel(selected, labelKey) : toSearchText(selected[labelKey])) : "");
       }
     };
     if (open) document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open, selected, labelKey]);
+  }, [open, selected, labelKey, labelOnlyDisplay]);
 
   const handleSelect = (item) => {
     setSelected(item);
-    setSearch(toSearchText(item[labelKey]));
+    setSearch(getDisplayLabel(item, labelKey) || (labelOnlyDisplay ? "" : toSearchText(item[labelKey])));
     onChange(item[dataKey], item);
     setOpen(false);
   };
@@ -236,7 +254,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       case "Escape":
         e.preventDefault();
         setOpen(false);
-        setSearch(selected ? toSearchText(selected[labelKey]) : "");
+        setSearch(selected ? (labelOnlyDisplay ? getDisplayLabel(selected, labelKey) : toSearchText(selected[labelKey])) : "");
         break;
       case "Tab":
         // Select the active item on Tab if one is highlighted
@@ -244,7 +262,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           handleSelect(items[activeIndex]);
         } else {
           setOpen(false);
-          setSearch(selected ? toSearchText(selected[labelKey]) : "");
+          setSearch(selected ? (labelOnlyDisplay ? getDisplayLabel(selected, labelKey) : toSearchText(selected[labelKey])) : "");
         }
         break;
     }
@@ -302,7 +320,10 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
             {!searchText.trim() && apiMessage && <span className="text-[10px] text-slate-500 font-normal leading-relaxed">{apiMessage}</span>}
           </li>
         ) : (
-          items.map((item, idx) => (
+          items.map((item, idx) => {
+            const rowLabel = getDisplayLabel(item, labelKey) || (labelOnlyDisplay ? "" : toSearchText(item[labelKey]));
+            if (labelOnlyDisplay && !rowLabel) return null;
+            return (
             <li key={item[dataKey] || idx} onClick={() => handleSelect(item)}
               onMouseEnter={() => !('ontouchstart' in window) && setActiveIndex(idx)}
               className={`px-3 py-2 cursor-pointer border-b border-slate-50 last:border-0 transition-colors flex flex-col ${
@@ -310,20 +331,21 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
               } ${selected?.[dataKey] === item[dataKey] ? "bg-indigo-100/50" : ""}`}
             >
               <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-700 text-[11px]">{item[labelKey]}</span>
+                <span className="font-bold text-slate-700 text-[11px]">{rowLabel}</span>
                 {selected?.[dataKey] === item[dataKey] && <CheckCircle2 size={12} className="text-indigo-600" />}
               </div>
-              {subLabelKey && item[subLabelKey] != null && String(item[subLabelKey]).trim() !== ""
-                && String(item[subLabelKey]).trim().toLowerCase() !== String(item[labelKey] ?? "").trim().toLowerCase() ? (
+              {(!labelOnlyDisplay && subLabelKey && item[subLabelKey] != null && String(item[subLabelKey]).trim() !== ""
+                && String(item[subLabelKey]).trim().toLowerCase() !== String(item[labelKey] ?? "").trim().toLowerCase()) ? (
                 <span className="text-[9px] text-slate-400 font-medium whitespace-normal break-words">{item[subLabelKey]}</span>
               ) : null}
-              {listHintKey && item[listHintKey] != null && item[listHintKey] !== "" ? (
+              {!labelOnlyDisplay && listHintKey && item[listHintKey] != null && item[listHintKey] !== "" ? (
                 <span className="text-[9px] font-mono text-slate-500 font-semibold tracking-tight">
                   {listHintLabel}: {String(item[listHintKey])}
                 </span>
               ) : null}
             </li>
-          ))
+            );
+          })
         )}
         {loadingMore && <li className="p-3 text-center border-t border-slate-50 bg-slate-50/30"><Loader2 size={16} className="animate-spin mx-auto text-indigo-400" /></li>}
       </ul>
@@ -354,7 +376,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           if(!disabled) { 
             if (open) {
               setOpen(false);
-              setSearch(selected ? toSearchText(selected[labelKey]) : "");
+              setSearch(selected ? (labelOnlyDisplay ? getDisplayLabel(selected, labelKey) : toSearchText(selected[labelKey])) : "");
             } else {
               calcPosition(); 
               setOpen(true); 

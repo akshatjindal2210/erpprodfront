@@ -1,4 +1,4 @@
-const CACHE_NAME = "jfl-erp-static-v4";
+const CACHE_NAME = "jfl-erp-static-v5";
 const STATIC_ASSETS = ["/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/logo.png"];
 
 self.addEventListener("install", (event) => {
@@ -21,6 +21,12 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
+
+  // Hard refresh (Ctrl+Shift+R / Ctrl+F5): always hit network, skip cache.
+  if (request.cache === "reload" || request.cache === "no-store") {
+    event.respondWith(fetch(request));
+    return;
+  }
 
   // Always use network-first for page/document navigations
   // to avoid blank route refresh issues in Next.js.

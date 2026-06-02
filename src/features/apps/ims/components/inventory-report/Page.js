@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { BarChart3, RefreshCw } from "lucide-react";
 import { toast } from "react-toastify";
 import DataTable from "@/core/components/ui/DataTable";
@@ -9,11 +9,9 @@ import SearchableSelect from "@/core/components/common/SearchableSelect";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import { inventoryReportService } from "@/features/apps/ims/services/inventoryReport";
-import { fetchAllListPages } from "@/features/apps/ims/helpers/clientListSearch";
-import {
-  applyInventoryView,
-  buildFilterOptionsFromRows,
-} from "./inventoryReportClient";
+import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
+
+const PAGE_SIZE = 100;
 
 const EMPTY_FILTERS = {
   item_dcodes: [],
@@ -29,69 +27,132 @@ const EMPTY_PICKERS = {
   packing_numbers: null,
 };
 
+const EMPTY_TOTALS = {
+  fg_stock_qty: 0,
+  in_store_qty: 0,
+  packing_area_qty: 0,
+  out_qty: 0,
+};
+
+function toApiFilters(filters) {
+  const o = {};
+  if (filters.item_dcodes?.length) o.item_dcodes = filters.item_dcodes;
+  if (filters.customer_codes?.length) o.customer_codes = filters.customer_codes;
+  if (filters.location_ids?.length) o.location_ids = filters.location_ids;
+  if (filters.packing_numbers?.length) o.packing_numbers = filters.packing_numbers;
+  return o;
+}
+
+function normalizeFilterOptions(data) {
+  const d = data || {};
+  return {
+    items: Array.isArray(d.items) ? d.items : [],
+    customers: Array.isArray(d.customers) ? d.customers : [],
+    locations: Array.isArray(d.locations) ? d.locations : [],
+    packings: Array.isArray(d.packings) ? d.packings : [],
+  };
+}
+
 export default function InventoryReportPage() {
-  const [allRows, setAllRows] = useState([]);
+  const [rows, setRows] = useState([]);
+  const [serverTotal, setServerTotal] = useState(0);
+  const [serverTotals, setServerTotals] = useState(EMPTY_TOTALS);
   const [loading, setLoading] = useState(false);
   const [viewMode, handleViewMode] = useViewMode();
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [pickerValues, setPickerValues] = useState(EMPTY_PICKERS);
+  const [filterOptions, setFilterOptions] = useState({
+    items: [],
+    customers: [],
+    locations: [],
+    packings: [],
+  });
 
   const [params, setParams] = useState({
     sortKey: "packing_number",
     sortDir: "desc",
   });
 
-  const loadAllFromServer = useCallback(async () => {
-    setLoading(true);
+  const pageRef = useRef(1);
+  const loadGenRef = useRef(0);
+
+  const loadFilterOptions = useCallback(async (apiFilters) => {
     try {
-      const { data } = await fetchAllListPages(
-        async (page, limit) => {
-          const body = await inventoryReportService.getReport({
-            page,
-            limit,
-            sortBy: "packing_number",
-            order: "DESC",
-            filters: {},
-          });
-          if (!body?.success) {
-            throw new Error(body?.message || "Report failed");
-          }
-          const rows = Array.isArray(body?.data) ? body.data : [];
-          return {
-            data: rows,
-            total: Number(body?.total ?? rows.length),
-          };
-        },
-        1000,
-        50000
-      );
-      setAllRows(data);
-      if (!data.length) {
-        toast.info("No inventory entries found for the current filters.");
+      const res = await inventoryReportService.getFilterOptions(apiFilters);
+      if (res?.success) {
+        setFilterOptions(normalizeFilterOptions(res.data));
       }
-    } catch (err) {
-      toast.error(err?.message || "Report load failed");
-      setAllRows([]);
-    } finally {
-      setLoading(false);
+    } catch {
+      /* dropdowns optional */
     }
   }, []);
 
-  useEffect(() => {
-    loadAllFromServer();
-  }, [loadAllFromServer]);
+  const loadReport = useCallback(
+    async ({ pageNum = 1, append = false } = {}) => {
+      const gen = ++loadGenRef.current;
+      setLoading(true);
+      const apiFilters = toApiFilters(filters);
+      try {
+        const body = await inventoryReportService.getReport({
+          page: pageNum,
+          limit: PAGE_SIZE,
+          sortBy: params.sortKey,
+          order: params.sortDir.toUpperCase(),
+          filters: apiFilters,
+          includeTotals: pageNum === 1,
+        });
+        if (gen !== loadGenRef.current) return;
 
-  const filterOptions = useMemo(() => buildFilterOptionsFromRows(allRows), [allRows]);
+        if (!body?.success) {
+          throw new Error(body?.message || "Report failed");
+        }
 
-  const { rows: items, totals, total: totalItems } = useMemo(
-    () =>
-      applyInventoryView(allRows, {
-        filters,
-        sortKey: params.sortKey,
-        sortDir: params.sortDir,
-      }),
-    [allRows, filters, params.sortKey, params.sortDir]
+        const chunk = Array.isArray(body.data) ? body.data : [];
+        setRows((prev) => (append ? [...prev, ...chunk] : chunk));
+        setServerTotal(Number(body.total ?? chunk.length));
+        if (body.totals && pageNum === 1) {
+          setServerTotals({
+            fg_stock_qty: Number(body.totals.fg_stock_qty) || 0,
+            in_store_qty: Number(body.totals.in_store_qty) || 0,
+            packing_area_qty: Number(body.totals.packing_area_qty) || 0,
+            out_qty: Number(body.totals.out_qty) || 0,
+          });
+        }
+        pageRef.current = pageNum;
+
+        if (!append && !chunk.length) {
+          toast.info("No inventory entries found for the current filters.");
+        }
+      } catch (err) {
+        if (gen !== loadGenRef.current) return;
+        toast.error(err?.message || "Report load failed");
+        if (!append) {
+          setRows([]);
+          setServerTotal(0);
+          setServerTotals(EMPTY_TOTALS);
+        }
+      } finally {
+        if (gen === loadGenRef.current) setLoading(false);
+      }
+    },
+    [filters, params.sortKey, params.sortDir]
   );
+
+  useEffect(() => {
+    const apiFilters = toApiFilters(filters);
+    void loadFilterOptions(apiFilters);
+    void loadReport({ pageNum: 1, append: false });
+  }, [filters, params.sortKey, params.sortDir, loadFilterOptions, loadReport]);
+
+  const handleRefresh = useCallback(() => {
+    void loadFilterOptions(toApiFilters(filters));
+    void loadReport({ pageNum: 1, append: false });
+  }, [filters, loadFilterOptions, loadReport]);
+
+  const handleLoadMore = useCallback(() => {
+    if (loading || rows.length >= serverTotal) return;
+    void loadReport({ pageNum: pageRef.current + 1, append: true });
+  }, [loading, rows.length, serverTotal, loadReport]);
 
   const handleReset = () => {
     setFilters(EMPTY_FILTERS);
@@ -124,7 +185,6 @@ export default function InventoryReportPage() {
       num("Total Stock", "fg_stock_qty"),
       num("In Store", "in_store_qty"),
       num("Packing Area", "packing_area_qty"),
-      // num("Out / Sold", "out_qty"), // hidden for now
     ];
   }, []);
 
@@ -152,8 +212,9 @@ export default function InventoryReportPage() {
             return a.includes(q) || b.includes(q);
           })
         : list;
+      const sorted = sortSelectRowsAsc(filtered, labelKey, subLabelKey ? [subLabelKey] : []);
       const start = (Math.max(1, Number(page) || 1) - 1) * (Number(limit) || 50);
-      return { data: filtered.slice(start, start + (Number(limit) || 50)) };
+      return { data: sorted.slice(start, start + (Number(limit) || 50)) };
     };
   }, []);
 
@@ -185,7 +246,7 @@ export default function InventoryReportPage() {
                   Inventory Report
                 </h1>
                 <p className="text-[10px] text-slate-500 font-medium truncate">
-                  Total Stock = In Store + Packing Area.
+                  Total Stock = In Store + Packing Area. Loads {PAGE_SIZE} rows per page.
                 </p>
               </div>
             </div>
@@ -193,10 +254,10 @@ export default function InventoryReportPage() {
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
-                onClick={loadAllFromServer}
+                onClick={handleRefresh}
                 disabled={loading}
                 className="rounded-none h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50"
-                title="Reload all data from server"
+                title="Reload report from server"
               >
                 <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
                 Refresh
@@ -280,7 +341,7 @@ export default function InventoryReportPage() {
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
           <DataTable
             headers={HEADERS}
-            data={items}
+            data={rows}
             allowCopy={true}
             loading={loading}
             showSelection={false}
@@ -295,50 +356,44 @@ export default function InventoryReportPage() {
               }))
             }
             emptyIcon={BarChart3}
-            emptyMessage={allRows.length ? "No rows match filters" : "No data yet"}
+            emptyMessage={serverTotal ? "No rows on this page" : "No data yet"}
             emptySubMessage={
-              allRows.length
-                ? "Change or clear a filter, or click Refresh to reload."
-                : "Click Refresh to load inventory from the server."
+              serverTotal
+                ? "Change or clear a filter, or click Refresh."
+                : "Adjust filters or click Refresh to load inventory."
             }
-            hasMore={false}
-            totalItems={totalItems}
+            hasMore={rows.length < serverTotal}
+            onLoadMore={handleLoadMore}
+            totalItems={serverTotal}
             getRowId={(row, i) => String(row?.id ?? row?.packing_number ?? `r-${i}`)}
           />
           <div className="shrink-0 border-t-2 border-indigo-200 bg-indigo-50/80 px-3 py-2.5">
             <p className="text-[9px] font-black uppercase tracking-widest text-indigo-700 mb-2">
               {hasActiveFilters ? "Total (filtered)" : "Total (all)"}
-              {!loading && allRows.length ? (
+              {!loading && serverTotal ? (
                 <span className="font-normal text-slate-500 normal-case tracking-normal">
                   {" "}
-                  · {totalItems.toLocaleString()} row{totalItems === 1 ? "" : "s"}
-                  {hasActiveFilters ? ` of ${allRows.length.toLocaleString()}` : ""}
+                  · showing {rows.length.toLocaleString()} of {serverTotal.toLocaleString()} packing
+                  {hasActiveFilters ? " (filters on)" : ""}
                 </span>
               ) : null}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
                 <p className="text-[9px] font-bold uppercase text-slate-500 tracking-wide">Total Stock</p>
-                <p className="text-lg font-black text-slate-800 tabular-nums">{formatQty(totals.fg_stock_qty)}</p>
+                <p className="text-lg font-black text-slate-800 tabular-nums">{formatQty(serverTotals.fg_stock_qty)}</p>
                 <p className="text-[8px] text-slate-400 font-medium mt-0.5">In store + packing area</p>
               </div>
               <div className="rounded-lg border border-emerald-200 bg-white px-3 py-2 shadow-sm">
                 <p className="text-[9px] font-bold uppercase text-emerald-700 tracking-wide">In Store</p>
-                <p className="text-lg font-black text-emerald-800 tabular-nums">{formatQty(totals.in_store_qty)}</p>
+                <p className="text-lg font-black text-emerald-800 tabular-nums">{formatQty(serverTotals.in_store_qty)}</p>
                 <p className="text-[8px] text-slate-400 font-medium mt-0.5">On rack / shelf</p>
               </div>
               <div className="rounded-lg border border-amber-200 bg-white px-3 py-2 shadow-sm">
                 <p className="text-[9px] font-bold uppercase text-amber-700 tracking-wide">Packing Area</p>
-                <p className="text-lg font-black text-amber-800 tabular-nums">{formatQty(totals.packing_area_qty)}</p>
+                <p className="text-lg font-black text-amber-800 tabular-nums">{formatQty(serverTotals.packing_area_qty)}</p>
                 <p className="text-[8px] text-slate-400 font-medium mt-0.5">Not on rack yet</p>
               </div>
-              {/* Out / Sold total — hidden for now
-              <div className="rounded-lg border border-rose-200 bg-white px-3 py-2 shadow-sm">
-                <p className="text-[9px] font-bold uppercase text-rose-700 tracking-wide">Out / Sold</p>
-                <p className="text-lg font-black text-rose-800 tabular-nums">{formatQty(totals.out_qty)}</p>
-                <p className="text-[8px] text-slate-400 font-medium mt-0.5">Dispatched or adjusted out</p>
-              </div>
-              */}
             </div>
           </div>
         </div>
@@ -346,4 +401,3 @@ export default function InventoryReportPage() {
     </div>
   );
 }
-

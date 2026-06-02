@@ -68,7 +68,7 @@ function forwardingTableSearchParts(row, reportType = "summary") {
     row.approved ? "AUTHORIZED" : "PENDING",
     row.approved ? "● AUTHORIZED" : "○ PENDING"
   );
-  push(row.out_entry_locked ? "LOCKED" : "UNLOCKED");
+  push(formatLockStatusCell(row).text);
 
   push(row.transporter_name, row.transporter_name ? null : "Direct Party");
   push(row.vehicle_number, row.vehicle_number ? null : "NO VEHICLE");
@@ -87,6 +87,48 @@ function forwardingTableSearchParts(row, reportType = "summary") {
   return parts;
 }
 
+/** Lock Status: out entry complete → COMPLETE, else locked / unlocked. */
+function formatLockStatusCell(row) {
+  const complete =
+    row?.out_entry_complete === true || row?.out_entry_scan_complete === true;
+  if (complete) {
+    return { text: "COMPLETE", className: "bg-emerald-50 text-emerald-600 border-emerald-100" };
+  }
+  if (row?.out_entry_locked) {
+    return { text: "LOCKED", className: "bg-rose-50 text-rose-600 border-rose-100" };
+  }
+  return { text: "UNLOCKED", className: "bg-slate-50 text-slate-500 border-slate-100" };
+}
+
+function LockStatusBadge({ row }) {
+  const { text, className } = formatLockStatusCell(row);
+  return (
+    <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${className}`}>
+      {text}
+    </span>
+  );
+}
+
+const DISPATCH_FILTER_OPTIONS = [
+  { label: "All", value: "all" },
+  { label: "Locked", value: "locked" },
+  { label: "Unlocked", value: "unlocked" },
+  { label: "Complete", value: "complete" },
+];
+
+function buildDispatchApiFilters(dispatchFilter) {
+  switch (dispatchFilter) {
+    case "locked":
+      return { out_entry_locked: true };
+    case "unlocked":
+      return { out_entry_locked: false };
+    case "complete":
+      return { out_entry_complete: true };
+    default:
+      return {};
+  }
+}
+
 export default function ForwardingPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("forwarding_note_master", "view"), [canAccess]);
@@ -100,8 +142,13 @@ export default function ForwardingPage() {
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [params, setParams] = useState({
-    pageSize: 1000, status: "all", lockStatus: "all",
-    fromDate: dateFilterDefaults.from, toDate: dateFilterDefaults.to, sortKey: "fuid", sortDir: "desc"
+    pageSize: 1000,
+    status: "all",
+    dispatchFilter: "all",
+    fromDate: dateFilterDefaults.from,
+    toDate: dateFilterDefaults.to,
+    sortKey: "fuid",
+    sortDir: "desc",
   });
 
   useEffect(() => {
@@ -135,7 +182,7 @@ export default function ForwardingPage() {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
           ...(params.status !== "all" && { approved: params.status === "approved" }),
-          ...(params.lockStatus !== "all" && { out_entry_locked: params.lockStatus === "locked" })
+          ...buildDispatchApiFilters(params.dispatchFilter),
         }
       };
 
@@ -153,7 +200,16 @@ export default function ForwardingPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status, params.lockStatus, reportType]);
+  }, [
+    params.pageSize,
+    params.sortKey,
+    params.sortDir,
+    params.fromDate,
+    params.toDate,
+    params.status,
+    params.dispatchFilter,
+    reportType,
+  ]);
 
   useEffect(() => { 
     fetchData(); 
@@ -183,12 +239,12 @@ export default function ForwardingPage() {
   }, [loading, items.length, totalItems]);
 
   const handleFilterApply = (data) => {
-    setParams(prev => ({ 
-      ...prev, 
-      fromDate: data.fromDate, 
-      toDate: data.toDate, 
-      status: data.approvedStatus || prev.status,
-      lockStatus: data.lockStatus || prev.lockStatus
+    setParams((prev) => ({
+      ...prev,
+      fromDate: data.fromDate,
+      toDate: data.toDate,
+      status: data.approvedStatus ?? prev.status,
+      dispatchFilter: data.dispatchFilter ?? prev.dispatchFilter,
     }));
   };
 
@@ -197,11 +253,11 @@ export default function ForwardingPage() {
     setParams({
       pageSize: 1000,
       status: "all",
-      lockStatus: "all",
+      dispatchFilter: "all",
       fromDate: dateFilterDefaults.from,
       toDate: dateFilterDefaults.to,
       sortKey: "fuid",
-      sortDir: "desc"
+      sortDir: "desc",
     });
   };
 
@@ -218,6 +274,10 @@ export default function ForwardingPage() {
     }) || null;
   }, [items, selectedId, reportType]);
   const isSelectedLocked = Boolean(selectedRecord?.out_entry_locked);
+  const selectedLockStatus = useMemo(
+    () => (selectedRecord ? formatLockStatusCell(selectedRecord) : null),
+    [selectedRecord]
+  );
 
   useEffect(() => {
     if (selectedRecord?.fuid != null) {
@@ -374,14 +434,12 @@ export default function ForwardingPage() {
       ]
     },
     {
-      label: "Lock Status", key: "lockStatus", value: params.lockStatus,
-      options: [
-        { label: "All Locks", value: "all" },
-        { label: "Locked", value: "locked" },
-        { label: "Unlocked", value: "unlocked" }
-      ]
+      label: "Lock / Complete",
+      key: "dispatchFilter",
+      value: params.dispatchFilter,
+      options: DISPATCH_FILTER_OPTIONS,
     },
-  ], [params.status, params.lockStatus]);
+  ], [params.status, params.dispatchFilter]);
 
   const HEADERS = useMemo(() => {
     const baseHeaders = [
@@ -419,11 +477,7 @@ export default function ForwardingPage() {
       [
         "Lock Status",
         "out_entry_locked",
-        (v) => (
-          <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-rose-50 text-rose-600 border-rose-100" : "bg-slate-50 text-slate-500 border-slate-100"}`}>
-            {v ? "LOCKED" : "UNLOCKED"}
-          </span>
-        ),
+        (_v, row) => <LockStatusBadge row={row} />,
         { width: "120px" }
       ],
       ["Logistics", "transporter_name", (v, row) => (
@@ -511,7 +565,6 @@ export default function ForwardingPage() {
                   </button>
                 </>
               )}
-              
               <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
               
               <button onClick={() => fetchData()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all">
@@ -529,9 +582,11 @@ export default function ForwardingPage() {
                 <Info size={12} className="shrink-0" />
                 FUID {reportType === "summary" ? selectedRecord?.fuid : `${selectedRecord?.fuid} · ${selectedRecord?.item_code || "—"}`}
                 <span className="text-indigo-400 font-semibold normal-case">PO {selectedRecord?.po_number || "—"}</span>
-                {isSelectedLocked ? (
-                  <span className="px-1.5 py-0.5 border border-rose-200 bg-rose-50 text-rose-600 text-[8px] font-black uppercase">
-                    Locked
+                {selectedLockStatus ? (
+                  <span
+                    className={`px-1.5 py-0.5 border text-[8px] font-black uppercase ${selectedLockStatus.className}`}
+                  >
+                    {selectedLockStatus.text}
                   </span>
                 ) : null}
               </span>
@@ -585,12 +640,12 @@ export default function ForwardingPage() {
         </div>
 
         <ListPageFilterStrip>
-          <DateRangeFilter 
+          <DateRangeFilter
             key={`${params.fromDate}-${params.toDate}`}
-            fromDate={params.fromDate} 
-            toDate={params.toDate} 
-            extraFilters={extraFilters} 
-            onApply={handleFilterApply} 
+            fromDate={params.fromDate}
+            toDate={params.toDate}
+            extraFilters={extraFilters}
+            onApply={handleFilterApply}
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}

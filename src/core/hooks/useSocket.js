@@ -6,6 +6,20 @@ import { io } from "socket.io-client";
 import { FILE_BASE_URL } from "@/core/utils/lib";
 import { userService } from "@/features/shared/auth/services/userService";
 
+/** Tear down without browser "closed before connection is established" noise. */
+function closeSocketQuietly(socket) {
+  if (!socket) return;
+  socket.io.opts.reconnection = false;
+  const engine = socket.io?.engine;
+  if (engine?.readyState === "opening") {
+    engine.close();
+    return;
+  }
+  if (socket.connected) {
+    socket.disconnect();
+  }
+}
+
 export const useSocket = (userId) => {
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
@@ -48,11 +62,12 @@ export const useSocket = (userId) => {
   }, [refreshAuthFromServer]);
 
   useEffect(() => {
-    if (!userId) return;
+    const uid = userId != null && userId !== "" ? Number(userId) : null;
+    if (!uid || Number.isNaN(uid)) return;
 
     const socket = io(FILE_BASE_URL, {
       withCredentials: true,
-      transports: ["websocket", "polling"],
+      transports: ["polling", "websocket"],
       reconnection: true,
       reconnectionAttempts: 10,
     });
@@ -84,7 +99,7 @@ export const useSocket = (userId) => {
       socket.off("connect", onConnect);
       socket.off("permissions_updated", onPermissionsUpdated);
       socket.off("module_status_updated", onPermissionsUpdated);
-      socket.disconnect();
+      closeSocketQuietly(socket);
     };
   }, [userId]);
 };

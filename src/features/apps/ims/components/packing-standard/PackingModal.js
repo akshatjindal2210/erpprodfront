@@ -12,6 +12,7 @@ import Drawer from "@/core/components/ui/Drawer";
 import ModuleSopAcknowledgment from "@/core/components/common/ModuleSopAcknowledgment";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { ERR_INPUT, OK_INPUT, UNIT_OPTIONS, FormLabel } from "@/core/components/common/Constants";
+import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 import { focusFirstError } from "@/core/utils/formFocus";
 
 const FIELD_ORDER = ["item_dcode", "qty", "type", "sticker_type"];
@@ -267,7 +268,9 @@ export default function PackingModal({ open, onClose, onSuccess, editData, mode 
                 onChange={(e) => handleChange("unit", e.target.value)}
                 className={`${OK_INPUT} text-[11px] h-[38px] rounded-lg appearance-none pr-10`}
               >
-                {UNIT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                {sortFilterOptionsAsc(UNIT_OPTIONS).map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
             </div>
@@ -307,7 +310,7 @@ export default function PackingModal({ open, onClose, onSuccess, editData, mode 
                   onChange={(e) => handleChange("sticker_type", Number(e.target.value))}
                   className={`${errors.sticker_type ? ERR_INPUT : OK_INPUT} text-[11px] h-[38px] rounded-lg appearance-none pr-10`}
                 >
-                  {STICKER_TYPE_OPTIONS.map((opt) => (
+                  {sortFilterOptionsAsc(STICKER_TYPE_OPTIONS).map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>

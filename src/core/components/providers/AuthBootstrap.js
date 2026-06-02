@@ -15,7 +15,11 @@ export default function AuthBootstrap({ children }) {
   const isLoginPage = pathname === "/login" || pathname?.startsWith("/login/");
 
   // Live permission / app_access updates (admin saves → this user's socket → /me).
-  useSocket(!isLoginPage && user?.id ? user.id : null);
+  const socketUserId =
+    !isLoginPage && user?.id != null && user.id !== ""
+      ? Number(user.id)
+      : null;
+  useSocket(socketUserId != null && !Number.isNaN(socketUserId) ? socketUserId : null);
 
   if (!isLoginPage && !user && !sessionReady) {
     return (

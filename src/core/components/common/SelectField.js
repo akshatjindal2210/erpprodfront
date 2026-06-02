@@ -1,6 +1,8 @@
 import { ChevronDown, AlertCircle } from "lucide-react";
+import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 
 function SelectField({ label, value, onChange, options = [], labelMap, placeholder, error, selectCls, required, dataField, labelClassName, ...props }) {
+  const sortedOptions = sortFilterOptionsAsc(options);
   
   const baseStyles = "w-full appearance-none bg-white border rounded-lg px-3 py-2 text-sm text-slate-800 outline-none transition-all pr-9 h-10 flex items-center";
   const stateStyles = error ? "border-rose-300 bg-rose-50/30 text-rose-600 focus:border-rose-400 focus:ring-2 focus:ring-rose-100" : "border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100";
@@ -28,7 +30,7 @@ function SelectField({ label, value, onChange, options = [], labelMap, placehold
             </option>
           )}
           
-          {options.map((opt) => {
+          {sortedOptions.map((opt) => {
             const displayLabel = labelMap && labelMap[opt] ? labelMap[opt] : opt.toString().charAt(0).toUpperCase() + opt.toString().slice(1).toLowerCase();
 
             return (

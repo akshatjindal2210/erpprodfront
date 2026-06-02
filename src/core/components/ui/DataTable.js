@@ -4,25 +4,13 @@ import { Inbox, Loader2 } from "lucide-react";
 import TableSkeleton from "@/core/components/common-table/TableSkeleton";
 import CardSkeleton from "@/core/components/common-table/CardSkeleton";
 import EmptyState from "@/core/components/common-table/EmptyState";
-import {
-  buildCellRangeSet,
-  isCellInSet,
-  buildClipboardFromCellSet,
-  copyTextToClipboard,
-  getCellPlainText,
-} from "@/core/utils/dataTableCellSelection";
+import { buildCellRangeSet, isCellInSet, buildClipboardFromCellSet, copyTextToClipboard, getCellPlainText } from "@/core/utils/dataTableCellSelection";
 import { MODULE_DISABLED_MESSAGE } from "@/core/components/common/Constants";
+import { isHotkeyTypingTarget } from "@/core/utils/listHotkeys";
 
 /** Pixels: checkbox column — colgroup + sticky offsets (`table-fixed` otherwise stretches the first col). */
 const DATA_TABLE_SELECTION_COL_PX = 36;
 const ARROW_SCROLL_PX = 120;
-
-function isTypingTarget(target) {
-  if (!target?.tagName) return false;
-  const tag = target.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-  return !!target.isContentEditable;
-}
 
 /** Arrow navigation after user clicked inside a list table (no focus ring on the container). */
 function isListTableKeyboardContext(target, tableEngaged) {
@@ -59,15 +47,7 @@ export default function DataTable({
   suppressLoadingFooterRow = false,
   /** When true and `loading`, show centered loader over the list and hide skeleton/footer rows (API fetch from parent). */
   centerLoadingOverlay = true,
-  /** Ctrl+Alt+N / Cmd+Opt+N — “New” drawer (plain Ctrl+N is reserved by the browser). */
-  hotkeyNew,
-  /** Ctrl+Alt+E / Cmd+Opt+E — edit selected row (parent enforces RBAC / edit rules). */
-  hotkeyEdit,
-  /** Ctrl+Alt+P / Cmd+Opt+P — print selected row (plain Ctrl+P in PWA; browser reserves Ctrl+P). */
-  hotkeyPrint,
-  /** Ctrl+A — authorize / approve selected row (parent enforces RBAC / row rules). */
-  hotkeyApprove,
-  /** When true, list hotkeys N/E/P/A (and copy) are ignored — e.g. form drawer already open. */
+  /** When true, suppress list keyboard nav while a drawer/modal is open (`useListDrawerHotkeys` handles N/E/P/A). */
   hotkeysDisabled = false,
   /** Table: cell/range select + Ctrl+C only when `allowCopy` is true. */
   enableCellSelection = true,
@@ -279,19 +259,18 @@ export default function DataTable({
     return data.findIndex((item, i) => String(getId(item, i)) === String(selectedId));
   }, [data, selectedId, getId]);
 
-  /** Page open / data refresh only: focus first column cell — not on checkbox row select. */
+  const savedCellFocusRef = useRef({ row: 0, col: 0 });
+  const prevDataRef = useRef(data);
+  const prevHotkeysDisabledRef = useRef(hotkeysDisabled);
+
   useEffect(() => {
-    const canNavigate = showSelection || cellSelectActive;
-    const hasRows = data.length > 0;
-    tableEngagedRef.current = canNavigate && hasRows && !hotkeysDisabled;
+    tableEngagedRef.current =
+      (showSelection || cellSelectActive) && data.length > 0 && !hotkeysDisabled;
+  }, [showSelection, cellSelectActive, data.length, hotkeysDisabled]);
 
-    if (!hasRows || hotkeysDisabled || !cellSelectActive || headers.length < 1) return;
-
-    setSelectionMode("cell");
-    setAnchorCell({ row: 0, col: 0 });
-    setSelectedCells(buildCellRangeSet(0, 0, 0, 0));
-    cellDragRef.current = { active: false, anchor: null };
-  }, [data, cellSelectActive, hotkeysDisabled, headers.length]);
+  useEffect(() => {
+    if (anchorCell) savedCellFocusRef.current = anchorCell;
+  }, [anchorCell]);
 
   const selectRowByIndex = useCallback(
     (rowIndex) => {
@@ -322,6 +301,60 @@ export default function DataTable({
     },
     [cellSelectActive, data, headers.length, getId, onSelect, scrollRowIntoView]
   );
+
+  const resolveFocusCol = useCallback(
+    (rowIndex) => {
+      const saved = savedCellFocusRef.current;
+      if (saved?.row === rowIndex) return saved.col ?? 0;
+      return 0;
+    },
+    []
+  );
+
+  /** Page open / list data refresh: first cell, or keep parent `selectedId` row if still in data. */
+  useEffect(() => {
+    if (!cellSelectActive || !data.length || headers.length < 1) return;
+
+    const dataChanged = prevDataRef.current !== data;
+    prevDataRef.current = data;
+    if (!dataChanged) return;
+
+    const rowIdx = findSelectedRowIndex();
+    if (rowIdx >= 0) {
+      focusCell(rowIdx, resolveFocusCol(rowIdx));
+      return;
+    }
+    focusCell(0, 0);
+  }, [data, cellSelectActive, headers.length, findSelectedRowIndex, focusCell, resolveFocusCol]);
+
+  /** Drawer/modal closed: restore cell focus + scroll to the row user had selected. */
+  useEffect(() => {
+    const wasDisabled = prevHotkeysDisabledRef.current;
+    prevHotkeysDisabledRef.current = hotkeysDisabled;
+
+    if (!wasDisabled || hotkeysDisabled) return;
+    if (selectedId == null || selectedId === "") return;
+
+    const rowIdx = findSelectedRowIndex();
+    if (rowIdx < 0) return;
+
+    if (cellSelectActive) {
+      focusCell(rowIdx, resolveFocusCol(rowIdx));
+      return;
+    }
+    if (showSelection) {
+      requestAnimationFrame(() => scrollRowIntoView(selectedId));
+    }
+  }, [
+    hotkeysDisabled,
+    selectedId,
+    cellSelectActive,
+    showSelection,
+    findSelectedRowIndex,
+    focusCell,
+    resolveFocusCol,
+    scrollRowIntoView,
+  ]);
 
   // For toggle selection on click, we want to allow deselecting by clicking the same cell — so pass the current selectedId and let parent decide whether to clear or set.
   // const handleDataCellPointer = useCallback(
@@ -390,7 +423,7 @@ export default function DataTable({
     if (!showSelection && !cellSelectActive) return;
 
     const handleArrowNav = (e) => {
-      if (isTypingTarget(e.target)) return;
+      if (isHotkeyTypingTarget(e.target)) return;
       if (!isListTableKeyboardContext(e.target, tableEngagedRef.current)) return;
 
       const s = navStateRef.current;
@@ -500,7 +533,7 @@ export default function DataTable({
     return () => window.removeEventListener("keydown", handleArrowNav, true);
   }, [showSelection, cellSelectActive]);
 
-   // --- 4. KEYBOARD SHORTCUTS (Ctrl/Cmd+C copy; Ctrl+Alt+N/E/P for new/edit/print; plain Ctrl+N/E/P may work in PWA) ---
+   // --- 4. KEYBOARD SHORTCUTS (Ctrl+C copy; list N/E/P/A live in useListDrawerHotkeys) ---
    const stateRef = useRef({});
    useEffect(() => {
      stateRef.current = {
@@ -514,10 +547,6 @@ export default function DataTable({
        selectedCells,
        cellSelectActive,
        hotkeysDisabled,
-       hotkeyNew,
-       hotkeyEdit,
-       hotkeyPrint,
-       hotkeyApprove,
      };
    }, [
      data,
@@ -530,83 +559,32 @@ export default function DataTable({
      selectedCells,
      cellSelectActive,
      hotkeysDisabled,
-     hotkeyNew,
-     hotkeyEdit,
-     hotkeyPrint,
-     hotkeyApprove,
    ]);
 
-   const hasListHotkeys =
-     allowCopy ||
-     typeof hotkeyNew === "function" ||
-     typeof hotkeyEdit === "function" ||
-     typeof hotkeyPrint === "function" ||
-     typeof hotkeyApprove === "function";
-
    useEffect(() => {
-     if (!hasListHotkeys) return;
-
      const handleKeyDown = (e) => {
-       if (isTypingTarget(e.target)) return;
+       if (isHotkeyTypingTarget(e.target)) return;
 
        const s = stateRef.current;
        if (s.hotkeysDisabled) return;
 
        const mod = e.ctrlKey || e.metaKey;
-       const key = e.key.toLowerCase();
-       /**
-        * Chrome/Edge reserve plain Ctrl+N (new window). In normal browser tabs we rely on Alt chord so preventDefault works.
-        * In PWA / installed contexts Ctrl+N is often available, so accept both.
-        */
-       const listChord = mod && e.altKey && !e.shiftKey;
-       const listChordPwa = mod && !e.altKey && !e.shiftKey;
+       const key = (e.key || "").toLowerCase();
 
-       if ((listChord || listChordPwa) && key === "n" && typeof s.hotkeyNew === "function") {
-         e.preventDefault();
-         e.stopPropagation();
-         s.hotkeyNew();
-         return;
-       }
-
-       if ((listChord || listChordPwa) && key === "e" && typeof s.hotkeyEdit === "function" && s.selectedId) {
-         e.preventDefault();
-         e.stopPropagation();
-         s.hotkeyEdit();
-         return;
-       }
-
-       /**
-        * Chrome/Edge reserve plain Ctrl+P (print page). In browser tabs use Alt chord; PWA often allows Ctrl+P.
-        */
-       if ((listChord || listChordPwa) && key === "p" && typeof s.hotkeyPrint === "function" && s.selectedId) {
-         e.preventDefault();
-         e.stopPropagation();
-         s.hotkeyPrint();
-         return;
-       }
-
-       if (mod && !e.altKey && !e.shiftKey && key === "a" && typeof s.hotkeyApprove === "function") {
-         e.preventDefault();
-         e.stopPropagation();
-         if (s.selectedId) s.hotkeyApprove();
-         return;
-       }
-
-       const isCopy = mod && key === "c" && !e.altKey;
-       if (!isCopy) return;
+       if (!mod || e.altKey || e.shiftKey || key !== "c") return;
+       if (!s.allowCopy) return;
 
        const selection = window.getSelection();
        if (selection && selection.toString().length > 0) return;
 
-       if (!s.allowCopy) return;
+       e.preventDefault();
+       e.stopPropagation();
 
        if (
          s.cellSelectActive &&
          s.selectionMode === "cell" &&
          s.selectedCells?.size > 0
        ) {
-         e.preventDefault();
-         e.stopPropagation();
          s.copyCellSelectionToClipboard();
          return;
        }
@@ -619,16 +597,12 @@ export default function DataTable({
          return String(id) === String(currentSelectedId);
        });
 
-       if (selectedItem) {
-         e.preventDefault();
-         e.stopPropagation();
-         currentCopyFn(selectedItem);
-       }
+       if (selectedItem) currentCopyFn(selectedItem);
      };
 
      window.addEventListener("keydown", handleKeyDown, true);
      return () => window.removeEventListener("keydown", handleKeyDown, true);
-   }, [hasListHotkeys]);
+   }, [allowCopy]);
 
   const handleRowClick = (item, id) => {
     if (onRowClick) {

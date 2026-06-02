@@ -1,49 +1,37 @@
 import { masterService } from "@/features/apps/ims/services/master";
 import { boxService } from "@/features/apps/ims/services/box";
+import { stockAdjustmentService } from "@/features/apps/ims/services/stockAdjustment";
+import { rowInIndianFinancialYear } from "@/core/utils/indianFinancialYear";
+import { parseOptionalStandardQtyPerBox } from "@/features/apps/ims/utils/stockAdjustmentPacking";
 import {
   dedupeMinusDrawerBoxRows,
   isBoxVisibleForStockAdjustmentMinus,
   isValidMinusDrawerBoxRow,
 } from "@/features/apps/ims/utils/boxInventory";
 
-const STOCK_ADJ_PERMS = { permission_module: "stock_adjustment", permission_action: "view" };
-
 function normDoc(v) {
   return String(v ?? "").trim();
 }
 
-async function resolveAccName(accCode) {
-  const code = accCode != null ? String(accCode).trim() : "";
-  if (!code) return null;
-  try {
-    const res = await masterService.getLedgerViewById(code, STOCK_ADJ_PERMS);
-    const row = res?.data ?? res;
-    return row?.acc_name ?? row?.Acc_Name ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function pickAccCode(dailyRow, stickerRow, inHandList) {
-  const fromMeta = dailyRow?.acc_code ?? stickerRow?.acc_code;
-  if (fromMeta != null && String(fromMeta).trim() !== "") return String(fromMeta).trim();
-  const fromBox = (inHandList || []).find(
-    (b) => b?.override_cust != null && String(b.override_cust).trim() !== ""
-  );
-  if (fromBox) return String(fromBox.override_cust).trim();
-  return null;
-}
-
-/** IMS / UI mismatch: "30819" vs 30819, spaces */
-function rowMatchesPacking(row, pn) {
-  const a = normDoc(row?.doc_no);
-  const b = normDoc(pn);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  const na = Number(a);
-  const nb = Number(b);
-  if (Number.isFinite(na) && Number.isFinite(nb) && String(na) === String(nb)) return true;
-  return false;
+function dailyprodFromMeta(serverMeta, pn) {
+  if (!serverMeta) return null;
+  const hasItem = serverMeta.itemdcode != null;
+  const hasAcc =
+    (serverMeta.acc_code != null && String(serverMeta.acc_code).trim() !== "") ||
+    (serverMeta.acc_name != null && String(serverMeta.acc_name).trim() !== "");
+  if (!hasItem && !hasAcc) return null;
+  return {
+    itemdcode: serverMeta.itemdcode ?? null,
+    acc_code: serverMeta.acc_code ?? null,
+    acc_name: serverMeta.acc_name ?? null,
+    item_code: serverMeta.item_code ?? null,
+    item_desc: serverMeta.item_desc ?? null,
+    job_card_no: serverMeta.job_card_no ?? null,
+    total_qty: serverMeta.total_qty ?? null,
+    doc_dt: serverMeta.doc_dt ?? null,
+    doc_no: serverMeta.doc_no ?? pn,
+    party_rate_cust_code: serverMeta.party_rate_cust_code ?? null,
+  };
 }
 
 function mapBoxRow(b, pn, itemdcode, jobCardNo) {
@@ -79,9 +67,17 @@ export async function fetchInHandBoxesForPacking(packingNumber, options = {}) {
 }
 
 /**
- * Packing + boxes for stock adjustment drawer.
+ * Packing + boxes for stock adjustment drawer (fast path: packing-meta + in-hand only).
  * @param {string} packingNumber
- * @param {{ forMinus?: boolean, adjustmentId?: number|null }} [options]
+ * @param {{
+ *   forMinus?: boolean,
+ *   adjustmentId?: number|null,
+ *   itemDcode?: number|string|null,
+ *   financialYear?: string,
+ *   packingMeta?: object|null,
+ *   prefillMeta?: object|null,
+ *   fetchBoxes?: boolean,
+ * }} [options]
  */
 export async function loadPackingContext(packingNumber, options = {}) {
   const pn = normDoc(packingNumber);
@@ -91,65 +87,135 @@ export async function loadPackingContext(packingNumber, options = {}) {
   const adjustmentId = options?.adjustmentId ?? null;
   const adjIdNum =
     adjustmentId != null && Number(adjustmentId) > 0 ? Number(adjustmentId) : null;
+  const itemDcodeOpt = options?.itemDcode ?? null;
+  const fyOpt =
+    options?.financialYear != null ? String(options.financialYear).trim() : "";
 
-  const [dpRes, stickerRes, inHandList] = await Promise.all([
-    masterService.getDailyProd({
-      search: pn,
-      page: 1,
-      limit: 5000,
-    }),
-    boxService.getStickers({ doc_no: pn }).catch(() => ({ success: false, data: [] })),
-    fetchInHandBoxesForPacking(pn, {
-      adjustmentId: forMinus ? adjIdNum : null,
-    }),
+  const embeddedMeta = options.packingMeta ?? options.prefillMeta ?? null;
+  const needBoxes = forMinus || options.fetchBoxes !== false;
+
+  const [metaRes, inHandList] = await Promise.all([
+    embeddedMeta
+      ? Promise.resolve({ success: true, data: embeddedMeta })
+      : stockAdjustmentService
+          .getPackingMeta({
+            packing_number: pn,
+            adjustment_id: adjIdNum,
+            item_dcode: itemDcodeOpt,
+            financial_year: fyOpt || undefined,
+          })
+          .catch(() => ({ success: false })),
+    needBoxes
+      ? fetchInHandBoxesForPacking(pn, { adjustmentId: forMinus ? adjIdNum : null })
+      : Promise.resolve([]),
   ]);
 
-  const dailyList = Array.isArray(dpRes?.data) ? dpRes.data : [];
-  const dailyRow = dailyList.find((r) => rowMatchesPacking(r, pn)) || null;
+  const serverMeta = metaRes?.success ? metaRes.data : null;
+  let dailyprod = dailyprodFromMeta(serverMeta, pn);
 
-  const stickerRow =
-    stickerRes?.success && Array.isArray(stickerRes.data) && stickerRes.data.length > 0
-      ? stickerRes.data[0]
-      : null;
-
-  const itemdcode = dailyRow?.itemdcode ?? stickerRow?.itemdcode ?? null;
-  const acc_code = pickAccCode(dailyRow, stickerRow, inHandList);
-  let acc_name = dailyRow?.acc_name ?? stickerRow?.acc_name ?? null;
-  if (!acc_name && acc_code) {
-    acc_name = await resolveAccName(acc_code);
+  if (!dailyprod && forMinus && (inHandList || []).length > 0) {
+    const b0 = inHandList[0];
+    dailyprod = {
+      itemdcode: b0?.itemdcode ?? b0?.item_dcode ?? null,
+      acc_code:
+        b0?.override_cust != null && String(b0.override_cust).trim() !== ""
+          ? String(b0.override_cust).trim()
+          : null,
+      doc_no: pn,
+    };
   }
 
-  const dailyprod =
-    itemdcode != null
-      ? {
-          itemdcode,
-          acc_code,
-          acc_name,
-          item_code: dailyRow?.item_code ?? stickerRow?.item_code ?? null,
-          item_desc: dailyRow?.item_desc ?? stickerRow?.itemdesc ?? stickerRow?.item_desc ?? null,
-          job_card_no: dailyRow?.job_card_no ?? stickerRow?.job_card_no ?? null,
-          total_qty: dailyRow?.total_qty ?? stickerRow?.total_qty ?? null,
-          doc_dt: dailyRow?.doc_dt ?? stickerRow?.doc_dt ?? null,
-          doc_no: dailyRow?.doc_no ?? stickerRow?.doc_no ?? pn,
-        }
-      : acc_code || acc_name
-        ? {
-            acc_code,
-            acc_name,
-            doc_no: pn,
-          }
-        : null;
-
+  const itemdcode = dailyprod?.itemdcode ?? null;
   const jc = dailyprod?.job_card_no ?? null;
 
-  const boxes = dedupeMinusDrawerBoxRows(
-    (inHandList || [])
-      .filter((b) =>
-        forMinus ? isBoxVisibleForStockAdjustmentMinus(b, { adjustmentId: adjIdNum }) : true
+  const boxes = needBoxes
+    ? dedupeMinusDrawerBoxRows(
+        (inHandList || [])
+          .filter((b) =>
+            forMinus ? isBoxVisibleForStockAdjustmentMinus(b, { adjustmentId: adjIdNum }) : true
+          )
+          .map((b) => mapBoxRow(b, pn, itemdcode, jc))
+          .filter(isValidMinusDrawerBoxRow)
       )
-      .map((b) => mapBoxRow(b, pn, itemdcode, jc))
-      .filter(isValidMinusDrawerBoxRow)
-  );
+    : [];
 
-  return { dailyprod, boxes, stickerRow };
+  let preview = {
+    dailyprod,
+    boxes,
+    stickerRow: null,
+    standard_qty_per_box: serverMeta?.standard_qty_per_box ?? null,
+  };
+
+  const metaComplete =
+    serverMeta?.acc_name &&
+    (serverMeta?.item_code || serverMeta?.itemdcode != null);
+  if (fyOpt && !metaComplete && !options.prefillMeta) {
+    preview = await enrichPackingPreviewFromImsPack(preview, pn, fyOpt);
+  }
+  if (serverMeta?.standard_qty_per_box != null && preview.standard_qty_per_box == null) {
+    preview.standard_qty_per_box = serverMeta.standard_qty_per_box;
+  }
+
+  return preview;
+}
+
+/** IMS pack row → customer / JC / item (edit view + add load). */
+export async function enrichPackingPreviewFromImsPack(packingPreview, packingNumber, financialYear) {
+  const fy = String(financialYear ?? "").trim();
+  const pn = normDoc(packingNumber);
+  if (!fy || !pn || !packingPreview) return packingPreview;
+
+  try {
+    const imsRes = await masterService.getPackByFinancialYearDoc({
+      financial_year: fy,
+      doc_no: pn,
+      packing_number: pn,
+      permission_module: "stock_adjustment",
+      permission_action: "view",
+    });
+    let recs = Array.isArray(imsRes?.records) ? [...imsRes.records] : [];
+    recs = recs.filter((r) => !r.doc_dt || rowInIndianFinancialYear(r, fy));
+    if (!imsRes?.success || recs.length < 1) return packingPreview;
+
+    const first = recs[0];
+    const base = packingPreview.dailyprod;
+    const partyFromPackFy =
+      imsRes?.party_rate_cust_code != null && String(imsRes.party_rate_cust_code).trim() !== ""
+        ? String(imsRes.party_rate_cust_code).trim()
+        : null;
+    const mergedDaily =
+      base?.itemdcode != null
+        ? {
+            ...base,
+            acc_name: first.acc_name ?? base.acc_name,
+            acc_code: first.acc_code ?? base.acc_code,
+            total_qty: first.QTY != null ? String(first.QTY) : base.total_qty,
+            doc_dt: first.doc_dt || first.docdt || base.doc_dt,
+            doc_no: first.docno != null ? String(first.docno) : base.doc_no ?? pn,
+            job_card_no: first.jobcardno || base.job_card_no,
+            party_rate_cust_code: partyFromPackFy,
+            item_code: first.item_code ?? base.item_code,
+            item_desc: first.itemdesc ?? base.item_desc,
+          }
+        : {
+            itemdcode: first.itemdcode,
+            acc_code: first.acc_code,
+            acc_name: first.acc_name,
+            item_code: first.item_code,
+            item_desc: first.itemdesc,
+            job_card_no: first.jobcardno,
+            total_qty: first.QTY != null ? String(first.QTY) : null,
+            doc_dt: first.doc_dt || first.docdt,
+            doc_no: first.docno != null ? String(first.docno) : pn,
+            party_rate_cust_code: partyFromPackFy,
+          };
+
+    return {
+      ...packingPreview,
+      dailyprod: mergedDaily,
+      standard_qty_per_box: parseOptionalStandardQtyPerBox(imsRes.standard_qty_per_box),
+    };
+  } catch {
+    return packingPreview;
+  }
 }

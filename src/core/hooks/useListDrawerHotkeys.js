@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "react-toastify";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
+import { isHotkeyTypingTarget } from "@/core/utils/listHotkeys";
 
 export function editTimeBlockedByAccess(record, access) {
   if (!record || !access || access.days <= 0) return false;
@@ -12,19 +13,20 @@ export function editTimeBlockedByAccess(record, access) {
   return diffDays > access.days;
 }
 
+function canOpenNewByAccess(canAccess, module, addAction, addActions) {
+  const actions = Array.isArray(addActions) && addActions.length > 0 ? addActions : [addAction];
+  return actions.some((action) => canAccess(module, action).allowed);
+}
+
 /**
- Ctrl+Alt+N / Ctrl+Alt+E / Ctrl+Alt+P (DataTable) — same flows as New / Edit / Print toolbar actions.
- Plain Ctrl+N / Ctrl+E / Ctrl+P work in installed PWA where the browser does not reserve those keys.
- Ctrl+A — open authorize / approve drawer for the selected row (when `openApprove` is provided).
- 
- Special pages (e.g. “New Sticker” instead of “New”) can pass:
- - `canOpenNew` when opening needs extra rules (e.g. row must be selected first)
- - `newBlockedMessage` — short copy when that shortcut runs but the gate fails (per-page wording)
- - or `onNewBlocked` instead of `newBlockedMessage` for fully custom behavior (if both set, `onNewBlocked` wins)
-*/
+ * List drawer shortcuts (N/E/P/A) — window listener here; pass `tableHotkeyProps` to DataTable for `hotkeysDisabled` only.
+ * Ctrl+Alt+N / Ctrl+Alt+E / Ctrl+Alt+P (browser); Ctrl+N / E / P in PWA.
+ */
 export function useListDrawerHotkeys({
   module,
   addAction = "add",
+  /** When set, New is allowed if any listed action is permitted (e.g. packing_entry add or edit). */
+  addActions,
   editAction = "edit",
   authorizeAction = "authorize",
   modalOpen,
@@ -32,23 +34,16 @@ export function useListDrawerHotkeys({
   getSelectedRow,
   openAdd,
   openEdit,
-  /** Opens approve / authorize drawer for the selected row (Ctrl+A). */
   openApprove,
-  /** When `openApprove` fails: toast or custom handler (e.g. no row selected). Approved rows may still open the drawer. */
   canApproveSelection,
   onApproveBlocked,
   approveBlockedMessage,
-  /** Optional extra check before “New” (e.g. row must be selected first). */
   canOpenNew,
-  /** When set and `canOpenNew` fails: `toast.info(newBlockedMessage)` (skipped if `onNewBlocked` is set). */
   newBlockedMessage,
-  /** Full override when `canOpenNew` fails; takes precedence over `newBlockedMessage`. */
   onNewBlocked,
   canEditSelection,
-  /** When `canEditSelection` fails: toast or custom handler (e.g. approved row). */
   onEditBlocked,
   editBlockedMessage,
-  /** When set, Ctrl+Alt+P / Ctrl+P runs this for the selected row (list pages with Print). */
   onPrint,
   canPrintSelection,
   printBlockedMessage,
@@ -59,7 +54,7 @@ export function useListDrawerHotkeys({
   const canAccess = useCanAccess();
 
   const openNewModal = useCallback(() => {
-    if (!canAccess(module, addAction).allowed) return;
+    if (!canOpenNewByAccess(canAccess, module, addAction, addActions)) return;
     if (typeof canOpenNew === "function" && !canOpenNew()) {
       if (typeof onNewBlocked === "function") {
         onNewBlocked();
@@ -69,7 +64,7 @@ export function useListDrawerHotkeys({
       return;
     }
     openAdd();
-  }, [canAccess, module, addAction, canOpenNew, newBlockedMessage, onNewBlocked, openAdd]);
+  }, [canAccess, module, addAction, addActions, canOpenNew, newBlockedMessage, onNewBlocked, openAdd]);
 
   const openEditModal = useCallback(() => {
     if (typeof openEdit !== "function") return;
@@ -136,16 +131,62 @@ export function useListDrawerHotkeys({
       if (!access.allowed) return;
     }
     onPrint(row);
-  }, [ onPrint, selectedId, canPrintSelection, printBlockedMessage, onPrintBlocked, getSelectedRow, printModule, printAction, canAccess ]);
+  }, [onPrint, selectedId, canPrintSelection, printBlockedMessage, onPrintBlocked, getSelectedRow, printModule, printAction, canAccess]);
 
   const tableHotkeyProps = useMemo(() => {
-    const base = { hotkeysDisabled: modalOpen, hotkeyNew: openNewModal };
-    if (typeof openEdit === "function") base.hotkeyEdit = openEditModal;
-    if (typeof onPrint === "function") base.hotkeyPrint = openPrintModal;
-    if (typeof openApprove === "function") base.hotkeyApprove = openApproveModal;
-    return base;
-  }, [modalOpen, openNewModal, openEditModal, openEdit, onPrint, openPrintModal, openApprove, openApproveModal]);
+    return { hotkeysDisabled: modalOpen };
+  }, [modalOpen]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (modalOpen) return;
+      if (isHotkeyTypingTarget(e.target)) return;
+
+      const mod = e.ctrlKey || e.metaKey;
+      const key = (e.key || "").toLowerCase();
+      const listChord = mod && e.altKey && !e.shiftKey;
+      const listChordPwa = mod && !e.altKey && !e.shiftKey;
+
+      if ((listChord || listChordPwa) && key === "n") {
+        e.preventDefault();
+        e.stopPropagation();
+        openNewModal();
+        return;
+      }
+
+      if ((listChord || listChordPwa) && key === "e" && typeof openEdit === "function") {
+        e.preventDefault();
+        e.stopPropagation();
+        openEditModal();
+        return;
+      }
+
+      if ((listChord || listChordPwa) && key === "p" && typeof onPrint === "function") {
+        e.preventDefault();
+        e.stopPropagation();
+        openPrintModal();
+        return;
+      }
+
+      if (mod && !e.altKey && !e.shiftKey && key === "a" && typeof openApprove === "function") {
+        e.preventDefault();
+        e.stopPropagation();
+        openApproveModal();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [
+    modalOpen,
+    openNewModal,
+    openEditModal,
+    openPrintModal,
+    openApproveModal,
+    openEdit,
+    onPrint,
+    openApprove,
+  ]);
 
   return { openNewModal, openEditModal, openApproveModal, openPrintModal, tableHotkeyProps };
 }
-

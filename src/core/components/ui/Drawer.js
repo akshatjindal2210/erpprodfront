@@ -14,7 +14,6 @@ const Drawer = ({
   isOpen, 
   onClose, 
   onSubmit, 
-  /** Ctrl+Alt+P / Ctrl+P (PWA) — same as a toolbar Print action while this drawer is open. */
   onPrintHotkey,
   canPrintHotkey,
   title, 
@@ -24,9 +23,7 @@ const Drawer = ({
   maxWidth = "max-w-2xl", 
   closeOnOutside = false, 
   noPadding = false,
-  /** When false, body does not scroll — child must use flex + min-h-0 for inner scroll (wide drawers). */
   bodyScrollable = true,
-  /** `form` = sentence-case title, softer subtitle (user modals, etc.). */
   headerVariant = "default",
 }) => {
   const isFormHeader = headerVariant === "form";
@@ -44,13 +41,11 @@ const Drawer = ({
       document.documentElement.setAttribute('data-app-drawer-open', 'true');
 
       const handleKeyDown = (e) => {
-        // 1. ESC to Close
         if (e.key === 'Escape') {
           onClose?.();
           return;
         }
         
-        // 2. Ctrl + S to Submit/Save
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
           if (onSubmit) {
             e.preventDefault();
@@ -59,7 +54,6 @@ const Drawer = ({
           return;
         }
 
-        // 3. Print hotkey (capture early — Ctrl+Alt+P in browser; Ctrl+P in PWA)
         const { onPrintHotkey: onPrint, canPrintHotkey: canPrint } = printHotkeyRef.current;
         if (typeof onPrint !== "function") return;
         if (drawerIsTypingTarget(e.target)) return;

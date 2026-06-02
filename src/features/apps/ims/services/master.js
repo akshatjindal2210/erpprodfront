@@ -1,6 +1,8 @@
 import { api } from "@/core/api/apiClient";
 import { ENDPOINTS } from "@/features/apps/ims/config/endpoints";
 import { applyClientSearch, fetchAllListPages } from "@/features/apps/ims/helpers/clientListSearch";
+import { compareAscStrings, resolveRowSortLabel, sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
+import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
 
 /**
  * Master IMS data: use `getItems` / `getLedgers` / … → `MASTER.*.LIST` (full list for pages).
@@ -9,10 +11,60 @@ import { applyClientSearch, fetchAllListPages } from "@/features/apps/ims/helper
 // Internal cache to avoid redundant API calls and enable instant frontend search for dropdowns
 const cache = {
   items: null,
+  /** Items with `in_hand_inventory` filter (forwarding note, etc.) — one API warm per session. */
+  itemsInHand: null,
   ledgers: null,
   partyRates: null,
   dailyProd: null
 };
+
+function wantsInHandInventoryFilter(params = {}) {
+  const f = params?.filters ?? params;
+  return (
+    f?.in_hand_inventory === true ||
+    String(f?.in_hand_inventory || "").toLowerCase() === "true"
+  );
+}
+
+let itemsInHandInflight = null;
+
+/** Full in-warehouse stock list (all pages) — used by forwarding note breakdown. */
+async function warmItemsInHandCache(permission_module, permission_action) {
+  if (cache.itemsInHand) return cache.itemsInHand;
+  if (itemsInHandInflight) return itemsInHandInflight;
+
+  itemsInHandInflight = (async () => {
+    const { data } = await fetchAllListPages(
+      async (page, limit) => {
+        const res = await api(ENDPOINTS.MASTER.ITEMS.VIEWS, {
+          method: "POST",
+          body: {
+            permission_module,
+            permission_action,
+            filters: { in_hand_inventory: true },
+            page,
+            limit,
+          },
+        });
+        const rows = Array.isArray(res?.data) ? res.data : [];
+        return {
+          data: rows.map((item) => ({ ...item, id: item.itemdcode ?? item.id })),
+          total: res?.total ?? rows.length,
+        };
+      },
+      1000,
+      50000
+    );
+    cache.itemsInHand = data;
+    return data;
+  })();
+
+  try {
+    return await itemsInHandInflight;
+  } finally {
+    itemsInHandInflight = null;
+  }
+}
 
 /** FY + packing IMS `pack` — same key = one network round-trip per session. */
 const packByFyDocCache = new Map();
@@ -32,7 +84,12 @@ const getFilteredFromCache = (data, params = {}) => {
 
   let filtered = [...data];
   if (search) {
-    filtered = applyClientSearch(filtered, search);
+    filtered = applyClientSearch(filtered, search, {
+      tieBreaker: (a, b) =>
+        compareAscStrings(resolveRowSortLabel(a), resolveRowSortLabel(b)),
+    });
+  } else {
+    filtered = sortSelectRowsAsc(filtered);
   }
 
   const start = (page - 1) * limit;
@@ -50,6 +107,7 @@ export const masterService = {
     if (key) cache[key] = null;
     else {
       cache.items = null;
+      cache.itemsInHand = null;
       cache.ledgers = null;
       cache.partyRates = null;
       cache.dailyProd = null;
@@ -67,8 +125,9 @@ export const masterService = {
     };
     const res = await api(ENDPOINTS.MASTER.ITEMS.LIST, { method: "POST", body });
     if (res?.success && Array.isArray(res.data)) {
-      cache.items = res.data.map(item => ({ ...item, id: item.itemdcode }));
-      res.data = cache.items;
+      const mapped = res.data.map((item) => ({ ...item, id: item.itemdcode }));
+      cache.items = mapped;
+      res.data = mapped;
     }
     return res;
   },
@@ -100,8 +159,9 @@ export const masterService = {
         }));
       }
       if (Array.isArray(res.data)) {
-        cache.ledgers = res.data.map((l) => ({ ...l, id: l.acc_code }));
-        res.data = cache.ledgers;
+        const mapped = res.data.map((l) => ({ ...l, id: l.acc_code }));
+        cache.ledgers = mapped;
+        res.data = mapped;
       }
     }
     return res;
@@ -123,14 +183,19 @@ export const masterService = {
       permission_action = "view",
       ...rest
     } = params;
+    const inHandOnly = wantsInHandInventoryFilter(rest);
     const mustUseServerFilter =
       rest?.filters?.sticker_generated === true ||
       String(rest?.filters?.sticker_generated || "").toLowerCase() === "true" ||
-      rest?.filters?.in_hand_inventory === true ||
-      String(rest?.filters?.in_hand_inventory || "").toLowerCase() === "true";
+      inHandOnly;
 
     if (!mustUseServerFilter && cache.items) {
       return getFilteredFromCache(cache.items, rest);
+    }
+
+    if (inHandOnly) {
+      await warmItemsInHandCache(permission_module, permission_action);
+      return getFilteredFromCache(cache.itemsInHand, rest);
     }
 
     const warmBody = {
@@ -148,9 +213,17 @@ export const masterService = {
         cache.items = mapped;
         return getFilteredFromCache(cache.items, rest);
       }
-      return { ...res, data: mapped };
+      return withSortedViewsData({ ...res, data: mapped }, "item_code");
     }
     return res;
+  },
+
+  /** Items that have in-hand warehouse stock (forwarding note breakdown). */
+  getInHandItemsViews: async (perms = {}) => {
+    const permission_module = perms.permission_module ?? "forwarding_note_master";
+    const permission_action = perms.permission_action ?? "view";
+    const data = await warmItemsInHandCache(permission_module, permission_action);
+    return { success: true, data: data ?? [], total: data?.length ?? 0 };
   },
 
   getItemViewById: (id, perms = {}) => api(ENDPOINTS.MASTER.ITEMS.VIEWS, { method: "POST", body: { id, ...perms } }),
@@ -188,7 +261,7 @@ export const masterService = {
           1000,
           50000
         );
-        cache.ledgers = data;
+        cache.ledgers = sortSelectRowsAsc(data, "acc_name");
       } catch {
         cache.ledgers = null;
       }
@@ -204,7 +277,10 @@ export const masterService = {
     });
     if (res?.success && Array.isArray(res.data)) {
       const mapped = res.data.map((l) => ({ ...l, id: l.id ?? l.acc_code }));
-      return { ...res, data: mapped, total: Number(res.total ?? mapped.length) };
+      return withSortedViewsData(
+        { ...res, data: mapped, total: Number(res.total ?? mapped.length) },
+        "acc_name"
+      );
     }
     return res;
   },
@@ -223,10 +299,13 @@ export const masterService = {
     }
     const res = await api(ENDPOINTS.MASTER.PARTY_RATES.VIEWS, { method: "POST", body });
     if (res?.success && Array.isArray(res.data)) {
-      cache.partyRates = res.data.map((pr) => ({
-        ...pr,
-        id: pr.id ?? `${pr.acc_code}_${pr.itemdcode}`,
-      }));
+      cache.partyRates = sortSelectRowsAsc(
+        res.data.map((pr) => ({
+          ...pr,
+          id: pr.id ?? `${pr.acc_code}_${pr.itemdcode}`,
+        })),
+        "item_code"
+      );
       return getFilteredFromCache(cache.partyRates, params);
     }
     return res;
@@ -244,7 +323,10 @@ export const masterService = {
     }
     const res = await api(ENDPOINTS.MASTER.DAILY_PROD.VIEWS, { method: "POST", body });
     if (res?.success && Array.isArray(res.data)) {
-      cache.dailyProd = res.data.map((dp) => ({ ...dp, id: dp.doc_no ?? dp.id }));
+      cache.dailyProd = sortSelectRowsAsc(
+        res.data.map((dp) => ({ ...dp, id: dp.doc_no ?? dp.id })),
+        "doc_no"
+      );
       return getFilteredFromCache(cache.dailyProd, params);
     }
     return res;
@@ -261,8 +343,9 @@ export const masterService = {
   getPartyRates: async (params) => {
     const res = await api(ENDPOINTS.MASTER.PARTY_RATES.LIST, { method: "POST", body: params });
     if (res?.success && Array.isArray(res.data)) {
-      cache.partyRates = res.data.map(pr => ({ ...pr, id: `${pr.acc_code}_${pr.itemdcode}` }));
-      res.data = cache.partyRates;
+      const mapped = res.data.map((pr) => ({ ...pr, id: `${pr.acc_code}_${pr.itemdcode}` }));
+      cache.partyRates = mapped;
+      res.data = mapped;
     }
     return res;
   },
@@ -271,8 +354,9 @@ export const masterService = {
   getDailyProd: async (params) => {
     const res = await api(ENDPOINTS.MASTER.DAILY_PROD.LIST, { method: "POST", body: params });
     if (res?.success && Array.isArray(res.data)) {
-      cache.dailyProd = res.data.map(dp => ({ ...dp, id: dp.doc_no }));
-      res.data = cache.dailyProd;
+      const mapped = res.data.map((dp) => ({ ...dp, id: dp.doc_no }));
+      cache.dailyProd = mapped;
+      res.data = mapped;
     }
     return res;
   },

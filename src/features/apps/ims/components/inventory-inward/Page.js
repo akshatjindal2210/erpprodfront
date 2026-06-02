@@ -20,7 +20,7 @@ import LocationFinderDrawer from "@/features/apps/ims/components/location/Locati
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchListFirstPage, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { formatDateTime } from "@/core/utils/utilHelper";
 
 const PAGE_TABS = {
@@ -68,7 +68,7 @@ export default function InwardPage() {
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [params, setParams] = useState({
-    pageSize: 1000,
+    pageSize: 500,
     status: "all",
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
@@ -79,14 +79,14 @@ export default function InwardPage() {
   const [packingView, setPackingView] = useState(PACKING_VIEWS.SUMMARY);
   const [packingFilterPn, setPackingFilterPn] = useState("");
   const [packingParams, setPackingParams] = useState({
-    pageSize: 1000,
+    pageSize: 500,
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
     sortKey: "packing_number",
     sortDir: "asc",
   });
   const [packingBoxParams, setPackingBoxParams] = useState({
-    pageSize: 1000,
+    pageSize: 500,
     sortKey: "box_no_uid",
     sortDir: "asc",
   });
@@ -130,7 +130,7 @@ export default function InwardPage() {
           ...(params.status !== "all" && { approved: params.status === "approved" }),
         },
       };
-      const { data } = await fetchAllListPages(async (page, limit) => {
+      const { data } = await fetchListFirstPage(async (page, limit) => {
         const body = await inventoryInwardService.getAll({ ...base, page, limit });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
@@ -160,7 +160,7 @@ export default function InwardPage() {
         order: packingParams.sortDir.toUpperCase(),
         filters: packingDateFilters,
       };
-      const { data } = await fetchAllListPages(async (page, limit) => {
+      const { data } = await fetchListFirstPage(async (page, limit) => {
         const body = await inventoryInwardService.getPackingAreaList({ ...base, page, limit });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, packingParams.pageSize);
@@ -188,7 +188,7 @@ export default function InwardPage() {
         filters: packingDateFilters,
         ...(packingFilterPn ? { packing_number: packingFilterPn } : {}),
       };
-      const { data } = await fetchAllListPages(async (page, limit) => {
+      const { data } = await fetchListFirstPage(async (page, limit) => {
         const body = await inventoryInwardService.getPackingAreaBoxes({ ...base, page, limit });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, packingBoxParams.pageSize);
@@ -268,7 +268,7 @@ export default function InwardPage() {
     setTempSearch("");
     if (isStoreIn) {
       setParams({
-        pageSize: 1000,
+        pageSize: 500,
         status: "all",
         fromDate: dateFilterDefaults.from,
         toDate: dateFilterDefaults.to,
@@ -278,14 +278,14 @@ export default function InwardPage() {
     } else if (isPackingBoxView) {
       setPackingFilterPn("");
       setPackingBoxParams({
-        pageSize: 1000,
+        pageSize: 500,
         sortKey: "box_no_uid",
         sortDir: "asc",
       });
     } else {
       setPackingFilterPn("");
       setPackingParams({
-        pageSize: 1000,
+        pageSize: 500,
         fromDate: dateFilterDefaults.from,
         toDate: dateFilterDefaults.to,
         sortKey: "packing_number",
@@ -751,7 +751,7 @@ export default function InwardPage() {
               data={items}
               loading={loading}
               viewMode={viewMode}
-              {...(isStoreIn ? tableHotkeyProps : {})}
+              {...tableHotkeyProps}
               onSort={handleSort}
               sortKey={activeSortKey}
               sortDir={activeSortDir}

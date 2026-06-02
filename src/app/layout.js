@@ -6,6 +6,9 @@ import SocketProvider from "@/core/components/providers/SocketProvider";
 import PwaRegister from "@/features/shared/pwa/components/PwaRegister";
 import PwaDevBypass from "@/features/shared/pwa/components/PwaDevBypass";
 import PwaSecurityGuards from "@/features/shared/pwa/components/PwaSecurityGuards";
+import AppKeyboardShortcutGuard from "@/core/components/common/AppKeyboardShortcutGuard";
+import ListPageFilterFocusHotkey from "@/core/components/common/ListPageFilterFocusHotkey";
+import DisableSelectAllShortcut from "@/core/components/common/DisableSelectAllShortcut";
 
 export const metadata = {
   title: "JFL IT Services",
@@ -41,6 +44,9 @@ export default function RootLayout({ children }) {
           <PwaRegister />
           {/* <PwaDevBypass /> */}
           <PwaSecurityGuards />
+          <AppKeyboardShortcutGuard />
+          <ListPageFilterFocusHotkey />
+          <DisableSelectAllShortcut />
           <AppToastContainer />
         </ReduxProvider>
       </body>

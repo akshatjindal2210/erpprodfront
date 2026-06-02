@@ -73,6 +73,7 @@ export const ENDPOINTS = {
   STOCK_ADJUSTMENT: {
     LIST: "/stock-adjustment/list",
     GET: "/stock-adjustment/get",
+    PACKING_META: "/stock-adjustment/packing-meta",
     CREATE: "/stock-adjustment/create",
     UPDATE: "/stock-adjustment/update",
     DELETE: "/stock-adjustment/delete",

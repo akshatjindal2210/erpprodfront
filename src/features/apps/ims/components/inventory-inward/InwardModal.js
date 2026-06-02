@@ -18,7 +18,23 @@ import { useCanAccess }           from "@/core/hooks/useCanAccess";
 import { SCAN_SNACK_MSG, useScanSnackbarActions, applyListViewSpanFromSession } from "@/core/utils/global";
 import { prepareQrScanSession }   from "@/features/apps/ims/helpers/scanFeedback";
 import { createScanBatchQueue }   from "@/features/apps/ims/helpers/scanBatchQueue";
-import { userService }            from "@/features/shared/auth/services/userService";
+import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
+import { userService } from "@/features/shared/auth/services/userService";
+
+/** Picker row: show location no only (never numeric DB id in the UI). */
+function normalizeInwardLocationRow(row) {
+  if (!row || typeof row !== "object") return row;
+  const location_id = row.location_id ?? row.id ?? null;
+  const locationNo =
+    String(row.location_no ?? "").trim() ||
+    `${row.rack_no ?? ""}${String(row.shelf_no ?? "").toUpperCase()}`.trim();
+  return {
+    ...row,
+    id: location_id,
+    location_id,
+    location_no: locationNo,
+  };
+}
 
 const MSG = {
   LOCATION_ALREADY_ADDED:          "This location has already been added.",
@@ -161,17 +177,33 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
 
   const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
 
-  const fetchLocations = useCallback((params) => locationService.getViews({ 
-    ...params, 
-    permission_module: "inventory_inwards", 
-    permission_action: "view" 
-  }), []);
+  const fetchLocations = useCallback(async (params) => {
+    const res = await locationService.getViews({
+      ...params,
+      permission_module: "inventory_inwards",
+      permission_action: "view",
+      sortBy: "location_no",
+      order: "ASC",
+    });
+    const list = Array.isArray(res?.data) ? res.data : [];
+    const data = list.map(normalizeInwardLocationRow).filter((r) => String(r.location_no || "").trim());
+    return withSortedViewsData({ ...res, data }, "location_no");
+  }, []);
 
-  const getLocationById = useCallback((id) => locationService.getViews({ 
-    id, 
-    permission_module: "inventory_inwards", 
-    permission_action: "view" 
-  }), []);
+  const getLocationById = useCallback(async (id) => {
+    const res = await locationService.getViews({
+      id,
+      permission_module: "inventory_inwards",
+      permission_action: "view",
+    });
+    const row = res?.data;
+    if (!row) return res;
+    const normalized = normalizeInwardLocationRow(row);
+    if (!String(normalized.location_no || "").trim()) {
+      return { ...res, data: null };
+    }
+    return { ...res, data: normalized };
+  }, []);
 
   const scanLocIdxRef = useRef(null);
   const tryAddBoxRef = useRef(async () => {});
@@ -498,12 +530,13 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         ) || null;
       }
 
-      const normalizedLocId = matched?.location_id ?? matched?.id ?? null;
-      if (normalizedLocId) {
-        setMatchedLoc({ ...matched, location_id: normalizedLocId });
+      const normalized = normalizeInwardLocationRow(matched);
+      const normalizedLocId = normalized?.location_id ?? null;
+      if (normalizedLocId && String(normalized.location_no || "").trim()) {
+        setMatchedLoc(normalized);
         setSelectedLocId(String(normalizedLocId));
         setScanStatus("matched");
-        return matched;
+        return normalized;
       } else {
         setMatchedLoc(null);
         setScanStatus("not_found");
@@ -516,7 +549,24 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
     }
   };
 
-  const handleSelectChange = (id) => {
+  const handleSelectChange = (id, pickedRow) => {
+    if (id == null || id === "") {
+      clearLocSearch();
+      return Promise.resolve(null);
+    }
+
+    if (pickedRow && (pickedRow.location_id != null || pickedRow.id != null)) {
+      const matched = normalizeInwardLocationRow(pickedRow);
+      if (!String(matched.location_no || "").trim()) {
+        clearLocSearch();
+        return Promise.resolve(null);
+      }
+      setMatchedLoc(matched);
+      setSelectedLocId(String(matched.location_id));
+      setScanStatus("matched");
+      return Promise.resolve(matched);
+    }
+
     const normalizedLocationNo = extractLocationNo(id);
     if (!normalizedLocationNo) {
       clearLocSearch();
@@ -998,8 +1048,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                 getByIdService={getLocationById}
                 dataKey="id"
                 labelKey="location_no"
-                subLabelKey="rack_no"
-                icon={Search}
+                labelOnlyDisplay
                 usePortal={false}
               />
             </div>

@@ -13,7 +13,6 @@ export {
   setListViewSpanDays,
   setInwardLocationValidationEnabled,
   isInwardLocationValidationEnabled,
-  setBoxNoUidPrefix,
   getBoxNoUidPrefix,
   applySessionFromLogin,
   applySessionFromLogin as applyListViewSpanFromSession,

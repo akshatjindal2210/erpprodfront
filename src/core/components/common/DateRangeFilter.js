@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { RotateCcw, Send } from "lucide-react";
 import ListPageSearchField, { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/core/components/common/ListPageSearchField";
+import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 
 const formatDisplayDate = (value) => {
   if (!value) return "DD/MM/YYYY";
@@ -198,7 +199,7 @@ export default function DateRangeFilter({
                 backgroundSize: "1rem",
               }}
             >
-              {filter.options.map((opt) => (
+              {sortFilterOptionsAsc(filter.options).map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>

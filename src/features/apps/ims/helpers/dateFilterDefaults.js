@@ -2,10 +2,7 @@
 
 import { useMemo, useSyncExternalStore } from "react";
 import dayjs from "dayjs";
-import { subscribeListViewSpan, getListViewSpanSnapshot, LIST_VIEW_SPAN_FALLBACK } from "@/core/utils/global";
-
-/** @deprecated Use `getListViewSpanSnapshot()` after bootstrap; kept for imports that expect a number. */
-export const DEFAULT_LIST_VIEW_SPAN_DAYS = LIST_VIEW_SPAN_FALLBACK;
+import { subscribeListViewSpan, getListViewSpanSnapshot } from "@/core/utils/global";
 
 function clampSpanDays(n) {
   const x = parseInt(String(n), 10);
@@ -48,11 +45,4 @@ export function buildViewDateFilterDefaults(viewAccess, listViewSpanDays) {
 export function useViewDateFilterDefaults(viewAccess) {
   const spanDays = useSyncExternalStore(subscribeListViewSpan, getListViewSpanSnapshot);
   return useMemo(() => buildViewDateFilterDefaults(viewAccess, spanDays), [viewAccess, spanDays]);
-}
-
-/** @deprecated Prefer `useViewDateFilterDefaults` */
-export function defaultViewDateRangeFromPermission(viewAccess) {
-  const spanDays = getListViewSpanSnapshot();
-  const { from, to } = buildViewDateFilterDefaults(viewAccess, spanDays);
-  return { from, to };
 }

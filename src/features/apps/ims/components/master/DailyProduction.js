@@ -26,6 +26,7 @@ import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch } from "@/features/apps/ims/helpers/clientListSearch";
+import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 
 export default function DailyProductionPage() {
   const canAccess = useCanAccess();
@@ -33,6 +34,12 @@ export default function DailyProductionPage() {
 
   const canRemoveGeneratedStickers = useMemo(
     () => canAccess("packing_entry", "delete").allowed,
+    [canAccess]
+  );
+
+  const canNewSticker = useMemo(
+    () =>
+      canAccess("packing_entry", "add").allowed || canAccess("packing_entry", "edit").allowed,
     [canAccess]
   );
 
@@ -166,11 +173,11 @@ export default function DailyProductionPage() {
   const extraFilters = useMemo(() => [
     { 
       label: "Sticker Status", key: "stickerStatus", value: params.stickerStatus, 
-      options: [
+      options: sortFilterOptionsAsc([
         { label: "All Status", value: "all" }, 
         { label: "Generated", value: "generated" }, 
-        { label: "Pending", value: "pending" }
-      ] 
+        { label: "Pending", value: "pending" },
+      ]),
     },
   ], [params.stickerStatus]);
 
@@ -186,12 +193,13 @@ export default function DailyProductionPage() {
 
   const { openNewModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "packing_entry",
-    modalOpen: isStickerModalOpen || isDetailModalOpen,
+    addActions: ["add", "edit"],
+    modalOpen: isStickerModalOpen || isDetailModalOpen || removeStickersConfirmOpen,
     selectedId: selected,
     getSelectedRow,
     openAdd: useCallback(() => setIsStickerModalOpen(true), []),
     canOpenNew: useCallback(() => Boolean(selected), [selected]),
-    newBlockedMessage: "Select a row in the list first — New Sticker opens only after a row is selected (Ctrl+Alt+N / Cmd+Option+N).",
+    newBlockedMessage: "Select a row in the list first — New Sticker opens only after a row is selected.",
   });
 
   const handleRemoveGeneratedStickersForRow = async () => {
@@ -266,13 +274,18 @@ export default function DailyProductionPage() {
         <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
-              <ActionButton 
-                module="packing_entry" action="add" label="New Sticker" icon={Plus} 
-                disabled={!selected}
-                onClick={openNewModal}
-                title="Select a row in the list first to open New Sticker. Table shortcut: Ctrl+Alt+N (Cmd+Option+N on Mac)."
-                className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none"
-              />
+              {canNewSticker ? (
+                <button
+                  type="button"
+                  disabled={!selected}
+                  onClick={openNewModal}
+                  title="Select a row in the list first to open New Sticker. Shortcut: Ctrl+Alt+N (browser) or Ctrl+N (PWA)."
+                  className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Plus size={16} strokeWidth={2} />
+                  <span>New Sticker</span>
+                </button>
+              ) : null}
               <ActionButton
                 variant="outline" label="View Profile" icon={Eye}
                 disabled={!selected}

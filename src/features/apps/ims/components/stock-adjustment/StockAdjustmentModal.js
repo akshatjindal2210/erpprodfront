@@ -16,6 +16,7 @@ import { focusFirstError } from "@/core/utils/formFocus";
 const FIELD_ORDER = ["adjustment_type", "item_dcode", "qty"];
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { ERR_INPUT, OK_INPUT } from "@/core/components/common/Constants";
+import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 
 /** Legacy adjustment types (old rows may have `[Label]` prefix in remarks). */
 export const STOCK_ADJUSTMENT_TYPES = [
@@ -325,7 +326,7 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
             className={errors.adjustment_type ? ERR_INPUT : OK_INPUT}
           >
             <option value="">Select type…</option>
-            {STOCK_ADJUSTMENT_TYPES.map((t) => (
+            {sortFilterOptionsAsc(STOCK_ADJUSTMENT_TYPES).map((t) => (
               <option key={t.value} value={t.value}>{t.label}</option>
             ))}
           </select>

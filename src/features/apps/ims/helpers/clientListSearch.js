@@ -113,6 +113,14 @@ export function sortRowsByKey(rows, sortKey, sortDir) {
  * Repeated GET list until all rows for current filters are loaded (backend caps page size, e.g. 1000).
  * @param {(page: number, limit: number) => Promise<{ data?: unknown[]; total?: number }>} loadOnePage
  */
+/** One list API call (default cap 500 rows) — avoids multi-page loops when data is small. */
+export async function fetchListFirstPage(loadOnePage, perPage = 500) {
+  const first = await loadOnePage(1, perPage);
+  const rows = [...(first.data ?? [])];
+  const total = Number(first.total ?? rows.length);
+  return { data: rows, total: Number.isFinite(total) ? total : rows.length };
+}
+
 export async function fetchAllListPages(loadOnePage, perPage = 1000, cap = 50000) {
   const first = await loadOnePage(1, perPage);
   let rows = [...(first.data ?? [])];

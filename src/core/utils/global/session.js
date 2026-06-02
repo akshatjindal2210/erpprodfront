@@ -39,9 +39,6 @@ export function isInwardLocationValidationEnabled() {
   return inwardLocationValidationEnabled;
 }
 
-/** @deprecated Prefix is derived from Indian FY; kept for callers that still set session. */
-export function setBoxNoUidPrefix() {}
-
 export function getBoxNoUidPrefix() {
   return getBoxNoUidPrefixFromFinancialYear();
 }

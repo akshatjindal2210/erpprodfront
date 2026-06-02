@@ -1,8 +1,8 @@
 "use client";
-import React from 'react';
+import React from "react";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 
-const ActionButton = ({ module, action, label, icon: Icon, variant = "primary", onClick, disabled, className = "", record = null, ...props }) => {
+const ActionButton = ({ module, action, label, icon: Icon, variant = "primary", onClick, disabled, className = "", record = null, title, ...props }) => {
   const canAccess = useCanAccess();
 
   const access = canAccess(module, action);
@@ -36,7 +36,7 @@ const ActionButton = ({ module, action, label, icon: Icon, variant = "primary", 
       onClick={onClick}
       disabled={disabled || isTimeRestricted}
       className={`${baseStyles} ${variants[variant]} ${className}`}
-      title={isTimeRestricted ? `Edit time limit exceeded (${access.days} days)` : ""}
+      title={isTimeRestricted ? `Edit time limit exceeded (${access.days} days)` : title}
       {...props}
     >
       {Icon && <Icon size={16} strokeWidth={2} />}

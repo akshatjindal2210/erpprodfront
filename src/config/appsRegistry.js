@@ -52,11 +52,6 @@ export const APPS = [
   },
 ];
 
-/** @deprecated Use userHasAppAccess("ims", role, permissions) */
-export function userHasImsAccess(role, permissions) {
-  return userHasAppAccess("ims", role, permissions);
-}
-
 /** 9-dot launcher — only apps the user may open (Home always; others by app/module access). */
 export function getLauncherApps(role = null, permissions = [], appAccess = {}) {
   return APPS.filter((app) => {

@@ -208,6 +208,7 @@ export default function StickerManagementPage() {
                 data={rows} 
                 loading={loading}
                 viewMode={viewMode} 
+                allowCopy={true}
                 showSelection={false} 
                 getRowId={(item) => String(item.log_id ?? item.box_uid ?? "")}
                 skeletonCount={params.pageSize}

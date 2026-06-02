@@ -6,8 +6,6 @@ function resolveFocusable(el) {
   return el.querySelector?.(FOCUSABLE_SELECTOR) || null;
 }
 
-// Scroll element into view inside drawer/modal scroll containers, then focus.
-
 export function focusAndScroll(el, options = {}) {
   if (!el || typeof el.scrollIntoView !== "function") return false;
 
@@ -25,14 +23,6 @@ export function focusAndScroll(el, options = {}) {
   }
   return false;
 }
-
-/*
-  Focus the first field that has an error, in DOM order defined by fieldOrder.
-  {Record<string, string>} errors
-  {string[]} fieldOrder
-  {(key: string) => Element|null|undefined} getElement
-  {string|null} key that was focused, or null
-*/
 
 export function focusFirstError(errors, fieldOrder, getElement) {
   if (!errors || !fieldOrder?.length) return null;

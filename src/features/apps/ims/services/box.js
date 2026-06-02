@@ -1,5 +1,6 @@
 import { api } from "@/core/api/apiClient";
 import { ENDPOINTS } from "@/features/apps/ims/config/endpoints";
+import { imsApiViews } from "@/features/apps/ims/helpers/sortDropdownResponse";
 
 export const boxService = {
   // ─── Box CRUD ───────────────────────────────────────────────
@@ -10,7 +11,7 @@ export const boxService = {
   // create:  (data)            => api(ENDPOINTS.BOXES.CREATE, { method: "POST", body: data }),
   // update:  (box_uid, data)   => api(ENDPOINTS.BOXES.UPDATE, { method: "POST", body: { box_uid, ...data } }),
   // delete:  (box_uid)         => api(ENDPOINTS.BOXES.DELETE, { method: "POST", body: { box_uid } }),
-  getViews: (params)         => api(ENDPOINTS.BOXES.VIEWS, { method: "POST", body: params }),
+  getViews: (params) => imsApiViews(ENDPOINTS.BOXES.VIEWS, params, "box_no_uid"),
 
   // ─── Sticker ────────────────────────────────────────────────
   getStickers:      (body) => api(ENDPOINTS.BOXES.STICKER_FETCH,    { method: "POST", body }),

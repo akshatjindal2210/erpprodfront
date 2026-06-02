@@ -9,6 +9,7 @@ import { useAppLogout } from "@/core/hooks/useLogout";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useSelector } from "react-redux";
 import { selectRole } from "@/core/store/slices/authSlice";
+import { APP_VERSION } from "@/config/appVersion";
 
 export default function Sidebar({
   sidebarOpen,
@@ -139,7 +140,8 @@ export default function Sidebar({
           {!hideNav && renderNavItems(filteredNav)}
         </nav>
 
-        <div className={`p-2 border-t ${THEME_CONFIG.sidebarBorder} bg-black/5`}>
+        
+        <div className={`p-2 border-t border-b ${THEME_CONFIG.sidebarBorder} bg-black/5`}>
           <button
             onClick={handleLogout}
             className={`w-full flex items-center py-2 px-2 rounded-md transition-all ${THEME_CONFIG.danger} ${THEME_CONFIG.sidebarText} ${collapsed && !sidebarOpen ? "justify-center" : "gap-3"}`}
@@ -148,6 +150,8 @@ export default function Sidebar({
             {(!collapsed || sidebarOpen) && <span className="text-[11px] font-bold uppercase tracking-widest">Logout</span>}
           </button>
         </div>
+
+        <p className="text-center text-[12px] text-slate-200 py-1">v{APP_VERSION}</p>
 
         <button
           onClick={toggleCollapsed}

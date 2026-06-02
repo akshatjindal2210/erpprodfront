@@ -1,7 +1,5 @@
 import { stockAdjustmentService } from "@/features/apps/ims/services/stockAdjustment";
 import { masterService } from "@/features/apps/ims/services/master";
-import { rowInIndianFinancialYear } from "@/core/utils/indianFinancialYear";
-import { parseOptionalStandardQtyPerBox } from "@/features/apps/ims/utils/stockAdjustmentPacking";
 import { loadPackingContext } from "./loadPackingContext";
 import { buildViewAddRowsFromAdjustment, loadAddBoxesForAdjustmentView, isAddBoxRemovedFromInventory, mapSavedBoxesToAddRows, loadMinusPlanBoxes, parseRemovedBoxUidsForAdjustment, resolveMinusSelectedUidsForAdjustment, normalizeMinusSelectedUidSet,isMinusBoxUidSelected } from "./stockAdjustmentViewBoxes";
 import { parseStoredRemarks } from "./StockAdjustmentModal";
@@ -79,9 +77,17 @@ export async function hydrateStockAdjustmentStickerView(editData, options = {}) 
 
   const parsed = parseStoredRemarks(row.remarks);
 
+  const financialYear = String(
+    row.financial_year || row.resolved_financial_year || ""
+  ).trim();
+
   let packingPreview = await loadPackingContext(pn, {
     forMinus: entryType === "minus",
-    adjustmentId: entryType === "minus" ? adjId : null,
+    adjustmentId: adjId,
+    itemDcode: row.item_dcode,
+    financialYear: financialYear || undefined,
+    packingMeta: row.packing_meta ?? null,
+    fetchBoxes: entryType === "minus",
   });
   let itemMeta = null;
   let viewAddRows = [];
@@ -96,67 +102,6 @@ export async function hydrateStockAdjustmentStickerView(editData, options = {}) 
       pn
     );
 
-    const fy = String(row.financial_year || "").trim();
-    if (fy) {
-      try {
-        const imsRes = await masterService.getPackByFinancialYearDoc({
-          financial_year: fy,
-          doc_no: pn,
-          packing_number: pn,
-          permission_module: "stock_adjustment",
-          permission_action: "view",
-        });
-        let recs = Array.isArray(imsRes?.records) ? [...imsRes.records] : [];
-        recs = recs.filter((r) => !r.doc_dt || rowInIndianFinancialYear(r, fy));
-        if (imsRes?.success && recs.length > 0) {
-          const first = recs[0];
-          const base = packingPreview.dailyprod;
-          const partyFromPackFy =
-            imsRes?.party_rate_cust_code != null && String(imsRes.party_rate_cust_code).trim() !== ""
-              ? String(imsRes.party_rate_cust_code).trim()
-              : null;
-          const mergedDaily =
-            base?.itemdcode != null
-              ? {
-                  ...base,
-                  acc_name: first.acc_name ?? base.acc_name,
-                  total_qty: first.QTY != null ? String(first.QTY) : base.total_qty,
-                  doc_dt: first.doc_dt || first.docdt || base.doc_dt,
-                  doc_no: first.docno != null ? String(first.docno) : base.doc_no ?? pn,
-                  job_card_no: first.jobcardno || base.job_card_no,
-                  party_rate_cust_code: partyFromPackFy,
-                }
-              : {
-                  itemdcode: first.itemdcode,
-                  acc_code: first.acc_code,
-                  acc_name: first.acc_name,
-                  item_code: first.item_code,
-                  item_desc: first.itemdesc,
-                  job_card_no: first.jobcardno,
-                  total_qty: first.QTY != null ? String(first.QTY) : null,
-                  doc_dt: first.doc_dt || first.docdt,
-                  doc_no: first.docno != null ? String(first.docno) : pn,
-                  party_rate_cust_code: partyFromPackFy,
-                };
-          packingPreview = {
-            ...packingPreview,
-            dailyprod: mergedDaily,
-            standard_qty_per_box: parseOptionalStandardQtyPerBox(imsRes.standard_qty_per_box),
-          };
-        }
-      } catch {
-        /* optional IMS enrich */
-      }
-    }
-    const idForItem = packingPreview.dailyprod?.itemdcode ?? packingPreview.stickerRow?.itemdcode;
-    if (idForItem) {
-      try {
-        const itemRes = await masterService.getItemViewById(idForItem, STOCK_ADJ_PERMS);
-        itemMeta = itemRes?.data ?? null;
-      } catch {
-        /* optional */
-      }
-    }
   } else {
     const planUids = parseRemovedBoxUidsForAdjustment(row);
     const planUidSet = new Set(planUids.map((u) => String(u)));
@@ -196,22 +141,25 @@ export async function hydrateStockAdjustmentStickerView(editData, options = {}) 
       ...packingPreview,
       boxes: finalBoxes,
     };
+  }
 
-    const idForItem = packingPreview.dailyprod?.itemdcode ?? packingPreview.stickerRow?.itemdcode;
-    if (idForItem) {
-      try {
-        const itemRes = await masterService.getItemViewById(idForItem, STOCK_ADJ_PERMS);
-        itemMeta = itemRes?.data ?? null;
-      } catch {
-        /* optional */
-      }
+  const idForItem =
+    packingPreview.dailyprod?.itemdcode ?? row.item_dcode ?? null;
+  const hasItemLabels =
+    packingPreview.dailyprod?.item_code && packingPreview.dailyprod?.item_desc;
+  if (idForItem && !hasItemLabels) {
+    try {
+      const itemRes = await masterService.getItemViewById(idForItem, STOCK_ADJ_PERMS);
+      itemMeta = itemRes?.data ?? null;
+    } catch {
+      /* optional */
     }
   }
 
   return {
     row,
     gateEntryType: entryType,
-    gateFinancialYear: String(row.financial_year || ""),
+    gateFinancialYear: financialYear,
     gatePackingNo: pn,
     form: {
       remarks: parsed.remarks,
