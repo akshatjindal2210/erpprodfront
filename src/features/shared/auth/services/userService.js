@@ -4,7 +4,7 @@ import { CORE_ENDPOINTS as ENDPOINTS } from "@/core/api/endpoints";
 export const userService = {
   login: (credentials) => api(ENDPOINTS.AUTH.LOGIN, { method: "POST", body: credentials }),
   logout: () => api(ENDPOINTS.AUTH.LOGOUT, { method: "POST" }),
-  me: () => api(ENDPOINTS.AUTH.ME, { method: "GET" }),
+  me: (options = {}) => api(ENDPOINTS.AUTH.ME, { method: "GET", ...options }),
 
   changePassword: (data) => api(ENDPOINTS.AUTH.CHANGE_PASSWORD, { method: "PUT", body: data }),
 

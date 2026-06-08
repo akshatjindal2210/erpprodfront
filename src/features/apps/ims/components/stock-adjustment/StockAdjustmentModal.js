@@ -18,6 +18,12 @@ import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { ERR_INPUT, OK_INPUT } from "@/core/components/common/Constants";
 import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 
+const MODAL_LABEL_CLASS =
+  "text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1";
+const MODAL_INPUT_CLASS = "text-[11px] h-[38px] rounded-lg";
+const MODAL_ERROR_CLASS =
+  "text-[9px] text-rose-500 font-bold ml-1 flex items-center gap-1";
+
 /** Legacy adjustment types (old rows may have `[Label]` prefix in remarks). */
 export const STOCK_ADJUSTMENT_TYPES = [
   { value: "physical_count", label: "Physical stock count" },
@@ -62,6 +68,7 @@ const INITIAL_FORM = {
   unit: "PCS",
   remarks: "",
   approved: false,
+  acc_code: "",
 };
 
 export default function StockAdjustmentModal({ open, onClose, onSuccess, editData, mode = "add" }) {
@@ -91,14 +98,15 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
     if (open) {
       if (editData) {
         const parsed = parseStoredRemarks(editData.remarks);
-        setForm({
-          adjustment_type: parsed.adjustment_type,
-          item_dcode: editData.item_dcode || "",
-          qty: editData.qty || "",
-          unit: editData.unit || "PCS",
-          remarks: parsed.remarks,
-          approved: isApprove ? (editData.approved ?? false) : false,
-        });
+          setForm({
+            adjustment_type: parsed.adjustment_type,
+            item_dcode: editData.item_dcode || "",
+            qty: editData.qty || "",
+            unit: editData.unit || "PCS",
+            remarks: parsed.remarks,
+            approved: isApprove ? (editData.approved ?? false) : false,
+            acc_code: editData.acc_code || "",
+          });
       } else {
         setForm(INITIAL_FORM);
       }
@@ -110,7 +118,7 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
       }, 300);
     }
     return () => clearTimeout(timeoutId);
-  }, [open, editData, isApprove]);
+  }, [open, editData?.adjustment_id, isApprove]);
 
   /**
    * Input Change Handler
@@ -120,6 +128,10 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
     let finalValue = value;
     if (k === "item_dcode") {
       finalValue = value === null || value === undefined || value === "" ? "" : String(value);
+      setForm((prev) => ({ ...prev, item_dcode: finalValue, acc_code: "" }));
+      if (errors.item_dcode) setErrors((prev) => ({ ...prev, item_dcode: "" }));
+      if (errors.acc_code) setErrors((prev) => ({ ...prev, acc_code: "" }));
+      return;
     }
     if (k === "qty" && value !== "") {
       const num = parseFloat(value);
@@ -176,6 +188,7 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
         unit: form.unit,
         remarks: remarksForApi,
         approved: finalApproved,
+        acc_code: form.acc_code || null,
       };
 
       const isUpdate = isEdit || isApprove;
@@ -285,7 +298,7 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
 
         {(editData?.entry_type === "add" || editData?.entry_type === "minus") && (
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1.5 text-[11px] text-slate-700">
-            <p className="text-[10px] font-black uppercase text-slate-500 tracking-wide">Packing entry (read-only)</p>
+            <p className={`${MODAL_LABEL_CLASS} !ml-0`}>Packing entry (read-only)</p>
             <p>
               <span className="font-bold text-slate-500">Type:</span> {editData.entry_type === "add" ? "Add (+)" : "Minus (−)"}
             </p>
@@ -316,14 +329,14 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
         )}
 
         <div className="space-y-1.5" data-field="adjustment_type">
-          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest ml-1">
+          <label className={MODAL_LABEL_CLASS}>
             Adjustment type <span className="text-rose-500">*</span>
           </label>
           <select
             value={form.adjustment_type}
             onChange={(e) => handleInputChange("adjustment_type", e.target.value)}
             disabled={readOnly}
-            className={errors.adjustment_type ? ERR_INPUT : OK_INPUT}
+            className={`${errors.adjustment_type ? ERR_INPUT : OK_INPUT} ${MODAL_INPUT_CLASS}`}
           >
             <option value="">Select type…</option>
             {sortFilterOptionsAsc(STOCK_ADJUSTMENT_TYPES).map((t) => (
@@ -331,7 +344,7 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
             ))}
           </select>
           {errors.adjustment_type && (
-            <p className="text-[10px] text-rose-500 font-bold flex items-center gap-1 px-1">
+            <p className={`${MODAL_ERROR_CLASS} px-1`}>
               <AlertCircle size={10} /> {errors.adjustment_type}
             </p>
           )}
@@ -359,13 +372,43 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
             error={errors.item_dcode}
             required={!readOnly}
             disabled={readOnly}
+            usePortal={false}
+          />
+        </div>
+
+        {/* Customer Selection */}
+        <div className="space-y-1" data-field="acc_code">
+          <SearchableSelect
+            label="Customer"
+            value={form.acc_code}
+            onChange={(id) => handleInputChange("acc_code", id ?? "")}
+            fetchService={(params) =>
+              masterService.getLedgersViews({
+                ...params,
+                permission_module: "stock_adjustment",
+                permission_action: "view",
+                itemdcode: form.item_dcode || undefined,
+              })
+            }
+            getByIdService={(id) =>
+              masterService.getLedgerViewById(id, {
+                permission_module: "stock_adjustment",
+                permission_action: "view",
+                itemdcode: form.item_dcode || undefined,
+              })
+            }
+            dataKey="id"
+            labelKey="acc_name"
+            placeholder={form.item_dcode ? "Search customer…" : "Select item first"}
+            disabled={readOnly || !form.item_dcode}
+            usePortal={false}
           />
         </div>
 
         {/* Qty & Unit Row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div className="space-y-1.5" data-field="qty">
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest ml-1">
+            <label className={MODAL_LABEL_CLASS}>
               Adjustment Qty <span className="text-rose-500">*</span>
             </label>
             <input 
@@ -374,11 +417,11 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
               onChange={(e) => handleInputChange("qty", e.target.value)} 
               placeholder="e.g. 10 or 25" 
               disabled={readOnly}
-              className={errors.qty ? ERR_INPUT : OK_INPUT} 
+              className={`${errors.qty ? ERR_INPUT : OK_INPUT} ${MODAL_INPUT_CLASS}`}
             />
             <div className="flex justify-between items-center px-1">
               {errors.qty && (
-                <p className="text-[10px] text-rose-500 font-bold flex items-center gap-1">
+                <p className={MODAL_ERROR_CLASS}>
                   <AlertCircle size={10}/> {errors.qty}
                 </p>
               )}
@@ -386,12 +429,12 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest ml-1">Unit</label>
+            <label className={MODAL_LABEL_CLASS}>Unit</label>
             <select 
               value={form.unit} 
               onChange={(e) => handleInputChange("unit", e.target.value)}
               disabled={readOnly}
-              className={OK_INPUT}
+              className={`${OK_INPUT} ${MODAL_INPUT_CLASS}`}
             >
               <option value="PCS">PCS (Pieces)</option>
               <option value="KG">KG (Kilograms)</option>
@@ -402,6 +445,8 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
         <RemarksTextarea
           label="Adjustment Reason"
           labelIcon={<MessageSquareQuote size={12} className="text-indigo-500" />}
+          labelClassName={MODAL_LABEL_CLASS}
+          className="[&_textarea]:!text-[11px] [&_textarea]:!min-h-[4.5rem] [&_textarea]:!py-2"
           value={form.remarks}
           onChange={(e) => handleInputChange("remarks", e.target.value)}
           placeholder="Optional — short note if needed..."

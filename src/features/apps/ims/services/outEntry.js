@@ -21,4 +21,5 @@ export const outEntryService = {
       },
     }),
   lockFuid: (fuid) => api(ENDPOINTS.OUT_ENTRIES.LOCK_FUID, { method: "POST", body: { fuid } }),
+  getReasons: (params) => imsApiViews(ENDPOINTS.OUT_ENTRIES.REASONS, params, "reason"),
 };

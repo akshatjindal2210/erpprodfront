@@ -1,7 +1,10 @@
+import { useEffect } from "react";
 import { X } from "lucide-react";
+import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 
 /** Shared detail dialog shell (masters and read-only previews). */
 export default function GlobalDetailModal({ open, onClose, title, icon: Icon, children, size = "default" }) {
+  useEscapeKey(onClose, open);
   if (!open) return null;
 
   const sizeClass = size === "wide" ? "max-w-2xl" : "max-w-lg";

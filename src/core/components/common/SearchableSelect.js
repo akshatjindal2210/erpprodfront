@@ -2,7 +2,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Loader2, Search, X, AlertCircle, CheckCircle2 } from "lucide-react";
-import { LIST_PAGE_SEARCH_LABEL_CLASS } from "./ListPageSearchField";
+import { FORM_ERROR_CLASS, FORM_HINT_CLASS, FORM_LABEL_CLASS } from "./Constants";
+import { LIST_PAGE_SEARCH_LABEL_CLASS, LIST_PAGE_FILTER_VALUE_CLASS, LIST_PAGE_FILTER_BOX_CLASS } from "./ListPageSearchField";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 
 const PAGE_SIZE = 50;
@@ -36,12 +37,41 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   heightClass = "h-9",
   /** Input + list show only `labelKey` text — never raw id/value fallback. */
   labelOnlyDisplay = false,
+  /** Multiple selection support */
+  multiple = false,
+  /** If true, show selected items as tags in multiple mode */
+  showTags = true,
+  /** Toolbar multi: fixed height + "N selected" instead of many tags */
+  compactMulti = false,
+  /** Pin "All" at top — clears selection (empty = no filter) */
+  showAllOption = false,
+  allOptionLabel = "All",
+  /** Max tags in trigger before "+N more" (when not compactMulti) */
+  maxVisibleTags = 2,
 }) {
   const isToolbar = variant === "toolbar";
+  const multiCompactMode = multiple && compactMulti;
+  const multiTagsMode = multiple && showTags && !compactMulti;
+  const dropdownRowLabelClass = isToolbar
+    ? "text-[12px] font-medium text-slate-700"
+    : "text-[13px] font-normal text-slate-700 leading-snug";
+  /** Title row when a description line is shown underneath */
+  const dropdownRowTitleWithDescClass = isToolbar
+    ? "text-[12px] font-semibold text-slate-800"
+    : "text-[13px] font-semibold text-slate-800 leading-snug";
+  const dropdownRowSubLabelClass = isToolbar
+    ? "text-[11px] text-slate-500 font-normal"
+    : "text-[11px] text-slate-500 font-normal leading-snug";
   const triggerRadius = isToolbar ? "rounded-none" : "rounded-lg";
+  const triggerShellClass = isToolbar
+    ? `${LIST_PAGE_FILTER_BOX_CLASS}${multiTagsMode ? " searchable-select-multi" : ""}`
+    : `${
+        multiTagsMode ? "min-h-9 h-auto" : "min-h-9 h-9"
+      } w-full min-w-0 border border-slate-200 bg-white px-3 transition-all duration-200`;
   const dropdownSurface = isToolbar
     ? "rounded-none"
     : "rounded-lg shadow-md";
+
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const searchText = toSearchText(search);
@@ -50,17 +80,50 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(multiple ? [] : null);
+
+  const triggerHeightClass = multiTagsMode
+    ? isToolbar
+      ? "min-h-8 md:min-h-9 h-auto py-1"
+      : "min-h-9 h-auto py-1"
+    : isToolbar
+      ? heightClass
+      : "min-h-9 h-9";
+
+  const selectedCount = multiple ? (selected?.length ?? 0) : 0;
+
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
   const [openUp, setOpenUp] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [apiMessage, setApiMessage] = useState("");
+  const [lastFetchedQuery, setLastFetchedQuery] = useState(null);
 
   const triggerRef = useRef(null);
   const inputRef = useRef(null);
   const listRef = useRef(null);
   const dropdownRef = useRef(null);
   const debounceRef = useRef(null);
+  const fetchSeqRef = useRef(0);
+  const lastFetchedQueryRef = useRef(null);
+  const keyboardNavRef = useRef(false);
+
+  const fetchServiceRef = useRef(fetchService);
+  const getByIdServiceRef = useRef(getByIdService);
+  
+  useEffect(() => { fetchServiceRef.current = fetchService; }, [fetchService]);
+  useEffect(() => { getByIdServiceRef.current = getByIdService; }, [getByIdService]);
+
+  const showAllRow = multiple && showAllOption && (!searchText.trim() || items.length > 0);
+  const listIndexOffset = showAllRow ? 1 : 0;
+
+  const getSearchTextFromSelection = useCallback((sel) => {
+    if (multiple) {
+      if (showTags || compactMulti) return "";
+      const labels = (sel || []).map(s => getDisplayLabel(s, labelKey)).filter(Boolean).join(", ");
+      return labels || (sel?.length > 0 ? `${sel.length} items selected` : "");
+    }
+    return sel ? (labelOnlyDisplay ? getDisplayLabel(sel, labelKey) : toSearchText(sel[labelKey])) : "";
+  }, [multiple, showTags, compactMulti, labelKey, labelOnlyDisplay]);
 
   // 1. Position Calculation
   const calcPosition = useCallback(() => {
@@ -76,8 +139,21 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     });
   }, []);
 
+  // Update position on scroll/resize
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener("scroll", calcPosition, true);
+    window.addEventListener("resize", calcPosition);
+    return () => {
+      window.removeEventListener("scroll", calcPosition, true);
+      window.removeEventListener("resize", calcPosition);
+    };
+  }, [open, calcPosition]);
+
   // 2. Fetch Data Logic
   const fetchData = useCallback(async (query, p = 1) => {
+    const seq = ++fetchSeqRef.current;
+    const queryChanged = p === 1 && lastFetchedQueryRef.current !== query;
     if (p === 1) {
       setLoading(true);
       setApiMessage("");
@@ -86,59 +162,66 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     }
 
     try {
-      const res = await fetchService({ search: query, page: p, limit: PAGE_SIZE });
+      const res = await fetchServiceRef.current({ search: query, page: p, limit: PAGE_SIZE });
+      if (seq !== fetchSeqRef.current) return;
+
       const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
 
       if (res?.message && list.length === 0) {
         setApiMessage(res.message);
       }
 
-      let nextItems = list;
       setItems((prev) => {
         const merged = p === 1 ? list : [...prev, ...list];
-        nextItems = merged.length < 2 ? merged : sortSelectRowsAsc(merged, labelKey);
-        if (labelOnlyDisplay) {
-          nextItems = nextItems.filter((item) => getDisplayLabel(item, labelKey));
-        }
-        return nextItems;
+        const sorted = merged.length < 2 ? merged : sortSelectRowsAsc(merged, labelKey);
+        return labelOnlyDisplay 
+          ? sorted.filter((item) => getDisplayLabel(item, labelKey))
+          : sorted;
       });
       setHasMore(list.length === PAGE_SIZE);
       setPage(p);
+      setLastFetchedQuery(query);
+      lastFetchedQueryRef.current = query;
       
-      if (p === 1) {
-        const selectedIdx = value
-          ? nextItems.findIndex((item) => String(item[dataKey]) === String(value))
-          : -1;
-        setActiveIndex(selectedIdx !== -1 ? selectedIdx : (nextItems.length > 0 ? 0 : -1));
+      if (p === 1 && queryChanged) {
+        setActiveIndex(list.length > 0 ? 0 : -1);
+        if (listRef.current) listRef.current.scrollTop = 0;
       }
     } catch (err) {
-      if (p === 1) setItems([]);
+      if (seq === fetchSeqRef.current && p === 1) setItems([]);
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (seq === fetchSeqRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
-  }, [fetchService, labelKey, dataKey, value, labelOnlyDisplay]);
+  }, [labelKey, labelOnlyDisplay]);
 
-  // 3. FIXED: Single useEffect for Fetching (Removed the duplicate)
+  // 3. Single useEffect for Fetching
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setLastFetchedQuery(null);
+      lastFetchedQueryRef.current = null;
+      return;
+    }
 
     const q = searchText;
     const trimmed = q.trim();
     const minChars = Math.max(1, Number(minSearchChars) || 1);
-
-    // Click/open should show options immediately (fetch first page).
+    
     if (!trimmed) {
       if (requireSearch) {
         setItems([]);
         setHasMore(false);
         setPage(1);
         setActiveIndex(-1);
-        setLoading(false);
-        setLoadingMore(false);
+        lastFetchedQueryRef.current = null;
         return;
       }
-      fetchData("", 1);
+      const prevQuery = lastFetchedQueryRef.current;
+      if (prevQuery === null || prevQuery !== "") {
+        fetchData("", 1);
+      }
       return;
     }
 
@@ -147,8 +230,6 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       setHasMore(false);
       setPage(1);
       setActiveIndex(-1);
-      setLoading(false);
-      setLoadingMore(false);
       return;
     }
 
@@ -160,20 +241,65 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
 
   // 4. Pre-fill Logic (For Edit Mode)
   useEffect(() => {
-    if (!value) { setSelected(null); setSearch(""); return; }
-    if (selected?.[dataKey] == value) return;
-
-    getByIdService(value).then((res) => {
-      const item = res?.data || res;
-      if (item?.[dataKey]) {
-        setSelected(item);
-        const label = getDisplayLabel(item, labelKey);
-        setSearch(labelOnlyDisplay ? label : label || toSearchText(item[labelKey]) || String(value));
+    if (multiple) {
+      if (!Array.isArray(value) || value.length === 0) {
+        setSelected([]);
+        if (!open) setSearch("");
+        return;
       }
-    }).catch(() => {
-      setSearch(labelOnlyDisplay ? "" : String(value));
-    });
-  }, [value, dataKey, labelKey, getByIdService, labelOnlyDisplay]);
+
+      // If we already have all selected items, just update the search label if not open
+      const currentIds = (selected || []).map(s => String(s[dataKey]));
+      const valueIds = value.map(v => String(v));
+      const isMatch = currentIds.length === valueIds.length && valueIds.every(id => currentIds.includes(id));
+      
+      if (isMatch) {
+        if (!open) {
+          setSearch(getSearchTextFromSelection(selected));
+        }
+        return;
+      }
+
+      // Fetch items for the IDs
+      const validIds = value.filter(id => id != null && id !== "" && typeof id !== "object");
+      if (validIds.length === 0) {
+        setSelected([]);
+        if (!open) setSearch("");
+        return;
+      }
+
+      Promise.all(validIds.map(id => getByIdServiceRef.current(id).catch(() => null)))
+        .then((results) => {
+          const items = results
+            .map(res => res?.data || res)
+            .filter(item => item && item[dataKey]);
+          
+          setSelected(items);
+          if (!open) {
+            setSearch(getSearchTextFromSelection(items));
+          }
+        });
+    } else {
+      // Non-multiple: value should be a single ID (integer or string)
+      if (!value || (Array.isArray(value) && value.length === 0) || typeof value === "object") { 
+        setSelected(null); 
+        setSearch(""); 
+        return; 
+      }
+      if (selected?.[dataKey] == value) return;
+
+      getByIdServiceRef.current(value).then((res) => {
+        const item = res?.data || res;
+        if (item?.[dataKey]) {
+          setSelected(item);
+          const label = getDisplayLabel(item, labelKey);
+          setSearch(labelOnlyDisplay ? label : label || toSearchText(item[labelKey]) || String(value));
+        }
+      }).catch(() => {
+        setSearch(labelOnlyDisplay ? "" : String(value));
+      });
+    }
+  }, [value, dataKey, labelKey, labelOnlyDisplay, multiple, open]);
 
   // 5. Click Outside logic
   useEffect(() => {
@@ -188,26 +314,103 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         !clickedInAnyPortal
       ) {
         setOpen(false);
-        setSearch(selected ? (labelOnlyDisplay ? getDisplayLabel(selected, labelKey) : toSearchText(selected[labelKey])) : "");
+        setSearch(getSearchTextFromSelection(selected));
       }
     };
     if (open) document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open, selected, labelKey, labelOnlyDisplay]);
+  }, [open, selected, getSearchTextFromSelection]);
+
+  const getVisibleSelectableItems = useCallback(() => {
+    return items.filter((item) => {
+      if (!item || item[dataKey] == null) return false;
+      if (labelOnlyDisplay && !getDisplayLabel(item, labelKey)) return false;
+      return true;
+    });
+  }, [items, dataKey, labelKey, labelOnlyDisplay]);
+
+  const handleClearAll = () => {
+    if (!multiple) return;
+    setSelected([]);
+    setSearch("");
+    setLastFetchedQuery(null);
+    lastFetchedQueryRef.current = null;
+    onChange([], []);
+    if (open) fetchData("", 1);
+    inputRef.current?.focus();
+  };
+
+  /** All: with search → select every item in the current filtered list; without search → clear filter */
+  const handleSelectAllVisible = () => {
+    if (!multiple) return;
+    const trimmedSearch = searchText.trim();
+
+    if (!trimmedSearch) {
+      handleClearAll();
+      return;
+    }
+
+    const visible = getVisibleSelectableItems();
+    if (!visible.length) return;
+
+    const merged = new Map((selected || []).map((s) => [String(s[dataKey]), s]));
+    visible.forEach((item) => merged.set(String(item[dataKey]), item));
+    const nextSelected = Array.from(merged.values());
+    setSelected(nextSelected);
+    onChange(
+      nextSelected.map((s) => s[dataKey]),
+      nextSelected
+    );
+    if (showTags || compactMulti) {
+      setSearch("");
+      setLastFetchedQuery("");
+      lastFetchedQueryRef.current = "";
+    }
+    inputRef.current?.focus();
+  };
 
   const handleSelect = (item) => {
-    setSelected(item);
-    setSearch(getDisplayLabel(item, labelKey) || (labelOnlyDisplay ? "" : toSearchText(item[labelKey])));
-    onChange(item[dataKey], item);
-    setOpen(false);
+    if (multiple) {
+      const isSelected = (selected || []).some(s => String(s[dataKey]) === String(item[dataKey]));
+      let nextSelected;
+      if (isSelected) {
+        nextSelected = selected.filter(s => String(s[dataKey]) !== String(item[dataKey]));
+      } else {
+        nextSelected = [...(selected || []), item];
+      }
+      setSelected(nextSelected);
+      const nextIds = nextSelected.map(s => s[dataKey]);
+      onChange(nextIds, nextSelected);
+      if (showTags || compactMulti) {
+        setSearch("");
+        // Keep current filtered list + scroll — do not refetch full list (avoids jump to top).
+        setLastFetchedQuery("");
+        lastFetchedQueryRef.current = "";
+      }
+      inputRef.current?.focus();
+    } else {
+      setSelected(item);
+      setSearch(getDisplayLabel(item, labelKey) || (labelOnlyDisplay ? "" : toSearchText(item[labelKey])));
+      onChange(item[dataKey], item);
+      setOpen(false);
+    }
   };
 
   const handleClear = (e) => {
     e.stopPropagation();
-    setSelected(null);
-    setSearch("");
-    onChange(null, null);
+    if (multiple) {
+      setSelected([]);
+      setSearch("");
+      onChange([], []);
+    } else {
+      setSelected(null);
+      setSearch("");
+      onChange(null, null);
+    }
     setActiveIndex(-1);
+    setLastFetchedQuery(null);
+    lastFetchedQueryRef.current = null;
+    if (open && multiple) fetchData("", 1);
   };
 
   const handleKeyDown = (e) => {
@@ -235,10 +438,12 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
+        keyboardNavRef.current = true;
         setActiveIndex(prev => (prev < items.length - 1 ? prev + 1 : prev));
         break;
       case "ArrowUp":
         e.preventDefault();
+        keyboardNavRef.current = true;
         setActiveIndex(prev => (prev > 0 ? prev - 1 : prev));
         break;
       case "Enter":
@@ -254,7 +459,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       case "Escape":
         e.preventDefault();
         setOpen(false);
-        setSearch(selected ? (labelOnlyDisplay ? getDisplayLabel(selected, labelKey) : toSearchText(selected[labelKey])) : "");
+        setSearch(getSearchTextFromSelection(selected));
         break;
       case "Tab":
         // Select the active item on Tab if one is highlighted
@@ -262,23 +467,23 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           handleSelect(items[activeIndex]);
         } else {
           setOpen(false);
-          setSearch(selected ? (labelOnlyDisplay ? getDisplayLabel(selected, labelKey) : toSearchText(selected[labelKey])) : "");
+          setSearch(getSearchTextFromSelection(selected));
         }
         break;
     }
   };
 
-  // Scroll active item into view
+  // Scroll active item into view — keyboard only (mouse hover must not jump scroll position)
   useEffect(() => {
-    if (activeIndex >= 0 && listRef.current) {
-      const activeEl = listRef.current.children[activeIndex];
-      if (activeEl) {
-        activeEl.scrollIntoView({ block: "nearest" });
-      }
+    if (!keyboardNavRef.current || activeIndex < 0 || !listRef.current || !open) return;
+    keyboardNavRef.current = false;
+    const activeEl = listRef.current.children[activeIndex + listIndexOffset];
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: "nearest" });
     }
-  }, [activeIndex]);
+  }, [activeIndex, open, listIndexOffset]);
 
-  const dropdownEl = open ? (
+  const dropdownEl = open && dropPos.width > 0 ? (
     <div
       ref={dropdownRef}
       id="searchable-portal"
@@ -288,8 +493,6 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
               ...dropPos, 
               position: "absolute", 
               zIndex: 99999,
-              // On mobile, if opening up, we might need a different top calculation
-              // but for now let's ensure it doesn't exceed viewport
             }
           : {
               position: "absolute",
@@ -309,43 +512,81 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
             fetchData(searchText, page + 1);
           }
         }}>
-        {loading ? (
+        {loading && items.length === 0 ? (
           <div className="p-10 flex flex-col items-center gap-2">
             <Loader2 size={20} className="animate-spin text-indigo-500" />
-            <span className="text-[10px] text-slate-400 font-medium">Fetching data...</span>
+            <span className="text-xs text-slate-400 font-medium">Fetching data...</span>
           </div>
-        ) : items.length === 0 ? (
+        ) : items.length === 0 && !(multiple && showAllOption) ? (
           <li className="p-8 text-center text-slate-400 text-xs flex flex-col gap-2">
             <span>{searchText.trim() ? "No results found" : (apiMessage || emptyMessage)}</span>
-            {!searchText.trim() && apiMessage && <span className="text-[10px] text-slate-500 font-normal leading-relaxed">{apiMessage}</span>}
+            {!searchText.trim() && apiMessage && <span className="text-xs text-slate-500 font-normal leading-relaxed">{apiMessage}</span>}
           </li>
         ) : (
-          items.map((item, idx) => {
+          <>
+          {showAllRow ? (
+            <li
+              onClick={() => handleSelectAllVisible()}
+              onMouseEnter={() => !("ontouchstart" in window) && setActiveIndex(-1)}
+              className={`px-3 py-2 cursor-pointer border-b border-slate-100 transition-colors flex items-center justify-between ${
+                !searchText.trim() && selectedCount === 0 ? "bg-indigo-50/80" : "hover:bg-slate-50"
+              }`}
+            >
+              <span className={dropdownRowLabelClass}>
+                {searchText.trim() && items.length > 0
+                  ? `${allOptionLabel} (${items.length})`
+                  : allOptionLabel}
+              </span>
+              {!searchText.trim() && selectedCount === 0 ? (
+                <CheckCircle2 size={12} className="text-indigo-600 shrink-0" />
+              ) : null}
+            </li>
+          ) : null}
+          {items.map((item, idx) => {
             const rowLabel = getDisplayLabel(item, labelKey) || (labelOnlyDisplay ? "" : toSearchText(item[labelKey]));
             if (labelOnlyDisplay && !rowLabel) return null;
+            const isItemSelected = multiple 
+              ? (selected || []).some(s => String(s[dataKey]) === String(item[dataKey]))
+              : selected?.[dataKey] === item[dataKey];
+            const subLabelText =
+              !labelOnlyDisplay && subLabelKey && item[subLabelKey] != null
+                ? String(item[subLabelKey]).trim()
+                : "";
+            const showSubLabel =
+              subLabelText !== "" &&
+              subLabelText.toLowerCase() !== String(item[labelKey] ?? "").trim().toLowerCase();
+            const rowTitleClass = showSubLabel ? dropdownRowTitleWithDescClass : dropdownRowLabelClass;
+            
             return (
             <li key={item[dataKey] || idx} onClick={() => handleSelect(item)}
               onMouseEnter={() => !('ontouchstart' in window) && setActiveIndex(idx)}
               className={`px-3 py-2 cursor-pointer border-b border-slate-50 last:border-0 transition-colors flex flex-col ${
                 activeIndex === idx ? "bg-indigo-50/50" : ""
-              } ${selected?.[dataKey] === item[dataKey] ? "bg-indigo-100/50" : ""}`}
+              } ${isItemSelected ? "bg-indigo-100/50" : ""}`}
             >
               <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-700 text-[11px]">{rowLabel}</span>
-                {selected?.[dataKey] === item[dataKey] && <CheckCircle2 size={12} className="text-indigo-600" />}
+                <span className={rowTitleClass}>{rowLabel}</span>
+                <div className="flex items-center gap-2">
+                  {item.box_count != null && (
+                    <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] sm:text-xs font-bold border border-slate-200">
+                      {item.box_count} Boxes
+                    </span>
+                  )}
+                  {isItemSelected && <CheckCircle2 size={12} className="text-indigo-600" />}
+                </div>
               </div>
-              {(!labelOnlyDisplay && subLabelKey && item[subLabelKey] != null && String(item[subLabelKey]).trim() !== ""
-                && String(item[subLabelKey]).trim().toLowerCase() !== String(item[labelKey] ?? "").trim().toLowerCase()) ? (
-                <span className="text-[9px] text-slate-400 font-medium whitespace-normal break-words">{item[subLabelKey]}</span>
+              {showSubLabel ? (
+                <span className={`${dropdownRowSubLabelClass} whitespace-normal break-words`}>{subLabelText}</span>
               ) : null}
               {!labelOnlyDisplay && listHintKey && item[listHintKey] != null && item[listHintKey] !== "" ? (
-                <span className="text-[9px] font-mono text-slate-500 font-semibold tracking-tight">
+                <span className="text-[11px] font-mono text-slate-500 font-normal tracking-tight">
                   {listHintLabel}: {String(item[listHintKey])}
                 </span>
               ) : null}
             </li>
             );
-          })
+          })}
+          </>
         )}
         {loadingMore && <li className="p-3 text-center border-t border-slate-50 bg-slate-50/30"><Loader2 size={16} className="animate-spin mx-auto text-indigo-400" /></li>}
       </ul>
@@ -359,49 +600,116 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   return (
     <div className={`space-y-1 ${className} ${usePortal ? "" : "relative"}`}>
       {label && (
-        <label className={LIST_PAGE_SEARCH_LABEL_CLASS}>
+        <label className={isToolbar ? LIST_PAGE_SEARCH_LABEL_CLASS : FORM_LABEL_CLASS}>
           {label}
           {required ? <span className="text-rose-500"> *</span> : null}
         </label>
       )}
       <div 
         ref={triggerRef} 
-        className={`w-full min-w-0 border border-slate-300 ${triggerRadius} px-2 sm:px-3 ${heightClass} flex items-center gap-1.5 sm:gap-2 overflow-hidden transition-all duration-200 ${
+        className={`w-full min-w-0 ${triggerShellClass} ${triggerRadius} flex items-center gap-1.5 sm:gap-2 ${
+          multiTagsMode ? "overflow-visible" : "overflow-hidden"
+        } ${
           disabled ? 'bg-slate-50 cursor-not-allowed opacity-75 border-slate-200' : 
-          open ? 'bg-white border-slate-500 shadow-sm cursor-text' : 
-          error ? 'bg-white border-rose-400 ring-rose-50 ring-1 cursor-text' : 
-          'bg-white hover:border-slate-400 cursor-text'
-        }`} 
-        onClick={() => { 
-          if(!disabled) { 
-            if (open) {
-              setOpen(false);
-              setSearch(selected ? (labelOnlyDisplay ? getDisplayLabel(selected, labelKey) : toSearchText(selected[labelKey])) : "");
-            } else {
-              calcPosition(); 
-              setOpen(true); 
-              setTimeout(() => inputRef.current?.focus(), 10); 
+          open ? 'border-slate-500 shadow-sm cursor-text' : 
+          error ? 'border-rose-400 ring-rose-50 ring-1 cursor-text' : 
+          'hover:border-slate-400 cursor-text'
+        } ${triggerHeightClass}`}
+        onClick={(e) => {
+          if (disabled) return;
+          const clickedInput =
+            e.target === inputRef.current || inputRef.current?.contains(e.target);
+          if (clickedInput) {
+            if (!open) {
+              calcPosition();
+              setOpen(true);
             }
-          } 
+            setTimeout(() => inputRef.current?.focus(), 0);
+            return;
+          }
+          if (open) {
+            setOpen(false);
+            setSearch(getSearchTextFromSelection(selected));
+          } else {
+            calcPosition();
+            setOpen(true);
+            setTimeout(() => inputRef.current?.focus(), 10);
+          }
         }}
       >
-        <Search size={14} className={`shrink-0 ${open ? "text-indigo-500" : "text-slate-400"}`} />
-        <input 
-          ref={inputRef} type="text" value={searchText} 
-          onChange={(e) => {
-            const next = e.target.value;
-            setSearch(next);
-            if (!open) {
-              setOpen(true);
-              calcPosition();
-            }
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder} disabled={disabled} autoComplete="off" 
-          className="flex-1 min-w-0 bg-transparent outline-none text-slate-700 placeholder:text-slate-400 text-[12px] font-medium truncate"
+        <Search
+          size={13}
+          className={`shrink-0 self-center ${open ? "text-indigo-500" : "text-slate-400"}`}
         />
-        <div className="flex items-center gap-1 shrink-0 pl-1.5 sm:pl-2 border-l border-slate-100">
-          {searchText && !disabled && (
+
+        <div className={`flex min-w-0 flex-1 items-center gap-1 overflow-hidden ${multiTagsMode ? "flex-wrap" : ""}`}>
+          {multiCompactMode && selectedCount > 0 ? (
+            <span className="shrink-0 inline-flex items-center rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700 tabular-nums">
+              {selectedCount} selected
+            </span>
+          ) : null}
+
+          {multiTagsMode && selectedCount > 0
+            ? selected.slice(0, maxVisibleTags).map((item) => (
+                <span
+                  key={item[dataKey]}
+                  className="inline-flex max-w-[45%] items-center gap-1 rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700"
+                >
+                  <span className="truncate">{getDisplayLabel(item, labelKey)}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelect(item);
+                    }}
+                    className="shrink-0 hover:text-rose-500 transition-colors"
+                  >
+                    <X size={10} />
+                  </button>
+                </span>
+              ))
+            : null}
+
+          {multiTagsMode && selectedCount > maxVisibleTags ? (
+            <span className="shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
+              +{selectedCount - maxVisibleTags}
+            </span>
+          ) : null}
+
+          <input
+            ref={inputRef}
+            type="text"
+            value={searchText}
+            onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              const next = e.target.value;
+              fetchSeqRef.current += 1;
+              setSearch(next);
+              if (!open) {
+                setOpen(true);
+                calcPosition();
+              }
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              multiCompactMode
+                ? selectedCount > 0
+                  ? "Search to add…"
+                  : allOptionLabel
+                : multiTagsMode && selectedCount > 0
+                  ? "Add more…"
+                  : placeholder
+            }
+            disabled={disabled}
+            autoComplete="off"
+            className={`min-w-[4.5rem] flex-1 self-center bg-transparent outline-none ${
+              multiTagsMode ? "h-6 leading-6" : "truncate"
+            } ${isToolbar ? LIST_PAGE_FILTER_VALUE_CLASS : "text-sm font-normal text-slate-800"} placeholder:text-slate-400`}
+          />
+        </div>
+
+        <div className="flex shrink-0 items-center self-center gap-1 border-l border-slate-100 pl-1.5 sm:pl-2">
+          {(searchText || (multiple && selected?.length > 0)) && !disabled && (
             <button type="button" onClick={handleClear} className="text-slate-300 hover:text-rose-500 transition-colors">
               <X size={14} />
             </button>
@@ -410,9 +718,9 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         </div>
       </div>
       {helperText ? (
-        <p className="text-[10px] text-slate-500 ml-1 leading-relaxed">{helperText}</p>
+        <p className={FORM_HINT_CLASS}>{helperText}</p>
       ) : null}
-      {error && <p className="text-[9px] text-rose-500 flex items-center gap-1 ml-1"><AlertCircle size={10} /> {error}</p>}
+      {error && <p className={FORM_ERROR_CLASS}><AlertCircle size={12} /> {error}</p>}
       {dropdown}
     </div>
   );

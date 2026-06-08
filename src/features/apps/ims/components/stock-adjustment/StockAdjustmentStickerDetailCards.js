@@ -1,8 +1,10 @@
 "use client";
 
 import { Box, Layers, User, ClipboardList, RefreshCw, CheckCircle2 } from "lucide-react";
+import SearchableSelect from "@/core/components/common/SearchableSelect";
+import { masterService } from "@/features/apps/ims/services/master";
 
-export default function StockAdjustmentStickerDetailCards({ selectedRow, packing }) {
+export default function StockAdjustmentStickerDetailCards({ selectedRow, packing, onCustomerChange, customerSelectDisabled, customerChanging }) {
   const row = selectedRow || {};
   const p = packing || {};
 
@@ -12,120 +14,170 @@ export default function StockAdjustmentStickerDetailCards({ selectedRow, packing
 
   return (
     <div className="p-2 lg:p-3 space-y-2 lg:space-y-3">
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="bg-slate-50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-slate-200 flex items-center gap-2">
+      <div className="bg-white border border-slate-200 rounded-lg shadow-sm">
+        <div className="bg-slate-50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-slate-200 flex items-center gap-2 rounded-t-lg">
           <Box className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] shrink-0 text-blue-600" aria-hidden />
-          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-slate-700">Item Details</span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">Item Details</span>
         </div>
         <div className="p-3 lg:p-4 space-y-2 lg:space-y-2.5">
           <div className="flex justify-between items-start">
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Item Code</p>
-              <p className="text-[12px] lg:text-base font-black text-blue-600 leading-none truncate">{itemCode}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Item Code</p>
+              <p className="text-[12px] font-black text-blue-600 leading-none truncate">{itemCode}</p>
             </div>
           </div>
           <div>
-            <p className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Description</p>
-            <p className="text-[11px] lg:text-sm font-medium text-slate-600 leading-tight line-clamp-2">{itemDesc}</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Description</p>
+            <p className="text-[11px] font-medium text-slate-600 leading-tight line-clamp-2">{itemDesc}</p>
           </div>
         </div>
       </div>
 
-      <div className="bg-white border border-amber-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="bg-amber-50/50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-amber-100 flex items-center gap-2">
+      <div className="bg-white border border-amber-200 rounded-lg shadow-sm">
+        <div className="bg-amber-50/50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-amber-100 flex items-center gap-2 rounded-t-lg">
           <Layers className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] shrink-0 text-amber-600" aria-hidden />
-          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-amber-800">Packing Category</span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">Packing Category</span>
         </div>
         <div className="p-3 lg:p-4 space-y-2 lg:space-y-2.5">
           <div className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded border border-slate-100">
-            <span className="text-[12px] lg:text-sm font-black text-slate-700 uppercase tracking-tight">{categoryLabel}</span>
+            <span className="text-[12px] font-black text-slate-700 uppercase tracking-tight">{categoryLabel}</span>
             <CheckCircle2 className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] text-emerald-500 shrink-0" aria-hidden />
           </div>
-          <div className="flex justify-between items-center text-[10px] lg:text-[11px] text-amber-600 font-bold italic">
+          <div className="flex justify-between items-center text-[10px] text-amber-600 font-bold italic">
             <span className="text-slate-400 font-bold normal-case">Read-only</span>
           </div>
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="bg-slate-50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-slate-200 flex items-center gap-2">
+      <div className="bg-white border border-slate-200 rounded-lg shadow-sm">
+        <div className="bg-slate-50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-slate-200 flex items-center gap-2 rounded-t-lg">
           <User className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-500" aria-hidden />
-          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-slate-700">Customer</span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">Customer</span>
         </div>
-        <div className="p-3 lg:p-4 space-y-2">
-          <div>
-            <p className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Name</p>
-            <p
-              className="text-[12px] lg:text-sm font-bold text-slate-700 leading-snug whitespace-normal break-words"
-              title={row.acc_name}
-            >
-              {row.acc_name || "—"}
+        <div className="p-3 lg:p-4 space-y-3">
+          {!customerSelectDisabled ? (
+            <div className={`min-w-0 ${customerChanging ? "opacity-60 pointer-events-none" : ""}`}>
+              <SearchableSelect
+                label="Customer"
+                value={row.acc_code || ""}
+                onChange={onCustomerChange}
+                fetchService={(params) =>
+                  masterService.getLedgersViews({
+                    ...params,
+                    permission_module: "stock_adjustment",
+                    permission_action: "view",
+                    itemdcode: row.itemdcode || undefined,
+                  })
+                }
+                getByIdService={(id) =>
+                  masterService.getLedgerViewById(id, {
+                    permission_module: "stock_adjustment",
+                    permission_action: "view",
+                    itemdcode: row.itemdcode || undefined,
+                  })
+                }
+                dataKey="id"
+                labelKey="acc_name"
+                placeholder={row.itemdcode ? "Search customer…" : "Item required"}
+                disabled={!row.itemdcode}
+                usePortal={false}
+              />
+            </div>
+          ) : null}
+
+          <div className={`space-y-2 ${!customerSelectDisabled ? "pt-2 border-t border-slate-100" : ""}`}>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+              {customerSelectDisabled ? "Customer" : "Selected customer"}
             </p>
-          </div>
-          <div>
-            <p className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter">
-              Cust. code / narration
-            </p>
-            <p className="text-[12px] lg:text-sm font-bold text-slate-700 leading-snug break-words" title={row.party_rate_cust_code}>
-              {row.party_rate_cust_code?.trim() ? row.party_rate_cust_code : "—"}
-            </p>
+            {row.acc_code ? (
+              <>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Name</p>
+                  <p
+                    className="text-[12px] font-bold text-slate-700 leading-snug whitespace-normal break-words"
+                    title={row.acc_name}
+                  >
+                    {row.acc_name?.trim() ? row.acc_name : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                    Cust. code / narration
+                  </p>
+                  <p
+                    className="text-[12px] font-bold text-slate-700 leading-snug break-words"
+                    title={row.party_rate_cust_code}
+                  >
+                    {customerChanging ? (
+                      <span className="text-slate-400 italic font-medium">Loading…</span>
+                    ) : row.party_rate_cust_code?.trim() ? (
+                      row.party_rate_cust_code
+                    ) : (
+                      "—"
+                    )}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <p className="text-[11px] text-slate-400 italic">Select a customer above.</p>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="bg-slate-50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-slate-200 flex items-center gap-2">
+      <div className="bg-white border border-slate-200 rounded-lg shadow-sm">
+        <div className="bg-slate-50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-slate-200 flex items-center gap-2 rounded-t-lg">
           <ClipboardList className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-500" aria-hidden />
-          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-slate-700">Production Info</span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">Production Info</span>
         </div>
         <div className="p-3 lg:p-4 grid grid-cols-2 gap-x-3 gap-y-2 lg:gap-y-3">
           <div>
-            <p className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Job Card</p>
-            <p className="text-[11px] lg:text-sm font-bold text-slate-700">{row.job_card_no || "—"}</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Job Card</p>
+            <p className="text-[11px] font-bold text-slate-700">{row.job_card_no || "—"}</p>
           </div>
           <div>
-            <p className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Total Qty</p>
-            <p className="text-[11px] lg:text-sm font-bold text-slate-700">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Total Qty</p>
+            <p className="text-[11px] font-bold text-slate-700">
               {Number(row.total_qty ?? 0).toLocaleString()}{" "}
               <span className="text-[9px] opacity-60">{row.unit || "PCS"}</span>
             </p>
           </div>
           <div>
-            <p className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Doc Date</p>
-            <p className="text-[11px] lg:text-sm font-bold text-slate-700">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Doc Date</p>
+            <p className="text-[11px] font-bold text-slate-700">
               {row.doc_dt ? new Date(row.doc_dt).toLocaleDateString("en-GB") : "--"}
             </p>
           </div>
           <div>
-            <p className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Doc No.</p>
-            <p className="text-[11px] lg:text-sm font-bold text-slate-700 truncate">{row.doc_no || "N/A"}</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Doc No.</p>
+            <p className="text-[11px] font-bold text-slate-700 truncate">{row.doc_no || "N/A"}</p>
           </div>
         </div>
       </div>
 
-      <div className="bg-blue-50/30 border border-blue-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="bg-blue-600 px-3 py-1.5 lg:px-4 lg:py-2 flex items-center gap-2">
+      <div className="bg-blue-50/30 border border-blue-200 rounded-lg shadow-sm">
+        <div className="bg-blue-600 px-3 py-1.5 lg:px-4 lg:py-2 flex items-center gap-2 rounded-t-lg">
           <RefreshCw className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] text-white shrink-0" aria-hidden />
-          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-white">Breakdown Summary</span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-white">Breakdown Summary</span>
         </div>
         <div className="p-3 lg:p-4 space-y-2 lg:space-y-2.5">
           <div className="flex justify-between items-center border-b border-blue-100 pb-1.5">
             <span className="text-[11px] lg:text-[13px] font-bold text-blue-800 uppercase">Qty / Box</span>
-            <span className="text-[13px] lg:text-xl font-black text-blue-700 tabular-nums">
+            <span className="text-[13px] font-black text-blue-700 tabular-nums">
               {p.qty_per_box ?? 0}{" "}
-              <span className="text-[10px] lg:text-xs opacity-60 uppercase">{row.unit || "PCS"}</span>
+              <span className="text-[10px] opacity-60 uppercase">{row.unit || "PCS"}</span>
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2 pt-1 lg:gap-3">
             <div className="bg-white border border-blue-100 rounded p-1.5 lg:p-3 text-center">
-              <p className="text-base lg:text-xl font-black text-blue-600 leading-none">{p.full_boxes_count ?? 0}</p>
-              <p className="text-[9px] lg:text-[11px] font-bold text-slate-400 uppercase mt-1">Full Boxes</p>
+              <p className="text-base font-black text-blue-600 leading-none">{p.full_boxes_count ?? 0}</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Full Boxes</p>
             </div>
             <div className="bg-white border border-orange-100 rounded p-1.5 lg:p-3 text-center">
-              <p className="text-base lg:text-xl font-black text-orange-600 leading-none">
+              <p className="text-base font-black text-orange-600 leading-none">
                 {(p.loose_box_qty ?? 0) > 0 ? 1 : 0}
               </p>
-              <p className="text-[9px] lg:text-[11px] font-bold text-slate-400 uppercase mt-1">Loose Box</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Loose Box</p>
             </div>
           </div>
         </div>

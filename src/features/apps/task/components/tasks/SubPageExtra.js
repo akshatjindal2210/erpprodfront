@@ -5,6 +5,7 @@ import { FILE_BASE_URL } from "@/core/utils/lib";
 import SearchableSelect  from "@/features/apps/task/components/common/SearchableSelect";
 import { PRIORITY_CONFIG } from "../common/Constants";
 import { taskService } from "@/features/apps/task/services/taskApi";
+import { activityLogService } from "@/features/shared/services/activityLogService";
 import { mapTaskUserToOption } from "@/features/apps/task/helpers/utilHelper";
 import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
@@ -718,6 +719,10 @@ export function SidebarTaskItem({ task, isActive, onClick, colorData }) {
 
 // ─── Activity Log Modal — Reusable ────────────────────────────────────────────
 const ACTION_CONFIG = {
+  create:                    { label: "Created",                color: "bg-emerald-100 border-emerald-200 text-emerald-700", dot: "bg-emerald-500" },
+  update:                    { label: "Updated",                color: "bg-blue-100 border-blue-200 text-blue-700",         dot: "bg-blue-500"    },
+  approve:                   { label: "Approved",               color: "bg-indigo-100 border-indigo-200 text-indigo-700",   dot: "bg-indigo-500"  },
+  delete:                    { label: "Deleted",                color: "bg-rose-100 border-rose-200 text-rose-700",         dot: "bg-rose-500"    },
   task_created:              { label: "Task Created",           color: "bg-emerald-100 border-emerald-200 text-emerald-700", dot: "bg-emerald-500" },
   task_assigned:             { label: "Task Assigned",          color: "bg-indigo-100 border-indigo-200 text-indigo-700",   dot: "bg-indigo-500"  },
   task_edited:               { label: "Task Edited",            color: "bg-blue-100 border-blue-200 text-blue-700",         dot: "bg-blue-500"    },
@@ -750,15 +755,26 @@ export function ActivityLogModal({ open, onClose, taskId, taskTitle, taskStatus,
     if (!isLazy || !taskId) return;
     setLoading(true);
     try {
-      const res = await taskService.getActivity(taskId, {
-        limit: LIMIT, offset: off, ...(atype ? { action_type: atype } : {}),
+      const page = Math.floor(off / LIMIT) + 1;
+      const response = await activityLogService.getLogs({
+        app_type: "task",
+        entity: "tasks",
+        entity_id: taskId,
+        action_type: atype || undefined,
+        page,
+        limit: LIMIT,
+        all_users: "true"
       });
-      const data = res.data?.data;
-      setTaskInfo({ title: data.task.title, status: data.task.status });
-      setTotal(data.pagination.total);
-      if (off === 0) setLogs(data.logs);
-      else           setLogs((p) => [...p, ...data.logs]);
-      setOffset(off);
+      
+      if (response.success) {
+        const data = response.data;
+        const pagin = response.pagination;
+        
+        setTotal(pagin.total);
+        if (off === 0) setLogs(data);
+        else           setLogs((p) => [...p, ...data]);
+        setOffset(off);
+      }
     } catch {
       toast.error("Failed to load activity");
     } finally {
@@ -781,15 +797,12 @@ export function ActivityLogModal({ open, onClose, taskId, taskTitle, taskStatus,
 
   const ACTION_TYPES = [
     { value: "",                    label: "All"          },
-    { value: "task_created",        label: "Created"      },
-    { value: "task_assigned",       label: "Assigned"     },
-    { value: "l1_changed",          label: "L1 Changed"   },
-    { value: "sub_user_added",      label: "Sub Added"    },
-    { value: "sub_user_removed",    label: "Sub Removed"  },
-    { value: "task_edited",         label: "Edited"       },
-    { value: "status_changed",      label: "Status"       },
-    { value: "completion_requested",label: "Completion"   },
-    { value: "task_forwarded",      label: "Forwarded"    },
+    { value: "CREATE",              label: "Created"      },
+    { value: "UPDATE",              label: "Updated"      },
+    { value: "APPROVE",             label: "Approved"     },
+    { value: "DELETE",              label: "Deleted"      },
+    { value: "task_created",        label: "Old Created"  },
+    { value: "task_assigned",       label: "Old Assigned" },
   ];
 
   if (!open) return null;
@@ -858,14 +871,15 @@ export function ActivityLogModal({ open, onClose, taskId, taskTitle, taskStatus,
           ) : (
             <>
               {displayLogs.map((log, i) => {
-                const cfg = ACTION_CONFIG[log.action] ?? {
-                  label: log.action?.replace(/_/g, " "),
+                const actionKey = (log.action || log.action_type || "").toLowerCase();
+                const cfg = ACTION_CONFIG[actionKey] ?? {
+                  label: (log.action || log.action_type || "").replace(/_/g, " "),
                   color: "bg-slate-100 border-slate-200 text-slate-600",
                   dot:   "bg-slate-400",
                 };
                 const isLast = i === displayLogs.length - 1;
                 return (
-                  <div key={log.activity_id} className="flex gap-3 min-w-0">
+                  <div key={log.id || log.activity_id} className="flex gap-3 min-w-0">
                     <div className="flex flex-col items-center flex-shrink-0">
                       <div className={`w-2.5 h-2.5 rounded-full mt-1 flex-shrink-0 ${cfg.dot}`} />
                       {!isLast && <div className="w-px bg-slate-100 flex-1 my-1" style={{ minHeight: 16 }} />}
@@ -875,13 +889,13 @@ export function ActivityLogModal({ open, onClose, taskId, taskTitle, taskStatus,
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${cfg.color}`}>
                           {cfg.label}
                         </span>
-                        <span className="text-[10px] text-slate-400 mt-0.5">{fmtTs(log.action_time)}</span>
+                        <span className="text-[10px] text-slate-400 mt-0.5">{fmtTs(log.created_at || log.action_time)}</span>
                       </div>
-                      {log.action_detail && (
-                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">{log.action_detail.replace(/<[^>]+>/g, "")}</p>
+                      {(log.description || log.action_detail) && (
+                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">{(log.description || log.action_detail).replace(/<[^>]*>/g, "")}</p>
                       )}
                       <span className="text-[10px] font-semibold text-indigo-600 mt-0.5 inline-block">
-                        {log.performed_by}
+                        {log.user_name || log.performed_by || "System"}
                       </span>
                     </div>
                   </div>

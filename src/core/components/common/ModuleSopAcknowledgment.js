@@ -24,10 +24,11 @@ export function htmlToPlainFromHtml(html) {
  * {boolean} fetchEnabled — when false, use `sopOverride` instead of calling helper
  * {object|null|undefined} sopOverride — when fetchEnabled false: null = no sop, object = sop row
  * {boolean} requireAckWhenPresent — any loaded SOP must be acknowledged (sticker add/delete only)
+ * {boolean} showRejectToast — toast when submit blocked; set false if parent scrolls to SOP footer
  * {(ready: boolean) => void} onGateReadyChange — whether user may proceed (no SOP / acknowledged / loading done)
  */
 
-const ModuleSopAcknowledgment = forwardRef(function ModuleSopAcknowledgment({ moduleSlug, permissionType, isOpen, readOnly = false, skip = false, fetchEnabled = true, sopOverride = undefined, requireAckWhenPresent = false, onGateReadyChange, className = "" }, ref ) {
+const ModuleSopAcknowledgment = forwardRef(function ModuleSopAcknowledgment({ moduleSlug, permissionType, isOpen, readOnly = false, skip = false, fetchEnabled = true, sopOverride = undefined, requireAckWhenPresent = false, showRejectToast = true, onGateReadyChange, className = "" }, ref ) {
   const [sop, setSop] = useState(null);
   const [loading, setLoading] = useState(false);
   const [ack, setAck] = useState(false);
@@ -113,12 +114,14 @@ const ModuleSopAcknowledgment = forwardRef(function ModuleSopAcknowledgment({ mo
     if (!ack) {
       setAckError(true);
       focusAcknowledgment();
-      toast.warning("Please confirm you have read the Standard Operating Procedure before submitting.");
+      if (showRejectToast) {
+        toast.warning("Please confirm you have read the Standard Operating Procedure before submitting.");
+      }
       return false;
     }
     setAckError(false);
     return true;
-  }, [skip, readOnly, fetchEnabled, loading, mustAcknowledge, ack, focusAcknowledgment]);
+  }, [skip, readOnly, fetchEnabled, loading, mustAcknowledge, ack, focusAcknowledgment, showRejectToast]);
 
   useImperativeHandle(ref, () => ({ assertAcknowledged, focusAcknowledgment }), [assertAcknowledged, focusAcknowledgment]);
 

@@ -37,6 +37,7 @@ export const MODULES = {
     { name: "activity_logs", label: "Activity Logs" },
     { name: "box_transaction_logs", label: "Box Transaction Logs" },
     { name: "sticker_download_logs", label: "Sticker Download Logs" },
+    { name: "audit", label: "Inventory Audit" },
   ],
   task: [
     { name: "tasks", label: "Tasks" },

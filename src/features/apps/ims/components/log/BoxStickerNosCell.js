@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { getBoxStickerEntries } from "@/features/apps/ims/utils/boxTransactionStickerEntries";
+import { getBoxKindStickerChipClass } from "@/features/apps/ims/utils/boxTransactionVisuals";
 
 export { getBoxStickerEntries };
 
@@ -22,9 +23,7 @@ export default function BoxStickerNosCell({ row }) {
       {entries.map((e) => (
         <span
           key={e.box_no_uid}
-          className={`inline-flex max-w-full shrink-0 font-mono text-[9px] leading-tight whitespace-nowrap rounded px-2 py-1 ${
-            e.is_loose ? "font-semibold text-amber-800 bg-amber-50 ring-1 ring-inset ring-amber-300" : "text-slate-700 bg-slate-50 ring-1 ring-inset ring-slate-200"
-          }`}
+          className={`inline-flex max-w-full shrink-0 font-mono text-[9px] leading-tight whitespace-nowrap rounded px-2 py-1 ${getBoxKindStickerChipClass(e)}`}
           title={e.is_loose ? `${e.box_no_uid} (loose)` : e.box_no_uid}
         >
           {e.box_no_uid}

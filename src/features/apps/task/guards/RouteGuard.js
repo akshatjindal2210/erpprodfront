@@ -19,7 +19,9 @@ export default function RouteGuard({ children }) {
 
   useEffect(() => {
     if (!user) {
-      router.replace("/login");
+      if (pathname !== "/login" && !pathname?.startsWith("/login/")) {
+        router.replace(`/login?redirect=${pathname}`);
+      }
       return;
     }
 

@@ -5,6 +5,7 @@ import { ROUTES as SETTINGS_ROUTES } from "@/features/admin/configuration/utils/
 /** Portal — all app routes in one place (launcher, navbar, guards). */
 export const ROUTES = {
   HOME: "/home",
+  ACTIVITY_LOGS: "/home/activity-logs",
   ...IMS_ROUTES,
   ...TASK_ROUTES,
   ...SETTINGS_ROUTES,

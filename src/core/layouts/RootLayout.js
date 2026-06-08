@@ -12,9 +12,11 @@ import { ShieldAlert, Lock } from "lucide-react";
 import { APP_SHELL, isPortalShell, isSettingsShell } from "@/config/appsRegistry";
 import { SETTINGS_NAV_REGISTRY } from "@/features/admin/configuration/config/settingsNavRegistry";
 import { ROUTES } from "@/config/routes";
+import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 
 export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEscapeKey(() => setSidebarOpen(false), sidebarOpen);
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("sidebarCollapsed") === "true";
@@ -116,9 +118,9 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
           whoAmi={{ name: userData?.name || "JFL Admin", email: userData?.email || "admin@jfl-dynamics.io" }}
         />
 
-        <main className={`flex-1 overflow-y-auto overflow-x-hidden ${THEME_CONFIG.footerBg}`}>
-          <div className="w-full min-h-full from-black/20 to-transparent bg-[#f0f4f8]">
-            <div className="mx-auto animate-in fade-in slide-in-from-bottom-2 duration-500 min-h-full p-2 md:p-2">
+        <main className={`flex-1 flex flex-col min-h-0 overflow-hidden ${THEME_CONFIG.footerBg}`}>
+          <div className="w-full flex-1 flex flex-col min-h-0 from-black/20 to-transparent bg-[#f0f4f8] overflow-y-auto overflow-x-hidden">
+            <div className="mx-auto animate-in fade-in slide-in-from-bottom-2 duration-500 flex-1 flex flex-col min-h-0 w-full p-2 md:p-2">
               {accessState?.hasPageAccess ? (
                 children
               ) : (

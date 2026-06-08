@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { isAppDevelopment } from "@/core/utils/pwa";
 import { ensureInstallPromptCapture } from "@/core/utils/pwaInstallPrompt";
 
 export default function PwaRegister() {
+  const pathname = usePathname();
+
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
 
     if (isAppDevelopment()) {
-      // Dev (.env development): no SW — hard reload always gets latest Next.js build.
       navigator.serviceWorker.getRegistrations().then((regs) => {
         regs.forEach((reg) => reg.unregister());
       });
@@ -20,14 +22,39 @@ export default function PwaRegister() {
 
     const register = async () => {
       try {
-        await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-      } catch {
-        // Silent fail to avoid noisy UI on unsupported environments.
+        const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+        
+        // Check for updates periodically
+        setInterval(() => {
+          registration.update();
+        }, 1000 * 60 * 60); // Check every hour
+
+        registration.addEventListener("updatefound", () => {
+          const newWorker = registration.installing;
+          newWorker.addEventListener("statechange", () => {
+            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+              // New version available! 
+              // We can either prompt the user or just let it take over on next reload.
+              console.log("New PWA version available. It will be used on the next reload.");
+            }
+          });
+        });
+      } catch (err) {
+        console.error("SW registration failed:", err);
       }
     };
 
     register();
   }, []);
+
+  // Check for SW updates on every route change
+  useEffect(() => {
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.ready.then((registration) => {
+        registration.update();
+      });
+    }
+  }, [pathname]);
 
   return null;
 }

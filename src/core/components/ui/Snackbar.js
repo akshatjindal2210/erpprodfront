@@ -88,7 +88,7 @@ export default function Snackbar({
       ref={innerRef}
       role="alert"
       aria-live="polite"
-      className="app-snackbar-banner--show pointer-events-auto fixed bottom-[30px] left-1/2 z-[1200] min-h-[54px] w-[min(calc(100vw-32px),28rem)] min-w-[min(250px,calc(100vw-32px))] rounded-[2px] bg-[#333] px-4 py-4 pr-12 text-center text-[17px] leading-snug text-white shadow-lg"
+      className="app-snackbar-banner--show pointer-events-auto fixed bottom-[30px] left-1/2 z-[2500] min-h-[54px] w-[min(calc(100vw-32px),28rem)] min-w-[min(250px,calc(100vw-32px))] rounded-[2px] bg-[#333] px-4 py-4 pr-12 text-center text-[17px] leading-snug text-white shadow-lg"
     >
       <button
         type="button"

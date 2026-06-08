@@ -23,12 +23,12 @@ export function buildStockAdjustmentStickerPrintMeta(detailRow, packingPreview, 
     item_code: detailRow?.item_code ?? dp?.item_code ?? st?.item_code,
     itemdesc: detailRow?.item_desc ?? dp?.item_desc ?? st?.itemdesc ?? st?.item_desc ?? "",
     description: detailRow?.item_desc ?? dp?.item_desc ?? st?.itemdesc ?? st?.item_desc ?? "",
-    acc_name: dp?.acc_name ?? st?.acc_name ?? detailRow?.acc_name,
-    acc_code: dp?.acc_code ?? st?.acc_code ?? detailRow?.acc_code,
-    ...(dp?.party_rate_cust_code?.trim?.() || st?.party_rate_cust_code?.trim?.()
+    acc_name: detailRow?.acc_name ?? dp?.acc_name ?? st?.acc_name,
+    acc_code: detailRow?.acc_code ?? dp?.acc_code ?? st?.acc_code,
+    ...(dp?.party_rate_cust_code?.trim?.() || st?.party_rate_cust_code?.trim?.() || detailRow?.party_rate_cust_code?.trim?.()
       ? {
           party_rate_cust_code: String(
-            dp?.party_rate_cust_code?.trim?.() || st?.party_rate_cust_code?.trim?.() || ""
+            dp?.party_rate_cust_code?.trim?.() || st?.party_rate_cust_code?.trim?.() || detailRow?.party_rate_cust_code?.trim?.() || ""
           ),
         }
       : {}),

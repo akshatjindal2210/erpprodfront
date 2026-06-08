@@ -1,5 +1,5 @@
 import DashboardHome from "@/features/shared/dashboard/components/DashboardHome";
 
 export default function Page() {
-  return <DashboardHome />;
+  return <DashboardHome title="IMS" appType="ims" />;
 }

@@ -44,10 +44,16 @@ export function middleware(request) {
   }
 
   if (!token && protectedPath) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("redirect", pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
   if (token && isAuthPage) {
+    const redirectParam = request.nextUrl.searchParams.get("redirect");
+    if (redirectParam && !redirectParam.startsWith("/login")) {
+      return NextResponse.redirect(new URL(redirectParam, request.url));
+    }
     return NextResponse.redirect(new URL("/home", request.url));
   }
 

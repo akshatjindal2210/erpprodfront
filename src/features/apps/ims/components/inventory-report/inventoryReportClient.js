@@ -31,23 +31,30 @@ export function computeInventoryTotals(rows = []) {
   );
 }
 
+function normalizeFilterList(value) {
+  if (value == null) return [];
+  const list = Array.isArray(value) ? value : [value];
+  return list.map((v) => String(v).trim()).filter(Boolean);
+}
+
+function matchesAnyFilterValue(value, selected) {
+  if (!selected.length) return true;
+  return selected.some((entry) => String(value) === String(entry));
+}
+
 export function filterInventoryRows(rows = [], filters = {}) {
-  const item = filters.item_dcodes?.[0];
-  const customer = filters.customer_codes?.[0];
-  const packing = filters.packing_numbers?.[0];
-  const location = filters.location_ids?.[0];
+  const items = normalizeFilterList(filters.item_dcodes);
+  const customers = normalizeFilterList(filters.customer_codes);
+  const packings = normalizeFilterList(filters.packing_numbers);
+  const locations = normalizeFilterList(filters.location_ids);
 
   return (rows || []).filter((row) => {
-    if (item != null && item !== "" && String(row.item_dcode) !== String(item)) return false;
-    if (customer != null && customer !== "" && String(row.customer_code) !== String(customer)) {
-      return false;
-    }
-    if (packing != null && packing !== "" && String(row.packing_number) !== String(packing)) {
-      return false;
-    }
-    if (location != null && location !== "") {
+    if (!matchesAnyFilterValue(row.item_dcode, items)) return false;
+    if (!matchesAnyFilterValue(row.customer_code, customers)) return false;
+    if (!matchesAnyFilterValue(row.packing_number, packings)) return false;
+    if (locations.length) {
       const ids = normalizeLocationIds(row.in_store_location_ids);
-      return ids.length > 0 && ids.some((id) => String(id) === String(location));
+      return ids.length > 0 && ids.some((id) => locations.some((loc) => String(id) === String(loc)));
     }
     return true;
   });

@@ -233,10 +233,18 @@ export const masterService = {
     const {
       permission_module = "customer_master",
       permission_action = "view",
+      itemdcode,
+      item_dcode,
       ...rest
     } = params;
 
-    if (!cache.ledgers) {
+    const itemFilter = itemdcode ?? item_dcode;
+    const skipLedgerCache =
+      (permission_module === "packing_entry" || permission_module === "stock_adjustment") &&
+      itemFilter != null &&
+      String(itemFilter).trim() !== "";
+
+    if (!skipLedgerCache && !cache.ledgers) {
       try {
         const { data } = await fetchAllListPages(
           async (page, limit) => {
@@ -267,13 +275,20 @@ export const masterService = {
       }
     }
 
-    if (cache.ledgers) {
+    if (!skipLedgerCache && cache.ledgers) {
       return getFilteredFromCache(cache.ledgers, rest);
     }
 
     const res = await api(ENDPOINTS.MASTER.LEDGERS.VIEWS, {
       method: "POST",
-      body: { permission_module, permission_action, page: 1, limit: 1000 },
+      body: {
+        permission_module,
+        permission_action,
+        ...(itemFilter != null && String(itemFilter).trim() !== "" ? { itemdcode: itemFilter } : {}),
+        page: 1,
+        limit: 1000,
+        ...rest,
+      },
     });
     if (res?.success && Array.isArray(res.data)) {
       const mapped = res.data.map((l) => ({ ...l, id: l.id ?? l.acc_code }));

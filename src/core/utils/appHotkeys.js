@@ -21,12 +21,26 @@ export function isListChromeHotkeyChord(e) {
   const mod = e.ctrlKey || e.metaKey;
   if (!mod || e.shiftKey) return false;
 
-  const listChord = mod && e.altKey && !e.shiftKey;
-  const listChordPwa = mod && !e.altKey && !e.shiftKey;
-  if (!listChord && !listChordPwa) return false;
-
   const key = (e.key || "").toLowerCase();
-  return key === "n" || key === "e" || key === "p";
+  const isAlt = e.altKey;
+
+  // 1. NEW: Ctrl+Alt+N or Ctrl+N
+  if (key === "n") return true;
+
+  // 2. EDIT: Ctrl+Alt+E or Ctrl+E
+  if (key === "e") return true;
+
+  // 3. PRINT: Ctrl+P
+  if (key === "p") return true;
+
+  // 4. APPROVE: Ctrl+A
+  if (key === "a") return true;
+
+  // 5. DELETE: Ctrl+D
+  if (key === "d") return true;
+
+  if (e.key === "Insert" || e.key === "F2" || e.key === "Delete") return true;
+  return false;
 }
 
 export function isAppSaveChord(e) {

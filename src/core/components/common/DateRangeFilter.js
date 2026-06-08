@@ -1,7 +1,14 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { RotateCcw, Send } from "lucide-react";
-import ListPageSearchField, { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/core/components/common/ListPageSearchField";
+import ListPageSearchField, {
+  LIST_PAGE_SEARCH_LABEL_CLASS,
+  LIST_PAGE_FILTER_BOX_CLASS,
+  LIST_PAGE_FILTER_SELECT_CLASS,
+  LIST_PAGE_FILTER_FIELD_WRAP_CLASS,
+  LIST_PAGE_FILTER_ACTION_BTN_CLASS,
+  listPageFilterDisplayTextClass,
+} from "@/core/components/common/ListPageSearchField";
 import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 
 const formatDisplayDate = (value) => {
@@ -89,13 +96,13 @@ export default function DateRangeFilter({
     }
   };
 
-  /** One grid: auto-wrap to next row; invisible label row on actions so controls align with labeled fields. */
+  /** Phone: 2 filters per row, compact spacing. */
   const filterGridClass =
-    "grid w-full min-w-0 items-end gap-x-3 gap-y-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,11.25rem),1fr))]";
+    "grid w-full min-w-0 items-end gap-x-2 gap-y-1.5 max-md:grid-cols-2 md:gap-x-3 md:gap-y-2 md:[grid-template-columns:repeat(auto-fill,minmax(min(100%,11.25rem),1fr))]";
 
   const actionsLabelSpacer = (
     <span
-      className={`${LIST_PAGE_SEARCH_LABEL_CLASS} block min-h-[1.125rem] shrink-0 select-none leading-tight opacity-0`}
+      className={`${LIST_PAGE_SEARCH_LABEL_CLASS} block min-h-[0.875rem] md:min-h-[1.125rem] shrink-0 select-none leading-tight opacity-0`}
       aria-hidden
     >
       {"\u00a0"}
@@ -111,24 +118,20 @@ export default function DateRangeFilter({
             placeholder={searchPlaceholder}
             value={searchValue}
             onChange={onSearchChange}
-            containerClassName="w-full min-w-0 space-y-1"
+            containerClassName="w-full min-w-0 space-y-0.5 md:space-y-1"
           />
         </div>
       )}
 
       {showDate && (
         <>
-          <div className="flex min-w-0 flex-col gap-1">
-            <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 tracking-tight italic">
-              From Date
-            </label>
+          <div className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
+            <label className={LIST_PAGE_SEARCH_LABEL_CLASS}>From Date</label>
             <div
-              className="relative flex h-9 min-w-0 cursor-pointer items-center gap-2 rounded-none border border-slate-300 bg-white px-2 transition-all focus-within:border-slate-500 md:px-3"
+              className={`relative flex min-w-0 cursor-pointer items-center ${LIST_PAGE_FILTER_BOX_CLASS}`}
               onClick={() => openDatePicker(fromInputRef)}
             >
-              <span
-                className={`pointer-events-none text-[12px] font-medium md:hidden ${localFrom ? "text-slate-700" : "text-slate-400"}`}
-              >
+              <span className={`pointer-events-none block w-full min-w-0 truncate ${listPageFilterDisplayTextClass(localFrom)}`}>
                 {formatDisplayDate(localFrom)}
               </span>
               <input
@@ -138,22 +141,19 @@ export default function DateRangeFilter({
                 min={minDate || undefined}
                 max={localTo || maxDate || undefined}
                 onChange={(e) => setLocalFrom(e.target.value)}
-                className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 md:static md:inset-auto md:z-auto md:h-auto md:w-full md:cursor-default md:opacity-100 md:bg-transparent md:text-[12px] md:font-medium md:outline-none text-slate-700"
+                aria-label="From date"
+                className="absolute inset-0 z-10 h-full w-full cursor-pointer border-0 bg-transparent opacity-0 text-transparent"
               />
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-col gap-1">
-            <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 tracking-tight italic">
-              To Date
-            </label>
+          <div className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
+            <label className={LIST_PAGE_SEARCH_LABEL_CLASS}>To Date</label>
             <div
-              className="relative flex h-9 min-w-0 cursor-pointer items-center gap-2 rounded-none border border-slate-300 bg-white px-2 transition-all focus-within:border-slate-500 md:px-3"
+              className={`relative flex min-w-0 cursor-pointer items-center ${LIST_PAGE_FILTER_BOX_CLASS}`}
               onClick={() => openDatePicker(toInputRef)}
             >
-              <span
-                className={`pointer-events-none text-[12px] font-medium md:hidden ${localTo ? "text-slate-700" : "text-slate-400"}`}
-              >
+              <span className={`pointer-events-none block w-full min-w-0 truncate ${listPageFilterDisplayTextClass(localTo)}`}>
                 {formatDisplayDate(localTo)}
               </span>
               <input
@@ -163,7 +163,8 @@ export default function DateRangeFilter({
                 min={localFrom || minDate || undefined}
                 max={maxDate || undefined}
                 onChange={(e) => setLocalTo(e.target.value)}
-                className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 md:static md:inset-auto md:z-auto md:h-auto md:w-full md:cursor-default md:opacity-100 md:bg-transparent md:text-[12px] md:font-medium md:outline-none text-slate-700"
+                aria-label="To date"
+                className="absolute inset-0 z-10 h-full w-full cursor-pointer border-0 bg-transparent opacity-0 text-transparent"
               />
             </div>
           </div>
@@ -172,10 +173,8 @@ export default function DateRangeFilter({
 
       {extraFilterCount > 0 &&
         extraFilters.map((filter, index) => (
-          <div key={index} className="flex min-w-0 flex-col gap-1">
-            <label className="text-[10px] font-bold text-slate-500 uppercase ml-1 tracking-tight italic">
-              {filter.label}
-            </label>
+          <div key={index} className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
+            <label className={LIST_PAGE_SEARCH_LABEL_CLASS}>{filter.label}</label>
             <select
               value={localExtras[filter.key] ?? filter.value ?? ""}
               onChange={(e) => {
@@ -190,13 +189,13 @@ export default function DateRangeFilter({
                   });
                 }
               }}
-              className="h-9 w-full min-w-0 cursor-pointer appearance-none rounded-none border border-slate-300 bg-white px-3 text-[12px] font-medium text-slate-700 outline-none focus:border-slate-500"
+              className={LIST_PAGE_FILTER_SELECT_CLASS}
               style={{
                 backgroundImage:
                   'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2364748b\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\'/%3E%3C/svg%3E")',
                 backgroundRepeat: "no-repeat",
-                backgroundPosition: "right 0.75rem center",
-                backgroundSize: "1rem",
+                backgroundPosition: "right 0.5rem center",
+                backgroundSize: "0.875rem",
               }}
             >
               {sortFilterOptionsAsc(filter.options).map((opt) => (
@@ -209,22 +208,26 @@ export default function DateRangeFilter({
         ))}
 
       {showActionButtons && (
-        <div className="flex min-w-0 flex-col gap-1">
+        <div className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
           {actionsLabelSpacer}
-          <div className="flex min-h-9 flex-row flex-nowrap gap-2">
+          <div className="flex min-h-8 md:min-h-9 flex-row flex-nowrap gap-1.5 md:gap-2">
             <button
               type="button"
               onClick={handleInternalReset}
-              className="flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-none border border-slate-300 bg-white px-3 text-[11px] font-bold uppercase tracking-wider text-slate-600 transition-all hover:bg-slate-50 active:scale-95"
+              className={`${LIST_PAGE_FILTER_ACTION_BTN_CLASS} border border-slate-300 bg-white text-slate-600 hover:bg-slate-50`}
             >
-              <RotateCcw size={14} /> Reset
+              <RotateCcw size={12} className="md:hidden" />
+              <RotateCcw size={14} className="hidden md:block" />
+              Reset
             </button>
             <button
               type="button"
               onClick={handleApply}
-              className="flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-none bg-slate-800 px-3 text-[11px] font-bold uppercase tracking-wider text-white shadow-sm transition-all hover:bg-black active:scale-95"
+              className={`${LIST_PAGE_FILTER_ACTION_BTN_CLASS} bg-slate-800 text-white shadow-sm hover:bg-black`}
             >
-              <Send size={14} /> Search
+              <Send size={12} className="md:hidden" />
+              <Send size={14} className="hidden md:block" />
+              Search
             </button>
           </div>
         </div>

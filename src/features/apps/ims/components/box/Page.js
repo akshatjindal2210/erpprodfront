@@ -5,10 +5,12 @@ import { Plus, RefreshCcw, Box, Edit3, Trash2, CheckCircle, X } from "lucide-rea
 import { toast } from "react-toastify";
 import { boxService } from "@/features/apps/ims/services/box";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 // Components
 import ActionButton from "@/core/components/ui/ActionButton";
 import ViewToggle from "@/core/components/ui/ViewToggle";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DataTable from "@/core/components/ui/DataTable";
 import BoxModal from "./BoxModal";
@@ -19,6 +21,7 @@ import { useViewMode } from "@/core/hooks/useViewMode";
 import { formatDateTime } from "@/core/utils/utilHelper";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
+import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 
 export default function BoxTablePage() {
@@ -121,24 +124,37 @@ export default function BoxTablePage() {
     });
   };
 
-  const extraFilters = useMemo(() => [
-    // { 
-    //   label: "Status", key: "approvedStatus", value: params.status, 
-    //   options: [
-    //     { label: "All Status", value: "all" }, 
-    //     { label: "Authorized", value: "approved" }, 
-    //     { label: "Pending", value: "pending" }
-    //   ] 
-    // },
-  ], [params.status]);
+  const extraFilters = useMemo(() => [], []);
 
-  const selectedRecord = filteredRows.find((u) => u.box_uid === selected);
+  const selectedRecord = useMemo(() => filteredRows.find((u) => u.box_uid === selected), [filteredRows, selected]);
+
+  const getSelectedRow = useCallback(() => filteredRows.find((u) => u.box_uid === selected), [filteredRows, selected]);
+
+  const { openNewModal, openEditModal, tableHotkeyProps, openDeleteModal } = useListDrawerHotkeys({
+    module: "boxes",
+    modalOpen: modalOpen || !!deleteItem,
+    selectedId: selected,
+    getSelectedRow,
+    openAdd: useCallback(() => {
+      setEditItem(null);
+      setModalMode("add");
+      setModalOpen(true);
+    }, []),
+    openEdit: useCallback((row) => {
+      setEditItem(row);
+      setModalMode("edit");
+      setModalOpen(true);
+    }, []),
+    openDelete: useCallback((row) => {
+      setDeleteItem(row);
+    }, []),
+    canDeleteSelection: useCallback(() => !!selected, [selected]),
+  });
 
   const HEADERS = [
     ["Box No", "box_no_uid", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { fixed: true, width: "120px" }],
     ["Packing No", "packing_number", (v) => <span className="font-semibold text-slate-700 text-[10px] uppercase">{v || "—"}</span>, { width: "120px" }],
     ["Qty", "qty", (v) => <span className="font-black text-emerald-600 text-[11px]">{v ?? "0"}</span>, { width: "70px", align: "center" }],
-    // ["Customer", "acc_name", (v) => <span className="text-[10px] text-slate-500 italic whitespace-normal break-words line-clamp-2 block" title={v}>{v || "—"}</span>, { width: "150px" }],
     ["Location", "location_no", (v, row) => (
       <span className="text-[10px] font-bold text-slate-600 uppercase">
         {v || `${row?.rack_no || ""}${(row?.shelf_no || "").toString().toUpperCase()}` || "—"}
@@ -149,21 +165,22 @@ export default function BoxTablePage() {
   ];
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2 flex-wrap">
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <>
               <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
               
               <button onClick={() => fetchBoxes()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center transition-all">
                 <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
               </button>
-            </div>
-
-            <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />
-          </div>
+              </>
+            }
+            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+          />
 
           {selected && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
@@ -173,7 +190,7 @@ export default function BoxTablePage() {
               </button>
             </div>
           )}
-        </div>
+        </ListPageToolbar>
 
         <ListPageFilterStrip>
           <DateRangeFilter 
@@ -199,10 +216,10 @@ export default function BoxTablePage() {
               data={items} 
               loading={loading}
               viewMode={viewMode} 
+              {...tableHotkeyProps}
               sortKey={params.sortKey} 
               sortDir={params.sortDir}
               allowCopy={true}
-              hotkeysDisabled={modalOpen}
               onSort={(key) => {
                 setDisplayLimit(100);
                 setParams((p) => ({
@@ -244,4 +261,3 @@ export default function BoxTablePage() {
     </div>
   );
 }
-

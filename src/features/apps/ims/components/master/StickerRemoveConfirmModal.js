@@ -1,13 +1,16 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { X, Trash2, AlertTriangle } from "lucide-react";
 import ModuleSopAcknowledgment from "@/core/components/common/ModuleSopAcknowledgment";
+import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 
 /** Cancel stickers — SOP (packing_entry delete) on top when configured. */
 export default function StickerRemoveConfirmModal({ open, docNo, onClose, onConfirm, loading = false }) {
   const sopAckRef = useRef(null);
   const [sopGateReady, setSopGateReady] = useState(false);
+
+  useEscapeKey(onClose, open);
 
   if (!open || !docNo) return null;
 

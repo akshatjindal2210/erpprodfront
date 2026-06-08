@@ -1,3 +1,5 @@
+import { resolveBoxTxTypeLabel } from "@/features/apps/ims/utils/boxTransactionVisuals";
+
 /** Build searchable text for one box transaction log row (all UI + JSON fields). */
 export function boxTransactionSearchText(row, typeLabels = {}) {
   const parts = [];
@@ -10,6 +12,7 @@ export function boxTransactionSearchText(row, typeLabels = {}) {
   add(row?.user_name);
   add(row?.transaction_type);
   add(typeLabels[row?.transaction_type]);
+  add(resolveBoxTxTypeLabel(row?.transaction_type, row, typeLabels));
   add(row?.transaction_type?.replace(/_/g, " "));
   add(row?.source_module);
   add(row?.source_module?.replace(/_/g, " "));

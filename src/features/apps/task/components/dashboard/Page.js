@@ -22,6 +22,7 @@ import UserTasksSection  from "@/features/apps/task/components/dashboard/UserTas
 import UserChartsRow     from "@/features/apps/task/components/dashboard/UserChartsRow";
 import UserAssignedTasks from "@/features/apps/task/components/dashboard/UserAssignedTasks";
 import { canViewTaskDashboard } from "@/features/apps/task/config/appConfig";
+import ActivityLogList from "@/features/shared/dashboard/components/ActivityLogList";
 
 // ── API Mappers ───────────────────────────────────────────────────────────────
 function mapStaffResponse(apiData) {
@@ -141,6 +142,10 @@ export default function RootDashboard() {
           />
         </>
       )}
+
+      <div className="mt-8">
+        <ActivityLogList appType="task" title="Task Activity Logs" />
+      </div>
 
     </div>
   );

@@ -9,12 +9,14 @@ import { masterService } from "@/features/apps/ims/services/master";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import DataTable from "@/core/components/ui/DataTable";
 import ViewToggle from "@/core/components/ui/ViewToggle";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import ActionButton from "@/core/components/ui/ActionButton";
 import GlobalDetailModal from "@/core/components/common/GlobalDetailModal";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import ListPageSearchField from "@/core/components/common/ListPageSearchField";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection } from "./MasterDetailLayout";
 import { bestTierForStrings } from "@/features/apps/ims/helpers/liveSearchRank";
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 export default function CustomerLedgerPage() {
   const [allData, setAllData] = useState([]);
@@ -119,37 +121,21 @@ export default function CustomerLedgerPage() {
   ];
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden font-sans">
+    <div className={`${IMS_LIST_PAGE_SHELL} font-sans`}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         
-        {/* --- TOP ACTION BAR --- */}
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            
-            {/* Action Group */}
-            <div className="flex items-center gap-2">
-              {/* 
-              <ActionButton 
-                variant="outline" label="View Profile" icon={Eye}
-                disabled={!selected}
-                onClick={() => setIsModalOpen(true)}
-                className="rounded-none h-9 text-[11px] font-bold uppercase tracking-wider px-4 border-slate-300 shrink-0 shadow-none"
-              />
-               */}
-              
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
-
-              <button onClick={() => fetchItems(true)} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-wider transition-all shadow-none">
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <>
+              <button type="button" onClick={() => fetchItems(true)} className="h-9 shrink-0 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-wider transition-all shadow-none touch-manipulation">
                 <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
                 <span className="hidden xs:inline">Refresh</span>
               </button>
-            </div>
-
-            {/* View Toggle */}
-            <div className="flex items-center">
-              <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />
-            </div>
-          </div>
+              </>
+            }
+            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+          />
 
           {/* Selection Banner */}
           {selected && (
@@ -162,7 +148,7 @@ export default function CustomerLedgerPage() {
               </button>
             </div>
           )}
-        </div>
+        </ListPageToolbar>
 
         <ListPageFilterStrip className="space-y-2">
           <ListPageSearchField

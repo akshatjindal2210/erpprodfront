@@ -72,9 +72,9 @@ export default function UsersPage() {
 
   const [params, setParams] = useState({
     pageSize: 500,
-    sortKey: "username",
-    sortDir: "asc",
-    listScope: LIST_SCOPE_ERP,
+    sortKey: "created_at",
+    sortDir: "desc",
+    listScope: LIST_SCOPE_ALL,
     roleFilter: "all",
     statusFilter: "all",
   });
@@ -207,11 +207,11 @@ export default function UsersPage() {
     setTempSearch("");
     setParams((prev) => ({
       ...prev,
-      listScope: LIST_SCOPE_ERP,
+      listScope: LIST_SCOPE_ALL,
       roleFilter: "all",
       statusFilter: "all",
-      sortKey: "username",
-      sortDir: "asc",
+      sortKey: "created_at",
+      sortDir: "desc",
     }));
   };
 

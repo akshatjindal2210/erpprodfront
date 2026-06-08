@@ -18,12 +18,20 @@ export function isIosDevice() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent);
 }
 
+export function isMobileDevice() {
+  if (typeof navigator === "undefined") return false;
+  return /android|iphone|ipad|ipod|mobi|mini|tablet/i.test(navigator.userAgent.toLowerCase());
+}
+
 /** Development: skip install gate and allow DevTools in PWA. */
 export function isPwaDevBypass() {
   return isAppDevelopment();
 }
 
 export function isPwaInstallRequired() {
+  if (typeof window !== "undefined" && sessionStorage.getItem("pwa_gate_bypassed") === "1") {
+    return false;
+  }
   return !isAppDevelopment();
 }
 

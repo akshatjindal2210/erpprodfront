@@ -11,10 +11,12 @@ import { formatDateTime } from "@/core/utils/utilHelper";
 import { masterService } from "@/features/apps/ims/services/master";
 import { boxService } from "@/features/apps/ims/services/box";
 import { useViewMode } from "@/core/hooks/useViewMode";
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 // Components
 import DataTable from "@/core/components/ui/DataTable";
 import ViewToggle from "@/core/components/ui/ViewToggle";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import ActionButton from "@/core/components/ui/ActionButton";
 import GlobalDetailModal from "@/core/components/common/GlobalDetailModal";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailGrid, MasterDetailKV, MasterDetailProse } from "./MasterDetailLayout";
@@ -191,7 +193,7 @@ export default function DailyProductionPage() {
     [allData, selected]
   );
 
-  const { openNewModal, tableHotkeyProps } = useListDrawerHotkeys({
+  const { openNewModal, tableHotkeyProps, openDeleteModal } = useListDrawerHotkeys({
     module: "packing_entry",
     addActions: ["add", "edit"],
     modalOpen: isStickerModalOpen || isDetailModalOpen || removeStickersConfirmOpen,
@@ -200,6 +202,8 @@ export default function DailyProductionPage() {
     openAdd: useCallback(() => setIsStickerModalOpen(true), []),
     canOpenNew: useCallback(() => Boolean(selected), [selected]),
     newBlockedMessage: "Select a row in the list first — New Sticker opens only after a row is selected.",
+    openDelete: useCallback(() => setRemoveStickersConfirmOpen(true), []),
+    canDeleteSelection: useCallback(() => Boolean(selected && selectedRecord?.sticker_generated), [selected, selectedRecord]),
   });
 
   const handleRemoveGeneratedStickersForRow = async () => {
@@ -268,11 +272,13 @@ export default function DailyProductionPage() {
   ];
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden font-sans">
+    <div className={`${IMS_LIST_PAGE_SHELL} font-sans`}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-2">
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <>
             <div className="flex items-center gap-2">
               {canNewSticker ? (
                 <button
@@ -323,8 +329,10 @@ export default function DailyProductionPage() {
                 <span className="hidden xs:inline text-[11px] font-semibold">Refresh</span>
               </button>
             </div>
-            <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />
-          </div>
+              </>
+            }
+            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+          />
 
           {selected && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
@@ -336,7 +344,7 @@ export default function DailyProductionPage() {
               </button>
             </div>
           )}
-        </div>
+        </ListPageToolbar>
 
         <ListPageFilterStrip>
           <DateRangeFilter 

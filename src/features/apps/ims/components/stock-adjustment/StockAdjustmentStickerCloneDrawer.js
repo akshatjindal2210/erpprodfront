@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Check, AlertCircle, Loader2, Shield, MessageSquareQuote, Package, Layers } from "lucide-react";
+import { Check, AlertCircle, Loader2, Shield, MessageSquareQuote, Package, Layers, ChevronDown } from "lucide-react";
 import { toast } from "react-toastify";
 
 import Drawer from "@/core/components/ui/Drawer";
@@ -133,14 +133,19 @@ async function fetchItemMetaForStockDrawer(itemdcodeRaw) {
 const FIELD_LABEL = "block text-[8px] font-bold uppercase tracking-wider text-slate-500 mb-1 leading-none";
 const FIELD_LABEL_ROW = "flex items-center gap-1 text-[8px] font-bold uppercase tracking-wider text-slate-500 mb-1 leading-none";
 const FIELD_CONTROL =
-  "h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-800 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-500";
+  "h-8 lg:h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 lg:px-2.5 text-[10px] font-semibold text-slate-800 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-500";
 const FIELD_CONTROL_ERR = "border-rose-400 bg-rose-50/40 focus:border-rose-500 focus:ring-rose-100";
-const READOUT_BOX = "min-h-[2.5rem] rounded-lg border border-slate-200 bg-slate-50 px-2.5 flex flex-col justify-center shadow-sm";
-const READOUT_BOX_MINUS = "min-h-[2.5rem] rounded-lg border border-rose-200/80 bg-rose-50/60 px-2.5 flex flex-col justify-center shadow-sm";
+const READOUT_BOX =
+  "min-h-[2rem] lg:min-h-[2.5rem] rounded-lg border border-slate-200 bg-slate-50 px-2 lg:px-2.5 flex flex-col justify-center shadow-sm";
+const READOUT_BOX_MINUS =
+  "min-h-[2rem] lg:min-h-[2.5rem] rounded-lg border border-rose-200/80 bg-rose-50/60 px-2 lg:px-2.5 flex flex-col justify-center shadow-sm";
 
 const INITIAL_FORM = {
   remarks: "",
   approved: false,
+  acc_code: null,
+  acc_name: null,
+  party_rate_cust_code: null,
 };
 
 const GATE_ADD_MINUS = [
@@ -236,44 +241,44 @@ function MinusBreakdownTable({
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th
                       scope="col"
-                      className="sticky left-0 top-0 z-30 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-600 border-r border-slate-200 whitespace-nowrap"
+                      className="sticky left-0 top-0 z-30 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-600 border-r border-slate-200 whitespace-nowrap"
                     >
                       #
                     </th>
                     <th
                       scope="col"
-                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap"
+                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
                     >
                       Box
                     </th>
                     <th
                       scope="col"
-                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap"
+                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
                     >
                       Packing
                     </th>
                     <th
                       scope="col"
-                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap"
+                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
                     >
                       Qty
                     </th>
                     <th
                       scope="col"
-                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap"
+                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
                     >
                       Type
                     </th>
                     <th
                       scope="col"
-                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap"
+                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
                     >
                       Status
                     </th>
                     {!readOnly && allowSelect ? (
                       <th
                         scope="col"
-                        className="sticky right-0 top-0 z-30 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-600 text-center border-l border-slate-200 whitespace-nowrap"
+                        className="sticky right-0 top-0 z-30 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-600 text-center border-l border-slate-200 whitespace-nowrap"
                       >
                         Minus
                       </th>
@@ -296,25 +301,25 @@ function MinusBreakdownTable({
                         key={id}
                         className={`group border-b border-slate-100 hover:bg-slate-50/70 ${!canSelect && !readOnly ? "opacity-50" : ""}`}
                       >
-                        <td className="sticky left-0 z-10 px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-600 bg-white group-hover:bg-slate-50 border-r border-slate-100 tabular-nums">
+                        <td className="sticky left-0 z-10 px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-600 bg-white group-hover:bg-slate-50 border-r border-slate-100 tabular-nums">
                           {idx + 1}
                         </td>
-                        <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-700 min-w-0 max-w-[180px] lg:max-w-[240px]">
+                        <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-700 min-w-0 max-w-[180px] lg:max-w-[240px]">
                           <div className="flex flex-col leading-snug min-w-0">
-                            <span className="text-slate-800 font-bold text-[10px] lg:text-xs break-all">
+                            <span className="text-slate-800 font-bold text-[10px] break-all">
                               {boxNoUid}
                             </span>
                           </div>
                         </td>
-                        <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-700 whitespace-nowrap tabular-nums">
+                        <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-700 whitespace-nowrap tabular-nums">
                           {row.packing_number ?? packingNo}
                         </td>
-                        <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-800 whitespace-nowrap tabular-nums">
+                        <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-800 whitespace-nowrap tabular-nums">
                           {Number(row.qty ?? 0).toLocaleString()} {unit}
                         </td>
                         <td className="px-2 py-1.5 lg:px-3 lg:py-2">
                           <span
-                            className={`text-[8px] lg:text-[11px] font-black px-1 py-0.5 lg:px-1.5 lg:py-0.5 border whitespace-nowrap ${
+                            className={`text-[8px] font-black px-1 py-0.5 lg:px-1.5 lg:py-0.5 border whitespace-nowrap ${
                               isSaAdd
                                 ? "bg-violet-50 text-violet-800 border-violet-200"
                                 : isLoose
@@ -326,7 +331,7 @@ function MinusBreakdownTable({
                           </span>
                         </td>
                         <td className="px-2 py-1.5 lg:px-3 lg:py-2">
-                          <span className="text-[9px] lg:text-[12px] font-bold text-slate-600 uppercase whitespace-nowrap">
+                          <span className="text-[9px] font-bold text-slate-600 uppercase whitespace-nowrap">
                             {readOnly
                               ? entryApproved || isStockAdjustmentOut(row)
                                 ? "Removed"
@@ -422,7 +427,7 @@ function AddBreakdownTable({
           <div className="bg-white border border-slate-200 px-3 py-8 text-center">
             <div className="flex flex-col items-center gap-1.5 text-slate-400">
               <Layers size={20} className="opacity-20" />
-              <span className="text-[10px] lg:text-[11px] font-bold uppercase tracking-wide px-1">
+              <span className="text-[10px] font-bold uppercase tracking-wide px-1">
                 {editMode
                   ? "Saved boxes appear here — select Remove or use Add more above"
                   : "Enter number of boxes and per-box quantity — the breakdown will appear here"}
@@ -437,45 +442,45 @@ function AddBreakdownTable({
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th
                       scope="col"
-                      className="sticky left-0 top-0 z-30 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-600 border-r border-slate-200 whitespace-nowrap"
+                      className="sticky left-0 top-0 z-30 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-600 border-r border-slate-200 whitespace-nowrap"
                     >
                       #
                     </th>
                     {showRemoveColumn ? (
                       <th
                         scope="col"
-                        className="sticky left-[2.25rem] top-0 z-30 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-rose-600 border-r border-slate-200 whitespace-nowrap"
+                        className="sticky left-[2.25rem] top-0 z-30 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-rose-600 border-r border-slate-200 whitespace-nowrap"
                       >
                         Remove
                       </th>
                     ) : null}
                     <th
                       scope="col"
-                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap"
+                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
                     >
                       Box
                     </th>
                     <th
                       scope="col"
-                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap"
+                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
                     >
                       Packing
                     </th>
                     <th
                       scope="col"
-                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap"
+                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
                     >
                       Qty
                     </th>
                     <th
                       scope="col"
-                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap"
+                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
                     >
                       Type
                     </th>
                     <th
                       scope="col"
-                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap"
+                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
                     >
                       Status
                     </th>
@@ -491,7 +496,7 @@ function AddBreakdownTable({
                       key={`${row.box_no_uid}-${row.box_uid ?? "new"}-${idx}`}
                       className={`group border-b border-slate-100 hover:bg-slate-50/70 ${isMarkedRemove || isRemovedRow ? "bg-rose-50/60" : ""}`}
                     >
-                      <td className="sticky left-0 z-10 px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-600 bg-white group-hover:bg-slate-50 border-r border-slate-100 tabular-nums">
+                      <td className="sticky left-0 z-10 px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-600 bg-white group-hover:bg-slate-50 border-r border-slate-100 tabular-nums">
                         {idx + 1}
                       </td>
                       {showRemoveColumn ? (
@@ -511,34 +516,34 @@ function AddBreakdownTable({
                           )}
                         </td>
                       ) : null}
-                      <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-700 min-w-0 max-w-[180px] lg:max-w-[240px]">
+                      <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-700 min-w-0 max-w-[180px] lg:max-w-[240px]">
                         <div className="flex flex-col leading-snug min-w-0">
-                          <span className="text-blue-700 font-bold text-[10px] lg:text-xs break-all">{row.box_no_uid}</span>
-                          <span className="text-[8px] lg:text-[10px] text-slate-400 uppercase font-bold truncate">
+                          <span className="text-blue-700 font-bold text-[10px] break-all">{row.box_no_uid}</span>
+                          <span className="text-[8px] text-slate-400 uppercase font-bold truncate">
                             Box {row.box_no} / {row.total_boxes}
                           </span>
                         </div>
                       </td>
-                      <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-700 whitespace-nowrap tabular-nums">
+                      <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-700 whitespace-nowrap tabular-nums">
                         {row.package_no}
                       </td>
-                      <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-800 whitespace-nowrap tabular-nums">
+                      <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-800 whitespace-nowrap tabular-nums">
                         {Number(row.qty).toLocaleString()} {row.unit || "PCS"}
                       </td>
                       <td className="px-2 py-1.5 lg:px-3 lg:py-2">
                         {row.is_loose ? (
-                          <span className="text-[8px] lg:text-[11px] font-black px-1 py-0.5 lg:px-1.5 lg:py-0.5 border whitespace-nowrap bg-amber-50 text-amber-800 border-amber-200">
+                          <span className="text-[8px] font-black px-1 py-0.5 lg:px-1.5 lg:py-0.5 border whitespace-nowrap bg-amber-50 text-amber-800 border-amber-200">
                             LOOSE
                           </span>
                         ) : (
-                          <span className="text-[8px] lg:text-[11px] font-black px-1 py-0.5 lg:px-1.5 lg:py-0.5 border whitespace-nowrap bg-emerald-50 text-emerald-700 border-emerald-200">
+                          <span className="text-[8px] font-black px-1 py-0.5 lg:px-1.5 lg:py-0.5 border whitespace-nowrap bg-emerald-50 text-emerald-700 border-emerald-200">
                             FULL
                           </span>
                         )}
                       </td>
                       <td className="px-2 py-1.5 lg:px-3 lg:py-2">
                         <span
-                          className={`text-[9px] lg:text-[12px] font-bold uppercase whitespace-nowrap ${
+                          className={`text-[9px] font-bold uppercase whitespace-nowrap ${
                             isMarkedRemove
                               ? "text-rose-600"
                               : row.is_removed
@@ -618,10 +623,13 @@ export default function StockAdjustmentStickerCloneDrawer({
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
   /** Phone: switch between item cards and breakdown table */
-  const [mobileBreakdownTab, setMobileBreakdownTab] = useState("boxes");
+  const [mobileBreakdownTab, setMobileBreakdownTab] = useState("details");
+  /** Phone: collapse packing/qty/reason fields to free space for Details / Boxes */
+  const [mobileFiltersExpanded, setMobileFiltersExpanded] = useState(false);
   const [viewAddRows, setViewAddRows] = useState([]);
   const [viewHydrating, setViewHydrating] = useState(false);
   const [savedRow, setSavedRow] = useState(null);
+  const [customerChanging, setCustomerChanging] = useState(false);
 
   const structureLocked = isView || isApprove;
   const isAddEdit = isEdit && gateEntryType === "add";
@@ -661,7 +669,8 @@ export default function StockAdjustmentStickerCloneDrawer({
       setItemMeta(null);
       setForm(INITIAL_FORM);
       setErrors({});
-      setMobileBreakdownTab("boxes");
+      setMobileBreakdownTab("details");
+      setMobileFiltersExpanded(false);
       setViewAddRows([]);
       setViewHydrating(false);
       setSavedRow(null);
@@ -677,7 +686,31 @@ export default function StockAdjustmentStickerCloneDrawer({
           setGateEntryType(hydrated.gateEntryType);
           setGateFinancialYear(hydrated.gateFinancialYear);
           setGatePackingNo(hydrated.gatePackingNo);
-          setForm({ ...INITIAL_FORM, ...hydrated.form });
+          
+          const rowAcc = hydrated.row?.acc_code;
+          const dpAcc = hydrated.packingPreview?.dailyprod?.acc_code;
+          
+          let finalAccCode = null;
+          let finalAccName = null;
+          let finalPartyRate = null;
+          
+          if (rowAcc != null && String(rowAcc).trim() !== "") {
+            finalAccCode = rowAcc;
+            finalAccName = hydrated.row?.acc_name;
+            finalPartyRate = hydrated.row?.party_rate_cust_code;
+          } else if (dpAcc != null && String(dpAcc).trim() !== "") {
+            finalAccCode = dpAcc;
+            finalAccName = hydrated.packingPreview?.dailyprod?.acc_name;
+            finalPartyRate = hydrated.packingPreview?.dailyprod?.party_rate_cust_code;
+          }
+
+          setForm({ 
+            ...INITIAL_FORM, 
+            ...hydrated.form, 
+            acc_code: finalAccCode, 
+            acc_name: finalAccName, 
+            party_rate_cust_code: finalPartyRate 
+          });
           setAddNumBoxes(hydrated.addNumBoxes);
           setAddPerBoxQty(hydrated.addPerBoxQty);
           setMinusSelectedUids(normalizeMinusSelectedUidSet(hydrated.minusSelectedUids));
@@ -689,7 +722,8 @@ export default function StockAdjustmentStickerCloneDrawer({
           setItemMeta(hydrated.itemMeta);
           setSavedRow(hydrated.row);
           setGatePassed(true);
-          setMobileBreakdownTab("boxes");
+          setMobileBreakdownTab("details");
+          setMobileFiltersExpanded(false);
         } catch (err) {
           if (!cancelled) {
             toast.error(err?.message || "Failed to load adjustment");
@@ -739,7 +773,10 @@ export default function StockAdjustmentStickerCloneDrawer({
     if (!sopAckRef.current?.assertAcknowledged()) return;
     setLoading(true);
     try {
-      await stockAdjustmentService.update(adjId, { approved: true });
+      const payload = { approved: true };
+      if (form.acc_code) payload.acc_code = form.acc_code;
+      
+      await stockAdjustmentService.update(adjId, payload);
       toast.success(
         gateEntryType === "add"
           ? "Approved — boxes created in inventory. Print stickers from the list (Ctrl+P)."
@@ -758,9 +795,11 @@ export default function StockAdjustmentStickerCloneDrawer({
     if (!packingPreview) {
       return {
         item_code: "—",
+        itemdcode: null,
         itemdesc: "—",
         category: "—",
-        acc_name: "—",
+        acc_name: form.acc_name || "—",
+        acc_code: form.acc_code || null,
         job_card_no: "—",
         total_qty: 0,
         unit: "PCS",
@@ -772,13 +811,29 @@ export default function StockAdjustmentStickerCloneDrawer({
     const dp = packingPreview.dailyprod;
     const im = itemMeta;
     const pn = gatePackingNo.trim();
+
+    // Form values take absolute priority for manual selection
+    const formAccCode = form.acc_code;
+    const formAccName = form.acc_name;
+    const formPartyRate = form.party_rate_cust_code;
+
+    const dpAccCode = dp?.acc_code ?? st?.acc_code ?? null;
+    const dpAccName = im?.acc_name ?? st?.acc_name ?? dp?.acc_name ?? "—";
+    const dpPartyRate = st?.party_rate_cust_code ?? dp?.party_rate_cust_code;
+
+    // If form has a code, we MUST use form's name (or "—" if null) to avoid mismatch
+    const finalAccCode = formAccCode !== null ? formAccCode : dpAccCode;
+    const finalAccName = formAccCode !== null ? (formAccName ?? "—") : dpAccName;
+    const finalPartyRate = formAccCode !== null ? formPartyRate : dpPartyRate;
+
     return {
       item_code: im?.item_code ?? st?.item_code ?? dp?.item_code ?? "—",
+      itemdcode: im?.itemdcode ?? st?.itemdcode ?? dp?.itemdcode ?? null,
       itemdesc: im?.itemdesc ?? im?.description ?? st?.itemdesc ?? st?.item_desc ?? dp?.item_desc ?? "—",
       category: st?.category ?? st?.type_name ?? "—",
-      acc_name: im?.acc_name ?? st?.acc_name ?? dp?.acc_name ?? "—",
-      party_rate_cust_code: st?.party_rate_cust_code ?? dp?.party_rate_cust_code,
-      acc_code: dp?.acc_code ?? st?.acc_code ?? null,
+      acc_name: finalAccName,
+      party_rate_cust_code: finalPartyRate,
+      acc_code: finalAccCode,
       cust_code: st?.cust_code,
       job_card_no: dp?.job_card_no ?? st?.job_card_no ?? "—",
       total_qty: st?.total_qty ?? dp?.total_qty ?? 0,
@@ -786,7 +841,7 @@ export default function StockAdjustmentStickerCloneDrawer({
       doc_dt: st?.doc_dt ?? dp?.doc_dt,
       doc_no: st?.doc_no ?? dp?.doc_no ?? pn,
     };
-  }, [packingPreview, itemMeta, gatePackingNo]);
+  }, [packingPreview, itemMeta, gatePackingNo, form.acc_name, form.acc_code, form.party_rate_cust_code]);
 
   const addTotalQty = useMemo(() => {
     const n = parseInt(String(addNumBoxes).trim(), 10);
@@ -1071,14 +1126,32 @@ export default function StockAdjustmentStickerCloneDrawer({
       const idForItem = previewPayload.dailyprod?.itemdcode ?? previewPayload.stickerRow?.itemdcode;
       const im = await fetchItemMetaForStockDrawer(idForItem);
 
+      if (previewPayload.dailyprod) {
+        const dp = previewPayload.dailyprod;
+        setForm((prev) => ({
+          ...prev,
+          acc_code: dp.acc_code ?? null,
+          acc_name: dp.acc_name ?? null,
+          party_rate_cust_code: dp.party_rate_cust_code ?? null,
+        }));
+      } else {
+        setForm((prev) => ({
+          ...prev,
+          acc_code: null,
+          acc_name: null,
+          party_rate_cust_code: null,
+        }));
+      }
+
       setPackingPreview(previewPayload);
       setItemMeta(im);
       setGatePassed(true);
       setMinusSelectedUids(new Set());
-      setMobileBreakdownTab("boxes");
+      setMobileBreakdownTab("details");
+      setMobileFiltersExpanded(false);
     } catch (err) {
       toast.error(err?.message || "Load failed");
-    } finally {
+      } finally {
       setPackLoading(false);
     }
   };
@@ -1104,6 +1177,54 @@ export default function StockAdjustmentStickerCloneDrawer({
     setForm((prev) => ({ ...prev, [k]: value }));
     if (errors[k]) setErrors((prev) => ({ ...prev, [k]: "" }));
   };
+
+  const handleCustomerChange = useCallback(
+    (accCode, ledgerObj) => {
+      if (!accCode) return;
+      if (String(accCode) === String(form.acc_code || "")) return;
+
+      // 1. Update name and code IMMEDIATELY (synchronously)
+      const newName = ledgerObj?.acc_name || "";
+      setForm((prev) => ({
+        ...prev,
+        acc_code: accCode,
+        acc_name: newName,
+      }));
+
+      // 2. Resolve party rate / narration in the background
+      void (async () => {
+        setCustomerChanging(true);
+        try {
+          const itemDcode = selectedRowLike.itemdcode;
+          const itemCode = selectedRowLike.item_code;
+
+          let party_rate_cust_code = null;
+          try {
+            const res = await masterService.resolvePartyRateCustCode({
+              acc_code: accCode,
+              itemdcode: itemDcode,
+              item_code: itemCode,
+            });
+            if (res?.success && res.party_rate_cust_code?.trim()) {
+              party_rate_cust_code = res.party_rate_cust_code.trim();
+            }
+          } catch {
+            /* no narr1 */
+          }
+
+          setForm((prev) => ({
+            ...prev,
+            party_rate_cust_code,
+          }));
+        } catch {
+          // silent fail for narration
+        } finally {
+          setCustomerChanging(false);
+        }
+      })();
+    },
+    [form.acc_code, selectedRowLike.itemdcode, selectedRowLike.item_code]
+  );
 
   const validate = () => {
     const e = {};
@@ -1187,6 +1308,7 @@ export default function StockAdjustmentStickerCloneDrawer({
         if (gateEntryType === "add") {
           const pb = parseInt(String(addPerBoxQty).trim(), 10);
           payload.per_box_qty = pb;
+          payload.acc_code = form.acc_code;
           if (isAddEditRebuild) {
             payload.add_extra_boxes = parseInt(String(addExtraBoxes).trim(), 10) || 0;
             payload.remove_add_box_uids = [...addRemoveUids]
@@ -1198,6 +1320,7 @@ export default function StockAdjustmentStickerCloneDrawer({
             payload.no_of_boxes = nb;
           }
         } else if (gateEntryType === "minus") {
+          payload.acc_code = form.acc_code;
           payload.removed_box_uids = [...minusSelectedUids]
             .map((u) => parseInt(u, 10))
             .filter((n) => Number.isFinite(n));
@@ -1226,6 +1349,7 @@ export default function StockAdjustmentStickerCloneDrawer({
           no_of_boxes: nb,
           unit: "PCS",
           remarks: remarksForApi,
+          acc_code: form.acc_code,
           approved: showApproval && form.approved === true,
         });
       } else if (gateEntryType === "minus") {
@@ -1236,6 +1360,7 @@ export default function StockAdjustmentStickerCloneDrawer({
           removed_box_uids: uids,
           unit: "PCS",
           remarks: remarksForApi,
+          acc_code: form.acc_code,
           approved: showApproval && form.approved === true,
         });
       }
@@ -1262,12 +1387,193 @@ export default function StockAdjustmentStickerCloneDrawer({
         ? -minusImpactQty
         : 0;
 
+  const mobileFilterSummary = useMemo(() => {
+    const parts = [];
+    const pn = gatePackingNo.trim();
+    if (pn) parts.push(pn);
+    if (gateEntryType === "add" && gateFinancialYear.trim()) {
+      parts.push(`FY ${gateFinancialYear.trim()}`);
+    }
+    if (previewSigned !== 0) {
+      parts.push(`${previewSigned > 0 ? "+" : ""}${previewSigned} PCS`);
+    }
+    const approved = isApprove
+      ? savedRow?.approved
+      : isEdit
+        ? editingWasApproved
+        : form.approved;
+    parts.push(approved ? "Approved" : "Pending");
+    return parts.filter(Boolean).join(" · ");
+  }, [
+    gatePackingNo,
+    gateEntryType,
+    gateFinancialYear,
+    previewSigned,
+    isApprove,
+    isEdit,
+    editingWasApproved,
+    form.approved,
+    savedRow?.approved,
+  ]);
+
+  const toolbarActionButtons = (
+    <>
+      {gatePassed && !readOnly && !isEdit ? (
+        <button
+          type="button"
+          onClick={() => {
+            setGatePassed(false);
+            setPackingPreview(null);
+            setItemMeta(null);
+            setMinusSelectedUids(new Set());
+            setMobileBreakdownTab("details");
+            setMobileFiltersExpanded(false);
+          }}
+          className="col-span-2 h-8 lg:h-9 w-full rounded-lg text-[9px] lg:text-[10px] font-black uppercase border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 px-3 transition-all sm:col-span-1 sm:w-auto"
+        >
+          Reset
+        </button>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={onClose}
+        disabled={loading}
+        className="h-8 lg:h-9 w-full inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-slate-50 px-3 lg:px-4 transition-all disabled:opacity-50 sm:w-auto"
+      >
+        Cancel
+      </button>
+
+      {gatePassed && !readOnly && !(isEdit && structureLocked) ? (
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={loading}
+          className="h-8 lg:h-9 w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-white text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-black disabled:bg-slate-400 px-3 lg:px-4 transition-all sm:w-auto"
+        >
+          {loading ? (
+            <Loader2 className="w-3.5 h-3.5 lg:w-4 lg:h-4 animate-spin shrink-0" aria-hidden />
+          ) : (
+            <Check className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" aria-hidden />
+          )}
+          {isEdit ? "Update" : "Save"}
+        </button>
+      ) : null}
+
+      {gatePassed && isApprove ? (
+        <button
+          type="button"
+          onClick={handleApprove}
+          disabled={loading || !!(savedRow?.approved ?? editData?.approved)}
+          className="col-span-2 h-8 lg:h-9 w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 text-white text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-emerald-700 disabled:opacity-50 px-3 lg:px-4 transition-all sm:col-span-1 sm:w-auto"
+        >
+          {loading ? (
+            <Loader2 className="w-3.5 h-3.5 lg:w-4 lg:h-4 animate-spin shrink-0" aria-hidden />
+          ) : (
+            <Shield className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" aria-hidden />
+          )}
+          Approve
+        </button>
+      ) : null}
+
+      {readOnly && gatePassed && !isApprove ? (
+        <button
+          type="button"
+          onClick={onClose}
+          className="col-span-2 h-8 lg:h-9 w-full inline-flex items-center justify-center rounded-lg bg-slate-700 text-white text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-slate-900 px-3 lg:px-4 transition-all sm:col-span-1 sm:w-auto"
+        >
+          Close
+        </button>
+      ) : null}
+    </>
+  );
+
   const topToolbar = (
-    <div className="shrink-0 bg-white border-b border-slate-200 shadow-sm z-20 w-full max-w-full min-w-0">
+    <>
+    {/* Phone: compact gate or action bar only */}
+    <div className="lg:hidden shrink-0 bg-white border-b border-slate-200 z-20 w-full min-w-0">
+      <div className="px-2 py-1.5 w-full min-w-0">
+        {!gatePassed ? (
+          <div className="grid grid-cols-2 gap-2 w-full min-w-0">
+            <div className="min-w-0 col-span-1">
+              <label htmlFor="sa-gate-type-m" className={FIELD_LABEL}>Type</label>
+              <select
+                id="sa-gate-type-m"
+                value={gateEntryType}
+                onChange={(e) => {
+                  setGateEntryType(e.target.value);
+                  setGatePassed(false);
+                  setPackingPreview(null);
+                }}
+                disabled={structureLocked}
+                className={FIELD_CONTROL}
+              >
+                <option value="">Select…</option>
+                {sortFilterOptionsAsc(GATE_ADD_MINUS).map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            {gateEntryType === "add" ? (
+              <div className="min-w-0 col-span-1">
+                <label htmlFor="sa-gate-fy-m" className={FIELD_LABEL}>FY</label>
+                <select
+                  id="sa-gate-fy-m"
+                  value={gateFinancialYear}
+                  onChange={(e) => setGateFinancialYear(e.target.value)}
+                  disabled={structureLocked}
+                  className={FIELD_CONTROL}
+                >
+                  <option value="">Select…</option>
+                  {getFinancialYearOptions().map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            <div className={`min-w-0 ${gateEntryType === "add" ? "col-span-2" : "col-span-2"}`}>
+              <label htmlFor="sa-gate-pack-m" className={FIELD_LABEL}>Packing</label>
+              <input
+                id="sa-gate-pack-m"
+                type="text"
+                value={gatePackingNo}
+                onChange={(e) => setGatePackingNo(e.target.value)}
+                disabled={structureLocked}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !structureLocked) {
+                    e.preventDefault();
+                    handleGateLoad();
+                  }
+                }}
+                placeholder="Packing no."
+                className={FIELD_CONTROL}
+                autoComplete="off"
+              />
+            </div>
+            {!structureLocked ? (
+              <button
+                type="button"
+                onClick={handleGateLoad}
+                disabled={packLoading}
+                className="col-span-2 h-8 w-full rounded-lg bg-indigo-600 text-white text-[9px] font-black uppercase shadow-sm hover:bg-indigo-700 disabled:opacity-55 inline-flex items-center justify-center gap-1.5 border border-indigo-700/20"
+              >
+                {packLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" aria-hidden /> : null}
+                Load
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-1.5 w-full">{toolbarActionButtons}</div>
+        )}
+      </div>
+    </div>
+
+    {/* Desktop: full toolbar */}
+    <div className="hidden lg:block shrink-0 bg-white border-b border-slate-200 shadow-sm z-20 w-full max-w-full min-w-0">
       <div className="px-3 py-2.5 sm:px-4 sm:py-3 max-w-[1800px] mx-auto w-full min-w-0">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between lg:gap-6 w-full min-w-0">
-          <div className="grid grid-cols-2 gap-x-3 gap-y-3 sm:flex sm:flex-wrap sm:items-end sm:gap-x-4 sm:gap-y-3 flex-1 min-w-0">
-            <div className="min-w-0 col-span-1 sm:w-[148px]">
+        <div className="flex flex-col gap-3 w-full min-w-0 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
+          <div className="grid w-full min-w-0 grid-cols-1 gap-3 max-lg:gap-2.5 sm:grid-cols-2 sm:flex sm:flex-wrap sm:items-end sm:gap-x-4 sm:gap-y-3 flex-1">
+            <div className="min-w-0 w-full sm:w-[148px]">
               <label htmlFor="sa-gate-type" className={FIELD_LABEL}>
                 Type
               </label>
@@ -1291,7 +1597,7 @@ export default function StockAdjustmentStickerCloneDrawer({
               </select>
             </div>
             {gateEntryType === "add" && (
-              <div className="min-w-0 col-span-1 sm:w-[158px]">
+              <div className="min-w-0 w-full sm:w-[158px]">
                 <label htmlFor="sa-gate-fy" className={FIELD_LABEL}>
                   Financial year
                 </label>
@@ -1311,7 +1617,7 @@ export default function StockAdjustmentStickerCloneDrawer({
                 </select>
               </div>
             )}
-            <div className={`min-w-0 col-span-2 sm:col-span-1 sm:flex-1 sm:min-w-[200px] sm:max-w-lg ${gateEntryType === "add" ? "" : "col-span-2"}`}>
+            <div className="min-w-0 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-lg">
               <label htmlFor="sa-gate-pack" className={FIELD_LABEL}>
                 Packing number
               </label>
@@ -1337,7 +1643,7 @@ export default function StockAdjustmentStickerCloneDrawer({
                 type="button"
                 onClick={handleGateLoad}
                 disabled={packLoading}
-                className="col-span-2 h-9 px-4 shrink-0 rounded-lg bg-indigo-600 text-white text-[10px] font-black uppercase tracking-wide shadow-sm hover:bg-indigo-700 disabled:opacity-55 inline-flex items-center justify-center gap-2 sm:col-span-1 sm:w-auto w-full border border-indigo-700/20"
+                className="h-9 w-full px-4 shrink-0 rounded-lg bg-indigo-600 text-white text-[10px] font-black uppercase tracking-wide shadow-sm hover:bg-indigo-700 disabled:opacity-55 inline-flex items-center justify-center gap-2 sm:w-auto border border-indigo-700/20"
               >
                 {packLoading ? <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden /> : null}
                 Load
@@ -1345,85 +1651,19 @@ export default function StockAdjustmentStickerCloneDrawer({
             )}
           </div>
 
-          <div className="flex w-full shrink-0 items-end lg:w-auto lg:justify-end">
-            <div
-              className={`w-full rounded-xl bg-slate-50/90 p-1 gap-1 flex items-center justify-end`}
-            >
-              {gatePassed && !readOnly && !isEdit ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGatePassed(false);
-                    setPackingPreview(null);
-                    setItemMeta(null);
-                    setMinusSelectedUids(new Set());
-                    setMobileBreakdownTab("boxes");
-                  }}
-                  className="h-9 rounded-lg text-[10px] font-black uppercase border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 px-3 transition-all"
-                >
-                  Reset
-                </button>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={loading}
-                className="h-9 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-black uppercase shadow-sm hover:bg-slate-50 px-4 transition-all disabled:opacity-50"
-              >
-                Cancel
-              </button>
-
-              {gatePassed && !readOnly && !(isEdit && structureLocked) ? (
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={loading}
-                  className="h-9 inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-black uppercase shadow-sm hover:bg-black disabled:bg-slate-400 px-4 transition-all"
-                >
-                  {loading ? (
-                    <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden />
-                  ) : (
-                    <Check className="w-4 h-4 shrink-0" aria-hidden />
-                  )}
-                  {isEdit ? "Update" : "Save"}
-                </button>
-              ) : null}
-
-              {gatePassed && isApprove ? (
-                <button
-                  type="button"
-                  onClick={handleApprove}
-                  disabled={loading || !!(savedRow?.approved ?? editData?.approved)}
-                  className="h-9 inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase shadow-sm hover:bg-emerald-700 disabled:opacity-50 px-4 transition-all"
-                >
-                  {loading ? (
-                    <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden />
-                  ) : (
-                    <Shield className="w-4 h-4 shrink-0" aria-hidden />
-                  )}
-                  Approve
-                </button>
-              ) : null}
-
-              {readOnly && gatePassed && !isApprove ? (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="h-9 inline-flex items-center justify-center rounded-lg bg-slate-700 text-white text-[10px] font-black uppercase shadow-sm hover:bg-slate-900 px-4 transition-all"
-                >
-                  Close
-                </button>
-              ) : null}
+          <div className="w-full shrink-0 lg:w-auto">
+            <div className="grid w-full grid-cols-2 gap-1.5 rounded-xl bg-slate-50/90 p-1 sm:flex sm:flex-wrap sm:items-center sm:justify-end sm:gap-1">
+              {toolbarActionButtons}
             </div>
           </div>
         </div>
       </div>
     </div>
+    </>
   );
 
-  const inputsTopRow = (
-    <div ref={formRef} className="shrink-0 border-b border-slate-200 bg-slate-50/50 max-lg:border-t max-lg:border-slate-200/90">
+  const inputsTopRowHints = (
+    <>
       {isApprove ? (
         <p className="mx-3 mt-2 sm:mx-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-900">
           Review packing and boxes below, then click <span className="font-black">Approve</span>. Add creates boxes in inventory; minus removes selected boxes. To change counts, close this screen and use <span className="font-black">Edit</span> first.
@@ -1448,9 +1688,13 @@ export default function StockAdjustmentStickerCloneDrawer({
           All packing boxes are listed. Select rows to remove. Unavailable rows are dispatched or already removed. Changes apply after approve.
         </p>
       ) : null}
-      <div className="max-w-[1800px] mx-auto w-full min-w-0 px-3 py-2.5 sm:px-4 sm:py-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
-          <div className="flex flex-col justify-start min-w-0 lg:col-span-2">
+    </>
+  );
+
+  const inputsTopRowFields = (
+      <div className="max-w-[1800px] mx-auto w-full min-w-0 px-3 py-2 lg:py-2.5 sm:px-4 sm:py-3 max-lg:px-2 max-lg:py-2">
+        <div className="grid w-full min-w-0 grid-cols-1 max-lg:grid-cols-2 sm:grid-cols-2 lg:grid-cols-12 gap-3 max-lg:gap-2.5 items-end">
+          <div className="flex flex-col justify-start min-w-0 max-lg:col-span-2 lg:col-span-2">
             <span className={FIELD_LABEL_ROW}>
               <Package className="w-3 h-3 text-slate-400 shrink-0" aria-hidden />
               Packing
@@ -1466,7 +1710,7 @@ export default function StockAdjustmentStickerCloneDrawer({
           {gateEntryType === "add" ? (
             isAddEditRebuild ? (
             <>
-              <div className="min-w-0 lg:col-span-2">
+              <div className="min-w-0 w-full lg:col-span-2">
                 <span className={FIELD_LABEL}>Saved in DB</span>
                 <div className={READOUT_BOX}>
                   <p className="text-[11px] font-bold text-slate-900 tabular-nums leading-tight">
@@ -1477,7 +1721,7 @@ export default function StockAdjustmentStickerCloneDrawer({
                   ) : null}
                 </div>
               </div>
-              <div className="min-w-0 lg:col-span-2">
+              <div className="min-w-0 w-full lg:col-span-2">
                 <label htmlFor="sa-add-extra" className={FIELD_LABEL}>
                   Add more <span className="text-rose-500">*</span>
                 </label>
@@ -1495,7 +1739,7 @@ export default function StockAdjustmentStickerCloneDrawer({
                   className={`${FIELD_CONTROL} ${errors.addExtraBoxes ? FIELD_CONTROL_ERR : ""}`}
                 />
               </div>
-              <div className="min-w-0 lg:col-span-2">
+              <div className="min-w-0 w-full lg:col-span-2">
                 <label htmlFor="sa-add-perbox-edit" className={FIELD_LABEL}>
                   Per box <span className="text-rose-500">*</span>
                 </label>
@@ -1516,7 +1760,7 @@ export default function StockAdjustmentStickerCloneDrawer({
             </>
             ) : (
             <>
-              <div className="min-w-0 lg:col-span-2">
+              <div className="min-w-0 w-full lg:col-span-2">
                 <label htmlFor="sa-add-boxes" className={FIELD_LABEL}>
                   Boxes <span className="text-rose-500">*</span>
                 </label>
@@ -1535,7 +1779,7 @@ export default function StockAdjustmentStickerCloneDrawer({
                   className={`${FIELD_CONTROL} ${errors.addNumBoxes ? FIELD_CONTROL_ERR : ""}`}
                 />
               </div>
-              <div className="min-w-0 lg:col-span-2">
+              <div className="min-w-0 w-full lg:col-span-2">
                 <label htmlFor="sa-add-perbox" className={FIELD_LABEL}>
                   Per box <span className="text-rose-500">*</span>
                 </label>
@@ -1557,7 +1801,7 @@ export default function StockAdjustmentStickerCloneDrawer({
             </>
             )
           ) : (
-            <div className="flex flex-col justify-start min-w-0 lg:col-span-3" data-field="minusBoxes" tabIndex={-1}>
+            <div className="flex flex-col justify-start min-w-0 w-full max-lg:col-span-2 lg:col-span-3" data-field="minusBoxes" tabIndex={-1}>
               <span className={FIELD_LABEL_ROW}>
                 <Layers className="w-3 h-3 text-rose-500/90 shrink-0" aria-hidden />
                 Boxes
@@ -1570,7 +1814,7 @@ export default function StockAdjustmentStickerCloneDrawer({
             </div>
           )}
 
-          <div className="min-w-0 lg:col-span-4">
+          <div className="min-w-0 w-full max-lg:col-span-2 lg:col-span-4">
             <RemarksTextarea
               label="Reason"
               labelIcon={<MessageSquareQuote size={12} className="text-indigo-500 shrink-0" />}
@@ -1582,18 +1826,18 @@ export default function StockAdjustmentStickerCloneDrawer({
               error={errors.remarks}
               rows={1}
               labelClassName="text-[8px] font-bold uppercase tracking-wider text-slate-500 mb-1 ml-0 flex flex-wrap items-center gap-1"
-              className="[&_textarea]:!min-h-[2.25rem] [&_textarea]:!max-h-[2.25rem] [&_textarea]:!py-1.5 [&_textarea]:!text-[11px] [&_textarea]:resize-none [&_textarea]:rounded-lg [&_textarea]:border-slate-200 flex min-h-0 w-full flex-col"
+              className="[&_textarea]:!min-h-[2rem] [&_textarea]:!max-h-[2rem] lg:[&_textarea]:!min-h-[2.25rem] lg:[&_textarea]:!max-h-[2.25rem] [&_textarea]:!py-1 [&_textarea]:!text-[10px] lg:[&_textarea]:!text-[11px] [&_textarea]:resize-none [&_textarea]:rounded-lg [&_textarea]:border-slate-200 flex min-h-0 w-full flex-col"
             />
           </div>
 
-          <div className="flex flex-col justify-start min-w-0 lg:col-span-2">
+          <div className="flex flex-col justify-start min-w-0 w-full max-lg:col-span-2 lg:col-span-2">
             <span className={FIELD_LABEL_ROW}>
               <Shield className="w-3 h-3 text-slate-400 shrink-0" aria-hidden />
               Approve
             </span>
             {showApproval || readOnly || isEdit || isApprove ? (
               <div
-                className={`min-h-[2.25rem] rounded-lg border px-2 flex items-center justify-between gap-1.5 shadow-sm ${
+                className={`min-h-[2rem] lg:min-h-[2.25rem] rounded-lg border px-2 flex items-center justify-between gap-1.5 shadow-sm ${
                   (isApprove ? savedRow?.approved : isEdit ? editingWasApproved : form.approved)
                     ? "border-emerald-700 bg-emerald-600 text-white"
                     : "border-amber-200 bg-amber-50"
@@ -1663,6 +1907,36 @@ export default function StockAdjustmentStickerCloneDrawer({
           ) : null}
         </div>
       </div>
+  );
+
+  const inputsTopRow = (
+    <div ref={formRef} className="shrink-0 border-b border-slate-200 bg-slate-50/50 lg:bg-slate-50/50">
+      <div className="lg:hidden">
+        <button
+          type="button"
+          aria-expanded={mobileFiltersExpanded}
+          onClick={() => setMobileFiltersExpanded((v) => !v)}
+          className="flex w-full items-center gap-2 px-2.5 py-2 text-left bg-white active:bg-slate-50 touch-manipulation"
+        >
+          <span className="text-[8px] font-black uppercase tracking-wider text-indigo-600 shrink-0">Filters</span>
+          <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-800">{mobileFilterSummary}</span>
+          <ChevronDown
+            size={16}
+            className={`shrink-0 text-slate-500 transition-transform duration-200 ${mobileFiltersExpanded ? "rotate-180" : ""}`}
+            aria-hidden
+          />
+        </button>
+        {mobileFiltersExpanded ? (
+          <div className="max-h-[36dvh] overflow-y-auto overscroll-contain border-t border-slate-200 bg-slate-50/90">
+            {inputsTopRowHints}
+            {inputsTopRowFields}
+          </div>
+        ) : null}
+      </div>
+      <div className="hidden lg:block">
+        {inputsTopRowHints}
+        {inputsTopRowFields}
+      </div>
     </div>
   );
 
@@ -1671,14 +1945,14 @@ export default function StockAdjustmentStickerCloneDrawer({
       <div className="shrink-0 px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 lg:gap-2 min-w-0 flex-1">
           <Layers className="w-4 h-4 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-600" aria-hidden />
-          <span className="text-[10px] sm:text-[11px] lg:text-sm font-black uppercase tracking-tight text-slate-800 truncate">
+          <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-tight text-slate-800 truncate">
             Breakdown
           </span>
         </div>
         <div className="flex items-baseline gap-2 shrink-0 pr-1">
           <span className="text-[9px] font-bold text-slate-500 uppercase">Net</span>
           <span
-            className={`text-base lg:text-lg font-black tabular-nums ${previewSigned < 0 ? "text-rose-600" : previewSigned > 0 ? "text-emerald-600" : "text-slate-400"}`}
+            className={`text-[13px] font-black tabular-nums ${previewSigned < 0 ? "text-rose-600" : previewSigned > 0 ? "text-emerald-600" : "text-slate-400"}`}
           >
             {previewSigned === 0 ? "—" : previewSigned > 0 ? `+${previewSigned}` : previewSigned}{" "}
             <span className="text-[10px] font-bold text-slate-400 uppercase">PCS</span>
@@ -1719,11 +1993,11 @@ export default function StockAdjustmentStickerCloneDrawer({
   const breakdownPanel = (
     <>
       {/* Mobile / tablet: tabs so breakdown table gets full height */}
-      <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden lg:hidden bg-slate-100/80">
+      <div className="flex flex-1 flex-col min-h-0 min-w-0 w-full overflow-hidden lg:hidden bg-slate-100/80">
         <div
           role="tablist"
           aria-label="Stock details and breakdown"
-          className="grid grid-cols-2 gap-1.5 shrink-0 px-2 pt-1.5 pb-1.5 border-b border-slate-200 bg-white"
+          className="grid w-full grid-cols-2 gap-1 shrink-0 px-2 py-1 border-b border-slate-200 bg-white"
         >
           {[
             { id: "details", label: "Details" },
@@ -1735,7 +2009,7 @@ export default function StockAdjustmentStickerCloneDrawer({
               role="tab"
               aria-selected={mobileBreakdownTab === tab.id}
               onClick={() => setMobileBreakdownTab(tab.id)}
-              className={`rounded-lg py-2 px-2 text-center text-[10px] font-black uppercase tracking-tight transition-all touch-manipulation active:opacity-90 min-h-[2.25rem] flex items-center justify-center ${
+              className={`rounded-md py-1.5 px-2 text-center text-[9px] font-black uppercase tracking-tight transition-all touch-manipulation active:opacity-90 min-h-[2rem] flex items-center justify-center ${
                 mobileBreakdownTab === tab.id
                   ? "bg-white text-indigo-700 shadow-sm ring-1 ring-slate-200"
                   : "bg-slate-200/70 text-slate-600 hover:bg-slate-200"
@@ -1745,10 +2019,16 @@ export default function StockAdjustmentStickerCloneDrawer({
             </button>
           ))}
         </div>
-        <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col mx-2 mb-2 mt-1.5 bg-white border border-slate-200 rounded-lg">
+        <div className="flex-1 min-h-0 min-w-0 w-full overflow-hidden flex flex-col bg-white border-t border-slate-200">
           {mobileBreakdownTab === "details" ? (
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-50 p-2">
-              <StockAdjustmentStickerDetailCards selectedRow={selectedRowLike} packing={packingLike} />
+              <StockAdjustmentStickerDetailCards
+                selectedRow={selectedRowLike}
+                packing={packingLike}
+                onCustomerChange={handleCustomerChange}
+                customerSelectDisabled={structureLocked}
+                customerChanging={customerChanging}
+              />
             </div>
           ) : (
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">{breakdownTableBlock}</div>
@@ -1759,7 +2039,13 @@ export default function StockAdjustmentStickerCloneDrawer({
       {/* Desktop: side-by-side */}
       <div className="hidden lg:flex lg:flex-row flex-1 min-h-0 w-full min-w-0 overflow-hidden bg-slate-50">
         <div className="shrink-0 lg:w-80 xl:w-96 border-r border-slate-200 bg-slate-50 overflow-y-auto overflow-x-hidden">
-          <StockAdjustmentStickerDetailCards selectedRow={selectedRowLike} packing={packingLike} />
+          <StockAdjustmentStickerDetailCards
+            selectedRow={selectedRowLike}
+            packing={packingLike}
+            onCustomerChange={handleCustomerChange}
+            customerSelectDisabled={structureLocked}
+            customerChanging={customerChanging}
+          />
         </div>
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">{breakdownTableBlock}</div>
       </div>
@@ -1813,7 +2099,7 @@ export default function StockAdjustmentStickerCloneDrawer({
 
         {!gatePassed ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-400 px-4 text-center py-10">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
               {gateEntryType === "add"
                 ? "Select financial year and packing number, then Load"
                 : gateEntryType === "minus"
@@ -1824,10 +2110,10 @@ export default function StockAdjustmentStickerCloneDrawer({
           </div>
         ) : (
           <div className="flex-1 flex flex-col min-h-0 w-full max-w-full min-w-0 overflow-hidden">
-            <div className="order-1 flex min-h-0 flex-1 flex-col overflow-hidden border-t border-slate-200/80 bg-slate-50 max-lg:border-t-0 lg:order-2 lg:border-t-0">
+            <div className="shrink-0 w-full min-w-0">{inputsTopRow}</div>
+            <div className="flex min-h-0 flex-1 flex-col w-full min-w-0 overflow-hidden border-t border-slate-200/80 bg-slate-50">
               {breakdownPanel}
             </div>
-            <div className="order-2 shrink-0 lg:order-1">{inputsTopRow}</div>
           </div>
         )}
           </>

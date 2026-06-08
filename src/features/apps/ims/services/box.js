@@ -13,6 +13,8 @@ export const boxService = {
   // delete:  (box_uid)         => api(ENDPOINTS.BOXES.DELETE, { method: "POST", body: { box_uid } }),
   getViews: (params) => imsApiViews(ENDPOINTS.BOXES.VIEWS, params, "box_no_uid"),
 
+  getByUidOrNoUid: (id, params = {}) => api(ENDPOINTS.BOXES.VIEWS, { method: "POST", body: { id, ...params } }),
+
   // ─── Sticker ────────────────────────────────────────────────
   getStickers:      (body) => api(ENDPOINTS.BOXES.STICKER_FETCH,    { method: "POST", body }),
   generateStickers: (body) => api(ENDPOINTS.BOXES.STICKER_GENERATE, { method: "POST", body }),

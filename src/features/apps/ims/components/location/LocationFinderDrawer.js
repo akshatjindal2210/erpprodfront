@@ -6,6 +6,7 @@ import Drawer from "@/core/components/ui/Drawer";
 import Snackbar from "@/core/components/ui/Snackbar";
 import { locationService } from "@/features/apps/ims/services/location";
 import { boxService } from "@/features/apps/ims/services/box";
+import { isMobileDevice } from "@/core/utils/pwa";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/core/utils/global";
 import { extractBoxCode } from "@/features/apps/ims/helpers/qrScan";
 import { playScanSuccessBeep, prepareQrScanSession } from "@/features/apps/ims/helpers/scanFeedback";
@@ -373,16 +374,18 @@ export default function LocationFinderDrawer({ open, onClose }) {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => (cameraOn ? stopCamera() : startCamera())}
-            className={`w-12 h-11 flex items-center justify-center rounded-xl border transition-all shadow-sm ${
-              cameraOn ? "bg-rose-50 border-rose-200 text-rose-600" : "bg-indigo-600 border-indigo-700 text-white hover:bg-indigo-700"
-            }`}
-            title={cameraOn ? "Stop camera" : "Scan QR"}
-          >
-            {cameraOn ? <CameraOff size={20} /> : <QrCode size={20} />}
-          </button>
+          {isMobileDevice() && (
+            <button
+              type="button"
+              onClick={() => (cameraOn ? stopCamera() : startCamera())}
+              className={`w-12 h-11 flex items-center justify-center rounded-xl border transition-all shadow-sm ${
+                cameraOn ? "bg-rose-50 border-rose-200 text-rose-600" : "bg-indigo-600 border-indigo-700 text-white hover:bg-indigo-700"
+              }`}
+              title={cameraOn ? "Stop camera" : "Scan QR"}
+            >
+              {cameraOn ? <CameraOff size={20} /> : <QrCode size={20} />}
+            </button>
+          )}
         </div>
 
         <QrScannerOverlay

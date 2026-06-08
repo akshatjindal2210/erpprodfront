@@ -8,6 +8,7 @@ import { useSelector } from "react-redux";
 import { forwardingNoteService } from "@/features/apps/ims/services/forwardingNote";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import { formatDateTime } from "@/core/utils/utilHelper";
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 // Components
 import ForwardingModal from "@/features/apps/ims/components/forwarding-note/ForwardingModal"; 
@@ -16,6 +17,8 @@ import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import DataTable from "@/core/components/ui/DataTable";
 import ViewToggle from "@/core/components/ui/ViewToggle";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
+import ImsSegmentedTabs from "@/features/apps/ims/components/common/ImsSegmentedTabs";
 import ActionButton from "@/core/components/ui/ActionButton";
 import PrintActionButton from "@/core/components/ui/PrintActionButton";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
@@ -24,6 +27,15 @@ import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { printFromBackendHtml } from "@/features/apps/ims/utils/printHtmlDocument";
+import SearchableSelect from "@/core/components/common/SearchableSelect";
+import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/core/components/common/ListPageSearchField";
+import {
+  parseSavedBillNos,
+  fetchDummyBillOptions,
+  formatBillNosForSave,
+  getDummyBillByNo,
+  uniqueBillNos,
+} from "@/features/apps/ims/utils/forwardingBillOptions";
 
 /** Search matches visible table cells (raw + formatted labels). */
 function forwardingTableSearchParts(row, reportType = "summary") {
@@ -169,7 +181,7 @@ export default function ForwardingPage() {
   const [modalMode, setModalMode] = useState("add"); 
   const [isDeleting, setIsDeleting] = useState(false);
   const [billPrinting, setBillPrinting] = useState(false);
-  const [billDraft, setBillDraft] = useState("");
+  const [billDraftNos, setBillDraftNos] = useState([]);
   const [billSaving, setBillSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -281,13 +293,9 @@ export default function ForwardingPage() {
 
   useEffect(() => {
     if (selectedRecord?.fuid != null) {
-      setBillDraft(
-        selectedRecord.bill_no != null && selectedRecord.bill_no !== ""
-          ? String(selectedRecord.bill_no)
-          : ""
-      );
+      setBillDraftNos(parseSavedBillNos(selectedRecord.bill_no));
     } else {
-      setBillDraft("");
+      setBillDraftNos([]);
     }
   }, [selectedRecord?.fuid, selectedRecord?.bill_no]);
 
@@ -314,35 +322,46 @@ export default function ForwardingPage() {
     }
   }, [selectedRecord?.fuid, billPrinting]);
 
-  const { openNewModal, openEditModal, openPrintModal, tableHotkeyProps } = useListDrawerHotkeys({
+  const { openNewModal, openEditModal, openPrintModal, openApproveModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "forwarding_note_master",
     modalOpen: modalOpen || isDeleting,
     selectedId: selectedId,
     getSelectedRow,
     openAdd: useCallback(() => openModal("add"), [openModal]),
-    openEdit: useCallback(() => openModal("edit"), [openModal]),
-    canEditSelection: useCallback(() => Boolean(selectedId) && !isSelectedLocked, [selectedId, isSelectedLocked]),
+    openEdit: useCallback(() => {
+      if (reportType !== "summary") return;
+      openModal("edit");
+    }, [reportType, openModal]),
+    canEditSelection: useCallback(() => reportType === "summary" && Boolean(selectedId) && !isSelectedLocked, [reportType, selectedId, isSelectedLocked]),
     onPrint: useCallback(() => {
+      if (reportType !== "summary") return;
       handlePrintBill();
-    }, [handlePrintBill]),
+    }, [reportType, handlePrintBill]),
     canPrintSelection: useCallback(
-      () => Boolean(selectedRecord?.fuid) && !billPrinting,
-      [selectedRecord?.fuid, billPrinting]
+      () => reportType === "summary" && Boolean(selectedRecord?.fuid) && !billPrinting,
+      [reportType, selectedRecord?.fuid, billPrinting]
     ),
-    printBlockedMessage: "Select a forwarding note row with FUID to print bill (Ctrl+Alt+P).",
+    printBlockedMessage: "Select a forwarding note row with FUID to print bill (Ctrl+P).",
     printModule: "forwarding_note_master",
     printAction: "view",
     openApprove: useCallback(() => {
+      if (reportType !== "summary") return;
       openModal("approve");
-    }, [openModal]),
+    }, [reportType, openModal]),
     canApproveSelection: useCallback(
-      () => Boolean(selectedId) && !isSelectedLocked,
-      [selectedId, isSelectedLocked]
+      () => reportType === "summary" && Boolean(selectedId) && !isSelectedLocked,
+      [reportType, selectedId, isSelectedLocked]
     ),
     onApproveBlocked: useCallback(() => {
+      if (reportType !== "summary") return;
       if (!selectedId) toast.info("Select a row to approve (Ctrl+A).");
       else if (isSelectedLocked) toast.info("This forwarding note is locked for out entry.");
-    }, [selectedId, isSelectedLocked]),
+    }, [reportType, selectedId, isSelectedLocked]),
+    openDelete: useCallback(() => {
+      if (reportType !== "summary") return;
+      setIsDeleting(true);
+    }, [reportType]),
+    canDeleteSelection: useCallback(() => reportType === "summary" && Boolean(selectedId) && !isSelectedLocked, [reportType, selectedId, isSelectedLocked]),
   });
 
   const modalRecord = useMemo(() => {
@@ -381,19 +400,19 @@ export default function ForwardingPage() {
   const handleSaveBillNo = async () => {
     const fuid = selectedRecord?.fuid;
     if (!fuid || !canEditBill) return;
+    const payload = formatBillNosForSave(billDraftNos);
     setBillSaving(true);
     try {
-      const res = await forwardingNoteService.updateBill(fuid, billDraft.trim() || null);
+      const res = await forwardingNoteService.updateBill(fuid, payload);
       const saved = res?.data;
-      if (saved?.bill_no != null) setBillDraft(String(saved.bill_no));
-      else if (billDraft.trim() === "") setBillDraft("");
+      setBillDraftNos(parseSavedBillNos(saved?.bill_no ?? payload));
       toast.success(
-        saved?.bill_no
-          ? "Bill number saved"
+        saved?.bill_no || payload
+          ? "Bill number(s) saved"
           : "Bill number cleared"
       );
       const auditPatch = {
-        bill_no: saved?.bill_no ?? (billDraft.trim() || null),
+        bill_no: saved?.bill_no ?? payload,
         bill_updated_by_name: saved?.bill_updated_by_name ?? null,
         bill_updated_at: saved?.bill_updated_at ?? null,
       };
@@ -408,14 +427,19 @@ export default function ForwardingPage() {
     }
   };
 
-  const savedBillNo = useMemo(() => {
-    if (selectedRecord?.bill_no == null || selectedRecord.bill_no === "") return "";
-    return String(selectedRecord.bill_no).trim();
-  }, [selectedRecord?.bill_no]);
+  const savedBillNo = useMemo(
+    () => formatBillNosForSave(parseSavedBillNos(selectedRecord?.bill_no)) ?? "",
+    [selectedRecord?.bill_no]
+  );
+
+  const billDraftFormatted = useMemo(
+    () => formatBillNosForSave(billDraftNos) ?? "",
+    [billDraftNos]
+  );
 
   const billDirty = useMemo(
-    () => billDraft.trim() !== savedBillNo,
-    [billDraft, savedBillNo]
+    () => billDraftFormatted !== savedBillNo,
+    [billDraftFormatted, savedBillNo]
   );
 
   const billLastUpdatedLabel = useMemo(() => {
@@ -507,32 +531,31 @@ export default function ForwardingPage() {
   }, [reportType]);
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              
-              <div className="flex bg-slate-100 p-1 border border-slate-200 mr-2">
-                <button 
-                  onClick={() => { setReportType("summary"); setSelectedId(null); }}
-                  className={`px-3 py-1 text-[10px] font-bold uppercase flex items-center gap-1.5 transition-all ${reportType === 'summary' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:bg-slate-200'}`}
-                >
-                  <List size={14} /> Summary
-                </button>
-                <button 
-                  onClick={() => { setReportType("item_wise"); setSelectedId(null); }}
-                  className={`px-3 py-1 text-[10px] font-bold uppercase flex items-center gap-1.5 transition-all ${reportType === 'item_wise' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:bg-slate-200'}`}
-                >
-                  <Package size={14} /> Item-wise
-                </button>
-              </div>
-
-              <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px]" />
-              <ActionButton module="forwarding_note_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selectedId || isSelectedLocked} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px]" />
-              <ActionButton module="forwarding_note_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selectedId || isSelectedLocked} onClick={() => openModal("approve")} className="rounded-none h-9 bg-white text-[11px] text-emerald-600" />
-              <ActionButton module="forwarding_note_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedId || isSelectedLocked} onClick={() => setIsDeleting(true)} className="rounded-none h-9 text-[11px]" />
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            tabs={
+              <ImsSegmentedTabs
+                className="mr-2"
+                active={reportType}
+                onChange={(id) => {
+                  setReportType(id);
+                  setSelectedId(null);
+                }}
+                tabs={[
+                  { id: "summary", label: "Summary", icon: List },
+                  { id: "item_wise", label: "Item-wise", icon: Package },
+                ]}
+              />
+            }
+            actions={
+              <>
+              <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+              <ActionButton module="forwarding_note_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selectedId || isSelectedLocked} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
+              <ActionButton module="forwarding_note_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selectedId || isSelectedLocked} onClick={() => openModal("approve")} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
+              <ActionButton module="forwarding_note_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedId || isSelectedLocked} onClick={() => setIsDeleting(true)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
               <PrintActionButton
                 module="forwarding_note_master"
                 variant="outline"
@@ -541,23 +564,25 @@ export default function ForwardingPage() {
                 disabled={!selectedId || !selectedRecord?.fuid || billPrinting}
                 onClick={openPrintModal}
                 title="Print bill (Ctrl+Alt+P / Ctrl+P in app)"
-                className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-3 border-slate-300 shadow-none"
+                className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-3 border-slate-300 shadow-none shrink-0"
               />
               {role === "super_admin" && (
                 <>
                   <button
+                    type="button"
                     onClick={handleLock}
                     disabled={!selectedId || isSelectedLocked}
-                    className="rounded-none h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                     title="Super Admin: lock for out entry"
                   >
                     <Lock size={14} />
                     Lock
                   </button>
                   <button
+                    type="button"
                     onClick={handleUnlock}
                     disabled={!selectedId || !isSelectedLocked}
-                    className="rounded-none h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                     title="Super Admin: unlock out-entry lock"
                   >
                     <Unlock size={14} />
@@ -565,16 +590,16 @@ export default function ForwardingPage() {
                   </button>
                 </>
               )}
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
+              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
               
-              <button onClick={() => fetchData()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all">
+              <button type="button" onClick={() => fetchData()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shrink-0">
                 <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-                <span className="hidden xs:inline">Refresh</span>
+                Refresh
               </button>
-            </div>
-
-            <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />
-          </div>
+              </>
+            }
+            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+          />
 
           {selectedId && (
             <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100">
@@ -592,38 +617,48 @@ export default function ForwardingPage() {
               </span>
 
               {selectedRecord?.fuid && canEditBill ? (
-                <>
-                  <span className="text-[10px] font-bold text-slate-500 uppercase shrink-0">Bill</span>
-                  <input
-                    type="text"
-                    value={billDraft}
-                    onChange={(e) => setBillDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && billDirty && !billSaving) {
-                        e.preventDefault();
-                        handleSaveBillNo();
-                      }
-                    }}
-                    placeholder="Bill number"
-                    title={isSelectedLocked ? "Editable after out entry lock" : undefined}
-                    className="h-8 w-36 sm:w-44 px-2 bg-white border border-slate-200 text-[11px] font-semibold text-slate-800 focus:outline-none focus:border-indigo-400"
-                  />
+                <div
+                  className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+                  data-compact-form-bar
+                >
+                  <span className={`${LIST_PAGE_SEARCH_LABEL_CLASS} shrink-0`}>Bill</span>
+                  <div
+                    className="min-w-[12rem] w-full max-w-md flex-1"
+                    title={isSelectedLocked ? "Editable after out entry lock" : "Search and select bill numbers"}
+                  >
+                    <SearchableSelect
+                      multiple
+                      showTags
+                      variant="toolbar"
+                      heightClass="h-8"
+                      value={billDraftNos}
+                      onChange={(nos) => setBillDraftNos(uniqueBillNos(nos))}
+                      fetchService={fetchDummyBillOptions}
+                      getByIdService={getDummyBillByNo}
+                      dataKey="bill_no"
+                      labelKey="bill_no"
+                      labelOnlyDisplay
+                      placeholder="Bill number..."
+                      emptyMessage="No bill numbers found"
+                      usePortal
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={handleSaveBillNo}
                     disabled={billSaving || !billDirty}
-                    className="h-8 px-2.5 border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700 text-[10px] font-bold uppercase disabled:opacity-50 shrink-0"
+                    className="h-8 md:h-9 px-2.5 border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold uppercase disabled:opacity-50 shrink-0"
                   >
                     {billSaving ? "…" : "Save"}
                   </button>
                   {billLastUpdatedLabel ? (
-                    <span className="text-[9px] text-slate-500 truncate max-w-[12rem]" title={billLastUpdatedLabel}>
+                    <span className="text-xs text-slate-500 truncate max-w-[14rem]" title={billLastUpdatedLabel}>
                       {billLastUpdatedLabel}
                     </span>
                   ) : null}
-                </>
+                </div>
               ) : selectedRecord?.bill_no ? (
-                <span className="text-[10px] font-bold text-slate-700 uppercase">
+                <span className="text-xs font-bold text-slate-700 uppercase">
                   Bill {selectedRecord.bill_no}
                 </span>
               ) : null}
@@ -637,7 +672,7 @@ export default function ForwardingPage() {
               </button>
             </div>
           )}
-        </div>
+        </ListPageToolbar>
 
         <ListPageFilterStrip>
           <DateRangeFilter

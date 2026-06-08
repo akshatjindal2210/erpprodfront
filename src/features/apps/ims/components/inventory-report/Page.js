@@ -5,11 +5,13 @@ import { BarChart3, RefreshCw } from "lucide-react";
 import { toast } from "react-toastify";
 import DataTable from "@/core/components/ui/DataTable";
 import ViewToggle from "@/core/components/ui/ViewToggle";
+import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/core/components/common/ListPageToolbar";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import { inventoryReportService } from "@/features/apps/ims/services/inventoryReport";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 const PAGE_SIZE = 100;
 
@@ -20,13 +22,6 @@ const EMPTY_FILTERS = {
   packing_numbers: [],
 };
 
-const EMPTY_PICKERS = {
-  item_dcodes: null,
-  customer_codes: null,
-  location_ids: null,
-  packing_numbers: null,
-};
-
 const EMPTY_TOTALS = {
   fg_stock_qty: 0,
   in_store_qty: 0,
@@ -34,13 +29,46 @@ const EMPTY_TOTALS = {
   out_qty: 0,
 };
 
+function normalizeMultiFilterIds(value) {
+  if (value == null) return [];
+  const list = Array.isArray(value) ? value : [value];
+  return [...new Set(list.map((v) => String(v).trim()).filter(Boolean))];
+}
+
 function toApiFilters(filters) {
   const o = {};
-  if (filters.item_dcodes?.length) o.item_dcodes = filters.item_dcodes;
-  if (filters.customer_codes?.length) o.customer_codes = filters.customer_codes;
-  if (filters.location_ids?.length) o.location_ids = filters.location_ids;
-  if (filters.packing_numbers?.length) o.packing_numbers = filters.packing_numbers;
+  const items = normalizeMultiFilterIds(filters.item_dcodes);
+  const customers = normalizeMultiFilterIds(filters.customer_codes);
+  const locations = normalizeMultiFilterIds(filters.location_ids);
+  const packings = normalizeMultiFilterIds(filters.packing_numbers);
+  if (items.length) o.item_dcodes = items;
+  if (customers.length) o.customer_codes = customers;
+  if (locations.length) o.location_ids = locations;
+  if (packings.length) o.packing_numbers = packings;
   return o;
+}
+
+/** Dropdown options: apply other filters but not the field being edited (multi-select can add more). */
+function toApiFiltersForOptions(filters, excludeKey) {
+  const o = {};
+  const items = normalizeMultiFilterIds(filters.item_dcodes);
+  const customers = normalizeMultiFilterIds(filters.customer_codes);
+  const locations = normalizeMultiFilterIds(filters.location_ids);
+  const packings = normalizeMultiFilterIds(filters.packing_numbers);
+  if (items.length && excludeKey !== "item_dcodes") o.item_dcodes = items;
+  if (customers.length && excludeKey !== "customer_codes") o.customer_codes = customers;
+  if (locations.length && excludeKey !== "location_ids") o.location_ids = locations;
+  if (packings.length && excludeKey !== "packing_numbers") o.packing_numbers = packings;
+  return o;
+}
+
+function hasAnyFilter(filters) {
+  return (
+    (filters.item_dcodes?.length ?? 0) > 0 ||
+    (filters.customer_codes?.length ?? 0) > 0 ||
+    (filters.location_ids?.length ?? 0) > 0 ||
+    (filters.packing_numbers?.length ?? 0) > 0
+  );
 }
 
 function normalizeFilterOptions(data) {
@@ -58,9 +86,9 @@ export default function InventoryReportPage() {
   const [serverTotal, setServerTotal] = useState(0);
   const [serverTotals, setServerTotals] = useState(EMPTY_TOTALS);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [viewMode, handleViewMode] = useViewMode();
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [pickerValues, setPickerValues] = useState(EMPTY_PICKERS);
   const [filterOptions, setFilterOptions] = useState({
     items: [],
     customers: [],
@@ -76,12 +104,29 @@ export default function InventoryReportPage() {
   const pageRef = useRef(1);
   const loadGenRef = useRef(0);
 
-  const loadFilterOptions = useCallback(async (apiFilters) => {
+  const loadFilterOptions = useCallback(async (currentFilters) => {
     try {
-      const res = await inventoryReportService.getFilterOptions(apiFilters);
-      if (res?.success) {
-        setFilterOptions(normalizeFilterOptions(res.data));
+      if (!hasAnyFilter(currentFilters)) {
+        const res = await inventoryReportService.getFilterOptions({});
+        if (res?.success) {
+          setFilterOptions(normalizeFilterOptions(res.data));
+        }
+        return;
       }
+
+      const [itemRes, customerRes, locationRes, packingRes] = await Promise.all([
+        inventoryReportService.getFilterOptions(toApiFiltersForOptions(currentFilters, "item_dcodes")),
+        inventoryReportService.getFilterOptions(toApiFiltersForOptions(currentFilters, "customer_codes")),
+        inventoryReportService.getFilterOptions(toApiFiltersForOptions(currentFilters, "location_ids")),
+        inventoryReportService.getFilterOptions(toApiFiltersForOptions(currentFilters, "packing_numbers")),
+      ]);
+
+      setFilterOptions({
+        items: itemRes?.success ? normalizeFilterOptions(itemRes.data).items : [],
+        customers: customerRes?.success ? normalizeFilterOptions(customerRes.data).customers : [],
+        locations: locationRes?.success ? normalizeFilterOptions(locationRes.data).locations : [],
+        packings: packingRes?.success ? normalizeFilterOptions(packingRes.data).packings : [],
+      });
     } catch {
       /* dropdowns optional */
     }
@@ -90,7 +135,8 @@ export default function InventoryReportPage() {
   const loadReport = useCallback(
     async ({ pageNum = 1, append = false } = {}) => {
       const gen = ++loadGenRef.current;
-      setLoading(true);
+      if (append) setLoadingMore(true);
+      else setLoading(true);
       const apiFilters = toApiFilters(filters);
       try {
         const body = await inventoryReportService.getReport({
@@ -132,31 +178,32 @@ export default function InventoryReportPage() {
           setServerTotals(EMPTY_TOTALS);
         }
       } finally {
-        if (gen === loadGenRef.current) setLoading(false);
+        if (gen === loadGenRef.current) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
       }
     },
     [filters, params.sortKey, params.sortDir]
   );
 
   useEffect(() => {
-    const apiFilters = toApiFilters(filters);
-    void loadFilterOptions(apiFilters);
+    void loadFilterOptions(filters);
     void loadReport({ pageNum: 1, append: false });
   }, [filters, params.sortKey, params.sortDir, loadFilterOptions, loadReport]);
 
   const handleRefresh = useCallback(() => {
-    void loadFilterOptions(toApiFilters(filters));
+    void loadFilterOptions(filters);
     void loadReport({ pageNum: 1, append: false });
   }, [filters, loadFilterOptions, loadReport]);
 
   const handleLoadMore = useCallback(() => {
-    if (loading || rows.length >= serverTotal) return;
+    if (loading || loadingMore || rows.length >= serverTotal) return;
     void loadReport({ pageNum: pageRef.current + 1, append: true });
-  }, [loading, rows.length, serverTotal, loadReport]);
+  }, [loading, loadingMore, rows.length, serverTotal, loadReport]);
 
   const handleReset = () => {
     setFilters(EMPTY_FILTERS);
-    setPickerValues(EMPTY_PICKERS);
   };
 
   const HEADERS = useMemo(() => {
@@ -177,7 +224,12 @@ export default function InventoryReportPage() {
       { width: "110px" },
     ];
     return [
-      txt("Packing Entry", "packing_number", "130px"),
+      [
+        "Packing Entry",
+        "packing_number",
+        (v) => <span className="text-[11px] text-slate-700 font-medium">{v ?? "—"}</span>,
+        { fixed: true, width: "130px" },
+      ],
       txt("Item Code", "item_code", "120px"),
       txt("Item Details", "item_desc", "220px"),
       txt("Customer", "customer_name", "200px"),
@@ -225,58 +277,58 @@ export default function InventoryReportPage() {
     };
   }, []);
 
-  const setSingleFilter = useCallback((key, value) => {
-    const nextVal = value ? String(value) : null;
+  const setMultiFilter = useCallback((key, value) => {
     setFilters((prev) => ({
       ...prev,
-      [key]: nextVal ? [nextVal] : [],
+      [key]: normalizeMultiFilterIds(value),
     }));
-    setPickerValues((prev) => ({ ...prev, [key]: nextVal }));
   }, []);
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <BarChart3 size={18} className="text-indigo-600 shrink-0" />
-              <div className="min-w-0">
-                <h1 className="text-sm font-bold text-slate-800 leading-tight">
-                  Inventory Report
-                </h1>
-                <p className="text-[10px] text-slate-500 font-medium truncate">
-                  Total Stock = In Store + Packing Area. Loads {PAGE_SIZE} rows per page.
-                </p>
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <>
+              <div className="flex items-center gap-2 min-w-0 shrink-0 md:max-w-xs lg:max-w-sm">
+                <BarChart3 size={18} className="text-indigo-600 shrink-0 hidden sm:block" />
+                <div className="min-w-0 hidden md:block">
+                  <h1 className="text-sm font-bold text-slate-800 leading-tight">Inventory Report</h1>
+                  <p className="text-[10px] text-slate-500 font-medium truncate">
+                    Total Stock = In Store + Packing Area
+                  </p>
+                </div>
               </div>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={handleRefresh}
                 disabled={loading}
-                className="rounded-none h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50"
+                className={`${LIST_PAGE_ACTION_CLASS} px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 disabled:opacity-50`}
                 title="Reload report from server"
               >
                 <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-                Refresh
+                <span className="hidden xs:inline">Refresh</span>
               </button>
-              <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />
-            </div>
-          </div>
-        </div>
+              </>
+            }
+            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+          />
+        </ListPageToolbar>
 
         <ListPageFilterStrip className="space-y-2">
-          <div className="grid w-full min-w-0 grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-3">
+          <div className="grid w-full min-w-0 grid-cols-2 items-end gap-2 md:gap-3 lg:grid-cols-4 lg:gap-3">
             <div className="min-w-0 w-full">
               <SearchableSelect
+                multiple
+                compactMulti
+                showAllOption
                 variant="toolbar"
                 className="w-full min-w-0"
                 label="Item"
-                placeholder="Search item..."
-                value={pickerValues.item_dcodes}
-                onChange={(v) => setSingleFilter("item_dcodes", v)}
+                placeholder="Search items..."
+                value={filters.item_dcodes}
+                onChange={(ids) => setMultiFilter("item_dcodes", ids)}
                 fetchService={makeFetchService(filterOptions.items, "item_code", "item_desc")}
                 getByIdService={makeGetByIdService(filterOptions.items)}
                 dataKey="id"
@@ -286,12 +338,15 @@ export default function InventoryReportPage() {
             </div>
             <div className="min-w-0 w-full">
               <SearchableSelect
+                multiple
+                compactMulti
+                showAllOption
                 variant="toolbar"
                 className="w-full min-w-0"
                 label="Customer"
-                placeholder="Search customer..."
-                value={pickerValues.customer_codes}
-                onChange={(v) => setSingleFilter("customer_codes", v)}
+                placeholder="Search customers..."
+                value={filters.customer_codes}
+                onChange={(ids) => setMultiFilter("customer_codes", ids)}
                 fetchService={makeFetchService(filterOptions.customers, "acc_name")}
                 getByIdService={makeGetByIdService(filterOptions.customers)}
                 dataKey="id"
@@ -300,12 +355,15 @@ export default function InventoryReportPage() {
             </div>
             <div className="min-w-0 w-full">
               <SearchableSelect
+                multiple
+                compactMulti
+                showAllOption
                 variant="toolbar"
                 className="w-full min-w-0"
                 label="Store location"
-                placeholder="Search location..."
-                value={pickerValues.location_ids}
-                onChange={(v) => setSingleFilter("location_ids", v)}
+                placeholder="Search locations..."
+                value={filters.location_ids}
+                onChange={(ids) => setMultiFilter("location_ids", ids)}
                 fetchService={makeFetchService(filterOptions.locations, "location_no")}
                 getByIdService={makeGetByIdService(filterOptions.locations)}
                 dataKey="id"
@@ -314,12 +372,15 @@ export default function InventoryReportPage() {
             </div>
             <div className="min-w-0 w-full">
               <SearchableSelect
+                multiple
+                compactMulti
+                showAllOption
                 variant="toolbar"
                 className="w-full min-w-0"
                 label="Packing Entry"
-                placeholder="Search packing..."
-                value={pickerValues.packing_numbers}
-                onChange={(v) => setSingleFilter("packing_numbers", v)}
+                placeholder="Search packings..."
+                value={filters.packing_numbers}
+                onChange={(ids) => setMultiFilter("packing_numbers", ids)}
                 fetchService={makeFetchService(filterOptions.packings, "packing_number")}
                 getByIdService={makeGetByIdService(filterOptions.packings)}
                 dataKey="id"
@@ -343,7 +404,8 @@ export default function InventoryReportPage() {
             headers={HEADERS}
             data={rows}
             allowCopy={true}
-            loading={loading}
+            loading={loading || loadingMore}
+            centerLoadingOverlay={!loadingMore}
             showSelection={false}
             viewMode={viewMode}
             sortKey={params.sortKey}
@@ -366,6 +428,19 @@ export default function InventoryReportPage() {
             onLoadMore={handleLoadMore}
             totalItems={serverTotal}
             getRowId={(row, i) => String(row?.id ?? row?.packing_number ?? `r-${i}`)}
+            cardConfig={{
+              titleKey: "packing_number",
+              badgeIndices: [5],
+              detailKeys: [
+                "item_code",
+                "item_desc",
+                "customer_name",
+                "location_details",
+                "in_store_qty",
+                "packing_area_qty",
+              ],
+              className: "rounded-none border border-slate-200 shadow-none",
+            }}
           />
           <div className="shrink-0 border-t-2 border-indigo-200 bg-indigo-50/80 px-3 py-2.5">
             <p className="text-[9px] font-black uppercase tracking-widest text-indigo-700 mb-2">

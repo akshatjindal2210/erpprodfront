@@ -9,7 +9,7 @@ export default function AppConfigTabBar({ activeId, onSelect }) {
       <div
         className="flex items-end gap-1 overflow-x-auto no-scrollbar -mb-px"
         role="tablist"
-        aria-label="Apps"
+        aria-label="Configuration scope"
       >
         {APP_CONFIG_TABS.map((tab) => {
           const selected = activeId === tab.id;

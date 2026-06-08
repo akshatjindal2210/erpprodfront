@@ -13,6 +13,10 @@ import { STICKER_DOWNLOAD_SOURCE_KEYS, formatStandardBoxNoUid, parseStandardBoxN
 import { printFromBackendHtml } from "@/features/apps/ims/utils/printHtmlDocument";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
+import { useEscapeKey } from "@/core/hooks/useEscapeKey";
+function isMarketLedgerCustomer(ledgerOrRow) {
+  return String(ledgerOrRow?.acc_name ?? "").trim().toLowerCase() === "market";
+}
 
 /** Physical sticker card size in CSS px (96px/in) — matches backend `buildStickerCardHtml` 5.7in × 3.6in. */
 const STICKER_PREVIEW_W_PX = 5.7 * 96;
@@ -26,6 +30,7 @@ function packRowForStickerApi(row) {
     doc_dt: row.doc_dt,
     job_card_no: row.job_card_no,
     itemdcode: row.itemdcode,
+    item_code: row.item_code,
     total_qty: row.total_qty,
     acc_code: row.acc_code,
     sticker_generated: row.sticker_generated,
@@ -40,6 +45,45 @@ function stickerFetchBody(row, overrides = {}) {
   if (body.doc_no == null && row?.doc_no != null) body.doc_no = row.doc_no;
   if (prod) body.production = prod;
   return body;
+}
+
+/**
+ * After stickers exist, packing list row is source of truth (ims_dailyprod snapshot).
+ * While creating stickers, keep the customer currently selected in the modal.
+ */
+function withPackingEntryCustomer(row, packingEntry, { lockToPackingList = false } = {}) {
+  if (!row || !lockToPackingList) return row;
+  const acc = packingEntry?.acc_code;
+  if (acc == null || String(acc).trim() === "") return row;
+  return {
+    ...row,
+    acc_code: String(acc).trim(),
+    acc_name: packingEntry?.acc_name?.trim() ? packingEntry.acc_name : row.acc_name,
+  };
+}
+
+/** Packing-entry customer (selected at generate). Modal row wins; then packing list / dailyprod. */
+function packingEntryCustomerRow(packingListRow, modalRow) {
+  const fromModal =
+    modalRow?.acc_code != null && String(modalRow.acc_code).trim() !== ""
+      ? String(modalRow.acc_code).trim()
+      : "";
+  const fromList =
+    packingListRow?.acc_code != null && String(packingListRow.acc_code).trim() !== ""
+      ? String(packingListRow.acc_code).trim()
+      : "";
+  const acc_code = fromModal || fromList;
+  const acc_name =
+    (fromModal && modalRow?.acc_name?.trim() ? modalRow.acc_name : "") ||
+    (fromList && packingListRow?.acc_name?.trim() ? packingListRow.acc_name : "") ||
+    modalRow?.acc_name ||
+    packingListRow?.acc_name ||
+    "";
+  return {
+    ...(modalRow || packingListRow || {}),
+    acc_code,
+    acc_name,
+  };
 }
 
 function getDeviceType() {
@@ -77,37 +121,32 @@ async function enrichRowPartyRateCustCode(row, accCode) {
   };
 }
 
-function stickerLockedAccFromSummary(summaryRows) {
-  for (const row of summaryRows || []) {
-    const oc = row?.override_cust;
-    if (oc != null && String(oc).trim() !== "") return String(oc).trim();
-  }
-  return null;
-}
-
-function buildStickerPrintMeta(selectedRow, sticker) {
-  const accCode = sticker?.acc_code ?? selectedRow?.acc_code;
-  const accName = sticker?.acc_name ?? selectedRow?.acc_name;
+function buildStickerPrintMeta(packingRow, sticker) {
+  const packingAcc = packingRow?.acc_code;
+  const packingName = packingRow?.acc_name;
+  // Sticker creation: always packing-entry customer selected at generate (ignore box override_cust).
+  const accCode = packingAcc ?? sticker?.acc_code;
+  const accName = packingName ?? sticker?.acc_name;
   const packingNo =
-    selectedRow?.doc_no != null && String(selectedRow.doc_no).trim() !== ""
-      ? String(selectedRow.doc_no).trim()
+    packingRow?.doc_no != null && String(packingRow.doc_no).trim() !== ""
+      ? String(packingRow.doc_no).trim()
       : sticker?.packing_number != null && String(sticker.packing_number).trim() !== ""
         ? String(sticker.packing_number).trim()
         : null;
   return {
     packing_number: packingNo,
     doc_no: packingNo,
-    itemdcode: selectedRow?.itemdcode,
-    item_code: selectedRow?.item_code,
-    itemdesc: selectedRow?.itemdesc || selectedRow?.description || "",
-    description: selectedRow?.itemdesc || selectedRow?.description || "",
+    itemdcode: packingRow?.itemdcode,
+    item_code: packingRow?.item_code,
+    itemdesc: packingRow?.itemdesc || packingRow?.description || "",
+    description: packingRow?.itemdesc || packingRow?.description || "",
     acc_name: accName,
     acc_code: accCode,
-    ...(selectedRow?.party_rate_cust_code?.trim()
-      ? { party_rate_cust_code: selectedRow.party_rate_cust_code.trim() }
+    ...(packingRow?.party_rate_cust_code?.trim()
+      ? { party_rate_cust_code: packingRow.party_rate_cust_code.trim() }
       : {}),
-    job_card_no: selectedRow?.job_card_no || "",
-    fg_location: selectedRow?.fg_location || "",
+    job_card_no: packingRow?.job_card_no || "",
+    fg_location: packingRow?.fg_location || "",
     ...(sticker?.box_no != null ? { box_no: sticker.box_no } : {}),
     ...(sticker?.total_boxes != null ? { total_boxes: sticker.total_boxes } : {}),
   };
@@ -123,15 +162,60 @@ function uniqueCategoriesFromStandards(allStandards, itemdcode, accCode) {
   const uniqueCats = [];
   const seenCatIds = new Set();
   validStandards.forEach((std) => {
-    if (std.type && !seenCatIds.has(std.type)) {
-      seenCatIds.add(std.type);
+    const catId = std.type != null ? String(std.type) : "";
+    if (catId && !seenCatIds.has(catId)) {
+      seenCatIds.add(catId);
       uniqueCats.push({
-        id: std.type,
-        name: std.category_name || `Category #${std.type}`,
+        id: catId,
+        name: std.category_name || `Category #${catId}`,
       });
     }
   });
   return sortSelectRowsAsc(uniqueCats, "name");
+}
+
+function hasValidPackingDetails(details) {
+  return (
+    details &&
+    Number(details.qty_per_box) > 0 &&
+    Number(details.total_stickers) > 0
+  );
+}
+
+async function fetchStickerRowForCategory(row, catId, imsDatePayload) {
+  return boxService.getStickers({
+    ...stickerFetchBody(row, catId ? { category_id: String(catId) } : {}),
+    ...(imsDatePayload ? { ims_date_filter: imsDatePayload } : {}),
+  });
+}
+
+async function resolveStickerRowForCategory(row, catId, accCode, imsDatePayload) {
+  const r = await fetchStickerRowForCategory(row, catId, imsDatePayload);
+  if (!r.success || !r.data?.length) {
+    return { ok: false, message: r.message || "No packing standard found for this category" };
+  }
+  const payload = r.data[0];
+  if (!hasValidPackingDetails(payload.packing_details)) {
+    return {
+      ok: false,
+      message: r.message || "No packing standard found for this category",
+    };
+  }
+  const chosenAcc =
+    accCode != null && String(accCode).trim() !== ""
+      ? String(accCode).trim()
+      : row?.acc_code != null
+        ? String(row.acc_code).trim()
+        : "";
+  let newData = {
+    ...payload,
+    acc_code: chosenAcc || payload.acc_code,
+    acc_name: row?.acc_name ?? payload.acc_name,
+  };
+  if (catId) newData.type = String(catId);
+  newData.category = newData.ims_category || newData.category || null;
+  newData = await enrichRowPartyRateCustCode(newData, chosenAcc || row?.acc_code);
+  return { ok: true, data: newData };
 }
 
 function StickerDetailCards({selectedRow, packing, generated, isMultiple, categories, selectedCategory, onCategoryChange, onCustomerChange, customerSelectDisabled, customerChanging}) {
@@ -172,12 +256,19 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
             <select
               value={selectedCategory}
               onChange={(e) => onCategoryChange(e.target.value)}
-              className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-[12px] lg:text-sm font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              disabled={!selectedRow?.acc_code}
+              className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-[12px] lg:text-sm font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:bg-slate-50 disabled:text-slate-400"
             >
-              {isMultiple && <option value="" disabled>Select Category</option>}
-              {categoriesAsc.map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
+              {!selectedRow?.acc_code ? (
+                <option value="">Select customer first</option>
+              ) : (
+                <>
+                  {isMultiple && <option value="">Select Category</option>}
+                  {categoriesAsc.map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </>
+              )}
             </select>
           )}
           <div className="flex justify-between items-center text-[10px] lg:text-[11px] text-amber-600 font-bold italic">
@@ -204,12 +295,14 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
                     ...params,
                     permission_module: "packing_entry",
                     permission_action: "view",
+                    itemdcode: selectedRow?.itemdcode,
                   })
                 }
                 getByIdService={(id) =>
                   masterService.getLedgerViewById(id, {
                     permission_module: "packing_entry",
                     permission_action: "view",
+                    itemdcode: selectedRow?.itemdcode,
                   })
                 }
                 dataKey="id"
@@ -324,10 +417,16 @@ function StickerBreakdownPanel({
   headerTitle = "Breakdown",
   showSwipeHint = false,
   canPrint = true,
+  flowWithPage = false,
 }) {
   return (
-      <div className="h-full flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0">
-      {/* <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0"> */}
+      <div
+        className={
+          flowWithPage
+            ? "w-full min-w-0"
+            : "h-full flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0"
+        }
+      >
       <div className="px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center gap-1.5 min-w-0 shrink-0">
         <div className="flex items-center gap-1.5 lg:gap-2 min-w-0 flex-1">
           <Box className="w-4 h-4 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-600" aria-hidden />
@@ -335,8 +434,13 @@ function StickerBreakdownPanel({
         </div>
       </div>
 
-      {/* <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-0 lg:p-1 touch-pan-y"> */}
-      <div className="flex-1 h-full min-h-0 overflow-y-auto overscroll-contain p-0 lg:p-1 touch-pan-y">
+      <div
+        className={
+          flowWithPage
+            ? "w-full p-0 lg:p-1"
+            : "flex-1 h-full min-h-0 overflow-y-auto overscroll-contain p-0 lg:p-1 touch-pan-y"
+        }
+      >
         {loadingGenerated ? (
           <div className="h-full min-h-[160px] w-full flex items-center justify-center text-slate-500 gap-2 px-2">
             <Loader2 className="animate-spin shrink-0" size={14} />
@@ -350,7 +454,7 @@ function StickerBreakdownPanel({
                   <Layers size={20} className="opacity-20" />
                   <span className="text-[10px] lg:text-xs font-bold uppercase tracking-wide px-1">
                     {isMultiple
-                      ? "Multiple categories — select in Details, then use Generate at the top."
+                      ? "Select customer and category in Details, then use Generate at the top."
                       : "No packing standard or data unavailable."}
                   </span>
                 </div>
@@ -412,6 +516,17 @@ function StickerBreakdownPanel({
                               <div className="flex flex-col leading-snug min-w-0">
                                 <span className={`${isGeneratedStickerList ? "text-blue-700" : "text-slate-800"} font-bold text-[10px] lg:text-xs break-all`}>{row.box_no_uid}</span>
                                 <span className="text-[8px] lg:text-[10px] text-slate-400 uppercase font-bold truncate">Box {row.box_no} / {row.total_boxes}</span>
+                                {row.acc_name?.trim() ? (
+                                  row.is_customer_overridden ? (
+                                    <span className="text-[8px] lg:text-[9px] text-violet-700 font-bold uppercase truncate" title={row.acc_name}>
+                                      Override · {row.acc_name}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[8px] lg:text-[9px] text-slate-500 font-semibold truncate" title={row.acc_name}>
+                                      {row.acc_name}
+                                    </span>
+                                  )
+                                ) : null}
                               </div>
                             </td>
                             <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-700 whitespace-nowrap tabular-nums">{row.package_no}</td>
@@ -469,17 +584,18 @@ function StickerBreakdownPanel({
 }
 
 export default function StickerCreationModel({open, onClose, data, onSuccess, imsDateFilter, downloadSource = STICKER_DOWNLOAD_SOURCE_KEYS.sticker_creation}) {
-  const canAccess = useCanAccess();
-  const canPrintStickers = useMemo(
-    () => canAccess("packing_entry", "view").allowed,
-    [canAccess]
-  );
-
   const [fetching, setFetching] = useState(false);
   const [loadingGenerated, setLoadingGenerated] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+
+  useEscapeKey(() => setPreviewOpen(false), previewOpen);
+  const canAccess = useCanAccess();
+  const canPrintStickers = useMemo(
+    () => canAccess("packing_entry", "view").allowed,
+    [canAccess]
+  );
   const [previewHtml, setPreviewHtml] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewLayout, setPreviewLayout] = useState({
@@ -559,7 +675,10 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         total_boxes: total_stickers, 
         qty: isLoose ? loose_box_qty : qty_per_box, 
         type: isLoose ? "LOOSE" : "FULL",
-        unit: unit
+        unit: unit,
+        acc_code: selectedRow?.acc_code,
+        acc_name: selectedRow?.acc_name,
+        is_customer_overridden: false,
       };
     });
   }, [packing, selectedRow, data]);
@@ -572,15 +691,15 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
   const isGeneratedStickerList = generated.length > 0;
   const packingFullCount = Number(packing?.full_boxes_count || 0);
 
-  const hydrateGeneratedFromSummary = useCallback((summaryRows, sourceRow, customerRow = sourceRow) => {
+  const hydrateGeneratedFromSummary = useCallback((summaryRows, sourceRow) => {
     if (!summaryRows?.length || !sourceRow) {
       setGenerated([]);
       setDlTracking({});
       return;
     }
 
-    const displayRow = customerRow || sourceRow;
-    const boxAccName = displayRow.acc_name;
+    const packingAcc = String(sourceRow.acc_code || "").trim();
+    const defaultAccName = sourceRow.acc_name || "";
 
     const enriched = summaryRows.map((row, idx) => {
       const uid = String(row.box_no_uid || "");
@@ -594,25 +713,22 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         parsed?.totalBoxes ?? (parts.length >= 3 ? Number(parts[parts.length - 2]) : summaryRows.length);
 
       const isLoose = row.is_loose === true || row.is_loose === "true";
-      const rowAcc =
-        row.override_cust != null && String(row.override_cust).trim() !== ""
-          ? String(row.override_cust).trim()
-          : boxAcc;
 
       return {
         ...row,
         box_no: boxNo,
         total_boxes: totalBoxesFromUid,
         type: isLoose ? "LOOSE" : "FULL",
-        itemdcode: displayRow.itemdcode,
-        acc_code: rowAcc,
-        acc_name: boxAccName,
-        description: displayRow.description || displayRow.itemdesc || "",
-        job_card_no: displayRow.job_card_no,
-        doc_dt: displayRow.doc_dt,
-        package_no: displayRow.doc_no,
-        fg_location: displayRow.fg_location || "",
-        unit: displayRow.unit || "PCS",
+        itemdcode: sourceRow.itemdcode,
+        acc_code: packingAcc,
+        acc_name: defaultAccName,
+        is_customer_overridden: false,
+        description: sourceRow.description || sourceRow.itemdesc || "",
+        job_card_no: sourceRow.job_card_no,
+        doc_dt: sourceRow.doc_dt,
+        package_no: sourceRow.doc_no,
+        fg_location: sourceRow.fg_location || "",
+        unit: sourceRow.unit || "PCS",
       };
     });
 
@@ -632,37 +748,9 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
     try {
       const res = await boxService.getDownloadSummary({ packing_number: String(row.doc_no) });
       const summaryRows = res.data || [];
-      const lockedAcc = stickerLockedAccFromSummary(summaryRows);
-      let customerRow = row;
+      const sourceRow = packingEntryCustomerRow(data, row);
 
-      if (
-        lockedAcc &&
-        String(lockedAcc) !== String(row.acc_code || "")
-      ) {
-        try {
-          const ledgerRes = await masterService.getLedgerViewById(lockedAcc, {
-            permission_module: "packing_entry",
-            permission_action: "view",
-          });
-          customerRow = await enrichRowPartyRateCustCode(
-            {
-              ...row,
-              acc_code: lockedAcc,
-              acc_name: ledgerRes?.data?.acc_name?.trim() || row.acc_name || "",
-            },
-            lockedAcc
-          );
-          setSelectedRow(customerRow);
-        } catch {
-          customerRow = await enrichRowPartyRateCustCode(
-            { ...row, acc_code: lockedAcc },
-            lockedAcc
-          );
-          setSelectedRow(customerRow);
-        }
-      }
-
-      hydrateGeneratedFromSummary(summaryRows, row, customerRow);
+      hydrateGeneratedFromSummary(summaryRows, sourceRow);
       if (res?.sa_adjustment_boxes_exist && !summaryRows.length) {
         toast.info(
           "Stock adjustment stickers exist for this packing. Print or manage them from Stock Adjustment."
@@ -674,7 +762,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
     } finally {
       setLoadingGenerated(false);
     }
-  }, [hydrateGeneratedFromSummary]);
+  }, [hydrateGeneratedFromSummary, data]);
 
   const fetchStickerHistory = useCallback(async () => {
     if (!data?.itemdcode) return;
@@ -690,15 +778,6 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       const allStandards = standardsRes.data || [];
       
       // Filter helper payload to this item only (helper is intentionally broad).
-      const uniqueCats = uniqueCategoriesFromStandards(
-        allStandards,
-        data.itemdcode,
-        data.acc_code
-      );
-
-      setCategories(sortSelectRowsAsc(uniqueCats, "name"));
-      setIsMultiple(uniqueCats.length > 1);
-
       // 2. Fetch sticker history for the specific document
       const r = await boxService.getStickers({
         ...stickerFetchBody(data),
@@ -706,61 +785,88 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       });
       const raw = r.data || [];
       
-      const list = raw.filter((row, idx, arr) => {
-        const key = `${row.doc_no}_${row.acc_code || ""}`;
-        return idx === arr.findIndex((x) => `${x.doc_no}_${x.acc_code || ""}` === key);
-      });
+      const packingListAcc =
+        data?.acc_code != null && String(data.acc_code).trim() !== ""
+          ? String(data.acc_code).trim()
+          : "";
+      const list = raw
+        .filter((row) => {
+          if (!packingListAcc) return true;
+          const rowAcc = row.acc_code != null ? String(row.acc_code).trim() : "";
+          return rowAcc === packingListAcc;
+        })
+        .filter((row, idx, arr) => {
+          const key = `${row.doc_no}_${row.acc_code || ""}`;
+          return idx === arr.findIndex((x) => `${x.doc_no}_${x.acc_code || ""}` === key);
+        });
       setStickers(sortSelectRowsAsc(list, "doc_no"));
       
       if (list.length > 0) {
-        const firstRow = await enrichRowPartyRateCustCode(list[0], list[0].acc_code || data.acc_code);
+        const stickersExist = data?.sticker_generated === true;
+        const packingAccFromList =
+          stickersExist && data?.acc_code != null ? String(data.acc_code).trim() : "";
+        const firstRowBase = stickersExist
+          ? withPackingEntryCustomer(list[0], data, { lockToPackingList: true })
+          : list[0];
+        const effectiveAcc =
+          packingAccFromList ||
+          (firstRowBase?.acc_code != null ? String(firstRowBase.acc_code).trim() : "") ||
+          (data?.acc_code != null ? String(data.acc_code).trim() : "");
+        const firstRow = await enrichRowPartyRateCustCode(firstRowBase, effectiveAcc);
+        const uniqueCats = uniqueCategoriesFromStandards(
+          allStandards,
+          data.itemdcode,
+          effectiveAcc
+        );
+
+        setCategories(sortSelectRowsAsc(uniqueCats, "name"));
+        setIsMultiple(uniqueCats.length > 1);
         setSelectedRow(firstRow);
         
         // --- AUTO-SELECTION LOGIC ---
         let autoSelected = false;
 
         // 1. If only one category, select it automatically
-        if (uniqueCats.length === 1) {
+        if (uniqueCats.length === 1 && effectiveAcc) {
           const catId = String(uniqueCats[0].id);
           setSelectedCategory(catId);
           autoSelected = true;
           
-          // Fetch specific breakdown for this single category
-          const r = await boxService.getStickers({
-            ...stickerFetchBody(data, { category_id: catId }),
-            ...(imsDatePayload ? { ims_date_filter: imsDatePayload } : {}),
-          });
-          if (r.success && r.data?.length > 0) {
-            let newData = r.data[0];
-            newData.type = catId;
-            newData = await enrichRowPartyRateCustCode(newData, newData.acc_code);
-            setSelectedRow(newData);
+          const resolved = await resolveStickerRowForCategory(firstRow, catId, effectiveAcc, imsDatePayload);
+          if (resolved.ok) {
+            setSelectedRow(
+              stickersExist
+                ? withPackingEntryCustomer(resolved.data, data, { lockToPackingList: true })
+                : resolved.data
+            );
             setIsMultiple(false);
+          } else {
+            autoSelected = false;
+            setSelectedCategory("");
           }
         } 
         // 2. If multiple categories, check for "OEM" (case-insensitive)
-        else if (uniqueCats.length > 1) {
+        else if (uniqueCats.length > 1 && effectiveAcc) {
           const oemCat = uniqueCats.find(c => c.name?.toLowerCase() === "oem");
           if (oemCat) {
             const catId = String(oemCat.id);
             setSelectedCategory(catId);
             autoSelected = true;
             
-            // Fetch specific breakdown for OEM
-            const r = await boxService.getStickers({
-              ...stickerFetchBody(data, { category_id: catId }),
-              ...(imsDatePayload ? { ims_date_filter: imsDatePayload } : {}),
-            });
-            if (r.success && r.data?.length > 0) {
-              let newData = r.data[0];
-              newData.type = catId;
-              newData = await enrichRowPartyRateCustCode(newData, newData.acc_code);
-              setSelectedRow(newData);
+            const resolved = await resolveStickerRowForCategory(firstRow, catId, effectiveAcc, imsDatePayload);
+            if (resolved.ok) {
+              setSelectedRow(
+                stickersExist
+                  ? withPackingEntryCustomer(resolved.data, data, { lockToPackingList: true })
+                  : resolved.data
+              );
               setIsMultiple(false);
+            } else {
+              autoSelected = false;
+              setSelectedCategory("");
             }
           } else {
-            // Force dropdown to "Select Category" placeholder
-            setSelectedCategory(""); 
+            setSelectedCategory("");
           }
         } 
         // 3. Fallback to first row's type if available
@@ -768,9 +874,8 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
           setSelectedCategory(String(firstRow.type));
         }
 
-        // Only show toast if there are multiple categories and we COULDN'T auto-select one
         if (uniqueCats.length > 1 && !autoSelected) {
-          toast.info("Multiple categories available — please select one.");
+          toast.info("Select customer (if needed), then choose a packing category.");
         }
       }
     } catch (err) { 
@@ -778,7 +883,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       toast.error("Failed to load sticker data."); 
     }
     finally { setFetching(false); }
-  }, [data?.itemdcode, data?.doc_no, data?.doc_dt, data?.total_qty, data?.acc_code, imsDatePayload]);
+  }, [data, data?.itemdcode, data?.doc_no, data?.doc_dt, data?.total_qty, data?.acc_code, data?.acc_name, imsDatePayload]);
 
   useEffect(() => {
     if (!open) {
@@ -809,16 +914,19 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         setSelectedCategory(rowType);
       }
     }
-  }, [open, selectedRow?.doc_no, isMultiple]);
+  }, [open, selectedRow?.doc_no, selectedRow?.acc_code, isMultiple, fetchGeneratedSummary]);
 
+  const stickerTabDocRef = useRef(null);
   useEffect(() => {
-    if (!open || !selectedRow?.doc_no) return;
+    if (!open) {
+      stickerTabDocRef.current = null;
+      return;
+    }
+    if (!selectedRow?.doc_no) return;
+    if (stickerTabDocRef.current === selectedRow.doc_no) return;
+    stickerTabDocRef.current = selectedRow.doc_no;
     setStickerTab("details");
-  }, [open, selectedRow?.doc_no, selectedRow?.acc_code]);
-
-  useEffect(() => {
-    if (stickerTab === "generate") setStickerTab("details");
-  }, [stickerTab]);
+  }, [open, selectedRow?.doc_no]);
 
   const handleCustomerChange = useCallback(
     async (accCode, ledgerObj) => {
@@ -839,18 +947,31 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         setCategories(sortSelectRowsAsc(uniqueCats, "name"));
         setIsMultiple(uniqueCats.length > 1);
 
+        const isMarketCustomer = isMarketLedgerCustomer(ledgerObj);
+
         let catId = selectedCategory;
         if (uniqueCats.length === 1) {
           catId = String(uniqueCats[0].id);
           setSelectedCategory(catId);
         } else if (uniqueCats.length > 1) {
-          const oemCat = uniqueCats.find((c) => c.name?.toLowerCase() === "oem");
-          if (oemCat) {
-            catId = String(oemCat.id);
-            setSelectedCategory(catId);
+          if (isMarketCustomer) {
+            const marketCat = uniqueCats.find((c) => c.name?.toLowerCase() === "market");
+            if (marketCat) {
+              catId = String(marketCat.id);
+              setSelectedCategory(catId);
+            } else {
+              catId = "";
+              setSelectedCategory("");
+            }
           } else {
-            catId = "";
-            setSelectedCategory("");
+            const oemCat = uniqueCats.find((c) => c.name?.toLowerCase() === "oem");
+            if (oemCat) {
+              catId = String(oemCat.id);
+              setSelectedCategory(catId);
+            } else {
+              catId = "";
+              setSelectedCategory("");
+            }
           }
         } else {
           catId = "";
@@ -863,37 +984,48 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
           acc_name: ledgerObj?.acc_name || selectedRow.acc_name || "",
         };
 
-        const r = await boxService.getStickers({
-          ...stickerFetchBody(baseRow, catId ? { category_id: catId } : {}),
-          ...(imsDatePayload ? { ims_date_filter: imsDatePayload } : {}),
-        });
-
-        if (r.success && r.data?.length > 0) {
-          let newData = r.data[0];
-          if (catId) newData.type = catId;
-          newData = await enrichRowPartyRateCustCode(newData, accCode);
-          setSelectedRow(newData);
-          if (r.multiple_categories) {
-            setIsMultiple(true);
-            setSelectedCategory("");
-          } else if (catId) {
+        if (catId) {
+          const resolved = await resolveStickerRowForCategory(baseRow, catId, accCode, imsDatePayload);
+          if (resolved.ok) {
+            setSelectedRow(resolved.data);
             setIsMultiple(false);
+          } else {
+            const fallbackRow = await enrichRowPartyRateCustCode(
+              { ...baseRow, type: catId, packing_details: null, party_rate_cust_code: null },
+              accCode
+            );
+            setSelectedRow(fallbackRow);
+            setIsMultiple(uniqueCats.length > 1);
+            toast.warn(resolved.message || "No packing standard found for this customer");
           }
         } else {
-          const fallbackRow = await enrichRowPartyRateCustCode(
-            {
-              ...baseRow,
-              packing_details: null,
-              party_rate_cust_code: null,
-            },
-            accCode
-          );
-          setSelectedRow(fallbackRow);
-          toast.warn(r.message || "No packing standard found for this customer");
-        }
-
-        if (uniqueCats.length > 1 && !catId) {
-          toast.info("Multiple categories available — please select one.");
+          const r = await fetchStickerRowForCategory(baseRow, null, imsDatePayload);
+          if (r.success && r.data?.length > 0) {
+            let newData = r.data[0];
+            if (r.multiple_categories || !hasValidPackingDetails(newData.packing_details)) {
+              newData = await enrichRowPartyRateCustCode(
+                { ...newData, packing_details: null },
+                accCode
+              );
+              setSelectedRow(newData);
+              setIsMultiple(uniqueCats.length > 1);
+              if (uniqueCats.length > 1) {
+                toast.info("Select a packing category to load sticker breakdown.");
+              }
+            } else {
+              newData = await enrichRowPartyRateCustCode(newData, accCode);
+              setSelectedRow(newData);
+              setIsMultiple(false);
+            }
+          } else {
+            const fallbackRow = await enrichRowPartyRateCustCode(
+              { ...baseRow, packing_details: null, party_rate_cust_code: null },
+              accCode
+            );
+            setSelectedRow(fallbackRow);
+            setIsMultiple(uniqueCats.length > 1);
+            toast.warn(r.message || "No packing standard found for this customer");
+          }
         }
       } catch {
         toast.error("Failed to update customer");
@@ -906,32 +1038,34 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
 
   const handleCategoryChange = async (catId) => {
     if (!catId || !selectedRow?.doc_no) return;
-    
-    // Set the category in state immediately
-    setSelectedCategory(catId);
+    if (!selectedRow?.acc_code) {
+      toast.warn("Please select a customer before choosing a category.");
+      return;
+    }
+
+    setSelectedCategory(String(catId));
 
     try {
-      const r = await boxService.getStickers({
-        ...stickerFetchBody(selectedRow, { category_id: catId }),
-        ...(imsDatePayload ? { ims_date_filter: imsDatePayload } : {}),
-      });
-      
-      if (r.success && r.data?.length > 0) {
-        let newData = r.data[0];
-        newData.type = catId;
-        newData = await enrichRowPartyRateCustCode(newData, selectedRow.acc_code);
-        setSelectedRow(newData);
-        setIsMultiple(false); 
-      } else {
-        // If no matching standard for this category, clear the breakdown
-        const cleared = await enrichRowPartyRateCustCode(
-          { ...selectedRow, type: catId, packing_details: null, party_rate_cust_code: null },
-          selectedRow.acc_code
-        );
-        setSelectedRow(cleared);
-        toast.warn(r.message || "No packing standard found for this category");
+      const resolved = await resolveStickerRowForCategory(
+        selectedRow,
+        catId,
+        selectedRow.acc_code,
+        imsDatePayload
+      );
+
+      if (resolved.ok) {
+        setSelectedRow(resolved.data);
+        setIsMultiple(false);
+        return;
       }
-    } catch (err) {
+
+      const cleared = await enrichRowPartyRateCustCode(
+        { ...selectedRow, type: String(catId), packing_details: null, party_rate_cust_code: null },
+        selectedRow.acc_code
+      );
+      setSelectedRow(cleared);
+      toast.warn(resolved.message || "No packing standard found for this category");
+    } catch {
       toast.error("Failed to update breakdown");
     }
   };
@@ -966,11 +1100,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
 
   const scrollToSopSection = useCallback(() => {
     requestAnimationFrame(() => {
-      const el = stickerBodyScrollRef.current;
-      if (el) {
-        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-      }
-      sopSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      sopSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
       sopAckRef.current?.focusAcknowledgment?.();
     });
   }, []);
@@ -990,31 +1120,33 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
 
     setSubmitting(true);
     try {
+      const packingCustomer = packingEntryCustomerRow(data, selectedRow);
       const res = await boxService.generateStickers({
-        doc_no: selectedRow.doc_no, 
+        doc_no: selectedRow.doc_no,
         itemdcode: selectedRow.itemdcode,
-        acc_name: selectedRow.acc_name, 
-        acc_code: selectedRow.acc_code, 
+        item_code: selectedRow.item_code,
+        acc_name: packingCustomer.acc_name,
+        acc_code: packingCustomer.acc_code,
         doc_dt: selectedRow.doc_dt,
         job_card_no: selectedRow.job_card_no,
         total_qty: selectedRow.total_qty,
-        packing_config: packing        // Send the updated breakdown (qty_per_box, etc.)
+        packing_config: packing,
       });
-      
-      const enriched = (res.data || []).map(row => ({
-        ...row, 
-        itemdcode: selectedRow.itemdcode, 
-        acc_code: selectedRow.acc_code,
-        acc_name: selectedRow.acc_name, 
-        description: selectedRow.itemdesc || selectedRow.description || "",
-        job_card_no: selectedRow.job_card_no, 
-        doc_dt: selectedRow.doc_dt, 
-        fg_location: selectedRow.fg_location || ""
+      const enriched = (res.data || []).map((row) => ({
+        ...row,
+        itemdcode: packingCustomer.itemdcode,
+        acc_code: packingCustomer.acc_code,
+        acc_name: packingCustomer.acc_name,
+        description: packingCustomer.itemdesc || packingCustomer.description || "",
+        job_card_no: packingCustomer.job_card_no,
+        doc_dt: packingCustomer.doc_dt,
+        fg_location: packingCustomer.fg_location || "",
+        is_customer_overridden: false,
       }));
-      
+
       setGenerated(enriched);
       setDlTracking({});
-      await fetchGeneratedSummary(selectedRow);
+      await fetchGeneratedSummary({ ...selectedRow, ...packingCustomer });
       toast.success("Stickers generated successfully.");
       setStickerTab("breakdown");
     } catch (err) { 
@@ -1036,6 +1168,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       const res = await boxService.previewSticker({
         doc_no: selectedRow.doc_no,
         itemdcode: selectedRow.itemdcode,
+        item_code: selectedRow.item_code,
         acc_name: selectedRow.acc_name,
         acc_code: selectedRow.acc_code,
         doc_dt: selectedRow.doc_dt,
@@ -1062,7 +1195,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         box_uid: Number(sticker.box_uid),
         device_type: getDeviceType(),
         download_source: downloadSource,
-        sticker_meta: buildStickerPrintMeta(selectedRow, sticker),
+        sticker_meta: buildStickerPrintMeta(packingEntryCustomerRow(data, selectedRow), sticker),
       });
       printFromBackendHtml(res.html, {
         title:
@@ -1084,12 +1217,13 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
     if (downloadingAll) return;
     setDownloadingAll(true);
     try {
+      const packingRow = packingEntryCustomerRow(data, selectedRow);
       const res = await boxService.renderBulkStickers({
         packing_number: String(selectedRow.doc_no),
         box_uids: generated.map(s => s.box_uid),
         device_type: getDeviceType(),
         download_source: downloadSource,
-        sticker_meta: buildStickerPrintMeta(selectedRow, generated[0]),
+        sticker_meta: buildStickerPrintMeta(packingRow),
       });
       printFromBackendHtml(res.html, {
         title:
@@ -1106,7 +1240,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
     } finally {
       setDownloadingAll(false);
     }
-  }, [canPrintStickers, selectedRow, generated, downloadingAll, downloadSource]);
+  }, [canPrintStickers, selectedRow, generated, downloadingAll, downloadSource, data]);
 
   const printAllHotkeyRef = useRef(handlePrintAll);
   printAllHotkeyRef.current = handlePrintAll;
@@ -1127,9 +1261,9 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       title="Sticker Control" 
       maxWidth="max-w-full xl:max-w-7xl" 
       noPadding
-      bodyScrollable={false}
+      bodyScrollable
     >
-      <div className="flex flex-col flex-1 min-h-0 w-full max-w-full bg-slate-50 antialiased">
+      <div className="w-full max-w-full bg-slate-50 antialiased">
         {fetching ? (
           <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-blue-600" /></div>
         ) : !selectedRow ? (
@@ -1173,7 +1307,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                       <button
                         type="button"
                         onClick={handlePreview}
-                        disabled={submitting || previewLoading || (isMultiple && !selectedCategory)}
+                        disabled={submitting || previewLoading || (categories.length > 1 && !selectedCategory)}
                         className="bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 text-slate-800 px-2 sm:px-4 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-sm whitespace-nowrap touch-manipulation flex-1 sm:flex-initial min-h-[34px] sm:min-h-0"
                         title="See how the first sticker will look (print layout); confirm SOP at the bottom if required"
                       >
@@ -1184,7 +1318,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                     <button 
                       type="button"
                       onClick={handleGenerate} 
-                      disabled={submitting || previewLoading || (isMultiple && !selectedCategory)}
+                      disabled={submitting || previewLoading || (categories.length > 1 && !selectedCategory)}
                       className="bg-slate-900 hover:bg-black disabled:bg-slate-400 text-white px-2 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-md sm:shadow-lg whitespace-nowrap touch-manipulation flex-1 sm:flex-initial min-h-[34px] sm:min-h-0"
                       title="Confirm SOP at the bottom if required"
                     >
@@ -1198,47 +1332,44 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
               </div>
             </div>
 
-            {/* Scroll: breakdown (proper height) then SOP card below — not fixed over table */}
-            <div
-              ref={stickerBodyScrollRef}
-              className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar w-full flex flex-col"
-            >
-              <div className="hidden lg:flex flex-row items-stretch w-full bg-slate-50 border-t border-slate-200 shrink-0">
-                <aside className="w-72 xl:w-80 shrink-0 border-r border-slate-200 bg-slate-50">
-                  <div className="p-3 space-y-3">
-                    <StickerDetailCards
-                      selectedRow={selectedRow}
-                      packing={packing}
-                      generated={generated}
+            <div ref={stickerBodyScrollRef} className="w-full">
+              <div className="hidden lg:flex flex-col w-full bg-slate-50 border-t border-slate-200">
+                <div className="flex flex-row items-start w-full">
+                  <aside className="w-72 xl:w-80 shrink-0 border-r border-slate-200 bg-slate-50">
+                    <div className="p-3 space-y-3">
+                      <StickerDetailCards
+                        selectedRow={selectedRow}
+                        packing={packing}
+                        generated={generated}
+                        isMultiple={isMultiple}
+                        categories={categories}
+                        selectedCategory={selectedCategory}
+                        onCategoryChange={handleCategoryChange}
+                        onCustomerChange={handleCustomerChange}
+                        customerSelectDisabled={generated.length > 0}
+                        customerChanging={customerChanging}
+                      />
+                    </div>
+                  </aside>
+                  <section className="flex-1 flex flex-col min-w-0 bg-white">
+                    <StickerBreakdownPanel
+                      loadingGenerated={loadingGenerated}
+                      displayStickerRows={displayStickerRows}
                       isMultiple={isMultiple}
-                      categories={categories}
-                      selectedCategory={selectedCategory}
-                      onCategoryChange={handleCategoryChange}
-                      onCustomerChange={handleCustomerChange}
-                      customerSelectDisabled={generated.length > 0}
-                      customerChanging={customerChanging}
+                      packingFullCount={packingFullCount}
+                      isGeneratedStickerList={isGeneratedStickerList}
+                      dlTracking={dlTracking}
+                      onDownloadOne={handlePrintOne}
+                      canPrint={canPrintStickers}
+                      headerTitle="Breakdown"
+                      showSwipeHint={false}
+                      flowWithPage
                     />
-                  </div>
-                </aside>
-                {/* <section className="flex-1 flex flex-col min-w-0 min-h-[min(44vh,380px)] h-[min(44vh,380px)] overflow-hidden bg-white"> */}
-                {/* <section className="flex-1 min-h-0 h-full flex flex-col min-w-0 overflow-hidden bg-white"> */}
-                <section className="flex-1 flex flex-col min-w-0 min-h-[82vh] h-[82vh] lg:min-h-[92vh] lg:h-[92vh] overflow-hidden bg-white">
-                  <StickerBreakdownPanel
-                    loadingGenerated={loadingGenerated}
-                    displayStickerRows={displayStickerRows}
-                    isMultiple={isMultiple}
-                    packingFullCount={packingFullCount}
-                    isGeneratedStickerList={isGeneratedStickerList}
-                    dlTracking={dlTracking}
-                    onDownloadOne={handlePrintOne}
-                    canPrint={canPrintStickers}
-                    headerTitle="Breakdown"
-                    showSwipeHint={false}
-                  />
-                </section>
+                  </section>
+                </div>
               </div>
 
-              <div className="lg:hidden flex flex-col flex-1 min-h-0 bg-slate-100/90 border-t border-slate-200">
+              <div className="lg:hidden flex flex-col bg-slate-100/90 border-t border-slate-200">
                 <div role="tablist" aria-label="Sections" className="grid grid-cols-2 gap-1 shrink-0 px-2 pt-1.5 pb-1">
                   {[
                     { id: "details", label: "Details" },
@@ -1262,7 +1393,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                 </div>
 
                 {/* <div className="mx-1.5 sm:mx-2 mb-1.5 sm:mb-2 flex-1 min-h-[120px] max-h-[min(34dvh,240px)] sm:max-h-[min(40dvh,300px)] overflow-hidden bg-white border border-slate-200 flex flex-col"> */}
-                <div className="mx-1.5 sm:mx-2 mb-1.5 sm:mb-2 flex-1 min-h-0 h-full overflow-hidden bg-white border border-slate-200 flex flex-col">
+                <div className="mx-1.5 sm:mx-2 mb-1.5 sm:mb-2 bg-white border border-slate-200 flex flex-col">
                   {stickerTab === "breakdown" ? (
                     <StickerBreakdownPanel
                       loadingGenerated={loadingGenerated}
@@ -1275,9 +1406,10 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                       canPrint={canPrintStickers}
                       headerTitle="Breakdown"
                       showSwipeHint
+                      flowWithPage
                     />
                   ) : (
-                    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-1.5 sm:p-2 space-y-1.5 sm:space-y-2 bg-slate-50/50">
+                    <div className="p-1.5 sm:p-2 space-y-1.5 sm:space-y-2 bg-slate-50/50">
                       <StickerDetailCards
                         selectedRow={selectedRow}
                         packing={packing}
@@ -1298,7 +1430,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
               {generated.length === 0 ? (
                 <div
                   ref={sopSectionRef}
-                  className="px-2 sm:px-3 md:px-4 py-2 sm:py-3 md:py-4 border-t border-amber-200 bg-amber-50/50 w-full"
+                  className="w-full px-2 sm:px-3 md:px-4 py-3 md:py-4 border-t border-amber-200 bg-amber-50/50"
                 >
                   <ModuleSopAcknowledgment
                     ref={sopAckRef}
@@ -1307,6 +1439,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                     permissionType="add"
                     isOpen={open && !!selectedRow}
                     requireAckWhenPresent
+                    showRejectToast={false}
                   />
                 </div>
               ) : null}

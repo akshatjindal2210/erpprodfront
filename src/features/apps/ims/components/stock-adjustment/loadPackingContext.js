@@ -8,7 +8,6 @@ import {
   isBoxVisibleForStockAdjustmentMinus,
   isValidMinusDrawerBoxRow,
 } from "@/features/apps/ims/utils/boxInventory";
-
 function normDoc(v) {
   return String(v ?? "").trim();
 }
@@ -115,12 +114,11 @@ export async function loadPackingContext(packingNumber, options = {}) {
 
   if (!dailyprod && forMinus && (inHandList || []).length > 0) {
     const b0 = inHandList[0];
+    const packingAcc = b0?.prod_acc_code ?? null;
     dailyprod = {
       itemdcode: b0?.itemdcode ?? b0?.item_dcode ?? null,
-      acc_code:
-        b0?.override_cust != null && String(b0.override_cust).trim() !== ""
-          ? String(b0.override_cust).trim()
-          : null,
+      acc_code: packingAcc != null ? String(packingAcc).trim() || null : null,
+      acc_name: b0?.acc_name ?? null,
       doc_no: pn,
     };
   }

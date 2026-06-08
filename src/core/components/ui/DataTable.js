@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { Inbox, Loader2 } from "lucide-react";
 import TableSkeleton from "@/core/components/common-table/TableSkeleton";
 import CardSkeleton from "@/core/components/common-table/CardSkeleton";
@@ -17,6 +17,32 @@ function isListTableKeyboardContext(target, tableEngaged) {
   if (tableEngaged) return true;
   if (target?.closest?.("[data-list-table-root]")) return true;
   return false;
+}
+
+/** True when infinite scroll only appended rows (same prefix) — do not reset scroll/focus. */
+function isDataAppendOnly(prevData, nextData, getId) {
+  if (!Array.isArray(prevData) || !Array.isArray(nextData)) return false;
+  if (!prevData.length || nextData.length <= prevData.length) return false;
+  for (let i = 0; i < prevData.length; i++) {
+    if (String(getId(prevData[i], i)) !== String(getId(nextData[i], i))) return false;
+  }
+  return true;
+}
+
+function collectScrollSnapshots(startEl) {
+  const snapshots = [];
+  let node = startEl;
+  while (node) {
+    const { overflowY } = window.getComputedStyle(node);
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      node.scrollHeight > node.clientHeight + 1
+    ) {
+      snapshots.push({ node, top: node.scrollTop });
+    }
+    node = node.parentElement;
+  }
+  return snapshots;
 }
 
 export default function DataTable({ 
@@ -51,6 +77,8 @@ export default function DataTable({
   hotkeysDisabled = false,
   /** Table: cell/range select + Ctrl+C only when `allowCopy` is true. */
   enableCellSelection = true,
+  /** When true, automatically focus/select the first row if none is selected. */
+  autoFocusFirstRow = false,
 }) {
   const selW = DATA_TABLE_SELECTION_COL_PX;
   const lastApiError = typeof window !== "undefined" ? window.__LAST_API_ERROR__ : null;
@@ -61,16 +89,6 @@ export default function DataTable({
   
   // --- 0. INFINITE SCROLL LOGIC ---
   const observer = useRef();
-  const lastElementRef = useCallback(node => {
-    if (loading) return;
-    if (observer.current) observer.current.disconnect();
-    observer.current = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && hasMore && onLoadMore) {
-        onLoadMore();
-      }
-    });
-    if (node) observer.current.observe(node);
-  }, [loading, hasMore, onLoadMore]);
 
   // --- 1. COLUMN RESIZE + CELL SELECTION ---
   const [columnWidths, setColumnWidths] = useState({});
@@ -84,6 +102,7 @@ export default function DataTable({
     viewMode === "table" && enableCellSelection && allowCopy;
 
   const scrollContainerRef = useRef(null);
+  const scrollSnapshotsRef = useRef([]);
   const rowElRefs = useRef(new Map());
   /** Set on mousedown inside this table; cleared when clicking outside — drives arrow keys without focusing the wrapper. */
   const tableEngagedRef = useRef(false);
@@ -260,7 +279,7 @@ export default function DataTable({
   }, [data, selectedId, getId]);
 
   const savedCellFocusRef = useRef({ row: 0, col: 0 });
-  const prevDataRef = useRef(data);
+  const prevDataRef = useRef(null);
   const prevHotkeysDisabledRef = useRef(hotkeysDisabled);
 
   useEffect(() => {
@@ -286,7 +305,7 @@ export default function DataTable({
   );
 
   const focusCell = useCallback(
-    (rowIndex, colIndex) => {
+    (rowIndex, colIndex, skipOnSelect = false, scrollToRow = true) => {
       if (!cellSelectActive || rowIndex < 0 || rowIndex >= data.length) return;
       const colMax = Math.max(0, headers.length - 1);
       const r = Math.max(0, Math.min(data.length - 1, rowIndex));
@@ -296,11 +315,68 @@ export default function DataTable({
       setSelectedCells(buildCellRangeSet(r, c, r, c));
       cellDragRef.current = { active: false, anchor: null };
       const currentId = getId(data[r], r);
-      onSelect?.(currentId);
-      scrollRowIntoView(currentId);
+      if (!skipOnSelect) {
+        onSelect?.(currentId);
+      }
+      if (scrollToRow) scrollRowIntoView(currentId);
     },
     [cellSelectActive, data, headers.length, getId, onSelect, scrollRowIntoView]
   );
+
+  const captureScrollPositions = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    scrollSnapshotsRef.current = collectScrollSnapshots(el);
+  }, []);
+
+  const restoreScrollPositions = useCallback(() => {
+    for (const { node, top } of scrollSnapshotsRef.current) {
+      if (node?.isConnected) node.scrollTop = top;
+    }
+  }, []);
+
+  const lastElementRef = useCallback(
+    (node) => {
+      if (loading) return;
+      if (observer.current) observer.current.disconnect();
+      observer.current = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && hasMore && onLoadMore) {
+          captureScrollPositions();
+          onLoadMore();
+        }
+      });
+      if (node) observer.current.observe(node);
+    },
+    [loading, hasMore, onLoadMore, captureScrollPositions]
+  );
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return undefined;
+
+    const onScroll = () => captureScrollPositions();
+    onScroll();
+
+    const parents = [];
+    let node = el.parentElement;
+    while (node) {
+      const { overflowY } = window.getComputedStyle(node);
+      if (
+        (overflowY === "auto" || overflowY === "scroll") &&
+        node.scrollHeight > node.clientHeight + 1
+      ) {
+        node.addEventListener("scroll", onScroll, { passive: true });
+        parents.push(node);
+      }
+      node = node.parentElement;
+    }
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      parents.forEach((parent) => parent.removeEventListener("scroll", onScroll));
+    };
+  }, [viewMode, data.length, captureScrollPositions]);
 
   const resolveFocusCol = useCallback(
     (rowIndex) => {
@@ -315,17 +391,33 @@ export default function DataTable({
   useEffect(() => {
     if (!cellSelectActive || !data.length || headers.length < 1) return;
 
-    const dataChanged = prevDataRef.current !== data;
+    const prevData = prevDataRef.current;
+    const dataChanged = prevData !== data;
     prevDataRef.current = data;
     if (!dataChanged) return;
 
+    if (isDataAppendOnly(prevData, data, getId)) return;
+
     const rowIdx = findSelectedRowIndex();
     if (rowIdx >= 0) {
-      focusCell(rowIdx, resolveFocusCol(rowIdx));
+      focusCell(rowIdx, resolveFocusCol(rowIdx), false, false);
       return;
     }
-    focusCell(0, 0);
-  }, [data, cellSelectActive, headers.length, findSelectedRowIndex, focusCell, resolveFocusCol]);
+    if (autoFocusFirstRow) {
+      focusCell(0, 0, false, false);
+    } else {
+      focusCell(0, 0, true, false);
+    }
+  }, [data, cellSelectActive, headers.length, findSelectedRowIndex, focusCell, resolveFocusCol, autoFocusFirstRow, getId]);
+
+  /** Infinite scroll append: restore scroll on table + any parent scroll containers. */
+  useLayoutEffect(() => {
+    const prevData = prevDataRef.current;
+    const append = isDataAppendOnly(prevData, data, getId);
+    if (!append) return;
+    restoreScrollPositions();
+    requestAnimationFrame(() => restoreScrollPositions());
+  }, [data, getId, restoreScrollPositions]);
 
   /** Drawer/modal closed: restore cell focus + scroll to the row user had selected. */
   useEffect(() => {
@@ -786,6 +878,10 @@ export default function DataTable({
                     const defaultCellBg = isRowHighlighted
                       ? ""
                       : "bg-white group-hover:bg-slate-50/80";
+                    /** Fixed/sticky columns need a fully opaque background so scrolled cells do not show through. */
+                    const stickyCellBg = isRowHighlighted
+                      ? ""
+                      : "bg-white group-hover:bg-slate-50";
                     const isLastElement = data.length === rowIndex + 1;
 
                     return (
@@ -812,7 +908,7 @@ export default function DataTable({
                               e.stopPropagation();
                               selectRowByCheckbox(item, currentId);
                             }}
-                            className={`sticky left-0 z-30 py-2 px-0 border-b border-r border-slate-200 transition-colors ${defaultCellBg} text-center align-middle box-border cursor-pointer`}
+                            className={`sticky left-0 z-30 py-2 px-0 border-b border-r border-slate-200 transition-colors ${stickyCellBg} text-center align-middle box-border cursor-pointer`}
                             style={{ width: selW, minWidth: selW, maxWidth: selW }}
                           >
                             <span className="inline-flex items-center justify-center w-full">
@@ -838,7 +934,9 @@ export default function DataTable({
                             isCellInSet(selectedCells, rowIndex, i);
                           const cellBg = cellSelected
                             ? "!bg-indigo-100 ring-1 ring-inset !ring-indigo-400 relative z-[1]"
-                            : defaultCellBg;
+                            : isSticky
+                              ? stickyCellBg
+                              : defaultCellBg;
 
                           return (
                             <td

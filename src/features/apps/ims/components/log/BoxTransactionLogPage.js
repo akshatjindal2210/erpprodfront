@@ -11,28 +11,18 @@ import DataTable from "@/core/components/ui/DataTable";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import ViewToggle from "@/core/components/ui/ViewToggle";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import BoxTransactionLogDetailModal from "@/features/apps/ims/components/log/BoxTransactionLogDetailModal";
 import BoxStickerNosCell, { getBoxStickerEntries } from "@/features/apps/ims/components/log/BoxStickerNosCell";
 import { filterBoxTransactionLogs } from "@/features/apps/ims/utils/boxTransactionLogSearch";
 import { sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { formatDateTime } from "@/core/utils/utilHelper";
-
-const TYPE_COLORS = {
-  packing_create: "bg-indigo-50 text-indigo-600 border-indigo-100",
-  packing_delete: "bg-rose-50 text-rose-600 border-rose-100",
-  inward_link: "bg-emerald-50 text-emerald-600 border-emerald-100",
-  inward_unlink: "bg-amber-50 text-amber-600 border-amber-100",
-  out_link: "bg-blue-50 text-blue-600 border-blue-100",
-  out_unlink: "bg-orange-50 text-orange-600 border-orange-100",
-  sa_stock_in: "bg-teal-50 text-teal-600 border-teal-100",
-  sa_stock_out: "bg-purple-50 text-purple-600 border-purple-100",
-  sa_revert: "bg-slate-50 text-slate-600 border-slate-100",
-  sa_delete: "bg-rose-50 text-rose-600 border-rose-100",
-  sa_qty_update: "bg-blue-50 text-blue-600 border-blue-100",
-  box_soft_delete: "bg-slate-50 text-slate-600 border-slate-100",
-  override_customer: "bg-violet-50 text-violet-600 border-violet-100",
-};
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
+import {
+  getBoxTxTypeBadgeClass,
+  resolveBoxTxTypeLabel,
+} from "@/features/apps/ims/utils/boxTransactionVisuals";
 
 export default function BoxTransactionLogPage() {
   const canAccess = useCanAccess();
@@ -168,7 +158,10 @@ export default function BoxTransactionLogPage() {
     }));
   };
 
-  const labelForType = (t) => typeLabels[t] || t?.replace(/_/g, " ") || "—";
+  const labelForType = useCallback(
+    (t, row = null) => resolveBoxTxTypeLabel(t, row, typeLabels),
+    [typeLabels]
+  );
 
   const copyModuleEntity = useCallback((row) => {
     const parts = [
@@ -189,18 +182,23 @@ export default function BoxTransactionLogPage() {
         },
       ],
 
-      [ "Type", "transaction_type", (v) => {
-          const cls = TYPE_COLORS[v] || "bg-slate-50 text-slate-600 border-slate-100";
+      [ "Type", "transaction_type", (v, row) => {
+          const cls = getBoxTxTypeBadgeClass(v, row);
           return (
-            <span className={`px-2 py-0.5 border text-[9px] font-bold ${cls}`} title={v}>
-              {labelForType(v)}
+            <span className={`px-2 py-0.5 border text-[9px] font-bold ${cls}`} title={labelForType(v, row)}>
+              {labelForType(v, row)}
             </span>
           );
         },
         {
           width: "168px",
           align: "center",
-          copyValue: (row) => labelForType(row.transaction_type),
+          copyValue: (row) => labelForType(row.transaction_type, row),
+          cardRender: (v, row) => (
+            <span className={`px-2 py-0.5 border text-[9px] font-bold ${getBoxTxTypeBadgeClass(v, row)}`}>
+              {labelForType(v, row)}
+            </span>
+          ),
         },
       ],
 
@@ -253,11 +251,13 @@ export default function BoxTransactionLogPage() {
   );
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <>
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 disabled={!selectedRecord}
@@ -286,12 +286,11 @@ export default function BoxTransactionLogPage() {
                 )}
               </button>
             </div>
-
-            <div className="flex items-center gap-2">
-              <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-8" />
-            </div>
-          </div>
-        </div>
+              </>
+            }
+            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-8" />}
+          />
+        </ListPageToolbar>
 
         <ListPageFilterStrip>
           <DateRangeFilter

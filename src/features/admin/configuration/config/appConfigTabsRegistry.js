@@ -1,12 +1,13 @@
 /**
- * App configuration tabs — new app: add id + label, join form in panel map.
+ * App configuration tabs — global admin console + per-app settings.
  */
 export const APP_CONFIG_TABS = [
-  { id: "ims", label: "IMS" },
-  { id: "task", label: "Task" },
+  { id: "admin-console", label: "Admin Console", group: "global" },
+  { id: "ims", label: "IMS", group: "app" },
+  { id: "task", label: "Task", group: "app" },
 ];
 
-export const DEFAULT_APP_CONFIG_TAB = APP_CONFIG_TABS[0]?.id ?? "ims";
+export const DEFAULT_APP_CONFIG_TAB = APP_CONFIG_TABS[0]?.id ?? "admin-console";
 
 const TAB_IDS = new Set(APP_CONFIG_TABS.map((t) => t.id));
 

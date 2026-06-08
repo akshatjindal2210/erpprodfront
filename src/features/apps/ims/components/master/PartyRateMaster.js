@@ -9,6 +9,7 @@ import { masterService } from "@/features/apps/ims/services/master";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import DataTable from "@/core/components/ui/DataTable";
 import ViewToggle from "@/core/components/ui/ViewToggle";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import ActionButton from "@/core/components/ui/ActionButton";
 import GlobalDetailModal from "@/core/components/common/GlobalDetailModal";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailProse, MasterDetailStatusRow } from "./MasterDetailLayout";
@@ -16,6 +17,7 @@ import SearchableSelect from "@/core/components/common/SearchableSelect";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import ListPageSearchField from "@/core/components/common/ListPageSearchField";
 import { bestTierForStrings } from "@/features/apps/ims/helpers/liveSearchRank";
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 function sortPartyList(list, qRaw) {
   const q = String(qRaw ?? "").trim().toLowerCase();
@@ -346,13 +348,14 @@ export default function PartyRateMasterPage() {
 ];
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden font-sans">
+    <div className={`${IMS_LIST_PAGE_SHELL} font-sans`}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            
-            <div className="flex items-center gap-2">
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <>
+            <div className="flex items-center gap-2 flex-wrap">
               <ActionButton 
                 variant="outline" label="View Details" icon={Eye}
                 disabled={!selected} 
@@ -367,11 +370,10 @@ export default function PartyRateMasterPage() {
                 <span className="hidden xs:inline">Refresh</span>
               </button>
             </div>
-
-            <div className="flex items-center">
-              <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />
-            </div>
-          </div>
+              </>
+            }
+            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+          />
 
           {selected && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
@@ -383,10 +385,10 @@ export default function PartyRateMasterPage() {
               </button>
             </div>
           )}
-        </div>
+        </ListPageToolbar>
 
         <ListPageFilterStrip>
-          <div className="grid w-full min-w-0 grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-3">
+          <div className="grid w-full min-w-0 grid-cols-2 items-end gap-2 md:gap-3 lg:grid-cols-3 lg:gap-3">
             <div className="min-w-0 w-full">
             <ListPageSearchField
               label="Search table"

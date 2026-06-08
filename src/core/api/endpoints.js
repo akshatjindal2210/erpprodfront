@@ -67,6 +67,9 @@ export const CORE_ENDPOINTS = {
       HELPER: `${CORE_API}/sop/helper`,
     }
   },
+  ACTIVITY_LOGS: {
+    LIST: `${CORE_API}/activity-logs`,
+  },
   APP_CONFIG: {
     LIST: "/app-config/list",
     UPDATE: "/app-config",

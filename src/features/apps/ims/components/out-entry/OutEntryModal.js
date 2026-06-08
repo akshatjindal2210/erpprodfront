@@ -1,18 +1,20 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { Check, AlertCircle, Loader2, Shield, Hash, Truck, User, Package, ChevronRight, CheckCircle2, QrCode, ScanLine, Camera, X, MapPin, CheckCircle } from "lucide-react";
+import { Check, AlertCircle, Loader2, Shield, Hash, Truck, User, Package, ChevronRight, CheckCircle2, QrCode, ScanLine, Camera, X, MapPin, CheckCircle, LogOut } from "lucide-react";
 import { toast } from "react-toastify";
 // Services & Components
 import { outEntryService } from "@/features/apps/ims/services/outEntry";
 import { forwardingNoteService } from "@/features/apps/ims/services/forwardingNote";
 import Drawer from "@/core/components/ui/Drawer";
+import { ERR_INPUT, FORM_LABEL_CLASS, OK_INPUT } from "@/core/components/common/Constants";
 import FormPanelLoader from "@/core/components/common/FormPanelLoader";
 import ModuleSopAcknowledgment from "@/core/components/common/ModuleSopAcknowledgment";
 import Snackbar from "@/core/components/ui/Snackbar";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/core/utils/global";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
+import { isMobileDevice } from "@/core/utils/pwa";
 import RemarksTextarea from "@/core/components/common/RemarksTextarea";
 import { detectQrType, parseBoxScanRaw } from "@/features/apps/ims/helpers/qrScan";
 import { prepareQrScanSession } from "@/features/apps/ims/helpers/scanFeedback";
@@ -36,17 +38,44 @@ import {
   isOutEntryFulfillmentComplete,
   OUT_ENTRY_APPROVE_BLOCKED_MSG,
 } from "@/features/apps/ims/utils/outEntryFulfillment";
+import {
+  OUT_ENTRY_TYPE,
+  OUT_ENTRY_MODE_PICKER_OPTIONS,
+  getOutEntryModePickerOption,
+  isOutEntryAutoAuthorized,
+  isOutEntryInventoryOut,
+  isOutEntrySimpleScanMode,
+  pickerIdFromEntryType,
+} from "@/features/apps/ims/utils/outEntryTypes";
+import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
 
 const OUT_ENTRY_SCANNER_ID = "out-entry-scanner-reader";
 const FIELD_ORDER = ["fuid"];
+const SIMPLE_SCAN_FIELD_ORDER = ["reason"];
 
 const INITIAL_FORM = {
   fuid: "",
+  reason: "",
   remarks: "",
   approved: false,
 };
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "info", title: "", message: "", duration: SNACK_DUR.med };
+const PICKER_ICONS = { truck: Truck, "log-out": LogOut, package: Package };
+const PICKER_ACCENT = {
+  red: {
+    card: "border-red-200 bg-red-50/60 hover:border-red-400 hover:bg-red-50",
+    title: "text-red-800",
+    banner: "border-red-200 bg-red-50 text-red-900",
+    submit: "bg-red-600 shadow-red-100 hover:bg-red-700",
+  },
+  yellow: {
+    card: "border-yellow-300 bg-yellow-50/60 hover:border-yellow-400 hover:bg-yellow-50",
+    title: "text-yellow-900",
+    banner: "border-yellow-300 bg-yellow-50 text-yellow-900",
+    submit: "bg-yellow-600 shadow-yellow-100 hover:bg-yellow-700",
+  },
+};
 
 export default function OutEntryModal({ open, onClose, onSuccess, editData, mode = "add" }) {
   const canAccess = useCanAccess();
@@ -93,6 +122,14 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   const activePackingIdxRef = useRef(0);
   const formFuidRef = useRef("");
   const [pendingScanCount, setPendingScanCount] = useState(0);
+  const [entryMode, setEntryMode] = useState(null);
+  const [pickerChoiceId, setPickerChoiceId] = useState(null);
+  const [otherBoxMap, setOtherBoxMap] = useState(() => new Map());
+  const [manualOtherBoxId, setManualOtherBoxId] = useState("");
+  const otherBoxMapRef = useRef(new Map());
+  const [reasonOpts, setReasonOpts] = useState([]);
+  const [reasonOpen, setReasonOpen] = useState(false);
+  const [reasonHighlight, setReasonHighlight] = useState(-1);
 
   const closeSnackbar = useCallback(() => {
     setSnackbar((s) => ({ ...s, open: false }));
@@ -100,13 +137,35 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
   const { showScanToast, showScanSuccess } = useScanSnackbarActions(setSnackbar, scanToastRef);
 
+  const isSimpleScanMode = isOutEntrySimpleScanMode(entryMode);
+  const isInventoryOutMode = entryMode === OUT_ENTRY_TYPE.INVENTORY_OUT;
+  const isForwardingMode = entryMode === OUT_ENTRY_TYPE.FORWARDING_NOTE;
+
+  const loadReasonSuggestions = useCallback(async (search = "") => {
+    try {
+      const res = await outEntryService.getReasons({ search });
+      const list = Array.isArray(res?.data) ? res.data : [];
+      setReasonOpts(withSortedViewsData(list, "reason"));
+    } catch {
+      setReasonOpts([]);
+    }
+  }, []);
+
+  const handleReasonPick = useCallback((opt) => {
+    setForm((prev) => ({
+      ...prev,
+      reason: opt?.reason ?? opt?.id ?? prev.reason,
+    }));
+    if (errors.reason) setErrors((prev) => ({ ...prev, reason: "" }));
+  }, [errors.reason]);
+
   const scopedOutUid = useMemo(() => {
     if (!isEdit && !isApprove) return null;
     const raw = editData?.out_uid ?? editData?.outUid ?? editData?.id ?? null;
     if (raw == null || String(raw).trim() === "") return null;
     const n = Number(raw);
     return Number.isFinite(n) ? n : null;
-  }, [isEdit, isApprove, editData]);
+  }, [isEdit, isApprove, editData?.out_uid, editData?.outUid, editData?.id]);
 
   const toggleLocation = (locId) => {
     const next = new Set(expandedLocations);
@@ -198,7 +257,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     } finally {
       setFetchingFuid(false);
     }
-  }, [isEdit, isApprove, editData]);
+  }, [isEdit, isApprove, editData?.out_uid, editData?.outUid, editData?.id]);
 
   const fetchApprovedForwardingNotes = useCallback(
     (params = {}) =>
@@ -214,6 +273,10 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       }),
     []
   );
+
+  const lockForwardingNoteForProcessing = useCallback(async (fuid) => {
+    await outEntryService.lockFuid(Number(fuid));
+  }, []);
 
   const closeScanner = () => setIsScannerOpen(false);
 
@@ -238,6 +301,14 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         setExpandedLocations(new Set());
         setErrors({});
         setDispatchDetailsOpen(false);
+        setEntryMode(null);
+        setPickerChoiceId(null);
+        setOtherBoxMap(new Map());
+        otherBoxMapRef.current = new Map();
+        setManualOtherBoxId("");
+        setReasonOpts([]);
+        setReasonOpen(false);
+        setReasonHighlight(-1);
       }, 300);
       return () => clearTimeout(timeoutId);
     }
@@ -254,28 +325,99 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       setExpandedLocations(new Set());
       setDispatchDetailsOpen(false);
       setErrors({});
+      setEntryMode(null);
+      setPickerChoiceId(null);
+      setOtherBoxMap(new Map());
+      otherBoxMapRef.current = new Map();
+      setManualOtherBoxId("");
+      setReasonOpts([]);
+      setReasonOpen(false);
+      setReasonHighlight(-1);
 
       if (editData) {
-        const initialFuid = editData.fuid || "";
-        try {
-          if (initialFuid) {
-            await fetchFuidInfo(initialFuid, {
-              forOutUid:
-                isEdit || isApprove
-                  ? editData.out_uid ?? editData.outUid ?? editData.id
-                  : undefined,
-            });
-          }
+        const isAutoEntry = isOutEntryAutoAuthorized(editData.entry_type);
+        if (isAutoEntry) {
           if (!cancelled) {
+            setEntryMode(
+              isOutEntryInventoryOut(editData.entry_type)
+                ? OUT_ENTRY_TYPE.INVENTORY_OUT
+                : OUT_ENTRY_TYPE.PACKING_AREA
+            );
+            setPickerChoiceId(pickerIdFromEntryType(editData.entry_type));
+            setIsConfirmed(true);
             setForm({
-              fuid: initialFuid,
+              fuid: "",
+              reason: editData.reason || "",
               remarks: editData.remarks || "",
               approved: editData?.approved ?? false,
             });
-            if (initialFuid) setIsConfirmed(true);
+            
+            // Load linked boxes for packing area entry
+            const outUid = editData.out_uid ?? editData.outUid ?? editData.id;
+            if (outUid) {
+              try {
+                const res = await outEntryService.getLinkedBoxes(outUid);
+                if (res.success && res.data && !cancelled) {
+                  const boxes = res.data || [];
+                  const uids = new Set(boxes.map(b => b.box_no_uid).filter(Boolean));
+                  const boxMap = new Map();
+                  boxes.forEach(b => {
+                    if (b.box_no_uid) {
+                      boxMap.set(b.box_no_uid, {
+                        box_no_uid: b.box_no_uid,
+                        packing_number: b.packing_number,
+                        qty: b.qty,
+                        is_loose: b.is_loose === true || b.is_loose === 1
+                      });
+                    }
+                  });
+                  setLinkedBoxes(boxes);
+                  setScannedBoxIds(uids);
+                  scannedBoxIdsRef.current = new Set(uids);
+                  setOtherBoxMap(boxMap);
+                  otherBoxMapRef.current = new Map(boxMap);
+                }
+              } catch (err) {
+                console.error("Error loading linked boxes:", err);
+              }
+            }
           }
-        } catch {
-          /* fetchFuidInfo shows toast */
+        } else {
+          const initialFuid = editData.fuid || "";
+          try {
+            if (initialFuid) {
+              await fetchFuidInfo(initialFuid, {
+                forOutUid:
+                  isEdit || isApprove
+                    ? editData.out_uid ?? editData.outUid ?? editData.id
+                    : undefined,
+              });
+            }
+            if (!cancelled) {
+              setEntryMode(OUT_ENTRY_TYPE.FORWARDING_NOTE);
+              setPickerChoiceId("forwarding_note");
+              setForm({
+                fuid: initialFuid,
+                remarks: editData.remarks || "",
+                approved: editData?.approved ?? false,
+              });
+              if (initialFuid) {
+                try {
+                  await lockForwardingNoteForProcessing(initialFuid);
+                  if (!cancelled) setIsConfirmed(true);
+                } catch (lockErr) {
+                  if (!cancelled) {
+                    toast.error(lockErr?.message || "Unable to lock forwarding note for out entry.");
+                    setForm((prev) => ({ ...prev, fuid: "" }));
+                    setFuidDetails(null);
+                    setIsConfirmed(false);
+                  }
+                }
+              }
+            }
+          } catch {
+            /* fetchFuidInfo shows toast */
+          }
         }
       } else {
         setForm(INITIAL_FORM);
@@ -287,7 +429,39 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     return () => {
       cancelled = true;
     };
-  }, [open, editData?.out_uid, editData?.outUid, editData?.id, editData?.fuid, editData?.remarks, editData?.approved, fetchFuidInfo, isApprove, isEdit]);
+  }, [open, editData?.out_uid, editData?.outUid, editData?.id, editData?.fuid, isApprove, isEdit, lockForwardingNoteForProcessing]);
+
+  useEffect(() => {
+    if (!open || !formReady || !isSimpleScanMode) return;
+    loadReasonSuggestions("");
+  }, [open, formReady, isSimpleScanMode, loadReasonSuggestions]);
+
+  const selectEntryMode = useCallback((mode, choiceId = null) => {
+    setEntryMode(mode);
+    setPickerChoiceId(choiceId);
+    setErrors({});
+    if (isOutEntrySimpleScanMode(mode)) {
+      setIsConfirmed(true);
+      setFuidDetails(null);
+      setForm((prev) => ({ ...prev, fuid: "", reason: "" }));
+      loadReasonSuggestions("");
+    } else {
+      setIsConfirmed(false);
+    }
+  }, [loadReasonSuggestions]);
+
+  const handleChangeEntryType = useCallback(() => {
+    setEntryMode(null);
+    setPickerChoiceId(null);
+    setIsConfirmed(false);
+    scannedBoxIdsRef.current = new Set();
+    setScannedBoxIds(new Set());
+    otherBoxMapRef.current = new Map();
+    setOtherBoxMap(new Map());
+    setFuidDetails(null);
+    setForm(INITIAL_FORM);
+    setErrors({});
+  }, []);
 
   const handleConfirm = async () => {
     if (!form.fuid) {
@@ -309,7 +483,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     }
     setLoading(true);
     try {
-      await outEntryService.lockFuid(Number(form.fuid));
+      await lockForwardingNoteForProcessing(form.fuid);
       packingFocusSeedRef.current = "";
       setIsConfirmed(true);
       toast.success("Forwarding note locked for Out Entry processing.");
@@ -469,11 +643,72 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     [scopedOutUid, revertScanCount, scheduleDisplaySync, showScanToast]
   );
 
+  const processOtherScanBatch = useCallback(
+    async (batch) => {
+      try {
+        const batchIds = new Set(batch.map((item) => item.canonicalBoxId));
+        const session_scanned = [...scannedBoxIdsRef.current].filter((uid) => !batchIds.has(uid));
+
+        const res = await outEntryService.batchScanBoxes({
+          entry_type: entryMode,
+          for_out_uid: scopedOutUid,
+          session_scanned,
+          items: batch.map((item) => ({ id: item.id, code: item.code })),
+        });
+
+        const resultMap = new Map((res?.results || []).map((row) => [String(row.id), row]));
+        for (const item of batch) {
+          const result = resultMap.get(String(item.id));
+          if (result?.allowed) {
+            otherBoxMapRef.current.set(item.canonicalBoxId, {
+              box_no_uid: item.canonicalBoxId,
+              packing_number: result.packing_number ?? null,
+              qty: result.qty ?? 0,
+              is_loose: result.is_loose === true,
+            });
+            continue;
+          }
+
+          if (result?.duplicate) continue;
+
+          scannedBoxIdsRef.current.delete(item.canonicalBoxId);
+          otherBoxMapRef.current.delete(item.canonicalBoxId);
+          showScanToast(
+            "error",
+            `other-batch-fail-${item.id}`,
+            result?.message || SCAN_SNACK_MSG.REJECTED,
+            2200
+          );
+        }
+        setOtherBoxMap(new Map(otherBoxMapRef.current));
+      } catch (err) {
+        for (const item of batch) {
+          scannedBoxIdsRef.current.delete(item.canonicalBoxId);
+          otherBoxMapRef.current.delete(item.canonicalBoxId);
+        }
+        setOtherBoxMap(new Map(otherBoxMapRef.current));
+        showScanToast(
+          "error",
+          "other-batch-scan-failed",
+          err?.message || "Could not verify scanned boxes. Please try again.",
+          2800
+        );
+      } finally {
+        pendingCountRef.current = Math.max(0, pendingCountRef.current - batch.length);
+        setPendingScanCount(pendingCountRef.current);
+        scheduleDisplaySync();
+      }
+    },
+    [scopedOutUid, entryMode, scheduleDisplaySync, showScanToast]
+  );
+
   useEffect(() => {
-    if (!open || !isConfirmed) {
-      scanBatchRef.current = null;
-      pendingCountRef.current = 0;
-      setPendingScanCount(0);
+    if (!open || !isConfirmed || isSimpleScanMode) {
+      if (!open || !isConfirmed) {
+        scanBatchRef.current = null;
+        pendingCountRef.current = 0;
+        setPendingScanCount(0);
+      }
       return undefined;
     }
 
@@ -486,7 +721,62 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     return () => {
       scanBatchRef.current = null;
     };
-  }, [open, isConfirmed, processScanBatch]);
+  }, [open, isConfirmed, isSimpleScanMode, processScanBatch]);
+
+  useEffect(() => {
+    if (!open || !isConfirmed || !isSimpleScanMode) {
+      return undefined;
+    }
+
+    scanBatchRef.current = createScanBatchQueue({
+      flushMs: 80,
+      maxBatch: 20,
+      onFlush: processOtherScanBatch,
+    });
+
+    return () => {
+      scanBatchRef.current = null;
+    };
+  }, [open, isConfirmed, isSimpleScanMode, processOtherScanBatch]);
+
+  const tryAddOtherBox = useCallback(
+    (rawScanValue) => {
+      const qrType = detectQrType(rawScanValue);
+      if (qrType === "location") {
+        showScanToast("error", "other-location-scan", SCAN_SNACK_MSG.REJECTED);
+        return;
+      }
+
+      const bId = parseBoxScanRaw(rawScanValue)?.trim();
+      if (!bId) {
+        showScanToast("error", "other-invalid-sticker", SCAN_SNACK_MSG.REJECTED);
+        return;
+      }
+
+      const canonicalBoxId = bId;
+      if (scannedBoxIdsRef.current.has(canonicalBoxId)) {
+        showScanToast("info", "other-duplicate-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(canonicalBoxId), 1200);
+        return;
+      }
+
+      scannedBoxIdsRef.current.add(canonicalBoxId);
+      showScanSuccess(
+        `other-scan-ok-${String(canonicalBoxId).toLowerCase()}`,
+        SCAN_SNACK_MSG.BOX_SCANNED_TOTAL(canonicalBoxId, scannedBoxIdsRef.current.size)
+      );
+      scheduleDisplaySync();
+
+      pendingCountRef.current += 1;
+      setPendingScanCount(pendingCountRef.current);
+
+      scanBatchRef.current?.enqueue({
+        id: `other-scan-${++scanSeqRef.current}`,
+        code: bId,
+        canonicalBoxId,
+      });
+    },
+    [showScanSuccess, showScanToast, scheduleDisplaySync]
+  );
 
   const tryAddBox = useCallback(
     (rawScanValue) => {
@@ -590,10 +880,15 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     (boxNoUid) => {
       if (!boxNoUid) return;
       scannedBoxIdsRef.current.delete(boxNoUid);
-      revertScanCount(boxNoUid);
+      if (isSimpleScanMode) {
+        otherBoxMapRef.current.delete(boxNoUid);
+        setOtherBoxMap(new Map(otherBoxMapRef.current));
+      } else {
+        revertScanCount(boxNoUid);
+      }
       setScannedBoxIds(new Set(scannedBoxIdsRef.current));
     },
-    [revertScanCount]
+    [revertScanCount, isSimpleScanMode]
   );
 
   const activeBD = packingGroups?.[activePackingIdx];
@@ -606,7 +901,55 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
   // Scanner-gun flow: receives keys globally and adds on Enter.
   useEffect(() => {
-    if (!open || !isConfirmed || !activeBD) return undefined;
+    if (!open || !isConfirmed || !isSimpleScanMode) return undefined;
+
+    const clearScanBuffer = () => {
+      scanBufferRef.current = "";
+      if (scanTimerRef.current) {
+        clearTimeout(scanTimerRef.current);
+        scanTimerRef.current = null;
+      }
+    };
+
+    const handleGlobalScan = (e) => {
+      const targetTag = String(e.target?.tagName || "").toLowerCase();
+      const isEditable =
+        targetTag === "textarea" ||
+        targetTag === "select" ||
+        (targetTag === "input" && e.target?.type !== "checkbox");
+
+      if (isEditable) return;
+
+      if (e.key === "Enter") {
+        const code = scanBufferRef.current.trim();
+        clearScanBuffer();
+        if (code) tryAddOtherBox(code);
+        return;
+      }
+
+      if (e.key.length === 1) {
+        const now = Date.now();
+        const gap = now - lastScanTsRef.current;
+        lastScanTsRef.current = now;
+        if (gap > 150) scanBufferRef.current = "";
+        scanBufferRef.current += e.key;
+        if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+        scanTimerRef.current = setTimeout(() => {
+          scanBufferRef.current = "";
+          scanTimerRef.current = null;
+        }, 300);
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalScan);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalScan);
+      clearScanBuffer();
+    };
+  }, [open, isConfirmed, isSimpleScanMode, tryAddOtherBox]);
+
+  useEffect(() => {
+    if (!open || !isConfirmed || isSimpleScanMode || !activeBD) return undefined;
 
     const clearScanBuffer = () => {
       scanBufferRef.current = "";
@@ -674,9 +1017,10 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         return;
       }
       lastCameraScanRef.current = { code, at: now };
-      tryAddBox(decodedText);
+      if (isSimpleScanMode) tryAddOtherBox(decodedText);
+      else tryAddBox(decodedText);
     },
-    [tryAddBox]
+    [tryAddBox, tryAddOtherBox, isSimpleScanMode]
   );
 
   useHtml5QrScanner({
@@ -684,7 +1028,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     elementId: OUT_ENTRY_SCANNER_ID,
     onDecoded: handleCameraDecoded,
     fps: 15,
-    qrbox: { width: 240, height: 240 },
+    qrbox: { width: 250, height: 250 },
     onCameraFailed: () => {
       showScanToast(
         "error",
@@ -739,9 +1083,69 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const otherScannedList = useMemo(
+    () =>
+      [...scannedBoxIds].map((uid) => otherBoxMap.get(uid) || { box_no_uid: uid, packing_number: null, qty: 0, is_loose: false }),
+    [scannedBoxIds, otherBoxMap]
+  );
+
   const handleSave = async (statusOverride = null) => {
-    if (!form.fuid) return;
     if (!sopAckRef.current?.assertAcknowledged()) return;
+
+    if (isSimpleScanMode) {
+      await scanBatchRef.current?.flushPending();
+      if (displayFlushTimerRef.current) {
+        clearTimeout(displayFlushTimerRef.current);
+        displayFlushTimerRef.current = null;
+      }
+      setScannedBoxIds(new Set(scannedBoxIdsRef.current));
+
+      if (pendingCountRef.current > 0) {
+        toast.warning("Boxes are still being confirmed. Wait a moment, then try again.");
+        return;
+      }
+
+      const scannedList = Array.from(scannedBoxIdsRef.current);
+      if (!scannedList.length) {
+        toast.error("Scan at least one box from store.");
+        return;
+      }
+
+      const reasonValue = String(form.reason || "").trim();
+      if (!reasonValue) {
+        const e = { reason: "Please enter or select a reason." };
+        setErrors(e);
+        toast.warning("Please enter or select a reason.");
+        focusFirstError(e, SIMPLE_SCAN_FIELD_ORDER, (key) =>
+          formRef.current?.querySelector(`[data-field="${key}"]`)
+        );
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const res = await outEntryService.create({
+          entry_type: entryMode,
+          reason: reasonValue,
+          remarks: form.remarks,
+          approved: true,
+          scanned_boxes: scannedList,
+        });
+        toast.success(
+          res?.message ||
+            (isInventoryOutMode ? "Inventory out completed." : "Boxes moved to packing area.")
+        );
+        onSuccess();
+        onClose();
+      } catch (err) {
+        toast.error(err?.message || "Failed");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (!form.fuid) return;
 
     await scanBatchRef.current?.flushPending();
     if (displayFlushTimerRef.current) {
@@ -810,7 +1214,54 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
   const isBlockingDataLoad =
     open &&
-    (!formReady || (fetchingFuid && ((isEdit || isApprove) || isConfirmed)));
+    (!formReady || (fetchingFuid && ((isEdit || isApprove) || (isConfirmed && isForwardingMode))));
+
+  const showModePicker = !isEdit && !isApprove && entryMode == null;
+  const otherScannedCount = scannedBoxIds.size;
+  const activePickerOption = useMemo(() => {
+    if (isForwardingMode) return OUT_ENTRY_MODE_PICKER_OPTIONS[0];
+    if (isSimpleScanMode) {
+      return (
+        getOutEntryModePickerOption(pickerChoiceId) ||
+        OUT_ENTRY_MODE_PICKER_OPTIONS.find((o) => o.id === "inventory_out")
+      );
+    }
+    return null;
+  }, [isForwardingMode, isSimpleScanMode, pickerChoiceId]);
+
+  const drawerDescription = useMemo(() => {
+    if (showModePicker) return "Select out type";
+    const hint = isSimpleScanMode
+      ? "Scan boxes & submit"
+      : isForwardingMode
+        ? "Select FUID, scan & submit"
+        : "Select out type";
+    if (!isEdit && !isApprove) {
+      return (
+        <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 normal-case tracking-normal font-semibold">
+          <span className="uppercase tracking-tight font-bold">{hint}</span>
+          <span className="text-slate-300 font-normal" aria-hidden>
+            ·
+          </span>
+          <button
+            type="button"
+            onClick={handleChangeEntryType}
+            className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2 font-bold"
+          >
+            Change type
+          </button>
+        </span>
+      );
+    }
+    return hint;
+  }, [
+    showModePicker,
+    isSimpleScanMode,
+    isForwardingMode,
+    isEdit,
+    isApprove,
+    handleChangeEntryType,
+  ]);
 
   return (
     <>
@@ -818,14 +1269,28 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       isOpen={open} 
       onClose={onClose} 
       onSubmit={() => {
+        if (isSimpleScanMode) {
+          handleSave();
+          return;
+        }
         if (isApprove) {
           handleSave(isFulfillmentComplete ? true : false);
           return;
         }
         handleSave();
       }}
-      title={isApprove ? "Authorize exit" : isEdit ? "Edit Out Entry" : "New Out Entry"}
-      description="Record a security gate exit"
+      title={
+        isApprove
+          ? "Authorize exit"
+          : isEdit
+            ? "Edit Out Entry"
+            : isSimpleScanMode
+              ? `Out Entry — ${activePickerOption?.title || "Inventory Out"}`
+              : isForwardingMode
+                ? "Out Entry — Forwarding Note"
+                : "New Out Entry"
+      }
+      description={drawerDescription}
       footer={(
         <div className="flex justify-end gap-3 w-full">
           <button onClick={onClose} className="px-5 py-2 text-sm font-bold text-slate-500">Cancel</button>
@@ -836,11 +1301,19 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                 {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Authorize exit
               </button>
             </>
+          ) : isSimpleScanMode ? (
+            <button
+              onClick={() => handleSave()}
+              disabled={loading || !isConfirmed || isBlockingDataLoad || pendingScanCount > 0 || otherScannedCount === 0}
+              className={`min-w-[140px] px-6 py-2 text-sm font-bold text-white rounded-xl shadow-lg disabled:bg-slate-300 transition-all active:scale-95 ${PICKER_ACCENT[activePickerOption?.accent || "red"].submit}`}
+            >
+              {loading ? "Processing..." : `Submit (${otherScannedCount})`}
+            </button>
           ) : (
             <button
               onClick={() => handleSave()}
               disabled={loading || !isConfirmed || isBlockingDataLoad || pendingScanCount > 0}
-              className="min-w-[160px] px-6 py-2 text-sm font-bold text-white bg-indigo-600 rounded-xl shadow-lg shadow-indigo-100 disabled:bg-slate-300 transition-all active:scale-95"
+              className={`min-w-[140px] px-6 py-2 text-sm font-bold text-white rounded-xl shadow-lg disabled:bg-slate-300 transition-all active:scale-95 ${PICKER_ACCENT.red.submit}`}
             >
               {loading
                 ? "Processing..."
@@ -879,6 +1352,231 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                 : "Preparing the form and box scan state."
             }
           />
+        ) : showModePicker ? (
+          <div className="space-y-3 py-2">
+            <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">Select out type</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {OUT_ENTRY_MODE_PICKER_OPTIONS.map((option) => {
+                const accent = PICKER_ACCENT[option.accent] || PICKER_ACCENT.red;
+                const Icon = PICKER_ICONS[option.icon] || Package;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => selectEntryMode(option.mode, option.id)}
+                    className={`p-3 rounded-xl border-2 text-left transition-all active:scale-[0.98] ${accent.card}`}
+                  >
+                    <div className={`flex items-center gap-2 ${accent.title}`}>
+                      <Icon size={17} />
+                      <span className="text-sm font-black uppercase tracking-wide">{option.title}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-600 mt-1">{option.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : isSimpleScanMode ? (
+          <div className="space-y-3 animate-in fade-in duration-300">
+            <div className="space-y-1 relative min-w-0" data-field="reason">
+              <label className={FORM_LABEL_CLASS}>
+                Reason <span className="text-rose-500">*</span>
+              </label>
+              <input
+                value={form.reason}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setForm((prev) => ({
+                    ...prev,
+                    reason: v,
+                  }));
+                  loadReasonSuggestions(v);
+                  setReasonOpen(true);
+                  setReasonHighlight(-1);
+                  if (errors.reason) setErrors((prev) => ({ ...prev, reason: "" }));
+                }}
+                placeholder="Type or pick from previous reasons…"
+                className={`w-full min-w-0 ${errors.reason ? ERR_INPUT : OK_INPUT}`}
+                onFocus={() => setReasonOpen(true)}
+                onBlur={() => setTimeout(() => setReasonOpen(false), 120)}
+                onKeyDown={(e) => {
+                  if (!reasonOpen || reasonOpts.length === 0) return;
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setReasonHighlight((prev) => Math.min(prev + 1, reasonOpts.length - 1));
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setReasonHighlight((prev) => Math.max(prev - 1, 0));
+                  } else if (e.key === "Enter" && reasonHighlight >= 0) {
+                    e.preventDefault();
+                    handleReasonPick(reasonOpts[reasonHighlight]);
+                    setReasonOpen(false);
+                    setReasonHighlight(-1);
+                  } else if (e.key === "Escape") {
+                    setReasonOpen(false);
+                    setReasonHighlight(-1);
+                  }
+                }}
+              />
+              {errors.reason ? (
+                <p className="text-[10px] font-bold text-rose-600 ml-1">{errors.reason}</p>
+              ) : null}
+              {reasonOpen && reasonOpts.length > 0 ? (
+                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-[80] max-h-56 overflow-auto">
+                  {reasonOpts.map((o, idx) => (
+                    <button
+                      key={o.id ?? o.reason}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleReasonPick(o);
+                        setReasonOpen(false);
+                        setReasonHighlight(-1);
+                      }}
+                      onMouseEnter={() => setReasonHighlight(idx)}
+                      className={`w-full text-left px-3 py-2 ${
+                        reasonHighlight === idx ? "bg-indigo-50" : "hover:bg-indigo-50/40"
+                      }`}
+                    >
+                      <div className="text-xs sm:text-sm font-bold text-slate-700">{o.reason}</div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100 flex flex-col min-h-[200px] shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 p-1.5 bg-white border border-indigo-100 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void (async () => {
+                      const prep = await prepareQrScanSession();
+                      if (!prep.cameraOk) {
+                        showScanToast(
+                          "error",
+                          "other-camera-permission",
+                          prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
+                          4000
+                        );
+                        return;
+                      }
+                      setIsScannerOpen(true);
+                    })();
+                  }}
+                  disabled={isScannerOpen}
+                  className="h-9 w-full sm:w-auto sm:shrink-0 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-60"
+                >
+                  <QrCode size={14} />
+                  <span className="text-[10px] font-black uppercase">Scan</span>
+                </button>
+                <div className="flex flex-1 gap-1.5 min-w-0">
+                  <input
+                    type="text"
+                    value={manualOtherBoxId}
+                    onChange={(e) => setManualOtherBoxId(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (manualOtherBoxId.trim()) {
+                          tryAddOtherBox(manualOtherBoxId);
+                          setManualOtherBoxId("");
+                        }
+                      }
+                    }}
+                    placeholder="Type or paste box_no_uid…"
+                    className={`${OK_INPUT} flex-1 min-w-0 font-mono`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (manualOtherBoxId.trim()) {
+                        tryAddOtherBox(manualOtherBoxId);
+                        setManualOtherBoxId("");
+                      }
+                    }}
+                    className="h-9 px-3 bg-indigo-600 text-white rounded-lg text-[10px] font-bold uppercase shrink-0"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              {pendingScanCount > 0 && (
+                <div className="flex items-center gap-2 px-2 py-1 bg-white border border-indigo-100 rounded-lg">
+                  <Loader2 size={12} className="animate-spin text-indigo-600" />
+                  <p className="text-[9px] font-bold text-indigo-600 uppercase">
+                    Confirming {pendingScanCount} box{pendingScanCount === 1 ? "" : "es"}…
+                  </p>
+                </div>
+              )}
+
+              <div className="flex-1 min-h-0 bg-white/60 rounded-lg border border-indigo-50 overflow-hidden flex flex-col">
+                <div className="px-3 py-1.5 bg-indigo-100/50 border-b border-indigo-100 flex justify-between items-center">
+                  <span className="text-[10px] font-bold text-indigo-600 uppercase">Scanned boxes</span>
+                  <span className="text-[9px] font-black text-indigo-600/50 uppercase">{otherScannedCount} total</span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
+                  {otherScannedList.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      {otherScannedList.map((box) => (
+                        <div
+                          key={box.box_no_uid}
+                          className="bg-white p-2 rounded-lg border border-emerald-100 flex items-center justify-between shadow-sm"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0 ${
+                                box.is_loose ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
+                              }`}
+                            >
+                              {box.is_loose ? "L" : "B"}
+                            </div>
+                            <div className="flex flex-col leading-tight min-w-0">
+                              <span className="text-[11px] font-mono font-black text-slate-700 truncate">{box.box_no_uid}</span>
+                              <span className="text-[8px] font-bold text-slate-400 uppercase truncate">
+                                #{box.packing_number || "—"} · Qty: {box.qty ?? 0}
+                              </span>
+                            </div>
+                          </div>
+                          {!isEdit && canRemoveScannedBox ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveScannedBox(box.box_no_uid)}
+                              className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg shrink-0"
+                            >
+                              <X size={16} />
+                            </button>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-300 py-10">
+                      <ScanLine size={32} className="opacity-20 mb-3" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">Scan store boxes</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <RemarksTextarea
+              label="Security Remarks"
+              value={form.remarks}
+              onChange={(e) => handleChange("remarks", e.target.value)}
+              placeholder="Reason, vehicle, escort…"
+              rows={3}
+            />
+
+            <ModuleSopAcknowledgment
+              ref={sopAckRef}
+              key={`${open}-${sopPermissionType}-other`}
+              moduleSlug="out_entry"
+              permissionType={sopPermissionType}
+              isOpen={open}
+            />
+          </div>
         ) : (
           <>
             <div className="space-y-2 min-w-0 w-full" data-field="fuid">
@@ -1200,7 +1898,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                 </div>
 
                 {/* Scanned boxes for the active packing */}
-                <div className="space-y-2.5 bg-indigo-50/30 p-3 rounded-xl border border-indigo-100 flex flex-col min-h-[320px] shadow-sm">
+                <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100 flex flex-col min-h-[220px] shadow-sm">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-indigo-600">
                       <CheckCircle2 size={16} />
@@ -1220,7 +1918,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                     </div>
                   </div>
                   
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-2 bg-white border border-indigo-100 rounded-lg">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 p-1.5 bg-white border border-indigo-100 rounded-lg">
                     <button
                       type="button"
                       onClick={() => {
@@ -1239,9 +1937,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                         })();
                       }}
                       disabled={isScannerOpen}
-                      className="h-[40px] w-full sm:w-auto sm:shrink-0 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="h-9 w-full sm:w-auto sm:shrink-0 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      <QrCode size={16} />
+                      <QrCode size={14} />
                       <span className="text-[10px] font-black uppercase">Scan</span>
                     </button>
                     <p className="text-[9px] text-indigo-600 font-bold uppercase tracking-wide">
@@ -1390,6 +2088,11 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               All boxes scanned. Click <span className="font-bold">Submit</span> below, then authorize from the Out Entry list when ready.
             </p>
           </div>
+        ) : isSimpleScanMode ? (
+          <div className="p-3 bg-emerald-50 rounded-lg border border-dashed border-emerald-200 flex items-center gap-2">
+            <CheckCircle size={16} className="text-emerald-600" />
+            <p className="text-[10px] text-emerald-700 italic">This entry will be automatically authorized on submission.</p>
+          </div>
         ) : (
           <div className="p-3 bg-slate-50 rounded-lg border border-dashed border-slate-200 flex items-center gap-2">
             <AlertCircle size={16} className="text-slate-400" />
@@ -1397,13 +2100,15 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           </div>
         )}
 
-        <ModuleSopAcknowledgment
-          ref={sopAckRef}
-          key={`${open}-${sopPermissionType}`}
-          moduleSlug="out_entry"
-          permissionType={sopPermissionType}
-          isOpen={open}
-        />
+        {!isSimpleScanMode ? (
+          <ModuleSopAcknowledgment
+            ref={sopAckRef}
+            key={`${open}-${sopPermissionType}`}
+            moduleSlug="out_entry"
+            permissionType={sopPermissionType}
+            isOpen={open}
+          />
+        ) : null}
 
           </>
         )}

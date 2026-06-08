@@ -21,6 +21,7 @@ export default function ModulesPage() {
   const [params, setParams] = useState({
     pageSize: 500,
     status: "all",
+    appType: "all",
     sortKey: null,
     sortDir: "asc",
   });
@@ -79,13 +80,18 @@ export default function ModulesPage() {
     if (params.status === "active") rows = rows.filter(isActive);
     else if (params.status === "inactive") rows = rows.filter((r) => !isActive(r));
 
+    if (params.appType && params.appType !== "all") {
+      const typeKey = String(params.appType).trim().toLowerCase();
+      rows = rows.filter((r) => String(r.app_type ?? "").trim().toLowerCase() === typeKey);
+    }
+
     const q = String(tempSearch || "").trim();
     if (q) return applyClientSearch(rows, tempSearch);
     if (params.sortKey == null || params.sortKey === "") {
       return rows;
     }
     return sortRowsByKey(rows, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir, params.status]);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir, params.status, params.appType]);
 
   const totalLoaded = allRows.length;
 
@@ -109,12 +115,56 @@ export default function ModulesPage() {
   };
 
   const handleFilterApply = (data) => {
-    setParams((prev) => ({ ...prev, status: data.status || "all" }));
+    setParams((prev) => ({
+      ...prev,
+      status: data.status || "all",
+      appType: data.appType || "all",
+    }));
     setDisplayLimit(50);
+    setSelected(null);
   };
+
+  const handleReset = () => {
+    setTempSearch("");
+    setParams((prev) => ({ ...prev, status: "all", appType: "all" }));
+    setDisplayLimit(50);
+    setSelected(null);
+  };
+
+  const appTypeFilterOptions = useMemo(() => {
+    const knownOrder = ["core", "ims", "task"];
+    const types = [
+      ...new Set(
+        allRows
+          .map((r) => String(r.app_type ?? "").trim().toLowerCase())
+          .filter(Boolean)
+      ),
+    ];
+    types.sort((a, b) => {
+      const ia = knownOrder.indexOf(a);
+      const ib = knownOrder.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a.localeCompare(b);
+    });
+    return [
+      { label: "All Apps", value: "all" },
+      ...types.map((t) => ({
+        label: APP_TYPE_LABELS[t] ?? t.toUpperCase(),
+        value: t,
+      })),
+    ];
+  }, [allRows]);
 
   const extraFilters = useMemo(
     () => [
+      {
+        label: "App",
+        key: "appType",
+        value: params.appType,
+        options: appTypeFilterOptions,
+      },
       {
         label: "Status",
         key: "status",
@@ -126,10 +176,11 @@ export default function ModulesPage() {
         ],
       },
     ],
-    [params.status]
+    [params.status, params.appType, appTypeFilterOptions]
   );
 
   const HEADERS = [
+    /*
     [
       "Module Name",
       "name",
@@ -141,8 +192,9 @@ export default function ModulesPage() {
         </div>
       ),
     ],
+    */
     ["Module Label", "label", (v) => (
-      <span className="text-slate-600 text-[11px] md:text-xs font-medium">{v}</span>
+      <span className="font-bold text-slate-800 text-[11px] md:text-xs uppercase tracking-tight">{v}</span>
     )],
     [
       "App",
@@ -224,6 +276,7 @@ export default function ModulesPage() {
             instantClientExtras
             extraFilters={extraFilters}
             onApply={handleFilterApply}
+            onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             searchPlaceholder="Name or Label..."

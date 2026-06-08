@@ -3,9 +3,11 @@ import { useState, useEffect } from "react";
 import { X, Save, Briefcase } from "lucide-react";
 import { toast } from "react-toastify";
 import { departmentService } from "@/features/admin/services/departmentService";
+import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 
 export default function DepartmentModal({ open, onClose, onSuccess, editData }) {
   const [loading, setLoading] = useState(false);
+  useEscapeKey(onClose, open);
   const [formData, setFormData] = useState({
     name: "",
   });

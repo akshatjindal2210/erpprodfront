@@ -6,6 +6,7 @@ import { History } from "lucide-react";
 import GlobalDetailModal from "@/core/components/common/GlobalDetailModal";
 import { MasterDetailBody, MasterDetailHero, MasterDetailGrid, MasterDetailSection, MasterDetailKV, MasterDetailMetrics, MasterDetailProse } from "@/features/apps/ims/components/master/MasterDetailLayout";
 import { getBoxStickerEntries } from "@/features/apps/ims/utils/boxTransactionStickerEntries";
+import { resolveBoxTxTypeLabel } from "@/features/apps/ims/utils/boxTransactionVisuals";
 
 const SHOWN_DETAIL_KEYS = new Set([
   "count",
@@ -62,7 +63,10 @@ export default function BoxTransactionLogDetailModal({ open, onClose, row, label
 
   if (!row) return null;
 
-  const typeLabel = labelForType?.(row.transaction_type) || row.transaction_type || "—";
+  const typeLabel =
+    labelForType?.(row.transaction_type, row) ||
+    resolveBoxTxTypeLabel(row.transaction_type, row) ||
+    "—";
   const ts = row.created_at ? dayjs(row.created_at).format("DD MMM YYYY · hh:mm:ss A") : "—";
   const moduleLabel = row.source_module?.replace(/_/g, " ") || "—";
 

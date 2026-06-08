@@ -59,7 +59,7 @@ export default function BoxModal({ open, onClose, onSuccess, editData, mode = "a
       }, 300);
     }
     return () => clearTimeout(timeoutId);
-  }, [open, editData]);
+  }, [open, editData?.box_uid]);
 
   const handleChange = (key, value) => {
     setForm(prev => ({ ...prev, [key]: value }));

@@ -53,10 +53,6 @@ export const ENDPOINTS = {
     VIEWS: "/locations/helper",
   },
 
-  ACTIVITY_LOGS: {
-    LIST: "/activity-logs/list",
-  },
-
   BOX_TRANSACTION_LOGS: {
     LIST: "/box-transaction-logs/list",
   },
@@ -151,6 +147,7 @@ export const ENDPOINTS = {
     UPDATE: "/out-entries/update",
     DELETE: "/out-entries/delete",
     VIEWS: "/out-entries/helper",
+    REASONS: "/out-entries/reason-helper",
     VERIFY_BOX: "/out-entries/verify-box",
     BATCH_SCAN_BOXES: "/out-entries/batch-scan-boxes",
     GET_FUID_DETAILS: "/out-entries/get-details",
@@ -163,5 +160,16 @@ export const ENDPOINTS = {
 
   DASHBOARD: {
     STATS: "/ims/dashboard/stats",
+  },
+  AUDIT: {
+    LIST: "/audit/list",
+    GET: "/audit/get",
+    CREATE: "/audit/create",
+    UPDATE: "/audit/update",
+    DELETE: "/audit/delete",
+    SUBMIT_SCAN: "/audit/submit-scan",
+    REMOVE_SCAN: "/audit/remove-scan",
+    COMPARISON_REPORT: "/audit/comparison-report",
+    VERIFY: "/audit/verify",
   },
 };

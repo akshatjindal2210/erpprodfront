@@ -1,6 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { useEscapeKey } from "@/core/hooks/useEscapeKey";
+import { isMobileDevice } from "@/core/utils/pwa";
 
 /**
  * Full-screen camera QR scanner shell (shared UI). Pair with `useHtml5QrScanner`.
@@ -10,11 +14,18 @@ export default function QrScannerOverlay({
   onClose,
   readerId,
   hint = "Point camera at QR code",
-  zIndexClass = "z-[200]",
+  zIndexClass = "z-[2000]",
   frameClassName = "border-4 border-slate-100",
 }) {
-  if (!open) return null;
-  return (
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEscapeKey(onClose, open);
+  if (!open || !isMobileDevice() || !mounted) return null;
+
+  const content = (
     <div
       className={`fixed inset-0 ${zIndexClass} bg-slate-900/85 backdrop-blur-[1px] flex flex-col items-center justify-center p-4`}
       role="dialog"
@@ -25,7 +36,11 @@ export default function QrScannerOverlay({
         <div className="absolute top-3 right-3 z-[210]">
           <button
             type="button"
-            onClick={onClose}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose?.();
+            }}
             className="p-2 bg-black/35 hover:bg-black/50 rounded-full text-white transition-all"
             title="Close scanner"
           >
@@ -48,4 +63,6 @@ export default function QrScannerOverlay({
       </div>
     </div>
   );
+
+  return createPortal(content, document.body);
 }

@@ -1,5 +1,7 @@
 /** Out Entry status — same keys/labels for filter dropdown and table badge. */
 
+import { getOutEntryTypeLabel, OUT_ENTRY_TYPE } from "@/features/apps/ims/utils/outEntryTypes";
+
 
 
 export const OUT_ENTRY_STATUS = {
@@ -54,6 +56,14 @@ export const OUT_ENTRY_STATUS_FILTER_OPTIONS = [
 
   { label: OUT_ENTRY_STATUS.authorized.filterLabel, value: OUT_ENTRY_STATUS.authorized.key },
 
+];
+
+
+export const OUT_ENTRY_TYPE_FILTER_OPTIONS = [
+  { label: "All Types", value: "all" },
+  { label: getOutEntryTypeLabel(OUT_ENTRY_TYPE.FORWARDING_NOTE), value: OUT_ENTRY_TYPE.FORWARDING_NOTE },
+  { label: getOutEntryTypeLabel(OUT_ENTRY_TYPE.INVENTORY_OUT), value: OUT_ENTRY_TYPE.INVENTORY_OUT },
+  { label: getOutEntryTypeLabel(OUT_ENTRY_TYPE.PACKING_AREA), value: OUT_ENTRY_TYPE.PACKING_AREA },
 ];
 
 

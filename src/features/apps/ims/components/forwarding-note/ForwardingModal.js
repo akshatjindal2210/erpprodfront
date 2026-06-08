@@ -14,7 +14,12 @@ import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownRes
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 import RemarksTextarea           from "@/core/components/common/RemarksTextarea";
 import FormPanelLoader           from "@/core/components/common/FormPanelLoader";
-import { OK_INPUT }              from "@/core/components/common/Constants";
+import {
+  OK_INPUT,
+  FORM_LABEL_CLASS,
+  FORM_MICRO_LABEL_CLASS,
+  FORM_ERROR_CLASS,
+} from "@/core/components/common/Constants";
 import { useCanAccess }          from "@/core/hooks/useCanAccess";
 import { focusFirstError } from "@/core/utils/formFocus";
 
@@ -712,7 +717,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
           {/* Transporter — suggestions from previous forwarding notes (per customer) + manual entry */}
           <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-3 min-w-0">
             <div className="md:col-span-2 space-y-1 relative">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Transporter Name</label>
+              <label className={FORM_LABEL_CLASS}>Transporter Name</label>
               {/* <input
                 value={form.transporter_name}
                 onChange={(e) => {
@@ -723,7 +728,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                 }}
                 placeholder={form.acc_code ? "Type or pick from suggestions…" : "Select customer first"}
                 disabled={!form.acc_code}
-                className={`${OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200`}
+                className={`${OK_INPUT} rounded-lg border-slate-200`}
                 onFocus={() => setTransporterOpen(true)}
                 onBlur={() => setTimeout(() => setTransporterOpen(false), 120)}
               /> */}
@@ -739,7 +744,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                 }}
                 placeholder={form.acc_code ? "Type or pick from suggestions…" : "Select customer first"}
                 disabled={!form.acc_code}
-                className={`${OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200`}
+                className={`${OK_INPUT} rounded-lg border-slate-200`}
                 onFocus={() => setTransporterOpen(true)}
                 onBlur={() => setTimeout(() => setTransporterOpen(false), 120)}
                 onKeyDown={(e) => {
@@ -810,29 +815,29 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
               )}
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Transporter ID</label>
+              <label className={FORM_LABEL_CLASS}>Transporter ID</label>
               <input
                 value={form.transporter_id}
                 onChange={(e) => handleInputChange("transporter_id", e.target.value)}
                 placeholder="GST / ID"
                 disabled={!form.acc_code}
-                className={`${OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200`}
+                className={`${OK_INPUT} rounded-lg border-slate-200`}
               />
             </div>
           </div>
 
           {/* PO Number */}
           <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">PO Number *</label>
+            <label className={FORM_LABEL_CLASS}>PO Number *</label>
             <input
               data-field="po_number"
               value={form.po_number}
               onChange={(e) => handleInputChange("po_number", e.target.value)}
               placeholder="PO-XXXX"
-              className={`${OK_INPUT} text-[11px] h-[38px] rounded-lg ${errors.po_number ? "border-rose-500 bg-rose-50" : "border-slate-200"}`}
+              className={`${OK_INPUT} rounded-lg ${errors.po_number ? "border-rose-500 bg-rose-50" : "border-slate-200"}`}
             />
             {errors.po_number && (
-              <p className="text-[9px] text-rose-500 font-bold ml-1 flex items-center gap-1">
+              <p className={FORM_ERROR_CLASS}>
                 <AlertCircle size={10} /> {errors.po_number}
               </p>
             )}
@@ -840,7 +845,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
           {/* Vehicle No */}
           <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Vehicle No</label>
+            <label className={FORM_LABEL_CLASS}>Vehicle No</label>
             <input
               value={form.vehicle_number}
               onChange={(e) => handleInputChange("vehicle_number", e.target.value)}
@@ -851,13 +856,13 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
           {/* Cartage */}
           <div className="space-y-1 min-w-0">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Cartage</label>
+            <label className={FORM_LABEL_CLASS}>Cartage</label>
             <input
               type="number"
               value={form.cartage}
               onChange={(e) => handleInputChange("cartage", e.target.value)}
               placeholder="0"
-              className={`${OK_INPUT} w-full text-[11px] h-[38px] rounded-lg border-slate-200`}
+              className={`${OK_INPUT} w-full rounded-lg border-slate-200`}
             />
           </div>
         </div>
@@ -890,9 +895,9 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
               <div key={idx} className="bg-white rounded-lg border border-slate-200 p-2.5 space-y-2.5 relative group/row shadow-sm">
                 
                 <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Row #{idx + 1}</span>
+                  <span className={`${FORM_MICRO_LABEL_CLASS} text-slate-400`}>Row #{idx + 1}</span>
                   <div className="flex items-center gap-2">
-                    <label className="inline-flex items-center gap-1.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider">
+                    <label className={`inline-flex items-center gap-1.5 ${FORM_MICRO_LABEL_CLASS} text-slate-500`}>
                       <input
                         type="checkbox"
                         checked={!!item.loose_priority}
@@ -930,7 +935,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
                   {/* FG Stock */}
                   <div className="lg:col-span-2 space-y-0.5">
-                    <label className="text-[8px] font-bold text-emerald-600 uppercase tracking-widest block ml-1">FG Stock</label>
+                    <label className={`${FORM_MICRO_LABEL_CLASS} text-emerald-600 block ml-1`}>FG Stock</label>
                     <div className="bg-emerald-600 text-white text-center font-black h-[38px] flex items-center justify-center rounded-lg shadow-sm text-xs">
                       {item.fg_qty.toLocaleString()}
                     </div>
@@ -938,7 +943,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
                   {/* Dispatch Qty */}
                   <div className="lg:col-span-2 space-y-0.5">
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Dispatch Qty</label>
+                    <label className={`${FORM_MICRO_LABEL_CLASS} block ml-1`}>Dispatch Qty</label>
                     <input
                       type="number"
                       value={item.dispatch_qty}
@@ -950,7 +955,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
                   {/* Boxes (FIFO) */}
                   <div className="lg:col-span-2 space-y-0.5">
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Boxes</label>
+                    <label className={`${FORM_MICRO_LABEL_CLASS} block ml-1`}>Boxes</label>
                     <div className="flex items-center justify-between gap-1 h-[38px] px-1.5 border border-slate-200 rounded-lg bg-white shadow-sm">
                       <button
                         onClick={() => handleBoxChange(idx, 'remove')}
@@ -962,7 +967,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                           {item.selected_boxes.length > 0 ? item.selected_boxes.length : (item.original_breakdowns?.reduce((acc, bd) => acc + (bd.box || 0) + (bd.loose_box || 0), 0) || 0)}
                         </span>
                         <div className="h-[1px] w-3 bg-slate-200 my-0.5" />
-                        <span className="text-[8px] font-bold text-slate-400 leading-none">{item.available_boxes.length}</span>
+                        <span className="text-[11px] sm:text-xs font-bold text-slate-400 leading-none">{item.available_boxes.length}</span>
                       </div>
                       <button
                         onClick={() => handleBoxChange(idx, 'add')}
@@ -974,7 +979,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
                   {/* Dispatch Std QTY */}
                   <div className="lg:col-span-2 space-y-0.5">
-                    <label className="text-[8px] font-bold text-indigo-600 uppercase tracking-widest block ml-1">Std QTY</label>
+                    <label className={`${FORM_MICRO_LABEL_CLASS} text-indigo-600 block ml-1`}>Std QTY</label>
                     <div className="bg-indigo-600 text-white text-center font-black h-[38px] flex items-center justify-center rounded-lg shadow-sm text-xs">
                       {(item.selected_boxes.length > 0 ? sumQty(item.selected_boxes) : item.total_qty || 0).toLocaleString()}
                     </div>
@@ -984,7 +989,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                 {/* Table Breakdown */}
                 {item.item_dcode && (item.selected_boxes.length > 0 || (isEdit && item.original_breakdowns?.length > 0)) && (
                   <div className="mt-1.5 border border-slate-100 rounded-md overflow-hidden">
-                    <table className="w-full text-[9px]">
+                    <table className="w-full text-xs">
                       <thead className="bg-slate-50 border-b border-slate-100">
                         <tr>
                           <th className="px-2 py-1 text-left font-black text-slate-400 uppercase">Packing #</th>

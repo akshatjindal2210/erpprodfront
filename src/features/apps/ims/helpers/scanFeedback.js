@@ -4,9 +4,8 @@ let audioCtx = null;
 let html5BeepEl = null;
 let beepDataUrl = null;
 
-/** Fast + strong: short rumble then rapid heavy pulses (~2.2s, browser-safe). */
-// export const SCAN_SUCCESS_VIBRATE_MS = [320, 8, 420, 8, 420, 8, 420, 8, 420, 8, 420, 8, 420];
-export const SCAN_SUCCESS_VIBRATE_MS = [500, 5, 500, 5, 500, 5, 500, 5, 500, 5, 500, 5, 500];
+/** Short single tap — enough feedback without draining battery on repeated scans. */
+export const SCAN_SUCCESS_VIBRATE_MS = 50;
 
 function getAudioContext() {
   if (typeof window === "undefined") return null;
@@ -25,7 +24,7 @@ function uint8ToBase64(bytes) {
   return btoa(binary);
 }
 
-function buildBeepDataUrl(startFreq = 1900, endFreq = 900, durationMs = 200, volume = 1.0) {
+function buildBeepDataUrl(startFreq = 1900, endFreq = 900, durationMs = 100, volume = 0.85) {
   const sampleRate = 8000;
   const numSamples = Math.floor((sampleRate * durationMs) / 1000);
   const dataSize = numSamples * 2;
@@ -63,7 +62,7 @@ function buildBeepDataUrl(startFreq = 1900, endFreq = 900, durationMs = 200, vol
   return `data:audio/wav;base64,${uint8ToBase64(new Uint8Array(buffer))}`;
 }
 
-const BEEP_WAV_REVISION = 2;
+const BEEP_WAV_REVISION = 3;
 let beepWavRevision = 0;
 
 /** Single cache entry — `buildBeepDataUrl()` runs at most once per page load (safe for 10k+ scans). */
@@ -164,52 +163,16 @@ let cameraWarmInFlight = null;
  * Must run from a user tap (Scan button) before opening the scanner overlay.
  */
 export async function warmUpCameraPermission() {
-  if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+  if (typeof window === "undefined") {
     return { ok: false, unsupported: true };
   }
 
-  if (isCameraPermissionWarm()) {
-    return { ok: true, cached: true };
+  // Camera access is only allowed in secure contexts (HTTPS or localhost)
+  if (!window.isSecureContext) {
+    return { ok: false, insecure: true };
   }
 
-  if (cameraWarmInFlight) return cameraWarmInFlight;
-
-  cameraWarmInFlight = (async () => {
-    try {
-      if (navigator.permissions?.query) {
-        try {
-          const status = await navigator.permissions.query({ name: "camera" });
-          if (status.state === "granted") {
-            markCameraPermissionWarm();
-            return { ok: true, cached: true };
-          }
-          if (status.state === "denied") {
-            return { ok: false, denied: true };
-          }
-        } catch {
-          /* Safari / older browsers — fall through to getUserMedia */
-        }
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: false,
-      });
-      stream.getTracks().forEach((t) => t.stop());
-      markCameraPermissionWarm();
-      return { ok: true };
-    } catch (err) {
-      const denied =
-        err?.name === "NotAllowedError" ||
-        err?.name === "PermissionDeniedError" ||
-        err?.name === "SecurityError";
-      return { ok: false, denied };
-    } finally {
-      cameraWarmInFlight = null;
-    }
-  })();
-
-  return cameraWarmInFlight;
+  return { ok: true };
 }
 
 /**
@@ -224,13 +187,13 @@ export async function prepareQrScanSession() {
     audioOk: !!audioResult,
     cameraOk: !!cameraResult?.ok,
     cameraDenied: !!cameraResult?.denied,
+    cameraInsecure: !!cameraResult?.insecure,
     cameraCached: !!cameraResult?.cached,
   };
 }
 
 function playOscillatorPulse(ctx, t0) {
-  // const dur = 0.2;
-  const dur = 0.4;
+  const dur = 0.12;
   const peakGain = 1.0;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();

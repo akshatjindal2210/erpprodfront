@@ -1,15 +1,18 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "react-toastify";
 import ModuleSopAcknowledgment from "@/core/components/common/ModuleSopAcknowledgment";
+import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 
 /** {string} [moduleSlug] — when set, delete SOP (module_sops, permission delete) is enforced on confirmation */
 export default function DeleteModal({ item, onClose, onSuccess, service, entityLabel, idKey = "id", titleKey = "name", nameKey, warningMessage, moduleSlug = null }) {
   const resolvedTitleKey = nameKey ?? titleKey;
   const [loading, setLoading] = useState(false);
   const sopAckRef = useRef(null);
+
+  useEscapeKey(onClose, !!item);
 
   if (!item) return null;
 

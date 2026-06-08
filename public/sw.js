@@ -1,4 +1,4 @@
-const CACHE_NAME = "jfl-erp-static-v5";
+const CACHE_NAME = "jfl-erp-static-v6";
 const STATIC_ASSETS = ["/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/logo.png"];
 
 self.addEventListener("install", (event) => {
@@ -22,17 +22,16 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
 
-  // Hard refresh (Ctrl+Shift+R / Ctrl+F5): always hit network, skip cache.
+  // Hard refresh: always hit network
   if (request.cache === "reload" || request.cache === "no-store") {
     event.respondWith(fetch(request));
     return;
   }
 
-  // Always use network-first for page/document navigations
-  // to avoid blank route refresh issues in Next.js.
+  // Network-first for page navigations
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request).catch(() => new Response("Offline", { status: 503, statusText: "Offline" }))
+      fetch(request).catch(() => caches.match("/"))
     );
     return;
   }
@@ -41,22 +40,32 @@ self.addEventListener("fetch", (event) => {
   const isSameOrigin = url.origin === self.location.origin;
   const isStaticFile = /\.(?:js|css|png|jpg|jpeg|gif|webp|svg|ico|woff2?)$/i.test(url.pathname);
   const isNextStatic = url.pathname.startsWith("/_next/static/");
+  
   const shouldCache = isSameOrigin && (isStaticFile || isNextStatic);
 
   if (!shouldCache) return;
 
+  // Stale-While-Revalidate Strategy
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request)
-        .then((response) => {
-          const responseClone = response.clone();
+    caches.match(request).then((cachedResponse) => {
+      const fetchPromise = fetch(request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseClone).catch(() => {});
+            cache.put(request, responseClone);
           });
-          return response;
-        })
-        .catch(() => cached);
+        }
+        return networkResponse;
+      }).catch(() => cachedResponse);
+
+      return cachedResponse || fetchPromise;
     })
   );
+});
+
+// Handle skip waiting message
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });

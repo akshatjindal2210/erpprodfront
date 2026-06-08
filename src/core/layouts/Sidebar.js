@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
-import { LogOut, ChevronLeft, ChevronRight, ChevronDown, Zap, Circle } from "lucide-react";
+import { LogOut, ChevronLeft, ChevronRight, ChevronDown, Zap, Circle, Activity, Clock, LayoutDashboard, History } from "lucide-react";
 import { NAV_REGISTRY } from "@/features/apps/ims/config/navRegistry";
 import { THEME_CONFIG } from "@/config/theme";
 import { useAppLogout } from "@/core/hooks/useLogout";
@@ -10,6 +10,8 @@ import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useSelector } from "react-redux";
 import { selectRole } from "@/core/store/slices/authSlice";
 import { APP_VERSION } from "@/config/appVersion";
+import { ROUTES } from "@/config/routes";
+import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 
 export default function Sidebar({
   sidebarOpen,
@@ -25,6 +27,13 @@ export default function Sidebar({
   const canAccess = useCanAccess();
   const role = useSelector(selectRole);
   const [openMenus, setOpenMenus] = useState({});
+
+  useEscapeKey(() => setSidebarOpen(false), sidebarOpen);
+
+  const PORTAL_NAV = [
+    { id: 'home', name: 'Home', href: ROUTES.HOME, icon: <LayoutDashboard size={14} /> },
+    { id: 'logs', name: 'Activity Logs', href: ROUTES.ACTIVITY_LOGS, icon: <History size={14} /> },
+  ];
 
   const canSeeNavItem = (item) => {
     if (item.roles?.length) {
@@ -137,7 +146,11 @@ export default function Sidebar({
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-0.5 custom-scrollbar">
-          {!hideNav && renderNavItems(filteredNav)}
+          {!hideNav ? (
+            renderNavItems(filteredNav)
+          ) : (
+            renderNavItems(PORTAL_NAV)
+          )}
         </nav>
 
         

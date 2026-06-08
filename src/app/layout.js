@@ -4,6 +4,8 @@ import ReduxProvider from "@/core/components/providers/ReduxProvider";
 import AppToastContainer from "@/core/components/common/AppToastContainer";
 import SocketProvider from "@/core/components/providers/SocketProvider";
 import PwaRegister from "@/features/shared/pwa/components/PwaRegister";
+import PwaAutoOpenHandler from "@/features/shared/pwa/components/PwaAutoOpenHandler";
+import PwaLaunchQueueHandler from "@/features/shared/pwa/components/PwaLaunchQueueHandler";
 import PwaDevBypass from "@/features/shared/pwa/components/PwaDevBypass";
 import PwaSecurityGuards from "@/features/shared/pwa/components/PwaSecurityGuards";
 import AppKeyboardShortcutGuard from "@/core/components/common/AppKeyboardShortcutGuard";
@@ -13,7 +15,7 @@ import DisableSelectAllShortcut from "@/core/components/common/DisableSelectAllS
 export const metadata = {
   title: "JFL IT Services",
   description: "JFL IT Solutions.",
-  // manifest: "/manifest.webmanifest",
+  manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -42,6 +44,8 @@ export default function RootLayout({ children }) {
             {children}
           </SocketProvider>
           <PwaRegister />
+          <PwaLaunchQueueHandler />
+          {/* <PwaAutoOpenHandler /> */}
           {/* <PwaDevBypass /> */}
           <PwaSecurityGuards />
           <AppKeyboardShortcutGuard />

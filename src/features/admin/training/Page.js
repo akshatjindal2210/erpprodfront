@@ -18,6 +18,7 @@ import SopModal from "./SopModal";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import { applyClientSearch, sortRowsByKey, fetchAllListPages } from "@/core/utils/listSearch";
+import { APP_TYPE_LABELS } from "@/config/moduleAppRegistry";
 
 function SopCell({ sop, onClick, disabled = false, isTable = false }) {
   const baseTone = sop
@@ -66,8 +67,7 @@ function ModuleCard({ mod, perms, getVideo, getSop, onVideoClick, onSopClick, di
     <div className="bg-white border border-slate-300 rounded-none p-4 hover:border-slate-400 transition-all flex flex-col h-full shadow-sm">
       <div className="flex items-center justify-between mb-4">
         <div className="flex flex-col min-w-0">
-          <span className="font-bold text-slate-800 text-[11px] md:text-xs uppercase tracking-tight truncate">{mod.name}</span>
-          <span className="text-[10px] text-slate-400 font-medium truncate italic">{mod.label}</span>
+          <span className="font-bold text-slate-800 text-[11px] md:text-xs uppercase tracking-tight truncate">{mod.label || mod.name}</span>
         </div>
         <span className={`px-2 py-0.5 rounded-none text-[9px] font-bold uppercase tracking-wider border shrink-0 ${
           mod.is_active ? "bg-emerald-50 text-emerald-600 border-emerald-200" : "bg-slate-50 text-slate-400 border-slate-200"
@@ -112,6 +112,7 @@ export default function TrainingPage() {
   /** Client-only: column sort. Server reload only via Refresh (same as Users / Modules). */
   const [params, setParams] = useState({
     pageSize: 500,
+    appType: "all",
     sortKey: null,
     sortDir: "asc",
   });
@@ -194,13 +195,20 @@ export default function TrainingPage() {
   }, [fetchData]);
 
   const filteredSorted = useMemo(() => {
-    const q = String(tempSearch || "").trim();
-    if (q) return applyClientSearch(allModules, tempSearch);
-    if (params.sortKey == null || params.sortKey === "") {
-      return [...allModules];
+    let rows = [...allModules];
+
+    if (params.appType && params.appType !== "all") {
+      const typeKey = String(params.appType).trim().toLowerCase();
+      rows = rows.filter((r) => String(r.app_type ?? "").trim().toLowerCase() === typeKey);
     }
-    return sortRowsByKey(allModules, params.sortKey, params.sortDir);
-  }, [allModules, tempSearch, params.sortKey, params.sortDir]);
+
+    const q = String(tempSearch || "").trim();
+    if (q) return applyClientSearch(rows, tempSearch);
+    if (params.sortKey == null || params.sortKey === "") {
+      return rows;
+    }
+    return sortRowsByKey(rows, params.sortKey, params.sortDir);
+  }, [allModules, tempSearch, params.sortKey, params.sortDir, params.appType]);
 
   const visibleModules = useMemo(
     () => filteredSorted.slice(0, displayLimit),
@@ -305,11 +313,63 @@ export default function TrainingPage() {
 
   const disabledPermissionCells = !canAddTraining && !canEditTraining;
 
+  const appTypeFilterOptions = useMemo(() => {
+    const knownOrder = ["core", "ims", "task"];
+    const types = [
+      ...new Set(
+        allModules
+          .map((r) => String(r.app_type ?? "").trim().toLowerCase())
+          .filter(Boolean)
+      ),
+    ];
+    types.sort((a, b) => {
+      const ia = knownOrder.indexOf(a);
+      const ib = knownOrder.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a.localeCompare(b);
+    });
+    return [
+      { label: "All Apps", value: "all" },
+      ...types.map((t) => ({
+        label: APP_TYPE_LABELS[t] ?? t.toUpperCase(),
+        value: t,
+      })),
+    ];
+  }, [allModules]);
+
+  const handleFilterApply = (data) => {
+    setParams((prev) => ({
+      ...prev,
+      appType: data.appType || "all",
+    }));
+    setDisplayLimit(50);
+  };
+
+  const handleReset = () => {
+    setTempSearch("");
+    setParams((prev) => ({ ...prev, appType: "all" }));
+    setDisplayLimit(50);
+  };
+
+  const extraFilters = useMemo(
+    () => [
+      {
+        label: "App",
+        key: "appType",
+        value: params.appType,
+        options: appTypeFilterOptions,
+      },
+    ],
+    [params.appType, appTypeFilterOptions]
+  );
+
   const HEADERS = [
     ["Module Details", "label", (v, row) => (
       <div className="flex flex-col py-1">
-        <span className="font-bold text-slate-800 text-[11px] md:text-xs uppercase tracking-tight">{row.name}</span>
-        <span className="text-[10px] text-slate-400 font-medium italic">{v}</span>
+        <span className="font-bold text-slate-800 text-[11px] md:text-xs uppercase tracking-tight">{v}</span>
+        {/* <span className="text-[10px] text-slate-400 font-medium italic">{row.name}</span> */}
       </div>
     ), { width: "200px", wrap: true }],
     ...PERMS.map(p => [
@@ -352,7 +412,10 @@ export default function TrainingPage() {
         <ListPageFilterStrip>
           <DateRangeFilter
             showDate={false}
-            extraFilters={[]}
+            instantClientExtras
+            extraFilters={extraFilters}
+            onApply={handleFilterApply}
+            onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             searchPlaceholder="Module name or label…"

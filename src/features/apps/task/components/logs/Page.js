@@ -5,14 +5,13 @@ import { ScrollText, Activity, Loader2, Eye, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 
-import { logService }    from "@/features/apps/task/services/logApi";
-import { useCanAccess }    from "@/core/hooks/useCanAccess";
+import { activityLogService } from "@/features/shared/services/activityLogService";
+import { useCanAccess } from "@/core/hooks/useCanAccess";
 import StatCard          from "@/features/apps/task/components/common/StatCard";
 import SearchBar         from "@/features/apps/task/components/common/SearchBar";
 import Pagination        from "@/features/apps/task/components/common/Pagination";
 import { FilterButtons, BulkActionBar } from "@/features/apps/task/components/common/CommonFilters";
 import LogDetailModal    from "@/features/apps/task/components/logs/DetailModal";
-import LogDeleteModal    from "@/features/apps/task/components/logs/DeleteModal";
 
 // ── Badges ────────────────────────────────────────────────────────────────────
 const ROLE_STYLE = {
@@ -21,10 +20,11 @@ const ROLE_STYLE = {
   user:        "bg-slate-100 text-slate-500 border-slate-200",
 };
 const ACTION_STYLE = {
-  POST:   "bg-emerald-50 text-emerald-700 border-emerald-200",
-  PUT:    "bg-blue-50 text-blue-700 border-blue-200",
-  PATCH:  "bg-blue-50 text-blue-700 border-blue-200",
+  CREATE:   "bg-emerald-50 text-emerald-700 border-emerald-200",
+  UPDATE:    "bg-blue-50 text-blue-700 border-blue-200",
+  MODIFY:  "bg-blue-50 text-blue-700 border-blue-200",
   DELETE: "bg-rose-50 text-rose-600 border-rose-200",
+  APPROVE: "bg-indigo-50 text-indigo-700 border-indigo-200",
 };
 const ROLE_LABEL = { super_admin: "Super Admin", admin: "Admin", user: "User" };
 
@@ -38,7 +38,6 @@ const PAGE_SIZES = [5, 10, 25, 50];
 export default function LogsPage() {
   const canAccess = useCanAccess();
   const canView   = canAccess("activity_logs", "view").allowed;
-  const canDelete = canAccess("activity_logs", "delete").allowed;
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const [items,      setItems]      = useState([]);
@@ -58,24 +57,25 @@ export default function LogsPage() {
   // ── Selection + Modals ────────────────────────────────────────────────────
   const [selected,   setSelected]   = useState([]);
   const [viewItem,   setViewItem]   = useState(null);
-  const [deleteItem, setDeleteItem] = useState(null);
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      const res = (await logService.getAll({
-        page, limit: pageSize,
-        search:   search   || undefined,
-        dateFrom: dateFrom || undefined,
-        dateTo:   dateTo   || undefined,
-        sortBy:   sortKey,
-        order:    sortDir,
-      })).data;
-      const raw  = res.data?.data ?? res.data ?? [];
-      const safe = Array.isArray(raw) ? raw : [];
-      setItems(safe);
-      setTotalItems(res.data?.total ?? safe.length);
+      const response = await activityLogService.getLogs({
+        app_type: "task",
+        page,
+        limit: pageSize,
+        search: search || undefined,
+        date_from: dateFrom ? `${dateFrom} 00:00:00` : undefined,
+        date_to: dateTo ? `${dateTo} 23:59:59` : undefined,
+        all_users: "true"
+      });
+
+      if (response.success) {
+        setItems(response.data || []);
+        setTotalItems(response.pagination?.total ?? 0);
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || "Failed to load logs");
     } finally {
@@ -112,29 +112,18 @@ export default function LogsPage() {
     : [...new Set([...selected, ...items.map(i => i.id)])]);
   const toggleOne   = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
 
-  // ── Bulk delete ───────────────────────────────────────────────────────────
-  const handleBulkDelete = async () => {
-    if (!window.confirm(`Delete ${selected.length} logs?`)) return;
-    try {
-      await Promise.all(selected.map(id => logService.delete(id)));
-      toast.success(`${selected.length} logs deleted`);
-      setSelected([]);
-      fetchItems();
-    } catch { toast.error("Some deletions failed"); }
-  };
-
   // ── Export ────────────────────────────────────────────────────────────────
   const handleExport = () => {
     const csv = [
-      ["ID","User","Username","Role","Action Type","Module","Description","Created At"],
+      ["ID","User","Username","Action Type","Module","Description","Created At"],
       ...items.map(i => [
-        i.id, i.user?.name ?? `User #${i.user_id}`, i.user?.username ?? "",
-        i.user_type ?? "", i.action_type ?? "", i.module ?? "",
+        i.id, i.user_name ?? `User #${i.user_id}`, i.user_username ?? "",
+        i.action_type ?? "", i.module ?? "",
         i.description ?? "", i.created_at,
       ].map(v => `"${v ?? ""}"`).join(",")),
     ].join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    Object.assign(document.createElement("a"), { href: url, download: "user_logs.csv" }).click();
+    Object.assign(document.createElement("a"), { href: url, download: "task_activity_logs.csv" }).click();
     URL.revokeObjectURL(url);
     toast.success("Exported successfully");
   };
@@ -263,9 +252,10 @@ export default function LogsPage() {
           {/* Row 3 — Bulk bar */}
           <BulkActionBar
             count={selected.length}
-            onBulkDelete={handleBulkDelete}
+            onBulkDelete={() => {}} // Disabled for now as per requirements
             onClearSelection={() => setSelected([])}
             accentColor="violet"
+            showDelete={false}
           />
         </div>
 
@@ -336,22 +326,17 @@ export default function LogsPage() {
                     <div className="flex items-center gap-2.5">
                       <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
                         <span className="text-xs font-bold text-violet-600">
-                          {(item.user?.name ?? "?")?.[0]?.toUpperCase()}
+                          {(item.user_name ?? "?")?.[0]?.toUpperCase()}
                         </span>
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-slate-700 leading-tight truncate">
-                          {item.user?.name ?? `User #${item.user_id}`}
+                          {item.user_name ?? `User #${item.user_id}`}
                         </p>
-                        {item.user?.username && (
-                          <p className="text-[11px] text-slate-400">@{item.user.username}</p>
+                        {item.user_username && (
+                          <p className="text-[11px] text-slate-400">@{item.user_username}</p>
                         )}
                       </div>
-                      {item.user_type && (
-                        <span className={`hidden sm:inline-flex px-1.5 py-0.5 rounded-md text-[10px] font-semibold border flex-shrink-0 ${ROLE_STYLE[item.user_type] ?? ROLE_STYLE.user}`}>
-                          {ROLE_LABEL[item.user_type] ?? item.user_type}
-                        </span>
-                      )}
                     </div>
                   </td>
 
@@ -393,12 +378,6 @@ export default function LogsPage() {
                           <Eye size={14} />
                         </button>
                       )}
-                      {canDelete && (
-                        <button onClick={() => setDeleteItem(item)} title="Delete"
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
                     </div>
                   </td>
 
@@ -417,8 +396,7 @@ export default function LogsPage() {
         )}
       </div>
 
-      <LogDetailModal item={viewItem}   onClose={() => setViewItem(null)} />
-      <LogDeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={fetchItems} />
+      <LogDetailModal item={viewItem} onClose={() => setViewItem(null)} />
     </div>
   );
 }

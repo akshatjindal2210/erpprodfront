@@ -87,11 +87,22 @@ export function FieldError({ msg }) {
   );
 }
 
+/** Drawer / modal field labels (12px — readable on phone, not oversized). */
+export const FORM_LABEL_CLASS =
+  "text-xs font-bold text-slate-500 uppercase tracking-wide ml-1";
+
+/** Dense grid labels inside modals (item rows, scan meta). */
+export const FORM_MICRO_LABEL_CLASS =
+  "text-[11px] sm:text-xs font-bold text-slate-400 uppercase tracking-wide";
+
+export const FORM_HINT_CLASS = "text-xs text-slate-500 ml-1 leading-relaxed";
+export const FORM_ERROR_CLASS = "text-xs text-rose-500 ml-1 flex items-center gap-1";
+
 /** Drawer / list form labels — pass `required` when `validate()` enforces the field. */
 export function FormLabel({
   children,
   required = false,
-  className = "text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1",
+  className = FORM_LABEL_CLASS,
   htmlFor,
 }) {
   return (
@@ -102,7 +113,8 @@ export function FormLabel({
   );
 }
 
-const baseInput = "w-full bg-white border rounded-lg px-3 py-2 text-sm text-slate-800 placeholder-slate-400 outline-none transition-all h-10";
+const baseInput =
+  "w-full bg-white border rounded-lg px-3 py-2 text-base md:text-sm text-slate-800 placeholder-slate-400 outline-none transition-all min-h-10";
 export const okInput = `${baseInput} border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20`;
 /** Sentence-case labels for settings / user forms */
 export const formFieldLabelCls = "block text-xs font-medium text-slate-600 mb-1";
@@ -118,9 +130,12 @@ export const PERMS = ['view', 'add', 'edit', 'delete', 'authorize'];
 // ------------- For Training Module
 
 
-// ------------------ For Packing Standard Module Drawers
-const BASE_INPUT = "w-full bg-white border rounded-xl px-4 py-2.5 text-sm text-slate-800 outline-none transition-all appearance-none";
-export const OK_INPUT   = `${BASE_INPUT} border-slate-200 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50`;
-export const ERR_INPUT  = `${BASE_INPUT} border-rose-300 focus:border-rose-400 focus:ring-4 focus:ring-rose-50 bg-rose-50/20`;
+// ------------------ IMS drawer / modal inputs (compact)
+const BASE_INPUT =
+  "w-full bg-white border rounded-lg px-2.5 sm:px-3 h-9 text-[11px] sm:text-xs text-slate-800 placeholder-slate-400 outline-none transition-all appearance-none leading-normal";
+export const OK_INPUT   = `${BASE_INPUT} border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50/80`;
+export const ERR_INPUT  = `${BASE_INPUT} border-rose-300 focus:border-rose-400 focus:ring-2 focus:ring-rose-50 bg-rose-50/20`;
+/** Optional class merge for modal fields (same density as OK_INPUT). */
+export const MODAL_INPUT_CLASS = "text-[11px] h-9 rounded-lg";
 
 export const UNIT_OPTIONS = ["PCS", "KG"];

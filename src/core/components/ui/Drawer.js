@@ -42,6 +42,7 @@ const Drawer = ({
 
       const handleKeyDown = (e) => {
         if (e.key === 'Escape') {
+          e.stopPropagation();
           onClose?.();
           return;
         }
@@ -116,8 +117,12 @@ const Drawer = ({
             {isFormHeader ? (
               <>
                 <h3 className="text-base font-semibold text-slate-900 min-w-0 break-words">{title}</h3>
-                {description ? (
-                  <p className="text-sm text-slate-500 leading-snug break-words">{description}</p>
+                {description != null && description !== "" ? (
+                  typeof description === "string" ? (
+                    <p className="text-sm text-slate-500 leading-snug break-words">{description}</p>
+                  ) : (
+                    <div className="text-sm text-slate-500 leading-snug break-words">{description}</div>
+                  )
                 ) : null}
               </>
             ) : (
@@ -126,11 +131,17 @@ const Drawer = ({
                   <span className="w-1 h-4 bg-indigo-600 inline-block shrink-0 mt-0.5" />
                   <span className="min-w-0 break-words leading-snug">{title}</span>
                 </h3>
-                {description && (
-                  <p className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-tight ml-3 sm:ml-4 leading-snug break-words">
-                    {description}
-                  </p>
-                )}
+                {description != null && description !== "" ? (
+                  typeof description === "string" ? (
+                    <p className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-tight ml-3 sm:ml-4 leading-snug break-words">
+                      {description}
+                    </p>
+                  ) : (
+                    <div className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-tight ml-3 sm:ml-4 leading-snug break-words">
+                      {description}
+                    </div>
+                  )
+                ) : null}
               </>
             )}
           </div>
@@ -154,7 +165,7 @@ const Drawer = ({
         </div>
 
         {footer && (
-          <div className="px-3 sm:px-4 py-2 border-t border-slate-200 flex justify-end items-center bg-slate-50 sticky bottom-0 z-30">
+          <div className="px-3 sm:px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-slate-200 flex justify-end items-center bg-slate-50 sticky bottom-0 z-30">
             <div className="flex w-full sm:w-auto gap-2 items-center justify-end flex-wrap">
               {footer}
             </div>

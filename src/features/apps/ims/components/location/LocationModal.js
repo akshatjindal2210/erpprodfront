@@ -66,7 +66,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
       }, 300);
     }
     return () => clearTimeout(timeoutId);
-  }, [open, editData, isApprove]);
+  }, [open, editData?.location_id, isApprove]);
 
   const handleInputChange = (k, value) => {
     let finalValue = value;

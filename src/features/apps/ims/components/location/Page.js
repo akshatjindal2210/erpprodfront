@@ -9,11 +9,13 @@ import { locationService } from "@/features/apps/ims/services/location";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import dayjs from "dayjs";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 // Components
 import ActionButton from "@/core/components/ui/ActionButton";
 import PrintActionButton from "@/core/components/ui/PrintActionButton";
 import ViewToggle from "@/core/components/ui/ViewToggle";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DataTable from "@/core/components/ui/DataTable";
 import LocationModal from "@/features/apps/ims/components/location/LocationModal";
@@ -150,9 +152,9 @@ export default function LocationMasterPage() {
     [filteredRows, selected]
   );
 
-  const { openNewModal, openEditModal, openPrintModal, tableHotkeyProps } = useListDrawerHotkeys({
+  const { openNewModal, openEditModal, openPrintModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "location_master",
-    modalOpen: modalOpen || qrModalOpen || bulkQrOpen,
+    modalOpen: modalOpen || qrModalOpen || bulkQrOpen || !!deleteItem,
     selectedId: selected,
     getSelectedRow,
     openAdd: useCallback(() => {
@@ -188,6 +190,10 @@ export default function LocationMasterPage() {
     printBlockedMessage: "Select an authorized location to print QR (Ctrl+Alt+P).",
     printModule: "location_master",
     printAction: "view",
+    openDelete: useCallback((row) => {
+      setDeleteItem(row);
+    }, []),
+    canDeleteSelection: useCallback(() => !!selected, [selected]),
   });
 
   const HEADERS = [
@@ -197,7 +203,7 @@ export default function LocationMasterPage() {
           {v || `${row.rack_no || ""}${(row.shelf_no || "").toString().toUpperCase()}` || "—"}
         </span>
       </div>
-    ), { width: "120px" }],
+    ), { fixed: true, width: "120px" }],
     ["Rack No", "rack_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "90px" }],
     ["Shelf No", "shelf_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{(v || "—").toString().toUpperCase()}</span>, { width: "90px" }],
     [
@@ -236,12 +242,13 @@ export default function LocationMasterPage() {
   ];
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2 flex-wrap">
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <>
               <ActionButton module="location_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
               <ActionButton module="location_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none" />
               <ActionButton module="location_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected} onClick={() => { setEditItem(selectedRecord); setModalMode("approve"); setModalOpen(true); }} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none" />
@@ -266,10 +273,10 @@ export default function LocationMasterPage() {
                 <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
                 <span className="hidden xs:inline">Refresh</span>
               </button>
-            </div>
-
-            <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />
-          </div>
+              </>
+            }
+            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+          />
 
           {selected && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
@@ -284,7 +291,7 @@ export default function LocationMasterPage() {
               </button>
             </div>
           )}
-        </div>
+        </ListPageToolbar>
 
         <ListPageFilterStrip>
           <DateRangeFilter

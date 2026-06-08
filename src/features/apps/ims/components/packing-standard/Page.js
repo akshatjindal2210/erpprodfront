@@ -9,10 +9,12 @@ import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilte
 import { formatDateTime } from "@/core/utils/utilHelper";
 import { packingStandardService } from "@/features/apps/ims/services/packingStandard";
 import { useViewMode } from "@/core/hooks/useViewMode";
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 // Components
 import ActionButton from "@/core/components/ui/ActionButton";
 import ViewToggle from "@/core/components/ui/ViewToggle";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DataTable from "@/core/components/ui/DataTable";
 import PackingStandardModal from "@/features/apps/ims/components/packing-standard/PackingModal";
@@ -142,9 +144,9 @@ export default function PackingStandardPage() {
     [filteredRows, selected]
   );
 
-  const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
+  const { openNewModal, openEditModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "packing_standard",
-    modalOpen,
+    modalOpen: modalOpen || !!deleteItem,
     selectedId: selected,
     getSelectedRow,
     openAdd: useCallback(() => {
@@ -169,6 +171,10 @@ export default function PackingStandardPage() {
     onApproveBlocked: useCallback(() => {
       toast.info("Select a row to open approve (Ctrl+A).");
     }, []),
+    openDelete: useCallback((row) => {
+      setDeleteItem(row);
+    }, []),
+    canDeleteSelection: useCallback(() => !!selected, [selected]),
   });
 
   const HEADERS = [
@@ -201,23 +207,25 @@ export default function PackingStandardPage() {
   ];
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <ActionButton module="packing_standard" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
-              <ActionButton module="packing_standard" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none" />
-              <ActionButton module="packing_standard" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected} onClick={() => { setEditItem(selectedRecord); setModalMode("approve"); setModalOpen(true); }} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none" />
-              <ActionButton module="packing_standard" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
-              <button onClick={() => fetchPackingStandards()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase shadow-none">
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <>
+              <ActionButton module="packing_standard" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+              <ActionButton module="packing_standard" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
+              <ActionButton module="packing_standard" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected} onClick={() => { setEditItem(selectedRecord); setModalMode("approve"); setModalOpen(true); }} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
+              <ActionButton module="packing_standard" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
+              <button onClick={() => fetchPackingStandards()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase shadow-none shrink-0">
                 <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
               </button>
-            </div>
-            <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />
-          </div>
+              </>
+            }
+            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+          />
 
           {selected && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
@@ -227,7 +235,7 @@ export default function PackingStandardPage() {
               </button>
             </div>
           )}
-        </div>
+        </ListPageToolbar>
 
         <ListPageFilterStrip>
           <DateRangeFilter 

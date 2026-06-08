@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, LogOut, FileSearch, FileEdit } from "lucide-react";
+import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, LogOut, FileSearch, FileEdit, Warehouse, ClipboardList, PlayCircle, Truck } from "lucide-react";
 import { toast } from "react-toastify";
 import dayjs from "dayjs";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
 
 import { outEntryService } from "@/features/apps/ims/services/outEntry";
+import { forwardingNoteService } from "@/features/apps/ims/services/forwardingNote";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import { formatDateTime } from "@/core/utils/utilHelper";
 
@@ -14,26 +15,47 @@ import { formatDateTime } from "@/core/utils/utilHelper";
 import OutEntryModal from "@/features/apps/ims/components/out-entry/OutEntryModal";
 import {
   OUT_ENTRY_STATUS_FILTER_OPTIONS,
+  OUT_ENTRY_TYPE_FILTER_OPTIONS,
   buildOutEntryListFilters,
   isOutEntryScanDraft,
   matchesOutEntryStatusFilter,
   outEntryScanProgressLabel,
   outEntryStatusLabel,
 } from "@/features/apps/ims/utils/outEntryScanStatus";
+import {
+  isOutEntryAutoAuthorized,
+  isOutEntryInventoryOut,
+  isOutEntryPackingArea,
+  getOutEntryTypeTableLabel,
+  getOutEntryTypeBadgeClass,
+  OUT_ENTRY_TYPE,
+} from "@/features/apps/ims/utils/outEntryTypes";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import DataTable from "@/core/components/ui/DataTable";
 import ViewToggle from "@/core/components/ui/ViewToggle";
+import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/core/components/common/ListPageToolbar";
+import ImsSegmentedTabs from "@/features/apps/ims/components/common/ImsSegmentedTabs";
 import ActionButton from "@/core/components/ui/ActionButton";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { pipeMetaRenderers } from "@/features/apps/ims/helpers/pipeMetaDisplay";
+
+const PAGE_TABS = {
+  STORE_OUT: "store_out",
+  PENDING_FORWARDING: "pending_forwarding",
+};
 
 export default function OutEntryPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("out_entry", "view"), [canAccess]);
+  const forwardingViewAccess = useMemo(() => canAccess("forwarding_notes", "view"), [canAccess]);
+
+  const [pageTab, setPageTab] = useState(PAGE_TABS.PENDING_FORWARDING);
+  const isStoreOut = pageTab === PAGE_TABS.STORE_OUT;
 
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
@@ -45,7 +67,16 @@ export default function OutEntryPage() {
   const [params, setParams] = useState({
     pageSize: 1000,
     status: "all",
+    entryType: "all",
     fromDate: dateFilterDefaults.from, toDate: dateFilterDefaults.to, sortKey: "out_uid", sortDir: "desc"
+  });
+
+  const [forwardingParams, setForwardingParams] = useState({
+    pageSize: 1000,
+    fromDate: dateFilterDefaults.from,
+    toDate: dateFilterDefaults.to,
+    sortKey: "fuid",
+    sortDir: "desc",
   });
 
   // Update params if dateFilterDefaults change
@@ -56,11 +87,17 @@ export default function OutEntryPage() {
         fromDate: dateFilterDefaults.from,
         toDate: dateFilterDefaults.to
       }));
+      setForwardingParams(prev => ({
+        ...prev,
+        fromDate: dateFilterDefaults.from,
+        toDate: dateFilterDefaults.to
+      }));
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const [tempSearch, setTempSearch] = useState("");
   const [allRows, setAllRows] = useState([]);
+  const [forwardingRows, setForwardingRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null); 
   const [modalOpen, setModalOpen] = useState(false);
@@ -101,19 +138,64 @@ export default function OutEntryPage() {
     }
   }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status]);
 
+  const fetchForwardingNotes = useCallback(async () => {
+    setLoading(true);
+    try {
+      const base = {
+        sortBy: forwardingParams.sortKey,
+        order: forwardingParams.sortDir.toUpperCase(),
+        filters: {
+          ...(forwardingParams.fromDate && { from_date: `${forwardingParams.fromDate} 00:00:00` }),
+          ...(forwardingParams.toDate && { to_date: `${forwardingParams.toDate} 23:59:59` }),
+          approved: true,
+          out_entry_complete: false,
+        },
+      };
+      const { data } = await fetchAllListPages(async (page, limit) => {
+        const body = await forwardingNoteService.getAll({ ...base, page, limit });
+        return { data: body.data ?? [], total: body.total ?? 0 };
+      }, forwardingParams.pageSize);
+      setForwardingRows(data);
+      setDisplayLimit(100);
+    } catch (err) {
+      toast.error(err?.message || "Failed to load forwarding notes");
+      setForwardingRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [forwardingParams.pageSize, forwardingParams.sortKey, forwardingParams.sortDir, forwardingParams.fromDate, forwardingParams.toDate]);
+
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (isStoreOut) fetchData();
+    else fetchForwardingNotes();
+  }, [isStoreOut, fetchData, fetchForwardingNotes]);
+
+  const activeSourceRows = isStoreOut ? allRows : forwardingRows;
+  const activeSortKey = isStoreOut ? params.sortKey : forwardingParams.sortKey;
+  const activeSortDir = isStoreOut ? params.sortDir : forwardingParams.sortDir;
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
-    let rows = allRows;
-    if (params.status !== "all") {
-      rows = rows.filter((r) => matchesOutEntryStatusFilter(r, params.status));
+    let rows = activeSourceRows;
+    if (isStoreOut) {
+      if (params.status !== "all") {
+        rows = rows.filter((r) => matchesOutEntryStatusFilter(r, params.status));
+      }
+      if (params.entryType !== "all") {
+        rows = rows.filter((r) => {
+          if (params.entryType === OUT_ENTRY_TYPE.PACKING_AREA) {
+            return isOutEntryPackingArea(r.entry_type);
+          }
+          if (params.entryType === OUT_ENTRY_TYPE.INVENTORY_OUT) {
+            return isOutEntryInventoryOut(r.entry_type);
+          }
+          return r.entry_type === params.entryType;
+        });
+      }
     }
     if (q) return applyClientSearch(rows, tempSearch);
-    return sortRowsByKey(rows, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir, params.status]);
+    return sortRowsByKey(rows, activeSortKey, activeSortDir);
+  }, [activeSourceRows, tempSearch, activeSortKey, activeSortDir, params.status, params.entryType, isStoreOut]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -125,48 +207,77 @@ export default function OutEntryPage() {
   }, [loading, items.length, totalItems]);
 
   const handleFilterApply = (data) => {
-    const nextStatus = data.approvedStatus || params.status;
-    setParams((prev) => ({
-      ...prev,
-      fromDate: data.fromDate,
-      toDate: data.toDate,
-      status: nextStatus === "approved" ? "authorized" : nextStatus,
-    }));
+    if (isStoreOut) {
+      const nextStatus = data.approvedStatus || params.status;
+      const nextType = data.entryType || params.entryType;
+      setParams((prev) => ({
+        ...prev,
+        fromDate: data.fromDate,
+        toDate: data.toDate,
+        status: nextStatus === "approved" ? "authorized" : nextStatus,
+        entryType: nextType,
+      }));
+    } else {
+      setForwardingParams((prev) => ({
+        ...prev,
+        fromDate: data.fromDate,
+        toDate: data.toDate,
+      }));
+    }
   };
 
   const handleReset = () => {
     setTempSearch("");
-    setParams({
-      pageSize: 1000,
-      status: "all",
-      fromDate: dateFilterDefaults.from,
-      toDate: dateFilterDefaults.to,
-      sortKey: "out_uid",
-      sortDir: "desc",
-    });
+    if (isStoreOut) {
+      setParams({
+        pageSize: 1000,
+        status: "all",
+        entryType: "all",
+        fromDate: dateFilterDefaults.from,
+        toDate: dateFilterDefaults.to,
+        sortKey: "out_uid",
+        sortDir: "desc",
+      });
+    } else {
+      setForwardingParams({
+        pageSize: 1000,
+        fromDate: dateFilterDefaults.from,
+        toDate: dateFilterDefaults.to,
+        sortKey: "fuid",
+        sortDir: "desc",
+      });
+    }
   };
 
   const extraFilters = useMemo(
-    () => [
+    () => isStoreOut ? [
       {
         label: "Status",
         key: "approvedStatus",
         value: params.status === "approved" ? "authorized" : params.status,
         options: OUT_ENTRY_STATUS_FILTER_OPTIONS,
       },
-    ],
-    [params.status]
+      {
+        label: "Entry Type",
+        key: "entryType",
+        value: params.entryType,
+        options: OUT_ENTRY_TYPE_FILTER_OPTIONS,
+      },
+    ] : [],
+    [params.status, params.entryType, isStoreOut]
   );
 
-  const selectedRecord = useMemo(() => filteredRows.find((i) => i.out_uid === selected), [filteredRows, selected]);
+  const getRowId = useCallback((item) => isStoreOut ? item.out_uid : item.fuid, [isStoreOut]);
+
+  const selectedRecord = useMemo(() => filteredRows.find((i) => getRowId(i) === selected), [filteredRows, selected, getRowId]);
 
   const getSelectedRow = useCallback(
-    () => filteredRows.find((i) => i.out_uid === selected),
-    [filteredRows, selected]
+    () => filteredRows.find((i) => getRowId(i) === selected),
+    [filteredRows, selected, getRowId]
   );
 
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
-    module: "out_entry",
+    module: isStoreOut ? "out_entry" : "forwarding_notes",
     modalOpen,
     selectedId: selected,
     getSelectedRow,
@@ -176,81 +287,198 @@ export default function OutEntryPage() {
       setModalOpen(true);
     }, []),
     openEdit: useCallback((row) => {
-      setEditItem(row);
-      setModalMode("edit");
-      setModalOpen(true);
-    }, []),
-    openApprove: useCallback((row) => {
-      if (isOutEntryScanDraft(row)) {
-        toast.error("Complete all box scans and submit before approving.");
-        return;
+      if (isStoreOut) {
+        setEditItem(row);
+        setModalMode("edit");
+        setModalOpen(true);
+      } else {
+        // For pending forwarding, we open OutEntryModal in add mode but with FUID pre-selected
+        // However, if out_entry_uid exists, it means it's a draft, so we should edit that.
+        if (row.out_entry_uid) {
+          setEditItem({ out_uid: row.out_entry_uid, fuid: row.fuid, scan_complete: row.out_entry_scan_complete });
+          setModalMode("edit");
+        } else {
+          setEditItem({ fuid: row.fuid });
+          setModalMode("add");
+        }
+        setModalOpen(true);
       }
-      setEditItem(row);
-      setModalMode("approve");
-      setModalOpen(true);
-    }, []),
+    }, [isStoreOut]),
+    openApprove: useCallback((row) => {
+      if (isStoreOut) {
+        if (isOutEntryScanDraft(row)) {
+          toast.error("Complete all box scans and submit before approving.");
+          return;
+        }
+        setEditItem(row);
+        setModalMode("approve");
+        setModalOpen(true);
+      }
+    }, [isStoreOut]),
     canApproveSelection: useCallback(
-      () => Boolean(selected && selectedRecord),
-      [selected, selectedRecord]
+      () => Boolean(isStoreOut && selected && selectedRecord && !isOutEntryAutoAuthorized(selectedRecord.entry_type)),
+      [selected, selectedRecord, isStoreOut]
     ),
     onApproveBlocked: useCallback(() => {
       const row = getSelectedRow();
-      if (row && isOutEntryScanDraft(row)) {
+      if (row && isOutEntryAutoAuthorized(row.entry_type)) {
+        toast.info("Auto-authorized — cannot re-approve.");
+        return;
+      }
+      if (row && isStoreOut && isOutEntryScanDraft(row)) {
         toast.error("Complete all box scans and submit before approving.");
         return;
       }
       toast.info("Select a row to open approve (Ctrl+A).");
-    }, [getSelectedRow]),
+    }, [getSelectedRow, isStoreOut]),
     canEditSelection: useCallback(() => {
       const row = getSelectedRow();
-      return Boolean(row && !isOutEntryScanDraft(row));
-    }, [getSelectedRow]),
+      if (isStoreOut) return Boolean(row && !isOutEntryScanDraft(row) && !isOutEntryAutoAuthorized(row.entry_type));
+      return Boolean(row);
+    }, [getSelectedRow, isStoreOut]),
     onEditBlocked: useCallback(() => {
       const row = getSelectedRow();
-      if (row && isOutEntryScanDraft(row)) {
+      if (row && isOutEntryAutoAuthorized(row.entry_type)) {
+        toast.info("Auto-authorized entries cannot be edited.");
+        return;
+      }
+      if (row && isStoreOut && isOutEntryScanDraft(row)) {
         toast.info("Select a draft row, then click Draft.");
         return;
       }
       toast.info("Select a row to edit (Ctrl+E).");
-    }, [getSelectedRow]),
+    }, [getSelectedRow, isStoreOut]),
   });
 
-  const selectedIsDraft = Boolean(selectedRecord && isOutEntryScanDraft(selectedRecord));
+  const selectedIsDraft = useMemo(() => {
+    if (isStoreOut) return Boolean(selectedRecord && isOutEntryScanDraft(selectedRecord));
+    return Boolean(selectedRecord?.out_entry_uid && !selectedRecord.out_entry_scan_complete);
+  }, [isStoreOut, selectedRecord]);
+
+  const selectedOutEntryRecord = useMemo(() => {
+    if (!selectedRecord) return null;
+    if (isStoreOut) return selectedRecord;
+    if (!selectedRecord.out_entry_uid) return null;
+    return {
+      out_uid: selectedRecord.out_entry_uid,
+      fuid: selectedRecord.fuid,
+      scan_complete: selectedRecord.out_entry_scan_complete,
+      approved: false, // In pending list, it's never approved
+    };
+  }, [isStoreOut, selectedRecord]);
 
   const handleDraftClick = useCallback(() => {
-    if (!selectedRecord || !isOutEntryScanDraft(selectedRecord)) {
+    const rec = selectedOutEntryRecord;
+    if (!rec || !isOutEntryScanDraft(rec)) {
       toast.info("Select a draft row, then click Draft.");
       return;
     }
-    openDraftForm(selectedRecord);
-  }, [selectedRecord, openDraftForm]);
+    openDraftForm(rec);
+  }, [selectedOutEntryRecord, openDraftForm]);
 
   const handleTableRowClick = useCallback((_row, id) => {
     setSelected(id);
   }, []);
 
   const handleApproveClick = useCallback(() => {
-    if (!selectedRecord) return;
-    if (isOutEntryScanDraft(selectedRecord)) {
+    const rec = selectedOutEntryRecord;
+    if (!rec) return;
+    if (isOutEntryScanDraft(rec)) {
       toast.error("Complete all box scans and submit before approving.");
       return;
     }
-    setEditItem(selectedRecord);
+    setEditItem(rec);
     setModalMode("approve");
     setModalOpen(true);
-  }, [selectedRecord]);
+  }, [selectedOutEntryRecord]);
 
-  const HEADERS = [
+  const handleDeleteClick = useCallback(() => {
+    if (!selectedOutEntryRecord) return;
+    setDeleteItem(selectedOutEntryRecord);
+  }, [selectedOutEntryRecord]);
+
+  const handleStartOutEntry = useCallback((row) => {
+    if (row.out_entry_uid) {
+      setEditItem({ out_uid: row.out_entry_uid, fuid: row.fuid, scan_complete: row.out_entry_scan_complete });
+      setModalMode("edit");
+    } else {
+      setEditItem({ fuid: row.fuid });
+      setModalMode("add");
+    }
+    setModalOpen(true);
+  }, []);
+
+  const outPackingMeta = pipeMetaRenderers("font-bold text-slate-800 text-[10px] leading-tight");
+  const outItemMeta = pipeMetaRenderers("text-slate-600 text-[10px] font-medium leading-tight");
+  const outQtyMeta = pipeMetaRenderers("text-emerald-700 text-[10px] font-bold tabular-nums leading-tight");
+
+  const STORE_OUT_HEADERS = [
     ["OUT UID", "out_uid", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "80px" }],
-    
-    ["FUID", "fuid", (v) => (
-      <div className="flex flex-col leading-tight min-w-[120px]">
-        <div className="flex items-center gap-1">
-          <FileSearch size={10} className="text-slate-400" />
-          <span className="font-bold text-slate-800 text-[11px] uppercase tracking-tighter">{v}</span>
-        </div>
-      </div>
+
+    ["Type", "entry_type", (v) => (
+      <span className={`px-2 py-0.5 text-[9px] font-bold border w-fit ${getOutEntryTypeBadgeClass(v)}`}>
+        {getOutEntryTypeTableLabel(v)}
+      </span>
     ), { width: "100px" }],
+
+    ["FUID / Reason", "fuid", (v, row) => {
+      const fuid = row?.fuid ?? v;
+      const reason = row?.reason;
+      const display = fuid
+        ? String(fuid)
+        : reason
+          ? String(reason)
+          : null;
+
+      return (
+        <div className="flex flex-col leading-tight min-w-[120px]">
+          {display ? (
+            <div className="flex items-center gap-1 min-w-0">
+              {fuid ? <FileSearch size={10} className="text-slate-400 shrink-0" /> : null}
+              <span
+                className={`font-bold text-[11px] truncate ${
+                  fuid ? "text-slate-800 uppercase tracking-tighter" : "text-slate-700 normal-case"
+                }`}
+                title={display}
+              >
+                {display}
+              </span>
+            </div>
+          ) : (
+            <span className="text-[10px] font-bold text-slate-400 italic">—</span>
+          )}
+        </div>
+      );
+    }, { width: "140px" }],
+
+    [
+      "Packing No",
+      "packing_numbers",
+      outPackingMeta.table,
+      { width: "140px", cardRender: outPackingMeta.card },
+    ],
+    [
+      "Item Code",
+      "item_codes",
+      outItemMeta.table,
+      { width: "160px", cardRender: outItemMeta.card },
+    ],
+    [
+      "Qty",
+      "qtys",
+      outQtyMeta.table,
+      { width: "100px", cardRender: outQtyMeta.card },
+    ],
+    [
+      "Total Qty",
+      "total_qty",
+      (v) => (
+        <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
+          {v != null ? Number(v).toLocaleString() : "0"}
+        </span>
+      ),
+      { width: "100px" },
+    ],
 
     ["Remarks", "remarks", (v) => (
       <span className="text-[10px] text-slate-500 italic truncate block max-w-[200px]">
@@ -288,72 +516,209 @@ export default function OutEntryPage() {
     ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 
+  const PENDING_HEADERS = [
+    ["FUID", "fuid", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "80px" }],
+    ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "N/A"}</span>, { width: "110px" }],
+    ["Customer", "acc_name", (v) => <span className="text-[10px] font-medium text-slate-500 uppercase italic whitespace-normal break-words leading-snug block" title={v}>{v || "—"}</span>, { width: "250px", wrap: true }],
+    ["Total Qty", "total_items", (v) => <span className="font-black text-slate-700 text-[11px]">{v}</span>, { width: "120px" }],
+    ["Timestamp", "timestamp", (v) => <span className="text-[10px] text-slate-500">{formatDateTime(v)}</span>, { width : "150px" }],
+    ["Status", "approved", (v) => (
+      <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
+        {v ? "● AUTHORIZED" : "○ PENDING"}
+      </span>
+    ), { width: "120px" }],
+    /*
+    [
+      "Out Entry Status",
+      "out_entry_uid",
+      (v, row) => (
+        <div className="flex flex-col gap-1">
+          <span className={`px-2 py-0.5 text-[9px] font-black uppercase border w-fit ${v ? "bg-amber-50 text-amber-600 border-amber-100" : "bg-slate-50 text-slate-400 border-slate-100"}`}>
+            {v ? "IN PROGRESS" : "NOT STARTED"}
+          </span>
+          {v && (
+            <span className="text-[8px] font-bold text-slate-500 tabular-nums">
+              UID: {v}
+            </span>
+          )}
+        </div>
+      ),
+      { width: "130px" },
+    ],
+    [
+      "Action",
+      "fuid",
+      (v, row) => (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleStartOutEntry(row);
+          }}
+          className={`flex items-center gap-1.5 px-3 py-1 text-[9px] font-black uppercase transition-all border ${
+            row.out_entry_uid 
+              ? "bg-amber-500 text-white border-amber-600 hover:bg-amber-600" 
+              : "bg-indigo-600 text-white border-indigo-700 hover:bg-indigo-700"
+          }`}
+        >
+          {row.out_entry_uid ? <PlayCircle size={12} /> : <Plus size={12} />}
+          {row.out_entry_uid ? "Resume Out Entry" : "Start Out Entry"}
+        </button>
+      ),
+      { width: "150px" },
+    ],
+    */
+    ["Logistics", "transporter_name", (v, row) => (
+      <div className="flex flex-col leading-tight min-w-[160px]">
+        <div className="flex items-center gap-1 text-slate-700">
+          <Truck size={10} />
+          <span className="font-bold text-[11px]">{v || "Direct Party"}</span>
+        </div>
+        <span className="text-indigo-500 font-black text-[9px] ml-3 uppercase tracking-wider">{row.vehicle_number || "NO VEHICLE"}</span>
+      </div>
+    ), { width: "280px" }],
+    ["PO Number", "po_number", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "N/A"}</span>, { width: "120px" }],
+    ["Cartage", "cartage", (v) => <span className="text-slate-700 font-bold text-[10px]">{v?.toLocaleString() || 0}</span>, { width: "150px" }],
+    ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+    ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+    ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+    ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+    ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
+    ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+  ];
+
+  const handleTabChange = (tab) => {
+    setPageTab(tab);
+    setSelected(null);
+    setTempSearch("");
+    setDisplayLimit(100);
+  };
+
+  const handleRefresh = () => {
+    if (isStoreOut) fetchData();
+    else fetchForwardingNotes();
+  };
+
   return (
     <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden">
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         
-        {/* ACTION BAR */}
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <ActionButton module="out_entry" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            tabs={
+              <ImsSegmentedTabs
+                active={pageTab}
+                onChange={handleTabChange}
+                tabs={[
+                  { id: PAGE_TABS.STORE_OUT, label: "Store Out", icon: Warehouse },
+                  {
+                    id: PAGE_TABS.PENDING_FORWARDING,
+                    label: "Pending Forwarding Note",
+                    shortLabel: "Pending FN",
+                    icon: ClipboardList,
+                  },
+                ]}
+              />
+            }
+            actions={
+              <>
+              <ActionButton 
+                module="out_entry" 
+                action="add" 
+                label="New" 
+                icon={Plus} 
+                onClick={isStoreOut ? openNewModal : () => handleStartOutEntry(selectedRecord || {})} 
+                className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4`}
+              />
               <ActionButton
                 module="out_entry"
                 action="edit"
                 variant="outline"
                 label="Draft"
                 icon={FileEdit}
-                disabled={!selectedIsDraft || modalOpen}
-                record={selectedRecord}
+                disabled={!selectedIsDraft || modalOpen || isOutEntryAutoAuthorized(selectedRecord?.entry_type)}
+                record={selectedOutEntryRecord}
                 onClick={handleDraftClick}
-                className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-amber-300 text-amber-800 shadow-none"
+                className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-amber-300 text-amber-800`}
               />
-              <ActionButton module="out_entry" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected || isOutEntryScanDraft(selectedRecord)} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none" />
-              <ActionButton module="out_entry" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected || isOutEntryScanDraft(selectedRecord)} record={selectedRecord} onClick={handleApproveClick} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none" />
-              <ActionButton module="out_entry" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
+              <ActionButton 
+                module="out_entry" 
+                action="edit" 
+                variant="outline" 
+                label="Edit" 
+                icon={Edit3} 
+                disabled={!selectedOutEntryRecord || isOutEntryScanDraft(selectedOutEntryRecord) || isOutEntryAutoAuthorized(selectedRecord?.entry_type)} 
+                record={selectedOutEntryRecord} 
+                onClick={openEditModal} 
+                className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-slate-300`}
+              />
+              <ActionButton 
+                module="out_entry" 
+                action="authorize" 
+                variant="outline" 
+                label="Approve" 
+                icon={CheckCircle} 
+                disabled={!selectedOutEntryRecord || isOutEntryScanDraft(selectedOutEntryRecord) || isOutEntryAutoAuthorized(selectedRecord?.entry_type)} 
+                record={selectedOutEntryRecord} 
+                onClick={handleApproveClick} 
+                className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-slate-300 text-emerald-600`}
+              />
+              <ActionButton 
+                module="out_entry" 
+                action="delete" 
+                variant="danger" 
+                label="Delete" 
+                icon={Trash2} 
+                disabled={!selected || (!isStoreOut && !selectedRecord?.out_entry_uid)} 
+                onClick={handleDeleteClick} 
+                className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4`}
+              />
               
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
+              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-0.5 shrink-0" />
               
-              <button onClick={() => fetchData()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center shadow-none">
+              <button type="button" onClick={handleRefresh} className={`${LIST_PAGE_ACTION_CLASS} px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center`} aria-label="Refresh">
                 <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
               </button>
-            </div>
-
-            <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />
-          </div>
+              </>
+            }
+            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+          />
 
           {selected && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in fade-in duration-200">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide">Selected Record: OUT-#{selected} (FUID: {selectedRecord?.fuid})</span>
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide">
+                Selected: {isStoreOut ? `OUT-#${selected} (FUID: ${selectedRecord?.fuid})` : `FUID: ${selected}`}
+              </span>
               <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
                 <X size={14} /> Clear Selection
               </button>
             </div>
           )}
-        </div>
+        </ListPageToolbar>
 
         {/* SEARCH & FILTERS */}
         <ListPageFilterStrip>
           <DateRangeFilter 
-            key={`${params.fromDate}-${params.toDate}`}
-            fromDate={params.fromDate} 
-            toDate={params.toDate} 
+            key={`${pageTab}-${isStoreOut ? params.fromDate : forwardingParams.fromDate}-${isStoreOut ? params.toDate : forwardingParams.toDate}`}
+            fromDate={isStoreOut ? params.fromDate : forwardingParams.fromDate} 
+            toDate={isStoreOut ? params.toDate : forwardingParams.toDate} 
             extraFilters={extraFilters} 
             onApply={handleFilterApply} 
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            searchPlaceholder="Search FUID or UID..."
+            searchPlaceholder={isStoreOut ? "Search FUID or UID..." : "Search FUID, Customer, PO..."}
             searchLabel="Quick Search"
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
+            showDate
           />
         </ListPageFilterStrip>
 
         {/* DATA TABLE */}
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
           <DataTable
-            headers={HEADERS}
+            key={`${pageTab}-${viewMode}`}
+            headers={isStoreOut ? STORE_OUT_HEADERS : PENDING_HEADERS}
             data={items}
             allowCopy={true}
             loading={loading}
@@ -362,28 +727,42 @@ export default function OutEntryPage() {
             hotkeysDisabled={modalOpen || tableHotkeyProps.hotkeysDisabled}
               onSort={(key) => {
                 setDisplayLimit(100);
-                setParams((p) => ({
-                  ...p,
-                  sortKey: key,
-                  sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
-                }));
+                if (isStoreOut) {
+                  setParams((p) => ({
+                    ...p,
+                    sortKey: key,
+                    sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
+                  }));
+                } else {
+                  setForwardingParams((p) => ({
+                    ...p,
+                    sortKey: key,
+                    sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
+                  }));
+                }
               }}
-            sortKey={params.sortKey}
-            sortDir={params.sortDir}
+            sortKey={isStoreOut ? params.sortKey : forwardingParams.sortKey}
+            sortDir={isStoreOut ? params.sortDir : forwardingParams.sortDir}
             selectedId={selected}
             onSelect={setSelected}
             onRowClick={handleTableRowClick}
-            getRowId={(item) => item.out_uid}
+            getRowId={getRowId}
             emptyIcon={LogOut}
             onLoadMore={handleLoadMore}
             hasMore={items.length < totalItems}
             totalItems={totalItems}
-            cardConfig={{ 
+            cardConfig={isStoreOut ? { 
               titleKey: "fuid", 
-              badgeIndices: [4], 
-              detailIndices: [2, 3], 
+              badgeIndices: [8], 
+              detailIndices: [3, 4, 5, 6], 
               footerKey: "created_at",
               className: "rounded-none border border-slate-200 shadow-none" 
+            } : {
+              titleKey: "fuid",
+              badgeIndices: [6],
+              detailKeys: ["acc_name", "bill_no", "po_number", "transporter_name", "total_items"],
+              footerKey: "timestamp",
+              className: "rounded-none border border-slate-200 shadow-none"
             }}
           />
         </div>
@@ -391,7 +770,9 @@ export default function OutEntryPage() {
         {/* --- FOOTER INFO --- */}
         <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Out Entries
+            {isStoreOut 
+              ? `Showing ${items.length} of ${totalItems} Out Entries`
+              : `Showing ${items.length} of ${totalItems} Pending Forwarding Notes`}
           </span>
           <div className="flex items-center gap-2">
              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -407,13 +788,13 @@ export default function OutEntryPage() {
           setEditItem(null);
         }}
         onSuccess={() => {
-          fetchData();
+          handleRefresh();
           setSelected(null);
         }}
         editData={editItem}
         mode={modalMode}
       />
-      <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={() => { fetchData(); setSelected(null); }} service={outEntryService} entityLabel="Out Entry" idKey="out_uid" moduleSlug="out_entry" />
+      <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={() => { handleRefresh(); setSelected(null); }} service={outEntryService} entityLabel="Out Entry" idKey="out_uid" moduleSlug="out_entry" />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useSelector } from "react-redux";
 import { usePathname } from "next/navigation";
 import { selectUser } from "@/core/store/slices/authSlice";
@@ -13,6 +14,16 @@ export default function AuthBootstrap({ children }) {
   const user = useSelector(selectUser);
   const sessionReady = useSyncAuthSession();
   const isLoginPage = pathname === "/login" || pathname?.startsWith("/login/");
+  const [showRetry, setShowRetry] = useState(false);
+
+  useEffect(() => {
+    if (!isLoginPage && !user && !sessionReady) {
+      const timer = setTimeout(() => setShowRetry(true), 6000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowRetry(false);
+    }
+  }, [isLoginPage, user, sessionReady]);
 
   // Live permission / app_access updates (admin saves → this user's socket → /me).
   const socketUserId =
@@ -23,12 +34,25 @@ export default function AuthBootstrap({ children }) {
 
   if (!isLoginPage && !user && !sessionReady) {
     return (
-      <FormPanelLoader
-        label="Loading..."
-        hint="Please wait."
-        minHeight="min-h-screen"
-        className="border-0 rounded-none bg-[#f8fafc] w-full"
-      />
+      <div className="relative flex flex-col items-center justify-center min-h-screen bg-[#f8fafc]">
+        <FormPanelLoader
+          label="Loading..."
+          hint="Please wait."
+          minHeight="min-h-screen"
+          className="border-0 rounded-none bg-transparent w-full"
+        />
+        {showRetry && (
+          <div className="absolute bottom-12 text-center animate-in slide-in-from-bottom-2 duration-500">
+            <button 
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-white border border-slate-200 rounded-full shadow-sm text-[11px] text-indigo-600 font-bold uppercase tracking-wider hover:bg-slate-50 transition-colors"
+            >
+              Refresh Page
+            </button>
+            <p className="text-[10px] text-slate-400 mt-2">Connection is taking longer than expected</p>
+          </div>
+        )}
+      </div>
     );
   }
 

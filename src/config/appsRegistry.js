@@ -43,7 +43,7 @@ export const APPS = [
   },
   {
     id: "settings",
-    name: "Settings",
+    name: "Admin Console",
     href: ROUTES.SETTINGS,
     shell: APP_SHELL.SETTINGS,
     icon: Settings,

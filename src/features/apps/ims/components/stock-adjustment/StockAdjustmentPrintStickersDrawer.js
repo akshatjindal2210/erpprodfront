@@ -18,7 +18,7 @@ function StickerPrintBreakdownTable({ rows, dlTracking, packingFullCount, onPrin
       <div className="px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center gap-1.5 min-w-0 shrink-0">
         <div className="flex items-center gap-1.5 lg:gap-2 min-w-0 flex-1">
           <Box className="w-4 h-4 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-600" aria-hidden />
-          <span className="text-[10px] sm:text-[11px] lg:text-sm font-black uppercase tracking-tight text-slate-800 truncate">
+          <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-tight text-slate-800 truncate">
             Stickers
           </span>
         </div>
@@ -29,7 +29,7 @@ function StickerPrintBreakdownTable({ rows, dlTracking, packingFullCount, onPrin
           <div className="bg-white border border-slate-200 px-3 py-8 text-center">
             <div className="flex flex-col items-center gap-1.5 text-slate-400">
               <Layers size={20} className="opacity-20" />
-              <span className="text-[10px] lg:text-xs font-bold uppercase tracking-wide px-1">
+              <span className="text-[10px] font-bold uppercase tracking-wide px-1">
                 No boxes found for this adjustment.
               </span>
             </div>
@@ -85,7 +85,7 @@ function StickerPrintBreakdownTable({ rows, dlTracking, packingFullCount, onPrin
                         </td>
                         <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-700 min-w-0 max-w-[110px] sm:max-w-[180px] lg:max-w-[240px]">
                           <div className="flex flex-col leading-snug min-w-0">
-                            <span className="text-blue-700 font-bold text-[10px] lg:text-xs break-all">{row.box_no_uid}</span>
+                            <span className="text-blue-700 font-bold text-[10px] break-all">{row.box_no_uid}</span>
                             <span className="text-[8px] lg:text-[10px] text-slate-400 uppercase font-bold truncate">
                               Box {row.box_no} / {row.total_boxes}
                             </span>
@@ -167,7 +167,7 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
   const [stickerRows, setStickerRows] = useState([]);
   const [dlTracking, setDlTracking] = useState({});
   const [printingAll, setPrintingAll] = useState(false);
-  const [mobileTab, setMobileTab] = useState("boxes");
+  const [mobileTab, setMobileTab] = useState("details");
   const sopAckRef = useRef(null);
   const onCloseRef = useRef(onClose);
 
@@ -182,7 +182,7 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
     (async () => {
       setLoading(true);
       setDlTracking({});
-      setMobileTab("boxes");
+      setMobileTab("details");
       setDetail(null);
       setPackingPreview(null);
       setItemMeta(null);
@@ -242,12 +242,12 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
     const im = itemMeta;
     const pn = String(detail?.packing_number ?? "").trim();
     return {
-      item_code: im?.item_code ?? st?.item_code ?? dp?.item_code ?? detail?.item_code ?? "—",
-      itemdesc: im?.itemdesc ?? im?.description ?? st?.itemdesc ?? st?.item_desc ?? detail?.item_desc ?? "—",
+      item_code: detail?.item_code ?? im?.item_code ?? st?.item_code ?? dp?.item_code ?? "—",
+      itemdesc: detail?.item_desc ?? im?.itemdesc ?? im?.description ?? st?.itemdesc ?? st?.item_desc ?? "—",
       category: st?.category ?? st?.type_name ?? "—",
-      acc_name: im?.acc_name ?? st?.acc_name ?? dp?.acc_name ?? "—",
-      party_rate_cust_code: st?.party_rate_cust_code ?? dp?.party_rate_cust_code,
-      acc_code: dp?.acc_code ?? st?.acc_code ?? null,
+      acc_name: detail?.acc_name ?? im?.acc_name ?? st?.acc_name ?? dp?.acc_name ?? "—",
+      party_rate_cust_code: detail?.party_rate_cust_code ?? st?.party_rate_cust_code ?? dp?.party_rate_cust_code,
+      acc_code: detail?.acc_code ?? dp?.acc_code ?? st?.acc_code ?? null,
       job_card_no: dp?.job_card_no ?? st?.job_card_no ?? "—",
       total_qty: st?.total_qty ?? dp?.total_qty ?? detail?.qty ?? 0,
       unit: st?.unit ?? dp?.unit ?? detail?.unit ?? "PCS",
@@ -428,7 +428,7 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-              <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden lg:hidden bg-slate-100/80">
+              <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden lg:hidden bg-slate-100/80 min-h-[min(52dvh,420px)]">
                 <div
                   role="tablist"
                   aria-label="Details and stickers"

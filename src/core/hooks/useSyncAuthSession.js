@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { setCredentials, logout } from "@/core/store/slices/authSlice";
 import { userService } from "@/features/shared/auth/services/userService";
 import { applyListViewSpanFromSession } from "@/core/utils/global";
@@ -16,6 +16,7 @@ import { persistor } from "@/core/store/index";
 export function useSyncAuthSession() {
   const dispatch = useDispatch();
   const router = useRouter();
+  const pathname = usePathname();
   const user = useSelector((state) => state.auth.user);
   const [sessionReady, setSessionReady] = useState(() => Boolean(user));
 
@@ -32,11 +33,17 @@ export function useSyncAuthSession() {
     }
 
     let active = true;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      if (active) controller.abort();
+    }, 10000); // 10s timeout
+
     setSessionReady(false);
 
     (async () => {
       try {
-        const res = await userService.me();
+        const res = await userService.me({ signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!active) return;
 
         if (res?.success && res.data?.id) {
@@ -64,7 +71,10 @@ export function useSyncAuthSession() {
           } catch {
             /* ignore */
           }
-          router.replace("/login");
+          // Only redirect if NOT already on login page to avoid overwriting the redirect param
+          if (pathname !== "/login" && !pathname?.startsWith("/login/")) {
+            router.replace(`/login?redirect=${pathname}`);
+          }
         }
       } finally {
         if (active) {
@@ -75,8 +85,10 @@ export function useSyncAuthSession() {
 
     return () => {
       active = false;
+      clearTimeout(timeoutId);
+      controller.abort();
     };
-  }, [user, dispatch, router]);
+  }, [user, dispatch, router, pathname]);
 
   return sessionReady;
 }

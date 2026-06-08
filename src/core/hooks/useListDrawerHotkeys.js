@@ -50,6 +50,10 @@ export function useListDrawerHotkeys({
   onPrintBlocked,
   printModule,
   printAction = "view",
+  openDelete,
+  canDeleteSelection,
+  onDeleteBlocked,
+  deleteBlockedMessage,
 }) {
   const canAccess = useCanAccess();
 
@@ -67,27 +71,17 @@ export function useListDrawerHotkeys({
   }, [canAccess, module, addAction, addActions, canOpenNew, newBlockedMessage, onNewBlocked, openAdd]);
 
   const openEditModal = useCallback(() => {
-    if (typeof openEdit !== "function") return;
-    if (selectedId == null || selectedId === "") return;
-    if (typeof canEditSelection === "function" && !canEditSelection()) {
-      if (typeof onEditBlocked === "function") {
-        onEditBlocked();
-      } else if (editBlockedMessage && String(editBlockedMessage).trim()) {
-        toast.info(String(editBlockedMessage).trim());
-      }
-      return;
-    }
+    if (typeof openEdit !== "function" || openEdit === null) return;
     const row = typeof getSelectedRow === "function" ? getSelectedRow() : null;
     if (!row) return;
     const access = canAccess(module, editAction);
     if (!access.allowed) return;
     if (editTimeBlockedByAccess(row, access)) return;
     openEdit(row);
-  }, [canAccess, module, editAction, selectedId, getSelectedRow, openEdit, canEditSelection, onEditBlocked, editBlockedMessage]);
+  }, [canAccess, module, editAction, getSelectedRow, openEdit, canEditSelection, onEditBlocked, editBlockedMessage]);
 
   const openApproveModal = useCallback(() => {
-    if (typeof openApprove !== "function") return;
-    if (selectedId == null || selectedId === "") return;
+    if (typeof openApprove !== "function" || openApprove === null) return;
     const access = canAccess(module, authorizeAction);
     if (!access.allowed) return;
     if (typeof canApproveSelection === "function" && !canApproveSelection()) {
@@ -103,7 +97,6 @@ export function useListDrawerHotkeys({
     openApprove(row);
   }, [
     openApprove,
-    selectedId,
     canAccess,
     module,
     authorizeAction,
@@ -114,8 +107,7 @@ export function useListDrawerHotkeys({
   ]);
 
   const openPrintModal = useCallback(() => {
-    if (typeof onPrint !== "function") return;
-    if (selectedId == null || selectedId === "") return;
+    if (typeof onPrint !== "function" || onPrint === null) return;
     if (typeof canPrintSelection === "function" && !canPrintSelection()) {
       if (typeof onPrintBlocked === "function") {
         onPrintBlocked();
@@ -131,7 +123,22 @@ export function useListDrawerHotkeys({
       if (!access.allowed) return;
     }
     onPrint(row);
-  }, [onPrint, selectedId, canPrintSelection, printBlockedMessage, onPrintBlocked, getSelectedRow, printModule, printAction, canAccess]);
+  }, [onPrint, canPrintSelection, printBlockedMessage, onPrintBlocked, getSelectedRow, printModule, printAction, canAccess]);
+
+  const openDeleteModal = useCallback(() => {
+    if (typeof openDelete !== "function" || openDelete === null) return;
+    if (typeof canDeleteSelection === "function" && !canDeleteSelection()) {
+      if (typeof onDeleteBlocked === "function") {
+        onDeleteBlocked();
+      } else if (deleteBlockedMessage && String(deleteBlockedMessage).trim()) {
+        toast.info(String(deleteBlockedMessage).trim());
+      }
+      return;
+    }
+    const row = typeof getSelectedRow === "function" ? getSelectedRow() : null;
+    if (!row) return;
+    openDelete(row);
+  }, [openDelete, canDeleteSelection, onDeleteBlocked, deleteBlockedMessage, getSelectedRow]);
 
   const tableHotkeyProps = useMemo(() => {
     return { hotkeysDisabled: modalOpen };
@@ -144,34 +151,65 @@ export function useListDrawerHotkeys({
 
       const mod = e.ctrlKey || e.metaKey;
       const key = (e.key || "").toLowerCase();
-      const listChord = mod && e.altKey && !e.shiftKey;
-      const listChordPwa = mod && !e.altKey && !e.shiftKey;
+      const isAlt = e.altKey;
+      const isShift = e.shiftKey;
 
-      if ((listChord || listChordPwa) && key === "n") {
+      if (!mod && e.key !== "Insert" && e.key !== "F2" && e.key !== "Delete") return;
+
+      // PWA detection
+      const isPWA = typeof window !== "undefined" &&
+        (window.matchMedia("(display-mode: standalone)").matches || !!window.navigator.standalone);
+
+      // 1. NEW: Ctrl+Alt+N (Browser), Ctrl+N (PWA), or Insert
+      if ((mod && key === "n") || e.key === "Insert") {
         e.preventDefault();
         e.stopPropagation();
-        openNewModal();
+        const allowN = (mod && isAlt) || (mod && !isAlt && isPWA) || e.key === "Insert";
+        if (allowN && typeof openAdd === "function" && openAdd !== null) {
+          openNewModal();
+        }
         return;
       }
 
-      if ((listChord || listChordPwa) && key === "e" && typeof openEdit === "function") {
+      // 2. EDIT: Ctrl+Alt+E (Browser), Ctrl+E (PWA), or F2
+      if ((mod && key === "e") || e.key === "F2") {
         e.preventDefault();
         e.stopPropagation();
-        openEditModal();
+        const allowE = (mod && isAlt) || (mod && !isAlt && isPWA) || e.key === "F2";
+        if (allowE && typeof openEdit === "function" && openEdit !== null) {
+          openEditModal();
+        }
         return;
       }
 
-      if ((listChord || listChordPwa) && key === "p" && typeof onPrint === "function") {
+      // 3. PRINT: Ctrl+P or Ctrl+Alt+P
+      if (mod && key === "p") {
         e.preventDefault();
         e.stopPropagation();
-        openPrintModal();
+        if (typeof onPrint === "function" && onPrint !== null) {
+          openPrintModal();
+        }
         return;
       }
 
-      if (mod && !e.altKey && !e.shiftKey && key === "a" && typeof openApprove === "function") {
+      // 4. APPROVE: Ctrl+A or Ctrl+Alt+A
+      if (mod && key === "a") {
         e.preventDefault();
         e.stopPropagation();
-        openApproveModal();
+        if (typeof openApprove === "function" && openApprove !== null) {
+          openApproveModal();
+        }
+        return;
+      }
+
+      // 5. DELETE: Ctrl+D, Ctrl+Alt+D, or Delete key
+      if ((mod && key === "d") || e.key === "Delete") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof openDelete === "function" && openDelete !== null) {
+          openDeleteModal();
+        }
+        return;
       }
     };
 
@@ -183,10 +221,12 @@ export function useListDrawerHotkeys({
     openEditModal,
     openPrintModal,
     openApproveModal,
+    openDeleteModal,
     openEdit,
     onPrint,
     openApprove,
+    openDelete,
   ]);
 
-  return { openNewModal, openEditModal, openApproveModal, openPrintModal, tableHotkeyProps };
+  return { openNewModal, openEditModal, openApproveModal, openPrintModal, openDeleteModal, tableHotkeyProps };
 }

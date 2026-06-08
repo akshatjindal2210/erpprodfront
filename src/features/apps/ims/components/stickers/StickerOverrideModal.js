@@ -14,6 +14,7 @@ import Snackbar from "@/core/components/ui/Snackbar";
 import { OK_INPUT } from "@/core/components/common/Constants";
 import { SCAN_SNACK_MSG, getBoxNoUidPrefix, parseStandardBoxNoUid, useScanSnackbarActions } from "@/core/utils/global";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
+import { isMobileDevice } from "@/core/utils/pwa";
 import { detectQrType, parseBoxScanRaw, parseStickerScan } from "@/features/apps/ims/helpers/qrScan";
 import { prepareQrScanSession } from "@/features/apps/ims/helpers/scanFeedback";
 import { pickBoxFromViewsResponse } from "@/features/apps/ims/helpers/boxViewsLookup";
@@ -191,7 +192,7 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
       clearTimeout(timeoutId);
       closeScanner();
     };
-  }, [open, editData, isApprove, closeScanner]);
+  }, [open, editData?.request_id, isApprove, closeScanner]);
 
   const handleChange = (key, value) => {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -534,53 +535,55 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
         )}
 
         {/* Sticker input — same row pattern as Inventory Inward (Scan + manual + Add) */}
-        <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 space-y-2">
-          <label className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest ml-1 flex justify-between items-center gap-2">
+        <div className="bg-indigo-50/50 p-2 rounded-lg border border-indigo-100 space-y-1.5">
+          <label className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide ml-1 flex justify-between items-center gap-2">
             <span>Sticker input (box table)</span>
             <span className={scanRows.length > 0 ? "text-indigo-800 font-black" : "text-indigo-400"}>
               Packing: {scanRows[0]?.packing_number || "—"}
             </span>
           </label>
           <div className="flex flex-col sm:flex-row sm:items-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                void (async () => {
-                  const prep = await prepareQrScanSession();
-                  if (!prep.cameraOk) {
-                    showScanToast(
-                      "error",
-                      "camera-permission",
-                      prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
-                      4000
-                    );
-                    return;
-                  }
-                  setIsScannerOpen(true);
-                })();
-              }}
-              disabled={loading || isScannerOpen}
-              className="h-[40px] w-full sm:w-auto sm:shrink-0 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-              title="Open camera scanner"
-            >
-              <QrCode size={16} />
-              <span className="text-[10px] font-black uppercase">Scan</span>
-            </button>
-            <div className="relative flex-1 min-w-0 w-full">
-              <ScanLine className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none" size={16} />
+            {isMobileDevice() && (
+              <button
+                type="button"
+                onClick={() => {
+                  void (async () => {
+                    const prep = await prepareQrScanSession();
+                    if (!prep.cameraOk) {
+                      showScanToast(
+                        "error",
+                        "camera-permission",
+                        prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
+                        4000
+                      );
+                      return;
+                    }
+                    setIsScannerOpen(true);
+                  })();
+                }}
+                disabled={loading || isScannerOpen}
+                className="h-9 w-full sm:w-auto sm:shrink-0 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                title="Open camera scanner"
+              >
+                <QrCode size={16} />
+                <span className="text-[10px] font-black uppercase">Scan</span>
+              </button>
+            )}
+            <div className={`flex flex-1 min-w-0 w-full items-center gap-2 ${OK_INPUT} border-slate-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-50/80`}>
+              <ScanLine className="shrink-0 text-indigo-400 pointer-events-none" size={14} />
               <input
                 value={scanValue}
                 onChange={(e) => setScanValue(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && onScanByCode(scanValue, "manual")}
                 placeholder="Type box_no_uid (sticker) or paste QR text — Enter…"
-                className={`${OK_INPUT} pl-10 h-[40px] text-[11px] bg-white border-slate-200 rounded-lg`}
+                className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[11px] font-normal font-mono text-slate-700 placeholder:font-normal placeholder:text-slate-400 outline-none"
               />
             </div>
             <button
               type="button"
               onClick={() => onScanByCode(scanValue, "manual")}
               disabled={!scanValue?.trim() || loading}
-              className="h-[40px] w-full sm:w-auto sm:shrink-0 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] uppercase rounded-lg transition-all shadow-md flex items-center justify-center gap-2 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
+              className="h-9 w-full sm:w-auto sm:shrink-0 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] uppercase rounded-lg transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
             >
               <Plus size={14} /> Add
             </button>
@@ -604,7 +607,7 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
             ) : null}
           </div>
 
-          <div className="max-h-60 overflow-y-auto overflow-x-hidden">
+          <div className="max-h-60 overflow-y-auto overflow-x-auto">
             {scanRows.length === 0 ? (
               <div className="py-12 text-center">
                 <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">

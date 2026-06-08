@@ -54,12 +54,6 @@ export const ENDPOINTS = {
     item: (holidayId) => `${TASK_API}/holidays/${holidayId}`,
   },
 
-  LOGS: {
-    LIST: `${TASK_API}/logs/`,
-    BULK: `${TASK_API}/logs/bulk`,
-    item: (logId) => `${TASK_API}/logs/${logId}`,
-  },
-
   REMINDERS: {
     LIST: `${TASK_API}/reminders`,
   },

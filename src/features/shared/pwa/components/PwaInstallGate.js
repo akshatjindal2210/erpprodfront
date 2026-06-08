@@ -7,8 +7,6 @@ import { openInstalledPwa } from "@/core/utils/pwaInstalled";
 import { usePwaInstall } from "@/core/hooks/usePwaInstall";
 import { useAppLogout } from "@/core/hooks/useLogout";
 
-import FormPanelLoader from "@/core/components/common/FormPanelLoader";
-
 export default function PwaInstallGate({ children }) {
   const { isStandalone, isIos, installing, installStateReady, showInstall, showOpen, promptInstall } = usePwaInstall();
   const { handleLogout } = useAppLogout();
@@ -18,27 +16,25 @@ export default function PwaInstallGate({ children }) {
     setMounted(true);
   }, []);
 
-  if (!mounted) {
-    return (
-      <FormPanelLoader
-        label="Loading..."
-        hint="Please wait."
-        minHeight="min-h-screen"
-        className="border-0 rounded-none bg-[#f8fafc] w-full"
-      />
-    );
-  }
-
-  if (!isPwaInstallRequired() || isStandalone) {
+  if (!mounted || !isPwaInstallRequired() || isStandalone) {
     return children;
   }
 
   const primaryClass = "w-full bg-[#1e293b] hover:bg-slate-900 disabled:bg-slate-300 text-white font-semibold py-3 rounded-xl text-sm transition-all flex items-center justify-center gap-2";
 
+  const handleBypass = () => {
+    sessionStorage.setItem("pwa_gate_bypassed", "1");
+    window.location.reload();
+  };
+
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center px-6">
-      <div className="w-full max-w-sm text-center">
-        <img src="/logo.png" alt="JFL" className="h-11 mx-auto mb-5 object-contain" />
+    <div className="min-h-screen min-h-[100dvh] bg-[#f8fafc] flex items-center justify-center px-4 sm:px-6">
+      <div className="w-full max-w-sm mx-auto text-center">
+        <img
+          src="/logo.png"
+          alt="JFL ERP"
+          className="h-14 sm:h-16 w-auto max-w-[12rem] sm:max-w-[14rem] mx-auto mb-5 object-contain"
+        />
         <h1 className="text-xl font-bold text-slate-900">Login successful</h1>
         <p className="text-slate-500 text-sm mt-1 mb-6">
           {isIos ? "Add app to home screen, then open from there." : showOpen ? "Open the installed app to continue." : "Install the app to continue."}
@@ -65,20 +61,23 @@ export default function PwaInstallGate({ children }) {
               )}
             </button>
           ) : (
-            <button type="button" onClick={() => openInstalledPwa()} className={primaryClass}>
+            <button type="button" onClick={() => openInstalledPwa(true, { sameTab: true })} className={primaryClass}>
               <ExternalLink size={18} />
               Open App
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-slate-800 py-1"
-          >
-            <LogOut size={16} />
-            Sign out
-          </button>
+          <div className="pt-2 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-slate-800 py-1"
+            >
+              <LogOut size={16} />
+              Sign out
+            </button>
+
+          </div>
         </div>
       </div>
     </div>

@@ -8,9 +8,9 @@ export default function TaskAppConfigForm() {
       <div className="w-14 h-14 rounded-none bg-violet-50 border border-violet-200 flex items-center justify-center mb-4">
         <ListTodo size={28} className="text-violet-500" />
       </div>
-      <h2 className="text-sm font-black text-slate-800 uppercase tracking-wide">Task settings</h2>
+      <h2 className="text-sm font-black text-slate-800 uppercase tracking-wide">Task application settings</h2>
       <p className="text-[11px] text-slate-500 mt-2 max-w-sm leading-relaxed">
-        Task application configuration is not available yet. Settings for reminders, defaults, and other Task options will appear here.
+        No Task-specific settings yet. App-level options for reminders, defaults, and workflows will appear here when added.
       </p>
     </div>
   );

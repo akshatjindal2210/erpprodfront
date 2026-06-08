@@ -15,12 +15,11 @@ import Snackbar                   from "@/core/components/ui/Snackbar";
 import SearchableSelect           from "@/core/components/common/SearchableSelect";
 import RemarksTextarea            from "@/core/components/common/RemarksTextarea";
 import { useCanAccess }           from "@/core/hooks/useCanAccess";
-import { SCAN_SNACK_MSG, useScanSnackbarActions, applyListViewSpanFromSession } from "@/core/utils/global";
-import { prepareQrScanSession }   from "@/features/apps/ims/helpers/scanFeedback";
+import { isMobileDevice }         from "@/core/utils/pwa";
+import { SCAN_SNACK_MSG, FLOW_SCAN_CAMERA_INSECURE_MSG, useScanSnackbarActions } from "@/core/utils/global";
+import { prepareQrScanSession, unlockScanAudio }   from "@/features/apps/ims/helpers/scanFeedback";
 import { createScanBatchQueue }   from "@/features/apps/ims/helpers/scanBatchQueue";
 import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
-import { userService } from "@/features/shared/auth/services/userService";
-
 /** Picker row: show location no only (never numeric DB id in the UI). */
 function normalizeInwardLocationRow(row) {
   if (!row || typeof row !== "object") return row;
@@ -172,6 +171,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
   const [selectedLocId, setSelectedLocId] = useState(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [activeLocIdxForScan, setActiveLocIdxForScan] = useState(null);
+  const [lastActiveLocIdx, setLastActiveLocIdx] = useState(null);
   const [validatingBox, setValidatingBox] = useState(false);
   const [pendingScanCount, setPendingScanCount] = useState(0);
 
@@ -247,20 +247,6 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
     if (open) setSnackbar((s) => ({ ...s, open: false }));
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    userService
-      .me()
-      .then((res) => {
-        if (!cancelled && res?.data) applyListViewSpanFromSession(res.data);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
-
   // ── Bootstrap form (no fields until data is ready) ─────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -322,7 +308,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
     return () => {
       cancelled = true;
     };
-  }, [open, editData?.in_uid, openSnackbar]);
+  }, [open, editData?.in_uid]);
 
   const clearLocSearch = () => {
     setScanStatus(null);
@@ -633,6 +619,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
     }
 
     try {
+      setLastActiveLocIdx(li);
       const latestLocs = locationsRef.current;
       if (!latestLocs[li]) return;
 
@@ -952,40 +939,53 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
     onDecoded: handleInwardCameraDecoded,
     fps: 15,
     qrbox: { width: 250, height: 250 },
-    onCameraFailed: () => {
-      showScanToast(
-        "error",
-        "camera-permission",
-        SCAN_SNACK_MSG.CAMERA_DENIED ?? SCAN_SNACK_MSG.CAMERA,
-        4000
-      );
+    onCameraFailed: (err) => {
+      if (err?.name === "InsecureContext") {
+        showScanToast("error", "camera-insecure", FLOW_SCAN_CAMERA_INSECURE_MSG, 10000);
+      } else {
+        const isDenied = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
+        showScanToast(
+          "error",
+          "camera-permission",
+          isDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
+          10000
+        );
+      }
       setIsScannerOpen(false);
       setActiveLocIdxForScan(null);
     },
   });
 
   const startCameraScanner = (locIdx = null) => {
-    void (async () => {
-      const prep = await prepareQrScanSession();
-      if (!prep.cameraOk) {
-        showScanToast(
-          "error",
-          "camera-permission",
-          prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
-          4000
-        );
-        return;
-      }
-      scanLocIdxRef.current = locIdx;
-      setActiveLocIdxForScan(locIdx);
-      setIsScannerOpen(true);
-    })();
+    // Unlock audio immediately
+    void unlockScanAudio().catch(() => {});
+    // Open scanner immediately
+    scanLocIdxRef.current = locIdx;
+    setActiveLocIdxForScan(locIdx);
+    setIsScannerOpen(true);
   };
 
   const closeScanner = () => {
     setIsScannerOpen(false);
     setActiveLocIdxForScan(null);
   };
+
+  useEffect(() => {
+    if (!open) return;
+    const handleGlobalKeyDown = (e) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        e.stopPropagation();
+        const li = lastActiveLocIdx ?? (locations.length > 0 ? locations.length - 1 : null);
+        if (li !== null && locations[li]?.boxes?.length > 0) {
+          handleRemoveBox(li, locations[li].boxes.length - 1);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown, true);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown, true);
+  }, [open, lastActiveLocIdx, locations, handleRemoveBox]);
 
   return (
     <>
@@ -1017,7 +1017,6 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
           onClose={closeScanner}
           readerId={INWARD_SCANNER_ELEMENT_ID}
           hint={activeLocIdxForScan === null ? "Scanning Location" : "Scanning Boxes"}
-          zIndexClass="z-[100]"
           frameClassName={
             activeLocIdxForScan === null
               ? "border-4 border-inward-loc-scanner-frame"
@@ -1031,14 +1030,16 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
             <MapPin size={14} /> Step 1: Select Location
           </label>
           <div className="flex flex-col sm:flex-row sm:items-end gap-2">
-            <button
-              onClick={() => startCameraScanner(null)}
-              className="h-[40px] w-full sm:w-auto sm:shrink-0 px-3 bg-inward-loc-btn border border-inward-loc-btn-border text-white hover:bg-inward-loc-btn-hover rounded-lg transition-all shadow-sm flex items-center justify-center gap-2"
-              title="Scan Location QR"
-            >
-              <QrCode size={16} />
-              <span className="text-[10px] font-black uppercase">Scan</span>
-            </button>
+            {isMobileDevice() && (
+              <button
+                onClick={() => startCameraScanner(null)}
+                className="h-[40px] w-full sm:w-auto sm:shrink-0 px-3 bg-inward-loc-btn border border-inward-loc-btn-border text-white hover:bg-inward-loc-btn-hover rounded-lg transition-all shadow-sm flex items-center justify-center gap-2"
+                title="Scan Location QR"
+              >
+                <QrCode size={16} />
+                <span className="text-[10px] font-black uppercase">Scan</span>
+              </button>
+            )}
             <div className="w-full sm:flex-1 text-[11px] min-w-0">
               <SearchableSelect
                 placeholder={MSG.LOCATION_SEARCH_PLACEHOLDER}
@@ -1165,14 +1166,26 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                   <div className="p-3 space-y-3 bg-inward-box-panel-bg border-t border-inward-box-panel-border/60">
                     {/* Box Input Area */}
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => startCameraScanner(li)}
-                        className="h-[38px] shrink-0 px-3 bg-inward-box-btn border border-inward-box-btn-border text-white hover:bg-inward-box-btn-hover rounded-lg transition-all shadow-sm flex items-center justify-center gap-2"
-                        title="Scan Box QR"
-                      >
-                        <Camera size={16} />
-                        <span className="text-[10px] font-black uppercase">Scan</span>
-                      </button>
+                      {isMobileDevice() && (
+                        <button
+                          onClick={() => startCameraScanner(li)}
+                          className="h-[38px] shrink-0 px-3 bg-inward-box-btn border border-inward-box-btn-border text-white hover:bg-inward-box-btn-hover rounded-lg transition-all shadow-sm flex items-center justify-center gap-2"
+                          title="Scan Box QR"
+                        >
+                          <Camera size={16} />
+                          <span className="text-[10px] font-black uppercase">Scan</span>
+                        </button>
+                      )}
+                      {loc.boxes.length > 0 && (
+                        <button
+                          onClick={() => handleRemoveBox(li, loc.boxes.length - 1)}
+                          className="h-[38px] shrink-0 px-3 bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 rounded-lg transition-all shadow-sm flex items-center justify-center gap-2"
+                          title="Delete Last Box (Ctrl+D)"
+                        >
+                          <Trash2 size={16} />
+                          <span className="text-[10px] font-black uppercase">Del Last</span>
+                        </button>
+                      )}
                       <div className="relative flex-1 min-w-0">
                         <ScanLine size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-inward-box-input-icon" />
                         <input
@@ -1185,6 +1198,13 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                               tryAddBox(li, inputValue)
                                 .finally(() => setValidatingBox(false));
                               e.target.value = "";
+                            }
+                            // Ctrl+D to delete last box of this location
+                            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+                              e.preventDefault();
+                              if (loc.boxes.length > 0) {
+                                handleRemoveBox(li, loc.boxes.length - 1);
+                              }
                             }
                           }}
                         />

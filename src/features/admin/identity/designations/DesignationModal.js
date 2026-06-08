@@ -3,9 +3,11 @@ import { useState, useEffect } from "react";
 import { X, Save, Award } from "lucide-react";
 import { toast } from "react-toastify";
 import { designationService } from "@/features/admin/services/designationService";
+import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 
 export default function DesignationModal({ open, onClose, onSuccess, editData }) {
   const [loading, setLoading] = useState(false);
+  useEscapeKey(onClose, open);
   const [formData, setFormData] = useState({
     name: "",
   });

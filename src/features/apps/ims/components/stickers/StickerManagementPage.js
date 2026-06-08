@@ -12,12 +12,14 @@ import { labelStickerDownloadSource } from "@/core/utils/global";
 import { boxService } from "@/features/apps/ims/services/box";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import ViewToggle from "@/core/components/ui/ViewToggle";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import DataTable from "@/core/components/ui/DataTable";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 export default function StickerManagementPage() {
   const canAccess = useCanAccess();
@@ -164,26 +166,26 @@ export default function StickerManagementPage() {
   ];
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="w-px h-6 bg-slate-300 mx-1" />
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <>
               <button 
+                type="button"
                 onClick={() => fetchStickers()} 
-                className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all"
+                className="h-9 shrink-0 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all touch-manipulation"
               >
                 <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
                 <span className="hidden xs:inline">Refresh Data</span>
               </button>
-            </div>
-
-            <ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />
-          </div>
-        </div>
+              </>
+            }
+            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+          />
+        </ListPageToolbar>
 
         <ListPageFilterStrip>
           <DateRangeFilter 
