@@ -5,10 +5,10 @@ export function normalizeAuditExecutionStatus(status) {
 }
 
 export const AUDIT_EXECUTION_LABELS = {
-  pending: "Not Started",
+  pending: "Pending",
   in_progress: "In Progress",
   submitted: "Submitted",
-  verified: "Final Approved",
+  verified: "Approved",
   cancelled: "Cancelled",
 };
 
@@ -30,6 +30,16 @@ export const AUTHORIZATION_COLORS = {
   pending: "bg-amber-50 text-amber-600 border-amber-100",
 };
 
+export const ACTIVE_LABELS = {
+  active: "Active",
+  inactive: "Inactive",
+};
+
+export const ACTIVE_COLORS = {
+  active: "bg-emerald-50 text-emerald-600 border-emerald-100",
+  inactive: "bg-slate-50 text-slate-500 border-slate-200",
+};
+
 export function getAuditExecutionStatusLabel(status) {
   const key = normalizeAuditExecutionStatus(status);
   return AUDIT_EXECUTION_LABELS[key] || key?.replace(/_/g, " ") || "—";
@@ -37,6 +47,10 @@ export function getAuditExecutionStatusLabel(status) {
 
 export function getAuthorizationLabel(approved) {
   return approved ? AUTHORIZATION_LABELS.authorized : AUTHORIZATION_LABELS.pending;
+}
+
+export function getActiveLabel(approved) {
+  return approved ? ACTIVE_LABELS.active : ACTIVE_LABELS.inactive;
 }
 
 export function renderAuditExecutionStatusBadge(status) {
@@ -55,6 +69,15 @@ export function renderAuthorizationBadge(approved) {
   return (
     <span className={`px-2 py-0.5 text-[9px] font-bold border rounded-sm ${AUTHORIZATION_COLORS[key]}`}>
       {AUTHORIZATION_LABELS[key]}
+    </span>
+  );
+}
+
+export function renderActiveBadge(approved) {
+  const key = approved ? "active" : "inactive";
+  return (
+    <span className={`px-2 py-0.5 text-[9px] font-bold border rounded-sm ${ACTIVE_COLORS[key]}`}>
+      {ACTIVE_LABELS[key]}
     </span>
   );
 }

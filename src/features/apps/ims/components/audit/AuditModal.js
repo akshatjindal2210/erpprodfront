@@ -1,41 +1,135 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Check, AlertCircle, Loader2, Shield, User, Calendar, MapPin } from "lucide-react";
+import { Check, AlertCircle, Loader2, Shield, User, Calendar, MapPin, Plus, Trash2, MessageSquareQuote } from "lucide-react";
 import { toast } from "react-toastify";
 
-// Services & Components
 import { auditService } from "@/features/apps/ims/services/audit";
 import { userService } from "@/features/shared/auth/services/userService";
 import { locationService } from "@/features/apps/ims/services/location";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
+import RemarksTextarea from "@/core/components/common/RemarksTextarea";
 import Drawer from "@/core/components/ui/Drawer";
 import ModuleSopAcknowledgment from "@/core/components/common/ModuleSopAcknowledgment";
-import { useCanAccess } from "@/core/hooks/useCanAccess";
-import { ERR_INPUT, OK_INPUT, FormLabel } from "@/core/components/common/Constants";
+import {
+  FORM_LABEL_CLASS,
+  FORM_MICRO_LABEL_CLASS,
+  FORM_ERROR_CLASS,
+} from "@/core/components/common/Constants";
 import { focusFirstError } from "@/core/utils/formFocus";
-import { getAuditExecutionStatusLabel, getAuthorizationLabel } from "./auditStatusHelpers";
+import { useCanAccess } from "@/core/hooks/useCanAccess";
+import { getActiveLabel } from "./auditStatusHelpers";
+import { getOriginalAssignedUserId } from "./auditScanHelpers";
 
-const FIELD_ORDER = ["assigned_user_id", "start_date", "end_date", "location_ids"];
+const ADD_FIELD_ORDER = ["start_date", "end_date", "assignments"];
+
+function formatAuditDateDisplay(value) {
+  if (!value) return "";
+  const [y, m, d] = String(value).split("-");
+  if (!y || !m || !d) return "";
+  return `${d}/${m}/${y}`;
+}
+
+function openNativeDatePicker(inputEl) {
+  if (!inputEl) return;
+  if (typeof inputEl.showPicker === "function") {
+    inputEl.showPicker();
+  } else {
+    inputEl.focus();
+  }
+}
+
+function AuditDateInput({ label, value, onChange, error, placeholder, dataField, min }) {
+  const display = formatAuditDateDisplay(value);
+  const boxClass = error
+    ? "border-rose-300 bg-rose-50/40"
+    : "border-slate-200 bg-white hover:border-slate-300";
+
+  return (
+    <div className="space-y-1.5 min-w-0" data-field={dataField}>
+      <label className={FORM_LABEL_CLASS}>
+        {label} <span className="text-rose-500">*</span>
+      </label>
+      <div
+        className={`relative flex h-[38px] items-center gap-2 rounded-lg border px-2.5 cursor-pointer ${boxClass}`}
+        onClick={(e) => openNativeDatePicker(e.currentTarget.querySelector('input[type="date"]'))}
+      >
+        <Calendar size={14} className="text-slate-400 shrink-0 pointer-events-none" />
+        <span
+          className={`pointer-events-none flex-1 truncate text-xs ${
+            display ? "font-medium text-slate-800" : "text-slate-400"
+          }`}
+        >
+          {display || placeholder}
+        </span>
+        <input
+          type="date"
+          value={value || ""}
+          min={min || undefined}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={label}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        />
+      </div>
+      {error && (
+        <p className={FORM_ERROR_CLASS}>
+          <AlertCircle size={12} className="shrink-0" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function makeAssignmentRow() {
+  return {
+    row_id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    assigned_user_id: "",
+    location_ids: [],
+  };
+}
 
 const INITIAL_FORM = {
-  assigned_user_id: "",
   start_date: "",
   end_date: "",
   remarks: "",
-  location_ids: [],
   approved: false,
+  assignments: [makeAssignmentRow()],
 };
+
+function groupLocationsByUser(locations = []) {
+  const byUser = new Map();
+  const seenLocations = new Set();
+  for (const loc of locations) {
+    if (loc.is_active === false) continue;
+    const locId = loc?.location_id;
+    if (locId == null) continue;
+    const locKey = String(locId);
+    if (seenLocations.has(locKey)) continue;
+    seenLocations.add(locKey);
+
+    const userId = getOriginalAssignedUserId(loc) ?? "";
+    const key = String(userId);
+    if (!byUser.has(key)) {
+      byUser.set(key, {
+        row_id: makeAssignmentRow().row_id,
+        assigned_user_id: userId,
+        location_ids: [],
+      });
+    }
+    byUser.get(key).location_ids.push(locId);
+  }
+  return [...byUser.values()];
+}
 
 export default function AuditModal({ open, onClose, onSuccess, editData, mode = "add" }) {
   const canAccess = useCanAccess();
+  const canApprove = canAccess("audit", "authorize").allowed;
 
   const isEdit = mode === "edit";
-  const isApprove = mode === "approve";
-  const sopPermissionType = isApprove || mode === "add" ? "authorize" : isEdit ? "edit" : "add";
-
-  const authorizationLabel = getAuthorizationLabel(Boolean(editData?.approved));
-  const auditExecutionLabel = getAuditExecutionStatusLabel(editData?.status || "pending");
+  const isAdd = mode === "add";
+  const showApproval = canApprove && (isAdd || isEdit);
+  const sopPermissionType = isAdd ? "authorize" : isEdit ? "edit" : "add";
 
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(INITIAL_FORM);
@@ -47,52 +141,114 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
     let timeoutId;
     if (open) {
       if (editData) {
+        const grouped = groupLocationsByUser(editData.locations);
         setForm({
-          assigned_user_id: editData.assigned_user_id || "",
-          start_date: editData.start_date ? editData.start_date.split('T')[0] : "",
-          end_date: editData.end_date ? editData.end_date.split('T')[0] : "",
+          start_date: editData.start_date ? editData.start_date.split("T")[0] : "",
+          end_date: editData.end_date ? editData.end_date.split("T")[0] : "",
           remarks: editData.remarks || "",
-          location_ids: editData.locations ? editData.locations.map(l => l.location_id) : [],
-          approved: isApprove ? (editData.approved ?? false) : false,
+          approved: Boolean(editData.approved),
+          assignments: grouped.length ? grouped : [makeAssignmentRow()],
         });
       } else {
-        setForm(INITIAL_FORM);
+        setForm({ ...INITIAL_FORM, assignments: [makeAssignmentRow()] });
       }
       setErrors({});
     } else {
       timeoutId = setTimeout(() => {
-        setForm(INITIAL_FORM);
+        setForm({ ...INITIAL_FORM, assignments: [makeAssignmentRow()] });
         setErrors({});
       }, 300);
     }
     return () => clearTimeout(timeoutId);
-  }, [open, editData?.audit_id, isApprove]);
+  }, [open, editData?.audit_id]);
 
-  const handleInputChange = (k, value) => {
-    setForm(prev => ({ ...prev, [k]: value }));
-    if (errors[k]) setErrors(prev => ({ ...prev, [k]: "" }));
+  const handleChange = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    if (errors[key]) setErrors((prev) => ({ ...prev, [key]: "" }));
+  };
+
+  const handleAssignmentChange = (rowId, patch) => {
+    setForm((prev) => ({
+      ...prev,
+      assignments: prev.assignments.map((row) =>
+        row.row_id === rowId ? { ...row, ...patch } : row
+      ),
+    }));
+    if (errors.assignments) setErrors((prev) => ({ ...prev, assignments: "" }));
+  };
+
+  const addAssignmentRow = () => {
+    setForm((prev) => ({
+      ...prev,
+      assignments: [...prev.assignments, makeAssignmentRow()],
+    }));
+  };
+
+  const removeAssignmentRow = (rowId) => {
+    setForm((prev) => {
+      if (prev.assignments.length <= 1) return prev;
+      return {
+        ...prev,
+        assignments: prev.assignments.filter((row) => row.row_id !== rowId),
+      };
+    });
   };
 
   const validate = () => {
     const e = {};
-    if (!form.assigned_user_id) e.assigned_user_id = "Person is required";
     if (!form.start_date) e.start_date = "Start date is required";
     if (!form.end_date) e.end_date = "End date is required";
-    if (!form.location_ids || !form.location_ids.length) e.location_ids = "At least one location is required";
-    
     if (form.start_date && form.end_date && new Date(form.start_date) > new Date(form.end_date)) {
       e.end_date = "End date cannot be before start date";
     }
-    
+
+    const rows = form.assignments || [];
+    if (!rows.length) {
+      e.assignments = "Add at least one user row";
+      return e;
+    }
+
+    const seenUsers = new Set();
+    const seenLocations = new Set();
+    let rowError = "";
+
+    rows.forEach((row, index) => {
+      if (!row.assigned_user_id) {
+        rowError = `Row ${index + 1}: select a user`;
+        return;
+      }
+      const userKey = String(row.assigned_user_id);
+      if (seenUsers.has(userKey)) {
+        rowError = `Row ${index + 1}: duplicate user`;
+        return;
+      }
+      seenUsers.add(userKey);
+
+      if (!row.location_ids?.length) {
+        rowError = `Row ${index + 1}: select at least one location`;
+        return;
+      }
+
+      for (const locId of row.location_ids) {
+        const locKey = String(locId);
+        if (seenLocations.has(locKey)) {
+          rowError = `Location already assigned in another row`;
+          return;
+        }
+        seenLocations.add(locKey);
+      }
+    });
+
+    if (rowError) e.assignments = rowError;
     return e;
   };
 
-  const handleSave = async (statusOverride = null) => {
+  const handleSave = async () => {
     const e = validate();
     if (Object.keys(e).length) {
       setErrors(e);
       toast.error("Please fix the highlighted fields before saving.");
-      focusFirstError(e, FIELD_ORDER, (key) =>
+      focusFirstError(e, ADD_FIELD_ORDER, (key) =>
         formRef.current?.querySelector(`[data-field="${key}"]`)
       );
       return;
@@ -102,27 +258,26 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
 
     try {
       const payload = {
-        assigned_user_id: form.assigned_user_id,
         start_date: form.start_date,
         end_date: form.end_date,
         remarks: form.remarks,
-        location_ids: form.location_ids,
+        assignments: form.assignments.map(({ assigned_user_id, location_ids }) => ({
+          assigned_user_id,
+          location_ids,
+        })),
       };
 
-      if (isApprove) {
-        payload.approved = statusOverride !== null ? statusOverride : form.approved;
-      } else if (isEdit && editData?.approved) {
-        payload.approved = false;
+      if (showApproval) {
+        payload.approved = form.approved;
       }
 
-      const isUpdate = isEdit || isApprove;
-      const request = isUpdate 
-        ? auditService.update(editData.audit_id, payload) 
+      const request = isEdit
+        ? auditService.update(editData.audit_id, payload)
         : auditService.create(payload);
-      
+
       const response = await request;
       toast.success(response?.message || "Successfully saved");
-      
+
       onSuccess();
       onClose();
     } catch (err) {
@@ -132,42 +287,30 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
     }
   };
 
-  const drawerFooter = (
+  const footer = (
     <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 sm:gap-3 w-full">
-      <button onClick={onClose} disabled={loading} className="w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 rounded-xl bg-white">
+      <button
+        onClick={onClose}
+        disabled={loading}
+        className="w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 rounded-xl bg-white"
+      >
         Cancel
       </button>
-
-      {isApprove ? (
-        <>
-          <button
-            onClick={() => handleSave(false)}
-            disabled={loading}
-            className="w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
-          >
-            Keep Pending
-          </button>
-          <button
-            onClick={() => handleSave(true)}
-            disabled={loading}
-            className="w-full sm:w-auto sm:min-w-[140px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100"
-          >
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
-          </button>
-        </>
-      ) : (
-        <button
-          onClick={() => handleSave()}
-          disabled={loading}
-          className="w-full sm:w-auto sm:min-w-[160px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
-        >
-          {loading ? (
-            <><Loader2 size={18} className="animate-spin" /> Saving...</>
-          ) : (
-            <><Check size={18} /> Save</>
-          )}
-        </button>
-      )}
+      <button
+        onClick={handleSave}
+        disabled={loading}
+        className="w-full sm:w-auto min-w-[160px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400 active:scale-95"
+      >
+        {loading ? (
+          <>
+            <Loader2 size={18} className="animate-spin" /> Saving...
+          </>
+        ) : (
+          <>
+            <Check size={18} /> Save
+          </>
+        )}
+      </button>
     </div>
   );
 
@@ -175,127 +318,182 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={() => handleSave(isApprove ? true : undefined)}
-      title={isApprove ? "Approve Audit" : isEdit ? "Edit Audit" : "New Audit"}
+      onSubmit={handleSave}
+      title={isEdit ? "Edit Audit" : "New Audit"}
       description="Schedule inventory location audit"
-      footer={drawerFooter}
+      footer={footer}
       maxWidth="max-w-4xl"
     >
-      <div ref={formRef} className="space-y-4 pb-4">
-        
-        {isEdit && editData?.approved && (
-          <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
-            <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-[11px] text-amber-700 font-medium leading-normal">
-              Editing this authorized audit will reset authorization to <span className="font-bold text-amber-900 uppercase">Pending Authorization</span>. The assigned worker will need manager approval again before starting.
+      <div ref={formRef} className="space-y-6 pb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <AuditDateInput
+            label="Start Date"
+            value={form.start_date}
+            onChange={(v) => handleChange("start_date", v)}
+            error={errors.start_date}
+            placeholder="dd/mm/yyyy"
+            dataField="start_date"
+          />
+          <AuditDateInput
+            label="End Date"
+            value={form.end_date}
+            onChange={(v) => handleChange("end_date", v)}
+            error={errors.end_date}
+            placeholder="dd/mm/yyyy"
+            dataField="end_date"
+            min={form.start_date || undefined}
+          />
+        </div>
+
+        <div className="space-y-3" data-field="assignments">
+          <label className={`${FORM_LABEL_CLASS} !ml-0`}>
+            User assignments <span className="text-rose-500">*</span>
+          </label>
+
+          {errors.assignments && (
+            <p className={FORM_ERROR_CLASS}>
+              <AlertCircle size={12} className="shrink-0" />
+              {errors.assignments}
             </p>
-          </div>
-        )}
+          )}
 
-        {isApprove && (
-          <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
-            <Shield size={16} className="text-amber-500 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-[11px] text-amber-800 font-bold leading-normal">
-                Authorization: <span className="uppercase">{authorizationLabel}</span>
-                <span className="mx-2 text-amber-400">|</span>
-                Audit Status: <span className="uppercase">{auditExecutionLabel}</span>
-              </p>
-              <p className="text-[10px] text-amber-700 mt-1 leading-normal">
-                Approving only authorizes the assigned worker to start. The audit status will remain <span className="font-bold">Not Started</span> until scanning begins.
-              </p>
-            </div>
-          </div>
-        )}
+          <div className="space-y-3">
+            {form.assignments.map((row, index) => (
+              <div
+                key={row.row_id}
+                className="p-3 rounded-lg border border-slate-200 bg-slate-50/60 space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className={FORM_MICRO_LABEL_CLASS}>
+                    Row {index + 1}
+                  </span>
+                  {form.assignments.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeAssignmentRow(row.row_id)}
+                      className="p-1 text-rose-400 hover:bg-rose-50 rounded-md transition-colors"
+                      aria-label={`Remove row ${index + 1}`}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <SearchableSelect
-            label="Assigned Person"
-            value={form.assigned_user_id}
-            onChange={(id) => handleInputChange("assigned_user_id", id)}
-            fetchService={(params) => userService.getViews({ 
-              ...params, 
-              permission_module: "audit", 
-              permission_action: "view" 
-            })}
-            getByIdService={(id) => userService.getById(id)}
-            dataKey="id"
-            labelKey="name"
-            subLabelKey="usercode"
-            icon={User}
-            error={errors.assigned_user_id}
-          />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <SearchableSelect
+                    label="Assigned User"
+                    value={row.assigned_user_id}
+                    onChange={(id) => handleAssignmentChange(row.row_id, { assigned_user_id: id ?? "" })}
+                    fetchService={(params) =>
+                      userService.getViews({
+                        ...params,
+                        permission_module: "audit",
+                        permission_action: "view",
+                      })
+                    }
+                    getByIdService={(id) => userService.getById(id)}
+                    dataKey="id"
+                    labelKey="name"
+                    subLabelKey="usercode"
+                    icon={User}
+                    placeholder="Select user…"
+                  />
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <FormLabel required>Start Date</FormLabel>
-              <div className="relative">
-                <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type="date"
-                  data-field="start_date"
-                  value={form.start_date} 
-                  onChange={(e) => handleInputChange("start_date", e.target.value)} 
-                  className={`${errors.start_date ? ERR_INPUT : OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200 pl-9`}
-                />
+                  <SearchableSelect
+                    label="Locations"
+                    multiple
+                    compactMulti
+                    value={row.location_ids}
+                    onChange={(ids) => handleAssignmentChange(row.row_id, { location_ids: ids ?? [] })}
+                    fetchService={(params) =>
+                      locationService.getViews({
+                        ...params,
+                        permission_module: "audit",
+                        permission_action: "view",
+                      })
+                    }
+                    getByIdService={(id) => locationService.getById(id)}
+                    dataKey="location_id"
+                    labelKey="location_no"
+                    icon={MapPin}
+                    placeholder="Select locations…"
+                  />
+                </div>
               </div>
-              {errors.start_date && <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold"><AlertCircle size={10}/>{errors.start_date}</p>}
-            </div>
+            ))}
+          </div>
 
-            <div className="space-y-1">
-              <FormLabel required>End Date</FormLabel>
-              <div className="relative">
-                <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type="date"
-                  data-field="end_date"
-                  value={form.end_date} 
-                  onChange={(e) => handleInputChange("end_date", e.target.value)} 
-                  className={`${errors.end_date ? ERR_INPUT : OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200 pl-9`}
-                />
-              </div>
-              {errors.end_date && <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold"><AlertCircle size={10}/>{errors.end_date}</p>}
-            </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={addAssignmentRow}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wide border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg transition-colors"
+            >
+              <Plus size={13} /> Add row
+            </button>
           </div>
         </div>
 
-        <div className="space-y-1">
-          <FormLabel required>Locations to Audit</FormLabel>
-          <SearchableSelect
-            multiple
-            value={form.location_ids}
-            onChange={(ids) => handleInputChange("location_ids", ids)}
-            fetchService={(params) => locationService.getViews({ 
-              ...params, 
-              permission_module: "audit", 
-              permission_action: "view" 
-            })}
-            getByIdService={(id) => locationService.getById(id)}
-            dataKey="location_id"
-            labelKey="location_no"
-            icon={MapPin}
-            error={errors.location_ids}
-            placeholder="Select locations..."
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Remarks</label>
-          <textarea 
-            rows={2}
-            value={form.remarks} 
-            onChange={(e) => handleInputChange("remarks", e.target.value)} 
-            placeholder="Audit instructions or notes..." 
-            className={`${OK_INPUT} text-[11px] rounded-lg border-slate-200 resize-none py-2`}
-          />
-        </div>
+        <RemarksTextarea
+          label="Remarks"
+          labelIcon={<MessageSquareQuote size={12} className="text-indigo-500" />}
+          labelClassName={FORM_LABEL_CLASS}
+          className="[&_textarea]:!min-h-[4.5rem] [&_textarea]:!py-2"
+          value={form.remarks}
+          onChange={(e) => handleChange("remarks", e.target.value)}
+          placeholder="Audit instructions or notes…"
+          rows={4}
+        />
 
         <div className="h-px bg-slate-100" />
 
-        {!isApprove && !isEdit && (
+        {showApproval ? (
+          <div
+            className={`p-3 rounded-xl border transition-all flex items-center justify-between ${
+              form.approved ? "bg-emerald-600 border-emerald-700 shadow-sm" : "bg-slate-50 border-slate-200"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${form.approved ? "bg-white/20 text-white" : "bg-slate-200 text-slate-500"}`}>
+                <Shield size={16} />
+              </div>
+              <div>
+                <p className={`text-xs font-bold leading-none ${form.approved ? "text-white" : "text-slate-700"}`}>Approval Status</p>
+                <p className={`${FORM_MICRO_LABEL_CLASS} mt-1 leading-none ${form.approved ? "text-emerald-100" : "text-slate-400"}`}>
+                  {form.approved ? "Active" : "Inactive"}
+                </p>
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.approved}
+                onChange={(e) => handleChange("approved", e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-10 h-5.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-emerald-400" />
+            </label>
+          </div>
+        ) : isEdit ? (
+          <div className={`p-3 rounded-xl border flex items-center justify-between ${editData?.approved ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${editData?.approved ? "bg-emerald-100 text-emerald-600" : "bg-slate-200 text-slate-500"}`}>
+                <Shield size={16} />
+              </div>
+              <div>
+                <p className="text-xs font-bold leading-none text-slate-700">Approval Status</p>
+                <p className={`${FORM_MICRO_LABEL_CLASS} mt-1 leading-none text-slate-400`}>
+                  {getActiveLabel(Boolean(editData?.approved))}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
           <div className="p-3 bg-slate-50 rounded-lg border border-dashed border-slate-200 flex items-center gap-2">
-            <AlertCircle size={16} className="text-slate-400" />
-            <p className="text-[10px] text-slate-500 italic">After saving, an authorized user must approve this schedule before the assigned worker can start the audit.</p>
+            <AlertCircle size={16} className="text-slate-400 shrink-0" />
+            <p className="text-xs text-slate-500 italic leading-relaxed">
+              This audit will remain inactive until activated by an authorized user.
+            </p>
           </div>
         )}
 

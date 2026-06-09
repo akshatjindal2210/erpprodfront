@@ -4,10 +4,14 @@ import { ENDPOINTS } from "@/features/apps/ims/config/endpoints";
 export const inventoryReportService = {
   getReport: (params) =>
     api(ENDPOINTS.INVENTORY_REPORT.LIST, { method: "POST", body: params }),
-  getFilterOptions: (filters = {}) =>
+  getFilterOptions: (filters = {}, fields = null) =>
     api(ENDPOINTS.INVENTORY_REPORT.LIST, {
       method: "POST",
-      body: { action: "filter_options", filters },
+      body: {
+        action: "filter_options",
+        filters,
+        ...(Array.isArray(fields) && fields.length ? { fields } : {}),
+      },
     }),
 };
 

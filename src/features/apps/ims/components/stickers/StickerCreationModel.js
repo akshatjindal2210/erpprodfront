@@ -13,6 +13,7 @@ import { STICKER_DOWNLOAD_SOURCE_KEYS, formatStandardBoxNoUid, parseStandardBoxN
 import { printFromBackendHtml } from "@/features/apps/ims/utils/printHtmlDocument";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
+import { fetchItemScopedLedgerById } from "@/features/apps/ims/helpers/packingEntryCustomerSelect";
 import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 function isMarketLedgerCustomer(ledgerOrRow) {
   return String(ledgerOrRow?.acc_name ?? "").trim().toLowerCase() === "market";
@@ -299,14 +300,19 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
                   })
                 }
                 getByIdService={(id) =>
-                  masterService.getLedgerViewById(id, {
-                    permission_module: "packing_entry",
-                    permission_action: "view",
-                    itemdcode: selectedRow?.itemdcode,
-                  })
+                  fetchItemScopedLedgerById(
+                    id,
+                    {
+                      permission_module: "packing_entry",
+                      permission_action: "view",
+                      itemdcode: selectedRow?.itemdcode,
+                    },
+                    selectedRow
+                  )
                 }
                 dataKey="id"
                 labelKey="acc_name"
+                labelOnlyDisplay
                 placeholder="Search customer…"
                 usePortal
               />

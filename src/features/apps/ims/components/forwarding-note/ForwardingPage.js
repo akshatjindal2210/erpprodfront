@@ -128,12 +128,13 @@ const DISPATCH_FILTER_OPTIONS = [
   { label: "Complete", value: "complete" },
 ];
 
+/** Match Lock Status column: COMPLETE → scan done; LOCKED → locked & not complete; UNLOCKED → neither. */
 function buildDispatchApiFilters(dispatchFilter) {
   switch (dispatchFilter) {
     case "locked":
-      return { out_entry_locked: true };
+      return { out_entry_locked: true, out_entry_complete: false };
     case "unlocked":
-      return { out_entry_locked: false };
+      return { out_entry_locked: false, out_entry_complete: false };
     case "complete":
       return { out_entry_complete: true };
     default:
@@ -680,6 +681,7 @@ export default function ForwardingPage() {
             fromDate={params.fromDate}
             toDate={params.toDate}
             extraFilters={extraFilters}
+            applyExtrasOnChange
             onApply={handleFilterApply}
             onReset={handleReset}
             searchValue={tempSearch}

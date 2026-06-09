@@ -170,6 +170,9 @@ export const ENDPOINTS = {
     SUBMIT_SCAN: "/audit/submit-scan",
     REMOVE_SCAN: "/audit/remove-scan",
     COMPARISON_REPORT: "/audit/comparison-report",
+    COMPARISON_ADJUSTMENT: "/audit/comparison-adjustment",
+    REOPEN_LOCATION: "/audit/reopen-location",
+    REASSIGN_LOCATION: "/audit/reassign-location",
     VERIFY: "/audit/verify",
   },
 };

@@ -9,6 +9,17 @@ export const auditService = {
   delete: (id) => api(ENDPOINTS.AUDIT.DELETE, { method: "POST", body: { id } }),
   submitScan: (data) => api(ENDPOINTS.AUDIT.SUBMIT_SCAN, { method: "POST", body: data }),
   removeScan: (data) => api(ENDPOINTS.AUDIT.REMOVE_SCAN, { method: "POST", body: data }),
-  getComparisonReport: (id) => api(ENDPOINTS.AUDIT.COMPARISON_REPORT, { method: "POST", body: { id } }),
+  getComparisonReport: (id, locationId = null) =>
+    api(ENDPOINTS.AUDIT.COMPARISON_REPORT, {
+      method: "POST",
+      body: { id, ...(locationId != null ? { location_id: locationId } : {}) },
+    }),
+  logComparisonAdjustment: ({ audit_id, location_id, adjustment_type, box_no_uids }) =>
+    api(ENDPOINTS.AUDIT.COMPARISON_ADJUSTMENT, {
+      method: "POST",
+      body: { audit_id, location_id, adjustment_type, box_no_uids },
+    }),
+  reopenLocation: (data) => api(ENDPOINTS.AUDIT.REOPEN_LOCATION, { method: "POST", body: data }),
+  reassignLocation: (data) => api(ENDPOINTS.AUDIT.REASSIGN_LOCATION, { method: "POST", body: data }),
   verify: (id) => api(ENDPOINTS.AUDIT.VERIFY, { method: "POST", body: { id } }),
 };

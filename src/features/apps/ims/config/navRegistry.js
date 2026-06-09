@@ -23,7 +23,7 @@ export const NAV_REGISTRY = [
   { id: "store-outward", name: "Store Out", icon: <Truck size={16} />, href: ROUTES.OUT_ENTRY, module: "out_entry" },
   { id: "sticker-override", name: "Change / Override Customer", icon: <Map size={16} />, href: ROUTES.STICKER_OVERRIDE, module: "change_override_customer" },
   { id: "stock-adjustment", name: "Stock Adjustment", icon: <Scale size={16} />, href: ROUTES.STOCK_ADJUSTMENT, module: "stock_adjustment" },
-  // { id: "audit", name: "Inventory Audit", icon: <ClipboardList size={16} />, href: ROUTES.AUDIT, module: "audit" },
+  { id: "audit", name: "Inventory Audit", icon: <ClipboardList size={16} />, href: ROUTES.AUDIT, module: "audit" },
   { id: "inventory-report", name: "Inventory Report", icon: <BarChart3 size={16} />, href: ROUTES.ANALYTICS, module: "inventory_report" },
   {
     id: "logs-group",

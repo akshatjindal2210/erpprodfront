@@ -7,6 +7,7 @@ import { toast } from "react-toastify";
 // Services & Components
 import { stockAdjustmentService } from "@/features/apps/ims/services/stockAdjustment";
 import { masterService } from "@/features/apps/ims/services/master";
+import { fetchItemScopedLedgerById } from "@/features/apps/ims/helpers/packingEntryCustomerSelect";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
 import RemarksTextarea from "@/core/components/common/RemarksTextarea";
 import Drawer from "@/core/components/ui/Drawer";
@@ -69,6 +70,7 @@ const INITIAL_FORM = {
   remarks: "",
   approved: false,
   acc_code: "",
+  acc_name: "",
 };
 
 export default function StockAdjustmentModal({ open, onClose, onSuccess, editData, mode = "add" }) {
@@ -106,6 +108,7 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
             remarks: parsed.remarks,
             approved: isApprove ? (editData.approved ?? false) : false,
             acc_code: editData.acc_code || "",
+            acc_name: editData.acc_name || "",
           });
       } else {
         setForm(INITIAL_FORM);
@@ -128,7 +131,7 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
     let finalValue = value;
     if (k === "item_dcode") {
       finalValue = value === null || value === undefined || value === "" ? "" : String(value);
-      setForm((prev) => ({ ...prev, item_dcode: finalValue, acc_code: "" }));
+      setForm((prev) => ({ ...prev, item_dcode: finalValue, acc_code: "", acc_name: "" }));
       if (errors.item_dcode) setErrors((prev) => ({ ...prev, item_dcode: "" }));
       if (errors.acc_code) setErrors((prev) => ({ ...prev, acc_code: "" }));
       return;
@@ -381,7 +384,13 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
           <SearchableSelect
             label="Customer"
             value={form.acc_code}
-            onChange={(id) => handleInputChange("acc_code", id ?? "")}
+            onChange={(id, item) => {
+              handleInputChange("acc_code", id ?? "");
+              setForm((prev) => ({
+                ...prev,
+                acc_name: item?.acc_name?.trim() ? String(item.acc_name).trim() : "",
+              }));
+            }}
             fetchService={(params) =>
               masterService.getLedgersViews({
                 ...params,
@@ -391,14 +400,19 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
               })
             }
             getByIdService={(id) =>
-              masterService.getLedgerViewById(id, {
-                permission_module: "stock_adjustment",
-                permission_action: "view",
-                itemdcode: form.item_dcode || undefined,
-              })
+              fetchItemScopedLedgerById(
+                id,
+                {
+                  permission_module: "stock_adjustment",
+                  permission_action: "view",
+                  itemdcode: form.item_dcode || undefined,
+                },
+                form
+              )
             }
             dataKey="id"
             labelKey="acc_name"
+            labelOnlyDisplay
             placeholder={form.item_dcode ? "Search customer…" : "Select item first"}
             disabled={readOnly || !form.item_dcode}
             usePortal={false}

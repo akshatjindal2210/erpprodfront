@@ -2,6 +2,7 @@
 
 import { Box, Layers, User, ClipboardList, RefreshCw, CheckCircle2 } from "lucide-react";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
+import { fetchItemScopedLedgerById } from "@/features/apps/ims/helpers/packingEntryCustomerSelect";
 import { masterService } from "@/features/apps/ims/services/master";
 
 export default function StockAdjustmentStickerDetailCards({ selectedRow, packing, onCustomerChange, customerSelectDisabled, customerChanging }) {
@@ -70,14 +71,19 @@ export default function StockAdjustmentStickerDetailCards({ selectedRow, packing
                   })
                 }
                 getByIdService={(id) =>
-                  masterService.getLedgerViewById(id, {
-                    permission_module: "stock_adjustment",
-                    permission_action: "view",
-                    itemdcode: row.itemdcode || undefined,
-                  })
+                  fetchItemScopedLedgerById(
+                    id,
+                    {
+                      permission_module: "stock_adjustment",
+                      permission_action: "view",
+                      itemdcode: row.itemdcode || undefined,
+                    },
+                    row
+                  )
                 }
                 dataKey="id"
                 labelKey="acc_name"
+                labelOnlyDisplay
                 placeholder={row.itemdcode ? "Search customer…" : "Item required"}
                 disabled={!row.itemdcode}
                 usePortal={false}

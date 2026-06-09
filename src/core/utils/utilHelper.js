@@ -18,6 +18,18 @@ export function formatDateTime(date, options = {}) {
   );
 }
 
+/** Packing entry date → DD/MM/YYYY (no timestamp / timezone shift). */
+export function formatDocDate(v) {
+  if (v == null || String(v).trim() === "") return null;
+  const s = String(v).trim();
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+  const dmy = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s);
+  if (dmy) return `${dmy[1]}/${dmy[2]}/${dmy[3]}`;
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (ymd) return `${ymd[3]}/${ymd[2]}/${ymd[1]}`;
+  return s;
+}
+
 export function getInitials(name = "") {
   if (!name) return "??";
 

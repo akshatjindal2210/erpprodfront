@@ -48,6 +48,10 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   allOptionLabel = "All",
   /** Max tags in trigger before "+N more" (when not compactMulti) */
   maxVisibleTags = 2,
+  /** Fired when the dropdown opens (lazy-load parent options). */
+  onDropdownOpen,
+  /** Fired on hover/focus intent — prefetch options before open. */
+  onDropdownIntent,
 }) {
   const isToolbar = variant === "toolbar";
   const multiCompactMode = multiple && compactMulti;
@@ -109,9 +113,16 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
 
   const fetchServiceRef = useRef(fetchService);
   const getByIdServiceRef = useRef(getByIdService);
-  
+  const onDropdownOpenRef = useRef(onDropdownOpen);
+  const onDropdownIntentRef = useRef(onDropdownIntent);
+  const bootstrapOpenRef = useRef(false);
+
   useEffect(() => { fetchServiceRef.current = fetchService; }, [fetchService]);
   useEffect(() => { getByIdServiceRef.current = getByIdService; }, [getByIdService]);
+  useEffect(() => { onDropdownOpenRef.current = onDropdownOpen; }, [onDropdownOpen]);
+  useEffect(() => { onDropdownIntentRef.current = onDropdownIntent; }, [onDropdownIntent]);
+
+  const fetchDataRef = useRef(null);
 
   const showAllRow = multiple && showAllOption && (!searchText.trim() || items.length > 0);
   const listIndexOffset = showAllRow ? 1 : 0;
@@ -197,9 +208,31 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     }
   }, [labelKey, labelOnlyDisplay]);
 
+  fetchDataRef.current = fetchData;
+
+  const runFetchAfterBootstrap = useCallback(() => {
+    bootstrapOpenRef.current = false;
+    lastFetchedQueryRef.current = null;
+    fetchDataRef.current?.("", 1);
+  }, []);
+
+  const startOpenBootstrap = useCallback(() => {
+    bootstrapOpenRef.current = true;
+    setLoading(true);
+    setItems([]);
+    setApiMessage("");
+    const result = onDropdownOpenRef.current?.();
+    if (result && typeof result.then === "function") {
+      result.finally(() => runFetchAfterBootstrap());
+      return;
+    }
+    runFetchAfterBootstrap();
+  }, [runFetchAfterBootstrap]);
+
   // 3. Single useEffect for Fetching
   useEffect(() => {
     if (!open) {
+      bootstrapOpenRef.current = false;
       setLastFetchedQuery(null);
       lastFetchedQueryRef.current = null;
       return;
@@ -218,8 +251,15 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         lastFetchedQueryRef.current = null;
         return;
       }
+      if (bootstrapOpenRef.current) return;
       const prevQuery = lastFetchedQueryRef.current;
-      if (prevQuery === null || prevQuery !== "") {
+      if (prevQuery === null) {
+        if (onDropdownOpenRef.current) {
+          startOpenBootstrap();
+        } else {
+          fetchData("", 1);
+        }
+      } else if (prevQuery !== "") {
         fetchData("", 1);
       }
       return;
@@ -237,7 +277,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     debounceRef.current = setTimeout(() => fetchData(trimmed, 1), 300);
 
     return () => clearTimeout(debounceRef.current);
-  }, [searchText, open, fetchData, requireSearch, minSearchChars]);
+  }, [searchText, open, fetchData, requireSearch, minSearchChars, startOpenBootstrap]);
 
   // 4. Pre-fill Logic (For Edit Mode)
   useEffect(() => {
@@ -615,8 +655,15 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           error ? 'border-rose-400 ring-rose-50 ring-1 cursor-text' : 
           'hover:border-slate-400 cursor-text'
         } ${triggerHeightClass}`}
+        onMouseEnter={() => {
+          if (!disabled) onDropdownIntentRef.current?.();
+        }}
+        onFocus={() => {
+          if (!disabled) onDropdownIntentRef.current?.();
+        }}
         onClick={(e) => {
           if (disabled) return;
+          onDropdownIntentRef.current?.();
           const clickedInput =
             e.target === inputRef.current || inputRef.current?.contains(e.target);
           if (clickedInput) {

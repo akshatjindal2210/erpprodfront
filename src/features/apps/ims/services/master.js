@@ -285,9 +285,9 @@ export const masterService = {
         permission_module,
         permission_action,
         ...(itemFilter != null && String(itemFilter).trim() !== "" ? { itemdcode: itemFilter } : {}),
-        page: 1,
-        limit: 1000,
         ...rest,
+        page: rest.page ?? 1,
+        limit: 1000,
       },
     });
     if (res?.success && Array.isArray(res.data)) {

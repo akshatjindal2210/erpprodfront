@@ -27,6 +27,8 @@ export default function DateRangeFilter({
   extraFilters = [],
   /** When true with no date pickers: extra dropdowns apply on change and Reset/Search are hidden. */
   instantClientExtras = false,
+  /** When true (with date pickers): extra dropdowns call onApply immediately on change. */
+  applyExtrasOnChange = false,
   searchValue,
   onSearchChange,
   searchPlaceholder = "Search...",
@@ -179,15 +181,13 @@ export default function DateRangeFilter({
               value={localExtras[filter.key] ?? filter.value ?? ""}
               onChange={(e) => {
                 const v = e.target.value;
-                setLocalExtras((prev) => ({ ...prev, [filter.key]: v }));
-                if (showInstantExtras) {
-                  onApply?.({
-                    fromDate: localFrom,
-                    toDate: localTo,
-                    ...localExtras,
-                    [filter.key]: v,
-                  });
-                }
+                setLocalExtras((prev) => {
+                  const next = { ...prev, [filter.key]: v };
+                  if (showInstantExtras || applyExtrasOnChange) {
+                    onApply?.({ fromDate: localFrom, toDate: localTo, ...next });
+                  }
+                  return next;
+                });
               }}
               className={LIST_PAGE_FILTER_SELECT_CLASS}
               style={{
