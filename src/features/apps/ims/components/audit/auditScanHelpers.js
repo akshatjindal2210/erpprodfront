@@ -195,7 +195,16 @@ function buildLocationListRow(audit, loc) {
     extra_boxes: closed ? comparison.extra : [],
     difference_boxes: closed ? [...comparison.missing, ...comparison.extra] : [],
     all_matched: closed ? comparison.allMatched : false,
-    score_pct: closed ? computeLocationScoreFromComparison(comparison) : null,
+    score_pct: closed
+      ? loc.score_pct != null
+        ? Number(loc.score_pct)
+        : computeLocationScoreFromComparison(comparison)
+      : null,
+    result_rejected: closed
+      ? loc.result_rejected != null
+        ? Boolean(loc.result_rejected)
+        : false
+      : null,
     is_submitted: closed,
     reassigned_at: loc.reassigned_at ?? null,
     start_date: audit.start_date,

@@ -14,15 +14,19 @@ export const auditService = {
       method: "POST",
       body: { id, ...(locationId != null ? { location_id: locationId } : {}) },
     }),
-  applyComparisonAdjustment: ({ audit_id, location_id = null }) =>
+  applyComparisonAdjustment: ({ audit_id, location_id = null, result_rejected = false }) =>
     api(ENDPOINTS.AUDIT.COMPARISON_ADJUSTMENT, {
       method: "POST",
-      body: { audit_id, ...(location_id != null ? { location_id } : {}) },
+      body: {
+        audit_id,
+        ...(location_id != null ? { location_id } : {}),
+        result_rejected: Boolean(result_rejected),
+      },
     }),
-  completeLocation: ({ audit_id, location_id }) =>
+  completeLocation: ({ audit_id, location_id, result_rejected = false }) =>
     api(ENDPOINTS.AUDIT.COMPLETE_LOCATION, {
       method: "POST",
-      body: { audit_id, location_id },
+      body: { audit_id, location_id, result_rejected: Boolean(result_rejected) },
     }),
   getScores: (audit_id) => api(ENDPOINTS.AUDIT.SCORES, { method: "POST", body: { audit_id } }),
   reopenLocation: (data) => api(ENDPOINTS.AUDIT.REOPEN_LOCATION, { method: "POST", body: data }),

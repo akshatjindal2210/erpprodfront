@@ -15,7 +15,7 @@ import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import BoxTransactionLogDetailModal from "@/features/apps/ims/components/log/BoxTransactionLogDetailModal";
 import BoxStickerNosCell, { getBoxStickerEntries } from "@/features/apps/ims/components/log/BoxStickerNosCell";
-import { filterBoxTransactionLogs } from "@/features/apps/ims/utils/boxTransactionLogSearch";
+import { applyBoxTransactionLogView, BOX_TX_DISPLAY_MODES } from "@/features/apps/ims/utils/boxTransactionLogSearch";
 import { sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { formatDateTime } from "@/core/utils/utilHelper";
 import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
@@ -56,6 +56,7 @@ export default function BoxTransactionLogPage() {
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const [tempSearch, setTempSearch] = useState("");
+  const [displayMode, setDisplayMode] = useState(BOX_TX_DISPLAY_MODES.SUMMARY);
   const [selected, setSelected] = useState(null);
   const [viewRow, setViewRow] = useState(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -67,9 +68,13 @@ export default function BoxTransactionLogPage() {
   }, []);
 
   const filteredItems = useMemo(() => {
-    const filtered = filterBoxTransactionLogs(items, tempSearch, typeLabels);
-    return sortRowsByKey(filtered, params.sortKey, params.sortDir);
-  }, [items, tempSearch, typeLabels, params.sortKey, params.sortDir]);
+    const viewed = applyBoxTransactionLogView(items, {
+      query: tempSearch,
+      typeLabels,
+      mode: displayMode,
+    });
+    return sortRowsByKey(viewed, params.sortKey, params.sortDir);
+  }, [items, tempSearch, typeLabels, params.sortKey, params.sortDir, displayMode]);
 
   const selectedRecord = useMemo(
     () => filteredItems.find((r) => String(r.id) === String(selected)),
@@ -77,6 +82,33 @@ export default function BoxTransactionLogPage() {
   );
 
   const hasActiveSearch = Boolean(String(tempSearch ?? "").trim());
+  const isUniqueView = displayMode === BOX_TX_DISPLAY_MODES.UNIQUE;
+
+  const uniqueSourceLogCount = useMemo(() => {
+    if (!isUniqueView) return 0;
+    const ids = new Set(
+      filteredItems.map((r) => {
+        const raw = r?._sourceLogId ?? r?.id;
+        return String(raw ?? "").split("::")[0];
+      })
+    );
+    return ids.size;
+  }, [filteredItems, isUniqueView]);
+
+  const extraFilters = useMemo(
+    () => [
+      {
+        label: "View",
+        key: "displayMode",
+        value: displayMode,
+        options: [
+          { label: "Summary", value: BOX_TX_DISPLAY_MODES.SUMMARY },
+          { label: "Unique", value: BOX_TX_DISPLAY_MODES.UNIQUE },
+        ],
+      },
+    ],
+    [displayMode]
+  );
 
   const fetchLogs = useCallback(
     async (isLoadMore = false) => {
@@ -133,21 +165,27 @@ export default function BoxTransactionLogPage() {
     fetchLogs(false);
   }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate]);
 
+  useEffect(() => {
+    setSelected(null);
+  }, [displayMode, tempSearch]);
+
   const handleLoadMore = useCallback(() => {
     if (!loading && items.length < totalItems) fetchLogs(true);
   }, [loading, items.length, totalItems, fetchLogs]);
 
-  const handleSearch = (data) => {
+  const handleFilterApply = (data) => {
+    if (data?.displayMode) setDisplayMode(data.displayMode);
     setParams((prev) => ({
       ...prev,
       page: 1,
-      fromDate: data.fromDate,
-      toDate: data.toDate,
+      fromDate: data.fromDate ?? prev.fromDate,
+      toDate: data.toDate ?? prev.toDate,
     }));
   };
 
   const handleReset = () => {
     setTempSearch("");
+    setDisplayMode(BOX_TX_DISPLAY_MODES.SUMMARY);
     setParams((prev) => ({
       ...prev,
       page: 1,
@@ -294,14 +332,16 @@ export default function BoxTransactionLogPage() {
 
         <ListPageFilterStrip>
           <DateRangeFilter
-            key={`${params.fromDate}-${params.toDate}`}
+            key={`${params.fromDate}-${params.toDate}-${displayMode}`}
             fromDate={params.fromDate}
             toDate={params.toDate}
-            onApply={handleSearch}
+            applyExtrasOnChange
+            extraFilters={extraFilters}
+            onApply={handleFilterApply}
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            searchPlaceholder="Search..."
+            searchPlaceholder="Search box sticker, type, module..."
             searchLabel="Search"
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
@@ -331,8 +371,8 @@ export default function BoxTransactionLogPage() {
             idKey="id"
             emptyIcon={History}
             onLoadMore={handleLoadMore}
-            hasMore={!hasActiveSearch && items.length < totalItems}
-            totalItems={hasActiveSearch ? filteredItems.length : totalItems}
+            hasMore={!hasActiveSearch && !isUniqueView && items.length < totalItems}
+            totalItems={hasActiveSearch || isUniqueView ? filteredItems.length : totalItems}
             cardConfig={{
               titleKey: "user_name",
               badgeIndices: [1],
@@ -345,9 +385,13 @@ export default function BoxTransactionLogPage() {
 
         <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {hasActiveSearch
-              ? `Showing ${filteredItems.length} match${filteredItems.length !== 1 ? "es" : ""} in ${items.length} loaded (${totalItems} total)`
-              : `Showing ${items.length} of ${totalItems} box transaction logs`}
+            {isUniqueView
+              ? hasActiveSearch
+                ? `Unique · ${filteredItems.length} box${filteredItems.length !== 1 ? "es" : ""} from ${uniqueSourceLogCount} log${uniqueSourceLogCount !== 1 ? "s" : ""} matching search`
+                : `Unique · ${filteredItems.length} box row${filteredItems.length !== 1 ? "s" : ""} from ${items.length} log${items.length !== 1 ? "s" : ""}`
+              : hasActiveSearch
+                ? `Summary · ${filteredItems.length} match${filteredItems.length !== 1 ? "es" : ""} in ${items.length} loaded (${totalItems} total)`
+                : `Summary · ${items.length} of ${totalItems} box transaction logs`}
           </span>
         </div>
       </div>

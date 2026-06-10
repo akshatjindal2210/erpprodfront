@@ -53,6 +53,31 @@ export function getActiveLabel(approved) {
   return approved ? ACTIVE_LABELS.active : ACTIVE_LABELS.inactive;
 }
 
+/** Per-location audit outcome after Complete / Adjustment (result_rejected column). */
+export function getAuditLocationResultLabel(resultRejected) {
+  return resultRejected ? "Rejected" : "OK";
+}
+
+export function getAuditLocationResultBadgeClass(resultRejected) {
+  return resultRejected
+    ? "bg-rose-100 text-rose-800 border-rose-200"
+    : "bg-emerald-100 text-emerald-800 border-emerald-200";
+}
+
+export function renderAuditLocationResultBadge(resultRejected, { pendingLabel = "—" } = {}) {
+  if (resultRejected == null) {
+    return <span className="text-[10px] text-slate-400">{pendingLabel}</span>;
+  }
+  const rejected = Boolean(resultRejected);
+  return (
+    <span
+      className={`inline-flex px-2 py-0.5 rounded text-[9px] font-black uppercase border ${getAuditLocationResultBadgeClass(rejected)}`}
+    >
+      {getAuditLocationResultLabel(rejected)}
+    </span>
+  );
+}
+
 export function renderAuditExecutionStatusBadge(status) {
   const key = normalizeAuditExecutionStatus(status);
   const label = getAuditExecutionStatusLabel(status);

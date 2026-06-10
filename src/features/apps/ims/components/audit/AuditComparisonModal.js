@@ -7,7 +7,7 @@ import { useSelector } from "react-redux";
 import Drawer from "@/core/components/ui/Drawer";
 import { selectRole } from "@/core/store/slices/authSlice";
 import { auditService } from "@/features/apps/ims/services/audit";
-import { getAuditExecutionStatusLabel } from "./auditStatusHelpers";
+import { getAuditExecutionStatusLabel, renderAuditLocationResultBadge } from "./auditStatusHelpers";
 import { buildLocationComparisonReport, getLocationStatusLabel, getLocationStatusBadgeClass, normalizeLocationStatusKey, isLocationSubmittedRow, computeLocationScoreFromCounts, formatLocationScorePct, resolveBoxAccName } from "./auditScanHelpers";
 
 function DifferenceTypeBadge({ type }) {
@@ -217,6 +217,10 @@ function LocationStatusBadge({ status }) {
   );
 }
 
+function LocationResultBadge({ rejected }) {
+  return renderAuditLocationResultBadge(rejected, { pendingLabel: "Pending" });
+}
+
 export default function AuditComparisonModal({
   open,
   onClose,
@@ -233,6 +237,7 @@ export default function AuditComparisonModal({
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [resultRejected, setResultRejected] = useState(false);
   const singleLocation = Boolean(locationRow);
 
   const loadReport = useCallback(async () => {
@@ -270,6 +275,7 @@ export default function AuditComparisonModal({
     let cancelled = false;
     setLoading(true);
     setReport(null);
+    setResultRejected(false);
 
     (async () => {
       try {
@@ -328,6 +334,15 @@ export default function AuditComparisonModal({
   const locationStatusKey = normalizeLocationStatusKey(activeLocationStatus);
   const isLocationComplete = locationStatusKey === "complete";
 
+  const savedResultRejected = useMemo(() => {
+    if (singleLocation) {
+      if (locationRow?.result_rejected != null) return Boolean(locationRow.result_rejected);
+      const loc = locations.find((l) => Number(l.location_id) === Number(resolvedLocationId));
+      if (loc?.result_rejected != null) return Boolean(loc.result_rejected);
+    }
+    return null;
+  }, [singleLocation, locationRow?.result_rejected, locations, resolvedLocationId]);
+
   const stats = {
     expected: summary?.total_expected ?? locations.reduce((n, l) => n + (l.system_count || 0), 0),
     scanned: summary?.total_scanned ?? locations.reduce((n, l) => n + (l.scanned_count || 0), 0),
@@ -357,6 +372,7 @@ export default function AuditComparisonModal({
       const res = await auditService.completeLocation({
         audit_id: Number(resolvedAuditId),
         location_id: Number(resolvedLocationId),
+        result_rejected: resultRejected,
       });
       if (!res?.success) throw new Error(res?.message || "Failed to complete location");
       toast.success(res.message || "Location marked Complete");
@@ -372,9 +388,12 @@ export default function AuditComparisonModal({
   const handleAdjustment = async () => {
     if (!resolvedAuditId || !canAdjust) return;
     const scope = singleLocation ? `location ${locationRow?.location_no}` : "all mismatched locations";
+    const completeNote = isLocationComplete
+      ? "\n\nLocation is already Complete — inventory will be synced now."
+      : "";
     if (
       !window.confirm(
-        `Apply adjustment for ${scope}?\n\n• Missing (${stats.notScanned}) — remove from location\n• Extra (${stats.extra}) — add to audit location\n• Recorded in Box Transaction log`
+        `Apply adjustment for ${scope}?${completeNote}\n\n• Missing (${stats.notScanned}) — remove from location\n• Extra (${stats.extra}) — add to audit location\n• Recorded in Box Transaction log`
       )
     ) {
       return;
@@ -384,6 +403,7 @@ export default function AuditComparisonModal({
       const res = await auditService.applyComparisonAdjustment({
         audit_id: resolvedAuditId,
         location_id: resolvedLocationId,
+        result_rejected: isLocationComplete ? Boolean(savedResultRejected) : resultRejected,
       });
       if (!res?.success) throw new Error(res?.message || "Failed to apply adjustment");
       toast.success(res.message || "Adjustment applied");
@@ -399,33 +419,46 @@ export default function AuditComparisonModal({
   const showCompleteLocation =
     singleLocation && canManage && !isLocationComplete && !auditVerified;
   const showAdjustment =
-    canAdjust && !allMatched && !auditVerified && (singleLocation ? Boolean(resolvedLocationId) : true);
+    canAdjust && !allMatched && (singleLocation ? Boolean(resolvedLocationId) : true);
+  const showResultRejectToggle =
+    !isLocationComplete &&
+    (showCompleteLocation || showAdjustment) &&
+    (isSuperAdmin || canManage || canAdjust);
 
-  const footer = (
-    <div className="flex flex-col gap-3 w-full">
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 border border-slate-200 rounded-lg bg-slate-50">
-        <span className="text-[10px] font-black uppercase text-slate-500 shrink-0">Location status</span>
-        {singleLocation ? (
-          <LocationStatusBadge status={activeLocationStatus} />
-        ) : (
-          <span className="text-[10px] font-bold text-slate-600">
-            {summary?.matched_locations || 0}/{summary?.total_locations || locations.length} complete
-          </span>
-        )}
-        {singleLocation && locationRow?.assigned_user_name && (
-          <span className="text-[10px] text-slate-500">· {locationRow.assigned_user_name}</span>
-        )}
-      </div>
+  const hasFooterActions = showCompleteLocation || showAdjustment;
+  const hasFooterStatus = singleLocation && (isLocationComplete || showResultRejectToggle);
 
-      <div className="flex flex-wrap justify-end gap-2">
+  const footer =
+    hasFooterActions || hasFooterStatus ? (
+      <>
+        {singleLocation && (
+          <div className="flex items-center gap-2 mr-auto min-w-0 flex-wrap">
+            <LocationStatusBadge status={activeLocationStatus} />
+            {isLocationComplete && (
+              <LocationResultBadge rejected={savedResultRejected ?? false} />
+            )}
+            {showResultRejectToggle && (
+              <label className="inline-flex items-center gap-1.5 cursor-pointer shrink-0 select-none">
+                <input
+                  type="checkbox"
+                  checked={resultRejected}
+                  onChange={(e) => setResultRejected(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                />
+                <span className="text-[9px] font-bold uppercase text-slate-600">Reject</span>
+              </label>
+            )}
+          </div>
+        )}
+
         {showCompleteLocation && (
           <button
             type="button"
             onClick={handleCompleteLocation}
             disabled={actionLoading}
-            className="px-5 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl inline-flex items-center gap-2 disabled:opacity-50"
+            className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50 shrink-0"
           >
-            {actionLoading ? <Loader2 size={16} className="animate-spin" /> : <CheckCheck size={16} />}
+            {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <CheckCheck size={14} />}
             Complete
           </button>
         )}
@@ -435,15 +468,14 @@ export default function AuditComparisonModal({
             type="button"
             onClick={handleAdjustment}
             disabled={actionLoading}
-            className="px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl inline-flex items-center gap-2 disabled:opacity-50"
+            className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50 shrink-0"
           >
-            {actionLoading ? <Loader2 size={16} className="animate-spin" /> : <SlidersHorizontal size={16} />}
+            {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <SlidersHorizontal size={14} />}
             Adjustment
           </button>
         )}
-      </div>
-    </div>
-  );
+      </>
+    ) : null;
 
   return (
     <Drawer
@@ -527,6 +559,7 @@ export default function AuditComparisonModal({
                     <th className="px-2 py-1.5 font-black uppercase text-slate-500">Extra</th>
                     <th className="px-2 py-1.5 font-black uppercase text-slate-500">Score</th>
                     <th className="px-2 py-1.5 font-black uppercase text-slate-500">Result</th>
+                    <th className="px-2 py-1.5 font-black uppercase text-slate-500">Audit</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -553,6 +586,17 @@ export default function AuditComparisonModal({
                             <XCircle size={10} /> Difference
                           </span>
                         )}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <LocationResultBadge
+                          rejected={
+                            loc.result_rejected != null
+                              ? Boolean(loc.result_rejected)
+                              : normalizeLocationStatusKey(loc.location_status) === "complete"
+                                ? false
+                                : null
+                          }
+                        />
                       </td>
                     </tr>
                   ))}

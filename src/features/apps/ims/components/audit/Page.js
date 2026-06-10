@@ -28,7 +28,7 @@ import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages } from "@/features/apps/ims/helpers/clientListSearch";
 import { useSelector } from "react-redux";
 import { selectUser, selectRole } from "@/core/store/slices/authSlice";
-import { getAuditExecutionStatusLabel, renderAuditExecutionStatusBadge } from "./auditStatusHelpers";
+import { getAuditExecutionStatusLabel, renderAuditExecutionStatusBadge, renderAuditLocationResultBadge, getAuditLocationResultLabel } from "./auditStatusHelpers";
 import { isLocationClosed, getLocationStatusLabel, getLocationStatusBadgeClass, matchesLocationStatusFilter, expandLocationAssignmentRows, isLocationSubmittedRow, getAuditPlanUsers, formatAuditParticipantNames, formatLocationScorePct, computeAuditBatchScore, canExecuteAuditLocationRow, filterLocationListRows, findNextExecutableLocationRow } from "./auditScanHelpers";
 
 const PAGE_TABS = {
@@ -775,6 +775,17 @@ export default function AuditPage() {
       width: "110px",
       copyValue: (item) => getLocationStatusLabel(item.location_status),
     }],
+    ["Audit result", "result_rejected", (v, row) =>
+      isLocationSubmittedRow(row)
+        ? renderAuditLocationResultBadge(v ?? false)
+        : renderAuditLocationResultBadge(null),
+      {
+        width: "96px",
+        align: "center",
+        copyValue: (item) =>
+          isLocationSubmittedRow(item) ? getAuditLocationResultLabel(Boolean(item.result_rejected)) : "—",
+      },
+    ],
     ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 italic whitespace-normal break-words leading-tight">{v || "—"}</span>, { width: "160px", wrap: true }],
     ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "140px" }],
   ], [canViewAudit, openLocationComparison]);

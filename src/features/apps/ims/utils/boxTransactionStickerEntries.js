@@ -32,6 +32,68 @@ function isLooseEntry(e) {
   return e?.is_loose === true || e?.is_loose === 1 || e?.is_loose === "true";
 }
 
+function isUniqueScopedRow(row) {
+  return (
+    Boolean(String(row?._uniqueBoxUid ?? "").trim()) ||
+    String(row?._displayMode ?? "").toLowerCase() === "unique"
+  );
+}
+
+function isSearchScopedRow(row) {
+  return row?._searchScoped === true;
+}
+
+/** Remove unique-view / search-scope fields so full log sticker list can be resolved. */
+export function stripUniqueScopeRow(row) {
+  if (!row || typeof row !== "object") return row;
+  const next = { ...row };
+  delete next._uniqueBoxUid;
+  delete next._displayMode;
+  delete next._sourceLogId;
+  delete next._searchScoped;
+  return next;
+}
+
+function buildUniqueStickerEntry(row) {
+  const uid = String(row?._uniqueBoxUid ?? "").trim();
+  const fromRow = Array.isArray(row?.box_sticker_entries) ? row.box_sticker_entries : [];
+
+  if (fromRow.length === 1 && fromRow[0]?.box_no_uid) {
+    const e = fromRow[0];
+    return [
+      {
+        box_no_uid: String(e.box_no_uid).trim(),
+        is_loose: isLooseEntry(e),
+        ...(Number.isFinite(Number(e.qty)) ? { qty: Number(e.qty) } : {}),
+      },
+    ];
+  }
+
+  if (uid && fromRow.length) {
+    const hit = fromRow.find((e) => String(e?.box_no_uid ?? "").trim() === uid);
+    if (hit) {
+      return [
+        {
+          box_no_uid: uid,
+          is_loose: isLooseEntry(hit),
+          ...(Number.isFinite(Number(hit.qty)) ? { qty: Number(hit.qty) } : {}),
+        },
+      ];
+    }
+  }
+
+  const displayUid = String(row?.box_no_uids_display ?? uid).trim().split(/[\s,;]+/)[0]?.trim();
+  if (!displayUid) return [];
+
+  return [
+    {
+      box_no_uid: displayUid,
+      is_loose: row?.box_kind === "Loose",
+      ...(Number.isFinite(Number(row?.total_qty)) ? { qty: Number(row.total_qty) } : {}),
+    },
+  ];
+}
+
 function boxIndexFromUid(uid) {
   const parts = String(uid ?? "")
     .trim()
@@ -114,6 +176,21 @@ function inferLooseAtIndex(i, total, d, looseByUid, uid, pnUids) {
   return false;
 }
 
+function buildSearchScopedStickerEntries(row) {
+  const fromRow = Array.isArray(row?.box_sticker_entries) ? row.box_sticker_entries : [];
+  return fromRow
+    .map((e) => {
+      const uid = String(e?.box_no_uid ?? "").trim();
+      if (!uid) return null;
+      return {
+        box_no_uid: uid,
+        is_loose: isLooseEntry(e),
+        ...(Number.isFinite(Number(e.qty)) ? { qty: Number(e.qty) } : {}),
+      };
+    })
+    .filter(Boolean);
+}
+
 function buildStickerEntries(row) {
   const d = parseDetails(row?.details);
   const display = row?.box_no_uids_display ?? null;
@@ -147,13 +224,20 @@ function buildStickerEntries(row) {
   }
   applyFlagsToLooseMap(looseByUid, pnUids, flags);
 
-  return uids.map((uid, i) => ({
-    box_no_uid: uid,
-    is_loose: inferLooseAtIndex(i, uids.length, d, looseByUid, uid, pnUids),
-  }));
+  return uids.map((uid, i) => {
+    const fromDetail = entrySources.find((e) => String(e?.box_no_uid ?? "").trim() === uid);
+    const qty = Number(fromDetail?.qty);
+    return {
+      box_no_uid: uid,
+      is_loose: inferLooseAtIndex(i, uids.length, d, looseByUid, uid, pnUids),
+      ...(Number.isFinite(qty) ? { qty } : {}),
+    };
+  });
 }
 
 /** Sticker UIDs + loose highlight flags for one transaction log row. */
 export function getBoxStickerEntries(row) {
+  if (isUniqueScopedRow(row)) return buildUniqueStickerEntry(row);
+  if (isSearchScopedRow(row)) return buildSearchScopedStickerEntries(row);
   return buildStickerEntries(row);
 }
