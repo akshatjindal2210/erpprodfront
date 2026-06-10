@@ -171,6 +171,8 @@ export const ENDPOINTS = {
     REMOVE_SCAN: "/audit/remove-scan",
     COMPARISON_REPORT: "/audit/comparison-report",
     COMPARISON_ADJUSTMENT: "/audit/comparison-adjustment",
+    COMPLETE_LOCATION: "/audit/complete-location",
+    SCORES: "/audit/scores",
     REOPEN_LOCATION: "/audit/reopen-location",
     REASSIGN_LOCATION: "/audit/reassign-location",
     VERIFY: "/audit/verify",

@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, RefreshCw, Locate, Box, Edit3, Trash2, X, Warehouse, PackageOpen, List, Boxes } from "lucide-react";
 import { toast } from "react-toastify";
-import dayjs from "dayjs";
 import { inventoryInwardService } from "@/features/apps/ims/services/inventoryInward";
 import { boxService } from "@/features/apps/ims/services/box";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
@@ -25,7 +24,7 @@ import LocationFinderDrawer from "@/features/apps/ims/components/location/Locati
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchListFirstPage, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
-import { formatDateTime } from "@/core/utils/utilHelper";
+import { formatDateTime, formatDocDate } from "@/core/utils/utilHelper";
 import { pipeMetaRenderers } from "@/features/apps/ims/helpers/pipeMetaDisplay";
 
 const PAGE_TABS = {
@@ -439,12 +438,7 @@ export default function InwardPage() {
       (v) => <span className="font-bold text-indigo-600 text-[10px]">{v || "—"}</span>,
       { fixed: true, width: "160px" },
     ],
-    [
-      "Date",
-      "doc_dt",
-      (v) => v ? <span className="text-slate-600 font-bold text-[10px] uppercase">{dayjs(v).format("DD/MM/YYYY")}</span> : <span className="text-slate-400 text-[10px]">—</span>,
-      { width: "100px" },
-    ],
+    ["Date", "doc_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDocDate(v) || "—"}</span>, { width: "100px" }],
     [
       "Job Card",
       "job_card_no",
@@ -497,17 +491,7 @@ export default function InwardPage() {
 
   const PACKING_AREA_HEADERS = [
     [ "Packing No", "packing_number", (v) => (<span className="font-mono font-bold text-slate-800 text-[10px] tracking-tight">{v || "—"}</span>), { fixed: true, width: "100px" } ],
-    [
-      "Date",
-      "doc_dt",
-      (v) =>
-        v ? (
-          <span className="text-slate-600 font-bold text-[10px] uppercase">{dayjs(v).format("DD/MM/YYYY")}</span>
-        ) : (
-          packingDetailCell(null)
-        ),
-      { width: "100px" },
-    ],
+    ["Date", "doc_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDocDate(v) || "—"}</span>, { width: "100px" }],
     [
       "Job Card",
       "job_card_no",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Plus, ClipboardCheck, RefreshCcw, Edit3, Trash2, X, Info, Play, User, MapPin, GitCompare, ClipboardList, RotateCcw, UserRoundCog } from "lucide-react";
 import { toast } from "react-toastify";
 
@@ -28,8 +28,8 @@ import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages } from "@/features/apps/ims/helpers/clientListSearch";
 import { useSelector } from "react-redux";
 import { selectUser, selectRole } from "@/core/store/slices/authSlice";
-import { getAuditExecutionStatusLabel, renderAuditExecutionStatusBadge, canStartAuditExecution } from "./auditStatusHelpers";
-import { isLocationEditable, isLocationClosed, getLocationStatusLabel, getLocationStatusBadgeClass, matchesLocationStatusFilter, expandLocationAssignmentRows, isLocationSubmittedRow, getAuditPlanUsers, formatAuditParticipantNames } from "./auditScanHelpers";
+import { getAuditExecutionStatusLabel, renderAuditExecutionStatusBadge } from "./auditStatusHelpers";
+import { isLocationClosed, getLocationStatusLabel, getLocationStatusBadgeClass, matchesLocationStatusFilter, expandLocationAssignmentRows, isLocationSubmittedRow, getAuditPlanUsers, formatAuditParticipantNames, formatLocationScorePct, computeAuditBatchScore, canExecuteAuditLocationRow, filterLocationListRows, findNextExecutableLocationRow } from "./auditScanHelpers";
 
 const PAGE_TABS = {
   LOCATION: "location",
@@ -54,6 +54,11 @@ function getAssignedUsersLabel(audit) {
 function canSeeAllAuditLocations(audit, userId, isSuperAdmin, canManageAudit) {
   if (isSuperAdmin || canManageAudit) return true;
   return userId != null && Number(audit?.created_by) === Number(userId);
+}
+
+function getDefaultLocationUserFilter(userId, isSuperAdmin = false) {
+  if (isSuperAdmin) return "all";
+  return userId != null ? String(userId) : "all";
 }
 
 function flattenAuditLocations(
@@ -105,6 +110,51 @@ function renderLocationBoxesCell(row) {
   );
 }
 
+function scoreBadgeClass(n) {
+  if (!Number.isFinite(n)) return "bg-slate-100 text-slate-500 border-slate-200";
+  if (n >= 100) return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (n >= 80) return "bg-amber-100 text-amber-800 border-amber-200";
+  return "bg-rose-100 text-rose-800 border-rose-200";
+}
+
+function renderLocationScoreCell(row) {
+  if (!isLocationSubmittedRow(row)) {
+    return <span className="text-[10px] text-slate-400">After submit</span>;
+  }
+  const n = Number(row.score_pct);
+  if (!Number.isFinite(n)) {
+    return <span className="text-[10px] text-slate-400">—</span>;
+  }
+  return (
+    <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-black tabular-nums border ${scoreBadgeClass(n)}`}>
+      {formatLocationScorePct(n)}
+    </span>
+  );
+}
+
+function renderAuditBatchScoreCell(audit) {
+  const batch = computeAuditBatchScore(audit);
+  if (!batch) {
+    return <span className="text-[10px] text-slate-400">Pending</span>;
+  }
+  const n = Number(batch.score_pct);
+  const partial = batch.scored_location_count < batch.location_count;
+  return (
+    <div className="flex flex-col items-start gap-0.5" title={`${batch.scored_location_count} of ${batch.location_count} locations scored`}>
+      <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-black tabular-nums border ${scoreBadgeClass(n)}`}>
+        {formatLocationScorePct(n)}
+      </span>
+      {partial ? (
+        <span className="text-[8px] font-bold text-slate-400 tabular-nums">
+          {batch.scored_location_count}/{batch.location_count} loc
+        </span>
+      ) : (
+        <span className="text-[8px] font-bold text-slate-400 tabular-nums">{batch.location_count} loc</span>
+      )}
+    </div>
+  );
+}
+
 export default function AuditPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("audit", "view"), [canAccess]);
@@ -143,16 +193,17 @@ export default function AuditPage() {
   const [deleteItem, setDeleteItem] = useState(null);
   const [executionOpen, setExecutionOpen] = useState(false);
   const [executionAudit, setExecutionAudit] = useState(null);
+  const [executionLocationRow, setExecutionLocationRow] = useState(null);
   const [comparisonOpen, setComparisonOpen] = useState(false);
   const [comparisonContext, setComparisonContext] = useState(null);
-  const [verifying, setVerifying] = useState(false);
   const [reopening, setReopening] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
+  const locationUserFilterInitialized = useRef(false);
 
   const canViewAudit = viewAccess?.allowed;
-  const canManageAudit = Boolean(
-    viewAccess?.allowed || editAccess?.allowed || authorizeAccess?.allowed
-  );
+  const canManageAudit = Boolean(editAccess?.allowed || authorizeAccess?.allowed);
+  const defaultLocationUserFilter = getDefaultLocationUserFilter(currentUser?.id, isSuperAdmin);
+  const canFilterAllAuditUsers = isSuperAdmin || canManageAudit;
 
   const openLocationComparison = useCallback((row) => {
     if (!row) return;
@@ -185,6 +236,30 @@ export default function AuditPage() {
     }
   }, []);
 
+  const locationExecutionContext = useMemo(
+    () => ({ userId: currentUser?.id, role: currentRole }),
+    [currentUser?.id, currentRole]
+  );
+
+  const openAuditExecution = useCallback(
+    async (locationRow) => {
+      if (!locationRow) return;
+      if (!canExecuteAuditLocationRow(locationRow, locationExecutionContext)) {
+        toast.info("You can start only your assigned location within the audit date range");
+        return;
+      }
+      setSelected(locationRow.row_id);
+      setExecutionLocationRow(locationRow);
+      const row = await loadExecutionAudit(locationRow.audit_id);
+      if (row) {
+        setExecutionOpen(true);
+      } else {
+        setExecutionLocationRow(null);
+      }
+    },
+    [loadExecutionAudit, locationExecutionContext]
+  );
+
   const fetchAudits = useCallback(async () => {
     setLoading(true);
     try {
@@ -204,32 +279,89 @@ export default function AuditPage() {
       }, params.pageSize);
       setAllRows(data);
       setDisplayLimit(100);
+      return data;
     } catch (err) {
       toast.error(err?.message || "Failed to load audits");
       setAllRows([]);
+      return [];
     } finally {
       setLoading(false);
     }
   }, [params.pageSize, params.sortKey, params.sortDir, params.status, params.authorization]);
 
-  const handleVerify = async (id) => {
-    if (!window.confirm("Are you sure you want to finalize this audit? Only Super Admin can change it after this.")) return;
-    setVerifying(true);
-    try {
-      const res = await auditService.verify(id);
-      if (res.success) {
-        toast.success(res.message || "Audit completed successfully");
-        fetchAudits();
-        setSelected(null);
-      } else {
-        toast.error(res.message || "Failed to complete audit");
+  const buildFilteredLocationRows = useCallback(
+    (audits = allRows) => {
+      const flat = flattenAuditLocations(audits, {
+        userId: currentUser?.id,
+        isSuperAdmin,
+        canManageAudit,
+      });
+      return filterLocationListRows(
+        flat,
+        {
+          locationAuditFilter: params.locationAuditFilter,
+          locationUserFilter: params.locationUserFilter,
+          locationStatusFilter: params.locationStatusFilter,
+          search: tempSearch,
+        },
+        applyClientSearch
+      );
+    },
+    [
+      allRows,
+      currentUser?.id,
+      isSuperAdmin,
+      canManageAudit,
+      params.locationAuditFilter,
+      params.locationUserFilter,
+      params.locationStatusFilter,
+      tempSearch,
+    ]
+  );
+
+  const advanceToNextExecutableLocation = useCallback(
+    async (completedRowId = null) => {
+      const data = await fetchAudits();
+      const rows = filterLocationListRows(
+        flattenAuditLocations(data, {
+          userId: currentUser?.id,
+          isSuperAdmin,
+          canManageAudit,
+        }),
+        {
+          locationAuditFilter: params.locationAuditFilter,
+          locationUserFilter: params.locationUserFilter,
+          locationStatusFilter: params.locationStatusFilter,
+          search: tempSearch,
+        },
+        applyClientSearch
+      );
+      const nextRow = findNextExecutableLocationRow(rows, locationExecutionContext, {
+        excludeRowId: completedRowId,
+      });
+      if (nextRow) {
+        await openAuditExecution(nextRow);
+        return true;
       }
-    } catch (err) {
-      toast.error(err.message || "Error completing audit");
-    } finally {
-      setVerifying(false);
-    }
-  };
+      setSelected(null);
+      setExecutionOpen(false);
+      setExecutionAudit(null);
+      setExecutionLocationRow(null);
+      return false;
+    },
+    [
+      fetchAudits,
+      currentUser?.id,
+      isSuperAdmin,
+      canManageAudit,
+      params.locationAuditFilter,
+      params.locationUserFilter,
+      params.locationStatusFilter,
+      tempSearch,
+      locationExecutionContext,
+      openAuditExecution,
+    ]
+  );
 
   const handleReopenLocation = async () => {
     if (!selectedLocationRow) return;
@@ -259,16 +391,21 @@ export default function AuditPage() {
     fetchAudits();
   }, [fetchAudits]);
 
+  useEffect(() => {
+    if (locationUserFilterInitialized.current) return;
+    if (!isSuperAdmin && currentUser?.id == null) return;
+    locationUserFilterInitialized.current = true;
+    setParams((prev) => ({
+      ...prev,
+      locationUserFilter: getDefaultLocationUserFilter(currentUser?.id, isSuperAdmin),
+    }));
+  }, [currentUser?.id, isSuperAdmin]);
+
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
     if (q) return applyClientSearch(allRows, tempSearch);
     return [...allRows];
   }, [allRows, tempSearch]);
-
-  const locationRows = useMemo(
-    () => flattenAuditLocations(allRows, { userId: currentUser?.id, isSuperAdmin, canManageAudit }),
-    [allRows, currentUser?.id, isSuperAdmin, canManageAudit]
-  );
 
   const locationUserFilterOptions = useMemo(() => {
     const byId = new Map();
@@ -279,15 +416,29 @@ export default function AuditPage() {
       }
     }
 
-    const options = [{ label: "All Users", value: "all" }];
-    [...byId.entries()]
-      .sort((a, b) => String(a[1]).localeCompare(String(b[1])))
-      .forEach(([id, name]) => {
-        options.push({ label: name, value: String(id) });
-      });
+    const options = [];
+    const myId = currentUser?.id != null ? Number(currentUser.id) : null;
 
-    return options;
-  }, [allRows]);
+    if (canFilterAllAuditUsers) {
+      options.push({ label: "All Users", value: "all" });
+    }
+
+    if (myId != null && !isSuperAdmin) {
+      const meName = byId.get(myId) || currentUser?.name || `User #${myId}`;
+      options.push({ label: meName, value: String(myId) });
+    }
+
+    if (canFilterAllAuditUsers) {
+      [...byId.entries()]
+        .filter(([id]) => myId == null || Number(id) !== myId)
+        .sort((a, b) => String(a[1]).localeCompare(String(b[1])))
+        .forEach(([id, name]) => {
+          options.push({ label: name, value: String(id) });
+        });
+    }
+
+    return options.length ? options : [{ label: "All Users", value: "all" }];
+  }, [allRows, currentUser?.id, currentUser?.name, canFilterAllAuditUsers, isSuperAdmin]);
 
   const locationAuditFilterOptions = useMemo(() => {
     const ids = new Set();
@@ -317,29 +468,10 @@ export default function AuditPage() {
     return options;
   }, [allRows, currentUser?.id, isSuperAdmin, canManageAudit]);
 
-  const filteredLocationRows = useMemo(() => {
-    let rows = [...locationRows];
-
-    if (params.locationAuditFilter !== "all") {
-      const auditId = Number(params.locationAuditFilter);
-      rows = rows.filter((r) => r.audit_id === auditId);
-    }
-
-    if (params.locationUserFilter !== "all") {
-      const filterUserId = Number(params.locationUserFilter);
-      rows = rows.filter((r) => Number(r.assigned_user_id) === filterUserId);
-    }
-
-    if (params.locationStatusFilter !== "all") {
-      rows = rows.filter((r) =>
-        matchesLocationStatusFilter(r.location_status, params.locationStatusFilter)
-      );
-    }
-
-    const q = String(tempSearch || "").trim();
-    if (q) return applyClientSearch(rows, tempSearch);
-    return rows;
-  }, [locationRows, params.locationAuditFilter, params.locationUserFilter, params.locationStatusFilter, tempSearch]);
+  const filteredLocationRows = useMemo(
+    () => buildFilteredLocationRows(),
+    [buildFilteredLocationRows]
+  );
 
   const activeRows = isLocationView ? filteredLocationRows : filteredRows;
   const items = useMemo(() => activeRows.slice(0, displayLimit), [activeRows, displayLimit]);
@@ -369,7 +501,7 @@ export default function AuditPage() {
       status: "all",
       authorization: "all",
       locationAuditFilter: "all",
-      locationUserFilter: "all",
+      locationUserFilter: defaultLocationUserFilter,
       locationStatusFilter: "pending",
       sortKey: "audit_id",
       sortDir: "desc",
@@ -454,7 +586,13 @@ export default function AuditPage() {
     setSelected(null);
     setTempSearch("");
     setDisplayLimit(100);
-  }, []);
+    if (tab === PAGE_TABS.LOCATION) {
+      setParams((prev) => ({
+        ...prev,
+        locationUserFilter: defaultLocationUserFilter,
+      }));
+    }
+  }, [defaultLocationUserFilter]);
 
   const { openNewModal, openEditModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "audit",
@@ -515,12 +653,24 @@ export default function AuditPage() {
       width: "130px",
       copyValue: (item) => getAuditExecutionStatusLabel(item.status),
     }],
+    [
+      "Score",
+      "audit_batch_score",
+      (v, row) => renderAuditBatchScoreCell(row),
+      {
+        width: "90px",
+        copyValue: (item) => {
+          const batch = computeAuditBatchScore(item);
+          return batch ? formatLocationScorePct(batch.score_pct) : "Pending";
+        },
+      },
+    ],
     ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 italic whitespace-normal break-words leading-tight">{v || "—"}</span>, { width: "180px", wrap: true }],
     ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
     ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 
-  const LOCATION_HEADERS = [
+  const LOCATION_HEADERS = useMemo(() => [
     ["Location", "location_no", (v, row) => {
       const submitted = isLocationSubmittedRow(row);
       const canOpen = submitted && canViewAudit;
@@ -560,6 +710,11 @@ export default function AuditPage() {
       copyValue: (item) => item.users_label || item.assigned_user_name,
     }],
     ["Boxes", "expected_count", (v, row) => renderLocationBoxesCell(row), { width: "130px", wrap: true }],
+    ["Score", "score_pct", (v, row) => renderLocationScoreCell(row), {
+      width: "80px",
+      copyValue: (item) =>
+        isLocationSubmittedRow(item) ? formatLocationScorePct(item.score_pct) : "—",
+    }],
     ["Difference", "difference_boxes", (v, row) => {
       const submitted = isLocationSubmittedRow(row);
       const canOpen = submitted && canViewAudit;
@@ -577,7 +732,7 @@ export default function AuditPage() {
             <span
               key={`m-${uid}`}
               className="px-1 py-0.5 rounded text-[8px] font-bold bg-amber-50 text-amber-800 border border-amber-200"
-              title="Not scanned"
+              title="Missing"
             >
               {uid}
             </span>
@@ -586,7 +741,7 @@ export default function AuditPage() {
             <span
               key={`e-${uid}`}
               className="px-1 py-0.5 rounded text-[8px] font-bold bg-rose-50 text-rose-800 border border-rose-200"
-              title="Extra scan"
+              title="Extra"
             >
               {uid}
             </span>
@@ -622,7 +777,7 @@ export default function AuditPage() {
     }],
     ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 italic whitespace-normal break-words leading-tight">{v || "—"}</span>, { width: "160px", wrap: true }],
     ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "140px" }],
-  ];
+  ], [canViewAudit, openLocationComparison]);
 
   const tableHeaders = isLocationView ? LOCATION_HEADERS : HEADERS;
 
@@ -646,31 +801,14 @@ export default function AuditPage() {
 
   const canReassignLocation = canManageLocation;
 
-  const canExecute = useMemo(() => {
-    if (!isLocationView || !selectedLocationRow || !selectedRecord) return false;
-    if (selectedLocationRow.is_history_row) return false;
+  const nextExecutableLocationRow = useMemo(() => {
+    if (!isLocationView) return null;
+    return findNextExecutableLocationRow(filteredLocationRows, locationExecutionContext, {
+      preferRow: selectedLocationRow,
+    });
+  }, [isLocationView, filteredLocationRows, locationExecutionContext, selectedLocationRow]);
 
-    if (!isLocationEditable({ status: selectedLocationRow.location_status })) return false;
-    if (!selectedLocationRow.approved) return false;
-
-    const isAssigned =
-      currentRole?.toLowerCase() === "super_admin" ||
-      Number(selectedLocationRow.assigned_user_id) === Number(currentUser?.id);
-    if (!isAssigned) return false;
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const start = new Date(selectedRecord.start_date);
-    const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
-    const end = new Date(selectedRecord.end_date);
-    const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999).getTime();
-    const isWithinDateRange = today >= startDate && today <= endDate;
-
-    const isSubmitted = selectedRecord.status === "submitted";
-    const isVerified = selectedRecord.status === "verified";
-
-    return canStartAuditExecution(selectedRecord) && !isSubmitted && !isVerified && isWithinDateRange;
-  }, [isLocationView, selectedLocationRow, selectedRecord, currentUser, currentRole]);
+  const canExecute = Boolean(nextExecutableLocationRow);
 
   const canViewComparison = useMemo(() => {
     if (!canViewAudit) return false;
@@ -680,6 +818,21 @@ export default function AuditPage() {
     if (!selectedRecord || isLocationView) return false;
     return ["submitted", "verified"].includes(selectedRecord.status);
   }, [canViewAudit, isLocationView, selectedLocationRow, selectedRecord]);
+
+  const comparisonCanManage = useMemo(() => {
+    const row = comparisonContext?.locationRow;
+    if (!row) return false;
+    const audit = allRows.find((a) => Number(a.audit_id) === Number(row.audit_id));
+    if (!audit || row.is_history_row || audit.status === "cancelled") return false;
+    if (audit.status === "verified" && currentRole?.toLowerCase() !== "super_admin") return false;
+    const isCreator = Number(audit.created_by) === Number(currentUser?.id);
+    return (
+      currentRole?.toLowerCase() === "super_admin" ||
+      editAccess?.allowed ||
+      authorizeAccess?.allowed ||
+      isCreator
+    );
+  }, [comparisonContext, allRows, currentRole, currentUser?.id, editAccess, authorizeAccess]);
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
@@ -727,14 +880,13 @@ export default function AuditPage() {
                 variant="primary" 
                 label="Start Audit" 
                 icon={Play} 
-                disabled={!selected || !canExecute} 
-                onClick={async () => {
-                  if (!isLocationView || !selectedLocationRow) {
-                    toast.info("Select your location row on the Location Wise tab, then click Start Audit");
+                disabled={!isLocationView || !canExecute} 
+                onClick={() => {
+                  if (!nextExecutableLocationRow) {
+                    toast.info("No location available to start for today");
                     return;
                   }
-                  const row = await loadExecutionAudit(selectedAuditId);
-                  if (row) setExecutionOpen(true);
+                  openAuditExecution(nextExecutableLocationRow);
                 }} 
                 className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none bg-indigo-600 hover:bg-indigo-700" 
               />
@@ -785,17 +937,6 @@ export default function AuditPage() {
                 }}
                 className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-indigo-600 shadow-none"
               />
-
-              {currentRole?.toLowerCase() === 'super_admin' && (
-                <button 
-                  disabled={!selected || selectedRecord?.status !== 'submitted' || verifying}
-                  onClick={() => handleVerify(selectedAuditId)}
-                  className="h-9 px-4 border border-purple-200 bg-purple-50 text-purple-600 hover:bg-purple-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shadow-none"
-                >
-                  {verifying ? <RefreshCcw size={14} className="animate-spin" /> : <ClipboardCheck size={14} />}
-                  Final Approve
-                </button>
-              )}
 
               <ActionButton 
                 module="audit" 
@@ -903,25 +1044,31 @@ export default function AuditPage() {
         <AuditModal open={modalOpen} onClose={() => setModalOpen(false)} onSuccess={() => { fetchAudits(); setSelected(null); }} editData={editItem} mode={modalMode} />
       )}
       
-      {executionOpen && executionAudit && selectedLocationRow && (
+      {executionOpen && executionAudit && executionLocationRow && (
         <AuditExecutionModal 
           open={executionOpen} 
           onClose={() => {
             setExecutionOpen(false);
             setExecutionAudit(null);
+            setExecutionLocationRow(null);
           }} 
           onSuccess={async (keepOpen) => { 
-            await fetchAudits();
-            if (keepOpen && selectedAuditId) {
-              await loadExecutionAudit(selectedAuditId);
-            } else {
-              setSelected(null); 
-              setExecutionOpen(false);
-              setExecutionAudit(null);
+            if (keepOpen && executionLocationRow?.audit_id) {
+              await fetchAudits();
+              await loadExecutionAudit(executionLocationRow.audit_id);
+              return;
+            }
+            const completedRowId = executionLocationRow?.row_id ?? null;
+            setExecutionOpen(false);
+            setExecutionAudit(null);
+            setExecutionLocationRow(null);
+            const advanced = await advanceToNextExecutableLocation(completedRowId);
+            if (!advanced) {
+              toast.info("No more locations to start for today");
             }
           }} 
           auditData={executionAudit}
-          fixedLocationId={selectedLocationRow.location_id}
+          fixedLocationId={executionLocationRow.location_id}
         />
       )}
 
@@ -932,9 +1079,11 @@ export default function AuditPage() {
             setComparisonOpen(false);
             setComparisonContext(null);
           }}
+          onSuccess={() => fetchAudits()}
           auditId={comparisonContext.auditId}
           auditLabel={comparisonContext.auditLabel}
           locationRow={comparisonContext.locationRow}
+          canManage={comparisonCanManage}
         />
       )}
 

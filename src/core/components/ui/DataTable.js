@@ -7,6 +7,7 @@ import EmptyState from "@/core/components/common-table/EmptyState";
 import { buildCellRangeSet, isCellInSet, buildClipboardFromCellSet, copyTextToClipboard, getCellPlainText } from "@/core/utils/dataTableCellSelection";
 import { MODULE_DISABLED_MESSAGE } from "@/core/components/common/Constants";
 import { isHotkeyTypingTarget } from "@/core/utils/listHotkeys";
+import { formatDocDate } from "@/core/utils/utilHelper";
 
 /** Pixels: checkbox column — colgroup + sticky offsets (`table-fixed` otherwise stretches the first col). */
 const DATA_TABLE_SELECTION_COL_PX = 36;
@@ -727,6 +728,7 @@ export default function DataTable({
     const key = headerOrKey;
     const v = item[key];
     if (v === undefined || v === null || v === "") return "—";
+    if (key === "doc_dt") return formatDocDate(v) || "—";
     return String(v);
   };
 

@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import dayjs from "dayjs";
 import { History } from "lucide-react";
+import { formatDayjs } from "@/core/utils/utilHelper";
 import GlobalDetailModal from "@/core/components/common/GlobalDetailModal";
 import { MasterDetailBody, MasterDetailHero, MasterDetailGrid, MasterDetailSection, MasterDetailKV, MasterDetailMetrics, MasterDetailProse } from "@/features/apps/ims/components/master/MasterDetailLayout";
 import { getBoxStickerEntries } from "@/features/apps/ims/utils/boxTransactionStickerEntries";
@@ -67,7 +67,7 @@ export default function BoxTransactionLogDetailModal({ open, onClose, row, label
     labelForType?.(row.transaction_type, row) ||
     resolveBoxTxTypeLabel(row.transaction_type, row) ||
     "—";
-  const ts = row.created_at ? dayjs(row.created_at).format("DD MMM YYYY · hh:mm:ss A") : "—";
+  const ts = formatDayjs(row.created_at, "DD MMM YYYY · hh:mm:ss A");
   const moduleLabel = row.source_module?.replace(/_/g, " ") || "—";
 
   const stdCount = details.standard_count ?? (row.box_kind === "Standard" ? row.box_count : null);

@@ -5,7 +5,12 @@ import { imsApiViews } from "@/features/apps/ims/helpers/sortDropdownResponse";
 export const forwardingNoteService = {
   getAll:      (params) => api(ENDPOINTS.FORWARDING_NOTES.LIST,   { method: "POST", body: params }),
   getAllItems: (params) => api(ENDPOINTS.FORWARDING_NOTES.LIST_ITEMS, { method: "POST", body: params }),
-  getById:     (fuid) => api(ENDPOINTS.FORWARDING_NOTES.GET, { method: "POST", body: { fuid } }),
+  getById:     (fuidOrRow) => {
+    const raw =
+      typeof fuidOrRow === "object" && fuidOrRow != null ? fuidOrRow.fuid : fuidOrRow;
+    const fuid = parseInt(String(raw ?? "").trim(), 10);
+    return api(ENDPOINTS.FORWARDING_NOTES.GET, { method: "POST", body: { fuid } });
+  },
   getViews: (params) => {
     const body = typeof params === "string" ? { search: params } : params;
     return imsApiViews(ENDPOINTS.FORWARDING_NOTES.VIEWS, body, "fuid");

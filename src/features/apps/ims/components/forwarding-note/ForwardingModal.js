@@ -230,8 +230,8 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     setErrors({});
 
     const hydrate = async () => {
-      const fuid = editData?.fuid;
-      const needsFetch = Boolean(fuid && (isEdit || isApprove));
+      const fuid = parseInt(String(editData?.fuid ?? "").trim(), 10);
+      const needsFetch = Boolean(fuid > 0 && (isEdit || isApprove));
 
       if (!needsFetch) {
         if (!cancelled) {

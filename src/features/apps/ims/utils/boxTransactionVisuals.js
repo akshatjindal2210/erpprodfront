@@ -12,12 +12,19 @@ function parseDetails(raw) {
 
 const OUT_DISPATCH_TYPES = new Set(["out_link"]);
 
+function normalizeBoxTxType(type) {
+  if (type === "audit_adjust_remove") return "audit_missing";
+  if (type === "audit_adjust_add" || type === "audit_adjust_relocate") return "audit_extra";
+  return type;
+}
+
 const ADD_TYPES = new Set([
   "packing_create",
   "inward_link",
   "sa_stock_in",
   "out_unlink",
   "out_other_return_to_packing",
+  "audit_extra",
 ]);
 
 const REMOVE_TYPES = new Set([
@@ -26,11 +33,12 @@ const REMOVE_TYPES = new Set([
   "sa_stock_out",
   "sa_delete",
   "box_soft_delete",
+  "audit_missing",
 ]);
 
 /** add = boxes linked/created, remove = boxes unlinked/deleted, dispatch = out only, neutral = other */
 export function getBoxTxDirection(row) {
-  const type = row?.transaction_type;
+  const type = normalizeBoxTxType(row?.transaction_type);
   if (!type) return "neutral";
 
   if (type === "sa_revert") {
@@ -48,6 +56,7 @@ export function getBoxTxDirection(row) {
 
 export function resolveBoxTxTypeLabel(type, row, typeLabels = {}) {
   if (!type) return "—";
+  type = normalizeBoxTxType(type);
 
   if (type === "sa_revert") {
     const entryType = parseDetails(row?.details).entry_type;
@@ -72,9 +81,12 @@ const TYPE_BADGE_CLASSES = {
   sa_qty_update: "bg-blue-50 text-blue-600 border-blue-100",
   box_soft_delete: "bg-rose-50 text-rose-700 border-rose-100",
   override_customer: "bg-violet-50 text-violet-600 border-violet-100",
+  audit_missing: "bg-amber-50 text-amber-800 border-amber-200",
+  audit_extra: "bg-emerald-50 text-emerald-700 border-emerald-100",
 };
 
 export function getBoxTxTypeBadgeClass(type, row) {
+  type = normalizeBoxTxType(type);
   if (type === "sa_revert") {
     const dir = getBoxTxDirection({ transaction_type: type, details: row?.details });
     if (dir === "add") return "bg-emerald-50 text-emerald-700 border-emerald-100";

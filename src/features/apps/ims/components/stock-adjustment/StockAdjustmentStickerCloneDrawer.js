@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Check, AlertCircle, Loader2, Shield, MessageSquareQuote, Package, Layers, ChevronDown } from "lucide-react";
+import { Check, AlertCircle, Loader2, Shield, MessageSquareQuote, Package, Layers } from "lucide-react";
 import { toast } from "react-toastify";
 
 import Drawer from "@/core/components/ui/Drawer";
@@ -624,8 +624,6 @@ export default function StockAdjustmentStickerCloneDrawer({
   const formRef = useRef(null);
   /** Phone: switch between item cards and breakdown table */
   const [mobileBreakdownTab, setMobileBreakdownTab] = useState("details");
-  /** Phone: collapse packing/qty/reason fields to free space for Details / Boxes */
-  const [mobileFiltersExpanded, setMobileFiltersExpanded] = useState(false);
   const [viewAddRows, setViewAddRows] = useState([]);
   const [viewHydrating, setViewHydrating] = useState(false);
   const [savedRow, setSavedRow] = useState(null);
@@ -670,7 +668,6 @@ export default function StockAdjustmentStickerCloneDrawer({
       setForm(INITIAL_FORM);
       setErrors({});
       setMobileBreakdownTab("details");
-      setMobileFiltersExpanded(false);
       setViewAddRows([]);
       setViewHydrating(false);
       setSavedRow(null);
@@ -723,7 +720,6 @@ export default function StockAdjustmentStickerCloneDrawer({
           setSavedRow(hydrated.row);
           setGatePassed(true);
           setMobileBreakdownTab("details");
-          setMobileFiltersExpanded(false);
         } catch (err) {
           if (!cancelled) {
             toast.error(err?.message || "Failed to load adjustment");
@@ -1148,7 +1144,6 @@ export default function StockAdjustmentStickerCloneDrawer({
       setGatePassed(true);
       setMinusSelectedUids(new Set());
       setMobileBreakdownTab("details");
-      setMobileFiltersExpanded(false);
     } catch (err) {
       toast.error(err?.message || "Load failed");
       } finally {
@@ -1387,35 +1382,6 @@ export default function StockAdjustmentStickerCloneDrawer({
         ? -minusImpactQty
         : 0;
 
-  const mobileFilterSummary = useMemo(() => {
-    const parts = [];
-    const pn = gatePackingNo.trim();
-    if (pn) parts.push(pn);
-    if (gateEntryType === "add" && gateFinancialYear.trim()) {
-      parts.push(`FY ${gateFinancialYear.trim()}`);
-    }
-    if (previewSigned !== 0) {
-      parts.push(`${previewSigned > 0 ? "+" : ""}${previewSigned} PCS`);
-    }
-    const approved = isApprove
-      ? savedRow?.approved
-      : isEdit
-        ? editingWasApproved
-        : form.approved;
-    parts.push(approved ? "Approved" : "Pending");
-    return parts.filter(Boolean).join(" · ");
-  }, [
-    gatePackingNo,
-    gateEntryType,
-    gateFinancialYear,
-    previewSigned,
-    isApprove,
-    isEdit,
-    editingWasApproved,
-    form.approved,
-    savedRow?.approved,
-  ]);
-
   const toolbarActionButtons = (
     <>
       {gatePassed && !readOnly && !isEdit ? (
@@ -1427,7 +1393,6 @@ export default function StockAdjustmentStickerCloneDrawer({
             setItemMeta(null);
             setMinusSelectedUids(new Set());
             setMobileBreakdownTab("details");
-            setMobileFiltersExpanded(false);
           }}
           className="col-span-2 h-8 lg:h-9 w-full rounded-lg text-[9px] lg:text-[10px] font-black uppercase border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 px-3 transition-all sm:col-span-1 sm:w-auto"
         >
@@ -1693,8 +1658,8 @@ export default function StockAdjustmentStickerCloneDrawer({
 
   const inputsTopRowFields = (
       <div className="max-w-[1800px] mx-auto w-full min-w-0 px-3 py-2 lg:py-2.5 sm:px-4 sm:py-3 max-lg:px-2 max-lg:py-2">
-        <div className="grid w-full min-w-0 grid-cols-1 max-lg:grid-cols-2 sm:grid-cols-2 lg:grid-cols-12 gap-3 max-lg:gap-2.5 items-end">
-          <div className="flex flex-col justify-start min-w-0 max-lg:col-span-2 lg:col-span-2">
+        <div className="grid w-full min-w-0 grid-cols-1 max-lg:grid-cols-3 sm:grid-cols-2 lg:grid-cols-12 gap-2 max-lg:gap-2 lg:gap-3 items-end">
+          <div className="flex flex-col justify-start min-w-0 max-lg:col-span-1 lg:col-span-2">
             <span className={FIELD_LABEL_ROW}>
               <Package className="w-3 h-3 text-slate-400 shrink-0" aria-hidden />
               Packing
@@ -1710,7 +1675,7 @@ export default function StockAdjustmentStickerCloneDrawer({
           {gateEntryType === "add" ? (
             isAddEditRebuild ? (
             <>
-              <div className="min-w-0 w-full lg:col-span-2">
+              <div className="min-w-0 w-full max-lg:col-span-1 lg:col-span-2">
                 <span className={FIELD_LABEL}>Saved in DB</span>
                 <div className={READOUT_BOX}>
                   <p className="text-[11px] font-bold text-slate-900 tabular-nums leading-tight">
@@ -1721,7 +1686,7 @@ export default function StockAdjustmentStickerCloneDrawer({
                   ) : null}
                 </div>
               </div>
-              <div className="min-w-0 w-full lg:col-span-2">
+              <div className="min-w-0 w-full max-lg:col-span-1 lg:col-span-2">
                 <label htmlFor="sa-add-extra" className={FIELD_LABEL}>
                   Add more <span className="text-rose-500">*</span>
                 </label>
@@ -1739,7 +1704,7 @@ export default function StockAdjustmentStickerCloneDrawer({
                   className={`${FIELD_CONTROL} ${errors.addExtraBoxes ? FIELD_CONTROL_ERR : ""}`}
                 />
               </div>
-              <div className="min-w-0 w-full lg:col-span-2">
+              <div className="min-w-0 w-full max-lg:col-span-1 lg:col-span-2">
                 <label htmlFor="sa-add-perbox-edit" className={FIELD_LABEL}>
                   Per box <span className="text-rose-500">*</span>
                 </label>
@@ -1760,7 +1725,7 @@ export default function StockAdjustmentStickerCloneDrawer({
             </>
             ) : (
             <>
-              <div className="min-w-0 w-full lg:col-span-2">
+              <div className="min-w-0 w-full max-lg:col-span-1 lg:col-span-2">
                 <label htmlFor="sa-add-boxes" className={FIELD_LABEL}>
                   Boxes <span className="text-rose-500">*</span>
                 </label>
@@ -1779,7 +1744,7 @@ export default function StockAdjustmentStickerCloneDrawer({
                   className={`${FIELD_CONTROL} ${errors.addNumBoxes ? FIELD_CONTROL_ERR : ""}`}
                 />
               </div>
-              <div className="min-w-0 w-full lg:col-span-2">
+              <div className="min-w-0 w-full max-lg:col-span-1 lg:col-span-2">
                 <label htmlFor="sa-add-perbox" className={FIELD_LABEL}>
                   Per box <span className="text-rose-500">*</span>
                 </label>
@@ -1830,7 +1795,7 @@ export default function StockAdjustmentStickerCloneDrawer({
             />
           </div>
 
-          <div className="flex flex-col justify-start min-w-0 w-full max-lg:col-span-2 lg:col-span-2">
+          <div className="flex flex-col justify-start min-w-0 w-full max-lg:col-span-1 lg:col-span-2">
             <span className={FIELD_LABEL_ROW}>
               <Shield className="w-3 h-3 text-slate-400 shrink-0" aria-hidden />
               Approve
@@ -1885,7 +1850,7 @@ export default function StockAdjustmentStickerCloneDrawer({
 
           {/* Error Row (Full Width) */}
           {(errors.addExtraBoxes || errors.addPerBoxQty || errors.addNumBoxes || errors.minusBoxes) && (
-            <div className="lg:col-span-12 flex flex-col gap-0.5 mt-1">
+            <div className="max-lg:col-span-3 lg:col-span-12 flex flex-col gap-0.5 mt-1">
               {[errors.addExtraBoxes, errors.addPerBoxQty, errors.addNumBoxes, errors.minusBoxes].filter(Boolean).map((err, eidx) => (
                 <p key={eidx} className="text-[8px] text-rose-600 font-semibold leading-tight flex items-start gap-0.5">
                   <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" /> {err}
@@ -1895,7 +1860,7 @@ export default function StockAdjustmentStickerCloneDrawer({
           )}
 
           {(!readOnly || isApprove) && gatePassed ? (
-            <div className="mt-2 w-full min-w-0 shrink-0 lg:col-span-12">
+            <div className="mt-2 w-full min-w-0 shrink-0 max-lg:col-span-3 lg:col-span-12">
               <ModuleSopAcknowledgment
                 ref={sopAckRef}
                 key={`${open}-${gatePassed}-${sopPermissionType}`}
@@ -1911,27 +1876,9 @@ export default function StockAdjustmentStickerCloneDrawer({
 
   const inputsTopRow = (
     <div ref={formRef} className="shrink-0 border-b border-slate-200 bg-slate-50/50 lg:bg-slate-50/50">
-      <div className="lg:hidden">
-        <button
-          type="button"
-          aria-expanded={mobileFiltersExpanded}
-          onClick={() => setMobileFiltersExpanded((v) => !v)}
-          className="flex w-full items-center gap-2 px-2.5 py-2 text-left bg-white active:bg-slate-50 touch-manipulation"
-        >
-          <span className="text-[8px] font-black uppercase tracking-wider text-indigo-600 shrink-0">Filters</span>
-          <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-800">{mobileFilterSummary}</span>
-          <ChevronDown
-            size={16}
-            className={`shrink-0 text-slate-500 transition-transform duration-200 ${mobileFiltersExpanded ? "rotate-180" : ""}`}
-            aria-hidden
-          />
-        </button>
-        {mobileFiltersExpanded ? (
-          <div className="max-h-[36dvh] overflow-y-auto overscroll-contain border-t border-slate-200 bg-slate-50/90">
-            {inputsTopRowHints}
-            {inputsTopRowFields}
-          </div>
-        ) : null}
+      <div className="lg:hidden border-b border-slate-200 bg-slate-50/90">
+        {inputsTopRowHints}
+        {inputsTopRowFields}
       </div>
       <div className="hidden lg:block">
         {inputsTopRowHints}

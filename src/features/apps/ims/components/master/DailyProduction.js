@@ -6,7 +6,7 @@ import { toast } from "react-toastify";
 import { toastDataRefreshed } from "@/core/utils/toastNotify";
 import dayjs from "dayjs";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
-import { formatDateTime } from "@/core/utils/utilHelper";
+import { formatDateTime, formatDocDate, docDateToDayjs } from "@/core/utils/utilHelper";
 
 import { masterService } from "@/features/apps/ims/services/master";
 import { boxService } from "@/features/apps/ims/services/box";
@@ -109,15 +109,15 @@ export default function DailyProductionPage() {
     if (params.fromDate) {
       const fromStart = dayjs(params.fromDate);
       data = data.filter((r) => {
-        const d = dayjs(r.doc_dt);
-        return fromStart.isValid() && d.isValid() && d.isAfter(fromStart.subtract(1, "day"));
+        const d = docDateToDayjs(r.doc_dt);
+        return fromStart.isValid() && d && d.isAfter(fromStart.subtract(1, "day"));
       });
     }
     if (params.toDate) {
       const upper = dayjs(params.toDate).add(1, "day").startOf("day");
       data = data.filter((r) => {
-        const d = dayjs(r.doc_dt);
-        return upper.isValid() && d.isValid() && d.isBefore(upper);
+        const d = docDateToDayjs(r.doc_dt);
+        return upper.isValid() && d && d.isBefore(upper);
       });
     }
 
@@ -234,7 +234,7 @@ export default function DailyProductionPage() {
 
   const HEADERS = [
     ["Packing No", "doc_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v}</span>, { width: "100px", fixed: true }],
-    ["Date", "doc_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{dayjs(v).format("DD/MM/YYYY")}</span>, { width: "100px" }],
+    ["Date", "doc_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDocDate(v) || "—"}</span>, { width: "100px" }],
     ["Job Card", "job_card_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v}</span>, { width: "120px" }],
     ["Quantity", "total_qty", (v) => (
       <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px]">
@@ -412,14 +412,14 @@ export default function DailyProductionPage() {
               eyebrow="Daily production"
               icon={Package}
               title={selectedRecord.acc_name}
-              badge={`Doc ${selectedRecord.doc_no} · ${dayjs(selectedRecord.doc_dt).format("DD/MM/YYYY")}`}
+              badge={`Doc ${selectedRecord.doc_no} · ${formatDocDate(selectedRecord.doc_dt) || "—"}`}
             />
             <MasterDetailGrid columns={2}>
               <MasterDetailSection label="Document no." tone="indigo">
                 <span>{selectedRecord.doc_no}</span>
               </MasterDetailSection>
               <MasterDetailSection label="Entry date" tone="white">
-                <span>{dayjs(selectedRecord.doc_dt).format("DD/MM/YYYY")}</span>
+                <span>{formatDocDate(selectedRecord.doc_dt) || "—"}</span>
               </MasterDetailSection>
             </MasterDetailGrid>
             <MasterDetailSection label="Item code" tone="white">

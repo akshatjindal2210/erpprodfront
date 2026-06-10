@@ -15,6 +15,7 @@ import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 import { fetchItemScopedLedgerById } from "@/features/apps/ims/helpers/packingEntryCustomerSelect";
 import { useEscapeKey } from "@/core/hooks/useEscapeKey";
+import { formatDocDate } from "@/core/utils/utilHelper";
 function isMarketLedgerCustomer(ledgerOrRow) {
   return String(ledgerOrRow?.acc_name ?? "").trim().toLowerCase() === "market";
 }
@@ -375,7 +376,7 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
           </div>
           <div>
             <p className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Doc Date</p>
-            <p className="text-[11px] lg:text-sm font-bold text-slate-700">{selectedRow.doc_dt ? new Date(selectedRow.doc_dt).toLocaleDateString("en-GB") : "--"}</p>
+            <p className="text-[11px] lg:text-sm font-bold text-slate-700">{formatDocDate(selectedRow.doc_dt) || "—"}</p>
           </div>
           <div>
             <p className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Doc No.</p>
@@ -425,6 +426,10 @@ function StickerBreakdownPanel({
   canPrint = true,
   flowWithPage = false,
 }) {
+  const theadStickyClass = flowWithPage
+    ? "sticky top-0 z-20 shadow-[0_1px_0_0_rgb(226_232_240)]"
+    : "sticky top-0 z-20";
+
   return (
       <div
         className={
@@ -433,7 +438,7 @@ function StickerBreakdownPanel({
             : "h-full flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0"
         }
       >
-      <div className="px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center gap-1.5 min-w-0 shrink-0">
+      <div className={`px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center gap-1.5 min-w-0 shrink-0 ${flowWithPage ? "lg:hidden" : ""}`}>
         <div className="flex items-center gap-1.5 lg:gap-2 min-w-0 flex-1">
           <Box className="w-4 h-4 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-600" aria-hidden />
           <span className="text-[10px] sm:text-[11px] lg:text-sm font-black uppercase tracking-tight text-slate-800 truncate">{headerTitle}</span>
@@ -478,28 +483,28 @@ function StickerBreakdownPanel({
                       <tr className="border-b border-slate-200 bg-slate-50">
                         <th
                           scope="col"
-                          className="sticky left-0 top-0 z-30 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-600 border-r border-slate-200 whitespace-nowrap"
+                          className={`sticky left-0 top-0 z-[30] bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-600 border-r border-slate-200 whitespace-nowrap ${theadStickyClass}`}
                         >
                           #
                         </th>
-                        <th scope="col" className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap">
+                        <th scope="col" className={`${theadStickyClass} bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap`}>
                           Box
                         </th>
-                        <th scope="col" className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap">
+                        <th scope="col" className={`${theadStickyClass} bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap`}>
                           Packing
                         </th>
-                        <th scope="col" className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap">
+                        <th scope="col" className={`${theadStickyClass} bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap`}>
                           Qty
                         </th>
-                        <th scope="col" className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap">
+                        <th scope="col" className={`${theadStickyClass} bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap`}>
                           Type
                         </th>
-                        <th scope="col" className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap">
+                        <th scope="col" className={`${theadStickyClass} bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 whitespace-nowrap`}>
                           Status
                         </th>
                         <th
                           scope="col"
-                          className="sticky right-0 top-0 z-30 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 text-right whitespace-nowrap border-l border-slate-200"
+                          className={`sticky right-0 top-0 z-[30] bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 text-right whitespace-nowrap border-l border-slate-200 ${theadStickyClass}`}
                         >
                           Action
                         </th>
@@ -1267,16 +1272,16 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       title="Sticker Control" 
       maxWidth="max-w-full xl:max-w-7xl" 
       noPadding
-      bodyScrollable
+      bodyScrollable={false}
     >
-      <div className="w-full max-w-full bg-slate-50 antialiased">
+      <div className="w-full max-w-full h-full min-h-0 flex flex-col bg-slate-50 antialiased">
         {fetching ? (
           <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-blue-600" /></div>
         ) : !selectedRow ? (
           <div className="flex-1 flex items-center justify-center text-slate-400">No Production Records Found</div>
         ) : (
           <>
-            <div className="bg-white border-b px-2 md:px-4 py-1.5 sm:py-2 md:py-3 flex flex-col md:flex-row items-stretch md:items-center gap-1.5 sm:gap-2 md:gap-3 shadow-sm z-10 w-full max-w-full min-w-0 shrink-0">
+            <div className="shrink-0 z-20 bg-white border-b px-2 md:px-4 py-1.5 sm:py-2 md:py-3 flex flex-col md:flex-row items-stretch md:items-center gap-1.5 sm:gap-2 md:gap-3 shadow-sm w-full max-w-full min-w-0">
               
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full md:flex-1 min-w-0 pb-1 -mb-1">
                 {stickersByDocAsc.map(s => (
@@ -1338,7 +1343,36 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
               </div>
             </div>
 
-            <div ref={stickerBodyScrollRef} className="w-full">
+            <div
+              role="tablist"
+              aria-label="Sections"
+              className="lg:hidden grid grid-cols-2 gap-1 shrink-0 px-2 pt-1.5 pb-1 bg-slate-100/90 border-b border-slate-200"
+            >
+              {[
+                { id: "details", label: "Details" },
+                { id: "breakdown", label: displayStickerRows.length ? `Boxes · ${displayStickerRows.length}` : "Boxes" },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={stickerTab === tab.id}
+                  onClick={() => setStickerTab(tab.id)}
+                  className={`rounded-md py-1.5 px-2 text-center text-[9px] sm:text-[10px] font-black uppercase tracking-tight transition-all touch-manipulation active:opacity-90 ${
+                    stickerTab === tab.id
+                      ? "bg-white text-indigo-700 shadow-sm ring-1 ring-slate-200"
+                      : "bg-slate-200/70 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div
+              ref={stickerBodyScrollRef}
+              className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden custom-scrollbar"
+            >
               <div className="hidden lg:flex flex-col w-full bg-slate-50 border-t border-slate-200">
                 <div className="flex flex-row items-start w-full">
                   <aside className="w-72 xl:w-80 shrink-0 border-r border-slate-200 bg-slate-50">
@@ -1376,29 +1410,6 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
               </div>
 
               <div className="lg:hidden flex flex-col bg-slate-100/90 border-t border-slate-200">
-                <div role="tablist" aria-label="Sections" className="grid grid-cols-2 gap-1 shrink-0 px-2 pt-1.5 pb-1">
-                  {[
-                    { id: "details", label: "Details" },
-                    { id: "breakdown", label: displayStickerRows.length ? `Boxes · ${displayStickerRows.length}` : "Boxes" },
-                  ].map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={stickerTab === tab.id}
-                      onClick={() => setStickerTab(tab.id)}
-                      className={`rounded-md py-1.5 px-2 text-center text-[9px] sm:text-[10px] font-black uppercase tracking-tight transition-all touch-manipulation active:opacity-90 ${
-                        stickerTab === tab.id
-                          ? "bg-white text-indigo-700 shadow-sm ring-1 ring-slate-200"
-                          : "bg-slate-200/70 text-slate-600 hover:bg-slate-200"
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* <div className="mx-1.5 sm:mx-2 mb-1.5 sm:mb-2 flex-1 min-h-[120px] max-h-[min(34dvh,240px)] sm:max-h-[min(40dvh,300px)] overflow-hidden bg-white border border-slate-200 flex flex-col"> */}
                 <div className="mx-1.5 sm:mx-2 mb-1.5 sm:mb-2 bg-white border border-slate-200 flex flex-col">
                   {stickerTab === "breakdown" ? (
                     <StickerBreakdownPanel

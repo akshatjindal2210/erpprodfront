@@ -19,7 +19,7 @@ import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import StickerOverrideModal from "@/features/apps/ims/components/stickers/StickerOverrideModal";
 
 import { formatDateTime } from "@/core/utils/utilHelper";
-import dayjs from "dayjs";
+import { formatDayjs } from "@/core/utils/utilHelper";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
 
 import { STICKER_DOWNLOAD_SOURCE_KEYS } from "@/core/utils/global";
@@ -379,9 +379,9 @@ export default function StickerOverrideCustomerPage() {
 
     ["Requested By", "requested_by_name", (v) => <span className="text-[10px] font-bold text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
     ["Requested At", "requested_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "140px" }],
-    
+
     ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
-    ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400">{v ? dayjs(v).format("DD/MM/YY hh:mm A") : "—"}</span>, { width: "130px" }],
+    ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
     
     [
       "Remarks",

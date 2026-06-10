@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, Shield, Printer, Package } from "lucide-react";
 import { toast } from "react-toastify";
-import dayjs from "dayjs";
 import Drawer from "@/core/components/ui/Drawer";
 import { formatDateTime } from "@/core/utils/utilHelper";
 import ModuleSopAcknowledgment from "@/core/components/common/ModuleSopAcknowledgment";
@@ -222,9 +221,7 @@ export default function StockAdjustmentApproveDrawer({ open, onClose, onSuccess,
                 <p>
                   <span className="font-bold text-slate-500">Approved:</span>{" "}
                   {detail?.approved_by_name || "—"}
-                  {detail?.approved_at
-                    ? ` · ${dayjs(detail.approved_at).format("DD/MM/YY hh:mm A")}`
-                    : ""}
+                  {detail?.approved_at ? ` · ${formatDateTime(detail.approved_at)}` : ""}
                 </p>
               ) : null}
             </div>

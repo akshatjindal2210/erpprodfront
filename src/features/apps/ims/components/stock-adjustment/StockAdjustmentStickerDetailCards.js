@@ -4,6 +4,7 @@ import { Box, Layers, User, ClipboardList, RefreshCw, CheckCircle2 } from "lucid
 import SearchableSelect from "@/core/components/common/SearchableSelect";
 import { fetchItemScopedLedgerById } from "@/features/apps/ims/helpers/packingEntryCustomerSelect";
 import { masterService } from "@/features/apps/ims/services/master";
+import { formatDocDate } from "@/core/utils/utilHelper";
 
 export default function StockAdjustmentStickerDetailCards({ selectedRow, packing, onCustomerChange, customerSelectDisabled, customerChanging }) {
   const row = selectedRow || {};
@@ -151,7 +152,7 @@ export default function StockAdjustmentStickerDetailCards({ selectedRow, packing
           <div>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Doc Date</p>
             <p className="text-[11px] font-bold text-slate-700">
-              {row.doc_dt ? new Date(row.doc_dt).toLocaleDateString("en-GB") : "--"}
+              {formatDocDate(row.doc_dt) || "—"}
             </p>
           </div>
           <div>

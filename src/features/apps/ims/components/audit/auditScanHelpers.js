@@ -14,10 +14,23 @@ function parseJsonBoxList(raw) {
 
 /** Parse expected_boxes JSON array on a location row. */
 export function parseExpectedBoxes(loc) {
-  if (loc != null && typeof loc === "object" && !Array.isArray(loc) && !("expected_boxes" in loc)) {
-    return parseJsonBoxList(loc);
-  }
-  return parseJsonBoxList(loc?.expected_boxes);
+  const raw =
+    loc != null && typeof loc === "object" && !Array.isArray(loc) && !("expected_boxes" in loc)
+      ? parseJsonBoxList(loc)
+      : parseJsonBoxList(loc?.expected_boxes);
+  return raw.map(normalizeExpectedBox).filter((row) => row?.box_no_uid);
+}
+
+function normalizeExpectedBox(row) {
+  if (!row || typeof row !== "object") return null;
+  const box_no_uid = String(row.box_no_uid || "").trim().toUpperCase();
+  if (!box_no_uid) return null;
+  const acc_name = resolveBoxAccName(row);
+  return {
+    ...row,
+    box_no_uid,
+    ...(acc_name ? { acc_name } : {}),
+  };
 }
 
 /** Parse scanned_boxes JSON array on a location row. */
@@ -182,6 +195,7 @@ function buildLocationListRow(audit, loc) {
     extra_boxes: closed ? comparison.extra : [],
     difference_boxes: closed ? [...comparison.missing, ...comparison.extra] : [],
     all_matched: closed ? comparison.allMatched : false,
+    score_pct: closed ? computeLocationScoreFromComparison(comparison) : null,
     is_submitted: closed,
     reassigned_at: loc.reassigned_at ?? null,
     start_date: audit.start_date,
@@ -196,6 +210,10 @@ function buildLocationListRow(audit, loc) {
 
 /** One UI row per DB assignment — active + clone (previous user) rows. */
 export function expandLocationAssignmentRows(audit, loc, { seeAllForAudit = false, userId = null } = {}) {
+  // Assigned users see locations only after creator activates the audit
+  if (!audit?.approved && !seeAllForAudit) {
+    return [];
+  }
   if (!canSeeAssignmentUser(seeAllForAudit, userId, loc.assigned_user_id)) {
     return [];
   }
@@ -243,6 +261,88 @@ export function isLocationDraft(loc) {
 export function isLocationEditable(loc) {
   const key = String(loc?.status ?? "pending").trim().toLowerCase();
   return key === "pending" || key === "draft";
+}
+
+export function isWithinAuditDateRangeFromRow(row, now = new Date()) {
+  if (!row?.start_date || !row?.end_date) return false;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const start = new Date(row.start_date);
+  const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+  const end = new Date(row.end_date);
+  const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999).getTime();
+  return today >= startDate && today <= endDate;
+}
+
+/** Assigned user (or super admin) can open scan UI for this location row. */
+export function canExecuteAuditLocationRow(locationRow, { userId = null, role = null } = {}) {
+  if (!locationRow) return false;
+  if (locationRow.is_history_row) return false;
+  if (!isLocationEditable({ status: locationRow.location_status })) return false;
+  if (!locationRow.approved) return false;
+
+  const isSuperAdmin = String(role || "").toLowerCase() === "super_admin";
+  const isAssigned =
+    isSuperAdmin || Number(locationRow.assigned_user_id) === Number(userId);
+  if (!isAssigned) return false;
+  if (!isWithinAuditDateRangeFromRow(locationRow)) return false;
+
+  const auditStatus = locationRow.status;
+  if (auditStatus === "submitted" || auditStatus === "verified") return false;
+
+  return (
+    Boolean(locationRow.approved) &&
+    (auditStatus === "pending" ||
+      auditStatus === "approved" ||
+      auditStatus === "in_progress")
+  );
+}
+
+export function filterLocationListRows(
+  rows = [],
+  { locationAuditFilter = "all", locationUserFilter = "all", locationStatusFilter = "all", search = "" } = {},
+  searchFn = null
+) {
+  let filtered = [...rows];
+
+  if (locationAuditFilter !== "all") {
+    const auditId = Number(locationAuditFilter);
+    filtered = filtered.filter((r) => r.audit_id === auditId);
+  }
+
+  if (locationUserFilter !== "all") {
+    const filterUserId = Number(locationUserFilter);
+    filtered = filtered.filter((r) => Number(r.assigned_user_id) === filterUserId);
+  }
+
+  if (locationStatusFilter !== "all") {
+    filtered = filtered.filter((r) =>
+      matchesLocationStatusFilter(r.location_status, locationStatusFilter)
+    );
+  }
+
+  const q = String(search ?? "").trim();
+  if (q && typeof searchFn === "function") {
+    filtered = searchFn(filtered, search);
+  }
+
+  return filtered;
+}
+
+/** Next startable row: prefer selected, else first in list; skip just-finished row. */
+export function findNextExecutableLocationRow(
+  rows = [],
+  context = {},
+  { preferRow = null, excludeRowId = null } = {}
+) {
+  const eligible = rows.filter(
+    (row) =>
+      row?.row_id !== excludeRowId && canExecuteAuditLocationRow(row, context)
+  );
+  if (!eligible.length) return null;
+  if (preferRow && eligible.some((row) => row.row_id === preferRow.row_id)) {
+    return preferRow;
+  }
+  return eligible[0];
 }
 
 export function isLocationPending(loc) {
@@ -356,19 +456,96 @@ export function getLocationBoxComparison(loc) {
   };
 }
 
+/** Score % = (matched − extra) ÷ expected × 100 */
+export function computeLocationScoreFromComparison(cmp) {
+  if (!cmp) return null;
+  return computeLocationScoreFromCounts(
+    cmp.expected_count,
+    cmp.matched?.length ?? 0,
+    cmp.extra?.length ?? 0
+  );
+}
+
+export function computeLocationScoreFromCounts(expected, matched, extra = 0) {
+  const exp = Number(expected) || 0;
+  const mat = Number(matched) || 0;
+  const ext = Number(extra) || 0;
+  const net = Math.max(0, mat - ext);
+  if (exp <= 0) return net > 0 ? 0 : 100;
+  return Math.round((net / exp) * 10000) / 100;
+}
+
+export function formatLocationScorePct(scorePct) {
+  if (scorePct == null || scorePct === "") return "—";
+  const n = Number(scorePct);
+  if (!Number.isFinite(n)) return "—";
+  return n % 1 === 0 ? `${n}%` : `${n.toFixed(1)}%`;
+}
+
+/**
+ * Master-wise audit score — all active locations combined (batch total).
+ * e.g. 2 users × 3+2 locations → one score from 5 locations' expected/matched/extra.
+ */
+export function computeAuditBatchScore(audit) {
+  const locs = (audit?.locations || []).filter(isActiveAuditLocation);
+  if (!locs.length) return null;
+
+  let expected = 0;
+  let matched = 0;
+  let extra = 0;
+  let scoredCount = 0;
+
+  for (const loc of locs) {
+    const closed = isLocationClosed(loc);
+    if (!closed && loc.score_at == null) continue;
+
+    const cmp = getLocationBoxComparison(loc);
+    expected += cmp.expected_count;
+    matched += cmp.matched.length;
+    extra += cmp.extra.length;
+    scoredCount += 1;
+  }
+
+  if (scoredCount === 0) return null;
+
+  return {
+    score_pct: computeLocationScoreFromCounts(expected, matched, extra),
+    location_count: locs.length,
+    scored_location_count: scoredCount,
+    expected_count: expected,
+    matched_count: matched,
+    extra_count: extra,
+  };
+}
+
 export function isLocationSubmittedRow(row) {
   if (!row) return false;
   return Boolean(row.is_submitted) || isLocationClosed({ status: row.location_status });
 }
 
+export function resolveBoxAccName(row) {
+  if (!row) return null;
+  const existing = row.acc_name != null ? String(row.acc_name).trim() : "";
+  if (existing && existing !== "-") return existing;
+
+  const override = row.override_cust != null ? String(row.override_cust).trim() : "";
+  if (override && override !== "-") return override;
+
+  for (const candidate of [row.acc_code, row.sa_acc_code, row.packing_acc_code]) {
+    const code = candidate != null ? String(candidate).trim() : "";
+    if (code && code !== "-" && !/^\d+$/.test(code)) return code;
+  }
+  return null;
+}
+
 function formatBoxCustomer(detail) {
   if (!detail) return "—";
-  return detail.acc_name || detail.acc_code || detail.override_cust || "—";
+  return detail.acc_name || resolveBoxAccName(detail) || "—";
 }
 
 function formatBoxItem(detail) {
   if (!detail) return "—";
-  return detail.item_dcode || detail.item_code || "—";
+  return detail.item_code || "—";
 }
 
 function buildDifferenceRowsFromComparison(row, cmp) {
@@ -385,11 +562,13 @@ function buildDifferenceRowsFromComparison(row, cmp) {
       difference_type: "not_scanned",
       box_no_uid: uid,
       packing_number: det?.packing_number ?? "—",
-      customer: formatBoxCustomer(det),
-      item: formatBoxItem(det),
+      acc_name: formatBoxCustomer(det),
+      item_code: formatBoxItem(det),
       qty: det?.qty ?? "—",
       location_no: auditLocationNo,
       audit_location_no: auditLocationNo,
+      expected: true,
+      scanned: false,
     });
   }
   for (const uid of cmp.extra) {
@@ -398,11 +577,13 @@ function buildDifferenceRowsFromComparison(row, cmp) {
       difference_type: "extra_scan",
       box_no_uid: uid,
       packing_number: det?.packing_number ?? "—",
-      customer: formatBoxCustomer(det),
-      item: formatBoxItem(det),
+      acc_name: formatBoxCustomer(det),
+      item_code: formatBoxItem(det),
       qty: det?.qty ?? "—",
       location_no: det?.location_no || auditLocationNo,
       audit_location_no: auditLocationNo,
+      expected: false,
+      scanned: true,
     });
   }
   return rows;
@@ -420,11 +601,13 @@ function buildMatchedRowsFromComparison(row, cmp) {
       difference_type: "matched_scan",
       box_no_uid: uid,
       packing_number: det?.packing_number ?? "—",
-      customer: formatBoxCustomer(det),
-      item: formatBoxItem(det),
+      acc_name: formatBoxCustomer(det),
+      item_code: formatBoxItem(det),
       qty: det?.qty ?? "—",
       location_no: auditLocationNo,
       audit_location_no: auditLocationNo,
+      expected: true,
+      scanned: true,
     };
   });
 }

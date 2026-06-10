@@ -346,19 +346,7 @@ export default function InventoryReportPage() {
         (v) => <span className="text-[11px] text-slate-700 font-medium">{v ?? "—"}</span>,
         { fixed: true, width: "130px" },
       ],
-      [
-        "Date",
-        "doc_dt",
-        (v) => {
-          const formatted = formatDocDate(v);
-          return formatted ? (
-            <span className="text-slate-600 font-bold text-[10px] uppercase">{formatted}</span>
-          ) : (
-            <span className="text-[10px] text-slate-400">—</span>
-          );
-        },
-        { width: "100px" },
-      ],
+      ["Date", "doc_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDocDate(v) || "—"}</span>, { width: "100px" }],
       txt("Item Code", "item_code", "120px"),
       txt("Item Details", "item_desc", "220px"),
       txt("Customer", "customer_name", "200px"),

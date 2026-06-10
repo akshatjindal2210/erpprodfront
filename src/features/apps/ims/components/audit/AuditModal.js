@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useSelector } from "react-redux";
 import { Check, AlertCircle, Loader2, Shield, User, Calendar, MapPin, Plus, Trash2, MessageSquareQuote } from "lucide-react";
 import { toast } from "react-toastify";
 
@@ -18,6 +19,7 @@ import {
 } from "@/core/components/common/Constants";
 import { focusFirstError } from "@/core/utils/formFocus";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
+import { selectUser } from "@/core/store/slices/authSlice";
 import { getActiveLabel } from "./auditStatusHelpers";
 import { getOriginalAssignedUserId } from "./auditScanHelpers";
 
@@ -97,6 +99,32 @@ const INITIAL_FORM = {
   assignments: [makeAssignmentRow()],
 };
 
+function getTakenIdsExcludingRow(assignments, currentRowId, field) {
+  const taken = new Set();
+  for (const row of assignments || []) {
+    if (row.row_id === currentRowId) continue;
+    const val = row[field];
+    if (field === "location_ids") {
+      for (const id of val || []) taken.add(String(id));
+    } else if (val != null && val !== "") {
+      taken.add(String(val));
+    }
+  }
+  return taken;
+}
+
+function wrapExcludeFetcher(baseFetch, excludeIds, idKey) {
+  const exclude = excludeIds instanceof Set ? excludeIds : new Set((excludeIds || []).map(String));
+  return async (params) => {
+    const res = await baseFetch(params);
+    const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+    const filtered = list.filter((item) => !exclude.has(String(item?.[idKey])));
+    if (Array.isArray(res?.data)) return { ...res, data: filtered };
+    if (Array.isArray(res)) return filtered;
+    return res;
+  };
+}
+
 function groupLocationsByUser(locations = []) {
   const byUser = new Map();
   const seenLocations = new Set();
@@ -125,9 +153,18 @@ function groupLocationsByUser(locations = []) {
 export default function AuditModal({ open, onClose, onSuccess, editData, mode = "add" }) {
   const canAccess = useCanAccess();
   const canApprove = canAccess("audit", "authorize").allowed;
+  const currentUser = useSelector(selectUser);
 
   const isEdit = mode === "edit";
   const isAdd = mode === "add";
+
+  /** Audit creator cannot be assigned — they manage/activate the audit. */
+  const excludeCreatorUserId = useMemo(() => {
+    if (isEdit && editData?.created_by != null) return Number(editData.created_by);
+    if (currentUser?.id != null) return Number(currentUser.id);
+    return null;
+  }, [isEdit, editData?.created_by, currentUser?.id]);
+  
   const showApproval = canApprove && (isAdd || isEdit);
   const sopPermissionType = isAdd ? "authorize" : isEdit ? "edit" : "add";
 
@@ -168,14 +205,48 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
   };
 
   const handleAssignmentChange = (rowId, patch) => {
-    setForm((prev) => ({
-      ...prev,
-      assignments: prev.assignments.map((row) =>
+    setForm((prev) => {
+      let assignments = prev.assignments.map((row) =>
         row.row_id === rowId ? { ...row, ...patch } : row
-      ),
-    }));
+      );
+
+      if (patch.location_ids) {
+        const claimed = new Set(
+          (assignments.find((r) => r.row_id === rowId)?.location_ids || []).map(String)
+        );
+        assignments = assignments.map((row) => {
+          if (row.row_id === rowId) return row;
+          const nextIds = (row.location_ids || []).filter((id) => !claimed.has(String(id)));
+          return nextIds.length === (row.location_ids || []).length
+            ? row
+            : { ...row, location_ids: nextIds };
+        });
+      }
+
+      return { ...prev, assignments };
+    });
     if (errors.assignments) setErrors((prev) => ({ ...prev, assignments: "" }));
   };
+
+  const fetchAuditUsers = useCallback(
+    (params) =>
+      userService.getViews({
+        ...params,
+        permission_module: "audit",
+        permission_action: "view",
+      }),
+    []
+  );
+
+  const fetchAuditLocations = useCallback(
+    (params) =>
+      locationService.getViews({
+        ...params,
+        permission_module: "audit",
+        permission_action: "view",
+      }),
+    []
+  );
 
   const addAssignmentRow = () => {
     setForm((prev) => ({
@@ -358,7 +429,12 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
           )}
 
           <div className="space-y-3">
-            {form.assignments.map((row, index) => (
+            {form.assignments.map((row, index) => {
+              const takenUserIds = getTakenIdsExcludingRow(form.assignments, row.row_id, "assigned_user_id");
+              if (excludeCreatorUserId != null) takenUserIds.add(String(excludeCreatorUserId));
+              const takenLocationIds = getTakenIdsExcludingRow(form.assignments, row.row_id, "location_ids");
+
+              return (
               <div
                 key={row.row_id}
                 className="p-3 rounded-lg border border-slate-200 bg-slate-50/60 space-y-3"
@@ -384,13 +460,7 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
                     label="Assigned User"
                     value={row.assigned_user_id}
                     onChange={(id) => handleAssignmentChange(row.row_id, { assigned_user_id: id ?? "" })}
-                    fetchService={(params) =>
-                      userService.getViews({
-                        ...params,
-                        permission_module: "audit",
-                        permission_action: "view",
-                      })
-                    }
+                    fetchService={wrapExcludeFetcher(fetchAuditUsers, takenUserIds, "id")}
                     getByIdService={(id) => userService.getById(id)}
                     dataKey="id"
                     labelKey="name"
@@ -405,13 +475,7 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
                     compactMulti
                     value={row.location_ids}
                     onChange={(ids) => handleAssignmentChange(row.row_id, { location_ids: ids ?? [] })}
-                    fetchService={(params) =>
-                      locationService.getViews({
-                        ...params,
-                        permission_module: "audit",
-                        permission_action: "view",
-                      })
-                    }
+                    fetchService={wrapExcludeFetcher(fetchAuditLocations, takenLocationIds, "location_id")}
                     getByIdService={(id) => locationService.getById(id)}
                     dataKey="location_id"
                     labelKey="location_no"
@@ -420,7 +484,8 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
                   />
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
 
           <div className="flex justify-end">
@@ -458,10 +523,9 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
                 <Shield size={16} />
               </div>
               <div>
-                <p className={`text-xs font-bold leading-none ${form.approved ? "text-white" : "text-slate-700"}`}>Approval Status</p>
                 <p className={`${FORM_MICRO_LABEL_CLASS} mt-1 leading-none ${form.approved ? "text-emerald-100" : "text-slate-400"}`}>
                   {form.approved ? "Active" : "Inactive"}
-                </p>
+                </p>  
               </div>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
