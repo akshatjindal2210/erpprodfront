@@ -16,7 +16,8 @@ import DeleteModal from "@/core/components/common/DeleteModal";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import DataTable from "@/core/components/ui/DataTable";
-import ViewToggle from "@/core/components/ui/ViewToggle";
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import ImsSegmentedTabs from "@/features/apps/ims/components/common/ImsSegmentedTabs";
 import ActionButton from "@/core/components/ui/ActionButton";
@@ -29,13 +30,7 @@ import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/
 import { printFromBackendHtml } from "@/features/apps/ims/utils/printHtmlDocument";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/core/components/common/ListPageSearchField";
-import {
-  parseSavedBillNos,
-  fetchDummyBillOptions,
-  formatBillNosForSave,
-  getDummyBillByNo,
-  uniqueBillNos,
-} from "@/features/apps/ims/utils/forwardingBillOptions";
+import { parseSavedBillNos, fetchBillOptions, formatBillNosForSave, getBillByNo, uniqueBillNos } from "@/features/apps/ims/utils/forwardingBillOptions";
 
 /** Search matches visible table cells (raw + formatted labels). */
 function forwardingTableSearchParts(row, reportType = "summary") {
@@ -71,7 +66,7 @@ function forwardingTableSearchParts(row, reportType = "summary") {
     push(`${row.loose_box || 0} Boxes`, `Qty: ${Number(row.loose_box_qty || 0).toLocaleString()}`);
   }
 
-  push(row.bill_no, row.bill_no ? null : "N/A");
+  push(...parseSavedBillNos(row.bill_no), row.bill_no ? null : "N/A");
   push(row.acc_name, row.acc_code);
   pushNum(reportType === "item_wise" ? row.total_qty : row.total_items);
   pushDate(row.timestamp, row.created_at, row.updated_at, row.approved_at, row.out_entry_locked_at, row.bill_updated_at);
@@ -531,6 +526,12 @@ export default function ForwardingPage() {
     return [...baseHeaders, ...itemCols, ...masterHeaders];
   }, [reportType]);
 
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: reportType === "summary" ? "Forwarding Note" : "Forwarding Note Items",
+    rows: filteredRows,
+    headers: HEADERS,
+  });
+
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
@@ -595,11 +596,18 @@ export default function ForwardingPage() {
               
               <button type="button" onClick={() => fetchData()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shrink-0">
                 <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-                Refresh
               </button>
               </>
             }
-            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+              />
+            }
           />
 
           {selectedId && (
@@ -634,8 +642,8 @@ export default function ForwardingPage() {
                       heightClass="h-8"
                       value={billDraftNos}
                       onChange={(nos) => setBillDraftNos(uniqueBillNos(nos))}
-                      fetchService={fetchDummyBillOptions}
-                      getByIdService={getDummyBillByNo}
+                      fetchService={fetchBillOptions}
+                      getByIdService={getBillByNo}
                       dataKey="bill_no"
                       labelKey="bill_no"
                       labelOnlyDisplay

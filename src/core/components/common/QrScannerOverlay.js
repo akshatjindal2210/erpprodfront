@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { X, Flashlight, FlashlightOff } from "lucide-react";
 import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 import { isMobileDevice } from "@/core/utils/pwa";
 
@@ -16,6 +16,9 @@ export default function QrScannerOverlay({
   hint = "Point camera at QR code",
   zIndexClass = "z-[2000]",
   frameClassName = "border-4 border-slate-100",
+  torchSupported = false,
+  torchOn = false,
+  onToggleTorch,
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -33,7 +36,28 @@ export default function QrScannerOverlay({
       aria-label="QR scanner"
     >
       <div className="w-full max-w-md relative">
-        <div className="absolute top-3 right-3 z-[210]">
+        <div className="absolute top-3 left-3 right-3 z-[210] flex items-center justify-between pointer-events-none">
+          {torchSupported ? (
+            <button
+              type="button"
+              onClick={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                await onToggleTorch?.();
+              }}
+              className={`pointer-events-auto p-2 rounded-full text-white transition-all ${
+                torchOn ? "bg-amber-500/90 hover:bg-amber-500" : "bg-black/35 hover:bg-black/50"
+              }`}
+              title={torchOn ? "Turn flash off" : "Turn flash on"}
+              aria-label={torchOn ? "Turn flash off" : "Turn flash on"}
+              aria-pressed={torchOn}
+            >
+              {torchOn ? <Flashlight size={20} /> : <FlashlightOff size={20} />}
+            </button>
+          ) : (
+            <span aria-hidden />
+          )}
+
           <button
             type="button"
             onClick={(e) => {
@@ -41,8 +65,9 @@ export default function QrScannerOverlay({
               e.stopPropagation();
               onClose?.();
             }}
-            className="p-2 bg-black/35 hover:bg-black/50 rounded-full text-white transition-all"
+            className="pointer-events-auto p-2 bg-black/35 hover:bg-black/50 rounded-full text-white transition-all"
             title="Close scanner"
+            aria-label="Close scanner"
           >
             <X size={20} />
           </button>

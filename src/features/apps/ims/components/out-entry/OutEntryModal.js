@@ -1023,7 +1023,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     [tryAddBox, tryAddOtherBox, isSimpleScanMode]
   );
 
-  useHtml5QrScanner({
+  const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,
     elementId: OUT_ENTRY_SCANNER_ID,
     onDecoded: handleCameraDecoded,
@@ -1332,6 +1332,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           onClose={closeScanner}
           readerId={OUT_ENTRY_SCANNER_ID}
           hint="Scanning sticker / box QR"
+          torchSupported={torchSupported}
+          torchOn={torchOn}
+          onToggleTorch={toggleTorch}
         />
 
         {isEdit && editData?.approved && (

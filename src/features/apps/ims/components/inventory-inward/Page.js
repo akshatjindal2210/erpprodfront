@@ -15,7 +15,8 @@ import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import DataTable from "@/core/components/ui/DataTable";
-import ViewToggle from "@/core/components/ui/ViewToggle";
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import ImsSegmentedTabs from "@/features/apps/ims/components/common/ImsSegmentedTabs";
 import ActionButton from "@/core/components/ui/ActionButton";
@@ -379,19 +380,19 @@ export default function InwardPage() {
       "Packing No",
       "packing_number",
       inPackingMeta.table,
-      { fixed: true, width: "140px", cardRender: inPackingMeta.card },
+      { fixed: true, width: "140px", cardRender: inPackingMeta.card, copyValue: inPackingMeta.copyValue },
     ],
     [
       "Item Code",
       "item_codes",
       inItemMeta.table,
-      { width: "160px", cardRender: inItemMeta.card },
+      { width: "160px", cardRender: inItemMeta.card, copyValue: inItemMeta.copyValue },
     ],
     [
       "Qty",
       "qtys",
       inQtyMeta.table,
-      { width: "100px", cardRender: inQtyMeta.card },
+      { width: "100px", cardRender: inQtyMeta.card, copyValue: inQtyMeta.copyValue },
     ],
     [
       "Total Qty",
@@ -545,6 +546,12 @@ export default function InwardPage() {
       ? PACKING_AREA_BOX_HEADERS
       : PACKING_AREA_HEADERS;
 
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "Inventory Inward",
+    rows: filteredRows,
+    headers,
+  });
+
   const handleSort = (key) => {
     setDisplayLimit(100);
     if (isStoreIn) {
@@ -687,7 +694,15 @@ export default function InwardPage() {
                 </button>
               </>
             }
-            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+              />
+            }
           />
 
           {!isStoreIn && (packingFilterPn || packingFilterItem || packingFilterCust) && isPackingBoxView && (

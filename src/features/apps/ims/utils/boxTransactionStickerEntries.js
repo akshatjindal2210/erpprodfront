@@ -237,7 +237,7 @@ function buildStickerEntries(row) {
 
 /** Sticker UIDs + loose highlight flags for one transaction log row. */
 export function getBoxStickerEntries(row) {
-  if (isUniqueScopedRow(row)) return buildUniqueStickerEntry(row);
   if (isSearchScopedRow(row)) return buildSearchScopedStickerEntries(row);
+  if (isUniqueScopedRow(row)) return buildUniqueStickerEntry(row);
   return buildStickerEntries(row);
 }

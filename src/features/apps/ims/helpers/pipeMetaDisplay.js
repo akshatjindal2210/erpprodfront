@@ -21,10 +21,17 @@ export function renderPipeMetaCell(value, className = "text-[10px] leading-tight
   );
 }
 
+/** Export / copy text — same comma-separated list as the table cell. */
+export function formatPipeMetaForExport(value) {
+  const parts = splitPipeMeta(value);
+  return parts.length ? parts.join(", ") : "—";
+}
+
 /** Table + card render pair — card shows full comma-separated meta without truncation. */
 export function pipeMetaRenderers(className) {
   return {
     table: (v) => renderPipeMetaCell(v, className),
     card: (v) => renderPipeMetaCell(v, className, { full: true }),
+    copyValue: (_row, v) => formatPipeMetaForExport(v),
   };
 }

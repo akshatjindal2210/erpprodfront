@@ -51,6 +51,13 @@ export function cloneTransactionRowForBox(row, entry, sourceRow = null) {
   const sourceCount = getBoxStickerEntries(baseRow).length || Number(baseRow?.box_count) || 1;
   const qty = resolveEntryQty(baseRow, entry, sourceCount);
   const uid = String(entry?.box_no_uid ?? "").trim();
+  const detailsRaw = baseRow?.details;
+  let details = detailsRaw;
+  if (detailsRaw != null && uid) {
+    const parsed = parseDetails(detailsRaw);
+    const scoped = scopeDetailsToMatchedUids(parsed, [uid]);
+    details = typeof detailsRaw === "string" ? JSON.stringify(scoped) : scoped;
+  }
 
   return {
     ...row,
@@ -58,6 +65,7 @@ export function cloneTransactionRowForBox(row, entry, sourceRow = null) {
     _sourceLogId: row.id,
     _uniqueBoxUid: uid,
     _displayMode: BOX_TX_DISPLAY_MODES.UNIQUE,
+    details,
     box_sticker_entries: [{ ...entry, box_no_uid: uid }],
     box_no_uids_display: uid,
     box_count: 1,
@@ -75,14 +83,20 @@ export function boxStickerSearchText(entry) {
   return parts.join(" ").toLowerCase();
 }
 
+/** Packing / doc segment from sticker UID (e.g. 26_34462_SA330_11_1 → 34462). */
+export function packingNumberFromBoxStickerUid(uid) {
+  const doc = docNoFromStandardBoxNoUid(uid);
+  return doc != null && String(doc).trim() !== "" ? String(doc).trim() : null;
+}
+
 /** Per-box packing / doc keys from sticker UID (exact match values). */
 export function entryPackingKeys(entry) {
   const uid = String(entry?.box_no_uid ?? "").trim();
   const keys = new Set();
   if (!uid) return keys;
 
-  const doc = docNoFromStandardBoxNoUid(uid);
-  if (doc) keys.add(String(doc).trim().toLowerCase());
+  const doc = packingNumberFromBoxStickerUid(uid);
+  if (doc) keys.add(doc.toLowerCase());
 
   const saMatch = uid.match(/_SA(\d+)/i);
   if (saMatch?.[1]) {
@@ -94,12 +108,23 @@ export function entryPackingKeys(entry) {
   return keys;
 }
 
-/** Search matches this box's packing/doc exactly (not substring in other packings). */
+/** Exact packing / SA ref match on the UID middle segment (not substring in other parts). */
 export function entryMatchesPackingSearch(entry, query = "") {
-  const tokens = normalizeSearchTokens(query);
-  if (!tokens.length) return true;
-  const keys = entryPackingKeys(entry);
-  return tokens.every((token) => keys.has(token));
+  const q = String(query ?? "").trim().toLowerCase().replace(/\s+/g, "");
+  if (!q) return true;
+
+  const uid = String(entry?.box_no_uid ?? "").trim();
+  if (!uid) return false;
+
+  const saQuery = q.match(/^sa?(\d+)$/i);
+  if (saQuery) {
+    const saMatch = uid.match(/_SA(\d+)/i);
+    return saMatch?.[1]?.toLowerCase() === saQuery[1];
+  }
+
+  const packingNo = packingNumberFromBoxStickerUid(uid);
+  if (!packingNo) return false;
+  return packingNo.toLowerCase() === q;
 }
 
 function normalizeSearchTokens(query) {
@@ -122,11 +147,18 @@ function isFullBoxUidSearch(query = "") {
   return q.includes("_") && q.split("_").filter(Boolean).length >= 3;
 }
 
-/** Packing / doc number only (digits or SA ref), not a full sticker. */
+/** Packing / doc number or SA ref (not a full box sticker UID). e.g. 34462, sa330 */
 function isPackingNumberSearch(query = "") {
-  const q = String(query ?? "").trim().toLowerCase();
+  const q = String(query ?? "").trim().toLowerCase().replace(/\s+/g, "");
   if (!q || isFullBoxUidSearch(q)) return false;
-  return /^sa?\d+$/.test(q.replace(/\s+/g, ""));
+  if (/^sa\d+$/i.test(q)) return true;
+  if (/^\d+$/.test(q)) return true;
+  return false;
+}
+
+/** Unique view: one table row per log (scope matching stickers). False = expand one row per sticker. */
+export function isUniquePerLogSearch(query = "") {
+  return isPackingNumberSearch(query);
 }
 
 /** Match search on box sticker UID — exact when full UID given. */
@@ -310,21 +342,38 @@ export function expandBoxTransactionLogsToUnique(rows = [], query = "", typeLabe
   return out;
 }
 
-/** Summary = one row per log; Unique = one row per box sticker (search filters boxes). */
+/** Unique + packing search: one log row, only stickers for that packing, updated count/qty. */
+function scopeUniqueRowToMatchingPackings(row, query = "", typeLabels = {}) {
+  return scopeSummaryRowToMatchingEntries(row, query, typeLabels);
+}
+
+/** Summary + search: keep the full log row (all stickers). Unique + search: matching stickers only. */
 export function applyBoxTransactionLogView(rows = [], { query = "", typeLabels = {}, mode = "summary" } = {}) {
   const key = String(mode || BOX_TX_DISPLAY_MODES.SUMMARY).toLowerCase();
   const q = String(query ?? "").trim();
-  const filtered = q ? filterBoxTransactionLogs(rows, query, typeLabels) : rows;
+
+  if (!q) {
+    if (key === BOX_TX_DISPLAY_MODES.UNIQUE) {
+      return expandBoxTransactionLogsToUnique(rows, query, typeLabels);
+    }
+    return rows;
+  }
+
+  const filtered = filterBoxTransactionLogs(rows, query, typeLabels);
 
   if (key === BOX_TX_DISPLAY_MODES.UNIQUE) {
+    // Packing number (e.g. 34462): max one row per log, only matching stickers + qty.
+    if (isUniquePerLogSearch(q)) {
+      return filtered
+        .map((row) => scopeUniqueRowToMatchingPackings(row, query, typeLabels))
+        .filter(Boolean);
+    }
+    // Full box UID: one table row per matching sticker.
     return expandBoxTransactionLogsToUnique(filtered, query, typeLabels);
   }
 
-  if (!q) return filtered;
-
-  return filtered
-    .map((row) => scopeSummaryRowToMatchingEntries(row, query, typeLabels))
-    .filter(Boolean);
+  // Summary: only filter which logs appear — sticker list, counts, and qty stay as loaded.
+  return filtered.map((row) => stripUniqueScopeRow(row));
 }
 
 /** Build searchable text for one box transaction log row (all UI + JSON fields). */

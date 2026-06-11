@@ -8,7 +8,8 @@ import { masterService } from "@/features/apps/ims/services/master";
 
 import { useViewMode } from "@/core/hooks/useViewMode";
 import DataTable from "@/core/components/ui/DataTable";
-import ViewToggle from "@/core/components/ui/ViewToggle";
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import ActionButton from "@/core/components/ui/ActionButton";
 import GlobalDetailModal from "@/core/components/common/GlobalDetailModal";
@@ -136,6 +137,12 @@ export default function ProductMasterPage() {
     ), { width: "110px" }],
   ];
 
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "Product Master",
+    rows: filteredData,
+    headers: HEADERS,
+  });
+
   return (
     <div className={`${IMS_LIST_PAGE_SHELL} font-sans`}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
@@ -160,7 +167,15 @@ export default function ProductMasterPage() {
             </div>
               </>
             }
-            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+              />
+            }
           />
 
           {selected && (

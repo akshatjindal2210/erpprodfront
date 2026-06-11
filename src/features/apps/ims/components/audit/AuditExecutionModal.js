@@ -227,7 +227,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
     setIsScannerOpen(true);
   };
 
-  useHtml5QrScanner({
+  const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,
     elementId: AUDIT_SCANNER_ELEMENT_ID,
     onDecoded: (text) => handleScanValue(text),
@@ -364,6 +364,9 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
               ? `Scan Location QR for ${assignedLocation.location_no}`
               : `Scan boxes — ${assignedLocation.location_no} (${currentScannedBoxes.length} added)`
           }
+          torchSupported={torchSupported}
+          torchOn={torchOn}
+          onToggleTorch={toggleTorch}
         />
 
         <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 space-y-1">

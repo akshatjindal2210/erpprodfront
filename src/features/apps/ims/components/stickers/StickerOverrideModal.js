@@ -380,7 +380,7 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
     void onScanByCodeRef.current(decodedText, "scanner");
   }
 
-  useHtml5QrScanner({
+  const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,
     elementId: STICKER_SCANNER_ELEMENT_ID,
     onDecoded: handleStickerCameraDecoded,
@@ -512,6 +512,9 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
           onClose={closeScanner}
           readerId={STICKER_SCANNER_ELEMENT_ID}
           hint="Scanning sticker / box QR"
+          torchSupported={torchSupported}
+          torchOn={torchOn}
+          onToggleTorch={toggleTorch}
         />
 
         {/* Warning Alert */}

@@ -6,8 +6,7 @@ export const forwardingNoteService = {
   getAll:      (params) => api(ENDPOINTS.FORWARDING_NOTES.LIST,   { method: "POST", body: params }),
   getAllItems: (params) => api(ENDPOINTS.FORWARDING_NOTES.LIST_ITEMS, { method: "POST", body: params }),
   getById:     (fuidOrRow) => {
-    const raw =
-      typeof fuidOrRow === "object" && fuidOrRow != null ? fuidOrRow.fuid : fuidOrRow;
+    const raw = typeof fuidOrRow === "object" && fuidOrRow != null ? fuidOrRow.fuid : fuidOrRow;
     const fuid = parseInt(String(raw ?? "").trim(), 10);
     return api(ENDPOINTS.FORWARDING_NOTES.GET, { method: "POST", body: { fuid } });
   },
@@ -16,8 +15,8 @@ export const forwardingNoteService = {
     return imsApiViews(ENDPOINTS.FORWARDING_NOTES.VIEWS, body, "fuid");
   },
   getViewById: (fuid) => api(ENDPOINTS.FORWARDING_NOTES.VIEWS, { method: "POST", body: { id: fuid } }),
-  getTransporters: (params) =>
-    imsApiViews(ENDPOINTS.FORWARDING_NOTES.TRANSPORTERS, params, "transporter_name"),
+  getTransporters: (params) => imsApiViews(ENDPOINTS.FORWARDING_NOTES.TRANSPORTERS, params, "transporter_name"),
+  getBillNumbers: (params) => imsApiViews(ENDPOINTS.FORWARDING_NOTES.BILL_NUMBERS, params, "bill_no"),
   create:      (data) => api(ENDPOINTS.FORWARDING_NOTES.CREATE, { method: "POST", body: data }),
   update:      (fuid, data) => api(ENDPOINTS.FORWARDING_NOTES.UPDATE, { method: "POST", body: { fuid, ...data } }),
   updateBill:  (fuid, bill_no) => api(ENDPOINTS.FORWARDING_NOTES.UPDATE_BILL, { method: "POST", body: { fuid, bill_no } }),

@@ -13,5 +13,19 @@ export const inventoryReportService = {
         ...(Array.isArray(fields) && fields.length ? { fields } : {}),
       },
     }),
+  /** One backend round-trip for the full report (used on load / refresh). */
+  fetchAll: () =>
+    api(ENDPOINTS.INVENTORY_REPORT.LIST, {
+      method: "POST",
+      body: {
+        fetchAll: true,
+        page: 1,
+        limit: 50000,
+        filters: {},
+        includeTotals: true,
+        sortBy: "packing_number",
+        order: "DESC",
+      },
+    }),
 };
 

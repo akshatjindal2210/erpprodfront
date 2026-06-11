@@ -293,7 +293,7 @@ export default function LocationFinderDrawer({ open, onClose }) {
     fetchBoxAndLocation(decodedText);
   }
 
-  useHtml5QrScanner({
+  const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: cameraOn,
     elementId: LOCATION_FINDER_SCANNER_ID,
     onDecoded: handleFinderCameraDecoded,
@@ -393,6 +393,9 @@ export default function LocationFinderDrawer({ open, onClose }) {
           onClose={stopCamera}
           readerId={LOCATION_FINDER_SCANNER_ID}
           hint="Scan the sticker"
+          torchSupported={torchSupported}
+          torchOn={torchOn}
+          onToggleTorch={toggleTorch}
         />
 
         {/* Content Section */}

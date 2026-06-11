@@ -50,6 +50,35 @@ export function rowHasCellInSet(set, rowIndex, colCount) {
   return false;
 }
 
+/** Plain text for export / clipboard when the cell is not a simple string. */
+export function formatExportCellValue(value) {
+  if (value == null || value === "") return "";
+  if (Array.isArray(value)) {
+    if (!value.length) return "";
+    return value
+      .map((item) => {
+        if (item == null || item === "") return "";
+        if (typeof item === "object") {
+          return (
+            item.location_no ??
+            item.box_no_uid ??
+            item.uid ??
+            item.label ??
+            item.name ??
+            item.item_code ??
+            item.packing_number ??
+            ""
+          );
+        }
+        return String(item);
+      })
+      .filter((s) => s !== "")
+      .join(", ");
+  }
+  if (typeof value === "object") return "";
+  return String(value);
+}
+
 export function getCellPlainText(item, header, rowIndex) {
   if (!header || !item) return "";
   const [, key, renderFn, options] = header;
@@ -66,10 +95,10 @@ export function getCellPlainText(item, header, rowIndex) {
       return String(rendered);
     }
     if (typeof rendered === "boolean") return rendered ? "true" : "false";
-    return String(value ?? "");
+    return formatExportCellValue(value);
   }
   if (value === undefined || value === null) return "";
-  return String(value);
+  return formatExportCellValue(value);
 }
 
 /** TSV for clipboard (Excel / Sheets friendly) */

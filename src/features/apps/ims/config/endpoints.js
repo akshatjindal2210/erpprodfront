@@ -130,6 +130,7 @@ export const ENDPOINTS = {
     AVAILABLE_BOXES: "/forwarding-notes/available-boxes",
     PRINT_BILL: "/forwarding-notes/print-bill",
     TRANSPORTERS: "/forwarding-notes/transporter-helper",
+    BILL_NUMBERS: "/forwarding-notes/bill-helper",
   },
 
   FORWARDING_NOTE_ITEMS: {

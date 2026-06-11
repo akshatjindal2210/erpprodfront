@@ -9,8 +9,9 @@ import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellCl
 
 // Components
 import ActionButton from "@/core/components/ui/ActionButton";
-import ViewToggle from "@/core/components/ui/ViewToggle";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DataTable from "@/core/components/ui/DataTable";
 import BoxModal from "./BoxModal";
@@ -159,10 +160,19 @@ export default function BoxTablePage() {
       <span className="text-[10px] font-bold text-slate-600 uppercase">
         {v || `${row?.rack_no || ""}${(row?.shelf_no || "").toString().toUpperCase()}` || "—"}
       </span>
-    ), { width: "120px" }],
+    ), {
+      width: "120px",
+      copyValue: (row) => row.location_no || `${row?.rack_no || ""}${(row?.shelf_no || "").toString().toUpperCase()}` || "—",
+    }],
     ["Inward UID", "in_uid", (v) => <span className="text-[10px] text-slate-400">{v || "—"}</span>, { width: "120px" }],
     ["Outward UID", "out_uid", (v) => <span className="text-[10px] text-slate-400">{v || "—"}</span>, { width: "120px" }],
   ];
+
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "Box Records",
+    rows: filteredRows,
+    headers: HEADERS,
+  });
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
@@ -179,7 +189,15 @@ export default function BoxTablePage() {
               </button>
               </>
             }
-            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+              />
+            }
           />
 
           {selected && (

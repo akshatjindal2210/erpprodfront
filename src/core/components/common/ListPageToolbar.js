@@ -21,7 +21,7 @@ export function ListPageToolbarLayout({ tabs, subTabs, actions, viewToggle }) {
         {subTabs}
         {actions}
       </div>
-      {viewToggle ? <div className="shrink-0">{viewToggle}</div> : null}
+      {viewToggle ? <div className="shrink-0 relative z-[80]">{viewToggle}</div> : null}
     </div>
   );
 }

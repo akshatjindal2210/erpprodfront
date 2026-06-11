@@ -14,7 +14,8 @@ import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellCl
 // Components
 import ActionButton from "@/core/components/ui/ActionButton";
 import PrintActionButton from "@/core/components/ui/PrintActionButton";
-import ViewToggle from "@/core/components/ui/ViewToggle";
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DataTable from "@/core/components/ui/DataTable";
@@ -241,6 +242,12 @@ export default function LocationMasterPage() {
     ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "Location Master",
+    rows: filteredRows,
+    headers: HEADERS,
+  });
+
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
@@ -275,7 +282,15 @@ export default function LocationMasterPage() {
               </button>
               </>
             }
-            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+              />
+            }
           />
 
           {selected && (

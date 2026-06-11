@@ -11,7 +11,8 @@ import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellCl
 // Components
 import ActionButton from "@/core/components/ui/ActionButton";
 import PrintActionButton from "@/core/components/ui/PrintActionButton";
-import ViewToggle from "@/core/components/ui/ViewToggle";
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import DataTable from "@/core/components/ui/DataTable";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
@@ -398,6 +399,12 @@ export default function StickerOverrideCustomerPage() {
     ],
   ];
 
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "Sticker Customer Override",
+    rows: filteredRows,
+    headers: HEADERS,
+  });
+
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
@@ -443,7 +450,15 @@ export default function StickerOverrideCustomerPage() {
             </div>
               </>
             }
-            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+              />
+            }
           />
 
           {selected && (

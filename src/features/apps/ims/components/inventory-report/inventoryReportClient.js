@@ -42,6 +42,25 @@ function matchesAnyFilterValue(value, selected) {
   return selected.some((entry) => String(value) === String(entry));
 }
 
+function rowLocationLabels(row) {
+  return String(row?.location_details || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((s) => s !== "—");
+}
+
+function rowMatchesLocationFilter(row, selectedLocations) {
+  if (!selectedLocations.length) return true;
+  const labels = rowLocationLabels(row);
+  const ids = normalizeLocationIds(row.in_store_location_ids);
+  return selectedLocations.some(
+    (loc) =>
+      labels.some((label) => String(label) === String(loc)) ||
+      ids.some((id) => String(id) === String(loc))
+  );
+}
+
 export function filterInventoryRows(rows = [], filters = {}) {
   const items = normalizeFilterList(filters.item_dcodes);
   const customers = normalizeFilterList(filters.customer_codes);
@@ -52,10 +71,7 @@ export function filterInventoryRows(rows = [], filters = {}) {
     if (!matchesAnyFilterValue(row.item_dcode, items)) return false;
     if (!matchesAnyFilterValue(row.customer_code, customers)) return false;
     if (!matchesAnyFilterValue(row.packing_number, packings)) return false;
-    if (locations.length) {
-      const ids = normalizeLocationIds(row.in_store_location_ids);
-      return ids.length > 0 && ids.some((id) => locations.some((loc) => String(id) === String(loc)));
-    }
+    if (locations.length && !rowMatchesLocationFilter(row, locations)) return false;
     return true;
   });
 }
@@ -88,15 +104,19 @@ export function buildFilterOptionsFromRows(rows = []) {
     if (pn) packings.set(pn, { id: pn, packing_number: pn });
 
     const locIds = normalizeLocationIds(row.in_store_location_ids);
-    const locLabels = String(row.location_details || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const locLabels = rowLocationLabels(row);
 
     locIds.forEach((lid, idx) => {
+      const label = (locLabels[idx] || String(lid)).trim();
+      if (!label || label === "—") return;
+      const key = label;
       const id = String(lid);
-      if (!id || locations.has(id)) return;
-      locations.set(id, { id, location_no: locLabels[idx] || id });
+      const existing = locations.get(key);
+      if (existing) {
+        if (!existing.location_ids.includes(id)) existing.location_ids.push(id);
+        return;
+      }
+      locations.set(key, { id: key, location_no: label, location_ids: [id] });
     });
   }
 
@@ -118,6 +138,22 @@ export function applyInventoryView(rows, { filters, sortKey, sortDir }) {
     rows: sorted,
     totals: computeInventoryTotals(sorted),
     total: sorted.length,
+  };
+}
+
+/** Cascading filter dropdowns: apply all filters except the field being edited. */
+export function buildCascadingFilterOptions(allRows = [], filters = {}) {
+  const scoped = (excludeKey) => {
+    const next = { ...filters };
+    if (excludeKey) next[excludeKey] = [];
+    return filterInventoryRows(allRows, next);
+  };
+
+  return {
+    items: buildFilterOptionsFromRows(scoped("item_dcodes")).items,
+    customers: buildFilterOptionsFromRows(scoped("customer_codes")).customers,
+    locations: buildFilterOptionsFromRows(scoped("location_ids")).locations,
+    packings: buildFilterOptionsFromRows(scoped("packing_numbers")).packings,
   };
 }
 

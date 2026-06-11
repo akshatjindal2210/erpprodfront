@@ -12,6 +12,101 @@ import { formatDocDate } from "@/core/utils/utilHelper";
 /** Pixels: checkbox column — colgroup + sticky offsets (`table-fixed` otherwise stretches the first col). */
 const DATA_TABLE_SELECTION_COL_PX = 36;
 const ARROW_SCROLL_PX = 120;
+/** Fallback sticky thead height — measured from DOM when possible. */
+const TABLE_STICKY_HEAD_PX = 48;
+const SCROLL_EDGE_PADDING = 6;
+/** Reserve space for the horizontal scrollbar at the bottom of the table scroller. */
+const SCROLLBAR_RESERVE_PX = 18;
+
+function parseColWidthPx(w, fallback = 150) {
+  if (typeof w === "number" && Number.isFinite(w)) return w;
+  if (typeof w === "string") {
+    const n = parseFloat(w);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+
+function measureStickyHeadPx(container) {
+  const thead = container?.querySelector?.("thead");
+  if (!thead) return TABLE_STICKY_HEAD_PX;
+  const h = thead.getBoundingClientRect().height;
+  return Number.isFinite(h) && h > 0 ? h : TABLE_STICKY_HEAD_PX;
+}
+
+function measureStickyLeftPx(showSelection, colIndex, headers, columnWidths, selW) {
+  let left = showSelection ? selW : 0;
+  if (colIndex == null || colIndex < 0 || !headers?.length) return left;
+  for (let i = 0; i < colIndex; i++) {
+    const [, key, , config = {}] = headers[i] || [];
+    if (config.fixed) {
+      left += parseColWidthPx(columnWidths[key ?? i] ?? config.width);
+    }
+  }
+  return left;
+}
+
+function buildScrollPadding(container, showSelection, colIndex, headers, columnWidths, selW) {
+  const headPx = measureStickyHeadPx(container) + SCROLL_EDGE_PADDING;
+  const leftPx = measureStickyLeftPx(showSelection, colIndex, headers, columnWidths, selW) + SCROLL_EDGE_PADDING;
+  return {
+    paddingTop: headPx,
+    paddingBottom: SCROLLBAR_RESERVE_PX + SCROLL_EDGE_PADDING,
+    paddingLeft: leftPx,
+    paddingRight: SCROLL_EDGE_PADDING,
+  };
+}
+
+function scrollRectIntoContainer(container, elRect, padding = {}) {
+  if (!container || !elRect) return false;
+  const {
+    paddingTop = 0,
+    paddingBottom = SCROLL_EDGE_PADDING,
+    paddingLeft = 0,
+    paddingRight = SCROLL_EDGE_PADDING,
+  } = padding;
+  const cRect = container.getBoundingClientRect();
+  let deltaY = 0;
+  let deltaX = 0;
+
+  const topBound = cRect.top + paddingTop;
+  const bottomBound = cRect.bottom - paddingBottom;
+  if (elRect.top < topBound) deltaY = elRect.top - topBound;
+  else if (elRect.bottom > bottomBound) deltaY = elRect.bottom - bottomBound;
+
+  const leftBound = cRect.left + paddingLeft;
+  const rightBound = cRect.right - paddingRight;
+  if (elRect.left < leftBound) deltaX = elRect.left - leftBound;
+  else if (elRect.right > rightBound) deltaX = elRect.right - rightBound;
+
+  if (deltaY !== 0) container.scrollTop += deltaY;
+  if (deltaX !== 0) container.scrollLeft += deltaX;
+  return deltaY !== 0 || deltaX !== 0;
+}
+
+function scrollTargetIntoView(targetEl, container, padding) {
+  if (!targetEl) return;
+  for (let i = 0; i < 4; i++) {
+    const rect = targetEl.getBoundingClientRect();
+    let moved = false;
+    if (container) moved = scrollRectIntoContainer(container, rect, padding) || moved;
+    let parent = container?.parentElement ?? targetEl.parentElement;
+    while (parent && parent !== document.documentElement) {
+      const style = window.getComputedStyle(parent);
+      const scrollY =
+        (style.overflowY === "auto" || style.overflowY === "scroll") &&
+        parent.scrollHeight > parent.clientHeight + 1;
+      const scrollX =
+        (style.overflowX === "auto" || style.overflowX === "scroll") &&
+        parent.scrollWidth > parent.clientWidth + 1;
+      if (scrollY || scrollX) {
+        moved = scrollRectIntoContainer(parent, rect, padding) || moved;
+      }
+      parent = parent.parentElement;
+    }
+    if (!moved) break;
+  }
+}
 
 /** Arrow navigation after user clicked inside a list table (no focus ring on the container). */
 function isListTableKeyboardContext(target, tableEngaged) {
@@ -117,10 +212,37 @@ export default function DataTable({
     rowElRefs.current.set(key, el);
   }, []);
 
-  const scrollRowIntoView = useCallback((id) => {
-    const el = rowElRefs.current.get(String(id));
-    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, []);
+  const scrollRowIntoView = useCallback(
+    (id, colIndex = null) => {
+      const rowEl = rowElRefs.current.get(String(id));
+      if (!rowEl) return;
+
+      let targetEl = rowEl;
+      if (colIndex != null && Number.isFinite(colIndex) && colIndex >= 0) {
+        const childIndex = colIndex + (showSelection ? 1 : 0);
+        const cell = rowEl.children[childIndex];
+        if (cell instanceof HTMLElement) targetEl = cell;
+      }
+
+      const run = () => {
+        const container = scrollContainerRef.current;
+        const padding = buildScrollPadding(
+          container,
+          showSelection,
+          colIndex,
+          headers,
+          columnWidths,
+          selW
+        );
+        scrollTargetIntoView(targetEl, container, padding);
+      };
+
+      run();
+      requestAnimationFrame(run);
+      requestAnimationFrame(() => requestAnimationFrame(run));
+    },
+    [showSelection, headers, columnWidths, selW]
+  );
 
   const scrollTableHorizontal = useCallback((delta) => {
     const el = scrollContainerRef.current;
@@ -319,7 +441,7 @@ export default function DataTable({
       if (!skipOnSelect) {
         onSelect?.(currentId);
       }
-      if (scrollToRow) scrollRowIntoView(currentId);
+      if (scrollToRow) scrollRowIntoView(currentId, c);
     },
     [cellSelectActive, data, headers.length, getId, onSelect, scrollRowIntoView]
   );
@@ -411,14 +533,54 @@ export default function DataTable({
     }
   }, [data, cellSelectActive, headers.length, findSelectedRowIndex, focusCell, resolveFocusCol, autoFocusFirstRow, getId]);
 
-  /** Infinite scroll append: restore scroll on table + any parent scroll containers. */
+  /** Infinite scroll append: restore scroll, then keep keyboard/selection row visible. */
   useLayoutEffect(() => {
     const prevData = prevDataRef.current;
     const append = isDataAppendOnly(prevData, data, getId);
     if (!append) return;
     restoreScrollPositions();
-    requestAnimationFrame(() => restoreScrollPositions());
-  }, [data, getId, restoreScrollPositions]);
+    requestAnimationFrame(() => {
+      restoreScrollPositions();
+      const rowIdx = findSelectedRowIndex();
+      if (rowIdx >= 0) {
+        const id = getId(data[rowIdx], rowIdx);
+        const col =
+          cellSelectActive && selectionMode === "cell" && anchorCell ? anchorCell.col : null;
+        scrollRowIntoView(id, col);
+      }
+    });
+  }, [
+    data,
+    getId,
+    restoreScrollPositions,
+    findSelectedRowIndex,
+    scrollRowIntoView,
+    cellSelectActive,
+    selectionMode,
+    anchorCell,
+  ]);
+
+  /** After paint, keep the selected row/cell fully inside the visible scroll area (keyboard nav). */
+  useLayoutEffect(() => {
+    if (!data.length || hotkeysDisabled) return;
+    const rowIdx = findSelectedRowIndex();
+    if (rowIdx < 0) return;
+    const id = getId(data[rowIdx], rowIdx);
+    const col =
+      cellSelectActive && selectionMode === "cell" && anchorCell ? anchorCell.col : null;
+    scrollRowIntoView(id, col);
+  }, [
+    selectedId,
+    anchorCell?.row,
+    anchorCell?.col,
+    selectionMode,
+    getId,
+    findSelectedRowIndex,
+    scrollRowIntoView,
+    cellSelectActive,
+    hotkeysDisabled,
+    data.length,
+  ]);
 
   /** Drawer/modal closed: restore cell focus + scroll to the row user had selected. */
   useEffect(() => {
@@ -492,10 +654,12 @@ export default function DataTable({
       selectionMode,
       anchorCell,
       headersCount: headers.length,
+      getId,
       findSelectedRowIndex,
       selectRowByIndex,
       focusCell,
       scrollTableHorizontal,
+      scrollRowIntoView,
     };
   }, [
     data,
@@ -506,10 +670,12 @@ export default function DataTable({
     selectionMode,
     anchorCell,
     headers.length,
+    getId,
     findSelectedRowIndex,
     selectRowByIndex,
     focusCell,
     scrollTableHorizontal,
+    scrollRowIntoView,
   ]);
 
   useEffect(() => {
@@ -581,14 +747,26 @@ export default function DataTable({
         }
         if (key === "ArrowLeft") {
           if (colIdx > 0) s.focusCell(rowIdx, colIdx - 1);
-          else s.scrollTableHorizontal(-ARROW_SCROLL_PX);
+          else {
+            s.scrollTableHorizontal(-ARROW_SCROLL_PX);
+            const id = s.data[rowIdx] ? s.getId?.(s.data[rowIdx], rowIdx) : null;
+            requestAnimationFrame(() => {
+              if (id != null) s.scrollRowIntoView(id, colIdx);
+            });
+          }
           e.preventDefault();
           e.stopPropagation();
           return;
         }
         if (key === "ArrowRight") {
           if (colIdx < colMax) s.focusCell(rowIdx, colIdx + 1);
-          else s.scrollTableHorizontal(ARROW_SCROLL_PX);
+          else {
+            s.scrollTableHorizontal(ARROW_SCROLL_PX);
+            const id = s.data[rowIdx] ? s.getId?.(s.data[rowIdx], rowIdx) : null;
+            requestAnimationFrame(() => {
+              if (id != null) s.scrollRowIntoView(id, colIdx);
+            });
+          }
           e.preventDefault();
           e.stopPropagation();
           return;

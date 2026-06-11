@@ -10,12 +10,13 @@ import { useViewMode } from "@/core/hooks/useViewMode";
 import DataTable from "@/core/components/ui/DataTable";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
-import ViewToggle from "@/core/components/ui/ViewToggle";
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import BoxTransactionLogDetailModal from "@/features/apps/ims/components/log/BoxTransactionLogDetailModal";
 import BoxStickerNosCell, { getBoxStickerEntries } from "@/features/apps/ims/components/log/BoxStickerNosCell";
-import { applyBoxTransactionLogView, BOX_TX_DISPLAY_MODES } from "@/features/apps/ims/utils/boxTransactionLogSearch";
+import { applyBoxTransactionLogView, BOX_TX_DISPLAY_MODES, isUniquePerLogSearch } from "@/features/apps/ims/utils/boxTransactionLogSearch";
 import { sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { formatDateTime } from "@/core/utils/utilHelper";
 import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
@@ -83,6 +84,7 @@ export default function BoxTransactionLogPage() {
 
   const hasActiveSearch = Boolean(String(tempSearch ?? "").trim());
   const isUniqueView = displayMode === BOX_TX_DISPLAY_MODES.UNIQUE;
+  const isUniquePerLog = hasActiveSearch && isUniquePerLogSearch(tempSearch);
 
   const uniqueSourceLogCount = useMemo(() => {
     if (!isUniqueView) return 0;
@@ -288,6 +290,12 @@ export default function BoxTransactionLogPage() {
     [labelForType, copyModuleEntity]
   );
 
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "Box Transaction Log",
+    rows: filteredItems,
+    headers: HEADERS,
+  });
+
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
@@ -326,7 +334,16 @@ export default function BoxTransactionLogPage() {
             </div>
               </>
             }
-            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-8" />}
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+                viewToggleClassName="h-8"
+              />
+            }
           />
         </ListPageToolbar>
 
@@ -387,7 +404,9 @@ export default function BoxTransactionLogPage() {
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
             {isUniqueView
               ? hasActiveSearch
-                ? `Unique · ${filteredItems.length} box${filteredItems.length !== 1 ? "es" : ""} from ${uniqueSourceLogCount} log${uniqueSourceLogCount !== 1 ? "s" : ""} matching search`
+                ? isUniquePerLog
+                  ? `Unique · ${filteredItems.length} log row${filteredItems.length !== 1 ? "s" : ""} matching search`
+                  : `Unique · ${filteredItems.length} box${filteredItems.length !== 1 ? "es" : ""} from ${uniqueSourceLogCount} log${uniqueSourceLogCount !== 1 ? "s" : ""} matching search`
                 : `Unique · ${filteredItems.length} box row${filteredItems.length !== 1 ? "s" : ""} from ${items.length} log${items.length !== 1 ? "s" : ""}`
               : hasActiveSearch
                 ? `Summary · ${filteredItems.length} match${filteredItems.length !== 1 ? "es" : ""} in ${items.length} loaded (${totalItems} total)`

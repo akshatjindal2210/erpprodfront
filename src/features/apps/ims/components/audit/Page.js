@@ -11,7 +11,8 @@ import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellCl
 
 // Components
 import ActionButton from "@/core/components/ui/ActionButton";
-import ViewToggle from "@/core/components/ui/ViewToggle";
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DataTable from "@/core/components/ui/DataTable";
@@ -639,7 +640,11 @@ export default function AuditPage() {
       <div className="flex flex-col leading-tight">
         <span className="text-[10px] font-bold text-slate-700">{formatDate(row.start_date)} — {formatDate(row.end_date)}</span>
       </div>
-    ), { width: "180px" }],
+    ), {
+      width: "180px",
+      copyValue: (item) =>
+        `${formatDate(item.start_date)} — ${formatDate(item.end_date)}`,
+    }],
     ["Locations", "locations", (v) => (
       <div className="flex flex-wrap gap-1 py-1">
         {v?.map(loc => (
@@ -648,7 +653,15 @@ export default function AuditPage() {
           </span>
         ))}
       </div>
-    ), { width: "250px", wrap: true }],
+    ), {
+      width: "250px",
+      wrap: true,
+      copyValue: (item) => {
+        const locs = Array.isArray(item.locations) ? item.locations : [];
+        const names = locs.map((loc) => loc?.location_no).filter(Boolean);
+        return names.length ? names.join(", ") : "—";
+      },
+    }],
     ["Status", "status", (v) => renderAuditExecutionStatusBadge(v), {
       width: "130px",
       copyValue: (item) => getAuditExecutionStatusLabel(item.status),
@@ -709,7 +722,11 @@ export default function AuditPage() {
       wrap: true,
       copyValue: (item) => item.users_label || item.assigned_user_name,
     }],
-    ["Boxes", "expected_count", (v, row) => renderLocationBoxesCell(row), { width: "130px", wrap: true }],
+    ["Boxes", "expected_count", (v, row) => renderLocationBoxesCell(row), {
+      width: "130px",
+      wrap: true,
+      copyValue: (item) => `${item.scanned_count ?? 0} / ${item.expected_count ?? 0}`,
+    }],
     ["Score", "score_pct", (v, row) => renderLocationScoreCell(row), {
       width: "80px",
       copyValue: (item) =>
@@ -767,10 +784,24 @@ export default function AuditPage() {
           {inner}
         </button>
       );
-    }, { width: "200px", wrap: true }],
+    }, {
+      width: "200px",
+      wrap: true,
+      copyValue: (item) => {
+        if (!isLocationSubmittedRow(item)) return "After submit";
+        const missing = Array.isArray(item.missing_boxes) ? item.missing_boxes : [];
+        const extra = Array.isArray(item.extra_boxes) ? item.extra_boxes : [];
+        const boxes = [...missing, ...extra];
+        return boxes.length ? boxes.join(", ") : "All matched";
+      },
+    }],
     ["Date Range", "start_date", (v, row) => (
       <span className="text-[10px] font-bold text-slate-700">{formatDate(row.start_date)} — {formatDate(row.end_date)}</span>
-    ), { width: "170px" }],
+    ), {
+      width: "170px",
+      copyValue: (item) =>
+        `${formatDate(item.start_date)} — ${formatDate(item.end_date)}`,
+    }],
     ["Status", "location_status", (v) => renderLocationStatusBadge(v), {
       width: "110px",
       copyValue: (item) => getLocationStatusLabel(item.location_status),
@@ -791,6 +822,12 @@ export default function AuditPage() {
   ], [canViewAudit, openLocationComparison]);
 
   const tableHeaders = isLocationView ? LOCATION_HEADERS : HEADERS;
+
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: isLocationView ? "Audit Locations" : "Audit Master",
+    rows: activeRows,
+    headers: tableHeaders,
+  });
 
   const canManageLocation = useMemo(() => {
     if (!isLocationView || !selectedLocationRow || !selectedRecord) return false;
@@ -968,7 +1005,15 @@ export default function AuditPage() {
               </button>
               </>
             }
-            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+              />
+            }
           />
 
           {selected && selectedRecord && (

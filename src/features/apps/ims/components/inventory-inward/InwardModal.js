@@ -933,7 +933,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
     tryAddBoxRef.current(locIdx, decodedText, "scanner");
   }
 
-  useHtml5QrScanner({
+  const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,
     elementId: INWARD_SCANNER_ELEMENT_ID,
     onDecoded: handleInwardCameraDecoded,
@@ -1022,6 +1022,9 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
               ? "border-4 border-inward-loc-scanner-frame"
               : "border-4 border-inward-box-scanner-frame"
           }
+          torchSupported={torchSupported}
+          torchOn={torchOn}
+          onToggleTorch={toggleTorch}
         />
 
         {/* ── Location Selection ── */}

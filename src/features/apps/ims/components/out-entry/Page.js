@@ -34,7 +34,8 @@ import DeleteModal from "@/core/components/common/DeleteModal";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import DataTable from "@/core/components/ui/DataTable";
-import ViewToggle from "@/core/components/ui/ViewToggle";
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/core/components/common/ListPageToolbar";
 import ImsSegmentedTabs from "@/features/apps/ims/components/common/ImsSegmentedTabs";
 import ActionButton from "@/core/components/ui/ActionButton";
@@ -455,19 +456,19 @@ export default function OutEntryPage() {
       "Packing No",
       "packing_numbers",
       outPackingMeta.table,
-      { width: "140px", cardRender: outPackingMeta.card },
+      { width: "140px", cardRender: outPackingMeta.card, copyValue: outPackingMeta.copyValue },
     ],
     [
       "Item Code",
       "item_codes",
       outItemMeta.table,
-      { width: "160px", cardRender: outItemMeta.card },
+      { width: "160px", cardRender: outItemMeta.card, copyValue: outItemMeta.copyValue },
     ],
     [
       "Qty",
       "qtys",
       outQtyMeta.table,
-      { width: "100px", cardRender: outQtyMeta.card },
+      { width: "100px", cardRender: outQtyMeta.card, copyValue: outQtyMeta.copyValue },
     ],
     [
       "Total Qty",
@@ -586,6 +587,12 @@ export default function OutEntryPage() {
     ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: isStoreOut ? "Out Entry" : "Forwarding Notes",
+    rows: filteredRows,
+    headers: isStoreOut ? STORE_OUT_HEADERS : PENDING_HEADERS,
+  });
+
   const handleTabChange = (tab) => {
     setPageTab(tab);
     setSelected(null);
@@ -680,7 +687,15 @@ export default function OutEntryPage() {
               </button>
               </>
             }
-            viewToggle={<ViewToggle mode={viewMode} setMode={handleViewMode} className="h-9" />}
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+              />
+            }
           />
 
           {selected && (
