@@ -70,6 +70,12 @@ export const CORE_ENDPOINTS = {
   ACTIVITY_LOGS: {
     LIST: `${CORE_API}/activity-logs`,
   },
+  INBOX: {
+    LIST: `${CORE_API}/inbox`,
+    UNREAD_COUNT: `${CORE_API}/inbox/unread-count`,
+    read: (id) => `${CORE_API}/inbox/${id}/read`,
+    READ_ALL: `${CORE_API}/inbox/read-all`,
+  },
   APP_CONFIG: {
     LIST: "/app-config/list",
     UPDATE: "/app-config",

@@ -35,5 +35,8 @@ export const taskService = {
   upsertSelfNote: (taskId, formData) =>
     api.put(T.selfNote(taskId), formData, multipart),
   deleteSelfNote: (taskId) => api.delete(T.selfNote(taskId)),
+
+  getTargetDates: (taskId) => api.get(T.targetDates(taskId)),
+  setTargetDate: (taskId, data) => api.post(T.targetDate(taskId), data),
 };
 

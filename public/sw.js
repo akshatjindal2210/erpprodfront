@@ -1,4 +1,4 @@
-const CACHE_NAME = "jfl-erp-static-v6";
+const CACHE_NAME = "jfl-erp-static-v9";
 const STATIC_ASSETS = ["/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/logo.png"];
 
 self.addEventListener("install", (event) => {
@@ -63,9 +63,55 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// Handle skip waiting message
+// Page → SW: native OS notification (Windows Action Center / phone tray)
 self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "SKIP_WAITING") {
+  const data = event.data;
+  if (!data) return;
+
+  if (data.type === "SKIP_WAITING") {
     self.skipWaiting();
+    return;
   }
+
+  if (data.type === "TASK_SHOW_NOTIFICATION") {
+    const p = data.payload || {};
+    const title = p.title || "Task";
+    const { body, icon, badge, tag, data: meta, renotify, requireInteraction, silent } = p;
+    event.waitUntil(
+      self.registration.showNotification(title, {
+        body: body || "",
+        icon: icon || "/icon-192.png",
+        badge: badge || "/icon-192.png",
+        tag: tag || "task-notify",
+        renotify: renotify ?? true,
+        requireInteraction: requireInteraction ?? false,
+        silent: silent ?? false,
+        data: meta || { url: "/task/dashboard/tasks" },
+      })
+    );
+  }
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const targetUrl = data.url || "/task/dashboard/tasks";
+  const inboxId = data.inbox_id;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      const msg = inboxId ? { type: "INBOX_READ", inbox_id: inboxId } : null;
+
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin)) {
+          if (msg) client.postMessage(msg);
+          if ("focus" in client) {
+            client.navigate(targetUrl);
+            return client.focus();
+          }
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+    })
+  );
 });

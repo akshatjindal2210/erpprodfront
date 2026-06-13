@@ -48,6 +48,7 @@ export default function ReportPage({ reportPage }) {
   const [categories,  setCategories]  = useState([]);
   const [viewMode,    handleViewMode] = useViewMode();
   const [stats,       setStats]       = useState({
+    open_tasks: 0, updated_tasks: 0,
     total: 0, pending: 0, in_progress: 0, completed: 0,
     action_required: 0, creator_pending: 0,
     overdue: 0, new_today: 0, reminder: 0, upcoming_due: 0,
@@ -424,9 +425,9 @@ export default function ReportPage({ reportPage }) {
         onClearAll={() => clearFilters(() => setPage(1))}
       />
 
-      {/* Stat Cards */}
+      {/* Stat Cards — 6 per row */}
       <div className="mb-6">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {STAT_CARDS.map(({ key, label, icon, bg, text, border, barColor }) => (
             <div key={key} onClick={() => handleStatClick(key)}
               className={`cursor-pointer transition-all rounded-2xl ${statCardCls(key)}`}>

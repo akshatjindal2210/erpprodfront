@@ -32,6 +32,15 @@ export const ENDPOINTS = {
     chat: (taskId) => `${TASK_API}/tasks/${taskId}/chat`,
     chatMessage: (taskId, chatId) => `${TASK_API}/tasks/${taskId}/chat/${chatId}`,
     selfNote: (taskId) => `${TASK_API}/tasks/${taskId}/self-note`,
+    targetDates: (taskId) => `${TASK_API}/tasks/${taskId}/target-dates`,
+    targetDate: (taskId) => `${TASK_API}/tasks/${taskId}/target-date`,
+  },
+
+  NOTIFICATIONS: {
+    CHANNELS: `${TASK_API}/notifications/channels`,
+    TEMPLATES: `${TASK_API}/notifications/templates`,
+    template: (key) => `${TASK_API}/notifications/templates/${key}`,
+    LOGS: `${TASK_API}/notifications/logs`,
   },
 
   RECURRING_TASKS: {

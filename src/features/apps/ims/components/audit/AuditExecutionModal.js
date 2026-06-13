@@ -1,30 +1,29 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Check, Loader2, MapPin, Package, Trash2, Send, QrCode, ScanLine, ClipboardCheck } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { auditService } from "@/features/apps/ims/services/audit";
 import { boxService } from "@/features/apps/ims/services/box";
 import Drawer from "@/core/components/ui/Drawer";
+import Snackbar from "@/core/components/ui/Snackbar";
 import { useHtml5QrScanner } from "@/core/hooks/useHtml5QrScanner";
 import QrScannerOverlay from "@/core/components/common/QrScannerOverlay";
 import { isMobileDevice } from "@/core/utils/pwa";
 import { extractLocationNo, extractBoxCode } from "@/features/apps/ims/helpers/qrScan";
-import { playScanSuccessBeep, unlockScanAudio } from "@/features/apps/ims/helpers/scanFeedback";
-import { SCAN_SNACK_MSG, FLOW_SCAN_CAMERA_INSECURE_MSG } from "@/core/utils/global/messages";
+import { unlockScanAudio } from "@/features/apps/ims/helpers/scanFeedback";
+import { SCAN_SNACK_MSG, FLOW_SCAN_CAMERA_INSECURE_MSG, useScanSnackbarActions } from "@/core/utils/global";
 import {
   buildScannedDataFromAudit,
   getLocationFromAudit,
-  getExpectedBoxCount,
   countExpectedBoxes,
   isLocationClosed,
   isLocationEditable,
-  isLocationDraft,
-  getLocationStatusLabel,
 } from "./auditScanHelpers";
 
 const AUDIT_SCANNER_ELEMENT_ID = "audit-execution-scanner";
+const INITIAL_SNACK = { open: false, variant: "error", title: "", message: "", duration: 4000 };
 
 export default function AuditExecutionModal({ open, onClose, onSuccess, auditData, fixedLocationId }) {
   const [loading, setLoading] = useState(false);
@@ -33,12 +32,28 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
   const [scanInput, setScannedInput] = useState("");
   const [isLocationScanned, setIsLocationScanned] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [showBoxScanPrompt, setShowBoxScanPrompt] = useState(false);
+  const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
   const processingRef = useRef(new Set());
 
   const inputRef = useRef(null);
   const lastScanRef = useRef({ key: "", at: 0 });
   const prevOpenRef = useRef(false);
   const locationVerifiedRef = useRef(false);
+  const scanToastRef = useRef({});
+  const boxScanPromptTimerRef = useRef(null);
+
+  const closeSnackbar = useCallback(() => {
+    setSnackbar((s) => ({ ...s, open: false }));
+  }, []);
+
+  const { showScanToast, showScanSuccess } = useScanSnackbarActions(setSnackbar, scanToastRef);
+
+  const promptBoxScan = useCallback(() => {
+    setShowBoxScanPrompt(true);
+    if (boxScanPromptTimerRef.current) clearTimeout(boxScanPromptTimerRef.current);
+    boxScanPromptTimerRef.current = setTimeout(() => setShowBoxScanPrompt(false), 4000);
+  }, []);
 
   const assignedLocation = useMemo(() => {
     if (!auditData?.locations || fixedLocationId == null) return null;
@@ -50,10 +65,8 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
     ? getLocationFromAudit(auditData, currentLocation.location_id) || currentLocation
     : assignedLocation;
   const isCurrentClosed = activeLocation ? isLocationClosed(activeLocation) : false;
-  const isCurrentDraft = activeLocation ? isLocationDraft(activeLocation) : false;
   const isAuditLocked = auditData?.status === "submitted" || auditData?.status === "verified";
   const currentScannedBoxes = locId != null ? (scannedData[locId] || []) : [];
-  const expectedBoxCount = locId != null ? getExpectedBoxCount(auditData, locId) : 0;
   const scanCount = currentScannedBoxes.length;
 
   useEffect(() => {
@@ -61,14 +74,20 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
       setCurrentLocation(null);
       setScannedInput("");
       setIsLocationScanned(false);
+      setShowBoxScanPrompt(false);
       locationVerifiedRef.current = false;
       setIsScannerOpen(false);
       processingRef.current.clear();
       lastScanRef.current = { key: "", at: 0 };
+      setSnackbar(INITIAL_SNACK);
       setTimeout(() => inputRef.current?.focus(), 300);
     }
     prevOpenRef.current = open;
   }, [open]);
+
+  useEffect(() => () => {
+    if (boxScanPromptTimerRef.current) clearTimeout(boxScanPromptTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!open || !auditData) return;
@@ -127,13 +146,18 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
 
     if (!isLocationScanned) {
       if (!looksLikeLocation) {
-        toast.error(`Scan the Location QR for ${assignedLocation.location_no} first`);
+        showScanToast(
+          "error",
+          "audit-scan-location-first",
+          `Scan location QR for ${assignedLocation.location_no} first`,
+          2200,
+        );
         setScannedInput("");
         return;
       }
 
       if (!isLocationEditable(assignedLocation)) {
-        toast.error("This location can no longer be edited.");
+        showScanToast("error", "audit-loc-not-editable", "This location can no longer be edited.", 2200);
         setScannedInput("");
         return;
       }
@@ -142,14 +166,18 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
       setCurrentLocation(getLocationFromAudit(auditData, fixedLocationId) || assignedLocation);
       setIsLocationScanned(true);
       setScannedInput("");
-      playScanSuccessBeep();
-      toast.success(`Location ${assignedLocation.location_no} verified — scan boxes now`);
+      showScanSuccess(
+        "audit-location-verified",
+        SCAN_SNACK_MSG.AUDIT_LOCATION_VERIFIED(assignedLocation.location_no),
+        4500,
+      );
+      promptBoxScan();
       setTimeout(() => inputRef.current?.focus(), 100);
       return;
     }
 
     if (looksLikeLocation) {
-      toast.info("Location already verified — scan boxes now");
+      showScanToast("error", "audit-location-already", "Location already verified — scan boxes now", 2000);
       setScannedInput("");
       return;
     }
@@ -171,7 +199,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
     const currentBoxes = scannedData[locId] || [];
 
     if (currentBoxes.includes(boxCode)) {
-      toast.info(`Box ${boxCode} already in list`);
+      showScanToast("error", `audit-dup-${boxCode.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(boxCode), 1400);
       setScannedInput("");
       return;
     }
@@ -195,20 +223,19 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
           if (boxes.includes(boxCode)) return prev;
           return { ...prev, [locId]: [boxCode, ...boxes] };
         });
-        playScanSuccessBeep();
 
         if (res?.data?.auto_completed) {
           locationVerifiedRef.current = false;
-          toast.success(`All boxes matched — ${assignedLocation.location_no} completed`);
+          showScanSuccess("audit-auto-complete", `All boxes matched — ${assignedLocation.location_no} completed`, 4000);
           onSuccess(false);
         } else {
-          toast.success(`Box ${boxCode} added`, { autoClose: 1000 });
+          showScanSuccess(`audit-box-${boxCode.toLowerCase()}`, SCAN_SNACK_MSG.BOX_ADDED(boxCode), 1200);
         }
       } else {
-        toast.error(`Box ${boxCode} not found in system`);
+        showScanToast("error", `audit-box-missing-${boxCode.toLowerCase()}`, `Box ${boxCode} not found in system`, 2200);
       }
     } catch {
-      toast.error("Error saving box scan");
+      showScanToast("error", "audit-box-save-failed", "Error saving box scan", 2200);
     } finally {
       processingRef.current.delete(boxCode);
       setLoading(false);
@@ -348,134 +375,113 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
       footer={drawerFooter}
       maxWidth="max-w-2xl"
     >
-      <div className="space-y-4 pb-4">
+      <div className="space-y-2.5 pb-3">
         {isAuditLocked && (
-          <div className="border rounded-lg px-3 py-2 text-[10px] font-bold uppercase bg-indigo-50 border-indigo-100 text-indigo-700">
-            Audit submitted — scans are read-only.
-          </div>
+          <p className="text-[10px] font-bold uppercase text-indigo-700 px-1">Audit submitted — read only</p>
         )}
 
         <QrScannerOverlay
           open={isScannerOpen}
           onClose={() => setIsScannerOpen(false)}
           readerId={AUDIT_SCANNER_ELEMENT_ID}
+          frameClassName={
+            isLocationScanned ? "border-4 border-emerald-400" : "border-4 border-amber-400"
+          }
           hint={
             !isLocationScanned
-              ? `Scan Location QR for ${assignedLocation.location_no}`
-              : `Scan boxes — ${assignedLocation.location_no} (${currentScannedBoxes.length} added)`
+              ? `Location: ${assignedLocation.location_no}`
+              : `Boxes · ${currentScannedBoxes.length} scanned`
           }
           torchSupported={torchSupported}
           torchOn={torchOn}
           onToggleTorch={toggleTorch}
         />
 
-        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 space-y-1">
-          <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest flex items-center gap-2">
-            <MapPin size={12} />
-            Selected Location (from row)
-          </p>
-          <p className="text-xl font-black text-indigo-950 uppercase">{assignedLocation.location_no}</p>
-          <div className="flex flex-wrap gap-3 text-[10px] font-bold text-slate-600 uppercase">
-            <span>Boxes: {scanCount}/{countExpectedBoxes(activeLocation)}</span>
-            <span>Status: {getLocationStatusLabel(activeLocation?.status)}</span>
-          </div>
+        {/* Compact step strip */}
+        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-100">
+          <span
+            className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase shrink-0 ${
+              isLocationScanned ? "text-emerald-600" : "text-amber-600"
+            }`}
+          >
+            {isLocationScanned ? <Check size={11} strokeWidth={3} /> : <MapPin size={11} />}
+            Loc
+          </span>
+          <span className={`h-px flex-1 ${isLocationScanned ? "bg-emerald-400" : "bg-slate-200"}`} aria-hidden />
+          <span
+            className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase shrink-0 ${
+              isLocationScanned ? "text-indigo-600" : "text-slate-400"
+            }`}
+          >
+            <Package size={11} className={isLocationScanned ? "animate-pulse" : ""} />
+            Box
+          </span>
+          <span className="text-[10px] font-bold text-slate-500 tabular-nums ml-auto shrink-0">
+            {scanCount}/{countExpectedBoxes(activeLocation) || "—"}
+          </span>
         </div>
 
-        <div className="space-y-3 p-4 rounded-xl border bg-white border-indigo-200 shadow-sm">
-          {isLocationScanned && (
-            <div className={`border rounded-lg p-2.5 flex items-center gap-3 mb-1 ${
-              isCurrentDraft ? "bg-sky-50 border-sky-100" : "bg-indigo-50 border-indigo-100"
-            }`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white shrink-0 shadow-sm ${
-                isCurrentDraft ? "bg-sky-500" : "bg-indigo-500"
-              }`}>
-                <Check size={18} strokeWidth={3} />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold uppercase text-indigo-800">
-                  {isCurrentDraft ? "Pending — In Progress" : "Location Verified"}
-                </p>
-                <p className="text-[12px] font-black uppercase text-indigo-950">{assignedLocation.location_no}</p>
-              </div>
-              <div className="ml-auto flex items-center gap-1.5 px-2 py-1 rounded-md bg-indigo-100/50">
-                <Package size={12} className="text-indigo-600" />
-                <span className="text-[10px] font-bold uppercase text-indigo-700">
-                  {currentScannedBoxes.length}{expectedBoxCount ? ` / ${expectedBoxCount}` : ""} scanned
-                </span>
-              </div>
-            </div>
+        {/* One-line mode hint — replaces big cards/banners */}
+        <p
+          className={`text-[11px] font-bold text-center leading-snug px-1 ${
+            isLocationScanned ? "text-indigo-700" : "text-amber-700"
+          }`}
+          role="status"
+        >
+          {showBoxScanPrompt && isLocationScanned ? (
+            <span className="text-emerald-700">✓ Location OK — scan boxes now</span>
+          ) : isLocationScanned ? (
+            <>Scan box QR · {assignedLocation.location_no}</>
+          ) : (
+            <>Scan location QR · {assignedLocation.location_no}</>
           )}
+        </p>
 
-          <div className="flex items-center justify-between">
-            <h3 className="text-[11px] font-bold text-slate-700 uppercase flex items-center gap-2">
-              {isLocationScanned ? <Package size={14} className="text-indigo-500" /> : <MapPin size={14} className="text-slate-400" />}
-              {isLocationScanned ? "Step 2: Scan Boxes" : `Step 1: Scan ${assignedLocation.location_no} QR`}
-            </h3>
-          </div>
-
-          {!isLocationScanned && (
-            <div className="py-2 px-3 text-center bg-amber-50 rounded-lg border border-amber-100">
-              <p className="text-[10px] text-amber-700 font-bold uppercase">
-                Scan the Location QR for {assignedLocation.location_no} — box scanning starts after verification
-              </p>
-            </div>
+        <div className="flex items-center gap-2">
+          {isMobileDevice() && (
+            <button
+              onClick={startScanner}
+              className={`h-9 shrink-0 px-2.5 rounded-lg text-white flex items-center gap-1.5 ${
+                isLocationScanned ? "bg-indigo-600" : "bg-amber-500"
+              }`}
+              title={isLocationScanned ? "Scan box" : "Scan location"}
+            >
+              <QrCode size={15} />
+              <span className="text-[9px] font-black uppercase">Scan</span>
+            </button>
           )}
-
-          {isLocationScanned && isCurrentDraft && (
-            <div className="py-2 px-3 text-center bg-sky-50 rounded-lg border border-sky-100">
-              <p className="text-[10px] text-sky-700 font-bold uppercase">
-                Location verified — keep scanning boxes, then Submit Location
-              </p>
+          <form onSubmit={handleScanSubmit} className="relative flex-1 min-w-0">
+            <ScanLine size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              ref={inputRef}
+              value={scanInput}
+              onChange={(e) => setScannedInput(e.target.value)}
+              placeholder={
+                isLocationScanned
+                  ? "Box QR..."
+                  : `${assignedLocation.location_no} QR...`
+              }
+              className={`w-full h-9 bg-white border rounded-lg pl-7 pr-8 text-[11px] font-mono outline-none focus:ring-2 ${
+                isLocationScanned
+                  ? "border-indigo-200 focus:border-indigo-500 focus:ring-indigo-50"
+                  : "border-amber-200 focus:border-amber-500 focus:ring-amber-50"
+              }`}
+            />
+            <div className="absolute right-2 top-1/2 -translate-y-1/2">
+              {loading ? (
+                <Loader2 size={13} className="animate-spin text-indigo-500" />
+              ) : (
+                <Send size={13} className={isLocationScanned ? "text-indigo-500" : "text-amber-500"} />
+              )}
             </div>
-          )}
-
-          {isLocationScanned && !isCurrentDraft && (
-            <div className="py-2 px-3 text-center bg-emerald-50 rounded-lg border border-emerald-100">
-              <p className="text-[10px] text-emerald-700 font-bold uppercase">
-                Location verified — scan boxes for this location
-              </p>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2">
-            {isMobileDevice() && (
-              <button
-                onClick={startScanner}
-                className="h-[40px] shrink-0 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm flex items-center justify-center gap-2"
-                title={isLocationScanned ? "Scan Box QR" : "Scan Location QR"}
-              >
-                <QrCode size={16} />
-                <span className="text-[10px] font-black uppercase">Scan</span>
-              </button>
-            )}
-            <form onSubmit={handleScanSubmit} className="relative flex-1 min-w-0">
-              <ScanLine size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                ref={inputRef}
-                value={scanInput}
-                onChange={(e) => setScannedInput(e.target.value)}
-                placeholder={isLocationScanned ? "Scan Box UID..." : `Scan ${assignedLocation.location_no} QR...`}
-                className="w-full h-[40px] bg-white border border-slate-200 rounded-lg pl-8 pr-10 text-[10px] font-mono transition-all outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-50"
-              />
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                {loading ? (
-                  <Loader2 size={14} className="animate-spin text-indigo-500" />
-                ) : (
-                  <>
-                    <span className="text-[8px] font-bold text-slate-300 uppercase tracking-tighter">Auto-Saving...</span>
-                    <Send size={14} className="text-indigo-500" />
-                  </>
-                )}
-              </div>
-            </form>
-          </div>
+          </form>
         </div>
 
         {isLocationScanned && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between px-1">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                Your scans ({currentScannedBoxes.length})
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between px-0.5">
+              <p className="text-[9px] font-bold text-slate-400 uppercase">
+                Scanned ({currentScannedBoxes.length})
               </p>
               {currentScannedBoxes.length > 0 && !isAuditLocked && (
                 <button
@@ -498,28 +504,33 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
                       setLoading(false);
                     }
                   }}
-                  className="text-[10px] font-bold text-rose-500 uppercase"
+                  className="text-[9px] font-bold text-rose-500 uppercase"
                 >
-                  Clear All
+                  Clear
                 </button>
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[240px] overflow-y-auto pr-1 custom-scrollbar">
+            <div className="max-h-[200px] overflow-y-auto space-y-1 pr-0.5 custom-scrollbar">
               {currentScannedBoxes.length === 0 ? (
-                <div className="col-span-full py-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-lg text-slate-400 text-[10px] font-medium italic">
-                  No boxes scanned yet
-                </div>
+                <p className="py-4 text-center text-[10px] text-slate-400 italic">No boxes yet</p>
               ) : (
                 currentScannedBoxes.map((uid, idx) => (
-                  <div key={uid} className="flex items-center justify-between p-2 bg-white border border-slate-100 rounded-lg hover:border-slate-300 transition-all group">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-[9px] font-bold text-slate-400 w-4">{currentScannedBoxes.length - idx}.</span>
-                      <span className="font-mono text-[11px] font-bold text-slate-700 truncate">{uid}</span>
+                  <div
+                    key={uid}
+                    className="flex items-center justify-between py-1.5 px-2 bg-slate-50 border border-slate-100 rounded-md"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[9px] font-bold text-slate-400">{currentScannedBoxes.length - idx}.</span>
+                      <span className="font-mono text-[10px] font-bold text-slate-700 truncate">{uid}</span>
                     </div>
                     {!isAuditLocked && (
-                      <button onClick={() => removeBox(uid)} className="text-slate-300 hover:text-rose-500 transition-colors">
-                        <Trash2 size={14} />
+                      <button
+                        onClick={() => removeBox(uid)}
+                        className="text-slate-300 hover:text-rose-500 p-0.5"
+                        aria-label="Remove"
+                      >
+                        <Trash2 size={13} />
                       </button>
                     )}
                   </div>
@@ -529,6 +540,15 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
           </div>
         )}
       </div>
+
+      <Snackbar
+        open={snackbar.open}
+        variant={snackbar.variant}
+        title={snackbar.title}
+        message={snackbar.message}
+        duration={snackbar.duration}
+        onClose={closeSnackbar}
+      />
     </Drawer>
   );
 }

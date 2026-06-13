@@ -1,11 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { IndianRupee, RefreshCcw, Eye, X } from "lucide-react";
-import { toast } from "react-toastify";
-import { toastDataRefreshed } from "@/core/utils/toastNotify";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import { IndianRupee, Eye } from "lucide-react";
 import { masterService } from "@/features/apps/ims/services/master";
-
 import { useViewMode } from "@/core/hooks/useViewMode";
 import DataTable from "@/core/components/ui/DataTable";
 import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
@@ -17,132 +14,60 @@ import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailPr
 import SearchableSelect from "@/core/components/common/SearchableSelect";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import ListPageSearchField from "@/core/components/common/ListPageSearchField";
-import { bestTierForStrings } from "@/features/apps/ims/helpers/liveSearchRank";
 import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
-
-function sortPartyList(list, qRaw) {
-  const q = String(qRaw ?? "").trim().toLowerCase();
-  if (!q) {
-    return [...list].sort((a, b) =>
-      String(a.acc_name ?? "").localeCompare(String(b.acc_name ?? ""), undefined, { sensitivity: "base" })
-    );
-  }
-  return [...list].sort((a, b) => {
-    const ra = bestTierForStrings(q, [a.acc_name, a.acc_code]);
-    const rb = bestTierForStrings(q, [b.acc_name, b.acc_code]);
-    if (ra !== rb) return ra - rb;
-    return String(a.acc_name ?? "").localeCompare(String(b.acc_name ?? ""), undefined, { sensitivity: "base" });
-  });
-}
-
-function sortItemOptionList(list, qRaw) {
-  const q = String(qRaw ?? "").trim().toLowerCase();
-  if (!q) {
-    return [...list].sort((a, b) =>
-      String(a.item_code ?? "").localeCompare(String(b.item_code ?? ""), undefined, { sensitivity: "base" })
-    );
-  }
-  return [...list].sort((a, b) => {
-    const ra = bestTierForStrings(q, [a.item_code, a.itemdesc, String(a.itemdcode ?? "")]);
-    const rb = bestTierForStrings(q, [b.item_code, b.itemdesc, String(b.itemdcode ?? "")]);
-    if (ra !== rb) return ra - rb;
-    return String(a.item_code ?? "").localeCompare(String(b.item_code ?? ""), undefined, { sensitivity: "base" });
-  });
-}
-
-function tableRowSearchRank(row, qRaw) {
-  const q = String(qRaw ?? "").trim();
-  if (!q) return 0;
-  return bestTierForStrings(q, [
-    row.acc_name,
-    row.itemdesc,
-    row.item_code,
-    row.narr1,
-    row.grpname,
-    row.itapv
-  ]);
-}
+import { useMasterClientList } from "@/features/apps/ims/helpers/useMasterClientList";
+import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/features/apps/ims/helpers/masterListUi";
+import { PARTY_RATE_HEADERS, PARTY_RATE_CARD_CONFIG, partyRateRowKey, partyRateSearchParts, sortPartyList, sortItemOptionList, buildUniqueParties, buildUniqueItemOptions, filterPartyRateRows, attachPartyRateRowIds } from "./masterColumns";
 
 export default function PartyRateMasterPage() {
-  const [allData, setAllData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [displayLimit, setDisplayLimit] = useState(100);
   const [viewMode, handleViewMode] = useViewMode();
-
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [filterAccCode, setFilterAccCode] = useState(null);
   const [filterItemdcode, setFilterItemdcode] = useState(null);
-  const [tempSearch, setTempSearch] = useState("");
 
-  const [params, setParams] = useState({
-    sortKey: "",
-    sortDir: "asc"
-  });
-
-  // Selection + Modals
-  const [selected, setSelected] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  // ── Fetch Data ────────────────────────────────────────────────
-  const fetchItems = useCallback(async (isManualRefresh = false) => {
-    setLoading(true);
-    try {
-      const body = await masterService.getPartyRates();
-      const list = body.data ?? [];
-      const newItems = (Array.isArray(list) ? list : []).map((row, index) => ({ 
-        ...row, 
-        row_id: `${row.acc_code}-${row.itemdcode}-${index}`
-      }));
-      setAllData(newItems);
-      if (isManualRefresh) toastDataRefreshed();
-    } catch (err) {
-      toast.error(err?.message || "Failed to load party rates");
-    } finally {
-      setLoading(false);
-    }
+  const loadData = useCallback(async () => {
+    const body = await masterService.getPartyRates();
+    const list = body.data ?? [];
+    return attachPartyRateRowIds(Array.isArray(list) ? list : []);
   }, []);
 
-  useEffect(() => { 
-    fetchItems(); 
-  }, [fetchItems]);
+  const preFilter = useCallback(
+    (rows) => filterPartyRateRows(rows, { accCode: filterAccCode, itemDcode: filterItemdcode }),
+    [filterAccCode, filterItemdcode]
+  );
 
-  const uniqueParties = useMemo(() => {
-    const map = new Map();
-    for (const r of allData) {
-      const code = r.acc_code;
-      if (code == null || code === "") continue;
-      const key = String(code);
-      if (map.has(key)) continue;
-      map.set(key, {
-        acc_code: code,
-        acc_name: r.acc_name || `Customer ${code}`
-      });
-    }
-    return [...map.values()].sort((a, b) =>
-      String(a.acc_name || "").localeCompare(String(b.acc_name || ""), undefined, { sensitivity: "base" })
-    );
-  }, [allData]);
+  const {
+    allData,
+    loading,
+    reload,
+    tempSearch,
+    setTempSearch,
+    params,
+    selected,
+    setSelected,
+    selectedRecord,
+    filteredData,
+    items,
+    totalItems,
+    handleLoadMore,
+    toggleSort,
+    resetDisplayLimit,
+  } = useMasterClientList({
+    loadData,
+    errorMessage: "Failed to load party rates",
+    getSearchParts: partyRateSearchParts,
+    preFilter,
+    getRowKey: partyRateRowKey,
+  });
+
+  const uniqueParties = useMemo(() => buildUniqueParties(allData), [allData]);
 
   const itemSourceRows = useMemo(() => {
     if (filterAccCode == null || filterAccCode === "") return allData;
     return allData.filter((r) => String(r.acc_code) === String(filterAccCode));
   }, [allData, filterAccCode]);
 
-  const uniqueItemOptions = useMemo(() => {
-    const map = new Map();
-    for (const r of itemSourceRows) {
-      if (r.itemdcode == null || r.itemdcode === "") continue;
-      const key = String(r.itemdcode);
-      if (map.has(key)) continue;
-      map.set(key, {
-        itemdcode: r.itemdcode,
-        item_code: r.item_code || key,
-        itemdesc: r.itemdesc || ""
-      });
-    }
-    return [...map.values()].sort((a, b) =>
-      String(a.item_code ?? "").localeCompare(String(b.item_code ?? ""), undefined, { sensitivity: "base" })
-    );
-  }, [itemSourceRows]);
+  const uniqueItemOptions = useMemo(() => buildUniqueItemOptions(itemSourceRows), [itemSourceRows]);
 
   useEffect(() => {
     if (filterItemdcode == null) return;
@@ -202,182 +127,35 @@ export default function PartyRateMasterPage() {
   const itemGetById = useMemo(
     () => (id) => {
       const row = uniqueItemOptions.find((it) => String(it.itemdcode) === String(id));
-      return Promise.resolve({
-        data: row || { itemdcode: id, item_code: "", itemdesc: "" }
-      });
+      return Promise.resolve({ data: row || { itemdcode: id, item_code: "", itemdesc: "" } });
     },
     [uniqueItemOptions]
   );
 
-  const filteredData = useMemo(() => {
-    let data = [...allData];
-    if (filterAccCode != null && filterAccCode !== "") {
-      data = data.filter((r) => String(r.acc_code) === String(filterAccCode));
-    }
-    if (filterItemdcode != null && filterItemdcode !== "") {
-      data = data.filter((r) => String(r.itemdcode) === String(filterItemdcode));
-    }
-    if (tempSearch.trim()) {
-      const s = tempSearch.toLowerCase();
-      data = data.filter((r) =>
-        [
-          r.acc_name,
-          r.itemdesc,
-          r.item_code,
-          r.narr1,
-          r.grpname,
-          r.itapv
-        ].some((v) => v != null && String(v).toLowerCase().includes(s))
-      );
-      const q = tempSearch.trim();
-      data.sort((a, b) => {
-        const ra = tableRowSearchRank(a, q);
-        const rb = tableRowSearchRank(b, q);
-        if (ra !== rb) return ra - rb;
-        const n = String(a.acc_name ?? "").localeCompare(String(b.acc_name ?? ""), undefined, {
-          sensitivity: "base"
-        });
-        if (n !== 0) return n;
-        return String(a.item_code ?? "").localeCompare(String(b.item_code ?? ""), undefined, {
-          sensitivity: "base"
-        });
-      });
-    } else if (params.sortKey) {
-      data.sort((a, b) => {
-        let valA = a[params.sortKey];
-        let valB = b[params.sortKey];
-        if (typeof valA === 'string') valA = valA.toLowerCase();
-        if (typeof valB === 'string') valB = valB.toLowerCase();
-        if (valA < valB) return params.sortDir === "asc" ? -1 : 1;
-        if (valA > valB) return params.sortDir === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-    return data;
-  }, [allData, filterAccCode, filterItemdcode, tempSearch, params.sortKey, params.sortDir]);
-
-  const items = useMemo(() => filteredData.slice(0, displayLimit), [filteredData, displayLimit]);
-  const totalItems = filteredData.length;
-
-  const handleLoadMore = useCallback(() => {
-    if (!loading && items.length < totalItems) {
-      setDisplayLimit(prev => prev + 100);
-    }
-  }, [loading, items.length, totalItems]);
-
-  const toggleSort = (key) => {
-    setParams(p => ({
-      ...p,
-      sortKey: key,
-      sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc"
-    }));
-    setDisplayLimit(100);
-  };
-
-  const selectedRecord = useMemo(() => allData.find(u => u.row_id === selected), [allData, selected]);
-
-  // ── Headers Configuration ─────────────────────────────────────
-  const HEADERS = [
-  // 1. Party Details (Name + Code)
-  ["Customer Name", "acc_name", (v, row) => (
-    <div className="flex flex-col min-w-0">
-      <span
-        className="font-semibold text-slate-800 text-[11px] uppercase leading-snug whitespace-normal break-words hyphens-auto"
-        title={v && String(v).length > 80 ? v : undefined}
-      >
-        {v || "N/A"}
-      </span>
-    </div>
-  ), { wrap: true, width: "180px" }],
-
-  // 2. Item code (own column)
-  [
-    "Item Code",
-    "item_code",
-    (v) => (
-      <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight font-mono">
-        {v || "—"}
-      </span>
-    ),
-    { width: "120px" }
-  ],
-
-  // 3. Item description (+ group hint)
-  [
-    "Item Description",
-    "itemdesc",
-    (v, row) => (
-      <div className="flex flex-col min-w-0 max-w-full gap-0.5">
-        <span className="font-medium text-slate-700 text-[11px] leading-snug whitespace-normal break-words hyphens-auto">
-          {v || "—"}
-        </span>
-      </div>
-    ),
-    { wrap: true, width: "250px" }
-  ],
-
-  [
-    "Group Name",
-    "grpname",
-    (v, row) => (
-      <div className="flex flex-col min-w-0 max-w-full gap-0.5">
-        <span className="font-medium text-slate-700 text-[11px] leading-snug whitespace-normal break-words hyphens-auto">
-          {v || "—"}
-        </span>
-      </div>
-    ),
-    { wrap: true }
-  ],
-
-  // 4. Narration
-  ["Customer Code", "narr1", (v) => (
-    <span className="text-slate-500 italic text-[11px] block max-w-[180px] truncate leading-tight">
-      {v || "—"}
-    </span>
-  )],
-
-  // 5. Status
-  ["Status", "itapv", (v) => (
-    <span className={`px-2 py-0.5 rounded-none text-[9px] font-bold border uppercase tracking-widest ${
-      v?.toUpperCase() === 'APPROVED' 
-        ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
-        : 'bg-amber-50 text-amber-600 border-amber-200'
-    }`}>
-      {v || 'PENDING'}
-    </span>
-  )]
-];
-
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: "Party Rate Master",
     rows: filteredData,
-    headers: HEADERS,
+    headers: PARTY_RATE_HEADERS,
   });
 
   return (
     <div className={`${IMS_LIST_PAGE_SHELL} font-sans`}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
-        
         <ListPageToolbar>
           <ListPageToolbarLayout
             actions={
-              <>
-            <div className="flex items-center gap-2 flex-wrap">
-              <ActionButton 
-                variant="outline" label="View Details" icon={Eye}
-                disabled={!selected} 
-                onClick={() => setIsModalOpen(true)}
-                className="rounded-none h-9 text-[11px] font-bold uppercase tracking-wider px-4 border-slate-300 shrink-0 shadow-none"
-              />
-
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
-
-              <button onClick={() => fetchItems(true)} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-wider transition-all shadow-none">
-                <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
-                <span className="hidden xs:inline">Refresh</span>
-              </button>
-            </div>
-              </>
+              <div className="flex items-center gap-2 flex-wrap">
+                <ActionButton
+                  variant="outline"
+                  label="View Details"
+                  icon={Eye}
+                  disabled={!selected}
+                  onClick={() => setIsModalOpen(true)}
+                  className="rounded-none h-9 text-[11px] font-bold uppercase tracking-wider px-4 border-slate-300 shrink-0 shadow-none"
+                />
+                <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
+                <MasterRefreshButton loading={loading} onClick={() => reload(true)} />
+              </div>
             }
             viewToggle={
               <ListPageExportToggle
@@ -390,31 +168,26 @@ export default function PartyRateMasterPage() {
             }
           />
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase italic whitespace-normal break-words text-left leading-snug">
-                Selected: {selectedRecord?.acc_name} · {selectedRecord?.item_code || selectedRecord?.itemdesc}
-              </span>
-              <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
+          {selected ? (
+            <MasterSelectionBanner onClear={() => setSelected(null)}>
+              Selected: {selectedRecord?.acc_name} · {selectedRecord?.item_code || selectedRecord?.itemdesc}
+            </MasterSelectionBanner>
+          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
           <div className="grid w-full min-w-0 grid-cols-2 items-end gap-2 md:gap-3 lg:grid-cols-3 lg:gap-3">
             <div className="min-w-0 w-full">
-            <ListPageSearchField
-              label="Search table"
-              placeholder="Customer, item, narration…"
-              value={tempSearch}
-              onChange={(v) => {
-                setTempSearch(v);
-                setDisplayLimit(100);
-              }}
-              containerClassName="w-full min-w-0 space-y-1"
-            />
+              <ListPageSearchField
+                label="Search table"
+                placeholder="Customer, item, narration…"
+                value={tempSearch}
+                onChange={(v) => {
+                  setTempSearch(v);
+                  resetDisplayLimit();
+                }}
+                containerClassName="w-full min-w-0 space-y-1"
+              />
             </div>
             <div className="min-w-0 w-full">
               <SearchableSelect
@@ -425,7 +198,7 @@ export default function PartyRateMasterPage() {
                 onChange={(id) => {
                   setFilterAccCode(id);
                   setFilterItemdcode(null);
-                  setDisplayLimit(100);
+                  resetDisplayLimit();
                 }}
                 fetchService={partyFetchService}
                 getByIdService={partyGetById}
@@ -443,7 +216,7 @@ export default function PartyRateMasterPage() {
                 value={filterItemdcode}
                 onChange={(id) => {
                   setFilterItemdcode(id);
-                  setDisplayLimit(100);
+                  resetDisplayLimit();
                 }}
                 fetchService={itemFetchService}
                 getByIdService={itemGetById}
@@ -459,77 +232,52 @@ export default function PartyRateMasterPage() {
 
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
           <DataTable
-            headers={HEADERS} data={items} loading={loading} viewMode={viewMode}
-            onSort={toggleSort} sortKey={params.sortKey} sortDir={params.sortDir}
-            showSelection={true} allowCopy={true} 
-            getRowId={(row) => row.row_id}
-            selectedId={selected} onSelect={setSelected}
+            headers={PARTY_RATE_HEADERS}
+            data={items}
+            loading={loading}
+            viewMode={viewMode}
+            onSort={toggleSort}
+            sortKey={params.sortKey}
+            sortDir={params.sortDir}
+            showSelection
+            allowCopy
+            getRowId={partyRateRowKey}
+            selectedId={selected}
+            onSelect={setSelected}
             emptyIcon={IndianRupee}
             onLoadMore={handleLoadMore}
             hasMore={items.length < totalItems}
             totalItems={totalItems}
-            cardConfig={{ 
-              titleKey: "acc_name",
-              tagsKeys: ["itapv"],
-              detailKeys: ["item_code", "itemdesc", "narr1"],
-              className: "rounded-none border border-slate-200 shadow-none"
-            }}
+            cardConfig={PARTY_RATE_CARD_CONFIG}
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Customer Rates
-          </span>
-          <div className="flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <MasterListFooter shown={items.length} total={totalItems} noun="customer rates" />
       </div>
 
-      {/* Rate Detail Modal */}
-      <GlobalDetailModal 
-        open={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        title="Rate Master Details"
-        icon={IndianRupee}
-      >
-        {selectedRecord && (
+      <GlobalDetailModal open={isModalOpen} onClose={() => setIsModalOpen(false)} title="Rate Master Details" icon={IndianRupee}>
+        {selectedRecord ? (
           <MasterDetailBody>
-            <MasterDetailHero
-              eyebrow="Customer rate"
-              icon={IndianRupee}
-              title={selectedRecord.acc_name}
-            />
-            <MasterDetailSection label="Item code" tone="white">
-              <span>{selectedRecord.item_code || "—"}</span>
-            </MasterDetailSection>
+            <MasterDetailHero eyebrow="Customer rate" icon={IndianRupee} title={selectedRecord.acc_name} />
+            <MasterDetailSection label="Item code" tone="white"><span>{selectedRecord.item_code || "—"}</span></MasterDetailSection>
             {selectedRecord.itemdesc ? (
-              <MasterDetailProse label="Item description" tone="slate">
-                {selectedRecord.itemdesc}
-              </MasterDetailProse>
+              <MasterDetailProse label="Item description" tone="slate">{selectedRecord.itemdesc}</MasterDetailProse>
             ) : null}
             <MasterDetailStatusRow label="Approval status">
-              <span
-                className={`px-2 py-0.5 text-[10px] font-bold border uppercase tracking-tighter ${
-                  selectedRecord.itapv === "Approved"
-                    ? "bg-emerald-50 text-emerald-600 border-emerald-200"
-                    : "bg-amber-50 text-amber-600 border-amber-200"
-                }`}
-              >
+              <span className={`px-2 py-0.5 text-[10px] font-bold border uppercase tracking-tighter ${
+                selectedRecord.itapv === "Approved"
+                  ? "bg-emerald-50 text-emerald-600 border-emerald-200"
+                  : "bg-amber-50 text-amber-600 border-amber-200"
+              }`}>
                 {selectedRecord.itapv ?? "—"}
               </span>
             </MasterDetailStatusRow>
             <MasterDetailProse label="Narration / remarks" tone="slate">
-              {selectedRecord.narr1?.trim()
-                ? selectedRecord.narr1
-                : "No remarks available for this record."}
+              {selectedRecord.narr1?.trim() ? selectedRecord.narr1 : "No remarks available for this record."}
             </MasterDetailProse>
           </MasterDetailBody>
-        )}
+        ) : null}
       </GlobalDetailModal>
     </div>
   );
 }
-

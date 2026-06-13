@@ -65,10 +65,9 @@ function resolveAlertMeta(task, currentUserId) {
   // 6. In Progress
   if (task.status === "in_progress") return ROW_META.in_progress;
 
-  // 7. New / Updated Today
+  // 7. New / unseen updates
   if (createdAt && isToday(createdAt)) return ROW_META.new;
-  if (updatedAt && isToday(updatedAt) && task.updated_by && String(task.updated_by) !== String(currentUserId))
-    return ROW_META.updated;
+  if (task.has_unseen_updates) return ROW_META.updated;
 
   // 8. Pending
   if (task.status === "pending") return ROW_META.pending;
@@ -83,7 +82,7 @@ function getActionReasons(task, currentUserId) {
   if (isToday(task.reminder_date) || isToday(task.self_reminder_date))                                                    reasons.push("reminder");
   if (isBeforeToday(task.due_date) && !DONE_STATUSES.includes(task.status))                                               reasons.push("overdue");
   if (isToday(task.due_date) && !DONE_STATUSES.includes(task.status))                                                     reasons.push("due_today");
-  if (isToday(task.updated_at) && task.updated_by && String(task.updated_by) !== String(currentUserId))                   reasons.push("updated");
+  if (task.has_unseen_updates)                                                                                           reasons.push("updated");
   if (isToday(task.created_at))                                                                                           reasons.push("new");
   return reasons;
 }

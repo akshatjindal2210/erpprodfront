@@ -2,7 +2,18 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { Search, ChevronDown, Check, X, AlertCircle } from "lucide-react";
 import { sortOptionsByNameAsc } from "@/features/apps/task/helpers/sortOptions";
 
-const SearchableSelect = ({ label, options = [], value, onChange, placeholder, selectCls, disabled = false, isMulti = false, error }) => {
+const SearchableSelect = ({
+  label,
+  options = [],
+  displayOptions,
+  value,
+  onChange,
+  placeholder,
+  selectCls,
+  disabled = false,
+  isMulti = false,
+  error,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
@@ -12,6 +23,10 @@ const SearchableSelect = ({ label, options = [], value, onChange, placeholder, s
   const listRef = useRef(null);
 
   const sortedOptions = useMemo(() => sortOptionsByNameAsc(options), [options]);
+  const lookupOptions = useMemo(
+    () => sortOptionsByNameAsc(displayOptions ?? options),
+    [displayOptions, options]
+  );
 
   // Close on click outside
   useEffect(() => {
@@ -30,9 +45,9 @@ const SearchableSelect = ({ label, options = [], value, onChange, placeholder, s
   );
 
   // Selected options logic (handles both string and array)
-  const selectedOptions = isMulti 
-    ? sortedOptions.filter(opt => Array.isArray(value) && value.includes(opt.id))
-    : sortedOptions.find(opt => String(opt.id) === String(value));
+  const selectedOptions = isMulti
+    ? lookupOptions.filter((opt) => Array.isArray(value) && value.map(String).includes(String(opt.id)))
+    : lookupOptions.find((opt) => String(opt.id) === String(value));
 
   const openDropdown = () => {
     if (buttonRef.current && !disabled) {

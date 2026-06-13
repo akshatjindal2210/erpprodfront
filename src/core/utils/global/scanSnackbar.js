@@ -3,11 +3,9 @@ import { playScanSuccessBeep } from "@/features/apps/ims/helpers/scanFeedback";
 
 export const SCAN_SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 
+/** Scan snackbar: success = green, everything else (duplicate, invalid, fail) = red */
 function levelToVariant(level) {
-  if (level === "error") return "danger";
-  if (level === "warning") return "warning";
-  if (level === "info") return "info";
-  return "success";
+  return level === "success" ? "success" : "error";
 }
 
 function toastDuration(cooldownMs = 1800) {

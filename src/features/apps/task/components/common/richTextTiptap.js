@@ -1,14 +1,14 @@
 import StarterKit from "@tiptap/starter-kit";
-import Link from "@tiptap/extension-link";
 
 /** Both Form + read-only display should use this stack — do not separate. */
 export function getRichTextExtensions() {
   return [
-    StarterKit,
-    Link.configure({
-      openOnClick: true,
-      autolink: true,
-      defaultProtocol: "https",
+    StarterKit.configure({
+      link: {
+        openOnClick: true,
+        autolink: true,
+        defaultProtocol: "https",
+      },
     }),
   ];
 }

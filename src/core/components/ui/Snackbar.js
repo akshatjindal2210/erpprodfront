@@ -6,16 +6,21 @@ import { X } from "lucide-react";
 
 const FADE_MS = 480;
 
-/** W3Schools-style snackbar: #333 band, centred, slide + fade; `duration` is total wall time (~full opacity + fade out). */
+function variantClassName(variant) {
+  return variant === "success"
+    ? "bg-emerald-600 text-white"
+    : "bg-red-600 text-white";
+}
+
+/** Bottom snackbar for IMS QR scan — green = scan ok, red = anything else. */
 export default function Snackbar({
   open,
-  variant: _variant,
+  variant = "error",
   title = "",
   message = "",
   duration = 3500,
   onClose,
 }) {
-  void _variant;
 
   const innerRef = useRef(null);
   const hideAfterAnimRef = useRef(null);
@@ -57,7 +62,7 @@ export default function Snackbar({
     if (!el) return;
     el.classList.remove("app-snackbar-banner--hide");
     el.classList.add("app-snackbar-banner--show");
-  }, [open, message]);
+  }, [open, message, variant]);
 
   useEffect(() => {
     if (!open || !onClose) return undefined;
@@ -88,7 +93,7 @@ export default function Snackbar({
       ref={innerRef}
       role="alert"
       aria-live="polite"
-      className="app-snackbar-banner--show pointer-events-auto fixed bottom-[30px] left-1/2 z-[2500] min-h-[54px] w-[min(calc(100vw-32px),28rem)] min-w-[min(250px,calc(100vw-32px))] rounded-[2px] bg-[#333] px-4 py-4 pr-12 text-center text-[17px] leading-snug text-white shadow-lg"
+      className={`app-snackbar-banner--show pointer-events-auto fixed bottom-[30px] left-1/2 z-[2500] min-h-[54px] w-[min(calc(100vw-32px),28rem)] min-w-[min(250px,calc(100vw-32px))] rounded-[2px] px-4 py-4 pr-12 text-center text-[17px] leading-snug shadow-lg ${variantClassName(variant)}`}
     >
       <button
         type="button"

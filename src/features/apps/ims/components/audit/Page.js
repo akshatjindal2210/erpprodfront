@@ -1,160 +1,53 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Plus, ClipboardCheck, RefreshCcw, Edit3, Trash2, X, Info, Play, User, MapPin, GitCompare, ClipboardList, RotateCcw, UserRoundCog } from "lucide-react";
+import dynamic from "next/dynamic";
+import { Plus, ClipboardCheck, RefreshCcw, Edit3, Trash2, X, Info, Play, MapPin, GitCompare, ClipboardList, RotateCcw, UserRoundCog } from "lucide-react";
 import { toast } from "react-toastify";
 
-import { formatDateTime, formatDate } from "@/core/utils/utilHelper";
 import { auditService } from "@/features/apps/ims/services/audit";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
+import { MasterListFooter, MasterRefreshButton } from "@/features/apps/ims/helpers/masterListUi";
 
-// Components
 import ActionButton from "@/core/components/ui/ActionButton";
 import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
 import { useListPageExport } from "@/core/hooks/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DataTable from "@/core/components/ui/DataTable";
-import AuditModal from "./AuditModal";
-import AuditExecutionModal from "./AuditExecutionModal";
-import AuditComparisonModal from "./AuditComparisonModal";
-import AuditReassignModal from "./AuditReassignModal";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import ImsSegmentedTabs from "@/features/apps/ims/components/common/ImsSegmentedTabs";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchAllListPages } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
 import { useSelector } from "react-redux";
 import { selectUser, selectRole } from "@/core/store/slices/authSlice";
-import { getAuditExecutionStatusLabel, renderAuditExecutionStatusBadge, renderAuditLocationResultBadge, getAuditLocationResultLabel } from "./auditStatusHelpers";
-import { isLocationClosed, getLocationStatusLabel, getLocationStatusBadgeClass, matchesLocationStatusFilter, expandLocationAssignmentRows, isLocationSubmittedRow, getAuditPlanUsers, formatAuditParticipantNames, formatLocationScorePct, computeAuditBatchScore, canExecuteAuditLocationRow, filterLocationListRows, findNextExecutableLocationRow } from "./auditScanHelpers";
+import { getAuditExecutionStatusLabel } from "./auditStatusHelpers";
+import { isLocationClosed, getLocationStatusLabel, isLocationSubmittedRow, canExecuteAuditLocationRow, findNextExecutableLocationRow } from "./auditScanHelpers";
+import {
+  getAssignedUsersLabel,
+  getDefaultLocationUserFilter,
+  flattenAuditLocations,
+  filterAuditLocationRows,
+  buildLocationUserFilterOptions,
+  buildLocationAuditFilterOptions,
+  indexAuditsById,
+  indexLocationRowsById,
+} from "./auditListHelpers";
+import { AUDIT_MASTER_HEADERS, buildAuditLocationHeaders } from "./auditColumns";
+
+const AuditModal = dynamic(() => import("./AuditModal"), { ssr: false });
+const AuditExecutionModal = dynamic(() => import("./AuditExecutionModal"), { ssr: false });
+const AuditComparisonModal = dynamic(() => import("./AuditComparisonModal"), { ssr: false });
+const AuditReassignModal = dynamic(() => import("./AuditReassignModal"), { ssr: false });
 
 const PAGE_TABS = {
   LOCATION: "location",
   MASTER: "master",
 };
-
-function renderLocationStatusBadge(status) {
-  const label = getLocationStatusLabel(status);
-  const cls = getLocationStatusBadgeClass(status);
-  return (
-    <span className={`inline-flex px-2 py-0.5 rounded text-[9px] font-bold uppercase border ${cls}`}>
-      {label}
-    </span>
-  );
-}
-
-function getAssignedUsersLabel(audit) {
-  if (audit?.assigned_user_names) return audit.assigned_user_names;
-  return formatAuditParticipantNames(audit);
-}
-
-function canSeeAllAuditLocations(audit, userId, isSuperAdmin, canManageAudit) {
-  if (isSuperAdmin || canManageAudit) return true;
-  return userId != null && Number(audit?.created_by) === Number(userId);
-}
-
-function getDefaultLocationUserFilter(userId, isSuperAdmin = false) {
-  if (isSuperAdmin) return "all";
-  return userId != null ? String(userId) : "all";
-}
-
-function flattenAuditLocations(
-  audits = [],
-  { userId = null, isSuperAdmin = false, canManageAudit = false } = {}
-) {
-  const rows = [];
-  for (const audit of audits) {
-    const seeAllForAudit = canSeeAllAuditLocations(audit, userId, isSuperAdmin, canManageAudit);
-    const locs = Array.isArray(audit.locations) ? audit.locations : [];
-    for (const loc of locs) {
-      rows.push(
-        ...expandLocationAssignmentRows(audit, loc, { seeAllForAudit, userId })
-      );
-    }
-  }
-  rows.sort((a, b) => {
-    if (a.audit_id !== b.audit_id) return b.audit_id - a.audit_id;
-    if (a.location_no !== b.location_no) {
-      return String(a.location_no).localeCompare(String(b.location_no));
-    }
-    if (a.is_history_row !== b.is_history_row) return a.is_history_row ? -1 : 1;
-    return (a.assignment_id ?? 0) - (b.assignment_id ?? 0);
-  });
-  return rows;
-}
-
-function renderLocationUsersCell(row) {
-  const name = row.assigned_user_name || "—";
-  if (!row.is_history_row) {
-    return <span className="font-bold text-slate-800 text-[11px]">{name}</span>;
-  }
-  return (
-    <div className="min-w-0">
-      <span className="font-bold text-slate-600 text-[11px]">{name}</span>
-      <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wide">Previous assignee</span>
-    </div>
-  );
-}
-
-function renderLocationBoxesCell(row) {
-  const expected = row.expected_count ?? 0;
-  const scanned = row.scanned_count ?? 0;
-
-  return (
-    <span className="text-[10px] font-bold text-slate-700 tabular-nums">
-      {scanned} / {expected}
-    </span>
-  );
-}
-
-function scoreBadgeClass(n) {
-  if (!Number.isFinite(n)) return "bg-slate-100 text-slate-500 border-slate-200";
-  if (n >= 100) return "bg-emerald-100 text-emerald-800 border-emerald-200";
-  if (n >= 80) return "bg-amber-100 text-amber-800 border-amber-200";
-  return "bg-rose-100 text-rose-800 border-rose-200";
-}
-
-function renderLocationScoreCell(row) {
-  if (!isLocationSubmittedRow(row)) {
-    return <span className="text-[10px] text-slate-400">After submit</span>;
-  }
-  const n = Number(row.score_pct);
-  if (!Number.isFinite(n)) {
-    return <span className="text-[10px] text-slate-400">—</span>;
-  }
-  return (
-    <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-black tabular-nums border ${scoreBadgeClass(n)}`}>
-      {formatLocationScorePct(n)}
-    </span>
-  );
-}
-
-function renderAuditBatchScoreCell(audit) {
-  const batch = computeAuditBatchScore(audit);
-  if (!batch) {
-    return <span className="text-[10px] text-slate-400">Pending</span>;
-  }
-  const n = Number(batch.score_pct);
-  const partial = batch.scored_location_count < batch.location_count;
-  return (
-    <div className="flex flex-col items-start gap-0.5" title={`${batch.scored_location_count} of ${batch.location_count} locations scored`}>
-      <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-black tabular-nums border ${scoreBadgeClass(n)}`}>
-        {formatLocationScorePct(n)}
-      </span>
-      {partial ? (
-        <span className="text-[8px] font-bold text-slate-400 tabular-nums">
-          {batch.scored_location_count}/{batch.location_count} loc
-        </span>
-      ) : (
-        <span className="text-[8px] font-bold text-slate-400 tabular-nums">{batch.location_count} loc</span>
-      )}
-    </div>
-  );
-}
 
 export default function AuditPage() {
   const canAccess = useCanAccess();
@@ -290,51 +183,34 @@ export default function AuditPage() {
     }
   }, [params.pageSize, params.sortKey, params.sortDir, params.status, params.authorization]);
 
-  const buildFilteredLocationRows = useCallback(
-    (audits = allRows) => {
-      const flat = flattenAuditLocations(audits, {
-        userId: currentUser?.id,
-        isSuperAdmin,
-        canManageAudit,
-      });
-      return filterLocationListRows(
-        flat,
-        {
-          locationAuditFilter: params.locationAuditFilter,
-          locationUserFilter: params.locationUserFilter,
-          locationStatusFilter: params.locationStatusFilter,
-          search: tempSearch,
-        },
-        applyClientSearch
-      );
-    },
-    [
-      allRows,
-      currentUser?.id,
-      isSuperAdmin,
-      canManageAudit,
-      params.locationAuditFilter,
-      params.locationUserFilter,
-      params.locationStatusFilter,
-      tempSearch,
-    ]
+  const flattenContext = useMemo(
+    () => ({ userId: currentUser?.id, isSuperAdmin, canManageAudit }),
+    [currentUser?.id, isSuperAdmin, canManageAudit]
   );
+
+  const locationListFilters = useMemo(
+    () => ({
+      locationAuditFilter: params.locationAuditFilter,
+      locationUserFilter: params.locationUserFilter,
+      locationStatusFilter: params.locationStatusFilter,
+      search: tempSearch,
+    }),
+    [params.locationAuditFilter, params.locationUserFilter, params.locationStatusFilter, tempSearch]
+  );
+
+  const flattenedLocationRows = useMemo(
+    () => flattenAuditLocations(allRows, flattenContext),
+    [allRows, flattenContext]
+  );
+
+  const auditById = useMemo(() => indexAuditsById(allRows), [allRows]);
 
   const advanceToNextExecutableLocation = useCallback(
     async (completedRowId = null) => {
       const data = await fetchAudits();
-      const rows = filterLocationListRows(
-        flattenAuditLocations(data, {
-          userId: currentUser?.id,
-          isSuperAdmin,
-          canManageAudit,
-        }),
-        {
-          locationAuditFilter: params.locationAuditFilter,
-          locationUserFilter: params.locationUserFilter,
-          locationStatusFilter: params.locationStatusFilter,
-          search: tempSearch,
-        },
+      const rows = filterAuditLocationRows(
+        flattenAuditLocations(data, flattenContext),
+        locationListFilters,
         applyClientSearch
       );
       const nextRow = findNextExecutableLocationRow(rows, locationExecutionContext, {
@@ -350,18 +226,7 @@ export default function AuditPage() {
       setExecutionLocationRow(null);
       return false;
     },
-    [
-      fetchAudits,
-      currentUser?.id,
-      isSuperAdmin,
-      canManageAudit,
-      params.locationAuditFilter,
-      params.locationUserFilter,
-      params.locationStatusFilter,
-      tempSearch,
-      locationExecutionContext,
-      openAuditExecution,
-    ]
+    [fetchAudits, flattenContext, locationListFilters, locationExecutionContext, openAuditExecution]
   );
 
   const handleReopenLocation = async () => {
@@ -404,74 +269,33 @@ export default function AuditPage() {
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
-    if (q) return applyClientSearch(allRows, tempSearch);
-    return [...allRows];
-  }, [allRows, tempSearch]);
+    const base = q ? applyClientSearch(allRows, tempSearch) : [...allRows];
+    return sortRowsByKey(base, params.sortKey || "audit_id", params.sortDir);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
 
-  const locationUserFilterOptions = useMemo(() => {
-    const byId = new Map();
-
-    for (const audit of allRows) {
-      for (const user of getAuditPlanUsers(audit)) {
-        if (!byId.has(user.user_id)) byId.set(user.user_id, user.user_name);
-      }
-    }
-
-    const options = [];
-    const myId = currentUser?.id != null ? Number(currentUser.id) : null;
-
-    if (canFilterAllAuditUsers) {
-      options.push({ label: "All Users", value: "all" });
-    }
-
-    if (myId != null && !isSuperAdmin) {
-      const meName = byId.get(myId) || currentUser?.name || `User #${myId}`;
-      options.push({ label: meName, value: String(myId) });
-    }
-
-    if (canFilterAllAuditUsers) {
-      [...byId.entries()]
-        .filter(([id]) => myId == null || Number(id) !== myId)
-        .sort((a, b) => String(a[1]).localeCompare(String(b[1])))
-        .forEach(([id, name]) => {
-          options.push({ label: name, value: String(id) });
-        });
-    }
-
-    return options.length ? options : [{ label: "All Users", value: "all" }];
-  }, [allRows, currentUser?.id, currentUser?.name, canFilterAllAuditUsers, isSuperAdmin]);
-
-  const locationAuditFilterOptions = useMemo(() => {
-    const ids = new Set();
-
-    for (const audit of allRows) {
-      const seeAllForAudit = canSeeAllAuditLocations(
-        audit,
-        currentUser?.id,
+  const locationUserFilterOptions = useMemo(
+    () =>
+      buildLocationUserFilterOptions(allRows, {
+        currentUser,
         isSuperAdmin,
-        canManageAudit
-      );
-      const locRows = (audit.locations || []).flatMap((loc) =>
-        expandLocationAssignmentRows(audit, loc, { seeAllForAudit, userId: currentUser?.id })
-      );
-      if (locRows.length > 0) {
-        ids.add(audit.audit_id);
-      }
-    }
+        canFilterAllAuditUsers,
+      }),
+    [allRows, currentUser, isSuperAdmin, canFilterAllAuditUsers]
+  );
 
-    const options = [{ label: "All", value: "all" }];
-    [...ids]
-      .sort((a, b) => b - a)
-      .forEach((id) => {
-        options.push({ label: `#${id}`, value: String(id) });
-      });
+  const locationAuditFilterOptions = useMemo(
+    () => buildLocationAuditFilterOptions(flattenedLocationRows),
+    [flattenedLocationRows]
+  );
 
-    return options;
-  }, [allRows, currentUser?.id, isSuperAdmin, canManageAudit]);
+  const filteredLocationRows = useMemo(() => {
+    const filtered = filterAuditLocationRows(flattenedLocationRows, locationListFilters, applyClientSearch);
+    return sortRowsByKey(filtered, params.sortKey || "audit_id", params.sortDir);
+  }, [flattenedLocationRows, locationListFilters, params.sortKey, params.sortDir]);
 
-  const filteredLocationRows = useMemo(
-    () => buildFilteredLocationRows(),
-    [buildFilteredLocationRows]
+  const locationRowById = useMemo(
+    () => indexLocationRowsById(filteredLocationRows),
+    [filteredLocationRows]
   );
 
   const activeRows = isLocationView ? filteredLocationRows : filteredRows;
@@ -564,20 +388,19 @@ export default function AuditPage() {
   const selectedAuditId = useMemo(() => {
     if (!selected) return null;
     if (isLocationView) {
-      const row = filteredLocationRows.find((r) => r.row_id === selected);
-      return row?.audit_id ?? null;
+      return locationRowById.get(selected)?.audit_id ?? null;
     }
     return selected;
-  }, [selected, isLocationView, filteredLocationRows]);
+  }, [selected, isLocationView, locationRowById]);
 
   const selectedRecord = useMemo(
-    () => allRows.find((u) => u.audit_id === selectedAuditId),
-    [allRows, selectedAuditId]
+    () => (selectedAuditId != null ? auditById.get(selectedAuditId) ?? null : null),
+    [auditById, selectedAuditId]
   );
 
   const selectedLocationRow = useMemo(
-    () => (isLocationView ? filteredLocationRows.find((r) => r.row_id === selected) : null),
-    [isLocationView, filteredLocationRows, selected]
+    () => (isLocationView && selected ? locationRowById.get(selected) ?? null : null),
+    [isLocationView, selected, locationRowById]
   );
 
   const getSelectedRow = useCallback(() => selectedRecord ?? null, [selectedRecord]);
@@ -620,208 +443,12 @@ export default function AuditPage() {
     canDeleteSelection: useCallback(() => !!selectedAuditId, [selectedAuditId]),
   });
 
-  const HEADERS = [
-    ["Audit ID", "audit_id", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">#{v}</span>, { width: "80px" }],
-    ["Assigned Users", "assigned_user_names", (v, row) => (
-      <div className="flex items-center gap-2 min-w-0">
-        <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 shrink-0">
-          <User size={12} />
-        </div>
-        <span className="font-bold text-slate-800 text-[11px] leading-snug whitespace-normal break-words">
-          {v || getAssignedUsersLabel(row)}
-        </span>
-      </div>
-    ), {
-      width: "200px",
-      wrap: true,
-      copyValue: (item) => getAssignedUsersLabel(item),
-    }],
-    ["Date Range", "start_date", (v, row) => (
-      <div className="flex flex-col leading-tight">
-        <span className="text-[10px] font-bold text-slate-700">{formatDate(row.start_date)} — {formatDate(row.end_date)}</span>
-      </div>
-    ), {
-      width: "180px",
-      copyValue: (item) =>
-        `${formatDate(item.start_date)} — ${formatDate(item.end_date)}`,
-    }],
-    ["Locations", "locations", (v) => (
-      <div className="flex flex-wrap gap-1 py-1">
-        {v?.map(loc => (
-          <span key={loc.location_id} className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${getLocationStatusBadgeClass(loc.status)}`}>
-            {loc.location_no}
-          </span>
-        ))}
-      </div>
-    ), {
-      width: "250px",
-      wrap: true,
-      copyValue: (item) => {
-        const locs = Array.isArray(item.locations) ? item.locations : [];
-        const names = locs.map((loc) => loc?.location_no).filter(Boolean);
-        return names.length ? names.join(", ") : "—";
-      },
-    }],
-    ["Status", "status", (v) => renderAuditExecutionStatusBadge(v), {
-      width: "130px",
-      copyValue: (item) => getAuditExecutionStatusLabel(item.status),
-    }],
-    [
-      "Score",
-      "audit_batch_score",
-      (v, row) => renderAuditBatchScoreCell(row),
-      {
-        width: "90px",
-        copyValue: (item) => {
-          const batch = computeAuditBatchScore(item);
-          return batch ? formatLocationScorePct(batch.score_pct) : "Pending";
-        },
-      },
-    ],
-    ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 italic whitespace-normal break-words leading-tight">{v || "—"}</span>, { width: "180px", wrap: true }],
-    ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-    ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-  ];
+  const LOCATION_HEADERS = useMemo(
+    () => buildAuditLocationHeaders({ canViewAudit, openLocationComparison }),
+    [canViewAudit, openLocationComparison]
+  );
 
-  const LOCATION_HEADERS = useMemo(() => [
-    ["Location", "location_no", (v, row) => {
-      const submitted = isLocationSubmittedRow(row);
-      const canOpen = submitted && canViewAudit;
-      return (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (canOpen) openLocationComparison(row);
-          }}
-          disabled={!canOpen}
-          className={`flex items-center gap-2 text-left group ${canOpen ? "cursor-pointer" : "cursor-default"}`}
-          title={
-            !canViewAudit
-              ? "View permission required"
-              : submitted
-                ? "Click — comparison report"
-                : "Comparison available after submit"
-          }
-        >
-          <MapPin size={12} className={`shrink-0 ${canOpen ? "text-indigo-500 group-hover:text-indigo-700" : "text-slate-400"}`} />
-          <span className={`font-black uppercase text-[11px] ${canOpen ? "text-slate-800 group-hover:text-indigo-700 group-hover:underline" : row.is_history_row ? "text-slate-500" : "text-slate-600"}`}>
-            {v || "—"}
-          </span>
-          {row.is_history_row && (
-            <span className="px-1 py-0.5 rounded text-[8px] font-black uppercase bg-slate-100 text-slate-500 border border-slate-200 shrink-0">
-              Prev
-            </span>
-          )}
-        </button>
-      );
-    }, { width: "120px" }],
-    ["Audit ID", "audit_id", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">#{v}</span>, { width: "80px" }],
-    ["Users", "assigned_user_name", (v, row) => renderLocationUsersCell(row), {
-      width: "200px",
-      wrap: true,
-      copyValue: (item) => item.users_label || item.assigned_user_name,
-    }],
-    ["Boxes", "expected_count", (v, row) => renderLocationBoxesCell(row), {
-      width: "130px",
-      wrap: true,
-      copyValue: (item) => `${item.scanned_count ?? 0} / ${item.expected_count ?? 0}`,
-    }],
-    ["Score", "score_pct", (v, row) => renderLocationScoreCell(row), {
-      width: "80px",
-      copyValue: (item) =>
-        isLocationSubmittedRow(item) ? formatLocationScorePct(item.score_pct) : "—",
-    }],
-    ["Difference", "difference_boxes", (v, row) => {
-      const submitted = isLocationSubmittedRow(row);
-      const canOpen = submitted && canViewAudit;
-      if (!submitted) {
-        return <span className="text-[10px] text-slate-400 italic">After submit</span>;
-      }
-      const missing = Array.isArray(row.missing_boxes) ? row.missing_boxes : [];
-      const extra = Array.isArray(row.extra_boxes) ? row.extra_boxes : [];
-      const boxes = Array.isArray(v) && v.length ? v : [...missing, ...extra];
-      const inner = !boxes.length ? (
-        <span className="text-[10px] text-emerald-600 font-bold">All matched</span>
-      ) : (
-        <div className="flex flex-wrap gap-0.5 max-w-[220px] py-0.5">
-          {missing.map((uid) => (
-            <span
-              key={`m-${uid}`}
-              className="px-1 py-0.5 rounded text-[8px] font-bold bg-amber-50 text-amber-800 border border-amber-200"
-              title="Missing"
-            >
-              {uid}
-            </span>
-          ))}
-          {extra.map((uid) => (
-            <span
-              key={`e-${uid}`}
-              className="px-1 py-0.5 rounded text-[8px] font-bold bg-rose-50 text-rose-800 border border-rose-200"
-              title="Extra"
-            >
-              {uid}
-            </span>
-          ))}
-        </div>
-      );
-
-      if (!canOpen) return inner;
-
-      return (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            openLocationComparison(row);
-          }}
-          className="text-left w-full group"
-          title="Click — full comparison report"
-        >
-          <span className="block text-[9px] font-bold text-indigo-500 uppercase mb-0.5 group-hover:underline">
-            View comparison
-          </span>
-          {inner}
-        </button>
-      );
-    }, {
-      width: "200px",
-      wrap: true,
-      copyValue: (item) => {
-        if (!isLocationSubmittedRow(item)) return "After submit";
-        const missing = Array.isArray(item.missing_boxes) ? item.missing_boxes : [];
-        const extra = Array.isArray(item.extra_boxes) ? item.extra_boxes : [];
-        const boxes = [...missing, ...extra];
-        return boxes.length ? boxes.join(", ") : "All matched";
-      },
-    }],
-    ["Date Range", "start_date", (v, row) => (
-      <span className="text-[10px] font-bold text-slate-700">{formatDate(row.start_date)} — {formatDate(row.end_date)}</span>
-    ), {
-      width: "170px",
-      copyValue: (item) =>
-        `${formatDate(item.start_date)} — ${formatDate(item.end_date)}`,
-    }],
-    ["Status", "location_status", (v) => renderLocationStatusBadge(v), {
-      width: "110px",
-      copyValue: (item) => getLocationStatusLabel(item.location_status),
-    }],
-    ["Audit result", "result_rejected", (v, row) =>
-      isLocationSubmittedRow(row)
-        ? renderAuditLocationResultBadge(v ?? false)
-        : renderAuditLocationResultBadge(null),
-      {
-        width: "96px",
-        align: "center",
-        copyValue: (item) =>
-          isLocationSubmittedRow(item) ? getAuditLocationResultLabel(Boolean(item.result_rejected)) : "—",
-      },
-    ],
-    ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 italic whitespace-normal break-words leading-tight">{v || "—"}</span>, { width: "160px", wrap: true }],
-    ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "140px" }],
-  ], [canViewAudit, openLocationComparison]);
-
-  const tableHeaders = isLocationView ? LOCATION_HEADERS : HEADERS;
+  const tableHeaders = isLocationView ? LOCATION_HEADERS : AUDIT_MASTER_HEADERS;
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: isLocationView ? "Audit Locations" : "Audit Master",
@@ -870,7 +497,7 @@ export default function AuditPage() {
   const comparisonCanManage = useMemo(() => {
     const row = comparisonContext?.locationRow;
     if (!row) return false;
-    const audit = allRows.find((a) => Number(a.audit_id) === Number(row.audit_id));
+    const audit = auditById.get(Number(row.audit_id));
     if (!audit || row.is_history_row || audit.status === "cancelled") return false;
     if (audit.status === "verified" && currentRole?.toLowerCase() !== "super_admin") return false;
     const isCreator = Number(audit.created_by) === Number(currentUser?.id);
@@ -880,7 +507,7 @@ export default function AuditPage() {
       authorizeAccess?.allowed ||
       isCreator
     );
-  }, [comparisonContext, allRows, currentRole, currentUser?.id, editAccess, authorizeAccess]);
+  }, [comparisonContext, auditById, currentRole, currentUser?.id, editAccess, authorizeAccess]);
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
@@ -999,10 +626,7 @@ export default function AuditPage() {
               
               <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
               
-              <button onClick={() => fetchAudits()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shadow-none">
-                <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
-                <span className="hidden xs:inline">Refresh</span>
-              </button>
+              <MasterRefreshButton loading={loading} onClick={fetchAudits} />
               </>
             }
             viewToggle={
@@ -1054,11 +678,7 @@ export default function AuditPage() {
               emptyIcon={isLocationView ? MapPin : ClipboardCheck} sortKey={params.sortKey ?? ""} sortDir={params.sortDir}
               onSort={(key) => {
                 setDisplayLimit(100);
-                setParams((p) => ({
-                  ...p,
-                  sortKey: key,
-                  sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
-                }));
+                setParams((p) => nextSortParams(p, key));
               }}
               selectedId={selected} onSelect={setSelected}
               getRowId={(item) => (isLocationView ? item.row_id : item.audit_id)}
@@ -1085,15 +705,11 @@ export default function AuditPage() {
             />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} {isLocationView ? "Locations" : "Audits"}
-          </span>
-          <div className="flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun={isLocationView ? "Locations" : "Audits"}
+        />
       </div>
 
       {modalOpen && (

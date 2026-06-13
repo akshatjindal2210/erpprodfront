@@ -59,6 +59,7 @@ html[data-app-drawer-open] .imp-panel-no-select main {
 .out-entry-packing-tab-active {
   position: relative;
   z-index: 1;
+  isolation: isolate;
   overflow: hidden;
   border: none !important;
   border-radius: 0.5rem 0.5rem 0 0 !important;
@@ -99,12 +100,12 @@ html[data-app-drawer-open] .imp-panel-no-select main {
   border-radius: calc(0.5rem - 3px) calc(0.5rem - 3px) 0 0;
   background: #4f46e5;
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
 }
 
 .out-entry-packing-tab-active > * {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -265,7 +266,15 @@ html[data-app-drawer-open] .imp-panel-no-select main {
 }
 
 @media (max-width: 768px) {
-  [data-list-page-filter-strip] .list-page-filter-control,
+  [data-list-page-filter-strip] .list-page-filter-control {
+    min-height: 1.75rem;
+    max-height: 1.75rem;
+  }
+
+  [data-list-page-filter-strip] label {
+    display: none;
+  }
+
   [data-compact-form-bar] .list-page-filter-control {
     min-height: 2rem;
     max-height: 2rem;

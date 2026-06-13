@@ -9,6 +9,7 @@ import ListPageSearchField, {
   LIST_PAGE_FILTER_ACTION_BTN_CLASS,
   listPageFilterDisplayTextClass,
 } from "@/core/components/common/ListPageSearchField";
+import { useMobileFilterStrip } from "@/core/components/common/ListPageFilterStrip";
 import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 
 const formatDisplayDate = (value) => {
@@ -41,6 +42,7 @@ export default function DateRangeFilter({
   const [localExtras, setLocalExtras] = useState({});
   const fromInputRef = useRef(null);
   const toInputRef = useRef(null);
+  const mobileFilterStrip = useMobileFilterStrip();
 
   const extraFilterCount = Array.isArray(extraFilters) ? extraFilters.length : 0;
   const showInstantExtras = Boolean(instantClientExtras && !showDate);
@@ -76,6 +78,7 @@ export default function DateRangeFilter({
 
   const handleApply = () => {
     onApply?.({ fromDate: localFrom, toDate: localTo, ...localExtras });
+    mobileFilterStrip?.collapseMobile?.();
   };
 
   const handleInternalReset = () => {
@@ -83,6 +86,7 @@ export default function DateRangeFilter({
     setLocalTo(externalToDate || "");
     setLocalExtras({});
     onReset?.();
+    mobileFilterStrip?.collapseMobile?.();
   };
 
   const openDatePicker = (inputRef) => {
@@ -98,13 +102,13 @@ export default function DateRangeFilter({
     }
   };
 
-  /** Phone: 2 filters per row, compact spacing. */
+  /** Phone: 2 filters per row, tight spacing. */
   const filterGridClass =
-    "grid w-full min-w-0 items-end gap-x-2 gap-y-1.5 max-md:grid-cols-2 md:gap-x-3 md:gap-y-2 md:[grid-template-columns:repeat(auto-fill,minmax(min(100%,11.25rem),1fr))]";
+    "grid w-full min-w-0 items-end gap-x-1.5 gap-y-1 max-md:grid-cols-2 md:gap-x-3 md:gap-y-2 md:[grid-template-columns:repeat(auto-fill,minmax(min(100%,11.25rem),1fr))]";
 
   const actionsLabelSpacer = (
     <span
-      className={`${LIST_PAGE_SEARCH_LABEL_CLASS} block min-h-[0.875rem] md:min-h-[1.125rem] shrink-0 select-none leading-tight opacity-0`}
+      className={`${LIST_PAGE_SEARCH_LABEL_CLASS} max-md:hidden block min-h-[0.875rem] md:min-h-[1.125rem] shrink-0 select-none leading-tight opacity-0`}
       aria-hidden
     >
       {"\u00a0"}
@@ -120,7 +124,7 @@ export default function DateRangeFilter({
             placeholder={searchPlaceholder}
             value={searchValue}
             onChange={onSearchChange}
-            containerClassName="w-full min-w-0 space-y-0.5 md:space-y-1"
+            containerClassName="w-full min-w-0 space-y-0 md:space-y-1"
           />
         </div>
       )}
@@ -128,7 +132,7 @@ export default function DateRangeFilter({
       {showDate && (
         <>
           <div className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
-            <label className={LIST_PAGE_SEARCH_LABEL_CLASS}>From Date</label>
+            <label className={`${LIST_PAGE_SEARCH_LABEL_CLASS} max-md:hidden`}>From Date</label>
             <div
               className={`relative flex min-w-0 cursor-pointer items-center ${LIST_PAGE_FILTER_BOX_CLASS}`}
               onClick={() => openDatePicker(fromInputRef)}
@@ -150,7 +154,7 @@ export default function DateRangeFilter({
           </div>
 
           <div className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
-            <label className={LIST_PAGE_SEARCH_LABEL_CLASS}>To Date</label>
+            <label className={`${LIST_PAGE_SEARCH_LABEL_CLASS} max-md:hidden`}>To Date</label>
             <div
               className={`relative flex min-w-0 cursor-pointer items-center ${LIST_PAGE_FILTER_BOX_CLASS}`}
               onClick={() => openDatePicker(toInputRef)}
@@ -176,7 +180,7 @@ export default function DateRangeFilter({
       {extraFilterCount > 0 &&
         extraFilters.map((filter, index) => (
           <div key={index} className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
-            <label className={LIST_PAGE_SEARCH_LABEL_CLASS}>{filter.label}</label>
+            <label className={`${LIST_PAGE_SEARCH_LABEL_CLASS} max-md:hidden`}>{filter.label}</label>
             <select
               value={localExtras[filter.key] ?? filter.value ?? ""}
               onChange={(e) => {
@@ -185,6 +189,7 @@ export default function DateRangeFilter({
                   const next = { ...prev, [filter.key]: v };
                   if (showInstantExtras || applyExtrasOnChange) {
                     onApply?.({ fromDate: localFrom, toDate: localTo, ...next });
+                    if (showInstantExtras) mobileFilterStrip?.collapseMobile?.();
                   }
                   return next;
                 });
@@ -208,9 +213,9 @@ export default function DateRangeFilter({
         ))}
 
       {showActionButtons && (
-        <div className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
+        <div className={`${LIST_PAGE_FILTER_FIELD_WRAP_CLASS} max-md:col-span-2`}>
           {actionsLabelSpacer}
-          <div className="flex min-h-8 md:min-h-9 flex-row flex-nowrap gap-1.5 md:gap-2">
+          <div className="flex min-h-8 md:min-h-9 flex-row flex-nowrap gap-1 md:gap-2">
             <button
               type="button"
               onClick={handleInternalReset}

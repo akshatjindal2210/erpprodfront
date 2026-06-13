@@ -18,6 +18,7 @@ export const SCAN_SNACK_MSG = {
   BOX_ADDED: (code) => `Scanned: ${String(code ?? "").trim()}`,
   BOX_DUPLICATE: (code) => `Already scanned: ${String(code ?? "").trim()}`,
   LOCATION_OK: "Location scanned successfully",
+  AUDIT_LOCATION_VERIFIED: (loc) => `${String(loc ?? "").trim()} verified — scan boxes now`,
   BOX_SCANNED_TOTAL: (boxNoUid, totalScanned) => {
     const n = Number(totalScanned);
     const displayCount = Number.isFinite(n) && n >= 100 ? "100+" : String(totalScanned ?? 0);

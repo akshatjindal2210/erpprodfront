@@ -14,7 +14,7 @@ import RichTextDisplay from "@/features/apps/task/components/common/RichTextDisp
 
 import { PRIORITY_CONFIG_DETAIL_PAGE, TASK_STATUS_CONFIG } from "@/features/apps/task/components/common/Constants";
 import { MiniRow, Sk, fmtDt, Badge, TimelineItem, AssignmentChain, AutoTextarea, FilePill, ChatBubble, ForwardModal, ActionModal, SidebarTaskItem, ChatMembers, ActivityLogModal, } from "./SubPageExtra";
-import { formatDateTime } from "@/features/apps/task/helpers/utilHelper";
+import { formatDateTime, toDateTimeLocalInput } from "@/features/apps/task/helpers/utilHelper";
 
 import { SIDEBAR_TABS, TASK_COLORS } from "@/features/apps/task/components/tasks_common_component/TaskConstant"
 import { filterSidebarTasks, getTaskColor, SidebarCounts } from "@/features/apps/task/components/tasks_common_component/TaskHelper"
@@ -48,7 +48,8 @@ export default function TaskDetailPage() {
 
   const currentUserId = useSelector((s) => s.auth?.user?.id ?? s.auth?.id ?? null);
   const currentUser   = useSelector((s) => s.auth.user);
-  const isSuperAdmin  = currentUser?.type === "super_admin";
+  const userRole      = useSelector((s) => s.auth?.role);
+  const isSuperAdmin  = userRole === "super_admin";
 
   const [task,        setTask]        = useState(null);
   const [loading,     setLoading]     = useState(true);
@@ -117,6 +118,8 @@ export default function TaskDetailPage() {
   const [selfDirty,      setSelfDirty]      = useState(false);
   const [selfNoteExists, setSelfNoteExists] = useState(false);
   const [selfReminder,   setSelfReminder]   = useState("");
+  const [targetDateInput, setTargetDateInput] = useState("");
+  const [targetDateSaving, setTargetDateSaving] = useState(false);
   const [autoSaving,     setAutoSaving]     = useState(false);
   const [autoSaveEnabled] = useState(true);
   const selfFileRef = useRef(null);
@@ -158,14 +161,7 @@ export default function TaskDetailPage() {
       const data = res.data?.data;
       if (data) {
         setSelfNote(data.note ?? "");
-        const raw = data.reminder_at;
-        if (raw) {
-          if (String(raw).endsWith("Z") || String(raw).includes("+")) {
-            const d = new Date(raw);
-            const pad = (n) => String(n).padStart(2,"0");
-            setSelfReminder(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
-          } else { setSelfReminder(String(raw).replace(" ","T").slice(0,16)); }
-        } else { setSelfReminder(""); }
+        setSelfReminder(toDateTimeLocalInput(data.reminder_at));
         let atts = data.attachments;
         if (typeof atts === "string") { try { atts = JSON.parse(atts); } catch { atts = []; } }
         setSelfAtts(Array.isArray(atts) ? atts : []);
@@ -251,17 +247,26 @@ export default function TaskDetailPage() {
   }, [initialTaskId]);
 
   const isTaskDone      = task?.status === "completed";
+  const isAssignedTask  = task?.task_type === "assigned";
   const isAssigner      = task && Number(task.assigned_by_id)        === Number(currentUserId);
   const isL1            = task && Number(task.first_assigned_to_id) === Number(currentUserId);
+  const canSetTargetDate = isAssignedTask && !isTaskDone && task?.can_set_target_date === true;
+  const hasValidTarget   = task?.has_valid_target === true;
+  const isChatLockedByTarget = isAssignedTask && !hasValidTarget && !isAssigner && !isTaskDone;
   const isCurrentHolder = task && Number(task.current_holder_id)    === Number(currentUserId);
   const isTaskFinalDone = task?.status === "completed";
 
+  const isAssignmentActive = (a) => a && (a.is_active === 1 || a.is_active === true);
   const currentAssignment = task?.assignment_chain?.find(
-    (a) => Number(a.assigned_to_id) === Number(currentUserId) && a.assignment_id === task.current_assignment_id
+    (a) => Number(a.assigned_to_id) === Number(currentUserId)
+      && Number(a.assignment_id) === Number(task.current_assignment_id)
   );
-  const isUserActive     = currentAssignment?.is_active === 1;
-  const canSubUserAction = !isL1 && isCurrentHolder && isUserActive &&
-    ["in_progress","pending","forwarded"].includes(task?.status);
+  const isUserActive = isAssignmentActive(currentAssignment)
+    || (isCurrentHolder && (task?.assignment_chain ?? []).some(
+      (a) => Number(a.assigned_to_id) === Number(currentUserId) && isAssignmentActive(a)
+    ));
+  const canSubUserAction = !isL1 && isCurrentHolder && isUserActive
+    && ["in_progress", "pending", "forwarded"].includes(task?.status ?? "");
   const canL1AlwaysAction = isL1 && task?.status !== "creator_pending" && !isTaskFinalDone;
 
   const canForward        = (canL1AlwaysAction || canSubUserAction) && task?.task_type !== "self";
@@ -327,7 +332,7 @@ export default function TaskDetailPage() {
   }, [selfNote, selfReminder, selfDirty, handleSaveSelf, selfNewFiles, selfRemove]);
 
   const handleChatSend = async () => {
-    if (isTaskDone || (!chatMsg.trim() && chatFiles.length === 0)) return;
+    if (isTaskDone || isChatLockedByTarget || (!chatMsg.trim() && chatFiles.length === 0)) return;
     setChatSending(true);
     try {
       const fd = new FormData();
@@ -435,6 +440,22 @@ export default function TaskDetailPage() {
     fetchSelfNote();
     fetchAllTasks();
   }, [fetchTask, fetchChat, fetchSelfNote, fetchAllTasks]);
+
+  const handleSetTargetDate = async () => {
+    if (!targetDateInput) { toast.error("Please select target date & time"); return; }
+    setTargetDateSaving(true);
+    try {
+      await taskService.setTargetDate(id, { target_at: targetDateInput });
+      toast.success("Target date set");
+      setTargetDateInput("");
+      await fetchTask();
+      await fetchAllTasks();
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to set target date");
+    } finally {
+      setTargetDateSaving(false);
+    }
+  };
 
   const statusCfg   = TASK_STATUS_CONFIG[task?.status]            ?? {};
   const priorityCfg = PRIORITY_CONFIG_DETAIL_PAGE[task?.priority] ?? {};
@@ -755,9 +776,7 @@ export default function TaskDetailPage() {
                       <h2 className="text-base font-bold text-slate-800 leading-tight">{task.title}</h2>
                       {isOverdue && <span className="shrink-0 bg-rose-50 text-rose-600 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-100 uppercase">Overdue</span>}
                     </div>
-                    {task.description
-                      ? <RichTextDisplay value={task.description} className="mt-2" />
-                      : <p className="mt-2 text-xs text-slate-300 italic">No description provided</p>}
+                    {task.description ? <RichTextDisplay value={task.description} className="mt-2" /> : <p className="mt-2 text-xs text-slate-300 italic">No description provided</p>}
                   </div>
                   <div className="p-4 bg-slate-50/50">
                     <div className="grid grid-cols-2 gap-x-6 gap-y-3">
@@ -779,6 +798,70 @@ export default function TaskDetailPage() {
                     </div>
                   </div>
                 </div>
+
+                {isAssignedTask && (
+                  <div className="flex-shrink-0 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Calendar size={13} className="text-sky-500" />
+                        <span className="text-sm font-semibold text-slate-700">Target Date</span>
+                        {hasValidTarget && task?.current_target?.target_at && (
+                          <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-semibold">Active</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="p-3 space-y-3">
+                      {task?.current_target?.target_at && (
+                        <div className="rounded-xl bg-sky-50 border border-sky-100 px-3 py-2">
+                          <p className="text-[10px] font-semibold text-sky-600 uppercase tracking-wide">Current Target</p>
+                          <p className="text-sm font-bold text-sky-900 mt-0.5">{formatDateTime(task.current_target.target_at)}</p>
+                          {task.current_target.set_by_name && (
+                            <p className="text-[10px] text-sky-600 mt-1">Set by {task.current_target.set_by_name}</p>
+                          )}
+                        </div>
+                      )}
+                      {canSetTargetDate && (
+                        <div className="space-y-2">
+                          <p className="text-[10px] text-slate-500">
+                            {hasValidTarget ? "Set next target date when current one passes:" : "Set your target date & time:"}
+                          </p>
+                          <input
+                            type="datetime-local"
+                            value={targetDateInput}
+                            min={getCurrentDateTime()}
+                            onChange={(e) => setTargetDateInput(e.target.value)}
+                            className="w-full border border-sky-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-white outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 transition-all"
+                          />
+                          <button
+                            onClick={handleSetTargetDate}
+                            disabled={targetDateSaving || !targetDateInput}
+                            className="w-full py-2 text-xs font-semibold rounded-xl bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-40 transition-colors"
+                          >
+                            {targetDateSaving ? "Saving…" : hasValidTarget ? "Set Next Target Date" : "Set Target Date"}
+                          </button>
+                        </div>
+                      )}
+                      {(task?.target_dates?.length ?? 0) > 0 && (
+                        <div className="border-t border-slate-100 pt-2">
+                          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Previous Target Dates</p>
+                          <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                            {task.target_dates.map((td, idx) => (
+                              <div
+                                key={`${td.target_at}-${td.created_at}-${idx}`}
+                                className={`flex items-center justify-between text-[11px] px-2 py-1.5 rounded-lg ${
+                                  td.is_current ? "bg-sky-50 text-sky-800 border border-sky-100" : "bg-slate-50 text-slate-600"
+                                }`}
+                              >
+                                <span>{formatDateTime(td.target_at)}</span>
+                                <span className="text-[9px] text-slate-400">{td.is_current ? "Current" : "Past"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex-shrink-0 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
@@ -884,14 +967,16 @@ export default function TaskDetailPage() {
                         <div className="flex flex-col items-center justify-center h-full text-center">
                           <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center mb-3"><MessageSquare size={22} className="text-slate-300" /></div>
                           <p className="text-sm font-medium text-slate-400">No messages yet</p>
-                          <p className="text-xs text-slate-400 mt-1">{isTaskDone ? "Task is completed" : "Start the conversation below"}</p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            {isTaskDone ? "Task is completed" : isChatLockedByTarget ? "Waiting for target date — only Assigned By can chat" : "Start the conversation below"}
+                          </p>
                         </div>
                       ) : chatMessages.map((msg) => (
                         <ChatBubble key={msg.chat_id} msg={msg} onReply={setReplyTo} onDelete={handleDeleteChatMsg} isTaskDone={isTaskDone} isSuperAdmin={isSuperAdmin} />
                       ))}
                       <div ref={chatEndRef} />
                     </div>
-                    {replyTo && !isTaskDone && (
+                    {replyTo && !isTaskDone && !isChatLockedByTarget && (
                       <div className="flex-shrink-0 px-3 py-2 border-t border-indigo-100 bg-indigo-50 flex items-center gap-2">
                         <CornerUpLeft size={12} className="text-indigo-500 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
@@ -901,7 +986,7 @@ export default function TaskDetailPage() {
                         <button onClick={() => setReplyTo(null)} className="text-indigo-400 hover:text-indigo-600"><X size={13} /></button>
                       </div>
                     )}
-                    {chatFiles.length > 0 && !isTaskDone && (
+                    {chatFiles.length > 0 && !isTaskDone && !isChatLockedByTarget && (
                       <div className="flex-shrink-0 px-3 py-2 border-t border-slate-100 bg-white flex gap-2 overflow-x-auto">
                         {chatFiles.map((f, i) => <FilePill key={i} file={{ file_name: f.name, preview: f.preview }} isNew onRemove={() => removeChatFile(i)} />)}
                       </div>
@@ -911,11 +996,17 @@ export default function TaskDetailPage() {
                         <Lock size={13} className="text-slate-400" />
                         <p className="text-xs text-slate-400 font-medium">Chat is locked — task completed</p>
                       </div>
+                    ) : isChatLockedByTarget ? (
+                      <div className="flex-shrink-0 px-4 py-3 border-t border-sky-100 bg-sky-50 flex items-center justify-center gap-2 text-center">
+                        <Lock size={13} className="text-sky-500 flex-shrink-0" />
+                        <p className="text-xs text-sky-700 font-medium">Chat locked — Assigned To must set target date first. Only Assigned By can message.</p>
+                      </div>
                     ) : (
                       <div className="flex-shrink-0 px-3 py-3 border-t border-slate-100 bg-white">
                         <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
                           <AutoTextarea value={chatMsg} onChange={(e) => setChatMsg(e.target.value)} onKeyDown={handleChatKey}
-                            placeholder={replyTo ? "Write a reply…" : "Type a message… (Enter to send)"} disabled={isTaskDone} />
+                            placeholder={replyTo ? "Write a reply…" : "Type a message… (Enter to send)"}
+                            disabled={isTaskDone} />
                           <div className="flex items-center gap-1 flex-shrink-0 pb-0.5">
                             <input ref={chatFileRef} type="file" multiple className="hidden"
                               accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx" onChange={handleChatFilePick} />
@@ -1033,8 +1124,7 @@ export default function TaskDetailPage() {
           onSuccess={() => { setEditOpen(false); fetchTask(); fetchAllTasks(); }}
           taskType={task.task_type === "self" ? "self" : "assigned"} currentUser={currentUser} />
       )}
-      <ActivityLogModal open={activityModalOpen} onClose={() => setActivityModalOpen(false)}
-        taskId={task?.task_id} taskTitle={task?.title} taskStatus={task?.status} logs={null} />
+      <ActivityLogModal open={activityModalOpen} onClose={() => setActivityModalOpen(false)} taskId={task?.task_id} taskTitle={task?.title} taskStatus={task?.status} logs={task?.task_log ?? null} />
     </div>
   );
 }

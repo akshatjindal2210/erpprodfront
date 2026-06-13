@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Bell, Search, Menu, X, LogOut, Clock, KeyRound } from "lucide-react";
+import { Search, Menu, X, LogOut, Clock, KeyRound } from "lucide-react";
 import { ROUTES } from "@/config/routes";
 import { useAppLogout } from "@/core/hooks/useLogout";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
@@ -12,6 +12,7 @@ import { SETTINGS_NAV_REGISTRY } from "@/features/admin/configuration/config/set
 import QuickAccessBar from "./QuickAccessBar";
 import PortalAppLauncherButton from "@/features/shared/portal/components/PortalAppLauncherButton";
 import ChangePasswordModal from "@/features/admin/identity/users/ChangePasswordModal";
+import TaskBellMenu from "@/features/apps/task/pwa/TaskBellMenu";
 
 export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false, hideSearch = false }) {
   const { handleLogout } = useAppLogout();
@@ -183,10 +184,7 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
                 {showMobileSearch ? <X size={17} /> : <Search size={17} />}
               </button>
             )}
-            <button className="text-slate-400 hover:text-white relative p-1.5 transition-colors">
-              <Bell size={17} />
-              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-blue-500 rounded-full border border-slate-900"></span>
-            </button>
+            <TaskBellMenu theme="dark" />
 
             <PortalAppLauncherButton />
 

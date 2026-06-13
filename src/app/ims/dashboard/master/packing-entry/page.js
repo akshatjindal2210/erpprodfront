@@ -1,10 +1,5 @@
-import DailyProductionPage from '@/features/apps/ims/components/master/DailyProduction'
-import React from 'react'
+import DailyProductionPage from "@/features/apps/ims/components/master/DailyProduction";
 
-function page() {
-  return (
-    <DailyProductionPage />
-  )
+export default function PackingEntryPage() {
+  return <DailyProductionPage />;
 }
-
-export default page

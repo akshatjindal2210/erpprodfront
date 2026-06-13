@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCcw, Box, Edit3, Trash2, CheckCircle, X } from "lucide-react";
+import { Plus, RefreshCcw, Box, Edit3, Trash2, CheckCircle, X, Locate } from "lucide-react";
 import { toast } from "react-toastify";
 import { boxService } from "@/features/apps/ims/services/box";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
@@ -15,6 +15,7 @@ import { useListPageExport } from "@/core/hooks/useListPageExport";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DataTable from "@/core/components/ui/DataTable";
 import BoxModal from "./BoxModal";
+import BoxFinderDrawer from "./BoxFinderDrawer";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 
@@ -58,6 +59,7 @@ export default function BoxTablePage() {
   const [modalMode, setModalMode] = useState("add"); 
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
+  const [finderOpen, setFinderOpen] = useState(false);
 
   const fetchBoxes = useCallback(async () => {
     setLoading(true);
@@ -133,7 +135,7 @@ export default function BoxTablePage() {
 
   const { openNewModal, openEditModal, tableHotkeyProps, openDeleteModal } = useListDrawerHotkeys({
     module: "boxes",
-    modalOpen: modalOpen || !!deleteItem,
+    modalOpen: modalOpen || finderOpen || !!deleteItem,
     selectedId: selected,
     getSelectedRow,
     openAdd: useCallback(() => {
@@ -182,6 +184,15 @@ export default function BoxTablePage() {
           <ListPageToolbarLayout
             actions={
               <>
+              <button
+                type="button"
+                onClick={() => setFinderOpen(true)}
+                className="h-9 px-4 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shadow-none shrink-0"
+              >
+                <Locate size={14} className="text-indigo-600" />
+                <span>Finder</span>
+              </button>
+
               <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
               
               <button onClick={() => fetchBoxes()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center transition-all">
@@ -275,6 +286,7 @@ export default function BoxTablePage() {
       </div>
 
       <BoxModal open={modalOpen} onClose={() => setModalOpen(false)} onSuccess={() => { fetchBoxes(); setSelected(null); }} editData={editItem} mode={modalMode} />
+      {finderOpen && <BoxFinderDrawer open={finderOpen} onClose={() => setFinderOpen(false)} />}
       <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={() => { fetchBoxes(); setSelected(null); }} service={boxService} entityLabel="Box Record" idKey="box_uid" moduleSlug="boxes" />
     </div>
   );

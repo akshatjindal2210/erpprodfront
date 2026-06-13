@@ -11,14 +11,9 @@ export default function PwaRegister() {
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
 
-    if (isAppDevelopment()) {
-      navigator.serviceWorker.getRegistrations().then((regs) => {
-        regs.forEach((reg) => reg.unregister());
-      });
-      return;
+    if (!isAppDevelopment()) {
+      ensureInstallPromptCapture();
     }
-
-    ensureInstallPromptCapture();
 
     const register = async () => {
       try {

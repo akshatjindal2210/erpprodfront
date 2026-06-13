@@ -6,8 +6,8 @@ import { io } from "socket.io-client";
 import { FILE_BASE_URL } from "@/core/utils/lib";
 import { userService } from "@/features/shared/auth/services/userService";
 import { applyListViewSpanFromSession } from "@/core/utils/global";
+import { bindTaskNotifySocket } from "@/features/apps/task/pwa/taskNotifySocket";
 
-/** Tear down without browser "closed before connection is established" noise. */
 function closeSocketQuietly(socket) {
   if (!socket) return;
   socket.io.opts.reconnection = false;
@@ -113,6 +113,8 @@ export const useSocket = (userId) => {
     socket.on("permissions_updated", onPermissionsUpdated);
     socket.on("module_status_updated", onPermissionsUpdated);
 
+    const unbindTaskPush = bindTaskNotifySocket(socket);
+
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       const now = Date.now();
@@ -127,6 +129,7 @@ export const useSocket = (userId) => {
       socket.off("connect", onConnect);
       socket.off("permissions_updated", onPermissionsUpdated);
       socket.off("module_status_updated", onPermissionsUpdated);
+      unbindTaskPush();
       closeSocketQuietly(socket);
     };
   }, [userId]);

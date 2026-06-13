@@ -8,6 +8,7 @@ import { NAVBAR_PAGES, getProfileDropdown, getRoleConfig, hasAccess } from "@/fe
 import PortalAppLauncherButton from "@/features/shared/portal/components/PortalAppLauncherButton";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import ChangePasswordModal from "@/features/admin/identity/users/ChangePasswordModal";
+import TaskBellMenu from "@/features/apps/task/pwa/TaskBellMenu";
 
 export default function Navbar({ setSidebarOpen, userRole, whoAmi }) {
   const { handleLogout } = useAppLogout();
@@ -176,8 +177,9 @@ export default function Navbar({ setSidebarOpen, userRole, whoAmi }) {
       {/* ── Right ── */}
       <div className="flex items-center gap-1.5 md:gap-3">
 
-        {/* Bell */}
-        {/* 
+        <TaskBellMenu theme="light" />
+
+        {/* Legacy reminders bell — kept for reference
         <div className="relative" ref={notifRef}>
           <button onClick={handleNotifOpen}
             className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors">

@@ -3,14 +3,12 @@ export function isAppDevelopment() {
   return process.env.NEXT_PUBLIC_APP_ENV === "development";
 }
 
+const PWA_DISPLAY_MODES = ["standalone", "fullscreen", "minimal-ui", "window-controls-overlay"];
+
 export function isPwaStandalone() {
   if (typeof window === "undefined") return false;
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    window.matchMedia("(display-mode: fullscreen)").matches ||
-    window.matchMedia("(display-mode: minimal-ui)").matches ||
-    window.navigator.standalone === true
-  );
+  if (window.navigator.standalone === true) return true;
+  return PWA_DISPLAY_MODES.some((mode) => window.matchMedia(`(display-mode: ${mode})`).matches);
 }
 
 export function isIosDevice() {

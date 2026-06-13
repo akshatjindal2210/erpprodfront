@@ -5,7 +5,6 @@ import { FILE_BASE_URL } from "@/core/utils/lib";
 import SearchableSelect  from "@/features/apps/task/components/common/SearchableSelect";
 import { PRIORITY_CONFIG } from "../common/Constants";
 import { taskService } from "@/features/apps/task/services/taskApi";
-import { activityLogService } from "@/features/shared/services/activityLogService";
 import { mapTaskUserToOption } from "@/features/apps/task/helpers/utilHelper";
 import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
@@ -28,6 +27,43 @@ export const Sk    = ({ className = "" }) => <div className={`animate-pulse bg-s
 export const fmtDt = (d) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : null;
 export const fmtTs = (d) => d ? new Date(d).toLocaleString("en-IN",  { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" }) : "";
 
+function stripHtml(text) {
+  if (!text) return "";
+  return String(text)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n+/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function formatActionDetail(detail) {
+  if (!detail) return "";
+  const arrow = detail.includes("→") ? "→" : detail.includes("->") ? "->" : null;
+  if (arrow) {
+    const [beforeRaw, afterRaw] = detail.split(arrow).map((s) => s.trim().replace(/^"|"$/g, ""));
+    const before = stripHtml(beforeRaw);
+    const after = stripHtml(afterRaw);
+    if (before === after) return before ? "Updated" : "";
+    if (!before) return after;
+    if (!after) return before;
+    return `${before} → ${after}`;
+  }
+  return stripHtml(detail);
+}
+
+function formatActionLabel(action) {
+  return (action || "").replace(/_/g, " ");
+}
+
 export function Badge({ config }) {
   if (!config) return null;
   return (
@@ -48,8 +84,8 @@ export function TimelineItem({ action, action_detail, performedBy, time, isLast 
         {!isLast && <div className="w-px bg-slate-100 my-1" style={{ minHeight: 12 }} />}
       </div>
       <div className={`flex-1 min-w-0 ${isLast ? "pb-0" : "pb-3"}`}>
-        <p className="text-xs text-slate-700 font-medium leading-relaxed break-words">{action}</p>
-        {action_detail && <p className="text-[10px] text-slate-400 mt-0.5 italic">{action_detail}</p>}
+        <p className="text-xs text-slate-700 font-medium leading-relaxed break-words capitalize">{formatActionLabel(action)}</p>
+        {action_detail && <p className="text-[10px] text-slate-400 mt-0.5">{formatActionDetail(action_detail)}</p>}
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600">{performedBy}</span>
           <span className="text-[10px] text-slate-400">{fmtTs(time)}</span>
@@ -87,10 +123,10 @@ export function AssignmentChain({ chain }) {
     <div className="space-y-2 relative">
       {sortedChain.map((a, i) => {
 
-        const isActive  = a.is_active === 1;
+        const isActive  = a.is_active === 1 || a.is_active === true;
         const isDone    = !!a.completion_approved_at;
         const isPending = !!a.completion_requested_at && !isDone;
-        const isL1      = a.is_level_one === 1;
+        const isL1      = a.is_level_one === 1 || a.is_level_one === true;
 
         const displayTime =
           a.completion_approved_at ||
@@ -346,7 +382,7 @@ export function ChatMembers({ taskDetail }) {
 
   // ✅ Assignment chain — only those with is_active === 1
   (taskDetail.assignment_chain ?? [])
-    .filter((a) => a.is_active === 1)  // ← THIS IS THE FIX
+    .filter((a) => a.is_active === 1 || a.is_active === true)
     .forEach((a) => {
       if (!map.has(String(a.assigned_to_id))) {
         const roleLabel =
@@ -735,6 +771,7 @@ const ACTION_CONFIG = {
   completion_requested:      { label: "Completion Requested",   color: "bg-amber-100 border-amber-200 text-amber-700",      dot: "bg-amber-500"   },
   completion_approved:       { label: "Completion Approved",    color: "bg-emerald-100 border-emerald-200 text-emerald-700",dot: "bg-emerald-500" },
   completion_rejected:       { label: "Completion Rejected",    color: "bg-rose-100 border-rose-200 text-rose-700",         dot: "bg-rose-500"    },
+  target_date_set:           { label: "Target Date Set",        color: "bg-sky-100 border-sky-200 text-sky-700",            dot: "bg-sky-500"     },
   task_forwarded:            { label: "Task Forwarded",         color: "bg-violet-100 border-violet-200 text-violet-700",   dot: "bg-violet-500"  },
   task_completed:            { label: "Task Completed",         color: "bg-emerald-100 border-emerald-200 text-emerald-700",dot: "bg-emerald-500" },
 };
@@ -748,29 +785,27 @@ export function ActivityLogModal({ open, onClose, taskId, taskTitle, taskStatus,
   const [actionType, setActionType] = useState("");
   const LIMIT = 20;
 
-  // If propLogs passed (SubPage) — use directly, don't fetch
-  const isLazy = propLogs === null;
+  const isLazy = !Array.isArray(propLogs);
 
   const fetchLogs = useCallback(async (off = 0, atype = "") => {
     if (!isLazy || !taskId) return;
     setLoading(true);
     try {
-      const page = Math.floor(off / LIMIT) + 1;
-      const response = await activityLogService.getLogs({
-        app_type: "task",
-        entity: "tasks",
-        entity_id: taskId,
-        action_type: atype || undefined,
-        page,
+      const response = await taskService.getActivity(taskId, {
         limit: LIMIT,
-        all_users: "true"
+        offset: off,
+        action_type: atype || undefined,
       });
-      
-      if (response.success) {
-        const data = response.data;
-        const pagin = response.pagination;
-        
-        setTotal(pagin.total);
+
+      if (response.data?.success) {
+        const payload = response.data.data;
+        const data = payload?.logs ?? [];
+        const pagin = payload?.pagination ?? {};
+
+        setTotal(pagin.total ?? data.length);
+        if (payload?.task) {
+          setTaskInfo({ title: payload.task.title, status: payload.task.status });
+        }
         if (off === 0) setLogs(data);
         else           setLogs((p) => [...p, ...data]);
         setOffset(off);
@@ -792,7 +827,7 @@ export function ActivityLogModal({ open, onClose, taskId, taskTitle, taskStatus,
     if (isLazy) fetchLogs(0, atype);
   };
 
-  const displayLogs = isLazy ? logs : [...propLogs].reverse();
+  const displayLogs = isLazy ? logs : propLogs;
   const displayTotal = isLazy ? total : propLogs.length;
 
   const ACTION_TYPES = [
@@ -892,7 +927,7 @@ export function ActivityLogModal({ open, onClose, taskId, taskTitle, taskStatus,
                         <span className="text-[10px] text-slate-400 mt-0.5">{fmtTs(log.created_at || log.action_time)}</span>
                       </div>
                       {(log.description || log.action_detail) && (
-                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">{(log.description || log.action_detail).replace(/<[^>]*>/g, "")}</p>
+                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">{formatActionDetail(log.description || log.action_detail)}</p>
                       )}
                       <span className="text-[10px] font-semibold text-indigo-600 mt-0.5 inline-block">
                         {log.user_name || log.performed_by || "System"}

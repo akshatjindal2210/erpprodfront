@@ -1,5 +1,26 @@
 export const formatDate = (d) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", }) : "—";
 
+/** Normalize API/DB timestamps for `<input type="datetime-local" />` (local time, YYYY-MM-DDTHH:mm). */
+export function toDateTimeLocalInput(value) {
+  if (value == null || value === "") return "";
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return "";
+    const p = (n) => String(n).padStart(2, "0");
+    return `${value.getFullYear()}-${p(value.getMonth() + 1)}-${p(value.getDate())}T${p(value.getHours())}:${p(value.getMinutes())}`;
+  }
+
+  const text = String(value).trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+  if (match) return `${match[1]}T${match[2]}`;
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  const p = (n) => String(n).padStart(2, "0");
+  return `${parsed.getFullYear()}-${p(parsed.getMonth() + 1)}-${p(parsed.getDate())}T${p(parsed.getHours())}:${p(parsed.getMinutes())}`;
+}
+
 export function formatDateTime(date, options = {}) {
   if (!date) return "—";
 

@@ -74,6 +74,8 @@ export function buildReportTaskListApiParams(filterState, currentUser, paginatio
     reminder: qf === "reminder" || undefined,
     upcoming_due: qf === "upcoming_due" || undefined,
     creator_pending: qf === "creator_pending" || undefined,
+    open_tasks: qf === "open_tasks" || undefined,
+    updated_tasks: qf === "updated_tasks" || undefined,
 
     assigned_by_id: selectedAssignedBy || undefined,
     department_id: selectedDepartment || undefined,

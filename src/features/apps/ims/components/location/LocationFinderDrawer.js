@@ -100,15 +100,17 @@ function formatLocationNo(loc) {
 function parseBoxSku(box) {
   if (!box) return { customer: null, itemCode: null, itemDesc: null };
   const customerRaw = [box.acc_name, box.override_cust, box.party_rate_cust_code].find(
-    (x) => x != null && String(x).trim() !== ""
+    (x) => x != null && String(x).trim() !== "" && String(x).trim() !== "—"
   );
   const customer = customerRaw != null ? String(customerRaw).trim() : null;
   const itemCode =
-    box.item_code || box.item_name
-      ? String(box.item_code || box.item_name).trim()
-      : box.itemdcode != null || box.item_dcode != null
-        ? String(box.itemdcode ?? box.item_dcode).trim()
-        : null;
+    box.item_code != null && String(box.item_code).trim() !== ""
+      ? String(box.item_code).trim()
+      : box.item_name != null && String(box.item_name).trim() !== ""
+        ? String(box.item_name).trim()
+        : box.itemdcode != null || box.item_dcode != null
+          ? String(box.itemdcode ?? box.item_dcode).trim()
+          : null;
   const rawDesc = box.item_desc ?? box.itemdesc;
   const itemDesc = rawDesc != null && String(rawDesc).trim() !== "" ? String(rawDesc).trim() : null;
   return { customer, itemCode, itemDesc };
@@ -272,7 +274,7 @@ export default function LocationFinderDrawer({ open, onClose }) {
 
       const locRes = await locationService.getViews({
         id: box.location_id,
-        permission_module: "inventory_inwards",
+        permission_module: "boxes",
         permission_action: "view",
       });
       if (locRes.data) {

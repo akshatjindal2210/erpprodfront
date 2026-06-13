@@ -1,4 +1,4 @@
-import { ClipboardList, Clock, CheckCircle2, Circle,  AlertCircle, Bell, CalendarX, CalendarCheck, Zap, Shield, X, } from "lucide-react";
+import { ClipboardList, Clock, CheckCircle2, Circle, AlertCircle, Bell, CalendarX, CalendarCheck, Zap, Shield, FolderOpen, RefreshCw } from "lucide-react";
 
 const TABS = [
   { key: "assigned_to_me",  label: "Assigned To Me"   },
@@ -24,14 +24,16 @@ const TABLE_COLS = [
   { label: "Created By",    key: "created_by_name"        },
 ];
 
-// ── SINGLE SOURCE OF TRUTH ──────────────────────────────────────────────────
+// ── SINGLE SOURCE OF TRUTH (6 cards per row) ─────────────────────────────────
 const STAT_CARDS = [
+  { row: 1, key: "open_tasks",      label: "Open Tasks",       icon: FolderOpen,    bg: "bg-fuchsia-50", text: "text-fuchsia-700", border: "border-fuchsia-100", ring: "ring-fuchsia-400", barColor: "#c026d3", rowBg: "bg-fuchsia-50/50", badgeCls: ""                                                                 },
+  { row: 1, key: "updated_tasks",   label: "Not Viewed",       icon: RefreshCw,     bg: "bg-amber-50",   text: "text-amber-700",   border: "border-amber-100",   ring: "ring-amber-400",   barColor: "#e0df83", rowBg: "bg-amber-50/50",   badgeCls: "bg-amber-200 text-amber-900 border border-amber-500 font-bold"    },
   { row: 1, key: "total",           label: "Total Tasks",      icon: ClipboardList, bg: "bg-indigo-50",  text: "text-indigo-600",  border: "border-indigo-100",  ring: "ring-indigo-400",  barColor: "#696969", rowBg: "bg-slate-50",      badgeCls: ""                                                                  },
   { row: 1, key: "pending",         label: "Pending",          icon: Circle,        bg: "bg-slate-50",   text: "text-slate-600",   border: "border-slate-100",   ring: "ring-slate-400",   barColor: "#00eeff", rowBg: "bg-slate-100/70",  badgeCls: "bg-slate-200 text-slate-800 border border-slate-400 font-bold"     },
   { row: 1, key: "in_progress",     label: "In Progress",      icon: Clock,         bg: "bg-green-50",   text: "text-green-700",   border: "border-green-100",   ring: "ring-green-500",   barColor: "#0e79aa", rowBg: "bg-green-100/50",  badgeCls: "bg-green-200 text-green-900 border border-green-400 font-bold"     },
-  { row: 1, key: "completed",       label: "Completed",        icon: CheckCircle2,  bg: "bg-emerald-50", text: "text-emerald-600", border: "border-emerald-100", ring: "ring-emerald-400", barColor: "#2bff00", rowBg: "bg-teal-100/50",   badgeCls: "bg-teal-200 text-teal-900 border border-teal-400 font-bold"       },
-  { row: 1, key: "action_required", label: "Action Required",  icon: Zap,           bg: "bg-violet-50",  text: "text-violet-600",  border: "border-violet-100",  ring: "ring-violet-400",  barColor: "#ff0000", rowBg: "bg-violet-100/50", badgeCls: ""                                                                  },
-  { row: 2, key: "overdue",         label: "Overdue",          icon: CalendarX,     bg: "bg-rose-50",    text: "text-rose-600",    border: "border-rose-100",    ring: "ring-rose-500",    barColor: "#ff0000", rowBg: "bg-red-100/70",    badgeCls: "bg-red-200 text-red-900 border border-red-500 font-bold"          },
+  { row: 1, key: "action_required", label: "Action Required",  icon: Zap,           bg: "bg-violet-50",  text: "text-violet-600",  border: "border-violet-100",  ring: "ring-violet-400",  barColor: "#f80511", rowBg: "bg-violet-100/50", badgeCls: ""                                                                 },
+  { row: 2, key: "completed",       label: "Completed",        icon: CheckCircle2,  bg: "bg-emerald-50", text: "text-emerald-600", border: "border-emerald-100", ring: "ring-emerald-400", barColor: "#2bff00", rowBg: "bg-teal-100/50",   badgeCls: "bg-teal-200 text-teal-900 border border-teal-400 font-bold"       },
+  { row: 2, key: "overdue",         label: "Overdue",          icon: CalendarX,     bg: "bg-rose-50",    text: "text-rose-600",    border: "border-rose-100",    ring: "ring-rose-500",    barColor: "#d33759d5", rowBg: "bg-red-100/70",    badgeCls: "bg-red-200 text-red-900 border border-red-500 font-bold"          },
   { row: 2, key: "new_today",       label: "New Today",        icon: AlertCircle,   bg: "bg-sky-50",     text: "text-sky-600",     border: "border-sky-100",     ring: "ring-sky-400",     barColor: "#0011ff", rowBg: "bg-blue-100/60",   badgeCls: "bg-blue-200 text-blue-900 border border-blue-400 font-bold"       },
   { row: 2, key: "reminder",        label: "Reminders",        icon: Bell,          bg: "bg-yellow-50",  text: "text-yellow-600",  border: "border-yellow-100",  ring: "ring-yellow-500",  barColor: "#ff8800", rowBg: "bg-orange-100/60", badgeCls: "bg-orange-200 text-orange-900 border border-orange-400 font-bold"  },
   { row: 2, key: "upcoming_due",    label: "Upcoming Due",     icon: CalendarCheck, bg: "bg-blue-50",    text: "text-blue-600",    border: "border-blue-100",    ring: "ring-blue-400",    barColor: "#ffe600", rowBg: "bg-amber-100/60",  badgeCls: "bg-amber-200 text-amber-900 border border-amber-400 font-bold"    },
@@ -66,7 +68,7 @@ const ROW_META = {
   in_progress:     makeRowMeta("in_progress",     { badge: "In Progress" }),
   pending:         makeRowMeta("pending",         { badge: "Pending" }),
   new:             makeRowMeta("new_today",       { badge: "New" }),
-  updated:         makeRowMeta("new_today",       { badge: "Updated" }),
+  updated:         makeRowMeta("updated_tasks",   { badge: "Not Viewed" }),
   completed:       makeRowMeta("completed",       { badge: "Completed" }),
   closed: {
     bg: "bg-zinc-100/70",
@@ -94,6 +96,8 @@ const COLOR_LEGEND = [
 
 
 const QUICK_FILTER_LABELS = {
+  open_tasks:      "Open tasks (in progress)",
+  updated_tasks:   "Tasks with unseen updates",
   total:           "All tasks",
   pending:         "Pending tasks",
   in_progress:     "In Progress tasks",
@@ -154,4 +158,7 @@ const SIDEBAR_TABS = [
 const ACTIVE_STATUSES = ["pending", "in_progress", "on_hold", "forwarded", "pending_approval", "overdue"];
 
 
-export { TABS, TABLE_COLS, STAT_CARDS, SC, ROW_META, EMPTY_META, COLOR_LEGEND, QUICK_FILTER_LABELS, TASK_COLORS, DONE_STATUSES, SIDEBAR_TABS, ACTIVE_STATUSES}
+/** Dashboard stat keys — shared with notification templates */
+const DASHBOARD_STAT_KEYS = STAT_CARDS.map((c) => c.key);
+
+export { TABS, TABLE_COLS, STAT_CARDS, DASHBOARD_STAT_KEYS, SC, ROW_META, EMPTY_META, COLOR_LEGEND, QUICK_FILTER_LABELS, TASK_COLORS, DONE_STATUSES, SIDEBAR_TABS, ACTIVE_STATUSES }

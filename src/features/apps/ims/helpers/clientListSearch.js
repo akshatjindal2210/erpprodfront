@@ -1,4 +1,5 @@
 import { bestTierForStrings } from "@/features/apps/ims/helpers/liveSearchRank";
+import { docDateToDayjs } from "@/core/utils/utilHelper";
 
 /** Collect primitive values from a row for generic text search. */
 export function defaultSearchParts(row) {
@@ -33,10 +34,90 @@ export function applyClientSearch(rows, queryRaw, options = {}) {
   });
 }
 
-/** Client-side column sort (when there is no active text search). */
+function sortDirectionMultiplier(sortDir) {
+  return String(sortDir).toLowerCase() === "asc" ? 1 : -1;
+}
+
+function isDateSortKey(sortKey) {
+  if (!sortKey) return false;
+  if (sortKey === "doc_dt" || sortKey === "doc_date") return true;
+  return /_(at|date|dt)$/.test(sortKey) || sortKey === "timestamp";
+}
+
+function parseSortTimestamp(value, sortKey) {
+  if (value == null || value === "") return NaN;
+  if (sortKey === "doc_dt" || sortKey === "doc_date") {
+    const d = docDateToDayjs(value);
+    return d ? d.valueOf() : NaN;
+  }
+  const n = Date.parse(String(value));
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function parseSortNumber(value) {
+  if (value == null || value === "") return NaN;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  const s = String(value).trim();
+  if (!s) return NaN;
+  if (/^-?\d+(\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    return Number.isFinite(n) ? n : NaN;
+  }
+  return NaN;
+}
+
+function compareSortValues(a, b, sortKey) {
+  const va = a?.[sortKey];
+  const vb = b?.[sortKey];
+
+  if (va == null && vb == null) return 0;
+  if (va == null) return 1;
+  if (vb == null) return -1;
+
+  if (isDateSortKey(sortKey)) {
+    const ta = parseSortTimestamp(va, sortKey);
+    const tb = parseSortTimestamp(vb, sortKey);
+    if (!Number.isFinite(ta) && !Number.isFinite(tb)) return 0;
+    if (!Number.isFinite(ta)) return 1;
+    if (!Number.isFinite(tb)) return -1;
+    if (ta === tb) return 0;
+    return ta < tb ? -1 : 1;
+  }
+
+  const na = parseSortNumber(va);
+  const nb = parseSortNumber(vb);
+  if (Number.isFinite(na) && Number.isFinite(nb)) {
+    if (na === nb) return 0;
+    return na < nb ? -1 : 1;
+  }
+
+  if (typeof va === "boolean" || typeof vb === "boolean") {
+    const ba = va === true ? 1 : va === false ? 0 : -1;
+    const bb = vb === true ? 1 : vb === false ? 0 : -1;
+    if (ba === bb) return 0;
+    return ba < bb ? -1 : 1;
+  }
+
+  const cmp = String(va).localeCompare(String(vb), undefined, {
+    sensitivity: "base",
+    numeric: true,
+  });
+  return cmp;
+}
+
+/** Toggle sort key/direction for IMS list tables. */
+export function nextSortParams(prev, key) {
+  return {
+    sortKey: key,
+    sortDir: prev.sortKey === key && String(prev.sortDir).toLowerCase() === "asc" ? "desc" : "asc",
+  };
+}
+
+/** Client-side column sort for IMS tables. */
 export function sortRowsByKey(rows, sortKey, sortDir) {
   if (!sortKey) return [...rows];
-  const mul = sortDir === "asc" ? 1 : -1;
+  const mul = sortDirectionMultiplier(sortDir);
 
   if (sortKey === "sort_order") {
     const ord = (row) => {
@@ -55,58 +136,7 @@ export function sortRowsByKey(rows, sortKey, sortDir) {
     });
   }
 
-  if (sortKey === "created_at" || sortKey === "updated_at") {
-    const ts = (row) => {
-      const v = row?.[sortKey];
-      if (v == null || v === "") return NaN;
-      const n = Date.parse(String(v));
-      return Number.isFinite(n) ? n : NaN;
-    };
-    const rowId = (row) => Number(row?.id) || 0;
-    return [...rows].sort((a, b) => {
-      const na = ts(a);
-      const nb = ts(b);
-      if (!Number.isFinite(na) && !Number.isFinite(nb)) return 0;
-      if (!Number.isFinite(na)) return 1;
-      if (!Number.isFinite(nb)) return -1;
-      if (na !== nb) return na < nb ? -1 * mul : 1 * mul;
-      const ida = rowId(a);
-      const idb = rowId(b);
-      if (ida === idb) return 0;
-      return ida < idb ? -1 * mul : 1 * mul;
-    });
-  }
-
-  if (sortKey === "id" || sortKey === "box_count" || sortKey === "total_qty") {
-    const num = (row) => {
-      const n = Number(row?.[sortKey]);
-      return Number.isFinite(n) ? n : NaN;
-    };
-    return [...rows].sort((a, b) => {
-      const na = num(a);
-      const nb = num(b);
-      if (!Number.isFinite(na) && !Number.isFinite(nb)) return 0;
-      if (!Number.isFinite(na)) return 1;
-      if (!Number.isFinite(nb)) return -1;
-      if (na === nb) return 0;
-      return na < nb ? -1 * mul : 1 * mul;
-    });
-  }
-
-  return [...rows].sort((a, b) => {
-    let va = a[sortKey];
-    let vb = b[sortKey];
-    if (va == null && vb == null) return 0;
-    if (va == null) return 1;
-    if (vb == null) return -1;
-    if (typeof va === "string") {
-      va = va.toLowerCase();
-      vb = String(vb).toLowerCase();
-    }
-    if (va < vb) return -1 * mul;
-    if (va > vb) return 1 * mul;
-    return 0;
-  });
+  return [...rows].sort((a, b) => compareSortValues(a, b, sortKey) * mul);
 }
 
 /**
@@ -139,4 +169,3 @@ export async function fetchAllListPages(loadOnePage, perPage = 1000, cap = 50000
   }
   return { data: rows, total: Math.min(rows.length, total) };
 }
-

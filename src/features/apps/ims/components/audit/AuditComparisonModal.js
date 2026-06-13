@@ -5,10 +5,13 @@ import { Loader2, CheckCircle2, AlertTriangle, MapPin, PackageX, PackagePlus, Sl
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 import Drawer from "@/core/components/ui/Drawer";
+import ExportMenu from "@/core/components/common/ExportMenu";
 import { selectRole } from "@/core/store/slices/authSlice";
 import { auditService } from "@/features/apps/ims/services/audit";
+import { notifyListPageExportResult } from "@/core/utils/listPageExport";
 import { getAuditExecutionStatusLabel, renderAuditLocationResultBadge } from "./auditStatusHelpers";
 import { buildLocationComparisonReport, getLocationStatusLabel, getLocationStatusBadgeClass, normalizeLocationStatusKey, isLocationSubmittedRow, computeLocationScoreFromCounts, formatLocationScorePct, resolveBoxAccName } from "./auditScanHelpers";
+import { exportAuditComparisonReport } from "./auditComparisonExport";
 
 function DifferenceTypeBadge({ type }) {
   const isExtra = type === "extra_scan";
@@ -237,6 +240,7 @@ export default function AuditComparisonModal({
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [resultRejected, setResultRejected] = useState(false);
   const singleLocation = Boolean(locationRow);
 
@@ -357,6 +361,48 @@ export default function AuditComparisonModal({
   );
 
   const userScores = report?.scores?.user_scores || [];
+
+  const handleDownloadReport = useCallback(
+    async (format) => {
+      if (!report) return;
+      setExporting(true);
+      try {
+        const { filename } = await exportAuditComparisonReport(format, {
+          report,
+          singleLocation,
+          locationRow,
+          auditLabel,
+          stats,
+          displayScore,
+          allMatched,
+          locations,
+          notScannedRows,
+          extraRows,
+          matchedRows,
+          showLocationCol,
+        });
+        toast.success(notifyListPageExportResult(format, filename).message);
+      } catch (err) {
+        toast.error(err?.message || "Export failed");
+      } finally {
+        setExporting(false);
+      }
+    },
+    [
+      report,
+      singleLocation,
+      locationRow,
+      auditLabel,
+      stats,
+      displayScore,
+      allMatched,
+      locations,
+      notScannedRows,
+      extraRows,
+      matchedRows,
+      showLocationCol,
+    ],
+  );
 
   const handleCompleteLocation = async () => {
     if (!resolvedAuditId || !resolvedLocationId || !canManage) return;
@@ -500,27 +546,38 @@ export default function AuditComparisonModal({
               allMatched ? "bg-emerald-50/80 border-emerald-200" : "bg-amber-50/80 border-amber-200"
             }`}
           >
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-              {allMatched ? (
-                <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
-              ) : (
-                <AlertTriangle size={15} className="text-amber-600 shrink-0" />
-              )}
-              <p className={`text-[11px] font-bold shrink-0 ${allMatched ? "text-emerald-800" : "text-amber-800"}`}>
-                {allMatched ? "All boxes match" : `${stats.notScanned} missing · ${stats.extra} extra`}
-              </p>
-              {singleLocation && locationRow && (
-                <span className="text-[9px] text-slate-600 flex items-center gap-0.5">
-                  <MapPin size={9} />
-                  {locationRow.location_no} · {getLocationStatusLabel(locationRow.location_status)}
-                </span>
-              )}
-              {!singleLocation && (
-                <span className="text-[9px] text-slate-600">
-                  {getAuditExecutionStatusLabel(report.status)} · {summary?.matched_locations || 0}/{summary?.total_locations || locations.length} loc
-                </span>
-              )}
-              <div className="flex flex-wrap items-stretch gap-1.5 ml-auto">
+            <div className="flex flex-wrap items-start gap-2">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 min-w-0 flex-1">
+                {allMatched ? (
+                  <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+                )}
+                <p className={`text-[11px] font-bold shrink-0 ${allMatched ? "text-emerald-800" : "text-amber-800"}`}>
+                  {allMatched ? "All boxes match" : `${stats.notScanned} missing · ${stats.extra} extra`}
+                </p>
+                {singleLocation && locationRow && (
+                  <span className="text-[9px] text-slate-600 flex items-center gap-0.5">
+                    <MapPin size={9} />
+                    {locationRow.location_no} · {getLocationStatusLabel(locationRow.location_status)}
+                  </span>
+                )}
+                {!singleLocation && (
+                  <span className="text-[9px] text-slate-600">
+                    {getAuditExecutionStatusLabel(report.status)} · {summary?.matched_locations || 0}/{summary?.total_locations || locations.length} loc
+                  </span>
+                )}
+              </div>
+
+              <ExportMenu
+                label="Download report"
+                disabled={!report}
+                exporting={exporting}
+                onExport={handleDownloadReport}
+                className="shrink-0"
+              />
+
+              <div className="flex flex-wrap items-stretch gap-1.5 w-full sm:w-auto sm:ml-auto">
                 <InlineStat label="Expected" value={stats.expected} />
                 <InlineStat label="Scanned" value={stats.scanned} tone="indigo" />
                 <InlineStat label="Matched" value={stats.matched} tone="emerald" />
