@@ -14,8 +14,11 @@ import Snackbar from "@/core/components/ui/Snackbar";
 import { OK_INPUT } from "@/core/components/common/Constants";
 import { SCAN_SNACK_MSG, getBoxNoUidPrefix, parseStandardBoxNoUid, useScanSnackbarActions } from "@/core/utils/global";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
-import { isMobileDevice } from "@/core/utils/pwa";
-import { detectQrType, parseBoxScanRaw, parseStickerScan } from "@/features/apps/ims/helpers/qrScan";
+import { useDeviceScanSettings } from "@/core/hooks/useDeviceScanSettings";
+import ScanEnterInput from "@/core/components/common/ScanEnterInput";
+import LaserScanField from "@/core/components/common/LaserScanField";
+import { getScanInputPlaceholder, isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
+import { detectQrType, parseBoxScanRaw, parseStickerScan, boxNoUidDisplayLabel } from "@/features/apps/ims/helpers/qrScan";
 import { prepareQrScanSession } from "@/features/apps/ims/helpers/scanFeedback";
 import { pickBoxFromViewsResponse } from "@/features/apps/ims/helpers/boxViewsLookup";
 import {
@@ -119,8 +122,13 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
   const onScanByCodeRef = useRef(async () => {});
   const inFlightScanRef = useRef(new Set());
   const scanToastRef = useRef({});
+  const scanInputRef = useRef(null);
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
+  const { laserScan, keyboardType, showPhoneQr } = useDeviceScanSettings();
+  const scanBtnCount = (showPhoneQr ? 1 : 0) + (laserScan ? 1 : 0);
+  const scanBtnFill =
+    scanBtnCount > 1 ? "flex-1 basis-0 min-w-0 w-full" : "w-full";
 
   const closeSnackbar = useCallback(() => {
     setSnackbar((s) => ({ ...s, open: false }));
@@ -284,12 +292,15 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
       )
     ) {
       setScanValue("");
-      showScanToast("info", `duplicate-sticker-${code.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1400);
+      showScanToast("error", `duplicate-sticker-${code.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1400);
       return;
     }
 
     const lockKey = `${source}:${code.toLowerCase()}`;
-    if (source === "scanner" && inFlightScanRef.current.has(lockKey)) return;
+    if (source === "scanner" && inFlightScanRef.current.has(lockKey)) {
+      showScanToast("error", `scan-in-flight-${lockKey}`, SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1200);
+      return;
+    }
     if (source === "scanner") inFlightScanRef.current.add(lockKey);
 
     setLoading(true);
@@ -361,6 +372,31 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
   };
 
   onScanByCodeRef.current = onScanByCode;
+
+  const handleLaserScan = useCallback((code) => {
+    void onScanByCodeRef.current(code, "scanner");
+  }, []);
+
+  const handleLaserScanRejected = useCallback(
+    ({ reason, code }) => {
+      if (reason === "duplicate") {
+        showScanToast(
+          "error",
+          `laser-dup-${String(code ?? "").toLowerCase()}`,
+          SCAN_SNACK_MSG.BOX_DUPLICATE(code),
+          1200
+        );
+      } else if (reason === "empty") {
+        showScanToast("error", "laser-empty-scan", SCAN_SNACK_MSG.REJECTED, 1800);
+      }
+    },
+    [showScanToast]
+  );
+
+  const handleKeyboardEnter = useCallback((code) => {
+    setScanValue("");
+    void onScanByCodeRef.current(code, "manual");
+  }, []);
 
   function handleStickerCameraDecoded(decodedText) {
     if (detectQrType(decodedText) === "location") {
@@ -506,7 +542,7 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
       footer={footerContent}
       maxWidth="max-w-2xl"
     >
-      <div ref={formRef} className="space-y-6 pb-6">
+      <div ref={formRef} className="space-y-4 sm:space-y-6 pb-2 sm:pb-6">
         <QrScannerOverlay
           open={isScannerOpen}
           onClose={closeScanner}
@@ -537,59 +573,86 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
           </div>
         )}
 
-        {/* Sticker input — same row pattern as Inventory Inward (Scan + manual + Add) */}
-        <div className="bg-indigo-50/50 p-2 rounded-lg border border-indigo-100 space-y-1.5">
-          <label className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide ml-1 flex justify-between items-center gap-2">
-            <span>Sticker input (box table)</span>
-            <span className={scanRows.length > 0 ? "text-indigo-800 font-black" : "text-indigo-400"}>
+        <div className="bg-indigo-50/50 p-2 sm:p-2.5 rounded-lg border border-indigo-100 space-y-2">
+          <label className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide ml-1 flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-center sm:gap-2">
+            <span className="min-w-0">Sticker input (box table)</span>
+            <span
+              className={`shrink-0 ${scanRows.length > 0 ? "text-indigo-800 font-black" : "text-indigo-400"}`}
+            >
               Packing: {scanRows[0]?.packing_number || "—"}
             </span>
           </label>
-          <div className="flex flex-col sm:flex-row sm:items-end gap-2">
-            {isMobileDevice() && (
+          <div className="space-y-2 w-full min-w-0">
+            {(showPhoneQr || laserScan) ? (
+              <div className="flex items-stretch gap-2 w-full min-w-0">
+                {showPhoneQr && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void (async () => {
+                        const prep = await prepareQrScanSession();
+                        if (!prep.cameraOk) {
+                          showScanToast(
+                            "error",
+                            "camera-permission",
+                            prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
+                            4000
+                          );
+                          return;
+                        }
+                        setIsScannerOpen(true);
+                      })();
+                    }}
+                    disabled={loading || isScannerOpen}
+                    className={`h-10 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${scanBtnFill}`}
+                    title="Open camera scanner"
+                  >
+                    <QrCode size={16} />
+                    <span className="text-[10px] font-black uppercase">QR</span>
+                  </button>
+                )}
+                {laserScan && (
+                  <LaserScanField
+                    active={open && (laserScan || isLaserScanEnabled())}
+                    onScanned={handleLaserScan}
+                    onScanRejected={handleLaserScanRejected}
+                    keyboardInputRef={scanInputRef}
+                    formatPreview={boxNoUidDisplayLabel}
+                    compact
+                    heightClass="h-10 sm:h-9"
+                    fill={scanBtnCount > 0}
+                  />
+                )}
+              </div>
+            ) : null}
+            {keyboardType ? (
+            <div className="flex w-full min-w-0 items-center gap-2">
+              <div className={`flex flex-1 min-w-0 items-center gap-2 h-10 sm:h-9 px-3 ${OK_INPUT} border-slate-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-50/80`}>
+                <ScanLine className="shrink-0 text-indigo-400 pointer-events-none" size={14} />
+                <ScanEnterInput
+                  ref={scanInputRef}
+                  onEnter={handleKeyboardEnter}
+                  placeholder={getScanInputPlaceholder()}
+                  className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[11px] font-normal font-mono text-slate-700 placeholder:font-normal placeholder:text-slate-400 outline-none"
+                />
+              </div>
               <button
                 type="button"
                 onClick={() => {
-                  void (async () => {
-                    const prep = await prepareQrScanSession();
-                    if (!prep.cameraOk) {
-                      showScanToast(
-                        "error",
-                        "camera-permission",
-                        prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
-                        4000
-                      );
-                      return;
-                    }
-                    setIsScannerOpen(true);
-                  })();
+                  const code = String(scanInputRef.current?.value ?? "").trim();
+                  if (!code) return;
+                  if (scanInputRef.current) scanInputRef.current.value = "";
+                  void onScanByCode(code, "manual");
                 }}
-                disabled={loading || isScannerOpen}
-                className="h-9 w-full sm:w-auto sm:shrink-0 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                title="Open camera scanner"
+                disabled={loading}
+                className="h-10 sm:h-9 shrink-0 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] uppercase rounded-lg transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
               >
-                <QrCode size={16} />
-                <span className="text-[10px] font-black uppercase">Scan</span>
+                <Plus size={14} /> Add
               </button>
-            )}
-            <div className={`flex flex-1 min-w-0 w-full items-center gap-2 ${OK_INPUT} border-slate-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-50/80`}>
-              <ScanLine className="shrink-0 text-indigo-400 pointer-events-none" size={14} />
-              <input
-                value={scanValue}
-                onChange={(e) => setScanValue(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && onScanByCode(scanValue, "manual")}
-                placeholder="Type box_no_uid (sticker) or paste QR text — Enter…"
-                className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[11px] font-normal font-mono text-slate-700 placeholder:font-normal placeholder:text-slate-400 outline-none"
-              />
             </div>
-            <button
-              type="button"
-              onClick={() => onScanByCode(scanValue, "manual")}
-              disabled={!scanValue?.trim() || loading}
-              className="h-9 w-full sm:w-auto sm:shrink-0 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] uppercase rounded-lg transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
-            >
-              <Plus size={14} /> Add
-            </button>
+            ) : !showPhoneQr && !laserScan ? (
+              <p className="text-[10px] text-slate-500 py-1">Enable Laser scanner or Keyboard type in Settings.</p>
+            ) : null}
           </div>
         </div>
 

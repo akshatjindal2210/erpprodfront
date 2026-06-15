@@ -216,7 +216,7 @@ export default function LocationMasterPage() {
             className="font-bold text-slate-900 text-[10px] uppercase whitespace-normal break-words leading-snug hyphens-auto"
             title={row.acc_name}
           >
-            {row.acc_name || "N/A"}
+            {row.acc_name || "—"}
           </span>
         </div>
       ),
@@ -224,7 +224,7 @@ export default function LocationMasterPage() {
     ],
     ["Item Code", "item_code", (v, row) => (
       <div className="flex flex-col leading-tight min-w-[140px]">
-        <span className="font-bold text-slate-900 text-[10px] truncate uppercase">{v || "N/A"}</span>
+        <span className="font-bold text-slate-900 text-[10px] truncate uppercase">{v || "—"}</span>
       </div>
     ), { width: "160px" }],
     ["Details", "location_description", (v) => <span className="text-[10px] text-slate-500 italic whitespace-normal break-words leading-tight">{v || "—"}</span>, { width: "180px", wrap: true }],

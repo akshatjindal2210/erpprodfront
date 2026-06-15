@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { Check, Loader2, QrCode, MapPin, Package, Plus, X, Trash2, MessageSquare, CheckCircle2, XCircle, Search, ScanLine, Camera, Locate, Layers } from "lucide-react";
 import { inventoryInwardService } from "@/features/apps/ims/services/inventoryInward";
 import { locationService }        from "@/features/apps/ims/services/location";
-import { extractLocationNo, detectQrType, extractBoxCode } from "@/features/apps/ims/helpers/qrScan";
+import { extractLocationNo, detectQrType, extractBoxCode, boxNoUidDisplayLabel, locationNoDisplayLabel } from "@/features/apps/ims/helpers/qrScan";
 import { useHtml5QrScanner }      from "@/core/hooks/useHtml5QrScanner";
 import QrScannerOverlay           from "@/core/components/common/QrScannerOverlay";
 import Drawer                     from "@/core/components/ui/Drawer";
@@ -15,7 +15,9 @@ import Snackbar                   from "@/core/components/ui/Snackbar";
 import SearchableSelect           from "@/core/components/common/SearchableSelect";
 import RemarksTextarea            from "@/core/components/common/RemarksTextarea";
 import { useCanAccess }           from "@/core/hooks/useCanAccess";
-import { isMobileDevice }         from "@/core/utils/pwa";
+import { useDeviceScanSettings }  from "@/core/hooks/useDeviceScanSettings";
+import LaserScanField from "@/core/components/common/LaserScanField";
+import { getDeviceScanSettings, getScanInputPlaceholder, isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
 import { SCAN_SNACK_MSG, FLOW_SCAN_CAMERA_INSECURE_MSG, useScanSnackbarActions } from "@/core/utils/global";
 import { prepareQrScanSession, unlockScanAudio }   from "@/features/apps/ims/helpers/scanFeedback";
 import { createScanBatchQueue }   from "@/features/apps/ims/helpers/scanBatchQueue";
@@ -37,6 +39,7 @@ function normalizeInwardLocationRow(row) {
 
 const MSG = {
   LOCATION_ALREADY_ADDED:          "This location has already been added.",
+  LOCATION_ALREADY_SCANNING:         (locName) => `Already added — continue scanning boxes at ${locName}.`,
   LOCATION_NOT_FOUND:              "No location found. Please check location no or scan again.",
   LOCATION_FETCH_FAILED:           "Failed to fetch location details. Please try again.",
   LOCATION_SEARCHING:              "Searching location...",
@@ -176,6 +179,19 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
   const [pendingScanCount, setPendingScanCount] = useState(0);
 
   const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
+  const { laserScan, keyboardType, showPhoneQr } = useDeviceScanSettings();
+  const scanBtnCount = (showPhoneQr ? 1 : 0) + (laserScan ? 1 : 0);
+  const scanBtnFill =
+    scanBtnCount > 1 ? "flex-1 basis-0 min-w-0 w-full" : "w-full";
+  const [laserCaptureMode, setLaserCaptureMode] = useState(null);
+  const [laserBoxLocIdx, setLaserBoxLocIdx] = useState(null);
+
+  const laserCaptureModeRef = useRef(null);
+  const laserBoxLocIdxRef = useRef(null);
+  const boxInputRefs = useRef([]);
+  const lastActiveLocIdxRef = useRef(null);
+  const processLocationScanRef = useRef(async () => {});
+  const addLocationToListRef = useRef(() => false);
 
   const fetchLocations = useCallback(async (params) => {
     const res = await locationService.getViews({
@@ -260,6 +276,10 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
       setFormReady(false);
       setIsScannerOpen(false);
       setActiveLocIdxForScan(null);
+      setLaserCaptureMode(null);
+      setLaserBoxLocIdx(null);
+      laserCaptureModeRef.current = null;
+      laserBoxLocIdxRef.current = null;
       setErrors({});
       clearLocSearch();
 
@@ -301,20 +321,112 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         setLocHasError([]);
       }
 
-      if (!cancelled) setFormReady(true);
+      if (!cancelled) {
+        if (laserScan || isLaserScanEnabled()) {
+          laserCaptureModeRef.current = "location";
+          laserBoxLocIdxRef.current = null;
+          setLaserCaptureMode("location");
+          setLaserBoxLocIdx(null);
+        }
+        setFormReady(true);
+      }
     };
 
     bootstrap();
     return () => {
       cancelled = true;
     };
-  }, [open, editData?.in_uid]);
+  }, [open, editData?.in_uid, laserScan]);
 
   const clearLocSearch = () => {
     setScanStatus(null);
     setMatchedLoc(null);
     setSelectedLocId(null);
   };
+
+  const startLaserLocationScan = useCallback(() => {
+    setLaserCaptureMode("location");
+    setLaserBoxLocIdx(null);
+    laserCaptureModeRef.current = "location";
+    laserBoxLocIdxRef.current = null;
+  }, []);
+
+  const startLaserBoxScan = useCallback((li) => {
+    setLaserCaptureMode("box");
+    setLaserBoxLocIdx(li);
+    setLastActiveLocIdx(li);
+    laserCaptureModeRef.current = "box";
+    laserBoxLocIdxRef.current = li;
+    lastActiveLocIdxRef.current = li;
+  }, []);
+
+  const addLocationToList = useCallback((locToAdd, opts = {}) => {
+    if (!locToAdd?.location_id) return false;
+    const fromLaserScan = !!opts.fromLaserScan;
+    const locName =
+      locToAdd.location_no || `${locToAdd.rack_no}${locToAdd.shelf_no || ""}`.trim();
+    const existingIdx = locationsRef.current.findIndex(
+      (l) => l.location_id === locToAdd.location_id
+    );
+    if (existingIdx >= 0) {
+      clearLocSearch();
+      setLastActiveLocIdx(existingIdx);
+      lastActiveLocIdxRef.current = existingIdx;
+      if (fromLaserScan && getDeviceScanSettings().laserScan) {
+        window.setTimeout(() => startLaserBoxScan(existingIdx), 80);
+        showScanToast(
+          "info",
+          `loc-resume-${existingIdx}`,
+          MSG.LOCATION_ALREADY_SCANNING(locName),
+          2000
+        );
+      } else if (opts.fromCamera && showPhoneQr) {
+        showScanToast(
+          "info",
+          `loc-resume-cam-${existingIdx}`,
+          MSG.LOCATION_ALREADY_SCANNING(locName),
+          2000
+        );
+        window.setTimeout(() => {
+          scanLocIdxRef.current = existingIdx;
+          setActiveLocIdxForScan(existingIdx);
+          setIsScannerOpen(true);
+        }, 100);
+      } else {
+        openSnackbar({
+          variant: "warning",
+          title: "Warning",
+          message: MSG.LOCATION_ALREADY_ADDED,
+          duration: SNACK_DUR.med,
+        });
+      }
+      return false;
+    }
+    const newIdx = locationsRef.current.length;
+    setLocations((prev) => [
+      ...prev,
+      { location_id: locToAdd.location_id, name: locName, boxes: [] },
+    ]);
+    setLocHasError((prev) => [...prev, false]);
+    clearLocSearch();
+    setLastActiveLocIdx(newIdx);
+    lastActiveLocIdxRef.current = newIdx;
+    const { laserScan: laserOn, keyboardType: keyboardOn } = getDeviceScanSettings();
+    if (laserOn && (fromLaserScan || laserCaptureModeRef.current === "location")) {
+      window.setTimeout(() => startLaserBoxScan(newIdx), 80);
+    } else if (!laserOn && keyboardOn) {
+      setTimeout(() => boxInputRefs.current[newIdx]?.focus(), 200);
+    }
+    return true;
+  }, [openSnackbar, showScanToast, startLaserBoxScan, showPhoneQr]);
+
+  useEffect(() => {
+    lastActiveLocIdxRef.current = lastActiveLocIdx;
+  }, [lastActiveLocIdx]);
+
+  useEffect(() => {
+    addLocationToListRef.current = addLocationToList;
+  }, [addLocationToList]);
 
   const handleInputChange = (k, value) => {
     setForm((prev) => ({ ...prev, [k]: value }));
@@ -360,43 +472,65 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
             ? String(result.packing_number).trim()
             : null;
 
-        setLocations((prev) => {
-          const locRow = prev[li];
-          if (!locRow) return prev;
+        const currentLocs = locationsRef.current;
+        const locRow = currentLocs[li];
+        if (!locRow) {
+          removePendingBoxById(li, item.id);
+          continue;
+        }
 
-          const withoutThisPending = locRow.boxes.filter(
-            (b) => normalizeInwardBoxEntry(b)?._pendingId !== item.id
-          );
+        const withoutThisPending = locRow.boxes.filter(
+          (b) => normalizeInwardBoxEntry(b)?._pendingId !== item.id
+        );
 
-          const existsInOther = prev.some((loc, idx) =>
+        const otherLocWithBox = currentLocs.find(
+          (loc, idx) =>
             idx !== li &&
             loc.boxes.some((b) => {
               const e = normalizeInwardBoxEntry(b);
               return e && !e._pending && String(e.boxNoUid).toLowerCase() === canonical.toLowerCase();
             })
+        );
+        if (otherLocWithBox) {
+          removePendingBoxById(li, item.id);
+          showScanToast(
+            "error",
+            `batch-dup-other-${item.id}`,
+            MSG.BOX_DUPLICATE_OTHER(otherLocWithBox.name),
+            2200
           );
-          if (existsInOther) {
-            return prev.map((loc, i) =>
-              i === li ? { ...loc, boxes: withoutThisPending } : loc
-            );
-          }
+          continue;
+        }
 
-          const existsSame = withoutThisPending.some((b) => {
-            const e = normalizeInwardBoxEntry(b);
-            return e && !e._pending && String(e.boxNoUid).toLowerCase() === canonical.toLowerCase();
-          });
-          if (existsSame) {
-            return prev.map((loc, i) =>
-              i === li ? { ...loc, boxes: withoutThisPending } : loc
-            );
-          }
+        const existsSame = withoutThisPending.some((b) => {
+          const e = normalizeInwardBoxEntry(b);
+          return e && !e._pending && String(e.boxNoUid).toLowerCase() === canonical.toLowerCase();
+        });
+        if (existsSame) {
+          removePendingBoxById(li, item.id);
+          showScanToast(
+            "error",
+            `batch-dup-${item.id}`,
+            SCAN_SNACK_MSG.BOX_DUPLICATE(canonical),
+            2200
+          );
+          continue;
+        }
+
+        setLocations((prev) => {
+          const row = prev[li];
+          if (!row) return prev;
+
+          const pendingRemoved = row.boxes.filter(
+            (b) => normalizeInwardBoxEntry(b)?._pendingId !== item.id
+          );
 
           return prev.map((loc, i) =>
             i === li
               ? {
                   ...loc,
                   boxes: [
-                    ...withoutThisPending,
+                    ...pendingRemoved,
                     { boxNoUid: canonical, qty: Number.isFinite(qty) ? qty : 0, packing_number },
                   ],
                 }
@@ -416,6 +550,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         const location_id = locRow?.location_id;
         if (!location_id) {
           removePendingBoxById(item.li, item.id);
+          showScanToast("error", `batch-no-loc-${item.id}`, "Please add a location before scanning boxes.", 2000);
           continue;
         }
         const key = String(location_id);
@@ -572,24 +707,112 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
   const handleSelectChangeRef = useRef(handleSelectChange);
   handleSelectChangeRef.current = handleSelectChange;
 
-  const handleAddLocation = () => {
-    if (!matchedLoc) return;
-    if (locations.some((l) => l.location_id === matchedLoc.location_id)) {
-      openSnackbar({
-        variant: "warning",
-        title: "Warning",
-        message: MSG.LOCATION_ALREADY_ADDED,
-        duration: SNACK_DUR.med,
-      });
+  const processLocationScan = useCallback(async (rawValue, opts = {}) => {
+    const trimmed = String(rawValue ?? "").trim();
+    if (!trimmed) return false;
+
+    if (detectQrType(trimmed) === "box") {
+      showScanToast("error", "generic-scan-step1", SCAN_SNACK_MSG.REJECTED);
+      return false;
+    }
+
+    const matched = await handleSelectChangeRef.current(trimmed);
+    if (matched) {
+      const shouldAutoAdd =
+        opts.closeScanner ||
+        opts.fromBoxMode ||
+        (getDeviceScanSettings().laserScan && laserCaptureModeRef.current === "location");
+      if (shouldAutoAdd) {
+        addLocationToListRef.current(matched, {
+          fromLaserScan: opts.fromBoxMode || getDeviceScanSettings().laserScan,
+          fromCamera: !!opts.closeScanner,
+        });
+      }
+      if (shouldAutoAdd || opts.closeScanner) {
+        showScanSuccess("location-scanned", SCAN_SNACK_MSG.LOCATION_OK);
+      }
+      if (opts.closeScanner) {
+        setIsScannerOpen(false);
+        setActiveLocIdxForScan(null);
+      }
+      return true;
+    }
+    showScanToast("error", "location-not-found", MSG.LOCATION_NOT_FOUND, 2200);
+    return false;
+  }, [showScanToast, showScanSuccess]);
+
+  useEffect(() => {
+    processLocationScanRef.current = processLocationScan;
+  }, [processLocationScan]);
+
+  const handleLaserCode = useCallback(async (rawCode) => {
+    if (!getDeviceScanSettings().laserScan && !isLaserScanEnabled()) return;
+    const mode = laserCaptureModeRef.current;
+    const code = String(rawCode ?? "").trim();
+    if (!code || !mode) return;
+
+    if (mode === "location") {
+      if (detectQrType(code) === "box") {
+        showScanToast("error", "generic-scan-step1", SCAN_SNACK_MSG.REJECTED);
+        return;
+      }
+      await processLocationScanRef.current(code);
       return;
     }
-    const locName = matchedLoc.location_no || `${matchedLoc.rack_no}${matchedLoc.shelf_no || ""}`;
-    setLocations((prev) => [
-      ...prev,
-      { location_id: matchedLoc.location_id, name: locName, boxes: [] },
-    ]);
-    setLocHasError((prev) => [...prev, false]);
-    clearLocSearch();
+
+    if (mode === "box") {
+      if (detectQrType(code) === "location") {
+        await processLocationScanRef.current(code, { fromBoxMode: true });
+        return;
+      }
+      const li = laserBoxLocIdxRef.current;
+      if (li == null) return;
+      await tryAddBoxRef.current(li, code, "scanner");
+    }
+  }, [showScanToast]);
+
+  const onLocationStepLaserScan = useCallback((code) => {
+    if (detectQrType(code) === "box") {
+      showScanToast("error", "generic-scan-step1", SCAN_SNACK_MSG.REJECTED);
+      return;
+    }
+    void processLocationScanRef.current(code);
+  }, [showScanToast]);
+
+  const onInwardBoxLaserEnter = useCallback(
+    (li) => (code) => {
+      laserCaptureModeRef.current = "box";
+      laserBoxLocIdxRef.current = li;
+      setLaserCaptureMode("box");
+      setLaserBoxLocIdx(li);
+      setLastActiveLocIdx(li);
+      lastActiveLocIdxRef.current = li;
+      void handleLaserCode(code);
+    },
+    [handleLaserCode]
+  );
+
+  const handleLaserScanRejected = useCallback(
+    ({ reason, code }) => {
+      if (reason === "duplicate") {
+        showScanToast(
+          "error",
+          `laser-dup-${String(code ?? "").toLowerCase()}`,
+          SCAN_SNACK_MSG.BOX_DUPLICATE(code),
+          1200
+        );
+      } else if (reason === "empty") {
+        showScanToast("error", "laser-empty-scan", SCAN_SNACK_MSG.REJECTED, 1800);
+      }
+    },
+    [showScanToast]
+  );
+
+  const laserScanActive =
+    open && formReady && Boolean(laserCaptureMode) && (laserScan || isLaserScanEnabled());
+
+  const handleAddLocation = () => {
+    addLocationToList(matchedLoc);
   };
 
   const handleRemoveLoc = (li) => {
@@ -612,6 +835,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
 
     const scanLockKey = `${li}:${candidate.toLowerCase()}`;
     if (source === "scanner" && inFlightScanRef.current.has(scanLockKey)) {
+      showScanToast("error", `scan-in-flight-${scanLockKey}`, SCAN_SNACK_MSG.BOX_DUPLICATE(candidate), 1200);
       return;
     }
     if (source === "scanner") {
@@ -633,7 +857,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
           return;
         }
         duplicateSnackCooldownRef.current[dk] = now;
-        showScanToast("info", dk, SCAN_SNACK_MSG.BOX_DUPLICATE(candidate), 2300);
+        showScanToast("error", dk, SCAN_SNACK_MSG.BOX_DUPLICATE(candidate), 2300);
         return;
       }
 
@@ -689,7 +913,10 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         });
       });
 
-      if (!didAdd) return;
+      if (!didAdd) {
+        showScanToast("error", `dup-race-${li}:${candidate.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(candidate), 2300);
+        return;
+      }
 
       flushSync(() => {
         setLocHasError((prev) => prev.map((e, i) => (i === li ? false : e)));
@@ -887,21 +1114,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         showScanToast("error", "generic-scan-step1", SCAN_SNACK_MSG.REJECTED);
         return;
       }
-      if (
-        locs.some((l) =>
-          String(l.location_id) === String(locationId) ||
-          String(l.name || "").toLowerCase() === String(locationId).toLowerCase()
-        )
-      ) {
-        return;
-      }
-      handleSelectChangeRef.current(locationId).then((matched) => {
-        if (matched) {
-          showScanSuccess("location-scanned", SCAN_SNACK_MSG.LOCATION_OK);
-          setIsScannerOpen(false);
-          setActiveLocIdxForScan(null);
-        }
-      });
+      void processLocationScanRef.current(decodedText, { closeScanner: true });
       return;
     }
 
@@ -1030,39 +1243,84 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         {/* ── Location Selection ── */}
         <div className="bg-inward-loc-panel-bg p-3 rounded-xl border border-inward-loc-panel-border space-y-3">
           <label className="text-[10px] font-bold text-inward-loc-label uppercase tracking-widest flex items-center gap-2">
-            <MapPin size={14} /> Step 1: Select Location
+            <MapPin size={14} /> Step 1: Scan Location
           </label>
-          <div className="flex flex-col sm:flex-row sm:items-end gap-2">
-            {isMobileDevice() && (
-              <button
-                onClick={() => startCameraScanner(null)}
-                className="h-[40px] w-full sm:w-auto sm:shrink-0 px-3 bg-inward-loc-btn border border-inward-loc-btn-border text-white hover:bg-inward-loc-btn-hover rounded-lg transition-all shadow-sm flex items-center justify-center gap-2"
-                title="Scan Location QR"
-              >
-                <QrCode size={16} />
-                <span className="text-[10px] font-black uppercase">Scan</span>
-              </button>
+          <div className="space-y-2 w-full min-w-0">
+            {(showPhoneQr || laserScan) ? (
+              <div className="flex items-stretch gap-2 w-full min-w-0">
+                {showPhoneQr && (
+                  <button
+                    type="button"
+                    onClick={() => startCameraScanner(null)}
+                    className={`h-10 px-3 bg-inward-loc-btn border border-inward-loc-btn-border text-white hover:bg-inward-loc-btn-hover rounded-lg transition-all shadow-sm inline-flex items-center justify-center gap-2 ${scanBtnFill}`}
+                    title="Scan location QR"
+                  >
+                    <QrCode size={16} />
+                    <span className="text-[10px] font-black uppercase">QR</span>
+                  </button>
+                )}
+                {laserScan && (
+                  laserCaptureMode === "location" ? (
+                    <LaserScanField
+                      active={laserScanActive && laserCaptureMode === "location"}
+                      onBeforeArm={startLaserLocationScan}
+                      onScanned={onLocationStepLaserScan}
+                      onScanRejected={handleLaserScanRejected}
+                      formatPreview={locationNoDisplayLabel}
+                      compact
+                      heightClass="h-10"
+                      fill={scanBtnCount > 0}
+                      armButtonLabel="Scan Loc"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={startLaserLocationScan}
+                      className={`inline-flex items-center justify-center gap-1.5 rounded-lg border font-bold uppercase tracking-wide transition-all bg-white border-slate-200 text-slate-600 hover:bg-slate-50 px-2.5 text-[10px] h-10 min-w-[4.25rem] ${scanBtnFill}`}
+                      title="Scan next location"
+                    >
+                      <ScanLine size={14} className="shrink-0" aria-hidden />
+                      Scan Loc
+                    </button>
+                  )
+                )}
+              </div>
+            ) : null}
+            {locations.length > 0 && (showPhoneQr || laserScan) && (
+              <p className="text-[9px] font-bold text-inward-loc-label/80 uppercase tracking-wide px-0.5">
+                Next location: scan again from Step 1 (QR or Scan Loc)
+              </p>
             )}
-            <div className="w-full sm:flex-1 text-[11px] min-w-0">
-              <SearchableSelect
-                placeholder={MSG.LOCATION_SEARCH_PLACEHOLDER}
-                value={selectedLocId}
-                onChange={handleSelectChange}
-                fetchService={fetchLocations}
-                getByIdService={getLocationById}
-                dataKey="id"
-                labelKey="location_no"
-                labelOnlyDisplay
-                usePortal={false}
-              />
-            </div>
-            <button
-              onClick={handleAddLocation}
-              disabled={scanStatus !== "matched"}
-              className="h-[40px] w-full sm:w-auto sm:shrink-0 px-4 bg-inward-loc-btn hover:bg-inward-loc-btn-hover border border-inward-loc-btn-border text-white font-bold text-[10px] uppercase rounded-lg transition-all shadow-md flex items-center justify-center gap-2 disabled:bg-slate-200 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed"
-            >
-              <Plus size={14} /> Add
-            </button>
+            {keyboardType && (
+              <div className="flex flex-wrap items-center gap-2 w-full min-w-0">
+                <div className="flex-1 min-w-[10rem] text-[11px]">
+                  <SearchableSelect
+                    placeholder={MSG.LOCATION_SEARCH_PLACEHOLDER}
+                    value={selectedLocId}
+                    onChange={handleSelectChange}
+                    fetchService={fetchLocations}
+                    getByIdService={getLocationById}
+                    dataKey="id"
+                    labelKey="location_no"
+                    labelOnlyDisplay
+                    usePortal={false}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddLocation}
+                  disabled={scanStatus !== "matched"}
+                  className="h-10 shrink-0 px-4 bg-inward-loc-btn hover:bg-inward-loc-btn-hover border border-inward-loc-btn-border text-white font-bold text-[10px] uppercase rounded-lg transition-all shadow-md inline-flex items-center justify-center gap-2 disabled:bg-slate-200 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed"
+                >
+                  <Plus size={14} /> Add
+                </button>
+              </div>
+            )}
+            {!laserScan && !keyboardType && !showPhoneQr && (
+              <p className="h-[40px] flex items-center px-3 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg w-full">
+                Enable Laser scanner, Keyboard type, or Phone QR in Settings.
+              </p>
+            )}
           </div>
 
           {scanStatus === "checking" && (
@@ -1127,6 +1385,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
             <div className="grid grid-cols-1 gap-3">
               {locations.map((loc, li) => {
                 const { boxCount, totalQty } = inwardLocationTotals(loc.boxes);
+                const activeBoxRow = laserBoxLocIdx ?? lastActiveLocIdx;
                 return (
                 <div key={li} className={`bg-white rounded-xl border transition-all overflow-hidden shadow-sm ${locHasError[li] ? "border-rose-200 shadow-rose-50" : "border-slate-200"}`}>
                   {/* Location Header */}
@@ -1167,52 +1426,93 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                   </div>
 
                   <div className="p-3 space-y-3 bg-inward-box-panel-bg border-t border-inward-box-panel-border/60">
-                    {/* Box Input Area */}
-                    <div className="flex items-center gap-2">
-                      {isMobileDevice() && (
-                        <button
-                          onClick={() => startCameraScanner(li)}
-                          className="h-[38px] shrink-0 px-3 bg-inward-box-btn border border-inward-box-btn-border text-white hover:bg-inward-box-btn-hover rounded-lg transition-all shadow-sm flex items-center justify-center gap-2"
-                          title="Scan Box QR"
-                        >
-                          <Camera size={16} />
-                          <span className="text-[10px] font-black uppercase">Scan</span>
-                        </button>
-                      )}
+                    {/* Box scan row — phone: full-width stack; desktop: inline */}
+                    <div className="space-y-2 w-full min-w-0">
+                      {(showPhoneQr || laserScan) ? (
+                        <div className="flex items-stretch gap-2 w-full min-w-0">
+                          {showPhoneQr && (
+                            <button
+                              type="button"
+                              onClick={() => startCameraScanner(li)}
+                              className={`h-10 px-3 bg-inward-box-btn border border-inward-box-btn-border text-white hover:bg-inward-box-btn-hover rounded-lg transition-all shadow-sm inline-flex items-center justify-center gap-2 ${scanBtnFill}`}
+                              title="Scan Box QR"
+                            >
+                              <Camera size={16} />
+                              <span className="text-[10px] font-black uppercase">QR</span>
+                            </button>
+                          )}
+                          {laserScan && (
+                            activeBoxRow === li && laserCaptureMode === "box" ? (
+                              <LaserScanField
+                                active={open && formReady && (laserScan || isLaserScanEnabled())}
+                                onBeforeArm={() => startLaserBoxScan(li)}
+                                onScanned={onInwardBoxLaserEnter(li)}
+                                onScanRejected={handleLaserScanRejected}
+                                formatPreview={boxNoUidDisplayLabel}
+                                compact
+                                heightClass="h-10 sm:h-[38px]"
+                                fill={scanBtnCount > 0}
+                                armButtonLabel="Scan Box"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => startLaserBoxScan(li)}
+                                className={`inline-flex items-center justify-center gap-1.5 rounded-lg border font-bold uppercase tracking-wide transition-all bg-white border-slate-200 text-slate-600 hover:bg-slate-50 px-2.5 text-[10px] h-10 sm:h-[38px] min-w-[4.25rem] ${scanBtnFill}`}
+                              >
+                                <ScanLine size={14} className="shrink-0" aria-hidden />
+                                Scan Box
+                              </button>
+                            )
+                          )}
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap items-center gap-2 w-full min-w-0">
                       {loc.boxes.length > 0 && (
                         <button
+                          type="button"
                           onClick={() => handleRemoveBox(li, loc.boxes.length - 1)}
-                          className="h-[38px] shrink-0 px-3 bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 rounded-lg transition-all shadow-sm flex items-center justify-center gap-2"
+                          className="h-10 shrink-0 px-3 bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 rounded-lg transition-all shadow-sm inline-flex items-center justify-center gap-2"
                           title="Delete Last Box (Ctrl+D)"
                         >
                           <Trash2 size={16} />
                           <span className="text-[10px] font-black uppercase">Del Last</span>
                         </button>
                       )}
-                      <div className="relative flex-1 min-w-0">
-                        <ScanLine size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-inward-box-input-icon" />
-                        <input
-                          placeholder={MSG.BOX_PLACEHOLDER}
-                          className="w-full bg-white border rounded-lg pl-8 pr-3 font-mono text-[10px] h-[38px] text-slate-800 outline-none transition-all appearance-none border-inward-box-input-border focus:border-inward-box-btn focus:ring-2 focus:ring-inward-box-focus-ring"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              const inputValue = e.target.value;
-                              setValidatingBox(true);
-                              tryAddBox(li, inputValue)
-                                .finally(() => setValidatingBox(false));
-                              e.target.value = "";
-                            }
-                            // Ctrl+D to delete last box of this location
-                            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
-                              e.preventDefault();
-                              if (loc.boxes.length > 0) {
-                                handleRemoveBox(li, loc.boxes.length - 1);
+                      {keyboardType && (
+                        <div className="relative flex-1 min-w-[10rem]">
+                          <ScanLine size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-inward-box-input-icon z-[1]" />
+                          <input
+                            ref={(el) => {
+                              boxInputRefs.current[li] = el;
+                            }}
+                            data-allow-scan-keyboard="true"
+                            placeholder={getScanInputPlaceholder()}
+                            className="w-full bg-white border rounded-lg pl-8 pr-3 font-mono text-[10px] h-10 sm:h-[38px] text-slate-800 outline-none transition-all appearance-none border-inward-box-input-border focus:border-inward-box-btn focus:ring-2 focus:ring-inward-box-focus-ring"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                const inputValue = e.target.value;
+                                setValidatingBox(true);
+                                tryAddBox(li, inputValue)
+                                  .finally(() => setValidatingBox(false));
+                                e.target.value = "";
                               }
-                            }
-                          }}
-                        />
+                              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+                                e.preventDefault();
+                                if (loc.boxes.length > 0) {
+                                  handleRemoveBox(li, loc.boxes.length - 1);
+                                }
+                              }
+                            }}
+                          />
+                        </div>
+                      )}
+                      {!laserScan && !keyboardType && !showPhoneQr && (
+                        <p className="text-[10px] text-slate-500 w-full">Enable scan mode in Settings.</p>
+                      )}
                       </div>
                     </div>
+
                     {(validatingBox || pendingScanCount > 0) && (
                       <div className="flex items-center gap-2 px-2 py-1 bg-inward-box-muted-bg border border-inward-box-muted-border rounded-lg">
                         <Loader2 size={12} className="animate-spin text-inward-box-spinner" />

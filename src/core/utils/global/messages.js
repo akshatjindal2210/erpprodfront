@@ -27,5 +27,5 @@ export const SCAN_SNACK_MSG = {
   BOX_NOT_IN_NOTE: (boxId) => `Box ${boxId} was not found in this forwarding note.`,
   BOX_ALREADY_OUTWARD: (boxId) => `Box ${boxId} is already outward. It is not in stock.`,
   BOX_STOCK_ADJUSTMENT_OUT: (boxId) => `Box ${boxId} was removed via stock adjustment. It is not available for out entry.`,
-  LOOKUP_FAILED: "Box lookup failed.",
+  LOOKUP_FAILED: "Box lookup failed. Please try again.",
 };

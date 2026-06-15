@@ -66,7 +66,7 @@ function forwardingTableSearchParts(row, reportType = "summary") {
     push(`${row.loose_box || 0} Boxes`, `Qty: ${Number(row.loose_box_qty || 0).toLocaleString()}`);
   }
 
-  push(...parseSavedBillNos(row.bill_no), row.bill_no ? null : "N/A");
+  push(...parseSavedBillNos(row.bill_no), row.bill_no ? null : "—");
   push(row.acc_name, row.acc_code);
   pushNum(reportType === "item_wise" ? row.total_qty : row.total_items);
   pushDate(row.timestamp, row.created_at, row.updated_at, row.approved_at, row.out_entry_locked_at, row.bill_updated_at);
@@ -80,7 +80,7 @@ function forwardingTableSearchParts(row, reportType = "summary") {
   push(row.transporter_name, row.transporter_name ? null : "Direct Party");
   push(row.vehicle_number, row.vehicle_number ? null : "NO VEHICLE");
 
-  push(row.po_number, row.po_number ? null : "N/A");
+  push(row.po_number, row.po_number ? null : "—");
   pushNum(row.cartage);
 
   push(
@@ -485,7 +485,7 @@ export default function ForwardingPage() {
     ] : [];
 
     const masterHeaders = [
-      ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "N/A"}</span>, { width: "110px" }],
+      ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "110px" }],
       ["Customer", "acc_name", (v) => <span className="text-[10px] font-medium text-slate-500 uppercase italic whitespace-normal break-words leading-snug block" title={v}>{v || "—"}</span>, { width: "250px", wrap: true }],
       ["Total Qty", "total_items", (v) => <span className="font-black text-slate-700 text-[11px]">{v}</span>, { width: "120px" }],
       ["Timestamp", "timestamp", (v) => <span className="text-[10px] text-slate-500">{formatDateTime(v)}</span>, { width : "150px" }],
@@ -509,7 +509,7 @@ export default function ForwardingPage() {
           <span className="text-indigo-500 font-black text-[9px] ml-3 uppercase tracking-wider">{row.vehicle_number || "NO VEHICLE"}</span>
         </div>
       ), { width: "280px" }],
-      ["PO Number", "po_number", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "N/A"}</span>, { width: "120px" }],
+      ["PO Number", "po_number", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "120px" }],
       ["Cartage", "cartage", (v) => <span className="text-slate-700 font-bold text-[10px]">{v?.toLocaleString() || 0}</span>, { width: "150px" }],
       ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
       ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
@@ -611,74 +611,82 @@ export default function ForwardingPage() {
           />
 
           {selectedId && (
-            <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase flex items-center gap-1.5 shrink-0">
-                <Info size={12} className="shrink-0" />
-                FUID {reportType === "summary" ? selectedRecord?.fuid : `${selectedRecord?.fuid} · ${selectedRecord?.item_code || "—"}`}
-                <span className="text-indigo-400 font-semibold normal-case">PO {selectedRecord?.po_number || "—"}</span>
-                {selectedLockStatus ? (
-                  <span
-                    className={`px-1.5 py-0.5 border text-[8px] font-black uppercase ${selectedLockStatus.className}`}
-                  >
-                    {selectedLockStatus.text}
+            <div className="border-b border-indigo-100 bg-indigo-50 px-3 py-2 space-y-2">
+              <div className="flex items-start justify-between gap-2 min-w-0">
+                <span className="text-[10px] font-bold text-indigo-600 uppercase flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0 flex-1 leading-snug">
+                  <Info size={12} className="shrink-0" />
+                  <span className="break-all">
+                    FUID{" "}
+                    {reportType === "summary"
+                      ? selectedRecord?.fuid
+                      : `${selectedRecord?.fuid} · ${selectedRecord?.item_code || "—"}`}
                   </span>
-                ) : null}
-              </span>
+                  <span className="text-indigo-400 font-semibold normal-case break-all">
+                    PO {selectedRecord?.po_number || "—"}
+                  </span>
+                  {selectedLockStatus ? (
+                    <span
+                      className={`px-1.5 py-0.5 border text-[8px] font-black uppercase ${selectedLockStatus.className}`}
+                    >
+                      {selectedLockStatus.text}
+                    </span>
+                  ) : null}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(null)}
+                  className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0 pt-0.5"
+                >
+                  <X size={14} /> Clear
+                </button>
+              </div>
 
               {selectedRecord?.fuid && canEditBill ? (
-                <div
-                  className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
-                  data-compact-form-bar
-                >
-                  <span className={`${LIST_PAGE_SEARCH_LABEL_CLASS} shrink-0`}>Bill</span>
-                  <div
-                    className="min-w-[12rem] w-full max-w-md flex-1"
-                    title={isSelectedLocked ? "Editable after out entry lock" : "Search and select bill numbers"}
-                  >
-                    <SearchableSelect
-                      multiple
-                      showTags
-                      variant="toolbar"
-                      heightClass="h-8"
-                      value={billDraftNos}
-                      onChange={(nos) => setBillDraftNos(uniqueBillNos(nos))}
-                      fetchService={fetchBillOptions}
-                      getByIdService={getBillByNo}
-                      dataKey="bill_no"
-                      labelKey="bill_no"
-                      labelOnlyDisplay
-                      placeholder="Bill number..."
-                      emptyMessage="No bill numbers found"
-                      usePortal
-                    />
+                <div className="w-full min-w-0 space-y-1.5" data-compact-form-bar>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
+                    <span className={`${LIST_PAGE_SEARCH_LABEL_CLASS} shrink-0 pt-1.5 sm:pt-2`}>Bill</span>
+                    <div
+                      className="w-full min-w-0 flex-1"
+                      title={isSelectedLocked ? "Editable after out entry lock" : "Search and select bill numbers"}
+                    >
+                      <SearchableSelect
+                        multiple
+                        showTags
+                        variant="toolbar"
+                        heightClass="h-8"
+                        value={billDraftNos}
+                        onChange={(nos) => setBillDraftNos(uniqueBillNos(nos))}
+                        fetchService={fetchBillOptions}
+                        getByIdService={getBillByNo}
+                        dataKey="bill_no"
+                        labelKey="bill_no"
+                        labelOnlyDisplay
+                        placeholder="Bill number..."
+                        emptyMessage="No bill numbers found"
+                        usePortal
+                        maxVisibleTags={3}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSaveBillNo}
+                      disabled={billSaving || !billDirty}
+                      className="h-9 w-full sm:w-auto sm:shrink-0 px-3 border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold uppercase disabled:opacity-50"
+                    >
+                      {billSaving ? "…" : "Save Bill"}
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleSaveBillNo}
-                    disabled={billSaving || !billDirty}
-                    className="h-8 md:h-9 px-2.5 border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold uppercase disabled:opacity-50 shrink-0"
-                  >
-                    {billSaving ? "…" : "Save"}
-                  </button>
                   {billLastUpdatedLabel ? (
-                    <span className="text-xs text-slate-500 truncate max-w-[14rem]" title={billLastUpdatedLabel}>
+                    <p className="text-[10px] text-slate-500 sm:pl-8 break-words" title={billLastUpdatedLabel}>
                       {billLastUpdatedLabel}
-                    </span>
+                    </p>
                   ) : null}
                 </div>
               ) : selectedRecord?.bill_no ? (
-                <span className="text-xs font-bold text-slate-700 uppercase">
+                <p className="text-xs font-bold text-slate-700 uppercase break-all">
                   Bill {selectedRecord.bill_no}
-                </span>
+                </p>
               ) : null}
-
-              <button
-                type="button"
-                onClick={() => setSelectedId(null)}
-                className="ml-auto text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
-              >
-                <X size={14} /> Clear
-              </button>
             </div>
           )}
         </ListPageToolbar>

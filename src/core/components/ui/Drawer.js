@@ -28,6 +28,7 @@ const Drawer = ({
 }) => {
   const isFormHeader = headerVariant === "form";
   const printHotkeyRef = useRef({ onPrintHotkey, canPrintHotkey });
+  const scrollLockYRef = useRef(0);
   printHotkeyRef.current = { onPrintHotkey, canPrintHotkey };
   const [mounted, setMounted] = useState(false);
 
@@ -37,8 +38,22 @@ const Drawer = ({
 
   useEffect(() => {
     if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      document.documentElement.setAttribute('data-app-drawer-open', 'true');
+      scrollLockYRef.current = window.scrollY;
+      const prevBody = {
+        overflow: document.body.style.overflow,
+        position: document.body.style.position,
+        top: document.body.style.top,
+        left: document.body.style.left,
+        right: document.body.style.right,
+        width: document.body.style.width,
+      };
+      document.body.style.overflow = "hidden";
+      document.body.style.position = "fixed";
+      document.body.style.top = `-${scrollLockYRef.current}px`;
+      document.body.style.left = "0";
+      document.body.style.right = "0";
+      document.body.style.width = "100%";
+      document.documentElement.setAttribute("data-app-drawer-open", "true");
 
       const handleKeyDown = (e) => {
         if (e.key === 'Escape') {
@@ -81,12 +96,17 @@ const Drawer = ({
 
       window.addEventListener('keydown', handleKeyDown, true);
       return () => {
-        document.body.style.overflow = 'unset';
+        document.body.style.overflow = prevBody.overflow;
+        document.body.style.position = prevBody.position;
+        document.body.style.top = prevBody.top;
+        document.body.style.left = prevBody.left;
+        document.body.style.right = prevBody.right;
+        document.body.style.width = prevBody.width;
         document.documentElement.removeAttribute('data-app-drawer-open');
         window.removeEventListener('keydown', handleKeyDown, true);
+        window.scrollTo(0, scrollLockYRef.current);
       };
     } else {
-      document.body.style.overflow = 'unset';
       document.documentElement.removeAttribute('data-app-drawer-open');
     }
   }, [isOpen, onClose, onSubmit]);
@@ -100,7 +120,7 @@ const Drawer = ({
   if (!isOpen || !mounted) return null;
 
   const drawerTree = (
-    <div data-app-drawer-root className="fixed inset-0 z-[1050] overflow-hidden flex justify-end isolate">
+    <div data-app-drawer-root className="fixed inset-0 z-[1050] isolate">
       <div
         role="presentation"
         aria-hidden="true"
@@ -110,7 +130,10 @@ const Drawer = ({
         onClick={blockBackdropInteraction}
       />
 
-      <div className={`relative z-10 ml-auto w-full min-w-0 ${maxWidth} bg-white flex flex-col h-[100dvh] max-h-[100dvh] min-h-0 animate-in slide-in-from-right duration-200 border-l border-slate-300 shadow-2xl`}>
+      <div
+        className={`fixed inset-y-0 right-0 z-10 flex w-full min-w-0 flex-col overflow-hidden bg-white border-l border-slate-300 shadow-2xl animate-in slide-in-from-right duration-200 ${maxWidth}`}
+        style={{ height: "100dvh", maxHeight: "100dvh" }}
+      >
         
         <div className={`flex items-start sm:items-center justify-between gap-2 px-4 py-3 border-b border-slate-200 shrink-0 z-30 min-w-0 ${isFormHeader ? "bg-white" : "bg-slate-50"}`}>
           <div className="flex flex-col gap-0.5 min-w-0 flex-1">
@@ -157,15 +180,15 @@ const Drawer = ({
         </div>
 
         <div
-          className={`flex-1 min-h-0 overflow-x-hidden custom-scrollbar bg-white flex flex-col ${
-            bodyScrollable ? "overflow-y-auto" : "overflow-hidden"
-          } ${noPadding ? "p-0" : "p-3 sm:p-4"}`}
+          className={`flex-1 min-h-0 overflow-x-hidden overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar bg-white ${
+            noPadding ? "p-0" : "p-3 sm:p-4"
+          } ${bodyScrollable ? "" : "overflow-hidden"}`}
         >
           {children}
         </div>
 
         {footer && (
-          <div className="px-3 sm:px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-slate-200 flex justify-end items-center bg-slate-50 sticky bottom-0 z-30">
+          <div className="shrink-0 px-3 sm:px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-slate-200 flex justify-end items-center bg-slate-50 z-30">
             <div className="flex w-full sm:w-auto gap-2 items-center justify-end flex-wrap">
               {footer}
             </div>

@@ -74,21 +74,14 @@ export default function OutEntryPage() {
 
   const [forwardingParams, setForwardingParams] = useState({
     pageSize: 1000,
-    fromDate: dateFilterDefaults.from,
-    toDate: dateFilterDefaults.to,
     sortKey: "fuid",
     sortDir: "desc",
   });
 
-  // Update params if dateFilterDefaults change
+  // Update params if dateFilterDefaults change (Store Out tab only)
   useEffect(() => {
     if (dateFilterDefaults.from || dateFilterDefaults.to) {
       setParams(prev => ({
-        ...prev,
-        fromDate: dateFilterDefaults.from,
-        toDate: dateFilterDefaults.to
-      }));
-      setForwardingParams(prev => ({
         ...prev,
         fromDate: dateFilterDefaults.from,
         toDate: dateFilterDefaults.to
@@ -146,8 +139,6 @@ export default function OutEntryPage() {
         sortBy: forwardingParams.sortKey,
         order: forwardingParams.sortDir.toUpperCase(),
         filters: {
-          ...(forwardingParams.fromDate && { from_date: `${forwardingParams.fromDate} 00:00:00` }),
-          ...(forwardingParams.toDate && { to_date: `${forwardingParams.toDate} 23:59:59` }),
           approved: true,
           out_entry_complete: false,
         },
@@ -164,7 +155,7 @@ export default function OutEntryPage() {
     } finally {
       setLoading(false);
     }
-  }, [forwardingParams.pageSize, forwardingParams.sortKey, forwardingParams.sortDir, forwardingParams.fromDate, forwardingParams.toDate]);
+  }, [forwardingParams.pageSize, forwardingParams.sortKey, forwardingParams.sortDir]);
 
   useEffect(() => {
     if (isStoreOut) fetchData();
@@ -208,23 +199,16 @@ export default function OutEntryPage() {
   }, [loading, items.length, totalItems]);
 
   const handleFilterApply = (data) => {
-    if (isStoreOut) {
-      const nextStatus = data.approvedStatus || params.status;
-      const nextType = data.entryType || params.entryType;
-      setParams((prev) => ({
-        ...prev,
-        fromDate: data.fromDate,
-        toDate: data.toDate,
-        status: nextStatus === "approved" ? "authorized" : nextStatus,
-        entryType: nextType,
-      }));
-    } else {
-      setForwardingParams((prev) => ({
-        ...prev,
-        fromDate: data.fromDate,
-        toDate: data.toDate,
-      }));
-    }
+    if (!isStoreOut) return;
+    const nextStatus = data.approvedStatus || params.status;
+    const nextType = data.entryType || params.entryType;
+    setParams((prev) => ({
+      ...prev,
+      fromDate: data.fromDate,
+      toDate: data.toDate,
+      status: nextStatus === "approved" ? "authorized" : nextStatus,
+      entryType: nextType,
+    }));
   };
 
   const handleReset = () => {
@@ -242,8 +226,6 @@ export default function OutEntryPage() {
     } else {
       setForwardingParams({
         pageSize: 1000,
-        fromDate: dateFilterDefaults.from,
-        toDate: dateFilterDefaults.to,
         sortKey: "fuid",
         sortDir: "desc",
       });
@@ -519,7 +501,7 @@ export default function OutEntryPage() {
 
   const PENDING_HEADERS = [
     ["FUID", "fuid", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "80px" }],
-    ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "N/A"}</span>, { width: "110px" }],
+    ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "110px" }],
     ["Customer", "acc_name", (v) => <span className="text-[10px] font-medium text-slate-500 uppercase italic whitespace-normal break-words leading-snug block" title={v}>{v || "—"}</span>, { width: "250px", wrap: true }],
     ["Total Qty", "total_items", (v) => <span className="font-black text-slate-700 text-[11px]">{v}</span>, { width: "120px" }],
     ["Timestamp", "timestamp", (v) => <span className="text-[10px] text-slate-500">{formatDateTime(v)}</span>, { width : "150px" }],
@@ -577,7 +559,7 @@ export default function OutEntryPage() {
         <span className="text-indigo-500 font-black text-[9px] ml-3 uppercase tracking-wider">{row.vehicle_number || "NO VEHICLE"}</span>
       </div>
     ), { width: "280px" }],
-    ["PO Number", "po_number", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "N/A"}</span>, { width: "120px" }],
+    ["PO Number", "po_number", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "120px" }],
     ["Cartage", "cartage", (v) => <span className="text-slate-700 font-bold text-[10px]">{v?.toLocaleString() || 0}</span>, { width: "150px" }],
     ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
     ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
@@ -713,9 +695,9 @@ export default function OutEntryPage() {
         {/* SEARCH & FILTERS */}
         <ListPageFilterStrip>
           <DateRangeFilter 
-            key={`${pageTab}-${isStoreOut ? params.fromDate : forwardingParams.fromDate}-${isStoreOut ? params.toDate : forwardingParams.toDate}`}
-            fromDate={isStoreOut ? params.fromDate : forwardingParams.fromDate} 
-            toDate={isStoreOut ? params.toDate : forwardingParams.toDate} 
+            key={`${pageTab}-${isStoreOut ? `${params.fromDate}-${params.toDate}` : "all"}`}
+            fromDate={isStoreOut ? params.fromDate : ""} 
+            toDate={isStoreOut ? params.toDate : ""} 
             extraFilters={extraFilters} 
             onApply={handleFilterApply} 
             onReset={handleReset}
@@ -723,9 +705,9 @@ export default function OutEntryPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder={isStoreOut ? "Search FUID or UID..." : "Search FUID, Customer, PO..."}
             searchLabel="Quick Search"
-            minDate={dateFilterDefaults.minDate}
-            maxDate={dateFilterDefaults.maxDate}
-            showDate
+            minDate={isStoreOut ? dateFilterDefaults.minDate : undefined}
+            maxDate={isStoreOut ? dateFilterDefaults.maxDate : undefined}
+            showDate={isStoreOut}
           />
         </ListPageFilterStrip>
 

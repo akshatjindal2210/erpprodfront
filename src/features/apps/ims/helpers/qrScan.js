@@ -194,3 +194,49 @@ export function extractBoxCode(rawValue) {
 export function parseBoxScanRaw(raw) {
   return extractBoxCode(raw);
 }
+
+/** Laser / scan UI label — show sticker code only, never full URL. */
+export function boxNoUidDisplayLabel(rawValue) {
+  const trimmed = String(rawValue ?? "").trim();
+  if (!trimmed) return "";
+
+  const urlLike =
+    /^https?:/i.test(trimmed) ||
+    trimmed.includes("://") ||
+    /[?&]box_no_uid=/i.test(trimmed) ||
+    /\bbox_no_uid\s*[:=]/i.test(trimmed);
+
+  if (urlLike) {
+    const qp = trimmed.match(/[?&]box_no_uid=([^&#\s]+)/i);
+    if (qp?.[1]) {
+      try {
+        return decodeURIComponent(qp[1].replace(/\+/g, " "));
+      } catch {
+        return qp[1];
+      }
+    }
+    const { box_no_uid } = parseStickerScan(rawValue);
+    return box_no_uid || "";
+  }
+
+  const { box_no_uid } = parseStickerScan(rawValue);
+  if (box_no_uid) return box_no_uid;
+
+  if (trimmed.startsWith("{")) return "";
+  if (!/^\d+$/.test(trimmed)) return trimmed;
+  return "";
+}
+
+/** Laser / scan UI — location no only, never full URL. */
+export function locationNoDisplayLabel(rawValue) {
+  const trimmed = String(rawValue ?? "").trim();
+  if (!trimmed) return "";
+
+  if (/^https?:/i.test(trimmed) || trimmed.includes("://")) {
+    if (detectQrType(rawValue) === "box") return "";
+    const no = extractLocationNo(rawValue);
+    return no || "";
+  }
+
+  return extractLocationNo(rawValue) || "";
+}

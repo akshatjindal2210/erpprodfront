@@ -136,7 +136,7 @@ export function customerSearchParts(row) {
 export const PARTY_RATE_HEADERS = [
   ["Customer Name", "acc_name", (v) => (
     <span className="font-semibold text-slate-800 text-[11px] uppercase leading-snug whitespace-normal break-words hyphens-auto" title={v && String(v).length > 80 ? v : undefined}>
-      {v || "N/A"}
+      {v || "—"}
     </span>
   ), { wrap: true, width: "180px" }],
   ["Item Code", "item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight font-mono">{v || "—"}</span>, { width: "120px" }],

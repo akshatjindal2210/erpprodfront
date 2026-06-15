@@ -827,10 +827,20 @@ export default function StockAdjustmentStickerCloneDrawer({
     const finalAccName = formAccCode !== null ? (formAccName ?? "—") : dpAccName;
     const finalPartyRate = formAccCode !== null ? formPartyRate : dpPartyRate;
 
+    const itemDesc =
+      dp?.item_desc ??
+      dp?.itemdesc ??
+      im?.itemdesc ??
+      im?.description ??
+      st?.itemdesc ??
+      st?.item_desc ??
+      "—";
+
     return {
-      item_code: im?.item_code ?? st?.item_code ?? dp?.item_code ?? "—",
-      itemdcode: im?.itemdcode ?? st?.itemdcode ?? dp?.itemdcode ?? null,
-      itemdesc: im?.itemdesc ?? im?.description ?? st?.itemdesc ?? st?.item_desc ?? dp?.item_desc ?? "—",
+      item_code: dp?.item_code ?? im?.item_code ?? st?.item_code ?? "—",
+      itemdcode: dp?.itemdcode ?? im?.itemdcode ?? st?.itemdcode ?? null,
+      itemdesc: itemDesc,
+      description: itemDesc,
       category: st?.category ?? st?.type_name ?? "—",
       acc_name: finalAccName,
       party_rate_cust_code: finalPartyRate,

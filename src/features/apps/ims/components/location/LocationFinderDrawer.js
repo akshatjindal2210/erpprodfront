@@ -6,12 +6,15 @@ import Drawer from "@/core/components/ui/Drawer";
 import Snackbar from "@/core/components/ui/Snackbar";
 import { locationService } from "@/features/apps/ims/services/location";
 import { boxService } from "@/features/apps/ims/services/box";
-import { isMobileDevice } from "@/core/utils/pwa";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/core/utils/global";
-import { extractBoxCode } from "@/features/apps/ims/helpers/qrScan";
+import { extractBoxCode, boxNoUidDisplayLabel } from "@/features/apps/ims/helpers/qrScan";
 import { playScanSuccessBeep, prepareQrScanSession } from "@/features/apps/ims/helpers/scanFeedback";
 import { pickBoxFromViewsResponse } from "@/features/apps/ims/helpers/boxViewsLookup";
 import { useHtml5QrScanner } from "@/core/hooks/useHtml5QrScanner";
+import { useDeviceScanSettings } from "@/core/hooks/useDeviceScanSettings";
+import ScanEnterInput from "@/core/components/common/ScanEnterInput";
+import LaserScanField from "@/core/components/common/LaserScanField";
+import { getScanInputPlaceholder, isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
 import QrScannerOverlay from "@/core/components/common/QrScannerOverlay";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
@@ -201,10 +204,12 @@ export default function LocationFinderDrawer({ open, onClose }) {
   const [matchTier, setMatchTier] = useState(null);
   const [suggestError, setSuggestError] = useState(null);
   const [cameraOn, setCameraOn] = useState(false);
-  const [searchValue, setSearchValue] = useState("");
   const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
 
+  const keyboardInputRef = useRef(null);
   const scanToastRef = useRef({});
+  const { laserScan, keyboardType, showPhoneQr } = useDeviceScanSettings();
+  const showLaserUi = laserScan || isLaserScanEnabled();
 
   const closeSnackbar = useCallback(() => {
     setSnackbar((s) => ({ ...s, open: false }));
@@ -290,6 +295,13 @@ export default function LocationFinderDrawer({ open, onClose }) {
     }
   };
 
+  const fetchBoxAndLocationRef = useRef(fetchBoxAndLocation);
+  fetchBoxAndLocationRef.current = fetchBoxAndLocation;
+
+  const handleScanEnter = useCallback((code) => {
+    void fetchBoxAndLocationRef.current(code);
+  }, []);
+
   function handleFinderCameraDecoded(decodedText) {
     setCameraOn(false);
     fetchBoxAndLocation(decodedText);
@@ -342,7 +354,6 @@ export default function LocationFinderDrawer({ open, onClose }) {
     setBoxData(null);
     setMatchTier(null);
     setSuggestError(null);
-    setSearchValue("");
     onClose();
   };
 
@@ -357,26 +368,34 @@ export default function LocationFinderDrawer({ open, onClose }) {
     >
       <div className="space-y-5 pb-6">
         <div className="flex items-end gap-2">
-          <div className="relative flex-1">
-            <label className="text-xs font-medium text-slate-600 ml-1 mb-1 block">Box code</label>
-            <div className="relative">
-              <ScanLine size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" />
-              <input
-                type="text"
-                placeholder="Type the code, then press Enter"
-                value={searchValue}
-                onChange={(e) => setSearchValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && searchValue.trim()) {
-                    fetchBoxAndLocation(searchValue);
-                  }
-                }}
-                className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-mono"
+          <div className="relative flex-1 space-y-2">
+            <label className="text-xs font-medium text-slate-600 ml-1 block">Box code</label>
+            {showLaserUi && (
+              <LaserScanField
+                active={open && showLaserUi}
+                onScanned={handleScanEnter}
+                keyboardInputRef={keyboardInputRef}
+                formatPreview={boxNoUidDisplayLabel}
+                requireArmButton={false}
               />
-            </div>
+            )}
+            {keyboardType && (
+              <div className="relative">
+                <ScanLine size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400 z-10" />
+                <ScanEnterInput
+                  ref={keyboardInputRef}
+                  placeholder={getScanInputPlaceholder()}
+                  onEnter={handleScanEnter}
+                  className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+            )}
+            {!showLaserUi && !keyboardType && (
+              <p className="text-xs text-slate-500 px-1">Enable Laser scanner or Keyboard type in Settings.</p>
+            )}
           </div>
 
-          {isMobileDevice() && (
+          {showPhoneQr && (
             <button
               type="button"
               onClick={() => (cameraOn ? stopCamera() : startCamera())}

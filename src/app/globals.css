@@ -27,9 +27,13 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Any app drawer open — block clicks on page content behind the overlay */
+/* Any app drawer open — block clicks and scroll on page content behind the overlay */
 html[data-app-drawer-open] .imp-panel-no-select main {
   pointer-events: none;
+}
+
+html[data-app-drawer-open] .imp-panel-no-select main > div {
+  overflow: hidden !important;
 }
 
 @keyframes slide-in-from-right {
@@ -275,7 +279,7 @@ html[data-app-drawer-open] .imp-panel-no-select main {
     display: none;
   }
 
-  [data-compact-form-bar] .list-page-filter-control {
+  [data-compact-form-bar] .list-page-filter-control:not(.searchable-select-multi) {
     min-height: 2rem;
     max-height: 2rem;
   }
@@ -295,7 +299,15 @@ html[data-app-drawer-open] .imp-panel-no-select main {
   height: auto !important;
   max-height: none !important;
   min-height: 2rem;
-  align-items: center;
+  align-items: flex-start;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+@media (max-width: 768px) {
+  [data-compact-form-bar] .list-page-filter-control.searchable-select-multi {
+    min-height: 2.25rem;
+  }
 }
 
 @media (min-width: 769px) {

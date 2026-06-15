@@ -184,6 +184,32 @@ function hasValidPackingDetails(details) {
   );
 }
 
+/** Packing doc item — must not change when customer or category is updated. */
+function preservePackingProductionIdentity(sourceRow, nextRow) {
+  if (!sourceRow || !nextRow) return nextRow ?? sourceRow;
+  const itemdesc =
+    sourceRow.itemdesc ??
+    sourceRow.description ??
+    sourceRow.item_desc ??
+    nextRow.itemdesc ??
+    nextRow.description ??
+    nextRow.item_desc;
+  return {
+    ...nextRow,
+    itemdcode: sourceRow.itemdcode ?? nextRow.itemdcode,
+    item_code: sourceRow.item_code ?? nextRow.item_code,
+    itemdesc,
+    description: itemdesc,
+    item_desc: itemdesc,
+    doc_no: sourceRow.doc_no ?? nextRow.doc_no,
+    doc_dt: sourceRow.doc_dt ?? nextRow.doc_dt,
+    job_card_no: sourceRow.job_card_no ?? nextRow.job_card_no,
+    total_qty: sourceRow.total_qty ?? nextRow.total_qty,
+    unit: sourceRow.unit ?? nextRow.unit,
+    fg_location: sourceRow.fg_location ?? nextRow.fg_location,
+  };
+}
+
 async function fetchStickerRowForCategory(row, catId, imsDatePayload) {
   return boxService.getStickers({
     ...stickerFetchBody(row, catId ? { category_id: String(catId) } : {}),
@@ -217,6 +243,7 @@ async function resolveStickerRowForCategory(row, catId, accCode, imsDatePayload)
   if (catId) newData.type = String(catId);
   newData.category = newData.ims_category || newData.category || null;
   newData = await enrichRowPartyRateCustCode(newData, chosenAcc || row?.acc_code);
+  newData = preservePackingProductionIdentity(row, newData);
   return { ok: true, data: newData };
 }
 
@@ -251,7 +278,7 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
         <div className="p-2 sm:p-3 lg:p-4 space-y-1.5 sm:space-y-2 lg:space-y-2.5">
           {generated.length > 0 ? (
             <div className="flex items-center justify-between bg-slate-50 px-2 py-1.5 sm:px-3 sm:py-2 rounded border border-slate-100">
-              <span className="text-[11px] sm:text-[12px] lg:text-sm font-black text-slate-700 uppercase tracking-tight">{selectedRow.category || "N/A"}</span>
+              <span className="text-[11px] sm:text-[12px] lg:text-sm font-black text-slate-700 uppercase tracking-tight">{selectedRow.category || "—"}</span>
               <CheckCircle2 className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] text-emerald-500 shrink-0" aria-hidden />
             </div>
           ) : (
@@ -275,7 +302,7 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
           )}
           <div className="flex justify-between items-center text-[10px] lg:text-[11px] text-amber-600 font-bold italic">
             <span>{generated.length > 0 ? "* Category Fixed" : null}</span>
-            {generated.length === 0 && <span className="bg-amber-100 px-1 rounded">{selectedRow.category || "N/A"}</span>}
+            {generated.length === 0 && <span className="bg-amber-100 px-1 rounded">{selectedRow.category || "—"}</span>}
           </div>
         </div>
       </div>
@@ -380,7 +407,7 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
           </div>
           <div>
             <p className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter">Doc No.</p>
-            <p className="text-[11px] lg:text-sm font-bold text-slate-700 truncate">{selectedRow.doc_no || "N/A"}</p>
+            <p className="text-[11px] lg:text-sm font-bold text-slate-700 truncate">{selectedRow.doc_no || "—"}</p>
           </div>
         </div>
       </div>
@@ -944,6 +971,8 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       if (!accCode || !selectedRow?.doc_no) return;
       if (String(accCode) === String(selectedRow.acc_code || "")) return;
 
+      const itemAnchor = data?.itemdcode != null ? data : selectedRow;
+
       setCustomerChanging(true);
       try {
         const standardsRes = await packingStandardService.getViews({
@@ -989,43 +1018,43 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
           setSelectedCategory("");
         }
 
-        const baseRow = {
+        const baseRow = preservePackingProductionIdentity(itemAnchor, {
           ...selectedRow,
           acc_code: accCode,
           acc_name: ledgerObj?.acc_name || selectedRow.acc_name || "",
-        };
+        });
 
         if (catId) {
           const resolved = await resolveStickerRowForCategory(baseRow, catId, accCode, imsDatePayload);
           if (resolved.ok) {
-            setSelectedRow(resolved.data);
+            setSelectedRow(preservePackingProductionIdentity(itemAnchor, resolved.data));
             setIsMultiple(false);
           } else {
             const fallbackRow = await enrichRowPartyRateCustCode(
               { ...baseRow, type: catId, packing_details: null, party_rate_cust_code: null },
               accCode
             );
-            setSelectedRow(fallbackRow);
+            setSelectedRow(preservePackingProductionIdentity(itemAnchor, fallbackRow));
             setIsMultiple(uniqueCats.length > 1);
             toast.warn(resolved.message || "No packing standard found for this customer");
           }
         } else {
           const r = await fetchStickerRowForCategory(baseRow, null, imsDatePayload);
           if (r.success && r.data?.length > 0) {
-            let newData = r.data[0];
+            let newData = preservePackingProductionIdentity(itemAnchor, r.data[0]);
             if (r.multiple_categories || !hasValidPackingDetails(newData.packing_details)) {
               newData = await enrichRowPartyRateCustCode(
                 { ...newData, packing_details: null },
                 accCode
               );
-              setSelectedRow(newData);
+              setSelectedRow(preservePackingProductionIdentity(itemAnchor, newData));
               setIsMultiple(uniqueCats.length > 1);
               if (uniqueCats.length > 1) {
                 toast.info("Select a packing category to load sticker breakdown.");
               }
             } else {
               newData = await enrichRowPartyRateCustCode(newData, accCode);
-              setSelectedRow(newData);
+              setSelectedRow(preservePackingProductionIdentity(itemAnchor, newData));
               setIsMultiple(false);
             }
           } else {
@@ -1033,7 +1062,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
               { ...baseRow, packing_details: null, party_rate_cust_code: null },
               accCode
             );
-            setSelectedRow(fallbackRow);
+            setSelectedRow(preservePackingProductionIdentity(itemAnchor, fallbackRow));
             setIsMultiple(uniqueCats.length > 1);
             toast.warn(r.message || "No packing standard found for this customer");
           }
@@ -1044,7 +1073,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         setCustomerChanging(false);
       }
     },
-    [selectedRow, selectedCategory, imsDatePayload]
+    [selectedRow, selectedCategory, imsDatePayload, data]
   );
 
   const handleCategoryChange = async (catId) => {

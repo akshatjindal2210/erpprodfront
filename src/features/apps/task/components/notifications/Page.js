@@ -8,8 +8,12 @@ import { useRouter } from "next/navigation";
 
 import { notificationService } from "@/features/apps/task/services/notificationApi";
 import Pagination from "@/features/apps/task/components/common/Pagination";
-import { AppConfigFormFooter, AppConfigFormLoading, CONFIG_INPUT, CONFIG_LABEL, CONFIG_SELECT, CONFIG_TEXTAREA } from "@/features/admin/configuration/components/AppConfigFormFields";
+import { AppConfigFormFooter, AppConfigFormLoading, CONFIG_INPUT, CONFIG_LABEL, CONFIG_TEXTAREA } from "@/features/admin/configuration/components/AppConfigFormFields";
 import { TASK_NOTIFY_VARIABLE_GROUPS } from "@/features/apps/task/config/notificationVariables";
+
+/** Native select — works on PWA / handheld (no appearance-none). */
+const NOTIFY_SELECT =
+  "w-full bg-white border border-slate-200 rounded-lg px-3 h-10 text-[11px] text-slate-800 outline-none transition-all cursor-pointer relative z-[2] touch-manipulation focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50/80 disabled:opacity-50 disabled:cursor-not-allowed";
 
 const TEMPLATE_TABS = [
   { id: "task_assigned", label: "New Task" },
@@ -22,9 +26,8 @@ const TEMPLATE_TABS = [
 
 const SEND_VIA_OPTIONS = [
   { value: "none", label: "None" },
-  { value: "whatsapp_1", label: "WhatsApp 1" },
-  { value: "whatsapp_2", label: "WhatsApp 2" },
-  { value: "email", label: "Email" },
+  { value: "free", label: "Free" },
+  { value: "paid", label: "Paid" },
 ];
 
 const LOG_STATUS = {
@@ -37,9 +40,10 @@ const LOG_STATUS = {
 const LOG_CHANNEL_LABELS = {
   gateway: "ERP",
   pwa_push: "PWA",
-  whatsapp_1: "WhatsApp 1",
-  whatsapp_2: "WhatsApp 2",
-  email: "Email",
+  free: "Free",
+  paid: "Paid",
+  whatsapp_1: "Free",
+  whatsapp_2: "Paid",
   console: "Console",
 };
 
@@ -142,7 +146,7 @@ function TemplateVariablesHint() {
 export default function NotificationsPage() {
   const router = useRouter();
   const role = useSelector((s) => s.auth?.role);
-  const isSuperAdmin = role === "super_admin";
+  const isSuperAdmin = String(role || "").toLowerCase() === "super_admin";
 
   const [activeTab, setActiveTab] = useState("task_assigned");
   const [templates, setTemplates] = useState([]);
@@ -161,12 +165,21 @@ export default function NotificationsPage() {
     if (role && !isSuperAdmin) router.replace("/task/dashboard/tasks");
   }, [role, isSuperAdmin, router]);
 
-  const normalizeTpl = (t) => ({
-    ...t,
-    send_via: t.send_via || (t.whatsapp_enabled ? "whatsapp_1" : t.email_enabled ? "email" : "none"),
-    pwa_enabled: !!t.pwa_enabled,
-    api_enabled: !!t.api_enabled,
-  });
+  const normalizeTpl = (t) => {
+    let send_via = t.send_via || "none";
+    if (send_via === "whatsapp_1") send_via = "free";
+    else if (send_via === "whatsapp_2") send_via = "paid";
+    else if (send_via === "email") send_via = "none";
+    else if (!["none", "free", "paid"].includes(send_via)) {
+      send_via = t.whatsapp_enabled ? "free" : "none";
+    }
+    return {
+      ...t,
+      send_via,
+      pwa_enabled: !!t.pwa_enabled,
+      api_enabled: !!t.api_enabled,
+    };
+  };
 
   const fetchTemplates = useCallback(async () => {
     setLoading(true);
@@ -225,7 +238,18 @@ export default function NotificationsPage() {
 
   const updateField = (field, value) => {
     if (isLogsTab) return;
-    setEdits((p) => ({ ...p, [activeTab]: { ...p[activeTab], [field]: value } }));
+    setEdits((p) => {
+      const prev = p[activeTab] || {};
+      const next = { ...prev, [field]: value };
+      if (field === "send_via" && value !== "none") {
+        next.api_enabled = true;
+      }
+      if (field === "is_enabled" && value === true) {
+        next.pwa_enabled = prev.pwa_enabled ?? false;
+        next.api_enabled = prev.api_enabled ?? false;
+      }
+      return { ...p, [activeTab]: next };
+    });
   };
 
   const handleReset = () => {
@@ -358,7 +382,7 @@ export default function NotificationsPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
                         <Field label="Enabled">
                           <select
-                            className={CONFIG_SELECT}
+                            className={NOTIFY_SELECT}
                             value={current.is_enabled ? "true" : "false"}
                             onChange={(e) => updateField("is_enabled", e.target.value === "true")}
                             disabled={saving}
@@ -370,7 +394,7 @@ export default function NotificationsPage() {
 
                         <Field label="PWA (bell + tray)">
                           <select
-                            className={CONFIG_SELECT}
+                            className={NOTIFY_SELECT}
                             value={current.pwa_enabled ? "true" : "false"}
                             onChange={(e) => updateField("pwa_enabled", e.target.value === "true")}
                             disabled={saving || !current.is_enabled}
@@ -380,9 +404,9 @@ export default function NotificationsPage() {
                           </select>
                         </Field>
 
-                        <Field label="API (WhatsApp / Email)">
+                        <Field label="API (WhatsApp)">
                           <select
-                            className={CONFIG_SELECT}
+                            className={NOTIFY_SELECT}
                             value={current.api_enabled ? "true" : "false"}
                             onChange={(e) => updateField("api_enabled", e.target.value === "true")}
                             disabled={saving || !current.is_enabled}
@@ -392,22 +416,18 @@ export default function NotificationsPage() {
                           </select>
                         </Field>
 
-                        <Field label="Send via">
+                        <Field label="WhatsApp">
                           <select
-                            className={CONFIG_SELECT}
+                            className={NOTIFY_SELECT}
                             value={current.send_via || "none"}
                             onChange={(e) => updateField("send_via", e.target.value)}
                             disabled={saving || !current.is_enabled || !current.api_enabled}
                           >
-                            {SEND_VIA_OPTIONS.map((o) => {
-                              const ch = channels[o.value];
-                              const hint = o.value !== "none" && ch && !ch.configured ? " · console" : "";
-                              return (
-                                <option key={o.value} value={o.value}>
-                                  {o.value === "none" ? "None" : `${ch?.label || o.label}${hint}`}
-                                </option>
-                              );
-                            })}
+                            {SEND_VIA_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
                           </select>
                         </Field>
 

@@ -190,7 +190,7 @@ export default function PackingStandardPage() {
     ), { width: "80px", align: "center" }],
     ["Category", "category_name", (v, row) => (
       <div className="flex flex-col leading-tight">
-        <span className="text-[10px] font-bold text-slate-600 uppercase">{v || "N/A"}</span>
+        <span className="text-[10px] font-bold text-slate-600 uppercase">{v || "—"}</span>
       </div>
     ), { width: "130px" }],
     ["Customer", "acc_name", (v) => <span className="text-[10px] font-medium text-slate-500 uppercase italic whitespace-normal break-words leading-snug block" title={v}>{v || "—"}</span>, { width: "250px", wrap: true }],

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Search, Menu, X, LogOut, Clock, KeyRound } from "lucide-react";
+import { Search, Menu, X, LogOut, Clock, KeyRound, Settings } from "lucide-react";
 import { ROUTES } from "@/config/routes";
 import { useAppLogout } from "@/core/hooks/useLogout";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
@@ -12,6 +12,7 @@ import { SETTINGS_NAV_REGISTRY } from "@/features/admin/configuration/config/set
 import QuickAccessBar from "./QuickAccessBar";
 import PortalAppLauncherButton from "@/features/shared/portal/components/PortalAppLauncherButton";
 import ChangePasswordModal from "@/features/admin/identity/users/ChangePasswordModal";
+import DeviceSettingsModal from "@/features/shared/settings/DeviceSettingsModal";
 import TaskBellMenu from "@/features/apps/task/pwa/TaskBellMenu";
 
 export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false, hideSearch = false }) {
@@ -22,6 +23,7 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
   
   const [profileOpen, setProfileOpen] = useState(false);
   const [changePassOpen, setChangePassOpen] = useState(false);
+  const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showResults, setShowResults] = useState(false);
@@ -202,8 +204,14 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
                 {profileOpen && (
                   <div className={`absolute right-0 mt-2 w-48 ${THEME_CONFIG.sidebarBg} border ${THEME_CONFIG.sidebarBorder} rounded shadow-2xl py-1 z-50`}>
                     <button
-                      onClick={() => { setProfileOpen(false); setChangePassOpen(true); }}
+                      onClick={() => { setProfileOpen(false); setDeviceSettingsOpen(true); }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-[10px] text-slate-300 hover:bg-white/5 font-bold transition-colors"
+                    >
+                      <Settings size={12} /> Settings
+                    </button>
+                    <button
+                      onClick={() => { setProfileOpen(false); setChangePassOpen(true); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-[10px] text-slate-300 hover:bg-white/5 font-bold transition-colors border-t border-white/5"
                     >
                       <KeyRound size={12} /> Change Password
                     </button>
@@ -249,6 +257,7 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
 
       <QuickAccessBar hideQuickLinks={hideQuickLinks} />
       <ChangePasswordModal open={changePassOpen} onClose={() => setChangePassOpen(false)} />
+      <DeviceSettingsModal open={deviceSettingsOpen} onClose={() => setDeviceSettingsOpen(false)} />
     </div>
   );
 }

@@ -139,7 +139,7 @@ export default function LogsPage() {
             <Layers size={10} />
             <span className="font-bold capitalize text-[11px]">{v?.replace(/_/g, ' ')}</span>
           </div>
-          <span className="text-[9px] text-indigo-500 font-mono ml-3">REF: {row.entity_id || 'N/A'}</span>
+          <span className="text-[9px] text-indigo-500 font-mono ml-3">REF: {row.entity_id || '—'}</span>
         </div>
       ), { width: '180px' }
     ],

@@ -689,7 +689,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           className={`shrink-0 self-center ${open ? "text-indigo-500" : "text-slate-400"}`}
         />
 
-        <div className={`flex min-w-0 flex-1 items-center gap-1 overflow-hidden ${multiTagsMode ? "flex-wrap" : ""}`}>
+        <div className={`flex min-w-0 flex-1 items-center gap-1 ${multiTagsMode ? "flex-wrap py-0.5" : "overflow-hidden"}`}>
           {multiCompactMode && selectedCount > 0 ? (
             <span className="shrink-0 inline-flex items-center rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700 tabular-nums">
               {selectedCount} selected
@@ -700,7 +700,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
             ? selected.slice(0, maxVisibleTags).map((item) => (
                 <span
                   key={item[dataKey]}
-                  className="inline-flex max-w-[45%] items-center gap-1 rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700"
+                  className="inline-flex max-w-full sm:max-w-[45%] items-center gap-1 rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700"
                 >
                   <span className="truncate">{getDisplayLabel(item, labelKey)}</span>
                   <button

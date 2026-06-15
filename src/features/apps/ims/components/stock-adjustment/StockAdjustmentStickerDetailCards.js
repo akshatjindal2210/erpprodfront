@@ -12,7 +12,7 @@ export default function StockAdjustmentStickerDetailCards({ selectedRow, packing
 
   const itemCode = row.item_code ?? "—";
   const itemDesc = row.itemdesc || row.description || row.item_desc || "—";
-  const categoryLabel = row.category || row.type_name || "N/A";
+  const categoryLabel = row.category || row.type_name || "—";
 
   return (
     <div className="p-2 lg:p-3 space-y-2 lg:space-y-3">
@@ -157,7 +157,7 @@ export default function StockAdjustmentStickerDetailCards({ selectedRow, packing
           </div>
           <div>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Doc No.</p>
-            <p className="text-[11px] font-bold text-slate-700 truncate">{row.doc_no || "N/A"}</p>
+            <p className="text-[11px] font-bold text-slate-700 truncate">{row.doc_no || "—"}</p>
           </div>
         </div>
       </div>

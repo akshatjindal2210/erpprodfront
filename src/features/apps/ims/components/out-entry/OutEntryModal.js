@@ -14,9 +14,11 @@ import Snackbar from "@/core/components/ui/Snackbar";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/core/utils/global";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
-import { isMobileDevice } from "@/core/utils/pwa";
+import { useDeviceScanSettings } from "@/core/hooks/useDeviceScanSettings";
+import { isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
+import LaserScanField from "@/core/components/common/LaserScanField";
 import RemarksTextarea from "@/core/components/common/RemarksTextarea";
-import { detectQrType, parseBoxScanRaw } from "@/features/apps/ims/helpers/qrScan";
+import { detectQrType, parseBoxScanRaw, boxNoUidDisplayLabel } from "@/features/apps/ims/helpers/qrScan";
 import { prepareQrScanSession } from "@/features/apps/ims/helpers/scanFeedback";
 import { createScanBatchQueue } from "@/features/apps/ims/helpers/scanBatchQueue";
 import { useHtml5QrScanner } from "@/core/hooks/useHtml5QrScanner";
@@ -102,9 +104,6 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   const [scannedBoxIds, setScannedBoxIds] = useState(new Set());
   const [linkedBoxes, setLinkedBoxes] = useState([]);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const scanBufferRef = useRef("");
-  const scanTimerRef = useRef(null);
-  const lastScanTsRef = useRef(0);
   const [expandedLocations, setExpandedLocations] = useState(new Set());
   const [dispatchDetailsOpen, setDispatchDetailsOpen] = useState(false);
   const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
@@ -136,6 +135,10 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   }, []);
 
   const { showScanToast, showScanSuccess } = useScanSnackbarActions(setSnackbar, scanToastRef);
+  const { laserScan, keyboardType, showPhoneQr } = useDeviceScanSettings();
+  const scanBtnCount = (showPhoneQr ? 1 : 0) + (laserScan ? 1 : 0);
+  const scanBtnFill =
+    scanBtnCount > 1 ? "flex-1 basis-0 min-w-0 w-full" : "w-full";
 
   const isSimpleScanMode = isOutEntrySimpleScanMode(entryMode);
   const isInventoryOutMode = entryMode === OUT_ENTRY_TYPE.INVENTORY_OUT;
@@ -486,6 +489,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       await lockForwardingNoteForProcessing(form.fuid);
       packingFocusSeedRef.current = "";
       setIsConfirmed(true);
+      if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
       toast.success("Forwarding note locked for Out Entry processing.");
     } catch (err) {
       toast.error(err?.message || "Unable to lock forwarding note for out entry.");
@@ -609,8 +615,13 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           if (result?.allowed) continue;
 
           if (result?.duplicate) {
-            // Extra scan of same box — undo only this attempt's count, keep first scan in ref.
             revertScanCount(item.canonicalBoxId);
+            showScanToast(
+              "error",
+              `batch-dup-${item.id}`,
+              result?.message || SCAN_SNACK_MSG.BOX_DUPLICATE(item.canonicalBoxId),
+              2200
+            );
             continue;
           }
 
@@ -669,7 +680,17 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
             continue;
           }
 
-          if (result?.duplicate) continue;
+          if (result?.duplicate) {
+            scannedBoxIdsRef.current.delete(item.canonicalBoxId);
+            otherBoxMapRef.current.delete(item.canonicalBoxId);
+            showScanToast(
+              "error",
+              `other-batch-dup-${item.id}`,
+              result?.message || SCAN_SNACK_MSG.BOX_DUPLICATE(item.canonicalBoxId),
+              2200
+            );
+            continue;
+          }
 
           scannedBoxIdsRef.current.delete(item.canonicalBoxId);
           otherBoxMapRef.current.delete(item.canonicalBoxId);
@@ -755,7 +776,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
       const canonicalBoxId = bId;
       if (scannedBoxIdsRef.current.has(canonicalBoxId)) {
-        showScanToast("info", "other-duplicate-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(canonicalBoxId), 1200);
+        showScanToast("error", "other-duplicate-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(canonicalBoxId), 1200);
         return;
       }
 
@@ -825,7 +846,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       }
 
       if (scannedBoxIdsRef.current.has(canonicalBoxId)) {
-        showScanToast("info", "duplicate-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(canonicalBoxId), 1200);
+        showScanToast("error", "duplicate-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(canonicalBoxId), 1200);
         return;
       }
 
@@ -893,134 +914,76 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
   const activeBD = packingGroups?.[activePackingIdx];
 
+  const packingLaserActive =
+    open &&
+    formReady &&
+    isConfirmed &&
+    !isSimpleScanMode &&
+    Boolean(activeBD) &&
+    (laserScan || isLaserScanEnabled());
+
+  const otherLaserActive =
+    open && formReady && isConfirmed && isSimpleScanMode && (laserScan || isLaserScanEnabled());
+
+  const laserScanSessionKey = `${Number(isConfirmed)}-${isSimpleScanMode ? "other" : `packing-${activePackingIdx}`}`;
+
+  const handleLaserScanRejected = useCallback(
+    ({ reason, code }) => {
+      if (reason === "duplicate") {
+        showScanToast(
+          "error",
+          `laser-dup-${String(code ?? "").toLowerCase()}`,
+          SCAN_SNACK_MSG.BOX_DUPLICATE(code),
+          1200
+        );
+      } else if (reason === "empty") {
+        showScanToast("error", "laser-empty-scan", SCAN_SNACK_MSG.REJECTED, 1800);
+      }
+    },
+    [showScanToast]
+  );
+
+  const handlePackingLaserScan = useCallback(
+    (code) => {
+      tryAddBox(code);
+    },
+    [tryAddBox]
+  );
+
+  const handleOtherLaserScan = useCallback(
+    (code) => {
+      tryAddOtherBox(code);
+    },
+    [tryAddOtherBox]
+  );
+
   useEffect(() => {
     if (activePackingIdx >= (packingGroups?.length || 0)) {
       setActivePackingIdx(0);
     }
   }, [activePackingIdx, packingGroups]);
 
-  // Scanner-gun flow: receives keys globally and adds on Enter.
-  useEffect(() => {
-    if (!open || !isConfirmed || !isSimpleScanMode) return undefined;
-
-    const clearScanBuffer = () => {
-      scanBufferRef.current = "";
-      if (scanTimerRef.current) {
-        clearTimeout(scanTimerRef.current);
-        scanTimerRef.current = null;
-      }
-    };
-
-    const handleGlobalScan = (e) => {
-      const targetTag = String(e.target?.tagName || "").toLowerCase();
-      const isEditable =
-        targetTag === "textarea" ||
-        targetTag === "select" ||
-        (targetTag === "input" && e.target?.type !== "checkbox");
-
-      if (isEditable) return;
-
-      if (e.key === "Enter") {
-        const code = scanBufferRef.current.trim();
-        clearScanBuffer();
-        if (code) tryAddOtherBox(code);
-        return;
-      }
-
-      if (e.key.length === 1) {
-        const now = Date.now();
-        const gap = now - lastScanTsRef.current;
-        lastScanTsRef.current = now;
-        if (gap > 150) scanBufferRef.current = "";
-        scanBufferRef.current += e.key;
-        if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
-        scanTimerRef.current = setTimeout(() => {
-          scanBufferRef.current = "";
-          scanTimerRef.current = null;
-        }, 300);
-      }
-    };
-
-    window.addEventListener("keydown", handleGlobalScan);
-    return () => {
-      window.removeEventListener("keydown", handleGlobalScan);
-      clearScanBuffer();
-    };
-  }, [open, isConfirmed, isSimpleScanMode, tryAddOtherBox]);
-
-  useEffect(() => {
-    if (!open || !isConfirmed || isSimpleScanMode || !activeBD) return undefined;
-
-    const clearScanBuffer = () => {
-      scanBufferRef.current = "";
-      if (scanTimerRef.current) {
-        clearTimeout(scanTimerRef.current);
-        scanTimerRef.current = null;
-      }
-    };
-
-    const handleGlobalScan = (e) => {
-      const targetTag = String(e.target?.tagName || "").toLowerCase();
-      const isEditable =
-        targetTag === "textarea" ||
-        targetTag === "select" ||
-        (targetTag === "input" && e.target?.type !== "checkbox");
-
-      // Let user type normally inside form fields like remarks/select search.
-      if (isEditable) return;
-
-      if (e.key === "Enter") {
-        const code = scanBufferRef.current.trim();
-        clearScanBuffer();
-        if (code) {
-          tryAddBox(code);
-        }
-        return;
-      }
-
-      if (e.key.length === 1) {
-        const now = Date.now();
-        const gap = now - lastScanTsRef.current;
-        lastScanTsRef.current = now;
-
-        // Fresh scan burst or reset when typing pauses.
-        if (gap > 150) {
-          scanBufferRef.current = "";
-        }
-        scanBufferRef.current += e.key;
-
-        if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
-        scanTimerRef.current = setTimeout(() => {
-          scanBufferRef.current = "";
-          scanTimerRef.current = null;
-        }, 300);
-      }
-    };
-
-    window.addEventListener("keydown", handleGlobalScan);
-    return () => {
-      window.removeEventListener("keydown", handleGlobalScan);
-      clearScanBuffer();
-    };
-  }, [open, isConfirmed, activeBD, tryAddBox]);
-
   const handleCameraDecoded = useCallback(
     (decodedText) => {
       const code = parseBoxScanRaw(decodedText)?.trim();
-      if (!code) return;
+      if (!code) {
+        showScanToast("error", "camera-invalid-scan", SCAN_SNACK_MSG.REJECTED, 1800);
+        return;
+      }
 
       const now = Date.now();
       if (
         lastCameraScanRef.current.code === code &&
         now - lastCameraScanRef.current.at < 1200
       ) {
+        showScanToast("error", "camera-dup-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1200);
         return;
       }
       lastCameraScanRef.current = { code, at: now };
       if (isSimpleScanMode) tryAddOtherBox(decodedText);
       else tryAddBox(decodedText);
     },
-    [tryAddBox, tryAddOtherBox, isSimpleScanMode]
+    [tryAddBox, tryAddOtherBox, isSimpleScanMode, showScanToast]
   );
 
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
@@ -1448,32 +1411,52 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               ) : null}
             </div>
 
-            <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100 flex flex-col min-h-[200px] shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 p-1.5 bg-white border border-indigo-100 rounded-lg">
-                <button
-                  type="button"
-                  onClick={() => {
-                    void (async () => {
-                      const prep = await prepareQrScanSession();
-                      if (!prep.cameraOk) {
-                        showScanToast(
-                          "error",
-                          "other-camera-permission",
-                          prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
-                          4000
-                        );
-                        return;
-                      }
-                      setIsScannerOpen(true);
-                    })();
-                  }}
-                  disabled={isScannerOpen}
-                  className="h-9 w-full sm:w-auto sm:shrink-0 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-60"
-                >
-                  <QrCode size={14} />
-                  <span className="text-[10px] font-black uppercase">Scan</span>
-                </button>
-                <div className="flex flex-1 gap-1.5 min-w-0">
+            <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100 shadow-sm">
+              <div className="space-y-2 p-1.5 bg-white border border-indigo-100 rounded-lg w-full min-w-0">
+                {(showPhoneQr || laserScan) ? (
+                  <div className="flex items-stretch gap-2 w-full min-w-0">
+                    {showPhoneQr && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void (async () => {
+                          const prep = await prepareQrScanSession();
+                          if (!prep.cameraOk) {
+                            showScanToast(
+                              "error",
+                              "other-camera-permission",
+                              prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
+                              4000
+                            );
+                            return;
+                          }
+                          setIsScannerOpen(true);
+                        })();
+                      }}
+                      disabled={isScannerOpen}
+                      className={`h-9 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-60 ${scanBtnFill}`}
+                    >
+                      <QrCode size={14} />
+                      <span className="text-[10px] font-black uppercase">QR</span>
+                    </button>
+                    )}
+                    {laserScan && (
+                      <LaserScanField
+                        key={`other-out-scan-${laserScanSessionKey}`}
+                        active={otherLaserActive}
+                        onScanned={handleOtherLaserScan}
+                        onScanRejected={handleLaserScanRejected}
+                        formatPreview={boxNoUidDisplayLabel}
+                        compact
+                        heightClass="h-9"
+                        fill={scanBtnCount > 0}
+                        armButtonLabel="Scan"
+                      />
+                    )}
+                  </div>
+                ) : null}
+                {!laserScan && keyboardType ? (
+                <div className="flex w-full min-w-0 gap-1.5">
                   <input
                     type="text"
                     value={manualOtherBoxId}
@@ -1503,6 +1486,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                     Add
                   </button>
                 </div>
+                ) : !showPhoneQr && !laserScan && !keyboardType ? (
+                  <p className="text-[10px] text-slate-500 px-1">Enable scan mode in Settings.</p>
+                ) : null}
               </div>
 
               {pendingScanCount > 0 && (
@@ -1514,12 +1500,12 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                 </div>
               )}
 
-              <div className="flex-1 min-h-0 bg-white/60 rounded-lg border border-indigo-50 overflow-hidden flex flex-col">
+              <div className="bg-white/60 rounded-lg border border-indigo-50 overflow-hidden">
                 <div className="px-3 py-1.5 bg-indigo-100/50 border-b border-indigo-100 flex justify-between items-center">
                   <span className="text-[10px] font-bold text-indigo-600 uppercase">Scanned boxes</span>
                   <span className="text-[9px] font-black text-indigo-600/50 uppercase">{otherScannedCount} total</span>
                 </div>
-                <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
+                <div className="max-h-[min(40dvh,280px)] overflow-y-auto overscroll-y-contain p-2 custom-scrollbar">
                   {otherScannedList.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                       {otherScannedList.map((box) => (
@@ -1667,25 +1653,25 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                   <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-3 gap-y-2 pt-2 text-[11px] leading-snug">
                     <div className="min-w-0">
                       <dt className="text-[8px] font-bold text-slate-400 uppercase">Vehicle</dt>
-                      <dd className="font-semibold text-slate-800 break-words">{fuidDetails.vehicle_number || "N/A"}</dd>
+                      <dd className="font-semibold text-slate-800 break-words">{fuidDetails.vehicle_number || "—"}</dd>
                     </div>
                     <div className="min-w-0">
                       <dt className="text-[8px] font-bold text-slate-400 uppercase">Transporter</dt>
-                      <dd className="font-semibold text-slate-800 break-words">{fuidDetails.transporter_name || "DIRECT"}</dd>
+                      <dd className="font-semibold text-slate-800 break-words">{fuidDetails.transporter_name || "—"}</dd>
                     </div>
                     <div className="min-w-0">
                       <dt className="text-[8px] font-bold text-slate-400 uppercase">Transporter ID</dt>
-                      <dd className="font-semibold text-slate-800 break-words">{fuidDetails.transporter_id || "N/A"}</dd>
+                      <dd className="font-semibold text-slate-800 break-words">{fuidDetails.transporter_id || "—"}</dd>
                     </div>
                     <div className="min-w-0 sm:col-span-2 lg:col-span-1">
                       <dt className="text-[8px] font-bold text-slate-400 uppercase">Customer</dt>
                       <dd className="font-semibold text-slate-800 break-words" title={fuidDetails.acc_name}>
-                        {fuidDetails.acc_name || "N/A"}
+                        {fuidDetails.acc_name || "—"}
                       </dd>
                     </div>
                     <div className="min-w-0">
                       <dt className="text-[8px] font-bold text-slate-400 uppercase">PO / Bill</dt>
-                      <dd className="font-semibold text-slate-800 break-words">{fuidDetails.po_number || "N/A"}</dd>
+                      <dd className="font-semibold text-slate-800 break-words">{fuidDetails.po_number || "—"}</dd>
                     </div>
                   </dl>
                 </div>
@@ -1901,13 +1887,13 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                 </div>
 
                 {/* Scanned boxes for the active packing */}
-                <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100 flex flex-col min-h-[220px] shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-indigo-600">
-                      <CheckCircle2 size={16} />
+                <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100 shadow-sm">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2 text-indigo-600 min-w-0">
+                      <CheckCircle2 size={16} className="shrink-0" />
                       <span className="text-[11px] font-black uppercase tracking-widest">Your Scanned Progress</span>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 w-full sm:w-auto shrink-0">
                       {/* Full Boxes Comparison */}
                       <div className={`px-3 py-1 rounded-lg text-center shadow-sm transition-all ${scannedStats.box === activeBD.box ? "bg-emerald-600 text-white" : "bg-white border border-emerald-100 text-emerald-700"}`}>
                         <p className="text-[7px] font-bold uppercase opacity-80">Full Boxes</p>
@@ -1921,33 +1907,53 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                     </div>
                   </div>
                   
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 p-1.5 bg-white border border-indigo-100 rounded-lg">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void (async () => {
-                          const prep = await prepareQrScanSession();
-                          if (!prep.cameraOk) {
-                            showScanToast(
-                              "error",
-                              "camera-permission",
-                              prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
-                              4000
-                            );
-                            return;
-                          }
-                          setIsScannerOpen(true);
-                        })();
-                      }}
-                      disabled={isScannerOpen}
-                      className="h-9 w-full sm:w-auto sm:shrink-0 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      <QrCode size={14} />
-                      <span className="text-[10px] font-black uppercase">Scan</span>
-                    </button>
-                    <p className="text-[9px] text-indigo-600 font-bold uppercase tracking-wide">
-                      Scan-only mode: scanned boxes appear in the list below
-                    </p>
+                  <div className="space-y-2 p-1.5 bg-white border border-indigo-100 rounded-lg w-full min-w-0">
+                    {(showPhoneQr || laserScan) ? (
+                      <div className="flex items-stretch gap-2 w-full min-w-0">
+                        {showPhoneQr && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void (async () => {
+                              const prep = await prepareQrScanSession();
+                              if (!prep.cameraOk) {
+                                showScanToast(
+                                  "error",
+                                  "camera-permission",
+                                  prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
+                                  4000
+                                );
+                                return;
+                              }
+                              setIsScannerOpen(true);
+                            })();
+                          }}
+                          disabled={isScannerOpen}
+                          className={`h-9 px-3 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed ${scanBtnFill}`}
+                        >
+                          <QrCode size={14} />
+                          <span className="text-[10px] font-black uppercase">QR</span>
+                        </button>
+                        )}
+                        {laserScan && (
+                          <LaserScanField
+                            key={`packing-out-scan-${laserScanSessionKey}`}
+                            active={packingLaserActive}
+                            onScanned={handlePackingLaserScan}
+                            onScanRejected={handleLaserScanRejected}
+                            formatPreview={boxNoUidDisplayLabel}
+                            compact
+                            heightClass="h-9"
+                            fill={scanBtnCount > 0}
+                            armButtonLabel="Scan"
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[9px] font-bold uppercase tracking-wide text-indigo-600 px-1">
+                        Scan-only mode: scanned boxes appear in the list below
+                      </p>
+                    )}
                   </div>
                   {pendingScanCount > 0 && (
                     <div className="flex items-center gap-2 px-2 py-1 bg-white border border-indigo-100 rounded-lg">
@@ -1988,14 +1994,14 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                   */}
 
                   {/* SCANNED LIST - Optimized Grid */}
-                  <div className="flex-1 min-h-0 bg-white/60 rounded-lg border border-indigo-50 overflow-hidden flex flex-col">
+                  <div className="bg-white/60 rounded-lg border border-indigo-50 overflow-hidden">
                     <div className="px-3 py-1.5 bg-indigo-100/50 border-b border-indigo-100 flex justify-between items-center">
                       <span className="text-[10px] font-bold text-indigo-600 uppercase">Scanned Item List</span>
                       <span className="text-[9px] font-black text-indigo-600/50 uppercase tracking-tighter">
                         Boxes: {scannedStats.box + scannedStats.loose} · Qty: {scannedStats.bQty + scannedStats.lQty}
                       </span>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
+                    <div className="max-h-[min(40dvh,280px)] overflow-y-auto overscroll-y-contain p-2 custom-scrollbar">
                       {scannedInActive.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
                           {scannedInActive.map((box, bidx) => (

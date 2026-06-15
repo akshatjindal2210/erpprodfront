@@ -611,21 +611,21 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
   // ── Footer ─────────────────────────────────────────────────────────────────
   const footer = (
-    <div className="flex items-center justify-between gap-3 w-full">
+    <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 w-full">
       
       {/* Left: warning or empty */}
       {isQtyExceeded ? (
-        <div className="flex items-center gap-2 text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
-          <AlertCircle size={14} />
-          <span className="text-[11px] font-bold">
+        <div className="flex items-center gap-2 text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 w-full sm:w-auto">
+          <AlertCircle size={14} className="shrink-0" />
+          <span className="text-[11px] font-bold leading-snug">
             Dispatched quantity ({confirmedTotal.toLocaleString()}) exceeds customer order quantity ({customerQty.toLocaleString()})
           </span>
         </div>
-      ) : <div />}
+      ) : <div className="hidden sm:block" />}
 
       {/* Right — buttons */}
-      <div className="flex items-center gap-3">
-        <button onClick={onClose} disabled={saving} className="px-5 py-2.5 text-sm font-bold text-slate-500">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto shrink-0">
+        <button onClick={onClose} disabled={saving} className="px-5 py-2.5 text-sm font-bold text-slate-500 w-full sm:w-auto">
           Cancel
         </button>
         {isApprove ? (
@@ -633,14 +633,14 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
             <button
               onClick={() => handleSave(false)}
               disabled={!formReady || saving}
-              className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-40"
+              className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-40 w-full sm:w-auto"
             >
               Keep Pending
             </button>
             <button
               onClick={() => handleSave(true)}
               disabled={!formReady || saving}
-              className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40"
+              className="min-w-[140px] w-full sm:w-auto px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40"
             >
               {saving ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
             </button>
@@ -649,7 +649,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
           <button
             onClick={() => handleSave()}
             disabled={!formReady || saving || isQtyExceeded}
-            className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400 disabled:cursor-not-allowed"
+            className="min-w-[140px] w-full sm:w-auto px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400 disabled:cursor-not-allowed"
           >
             {saving ? (
               <><Loader2 size={18} className="animate-spin" /> Processing</>
@@ -917,9 +917,9 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 items-end">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-12 gap-2 items-end">
                   {/* Search Item */}
-                  <div className="lg:col-span-4 text-[11px]">
+                  <div className="col-span-2 sm:col-span-4 lg:col-span-4 text-[11px] min-w-0">
                     <SearchableSelect
                       label="Search Item"
                       value={item.item_dcode}
@@ -934,7 +934,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                   </div>
 
                   {/* FG Stock */}
-                  <div className="lg:col-span-2 space-y-0.5">
+                  <div className="lg:col-span-2 space-y-0.5 min-w-0">
                     <label className={`${FORM_MICRO_LABEL_CLASS} text-emerald-600 block ml-1`}>FG Stock</label>
                     <div className="bg-emerald-600 text-white text-center font-black h-[38px] flex items-center justify-center rounded-lg shadow-sm text-xs">
                       {item.fg_qty.toLocaleString()}
@@ -988,8 +988,8 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
                 {/* Table Breakdown */}
                 {item.item_dcode && (item.selected_boxes.length > 0 || (isEdit && item.original_breakdowns?.length > 0)) && (
-                  <div className="mt-1.5 border border-slate-100 rounded-md overflow-hidden">
-                    <table className="w-full text-xs">
+                  <div className="mt-1.5 border border-slate-100 rounded-md overflow-x-auto">
+                    <table className="w-full min-w-[280px] text-xs">
                       <thead className="bg-slate-50 border-b border-slate-100">
                         <tr>
                           <th className="px-2 py-1 text-left font-black text-slate-400 uppercase">Packing #</th>

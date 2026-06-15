@@ -10,8 +10,11 @@ import Drawer from "@/core/components/ui/Drawer";
 import Snackbar from "@/core/components/ui/Snackbar";
 import { useHtml5QrScanner } from "@/core/hooks/useHtml5QrScanner";
 import QrScannerOverlay from "@/core/components/common/QrScannerOverlay";
-import { isMobileDevice } from "@/core/utils/pwa";
-import { extractLocationNo, extractBoxCode } from "@/features/apps/ims/helpers/qrScan";
+import { useDeviceScanSettings } from "@/core/hooks/useDeviceScanSettings";
+import ScanEnterInput from "@/core/components/common/ScanEnterInput";
+import LaserScanField from "@/core/components/common/LaserScanField";
+import { blurActiveElement, getDeviceScanSettings, isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
+import { extractLocationNo, parseStickerScan, boxNoUidDisplayLabel, locationNoDisplayLabel } from "@/features/apps/ims/helpers/qrScan";
 import { unlockScanAudio } from "@/features/apps/ims/helpers/scanFeedback";
 import { SCAN_SNACK_MSG, FLOW_SCAN_CAMERA_INSECURE_MSG, useScanSnackbarActions } from "@/core/utils/global";
 import {
@@ -32,7 +35,6 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
   const [scanInput, setScannedInput] = useState("");
   const [isLocationScanned, setIsLocationScanned] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [showBoxScanPrompt, setShowBoxScanPrompt] = useState(false);
   const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
   const processingRef = useRef(new Set());
 
@@ -41,19 +43,16 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
   const prevOpenRef = useRef(false);
   const locationVerifiedRef = useRef(false);
   const scanToastRef = useRef({});
-  const boxScanPromptTimerRef = useRef(null);
 
   const closeSnackbar = useCallback(() => {
     setSnackbar((s) => ({ ...s, open: false }));
   }, []);
 
   const { showScanToast, showScanSuccess } = useScanSnackbarActions(setSnackbar, scanToastRef);
-
-  const promptBoxScan = useCallback(() => {
-    setShowBoxScanPrompt(true);
-    if (boxScanPromptTimerRef.current) clearTimeout(boxScanPromptTimerRef.current);
-    boxScanPromptTimerRef.current = setTimeout(() => setShowBoxScanPrompt(false), 4000);
-  }, []);
+  const { laserScan, keyboardType, showPhoneQr } = useDeviceScanSettings();
+  const scanBtnCount = (showPhoneQr ? 1 : 0) + (laserScan ? 1 : 0);
+  const scanBtnFill =
+    scanBtnCount > 1 ? "flex-1 basis-0 min-w-0 w-full" : "w-full";
 
   const assignedLocation = useMemo(() => {
     if (!auditData?.locations || fixedLocationId == null) return null;
@@ -74,20 +73,17 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
       setCurrentLocation(null);
       setScannedInput("");
       setIsLocationScanned(false);
-      setShowBoxScanPrompt(false);
       locationVerifiedRef.current = false;
       setIsScannerOpen(false);
       processingRef.current.clear();
       lastScanRef.current = { key: "", at: 0 };
       setSnackbar(INITIAL_SNACK);
-      setTimeout(() => inputRef.current?.focus(), 300);
+      if (getDeviceScanSettings().laserScan) {
+        blurActiveElement();
+      }
     }
     prevOpenRef.current = open;
   }, [open]);
-
-  useEffect(() => () => {
-    if (boxScanPromptTimerRef.current) clearTimeout(boxScanPromptTimerRef.current);
-  }, []);
 
   useEffect(() => {
     if (!open || !auditData) return;
@@ -135,6 +131,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
 
     const now = Date.now();
     if (val === lastScanRef.current.key && now - lastScanRef.current.at < 1500) {
+      showScanToast("error", `audit-dup-${val.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(val), 1400);
       return;
     }
     lastScanRef.current = { key: val, at: now };
@@ -146,10 +143,11 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
 
     if (!isLocationScanned) {
       if (!looksLikeLocation) {
+        const wrongLocation = normalizedLoc && !verifyFixedLocation(scannedLocNo);
         showScanToast(
           "error",
-          "audit-scan-location-first",
-          `Scan location QR for ${assignedLocation.location_no} first`,
+          wrongLocation ? `audit-wrong-loc-${scannedLocNo.toLowerCase()}` : "audit-scan-location-first",
+          wrongLocation ? "Please scan assigned location." : "Scan the location QR code first.",
           2200,
         );
         setScannedInput("");
@@ -171,13 +169,12 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
         SCAN_SNACK_MSG.AUDIT_LOCATION_VERIFIED(assignedLocation.location_no),
         4500,
       );
-      promptBoxScan();
-      setTimeout(() => inputRef.current?.focus(), 100);
+      blurActiveElement();
       return;
     }
 
     if (looksLikeLocation) {
-      showScanToast("error", "audit-location-already", "Location already verified — scan boxes now", 2000);
+      showScanToast("error", "audit-location-already", "Location already verified. Scan boxes now.", 2000);
       setScannedInput("");
       return;
     }
@@ -195,7 +192,13 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
       return;
     }
 
-    const boxCode = extractBoxCode(val) || val;
+    const { box_no_uid: boxCode } = parseStickerScan(val);
+    if (!boxCode) {
+      showScanToast("error", "audit-invalid-box", "Scan the box sticker QR code.", 2200);
+      setScannedInput("");
+      return;
+    }
+
     const currentBoxes = scannedData[locId] || [];
 
     if (currentBoxes.includes(boxCode)) {
@@ -232,21 +235,58 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
           showScanSuccess(`audit-box-${boxCode.toLowerCase()}`, SCAN_SNACK_MSG.BOX_ADDED(boxCode), 1200);
         }
       } else {
-        showScanToast("error", `audit-box-missing-${boxCode.toLowerCase()}`, `Box ${boxCode} not found in system`, 2200);
+        showScanToast("error", `audit-box-missing-${boxCode.toLowerCase()}`, `Box ${boxCode} was not found in the system.`, 2200);
       }
     } catch {
-      showScanToast("error", "audit-box-save-failed", "Error saving box scan", 2200);
+      showScanToast("error", "audit-box-save-failed", "Failed to save the box scan.", 2200);
     } finally {
       processingRef.current.delete(boxCode);
       setLoading(false);
       setScannedInput("");
-      inputRef.current?.focus();
+      if (getDeviceScanSettings().laserScan) blurActiveElement();
     }
   };
 
+  const handleScanValueRef = useRef(handleScanValue);
+  handleScanValueRef.current = handleScanValue;
+
+  const handleLaserScan = useCallback((code) => {
+    void handleScanValueRef.current(code);
+  }, []);
+
+  const handleLaserScanRejected = useCallback(
+    ({ reason, code }) => {
+      if (reason === "duplicate") {
+        showScanToast(
+          "error",
+          `laser-dup-${String(code ?? "").toLowerCase()}`,
+          SCAN_SNACK_MSG.BOX_DUPLICATE(code),
+          1200
+        );
+      } else if (reason === "empty") {
+        showScanToast("error", "laser-empty-scan", SCAN_SNACK_MSG.REJECTED, 1800);
+      }
+    },
+    [showScanToast]
+  );
+
+  const laserPreviewLabel = useCallback(
+    (raw) => (isLocationScanned ? boxNoUidDisplayLabel(raw) : locationNoDisplayLabel(raw)),
+    [isLocationScanned]
+  );
+
+  const handleKeyboardEnter = useCallback((code) => {
+    setScannedInput("");
+    void handleScanValueRef.current(code);
+  }, []);
+
+  const laserScanActive = open && (laserScan || isLaserScanEnabled());
+
   const handleScanSubmit = (e) => {
     e.preventDefault();
-    handleScanValue(scanInput.trim());
+    const code = String(inputRef.current?.value ?? "").trim();
+    if (inputRef.current) inputRef.current.value = "";
+    handleScanValue(code);
   };
 
   const startScanner = () => {
@@ -341,6 +381,8 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
     return null;
   }
 
+  const expectedBoxCount = countExpectedBoxes(activeLocation) || 0;
+
   const drawerFooter = (
     <div className="flex items-center justify-between w-full">
       <button
@@ -371,7 +413,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
       isOpen={open}
       onClose={onClose}
       title="Start Audit"
-      description={`Audit #${auditData?.audit_id} | Location: ${assignedLocation.location_no}`}
+      description={`Audit #${auditData?.audit_id} · ${assignedLocation.location_no}`}
       footer={drawerFooter}
       maxWidth="max-w-2xl"
     >
@@ -389,7 +431,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
           }
           hint={
             !isLocationScanned
-              ? `Location: ${assignedLocation.location_no}`
+              ? "Scan location"
               : `Boxes · ${currentScannedBoxes.length} scanned`
           }
           torchSupported={torchSupported}
@@ -397,71 +439,79 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
           onToggleTorch={toggleTorch}
         />
 
-        {/* Compact step strip */}
-        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-100">
-          <span
-            className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase shrink-0 ${
-              isLocationScanned ? "text-emerald-600" : "text-amber-600"
+        {/* Step 1 → Step 2 (compact) */}
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 space-y-1">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase shrink-0 ${
+                isLocationScanned ? "text-emerald-600" : "text-amber-600"
+              }`}
+            >
+              {isLocationScanned ? <Check size={11} strokeWidth={3} /> : <MapPin size={11} />}
+              1. Location
+            </span>
+            <span className={`h-px flex-1 ${isLocationScanned ? "bg-emerald-300" : "bg-slate-200"}`} aria-hidden />
+            <span
+              className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase shrink-0 ${
+                isLocationScanned ? "text-indigo-600" : "text-slate-400"
+              }`}
+            >
+              <Package size={11} />
+              2. Boxes {scanCount}/{expectedBoxCount || "—"}
+            </span>
+          </div>
+          <p
+            className={`text-[11px] font-semibold leading-snug ${
+              isLocationScanned ? "text-indigo-700" : "text-amber-800"
             }`}
+            role="status"
           >
-            {isLocationScanned ? <Check size={11} strokeWidth={3} /> : <MapPin size={11} />}
-            Loc
-          </span>
-          <span className={`h-px flex-1 ${isLocationScanned ? "bg-emerald-400" : "bg-slate-200"}`} aria-hidden />
-          <span
-            className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase shrink-0 ${
-              isLocationScanned ? "text-indigo-600" : "text-slate-400"
-            }`}
-          >
-            <Package size={11} className={isLocationScanned ? "animate-pulse" : ""} />
-            Box
-          </span>
-          <span className="text-[10px] font-bold text-slate-500 tabular-nums ml-auto shrink-0">
-            {scanCount}/{countExpectedBoxes(activeLocation) || "—"}
-          </span>
+            {isLocationScanned ? "Scan each box" : "First scan location, then boxes"}
+          </p>
         </div>
 
-        {/* One-line mode hint — replaces big cards/banners */}
-        <p
-          className={`text-[11px] font-bold text-center leading-snug px-1 ${
-            isLocationScanned ? "text-indigo-700" : "text-amber-700"
-          }`}
-          role="status"
-        >
-          {showBoxScanPrompt && isLocationScanned ? (
-            <span className="text-emerald-700">✓ Location OK — scan boxes now</span>
-          ) : isLocationScanned ? (
-            <>Scan box QR · {assignedLocation.location_no}</>
-          ) : (
-            <>Scan location QR · {assignedLocation.location_no}</>
-          )}
-        </p>
-
-        <div className="flex items-center gap-2">
-          {isMobileDevice() && (
-            <button
-              onClick={startScanner}
-              className={`h-9 shrink-0 px-2.5 rounded-lg text-white flex items-center gap-1.5 ${
-                isLocationScanned ? "bg-indigo-600" : "bg-amber-500"
-              }`}
-              title={isLocationScanned ? "Scan box" : "Scan location"}
-            >
-              <QrCode size={15} />
-              <span className="text-[9px] font-black uppercase">Scan</span>
-            </button>
-          )}
-          <form onSubmit={handleScanSubmit} className="relative flex-1 min-w-0">
+        <div className="space-y-2">
+          {(showPhoneQr || laserScan) ? (
+            <div className="flex items-stretch gap-2 w-full min-w-0">
+              {showPhoneQr && (
+                <button
+                  onClick={startScanner}
+                  className={`h-10 sm:h-9 px-3 rounded-lg text-white inline-flex items-center justify-center gap-1.5 ${scanBtnFill} ${
+                    isLocationScanned ? "bg-indigo-600" : "bg-amber-500"
+                  }`}
+                  title={isLocationScanned ? "Scan box QR" : "Scan location QR"}
+                >
+                  <QrCode size={16} />
+                  <span className="text-[10px] font-black uppercase">QR</span>
+                </button>
+              )}
+              {laserScan && (
+                <LaserScanField
+                  active={laserScanActive}
+                  onScanned={handleLaserScan}
+                  onScanRejected={handleLaserScanRejected}
+                  keyboardInputRef={inputRef}
+                  formatPreview={laserPreviewLabel}
+                  compact
+                  heightClass="h-10 sm:h-9"
+                  armButtonLabel={isLocationScanned ? "Scan Box" : "Scan Loc"}
+                  fill={scanBtnCount > 0}
+                />
+              )}
+            </div>
+          ) : null}
+          {keyboardType && (
+          <form onSubmit={handleScanSubmit} className="relative w-full min-w-0">
             <ScanLine size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
+            <ScanEnterInput
               ref={inputRef}
-              value={scanInput}
-              onChange={(e) => setScannedInput(e.target.value)}
+              onEnter={handleKeyboardEnter}
               placeholder={
                 isLocationScanned
-                  ? "Box QR..."
-                  : `${assignedLocation.location_no} QR...`
+                  ? "Type box code, then press Enter"
+                  : "Type location code, then press Enter"
               }
-              className={`w-full h-9 bg-white border rounded-lg pl-7 pr-8 text-[11px] font-mono outline-none focus:ring-2 ${
+              className={`w-full h-10 sm:h-9 bg-white border rounded-lg pl-7 pr-8 text-[11px] font-mono outline-none focus:ring-2 ${
                 isLocationScanned
                   ? "border-indigo-200 focus:border-indigo-500 focus:ring-indigo-50"
                   : "border-amber-200 focus:border-amber-500 focus:ring-amber-50"
@@ -475,13 +525,18 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
               )}
             </div>
           </form>
+          )}
+          {!showPhoneQr && !laserScan && !keyboardType && (
+            <p className="text-[10px] text-slate-500">Enable Laser scanner or Keyboard type in Settings.</p>
+          )}
         </div>
 
         {isLocationScanned && (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between px-0.5">
-              <p className="text-[9px] font-bold text-slate-400 uppercase">
-                Scanned ({currentScannedBoxes.length})
+              <p className="text-[9px] font-bold text-slate-500 uppercase">
+                Scanned ({currentScannedBoxes.length}
+                {expectedBoxCount > 0 ? ` / ${expectedBoxCount}` : ""})
               </p>
               {currentScannedBoxes.length > 0 && !isAuditLocked && (
                 <button
