@@ -101,6 +101,11 @@ export default function StockAdjustmentPage() {
     }
   }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status]);
 
+  const handleModalSuccess = useCallback(() => {
+    fetchData();
+    setSelected(null);
+  }, [fetchData]);
+
   useEffect(() => {
     fetchData();
   }, [fetchData]);
@@ -415,8 +420,8 @@ export default function StockAdjustmentPage() {
       {modalOpen && modalMode === "add" && (
         <StockAdjustmentStickerCloneDrawer
           open={modalOpen}
-          onClose={() => { setModalOpen(false); setEditItem(null); }}
-          onSuccess={() => { fetchData(); setSelected(null); }}
+          onClose={closeModal}
+          onSuccess={handleModalSuccess}
         />
       )}
       {modalOpen && modalMode === "view" && (editItem?.entry_type === "add" || editItem?.entry_type === "minus") && (
@@ -424,7 +429,7 @@ export default function StockAdjustmentPage() {
           open={modalOpen}
           mode="view"
           editData={editItem}
-          onClose={() => { setModalOpen(false); setEditItem(null); }}
+          onClose={closeModal}
         />
       )}
       {modalOpen && modalMode === "view" && editItem?.entry_type !== "add" && editItem?.entry_type !== "minus" && (
@@ -432,7 +437,7 @@ export default function StockAdjustmentPage() {
           open={modalOpen}
           mode="view"
           editData={editItem}
-          onClose={() => { setModalOpen(false); setEditItem(null); }}
+          onClose={closeModal}
         />
       )}
       {modalOpen && modalMode === "edit" && (editItem?.entry_type === "add" || editItem?.entry_type === "minus") && (
@@ -440,8 +445,8 @@ export default function StockAdjustmentPage() {
           open={modalOpen}
           mode="edit"
           editData={editItem}
-          onClose={() => { setModalOpen(false); setEditItem(null); }}
-          onSuccess={() => { fetchData(); setSelected(null); }}
+          onClose={closeModal}
+          onSuccess={handleModalSuccess}
         />
       )}
       {modalOpen && modalMode === "edit" && editItem?.entry_type !== "add" && editItem?.entry_type !== "minus" && (
@@ -449,8 +454,8 @@ export default function StockAdjustmentPage() {
           open={modalOpen}
           mode="edit"
           editData={editItem}
-          onClose={() => { setModalOpen(false); setEditItem(null); }}
-          onSuccess={() => { fetchData(); setSelected(null); }}
+          onClose={closeModal}
+          onSuccess={handleModalSuccess}
         />
       )}
       {modalOpen && modalMode === "approve" && (editItem?.entry_type === "add" || editItem?.entry_type === "minus") && (
@@ -458,8 +463,8 @@ export default function StockAdjustmentPage() {
           open={modalOpen}
           mode="approve"
           editData={editItem}
-          onClose={() => { setModalOpen(false); setEditItem(null); }}
-          onSuccess={() => { fetchData(); setSelected(null); }}
+          onClose={closeModal}
+          onSuccess={handleModalSuccess}
         />
       )}
       {/* Legacy approve modal (non packing add/minus rows only) — edit mode disabled */}
@@ -469,20 +474,14 @@ export default function StockAdjustmentPage() {
         editItem?.entry_type !== "minus" && (
           <StockAdjustmentModal
             open={modalOpen}
-            onClose={() => {
-              setModalOpen(false);
-              setEditItem(null);
-            }}
-            onSuccess={() => {
-              fetchData();
-              setSelected(null);
-            }}
+            onClose={closeModal}
+            onSuccess={handleModalSuccess}
             editData={editItem}
             mode="approve"
           />
         )}
       {deleteItem && (
-        <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={() => { fetchData(); setSelected(null); }} service={stockAdjustmentService} entityLabel="Adjustment Record" idKey="adjustment_id" moduleSlug="stock_adjustment" />
+        <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={handleModalSuccess} service={stockAdjustmentService} entityLabel="Adjustment Record" idKey="adjustment_id" moduleSlug="stock_adjustment" />
       )}
     </div>
   );

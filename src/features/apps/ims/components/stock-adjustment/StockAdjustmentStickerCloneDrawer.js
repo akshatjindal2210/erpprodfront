@@ -622,6 +622,11 @@ export default function StockAdjustmentStickerCloneDrawer({
   const [errors, setErrors] = useState({});
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
   /** Phone: switch between item cards and breakdown table */
   const [mobileBreakdownTab, setMobileBreakdownTab] = useState("details");
   const [viewAddRows, setViewAddRows] = useState([]);
@@ -723,7 +728,7 @@ export default function StockAdjustmentStickerCloneDrawer({
         } catch (err) {
           if (!cancelled) {
             toast.error(err?.message || "Failed to load adjustment");
-            onClose?.();
+            onCloseRef.current?.();
           }
         } finally {
           if (!cancelled) setViewHydrating(false);
@@ -739,7 +744,7 @@ export default function StockAdjustmentStickerCloneDrawer({
       cancelled = true;
       clearTimeout(t);
     };
-  }, [open, isView, isEdit, isApprove, editData?.adjustment_id, onClose]);
+  }, [open, isView, isEdit, isApprove, editData?.adjustment_id]);
 
   const handleApprove = async () => {
     let pendingRemovals = 0;

@@ -179,7 +179,7 @@ export default function InventoryReportPage() {
         key,
         (v) => (
           <span
-            className={`text-[11px] ${isNumber ? "font-semibold text-slate-800 tabular-nums" : isDate ? "text-slate-600 font-bold text-[10px] uppercase" : "text-slate-700 font-medium"}`}
+            className={`text-[11px] ${isNumber ? "font-semibold text-slate-800 tabular-nums" : isDate ? "text-slate-600 font-semibold tabular-nums" : "text-slate-700 font-medium"}`}
           >
             {formatInventoryTableCell(type, v)}
           </span>
