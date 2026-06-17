@@ -16,9 +16,6 @@ import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 import { fetchItemScopedLedgerById } from "@/features/apps/ims/helpers/packingEntryCustomerSelect";
 import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 import { formatDocDate } from "@/core/utils/utilHelper";
-function isMarketLedgerCustomer(ledgerOrRow) {
-  return String(ledgerOrRow?.acc_name ?? "").trim().toLowerCase() === "market";
-}
 
 /** Physical sticker card size in CSS px (96px/in) — matches backend `buildStickerCardHtml` 5.7in × 3.6in. */
 const STICKER_PREVIEW_W_PX = 5.7 * 96;
@@ -174,6 +171,18 @@ function uniqueCategoriesFromStandards(allStandards, itemdcode, accCode) {
     }
   });
   return sortSelectRowsAsc(uniqueCats, "name");
+}
+
+/** Packing category (OEM / Market / …) — from standards DB, never from customer ledger name. */
+function pickPackingCategoryId(uniqueCats, ...preferredIds) {
+  if (!uniqueCats?.length) return "";
+  if (uniqueCats.length === 1) return String(uniqueCats[0].id);
+  for (const pref of preferredIds) {
+    if (pref == null || pref === "") continue;
+    const id = String(pref);
+    if (uniqueCats.some((c) => String(c.id) === id)) return id;
+  }
+  return "";
 }
 
 function hasValidPackingDetails(details) {
@@ -860,16 +869,14 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         setCategories(sortSelectRowsAsc(uniqueCats, "name"));
         setIsMultiple(uniqueCats.length > 1);
         setSelectedRow(firstRow);
-        
-        // --- AUTO-SELECTION LOGIC ---
+
+        const catId = pickPackingCategoryId(uniqueCats, firstRow.type);
         let autoSelected = false;
 
-        // 1. If only one category, select it automatically
-        if (uniqueCats.length === 1 && effectiveAcc) {
-          const catId = String(uniqueCats[0].id);
+        if (catId && effectiveAcc) {
           setSelectedCategory(catId);
           autoSelected = true;
-          
+
           const resolved = await resolveStickerRowForCategory(firstRow, catId, effectiveAcc, imsDatePayload);
           if (resolved.ok) {
             setSelectedRow(
@@ -877,38 +884,12 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                 ? withPackingEntryCustomer(resolved.data, data, { lockToPackingList: true })
                 : resolved.data
             );
-            setIsMultiple(false);
+            setIsMultiple(uniqueCats.length <= 1);
           } else {
             autoSelected = false;
             setSelectedCategory("");
           }
-        } 
-        // 2. If multiple categories, check for "OEM" (case-insensitive)
-        else if (uniqueCats.length > 1 && effectiveAcc) {
-          const oemCat = uniqueCats.find(c => c.name?.toLowerCase() === "oem");
-          if (oemCat) {
-            const catId = String(oemCat.id);
-            setSelectedCategory(catId);
-            autoSelected = true;
-            
-            const resolved = await resolveStickerRowForCategory(firstRow, catId, effectiveAcc, imsDatePayload);
-            if (resolved.ok) {
-              setSelectedRow(
-                stickersExist
-                  ? withPackingEntryCustomer(resolved.data, data, { lockToPackingList: true })
-                  : resolved.data
-              );
-              setIsMultiple(false);
-            } else {
-              autoSelected = false;
-              setSelectedCategory("");
-            }
-          } else {
-            setSelectedCategory("");
-          }
-        } 
-        // 3. Fallback to first row's type if available
-        else if (firstRow.type) {
+        } else if (firstRow.type) {
           setSelectedCategory(String(firstRow.type));
         }
 
@@ -952,7 +933,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         setSelectedCategory(rowType);
       }
     }
-  }, [open, selectedRow?.doc_no, selectedRow?.acc_code, isMultiple, fetchGeneratedSummary]);
+  }, [open, selectedRow?.doc_no, isMultiple, fetchGeneratedSummary]);
 
   const stickerTabDocRef = useRef(null);
   useEffect(() => {
@@ -975,105 +956,31 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
 
       setCustomerChanging(true);
       try {
-        const standardsRes = await packingStandardService.getViews({
-          permission_module: "packing_entry",
-          permission_action: "view",
-        });
-        const uniqueCats = uniqueCategoriesFromStandards(
-          standardsRes.data || [],
-          selectedRow.itemdcode,
-          accCode
-        );
-        setCategories(sortSelectRowsAsc(uniqueCats, "name"));
-        setIsMultiple(uniqueCats.length > 1);
-
-        const isMarketCustomer = isMarketLedgerCustomer(ledgerObj);
-
-        let catId = selectedCategory;
-        if (uniqueCats.length === 1) {
-          catId = String(uniqueCats[0].id);
-          setSelectedCategory(catId);
-        } else if (uniqueCats.length > 1) {
-          if (isMarketCustomer) {
-            const marketCat = uniqueCats.find((c) => c.name?.toLowerCase() === "market");
-            if (marketCat) {
-              catId = String(marketCat.id);
-              setSelectedCategory(catId);
-            } else {
-              catId = "";
-              setSelectedCategory("");
-            }
-          } else {
-            const oemCat = uniqueCats.find((c) => c.name?.toLowerCase() === "oem");
-            if (oemCat) {
-              catId = String(oemCat.id);
-              setSelectedCategory(catId);
-            } else {
-              catId = "";
-              setSelectedCategory("");
-            }
-          }
-        } else {
-          catId = "";
-          setSelectedCategory("");
-        }
-
-        const baseRow = preservePackingProductionIdentity(itemAnchor, {
+        const nextRow = preservePackingProductionIdentity(itemAnchor, {
           ...selectedRow,
           acc_code: accCode,
           acc_name: ledgerObj?.acc_name || selectedRow.acc_name || "",
         });
-
-        if (catId) {
-          const resolved = await resolveStickerRowForCategory(baseRow, catId, accCode, imsDatePayload);
-          if (resolved.ok) {
-            setSelectedRow(preservePackingProductionIdentity(itemAnchor, resolved.data));
-            setIsMultiple(false);
-          } else {
-            const fallbackRow = await enrichRowPartyRateCustCode(
-              { ...baseRow, type: catId, packing_details: null, party_rate_cust_code: null },
-              accCode
-            );
-            setSelectedRow(preservePackingProductionIdentity(itemAnchor, fallbackRow));
-            setIsMultiple(uniqueCats.length > 1);
-            toast.warn(resolved.message || "No packing standard found for this customer");
-          }
-        } else {
-          const r = await fetchStickerRowForCategory(baseRow, null, imsDatePayload);
-          if (r.success && r.data?.length > 0) {
-            let newData = preservePackingProductionIdentity(itemAnchor, r.data[0]);
-            if (r.multiple_categories || !hasValidPackingDetails(newData.packing_details)) {
-              newData = await enrichRowPartyRateCustCode(
-                { ...newData, packing_details: null },
-                accCode
-              );
-              setSelectedRow(preservePackingProductionIdentity(itemAnchor, newData));
-              setIsMultiple(uniqueCats.length > 1);
-              if (uniqueCats.length > 1) {
-                toast.info("Select a packing category to load sticker breakdown.");
-              }
-            } else {
-              newData = await enrichRowPartyRateCustCode(newData, accCode);
-              setSelectedRow(preservePackingProductionIdentity(itemAnchor, newData));
-              setIsMultiple(false);
-            }
-          } else {
-            const fallbackRow = await enrichRowPartyRateCustCode(
-              { ...baseRow, packing_details: null, party_rate_cust_code: null },
-              accCode
-            );
-            setSelectedRow(preservePackingProductionIdentity(itemAnchor, fallbackRow));
-            setIsMultiple(uniqueCats.length > 1);
-            toast.warn(r.message || "No packing standard found for this customer");
-          }
-        }
+        const enriched = await enrichRowPartyRateCustCode(nextRow, accCode);
+        const finalRow = preservePackingProductionIdentity(itemAnchor, enriched);
+        setSelectedRow(finalRow);
+        setGenerated((prev) =>
+          prev.length
+            ? prev.map((r) => ({
+                ...r,
+                acc_code: finalRow.acc_code,
+                acc_name: finalRow.acc_name,
+                party_rate_cust_code: finalRow.party_rate_cust_code ?? null,
+              }))
+            : prev
+        );
       } catch {
         toast.error("Failed to update customer");
       } finally {
         setCustomerChanging(false);
       }
     },
-    [selectedRow, selectedCategory, imsDatePayload, data]
+    [selectedRow, data]
   );
 
   const handleCategoryChange = async (catId) => {
