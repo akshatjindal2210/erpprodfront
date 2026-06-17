@@ -32,6 +32,7 @@ export default function RootLayout({ children }) {
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
           userRole={userRole}
+          currentUser={whoAmi}
         />
 
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">

@@ -6,6 +6,7 @@ import { PersistGate } from "redux-persist/integration/react";
 import { store, persistor } from "@/core/store/index";
 import FormPanelLoader from "@/core/components/common/FormPanelLoader";
 import AuthBootstrap from "@/core/components/providers/AuthBootstrap";
+import CompanyNetworkGate from "@/core/components/common/CompanyNetworkGate";
 
 export default function ReduxProvider({ children }) {
   const [showBootLoader, setShowBootLoader] = useState(true);
@@ -29,7 +30,9 @@ export default function ReduxProvider({ children }) {
   return (
     <Provider store={store}>
       <PersistGate loading={bootLoader} persistor={persistor}>
-        <AuthBootstrap>{children}</AuthBootstrap>
+        <CompanyNetworkGate>
+          <AuthBootstrap>{children}</AuthBootstrap>
+        </CompanyNetworkGate>
       </PersistGate>
     </Provider>
   );

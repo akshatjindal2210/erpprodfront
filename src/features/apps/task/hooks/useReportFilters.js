@@ -2,7 +2,9 @@ import { useState, useEffect, useMemo } from "react";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import { departmentService } from "@/features/admin/services/departmentService";
+import { designationService } from "@/features/admin/services/designationService";
 import { formatTaskUserOptionLabel } from "@/features/apps/task/helpers/utilHelper";
+import { isManagerDesignation, hasFullTaskReportAccess } from "@/features/apps/task/config/appConfig";
 import { userService } from "@/features/apps/task/services/userApi";
 
 export function useReportFilters(currentUser) {
@@ -17,6 +19,12 @@ export function useReportFilters(currentUser) {
   const [selectedDepartment, setSelectedDepartment] = useState(() => {
     if (typeof window !== "undefined") {
       return sessionStorage.getItem("report_filter_department") || "";
+    }
+    return "";
+  });
+  const [selectedDesignation, setSelectedDesignation] = useState(() => {
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem("report_filter_designation") || "";
     }
     return "";
   });
@@ -42,23 +50,33 @@ export function useReportFilters(currentUser) {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
+      sessionStorage.setItem("report_filter_designation", selectedDesignation || "");
+    }
+  }, [selectedDesignation]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
       sessionStorage.setItem("report_filter_user", selectedUser || "");
     }
   }, [selectedUser]);
 
   const [departmentsLists, setDepartmentsLists] = useState([]);
+  const [designationsLists, setDesignationsLists] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
 
   // Master data fetch
   useEffect(() => {
     Promise.all([
       departmentService.getViews(),
+      designationService.getViews(),
       userService.getViews(),
     ])
-      .then(([deptRes, userRes]) => {
+      .then(([deptRes, desRes, userRes]) => {
         const depts = deptRes.data || [];
+        const desigs = desRes.data || [];
         const users = userRes.data?.data || [];
         setDepartmentsLists(depts);
+        setDesignationsLists(desigs);
         setAllUsers(users);
       })
       .catch(() => toast.error("Failed to load departments/users"));
@@ -69,20 +87,20 @@ export function useReportFilters(currentUser) {
     [allUsers, currentUser],
   );
 
-  const isAdmin = role === "super_admin" || role === "admin" || role === "executive_assistant";
-  const isManager = String(loggedInUser?.designation?.name || "").toLowerCase() === "manager";
-  const isUser = role === "user";
+  const isStaff = role === "super_admin" || role === "admin";
+  const hasFullReportAccess = hasFullTaskReportAccess(role);
+  const isManager =
+    isManagerDesignation(loggedInUser) || isManagerDesignation(currentUser);
 
-  // Admin/super_admin/ea: see everything
-  // Manager: see Assigned By + Team Member (Department fixed)
-  // User: see Team Member (Department fixed)
-  const showDepartmentDropdown = isAdmin;
-  const showAssignedByDropdown = isAdmin || isManager;
-  const showTeamMemberDropdown = isAdmin || isManager || isUser;
+  // Admin / EA on report page: all filters; Manager: own dept
+  const showDepartmentDropdown = hasFullReportAccess;
+  const showDesignationDropdown = hasFullReportAccess;
+  const showAssignedByDropdown = hasFullReportAccess || isManager;
+  const showTeamMemberDropdown = hasFullReportAccess || isManager;
 
-  // Department remains fixed for Manager/User (default selected)
+  // Department fixed for manager only (not EA/admin)
   useEffect(() => {
-    if (isAdmin) return;
+    if (hasFullReportAccess) return;
     const userDeptId = loggedInUser?.department?.id;
     if (!userDeptId) return;
     
@@ -91,29 +109,44 @@ export function useReportFilters(currentUser) {
       const next = String(userDeptId);
       return prev === next ? prev : next;
     });
-  }, [isAdmin, loggedInUser?.department?.id]);
+  }, [hasFullReportAccess, loggedInUser?.department?.id]);
+
+  // Designation filter — staff only; clear stale session for others
+  useEffect(() => {
+    if (showDesignationDropdown) return;
+    setSelectedDesignation((prev) => (prev ? "" : prev));
+  }, [showDesignationDropdown]);
 
   // Filter users on dept/role change
   const filteredUsers = useMemo(() => {
     if (!allUsers.length) return [];
 
-    if (isAdmin) {
-      return !selectedDepartment
-        ? allUsers
-        : allUsers.filter(
-            (u) => Number(u.department?.id) === Number(selectedDepartment),
-          );
-    } else if (isManager || isUser) {
+    let users = allUsers;
+
+    if (hasFullReportAccess) {
+      if (selectedDepartment) {
+        users = users.filter(
+          (u) => Number(u.department?.id) === Number(selectedDepartment),
+        );
+      }
+      if (selectedDesignation) {
+        users = users.filter(
+          (u) => Number(u.designation?.id) === Number(selectedDesignation),
+        );
+      }
+      return users;
+    } else if (isManager) {
       const userDeptId = loggedInUser?.department?.id;
-      return allUsers.filter(
+      users = allUsers.filter(
         (u) =>
           Number(u.department?.id) === Number(userDeptId) &&
           Number(u.id) !== Number(currentUser?.id),
       );
+      return users;
     } else {
       return [];
     }
-  }, [selectedDepartment, allUsers, isAdmin, isManager, isUser, loggedInUser?.department?.id, currentUser?.id]);
+  }, [selectedDepartment, selectedDesignation, allUsers, hasFullReportAccess, isManager, loggedInUser?.department?.id, currentUser?.id]);
 
   // Reset selectedUser if it's no longer in filteredUsers or if department changed
   useEffect(() => {
@@ -146,12 +179,12 @@ export function useReportFilters(currentUser) {
   }, [filteredUsers, selectedAssignedBy]);
 
   const assignedByOptions = useMemo(() => {
-    if (!(isAdmin || isManager)) return [];
+    if (!(hasFullReportAccess || isManager)) return [];
     return allUsers.map((u) => ({
       id: u.id,
       name: formatTaskUserOptionLabel(u),
     }));
-  }, [allUsers, isAdmin, isManager]);
+  }, [allUsers, hasFullReportAccess, isManager]);
 
   const departmentOptions = useMemo(() => {
     return departmentsLists.map((d) => ({
@@ -160,14 +193,23 @@ export function useReportFilters(currentUser) {
     }));
   }, [departmentsLists]);
 
+  const designationOptions = useMemo(() => {
+    return designationsLists.map((d) => ({
+      id: d.id,
+      name: d.name,
+    }));
+  }, [designationsLists]);
+
   const clearFilters = (resetPage) => {
     setSelectedAssignedBy("");
     setSelectedUser("");
+    setSelectedDesignation("");
     if (showDepartmentDropdown) setSelectedDepartment("");
     
     if (typeof window !== "undefined") {
       sessionStorage.removeItem("report_filter_assigned_by");
       sessionStorage.removeItem("report_filter_department");
+      sessionStorage.removeItem("report_filter_designation");
       sessionStorage.removeItem("report_filter_user");
     }
     
@@ -180,6 +222,8 @@ export function useReportFilters(currentUser) {
     setSelectedAssignedBy,
     selectedDepartment,
     setSelectedDepartment,
+    selectedDesignation,
+    setSelectedDesignation,
     selectedUser,
     setSelectedUser,
 
@@ -190,15 +234,17 @@ export function useReportFilters(currentUser) {
     assignedByOptions,
 
     // derived
-    isAdmin,
+    isStaff,
     isManager,
     showDepartmentDropdown,
+    showDesignationDropdown,
     showAssignedByDropdown,
     showTeamMemberDropdown,
     
     // actions
     clearFilters,
     departmentOptions,
+    designationOptions,
   };
 }
 

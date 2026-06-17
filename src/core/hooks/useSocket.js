@@ -1,12 +1,12 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { setCredentials, selectRole, selectUser } from "@/core/store/slices/authSlice";
-import { normalizeAppAccess } from "@/config/moduleAppRegistry";
+import { setCredentials, selectRole, selectUser, selectPermissions, selectAppAccess } from "@/core/store/slices/authSlice";
 import { io } from "socket.io-client";
 import { FILE_BASE_URL } from "@/core/utils/lib";
 import { userService } from "@/features/shared/auth/services/userService";
 import { applyListViewSpanFromSession } from "@/core/utils/global";
 import { bindTaskNotifySocket } from "@/features/apps/task/pwa/taskNotifySocket";
+import { authProfileUnchanged, buildCredentialsFromMe } from "@/core/utils/authProfile";
 
 function closeSocketQuietly(socket) {
   if (!socket) return;
@@ -21,60 +21,53 @@ function closeSocketQuietly(socket) {
   }
 }
 
-function authPayloadUnchanged(currentUser, role, me) {
-  if (!currentUser?.id || !me?.id) return false;
-  if (Number(currentUser.id) !== Number(me.id)) return false;
-
-  const nextRole = me.type ?? me.role ?? role ?? "user";
-  const prevRole = currentUser.role ?? role ?? "user";
-  if (String(prevRole) !== String(nextRole)) return false;
-
-  const prevPerms = JSON.stringify(currentUser.permissions ?? []);
-  const nextPerms = JSON.stringify(Array.isArray(me.permissions) ? me.permissions : []);
-  if (prevPerms !== nextPerms) return false;
-
-  const prevApps = JSON.stringify(normalizeAppAccess(currentUser.app_access));
-  const nextApps = JSON.stringify(normalizeAppAccess(me.app_access));
-  return prevApps === nextApps;
-}
-
 const VISIBILITY_REFRESH_MS = 60_000;
+const AUTH_REFRESH_MS = 8_000;
 
 export const useSocket = (userId) => {
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const role = useSelector(selectRole);
+  const permissions = useSelector(selectPermissions);
+  const appAccess = useSelector(selectAppAccess);
   const userRef = useRef(user);
   const roleRef = useRef(role);
+  const permissionsRef = useRef(permissions);
+  const appAccessRef = useRef(appAccess);
+  const lastAuthRefreshAtRef = useRef(0);
 
   useEffect(() => {
     userRef.current = user;
     roleRef.current = role;
-  }, [user, role]);
+    permissionsRef.current = permissions;
+    appAccessRef.current = appAccess;
+  }, [user, role, permissions, appAccess]);
 
-  const refreshAuthFromServer = useCallback(async () => {
+  const refreshAuthFromServer = useCallback(async (force = false) => {
     const currentUser = userRef.current;
     if (!currentUser?.id) return;
 
+    const now = Date.now();
+    if (!force && now - lastAuthRefreshAtRef.current < AUTH_REFRESH_MS) return;
+
     try {
       const res = await userService.me();
+      lastAuthRefreshAtRef.current = Date.now();
       const me = res?.data;
       if (!res?.success || !me?.id) return;
 
       applyListViewSpanFromSession(me);
 
-      if (authPayloadUnchanged(currentUser, roleRef.current, me)) return;
+      if (
+        authProfileUnchanged(currentUser, roleRef.current, me, {
+          permissions: permissionsRef.current,
+          app_access: appAccessRef.current,
+        })
+      ) {
+        return;
+      }
 
-      dispatch(
-        setCredentials({
-          id: me.id,
-          name: me.name ?? currentUser.name,
-          email: me.email ?? currentUser.email,
-          role: me.type ?? me.role ?? roleRef.current ?? "user",
-          permissions: Array.isArray(me.permissions) ? me.permissions : [],
-          app_access: normalizeAppAccess(me.app_access),
-        }),
-      );
+      dispatch(setCredentials(buildCredentialsFromMe(me, currentUser)));
     } catch (err) {
       console.error("Failed to refresh auth after socket update:", err);
     }
@@ -102,11 +95,11 @@ export const useSocket = (userId) => {
       const currentUser = userRef.current;
       if (!currentUser?.id) return;
       if (data?.user_id != null && Number(data.user_id) !== Number(currentUser.id)) return;
-      void refreshRef.current();
+      void refreshRef.current(true);
     };
 
     const onConnect = () => {
-      void refreshRef.current();
+      void refreshRef.current(false);
     };
 
     socket.on("connect", onConnect);
@@ -120,7 +113,7 @@ export const useSocket = (userId) => {
       const now = Date.now();
       if (now - lastVisibilityRefreshAt < VISIBILITY_REFRESH_MS) return;
       lastVisibilityRefreshAt = now;
-      void refreshRef.current();
+      void refreshRef.current(false);
     };
     document.addEventListener("visibilitychange", onVisible);
 

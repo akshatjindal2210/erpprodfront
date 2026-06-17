@@ -6,7 +6,16 @@ import { fetchItemScopedLedgerById } from "@/features/apps/ims/helpers/packingEn
 import { masterService } from "@/features/apps/ims/services/master";
 import { formatDocDate } from "@/core/utils/utilHelper";
 
-export default function StockAdjustmentStickerDetailCards({ selectedRow, packing, onCustomerChange, customerSelectDisabled, customerChanging }) {
+export default function StockAdjustmentStickerDetailCards({
+  selectedRow,
+  packing,
+  onCustomerChange,
+  customerSelectDisabled,
+  customerChanging,
+  hideCustomerSection = false,
+  minusCustomerLines = null,
+  minusViewMode = false,
+}) {
   const row = selectedRow || {};
   const p = packing || {};
 
@@ -51,12 +60,45 @@ export default function StockAdjustmentStickerDetailCards({ selectedRow, packing
         </div>
       </div>
 
+      {!hideCustomerSection ? (
       <div className="bg-white border border-slate-200 rounded-lg shadow-sm">
         <div className="bg-slate-50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-slate-200 flex items-center gap-2 rounded-t-lg">
           <User className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-500" aria-hidden />
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">Customer</span>
         </div>
         <div className="p-3 lg:p-4 space-y-3">
+          {minusViewMode || (Array.isArray(minusCustomerLines) && minusCustomerLines.length > 0) ? (
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                Customers (from selected boxes)
+              </p>
+              {!(Array.isArray(minusCustomerLines) && minusCustomerLines.length > 0) ? (
+                <p className="text-[11px] text-slate-400 italic">—</p>
+              ) : null}
+              {(Array.isArray(minusCustomerLines) ? minusCustomerLines : []).map((line, idx) => (
+                <div
+                  key={`${line.acc_code ?? "c"}-${idx}`}
+                  className="rounded border border-slate-100 bg-slate-50/80 px-2.5 py-2 space-y-0.5"
+                >
+                  <p
+                    className="text-[11px] font-bold text-slate-700 uppercase leading-snug break-words"
+                    title={line.acc_name || line.acc_code || ""}
+                  >
+                    {line.acc_name || line.acc_code || "—"}
+                  </p>
+                  <p className="text-[10px] font-black text-rose-600 tabular-nums">
+                    −{Number(line.qty || 0).toLocaleString()} PCS
+                    {line.box_count > 0 ? (
+                      <span className="text-[9px] font-bold text-slate-400 ml-1">
+                        ({line.box_count} box)
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+          <>
           {!customerSelectDisabled ? (
             <div className={`min-w-0 ${customerChanging ? "opacity-60 pointer-events-none" : ""}`}>
               <SearchableSelect
@@ -129,8 +171,11 @@ export default function StockAdjustmentStickerDetailCards({ selectedRow, packing
               <p className="text-[11px] text-slate-400 italic">Select a customer above.</p>
             )}
           </div>
+          </>
+          )}
         </div>
       </div>
+      ) : null}
 
       <div className="bg-white border border-slate-200 rounded-lg shadow-sm">
         <div className="bg-slate-50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-slate-200 flex items-center gap-2 rounded-t-lg">

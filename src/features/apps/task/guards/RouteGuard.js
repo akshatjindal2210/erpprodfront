@@ -33,7 +33,7 @@ export default function RouteGuard({ children }) {
     }
 
     // 2. Check Code Level Access (Role-based)
-    if (!hasAccess(role, pathname)) {
+    if (!hasAccess(role, pathname, user)) {
       setStatus("denied");
       router.replace(`${getTaskHomePath(role)}?unauthorized=true`);
       return;

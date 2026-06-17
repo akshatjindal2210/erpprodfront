@@ -6,8 +6,9 @@ import { useRouter, usePathname } from "next/navigation";
 import { setCredentials, logout } from "@/core/store/slices/authSlice";
 import { userService } from "@/features/shared/auth/services/userService";
 import { applyListViewSpanFromSession } from "@/core/utils/global";
-import { normalizeAppAccess } from "@/config/moduleAppRegistry";
 import { persistor } from "@/core/store/index";
+import { isNetworkReachabilityError, notifyNetworkUnreachable } from "@/core/utils/companyNetwork";
+import { buildCredentialsFromMe } from "@/core/utils/authProfile";
 
 /**
  * When the cookie session is still valid but Redux is empty — refetch user + permissions from `/users/me`.
@@ -18,10 +19,11 @@ export function useSyncAuthSession() {
   const router = useRouter();
   const pathname = usePathname();
   const user = useSelector((state) => state.auth.user);
-  const [sessionReady, setSessionReady] = useState(() => Boolean(user));
+  const userId = user?.id;
+  const [sessionReady, setSessionReady] = useState(() => Boolean(userId));
 
   useEffect(() => {
-    if (user) {
+    if (userId) {
       setSessionReady(true);
       return;
     }
@@ -36,7 +38,7 @@ export function useSyncAuthSession() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       if (active) controller.abort();
-    }, 10000); // 10s timeout
+    }, 10000);
 
     setSessionReady(false);
 
@@ -47,33 +49,26 @@ export function useSyncAuthSession() {
         if (!active) return;
 
         if (res?.success && res.data?.id) {
-          const d = res.data;
-          applyListViewSpanFromSession(d);
-          dispatch(
-            setCredentials({
-              id: d.id,
-              name: d.name || "",
-              email: d.email ?? "",
-              role: d.role ?? d.type ?? "user",
-                permissions: Array.isArray(d.permissions) ? d.permissions : [],
-                app_access: normalizeAppAccess(d.app_access),
-            })
-          );
+          applyListViewSpanFromSession(res.data);
+          dispatch(setCredentials(buildCredentialsFromMe(res.data)));
         }
       } catch (err) {
         if (!active) return;
 
-        const st = err?.status;
-        if (st === 401 || st === 403 || st === 404) {
-          dispatch(logout());
-          try {
-            await persistor.purge();
-          } catch {
-            /* ignore */
-          }
-          // Only redirect if NOT already on login page to avoid overwriting the redirect param
-          if (pathname !== "/login" && !pathname?.startsWith("/login/")) {
-            router.replace(`/login?redirect=${pathname}`);
+        if (isNetworkReachabilityError(err)) {
+          notifyNetworkUnreachable();
+        } else {
+          const st = err?.status;
+          if (st === 401 || st === 403 || st === 404) {
+            dispatch(logout());
+            try {
+              await persistor.purge();
+            } catch {
+              /* ignore */
+            }
+            if (pathname !== "/login" && !pathname?.startsWith("/login/")) {
+              router.replace(`/login?redirect=${pathname}`);
+            }
           }
         }
       } finally {
@@ -88,7 +83,7 @@ export function useSyncAuthSession() {
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [user, dispatch, router, pathname]);
+  }, [userId, dispatch, router, pathname]);
 
   return sessionReady;
 }

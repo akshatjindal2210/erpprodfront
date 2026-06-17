@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Loader2, LayoutGrid, List, X, Minimize2, Maximize2 } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
+import { useRouter } from "next/navigation";
 
 import {
   taskService,
@@ -37,9 +38,19 @@ import TaskTableRow from "@/features/apps/task/components/tasks/TaskTableRow";
 
 import ReportFilters from "@/features/apps/task/components/reports/ReportFilters";
 import { ReassignModal } from "../tasks/SubPageExtra";
+import { canAccessTaskReport, getTaskHomePath } from "@/features/apps/task/config/appConfig";
 
 export default function ReportPage({ reportPage }) {
   const currentUser = useSelector((state) => state.auth.user);
+  const role = useSelector((state) => state.auth.role);
+  const router = useRouter();
+
+  useEffect(() => {
+    const access = canAccessTaskReport(role, currentUser);
+    if (access === false) {
+      router.replace(`${getTaskHomePath(role)}?unauthorized=true`);
+    }
+  }, [role, currentUser, router]);
 
   // ── Original state ────────────────────────────────────────────────────────
   const [tasks,       setTasks]       = useState([]);
@@ -128,6 +139,8 @@ export default function ReportPage({ reportPage }) {
     setSelectedAssignedBy,
     selectedDepartment,
     setSelectedDepartment,
+    selectedDesignation,
+    setSelectedDesignation,
     selectedUser,
     setSelectedUser,
     departmentsLists,
@@ -135,7 +148,9 @@ export default function ReportPage({ reportPage }) {
     teamMemberOptions,
     assignedByOptions,
     departmentOptions,
+    designationOptions,
     showDepartmentDropdown,
+    showDesignationDropdown,
     showAssignedByDropdown,
     showTeamMemberDropdown,
     clearFilters,
@@ -188,6 +203,7 @@ export default function ReportPage({ reportPage }) {
         sortDir,
         selectedAssignedBy,
         selectedDepartment,
+        selectedDesignation,
         selectedUser,
       };
       const params = buildReportTaskListApiParams(filterState, currentUser, {
@@ -203,11 +219,15 @@ export default function ReportPage({ reportPage }) {
       if (res.data?.data?.stats) setStats(res.data.data.stats);
     } catch (err) {
       if (err?.response?.status === 401) return;
+      if (err?.response?.status === 403) {
+        router.replace(`${getTaskHomePath(role)}?unauthorized=true`);
+        return;
+      }
       toast.error(err.response?.data?.message || "Failed to load tasks");
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, statusFilter, priorityFilter, categoryFilter, sortKey, sortDir, activeTab, quickFilter, selectedAssignedBy, selectedDepartment, selectedUser, currentUser]);
+  }, [page, pageSize, search, statusFilter, priorityFilter, categoryFilter, sortKey, sortDir, activeTab, quickFilter, selectedAssignedBy, selectedDepartment, selectedDesignation, selectedUser, currentUser, router, role]);
 
   useEffect(() => {
     fetchTasks();
@@ -413,14 +433,18 @@ export default function ReportPage({ reportPage }) {
         filteredUsers={filteredUsers}
         teamMemberOptions={teamMemberOptions}
         assignedByOptions={assignedByOptions}
+        designationOptions={designationOptions}
         selectedAssignedBy={selectedAssignedBy}
         selectedDepartment={selectedDepartment}
+        selectedDesignation={selectedDesignation}
         selectedUser={selectedUser}
         showDepartmentDropdown={showDepartmentDropdown}
+        showDesignationDropdown={showDesignationDropdown}
         showAssignedByDropdown={showAssignedByDropdown}
         showTeamMemberDropdown={showTeamMemberDropdown}
         onAssignedByChange={(id) => { setSelectedAssignedBy(id); setPage(1); }}
         onDepartmentChange={onDepartmentChange}
+        onDesignationChange={(id) => { setSelectedDesignation(id); setPage(1); }}
         onUserChange={(id) => { setSelectedUser(id); setPage(1); }}
         onClearAll={() => clearFilters(() => setPage(1))}
       />

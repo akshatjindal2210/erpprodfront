@@ -4,6 +4,7 @@ import { loadPackingContext } from "./loadPackingContext";
 import { buildViewAddRowsFromAdjustment, loadAddBoxesForAdjustmentView, isAddBoxRemovedFromInventory, mapSavedBoxesToAddRows, loadMinusPlanBoxes, parseRemovedBoxUidsForAdjustment, resolveMinusSelectedUidsForAdjustment, normalizeMinusSelectedUidSet,isMinusBoxUidSelected } from "./stockAdjustmentViewBoxes";
 import { parseStoredRemarks } from "./StockAdjustmentModal";
 import { dedupeMinusDrawerBoxRows, isBoxVisibleForStockAdjustmentMinus, isValidMinusDrawerBoxRow } from "@/features/apps/ims/utils/boxInventory";
+import { enrichMinusBoxCustomerNames } from "@/features/apps/ims/utils/minusCustomerBreakdown";
 
 const STOCK_ADJ_PERMS = { permission_module: "stock_adjustment", permission_action: "view" };
 
@@ -14,6 +15,10 @@ function mapBoxRow(b, packingNo) {
     qty: b.qty,
     packing_number: b.packing_number ?? packingNo,
     is_loose: !!b.is_loose,
+    override_cust: b.override_cust ?? null,
+    acc_code: b.acc_code ?? null,
+    acc_name: b.acc_name ?? null,
+    prod_acc_code: b.prod_acc_code ?? null,
     unit: b.unit || "PCS",
     sa_id: b.sa_id ?? null,
     sa_entry_type: b.sa_entry_type ?? null,
@@ -50,10 +55,25 @@ function mergeMinusPackingBoxes(liveBoxes, planBoxes, packingNo) {
       continue;
     }
     const saFields = pickSaInventoryFields(existing, mapped);
+    const custFields =
+      mapped.override_cust != null && String(mapped.override_cust).trim() !== "" && String(mapped.override_cust).trim() !== "-"
+        ? {
+            override_cust: mapped.override_cust,
+            acc_code: mapped.acc_code ?? existing.acc_code,
+            acc_name: mapped.acc_name ?? existing.acc_name,
+            prod_acc_code: mapped.prod_acc_code ?? existing.prod_acc_code,
+          }
+        : {
+            override_cust: existing.override_cust ?? mapped.override_cust,
+            acc_code: existing.acc_code ?? mapped.acc_code,
+            acc_name: existing.acc_name ?? mapped.acc_name,
+            prod_acc_code: existing.prod_acc_code ?? mapped.prod_acc_code,
+          };
     byUid.set(uid, {
       ...existing,
       ...mapped,
       ...saFields,
+      ...custFields,
       box_no_uid: mapped.box_no_uid ?? existing.box_no_uid ?? null,
     });
   }
@@ -137,9 +157,14 @@ export async function hydrateStockAdjustmentStickerView(editData, options = {}) 
       );
     }
 
+    const enrichedFinalBoxes = await enrichMinusBoxCustomerNames(
+      finalBoxes,
+      packingPreview.dailyprod?.itemdcode ?? row.item_dcode
+    );
+
     packingPreview = {
       ...packingPreview,
-      boxes: finalBoxes,
+      boxes: enrichedFinalBoxes,
     };
   }
 

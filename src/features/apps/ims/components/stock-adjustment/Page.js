@@ -30,6 +30,49 @@ import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { formatDateTime } from "@/core/utils/utilHelper";
 
+function stockAdjustmentCustomerCell(v, row) {
+  const lines =
+    row.entry_type === "minus" && Array.isArray(row.minus_customer_lines)
+      ? row.minus_customer_lines
+      : null;
+
+  if (lines && lines.length > 1) {
+    const title = lines
+      .map((l) => {
+        const name = l.acc_name || l.acc_code || "—";
+        const q = Number(l.qty || 0);
+        return q > 0 ? `${name} (−${q.toLocaleString()} PCS)` : name;
+      })
+      .join(", ");
+    const label = lines
+      .map((l) => l.acc_name || l.acc_code || "—")
+      .join(", ");
+    return (
+      <span
+        className="text-[10px] text-slate-700 font-bold uppercase block max-w-[140px] sm:max-w-[220px] leading-snug whitespace-normal break-words"
+        title={title}
+      >
+        {label}
+      </span>
+    );
+  }
+
+  const label =
+    (lines?.length === 1 ? lines[0].acc_name || lines[0].acc_code : null) ||
+    (typeof v === "string" ? v.replace(/\s*·\s*/g, ", ") : v) ||
+    (typeof row.acc_name === "string" ? row.acc_name.replace(/\s*·\s*/g, ", ") : row.acc_name) ||
+    "—";
+
+  return (
+    <span
+      className="text-[10px] text-slate-700 font-bold uppercase truncate block max-w-[140px] sm:max-w-[220px]"
+      title={String(label)}
+    >
+      {label}
+    </span>
+  );
+}
+
 export default function StockAdjustmentPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("stock_adjustment", "view"), [canAccess]);
@@ -228,11 +271,7 @@ export default function StockAdjustmentPage() {
     ["Type", "entry_type", (v) => (<span className="text-[10px] font-black uppercase text-slate-700">{v === "add" ? "Add (+)" : v === "minus" ? "Minus (-)" : "—"}</span>), { width: "72px", align: "center" }],
     ["Packing no.", "packing_number", (v) => (<span className="font-mono text-[10px] text-slate-700 truncate block max-w-[120px]">{v || "—"}</span>), { width: "120px" }],
     ["Fin. year", "financial_year", (v) => (<span className="text-[10px] text-slate-600">{v || "—"}</span>), { width: "80px", align: "center" }],
-    ["Customer", "acc_name", (v) => (
-      <span className="text-[10px] text-slate-700 font-bold uppercase truncate block max-w-[180px]" title={v || ""}>
-        {v || "—"}
-      </span>
-    ), { width: "180px" }],
+    ["Customer", "acc_name", stockAdjustmentCustomerCell, { width: "200px", wrap: true }],
 
     ["Total qty", "qty", (v, row) => (
       <div className="flex items-baseline gap-1 py-1 justify-center">

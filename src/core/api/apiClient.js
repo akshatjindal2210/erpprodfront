@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../utils/lib";
+import { isNetworkReachabilityError, isNetworkMarkedDown, markNetworkReachableFromApi, notifyNetworkUnreachable } from "../utils/companyNetwork";
 
 /** Dedupe IMS warning toasts when many parallel API calls fail together */
 const IMS_TOAST_THROTTLE_MS = 14000;
@@ -115,8 +116,13 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
 
     maybeToastImsUnavailable(data?.ims_meta);
 
+    if (isNetworkMarkedDown()) markNetworkReachableFromApi();
+
     return data;
   } catch (err) {
+    if (isNetworkReachabilityError(err)) {
+      notifyNetworkUnreachable();
+    }
     throw err;
   }
 }

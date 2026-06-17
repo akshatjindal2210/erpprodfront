@@ -1,4 +1,10 @@
 import { API_BASE_URL } from "@/core/utils/lib";
+import {
+  isNetworkReachabilityError,
+  isNetworkMarkedDown,
+  markNetworkReachableFromApi,
+  notifyNetworkUnreachable,
+} from "@/core/utils/companyNetwork";
 
 function buildUrl(path, params) {
   if (!path) {
@@ -46,7 +52,13 @@ async function request(method, path, { params, data, headers = {}, signal } = {}
     }
   }
 
-  const res = await fetch(url, init);
+  let res;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    if (isNetworkReachabilityError(err)) notifyNetworkUnreachable();
+    throw err;
+  }
   const contentType = res.headers.get("content-type") || "";
   let parsed = null;
 
@@ -72,6 +84,7 @@ async function request(method, path, { params, data, headers = {}, signal } = {}
     throw error;
   }
 
+  if (isNetworkMarkedDown()) markNetworkReachableFromApi();
   return { data: parsed, status: res.status };
 }
 

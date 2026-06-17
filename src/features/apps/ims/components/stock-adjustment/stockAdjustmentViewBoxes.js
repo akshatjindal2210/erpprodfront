@@ -3,6 +3,7 @@ import { fetchAllListPages } from "@/features/apps/ims/helpers/clientListSearch"
 import { formatStockAdjustmentBoxNoUid, parseStockAdjustmentBoxIndex } from "@/features/apps/ims/utils/stockAdjustmentPacking";
 import { getBoxNoUidPrefix } from "@/core/utils/global";
 import { fetchInHandBoxesForPacking } from "./loadPackingContext";
+import { enrichMinusBoxCustomerNames } from "@/features/apps/ims/utils/minusCustomerBreakdown";
 
 export function parseRemovedBoxUids(row) {
   return parseRemovedBoxIdentifiers(row).uids;
@@ -448,7 +449,9 @@ export async function loadMinusPlanBoxes(row) {
     );
   }
 
-  return boxes
+  const sorted = boxes
     .filter((b) => uidSet.has(Number(b.box_uid)))
     .sort((a, b) => Number(a.box_uid) - Number(b.box_uid));
+
+  return enrichMinusBoxCustomerNames(sorted, row?.item_dcode);
 }

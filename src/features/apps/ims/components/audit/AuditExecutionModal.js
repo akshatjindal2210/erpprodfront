@@ -20,7 +20,6 @@ import { SCAN_SNACK_MSG, FLOW_SCAN_CAMERA_INSECURE_MSG, useScanSnackbarActions }
 import {
   buildScannedDataFromAudit,
   getLocationFromAudit,
-  countExpectedBoxes,
   isLocationClosed,
   isLocationEditable,
 } from "./auditScanHelpers";
@@ -381,8 +380,6 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
     return null;
   }
 
-  const expectedBoxCount = countExpectedBoxes(activeLocation) || 0;
-
   const drawerFooter = (
     <div className="flex items-center justify-between w-full">
       <button
@@ -457,7 +454,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
               }`}
             >
               <Package size={11} />
-              2. Boxes {scanCount}/{expectedBoxCount || "—"}
+              2. Boxes {scanCount > 0 ? scanCount : ""}
             </span>
           </div>
           <p
@@ -535,8 +532,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
           <div className="space-y-1.5">
             <div className="flex items-center justify-between px-0.5">
               <p className="text-[9px] font-bold text-slate-500 uppercase">
-                Scanned ({currentScannedBoxes.length}
-                {expectedBoxCount > 0 ? ` / ${expectedBoxCount}` : ""})
+                Scanned ({currentScannedBoxes.length})
               </p>
               {currentScannedBoxes.length > 0 && !isAuditLocked && (
                 <button

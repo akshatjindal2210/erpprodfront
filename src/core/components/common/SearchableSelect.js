@@ -136,17 +136,30 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     return sel ? (labelOnlyDisplay ? getDisplayLabel(sel, labelKey) : toSearchText(sel[labelKey])) : "";
   }, [multiple, showTags, compactMulti, labelKey, labelOnlyDisplay]);
 
-  // 1. Position Calculation
+  // 1. Position Calculation — viewport coords for fixed portal (works inside Drawer scroll-lock)
   const calcPosition = useCallback(() => {
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
+    const margin = 8;
+    const panelHeight = 264;
     const spaceBelow = window.innerHeight - rect.bottom;
-    const nextOpenUp = spaceBelow < 260;
+    const nextOpenUp = spaceBelow < panelHeight && rect.top > spaceBelow;
+
+    let width = Math.min(rect.width, window.innerWidth - margin * 2);
+    let left = rect.left;
+    if (left + width > window.innerWidth - margin) {
+      left = Math.max(margin, window.innerWidth - margin - width);
+    }
+    if (left < margin) {
+      left = margin;
+      width = Math.min(width, window.innerWidth - margin * 2);
+    }
+
     setOpenUp(nextOpenUp);
     setDropPos({
-      width: rect.width,
-      left: rect.left + window.scrollX,
-      top: !nextOpenUp ? rect.bottom + window.scrollY + 4 : rect.top + window.scrollY - 264,
+      width,
+      left,
+      top: !nextOpenUp ? rect.bottom + 4 : Math.max(margin, rect.top - panelHeight - 4),
     });
   }, []);
 
@@ -529,10 +542,13 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       id="searchable-portal"
       style={
         usePortal
-          ? { 
-              ...dropPos, 
-              position: "absolute", 
-              zIndex: 99999,
+          ? {
+              top: dropPos.top,
+              left: dropPos.left,
+              width: dropPos.width,
+              maxWidth: "calc(100vw - 16px)",
+              position: "fixed",
+              zIndex: 1100,
             }
           : {
               position: "absolute",

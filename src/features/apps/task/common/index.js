@@ -1,12 +1,14 @@
 export { taskService } from "@/features/apps/task/services/taskApi";
 export { userService } from "@/features/apps/task/services/userApi";
 export { recurringTaskService } from "@/features/apps/task/services/recurringTaskApi";
+export { clTaskService } from "@/features/apps/task/services/clTaskApi";
 export { holidayService } from "@/features/apps/task/services/holidayApi";
 export { categoryService } from "@/features/apps/task/services/categoryApi";
 
 export { useViewMode } from "@/features/apps/task/hooks/useViewMode";
 export { usePersistedScroll } from "@/features/apps/task/hooks/usePersistedScroll";
 export { useRecurringFilters } from "@/features/apps/task/hooks/useRecurringFilters";
+export { useClTaskFilters } from "@/features/apps/task/hooks/useClTaskFilters";
 export { useReportFilters } from "@/features/apps/task/hooks/useReportFilters";
 
 export { default as StatCard } from "@/features/apps/task/components/common/StatCard";

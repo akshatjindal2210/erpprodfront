@@ -4,11 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut, X, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { useAppLogout } from "@/core/hooks/useLogout";
-import { SIDEBAR_MENU, hasAccess } from "@/features/apps/task/config/appConfig";
+import { SIDEBAR_MENU, hasAccess, canShowTaskReportMenu } from "@/features/apps/task/config/appConfig";
 import { useSidebarCollapse } from "@/features/apps/task/hooks/useViewMode";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 
-export default function Sidebar({ sidebarOpen, setSidebarOpen, userRole }) {
+export default function Sidebar({ sidebarOpen, setSidebarOpen, userRole, currentUser }) {
   const pathname = usePathname();
   const { handleLogout } = useAppLogout();
   const canAccess = useCanAccess();
@@ -19,6 +19,11 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen, userRole }) {
   };
 
   const getAccess = (item) => {
+    // Task Report — manager/admin only (not executive user)
+    if (item.href === "/task/dashboard/reports") {
+      return canShowTaskReportMenu(userRole, currentUser);
+    }
+
     // 1. Check App Level Access (via global canAccess hook)
     if (item.module) {
       const access = canAccess(item.module, "view");
@@ -27,11 +32,12 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen, userRole }) {
 
     // 2. Check Code Level Access (via Task-specific role logic)
     if (item.roles) {
-      const normalizedRole = userRole === "executive_assistant" ? "team" : userRole;
-      return item.roles.includes(normalizedRole);
+      const normalizedRole =
+        userRole === "team" ? "executive_assistant" : String(userRole || "").toLowerCase();
+      if (!item.roles.includes(normalizedRole)) return false;
     }
 
-    return hasAccess(userRole, item.href);
+    return hasAccess(userRole, item.href, currentUser);
   };
 
   const menuItems = SIDEBAR_MENU.filter(item => {

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Search, Menu, ChevronDown, LogOut, Shield, X, KeyRound } from "lucide-react";
 import { useAppLogout } from "@/core/hooks/useLogout";
 import reminderService from "@/features/apps/task/services/reminderApi";
-import { NAVBAR_PAGES, getProfileDropdown, getRoleConfig, hasAccess } from "@/features/apps/task/config/appConfig";
+import { NAVBAR_PAGES, getProfileDropdown, getRoleConfig, hasAccess, canShowTaskReportMenu } from "@/features/apps/task/config/appConfig";
 import PortalAppLauncherButton from "@/features/shared/portal/components/PortalAppLauncherButton";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import ChangePasswordModal from "@/features/admin/identity/users/ChangePasswordModal";
@@ -32,6 +32,9 @@ export default function Navbar({ setSidebarOpen, userRole, whoAmi }) {
 
   // Role-based config
   const allowedPages = NAVBAR_PAGES.filter(page => {
+    if (page.path === "/task/dashboard/reports") {
+      return canShowTaskReportMenu(userRole, whoAmi);
+    }
     // 1. Check App Level Access
     if (page.module) {
       const access = canAccess(page.module, "view");
@@ -39,10 +42,11 @@ export default function Navbar({ setSidebarOpen, userRole, whoAmi }) {
     }
     // 2. Check Code Level Access
     if (page.roles) {
-      const normalizedRole = userRole === "executive_assistant" ? "team" : userRole;
-      return page.roles.includes(normalizedRole);
+      const normalizedRole =
+        userRole === "team" ? "executive_assistant" : String(userRole || "").toLowerCase();
+      if (!page.roles.includes(normalizedRole)) return false;
     }
-    return hasAccess(userRole, page.path);
+    return hasAccess(userRole, page.path, whoAmi);
   });
   const profileDropdown = getProfileDropdown(userRole);
   const roleConfig      = getRoleConfig(userRole);

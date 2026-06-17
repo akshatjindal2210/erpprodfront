@@ -1,24 +1,62 @@
 export const formatDate = (d) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", }) : "—";
 
-/** Normalize API/DB timestamps for `<input type="datetime-local" />` (local time, YYYY-MM-DDTHH:mm). */
+/** CL task scheduled_date — date-only, no raw ISO in UI */
+export function formatScheduledDate(val) {
+  if (!val) return "—";
+  const d = String(val).slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    return new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      timeZone: "Asia/Kolkata",
+    });
+  }
+  return formatDateTime(val);
+}
+
+function istDateTimeParts(date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+}
+
+function partsToDateTimeLocal(parts) {
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+}
+
+/** Normalize API/DB timestamps for `<input type="datetime-local" />` (IST wall clock). */
 export function toDateTimeLocalInput(value) {
   if (value == null || value === "") return "";
 
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) return "";
-    const p = (n) => String(n).padStart(2, "0");
-    return `${value.getFullYear()}-${p(value.getMonth() + 1)}-${p(value.getDate())}T${p(value.getHours())}:${p(value.getMinutes())}`;
+    return partsToDateTimeLocal(istDateTimeParts(value));
   }
 
   const text = String(value).trim();
-  const match = text.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
-  if (match) return `${match[1]}T${match[2]}`;
+  const hasTz = /[Zz]$|[+-]\d{2}:\d{2}$/.test(text);
+  const naive = text.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})/);
+  if (naive && !hasTz) return `${naive[1]}T${naive[2]}:${naive[3]}`;
 
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return "";
+  return partsToDateTimeLocal(istDateTimeParts(parsed));
+}
 
-  const p = (n) => String(n).padStart(2, "0");
-  return `${parsed.getFullYear()}-${p(parsed.getMonth() + 1)}-${p(parsed.getDate())}T${p(parsed.getHours())}:${p(parsed.getMinutes())}`;
+/** Pretty label for datetime-local value (IST wall clock, no UTC shift). */
+export function formatDateTimeLocalLabel(value) {
+  if (!value) return "";
+  const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return formatDateTime(value);
+  return formatDateTime(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00+05:30`);
 }
 
 export function formatDateTime(date, options = {}) {

@@ -111,7 +111,7 @@ const Drawer = ({
     }
   }, [isOpen, onClose, onSubmit]);
 
-  const blockBackdropInteraction = (e) => {
+  const handleBackdropPointerDown = (e) => {
     e.preventDefault();
     e.stopPropagation();
     if (closeOnOutside) onClose?.();
@@ -124,15 +124,14 @@ const Drawer = ({
       <div
         role="presentation"
         aria-hidden="true"
-        className="absolute inset-0 z-0 bg-slate-900/50 transition-opacity duration-200 touch-none"
-        onMouseDown={blockBackdropInteraction}
-        onTouchStart={blockBackdropInteraction}
-        onClick={blockBackdropInteraction}
+        className="absolute inset-0 z-0 bg-slate-900/50 transition-opacity duration-200 touch-none cursor-default"
+        onPointerDown={handleBackdropPointerDown}
       />
 
       <div
         className={`fixed inset-y-0 right-0 z-10 flex w-full min-w-0 flex-col overflow-hidden bg-white border-l border-slate-300 shadow-2xl animate-in slide-in-from-right duration-200 ${maxWidth}`}
         style={{ height: "100dvh", maxHeight: "100dvh" }}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         
         <div className={`flex items-start sm:items-center justify-between gap-2 px-4 py-3 border-b border-slate-200 shrink-0 z-30 min-w-0 ${isFormHeader ? "bg-white" : "bg-slate-50"}`}>
@@ -180,9 +179,11 @@ const Drawer = ({
         </div>
 
         <div
-          className={`flex-1 min-h-0 overflow-x-hidden overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar bg-white ${
-            noPadding ? "p-0" : "p-3 sm:p-4"
-          } ${bodyScrollable ? "" : "overflow-hidden"}`}
+          className={`flex flex-1 min-h-0 flex-col overflow-x-hidden bg-white ${
+            bodyScrollable
+              ? "overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar"
+              : "overflow-hidden"
+          } ${noPadding ? "p-0" : "p-3 sm:p-4"}`}
         >
           {children}
         </div>

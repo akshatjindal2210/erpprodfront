@@ -8,22 +8,26 @@ export default function ReportFilters({
   filteredUsers,
   teamMemberOptions,
   assignedByOptions,
-  
+  designationOptions = [],
+
   // state
   selectedAssignedBy,
   selectedDepartment,
+  selectedDesignation,
   selectedUser,
   
   // derived
   isAdmin,
   isManager,
   showDepartmentDropdown,
+  showDesignationDropdown,
   showAssignedByDropdown,
   showTeamMemberDropdown,
   
   // handlers
   onAssignedByChange,
   onDepartmentChange,
+  onDesignationChange,
   onUserChange,
   onClearAll,
   
@@ -32,8 +36,8 @@ export default function ReportFilters({
   teamTitle = "Assigned To"
 }) {
   const showClearButton =
-    (showDepartmentDropdown || showAssignedByDropdown || showTeamMemberDropdown) &&
-    (selectedDepartment || selectedAssignedBy || selectedUser);
+    (showDepartmentDropdown || showDesignationDropdown || showAssignedByDropdown || showTeamMemberDropdown) &&
+    (selectedDepartment || selectedDesignation || selectedAssignedBy || selectedUser);
 
   return (
     <div className="mb-8 flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
@@ -50,7 +54,7 @@ export default function ReportFilters({
       </div>
 
       {/* Right: filters — laptop = one row + Clear aligned; narrow = stack / wrap without overflow */}
-      {(showAssignedByDropdown || showDepartmentDropdown || showTeamMemberDropdown) && (
+      {(showAssignedByDropdown || showDepartmentDropdown || showDesignationDropdown || showTeamMemberDropdown) && (
         <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-3 lg:flex-1 lg:flex-nowrap lg:justify-end">
           {showAssignedByDropdown && (
             <div className="min-w-0 w-full space-y-1.5 sm:min-w-[10rem] sm:flex-1 lg:max-w-xs">
@@ -76,6 +80,20 @@ export default function ReportFilters({
                 value={selectedDepartment}
                 onChange={onDepartmentChange}
                 placeholder="All Departments"
+              />
+            </div>
+          )}
+
+          {showDesignationDropdown && (
+            <div className="min-w-0 w-full space-y-1.5 sm:min-w-[10rem] sm:flex-1 lg:max-w-xs">
+              <label className="ml-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Designation
+              </label>
+              <SearchableSelect
+                options={designationOptions}
+                value={selectedDesignation}
+                onChange={onDesignationChange}
+                placeholder="All Designations"
               />
             </div>
           )}

@@ -2,9 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isLaserCommitKey, laserScanChar } from "@/core/utils/deviceScanSettings";
+import { normalizeScanInput, scanBufferLooksIncomplete } from "@/features/apps/ims/helpers/qrScan";
 
 const DEDUP_MS = 1500;
-const IDLE_COMMIT_MS = 250;
+const IDLE_COMMIT_MS = 450;
+const URL_IDLE_COMMIT_MS = 1000;
+/** Ignore trailing Enter from scanner right after a successful commit. */
+const TRAILING_ENTER_IGNORE_MS = 1200;
 
 function isTypableElement(el, laserEl) {
   if (!el || el === document.body) return false;
@@ -77,6 +81,7 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
   const laserBufferRef = useRef("");
   const laserIdleRef = useRef(null);
   const lastLaserRef = useRef({ code: "", at: 0 });
+  const lastSuccessAtRef = useRef(0);
   const activeRef = useRef(active);
   const armedRef = useRef(false);
   const armedAtRef = useRef(0);
@@ -225,20 +230,27 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
 
   const onLaserScanned = useCallback(
     (raw, { fromCommitKey = false } = {}) => {
-      const code = String(raw ?? "").trim();
+      const code = normalizeScanInput(raw);
+      const now = Date.now();
       if (!code) {
+        if (
+          fromCommitKey &&
+          now - lastSuccessAtRef.current < TRAILING_ENTER_IGNORE_MS
+        ) {
+          return;
+        }
         if (fromCommitKey || String(raw ?? "").length > 0) {
           onScanRejectedRef.current?.({ reason: "empty" });
         }
         return;
       }
 
-      const now = Date.now();
       if (code === lastLaserRef.current.code && now - lastLaserRef.current.at < DEDUP_MS) {
         onScanRejectedRef.current?.({ reason: "duplicate", code });
         return;
       }
       lastLaserRef.current = { code, at: now };
+      lastSuccessAtRef.current = now;
 
       laserBufferRef.current = "";
       void onScannedRef.current(code);
@@ -264,6 +276,10 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
         laserIdleRef.current = null;
       }
       const raw = laserBufferRef.current || String(laserInputRef.current?.value ?? "");
+      if (!fromCommitKey && scanBufferLooksIncomplete(raw)) {
+        laserIdleRef.current = setTimeout(() => commitLaserNow(false), URL_IDLE_COMMIT_MS);
+        return;
+      }
       laserBufferRef.current = "";
       onLaserScanned(raw, { fromCommitKey });
     },
@@ -284,7 +300,10 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
       laserBufferRef.current += ch;
       setPreviewIfEnabled(laserBufferRef.current);
       if (laserIdleRef.current) clearTimeout(laserIdleRef.current);
-      laserIdleRef.current = setTimeout(commitLaserNow, IDLE_COMMIT_MS);
+      const idleMs = scanBufferLooksIncomplete(laserBufferRef.current)
+        ? URL_IDLE_COMMIT_MS
+        : IDLE_COMMIT_MS;
+      laserIdleRef.current = setTimeout(commitLaserNow, idleMs);
     },
     [commitLaserNow, setPreviewIfEnabled]
   );
@@ -306,7 +325,8 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
       setPreviewIfEnabled(v);
       laserBufferRef.current = v;
       if (laserIdleRef.current) clearTimeout(laserIdleRef.current);
-      laserIdleRef.current = setTimeout(commitLaserNow, IDLE_COMMIT_MS);
+      const idleMs = scanBufferLooksIncomplete(v) ? URL_IDLE_COMMIT_MS : IDLE_COMMIT_MS;
+      laserIdleRef.current = setTimeout(commitLaserNow, idleMs);
     },
     [commitLaserNow, unlockLaserInput, setPreviewIfEnabled]
   );

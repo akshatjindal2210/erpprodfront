@@ -14,7 +14,7 @@ import RichTextDisplay from "@/features/apps/task/components/common/RichTextDisp
 
 import { PRIORITY_CONFIG_DETAIL_PAGE, TASK_STATUS_CONFIG } from "@/features/apps/task/components/common/Constants";
 import { MiniRow, Sk, fmtDt, Badge, TimelineItem, AssignmentChain, AutoTextarea, FilePill, ChatBubble, ForwardModal, ActionModal, SidebarTaskItem, ChatMembers, ActivityLogModal, } from "./SubPageExtra";
-import { formatDateTime, toDateTimeLocalInput } from "@/features/apps/task/helpers/utilHelper";
+import { formatDateTime, formatDateTimeLocalLabel, toDateTimeLocalInput } from "@/features/apps/task/helpers/utilHelper";
 
 import { SIDEBAR_TABS, TASK_COLORS } from "@/features/apps/task/components/tasks_common_component/TaskConstant"
 import { filterSidebarTasks, getTaskColor, SidebarCounts } from "@/features/apps/task/components/tasks_common_component/TaskHelper"
@@ -118,6 +118,10 @@ export default function TaskDetailPage() {
   const [selfDirty,      setSelfDirty]      = useState(false);
   const [selfNoteExists, setSelfNoteExists] = useState(false);
   const [selfReminder,   setSelfReminder]   = useState("");
+  const [savedReminder,  setSavedReminder]  = useState("");
+  const [reminderDirty,  setReminderDirty]  = useState(false);
+  const [reminderSaving, setReminderSaving] = useState(false);
+  const reminderDirtyRef = useRef(false);
   const [targetDateInput, setTargetDateInput] = useState("");
   const [targetDateSaving, setTargetDateSaving] = useState(false);
   const [autoSaving,     setAutoSaving]     = useState(false);
@@ -161,13 +165,21 @@ export default function TaskDetailPage() {
       const data = res.data?.data;
       if (data) {
         setSelfNote(data.note ?? "");
-        setSelfReminder(toDateTimeLocalInput(data.reminder_at));
+        const reminder = toDateTimeLocalInput(data.reminder_at);
+        if (!reminderDirtyRef.current) {
+          setSelfReminder(reminder);
+          setSavedReminder(reminder);
+          setReminderDirty(false);
+        }
         let atts = data.attachments;
         if (typeof atts === "string") { try { atts = JSON.parse(atts); } catch { atts = []; } }
         setSelfAtts(Array.isArray(atts) ? atts : []);
         setSelfNoteExists(true);
       } else {
-        setSelfNote(""); setSelfAtts([]); setSelfNoteExists(false); setSelfReminder("");
+        setSelfNote(""); setSelfAtts([]); setSelfNoteExists(false);
+        if (!reminderDirtyRef.current) {
+          setSelfReminder(""); setSavedReminder(""); setReminderDirty(false);
+        }
       }
       setSelfDirty(false); setSelfNewFiles([]); setSelfRemove([]);
     } catch (err) { console.log("fetchSelfNote error:", err); }
@@ -251,6 +263,7 @@ export default function TaskDetailPage() {
   const isAssigner      = task && Number(task.assigned_by_id)        === Number(currentUserId);
   const isL1            = task && Number(task.first_assigned_to_id) === Number(currentUserId);
   const canSetTargetDate = isAssignedTask && !isTaskDone && task?.can_set_target_date === true;
+  const canAdminOverrideTarget = isAssignedTask && !isTaskDone && task?.can_admin_override_target_date === true;
   const hasValidTarget   = task?.has_valid_target === true;
   const isChatLockedByTarget = isAssignedTask && !hasValidTarget && !isAssigner && !isTaskDone;
   const isCurrentHolder = task && Number(task.current_holder_id)    === Number(currentUserId);
@@ -309,8 +322,22 @@ export default function TaskDetailPage() {
     detailScrollRef.current.scrollTop = 0;
   }, [id]);
 
-  const handleSaveSelf = useCallback(async () => {
+  const handleSaveSelf = useCallback(async ({ includeReminder = false } = {}) => {
     setSelfSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("note", selfNote);
+      fd.append("reminder_at", includeReminder ? (selfReminder || "") : (savedReminder || ""));
+      selfNewFiles.forEach((f) => fd.append("files", f.file));
+      if (selfRemove.length > 0) fd.append("remove_files", JSON.stringify(selfRemove));
+      await taskService.upsertSelfNote(id, fd);
+      await fetchSelfNote();
+    } catch { toast.error("Failed to save note"); }
+    finally  { setSelfSaving(false); }
+  }, [id, selfNote, selfReminder, savedReminder, selfNewFiles, selfRemove, fetchSelfNote]);
+
+  const handleSaveReminder = useCallback(async () => {
+    setReminderSaving(true);
     try {
       const fd = new FormData();
       fd.append("note", selfNote);
@@ -318,9 +345,16 @@ export default function TaskDetailPage() {
       selfNewFiles.forEach((f) => fd.append("files", f.file));
       if (selfRemove.length > 0) fd.append("remove_files", JSON.stringify(selfRemove));
       await taskService.upsertSelfNote(id, fd);
+      setSavedReminder(selfReminder);
+      setReminderDirty(false);
+      reminderDirtyRef.current = false;
+      toast.success(selfReminder ? "Personal reminder saved" : "Personal reminder cleared");
       await fetchSelfNote();
-    } catch { toast.error("Failed to save note"); }
-    finally  { setSelfSaving(false); }
+    } catch {
+      toast.error("Failed to save reminder");
+    } finally {
+      setReminderSaving(false);
+    }
   }, [id, selfNote, selfReminder, selfNewFiles, selfRemove, fetchSelfNote]);
 
   useEffect(() => {
@@ -329,7 +363,11 @@ export default function TaskDetailPage() {
       setAutoSaving(true); await handleSaveSelf(); setAutoSaving(false);
     }, 2000);
     return () => clearTimeout(timer);
-  }, [selfNote, selfReminder, selfDirty, handleSaveSelf, selfNewFiles, selfRemove]);
+  }, [selfNote, selfDirty, handleSaveSelf, selfNewFiles, selfRemove]);
+
+  useEffect(() => {
+    reminderDirtyRef.current = reminderDirty;
+  }, [reminderDirty]);
 
   const handleChatSend = async () => {
     if (isTaskDone || isChatLockedByTarget || (!chatMsg.trim() && chatFiles.length === 0)) return;
@@ -755,18 +793,47 @@ export default function TaskDetailPage() {
                     <div className="flex items-center gap-2">
                       <Bell size={13} className="text-purple-500" />
                       <span className="text-sm font-semibold text-slate-700">Personal Reminder</span>
-                      {selfReminder && <span className="text-[10px] bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-semibold">Set</span>}
+                      {savedReminder && !reminderDirty && (
+                        <span className="text-[10px] bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-semibold">Saved</span>
+                      )}
+                      {reminderDirty && (
+                        <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">Unsaved</span>
+                      )}
                     </div>
                     {selfReminder && (
-                      <button onClick={() => { setSelfReminder(""); setSelfDirty(true); }}
-                        className="text-[10px] text-rose-400 hover:text-rose-600 font-semibold px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors">Clear</button>
+                      <button
+                        onClick={() => { setSelfReminder(""); setReminderDirty(true); }}
+                        className="text-[10px] text-rose-400 hover:text-rose-600 font-semibold px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors"
+                      >
+                        Clear
+                      </button>
                     )}
                   </div>
                   <div className="p-3 space-y-2">
-                    <input type="datetime-local" value={selfReminder} min={getCurrentDateTime()}
-                      onChange={(e) => { setSelfReminder(e.target.value); setSelfDirty(true); }}
-                      className="w-full border border-purple-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-white outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100 transition-all" />
-                    {selfReminder && <p className="text-[10px] text-purple-500 flex items-center gap-1">🔔 {new Date(selfReminder).toLocaleString()}</p>}
+                    <input
+                      type="datetime-local"
+                      value={selfReminder}
+                      min={getCurrentDateTime()}
+                      onChange={(e) => { setSelfReminder(e.target.value); setReminderDirty(true); }}
+                      className="w-full border border-purple-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-white outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100 transition-all"
+                    />
+                    {savedReminder && !reminderDirty && (
+                      <p className="text-[10px] text-purple-500 flex items-center gap-1">
+                        🔔 Active: {formatDateTimeLocalLabel(savedReminder)}
+                      </p>
+                    )}
+                    {selfReminder && reminderDirty && (
+                      <p className="text-[10px] text-amber-600 flex items-center gap-1">
+                        Preview: {formatDateTimeLocalLabel(selfReminder)} — click Save to apply
+                      </p>
+                    )}
+                    <button
+                      onClick={handleSaveReminder}
+                      disabled={reminderSaving || !reminderDirty}
+                      className="w-full py-2 text-xs font-semibold rounded-xl bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 transition-colors"
+                    >
+                      {reminderSaving ? "Saving…" : savedReminder ? "Update Reminder" : "Save Reminder"}
+                    </button>
                   </div>
                 </div>
 
@@ -823,7 +890,11 @@ export default function TaskDetailPage() {
                       {canSetTargetDate && (
                         <div className="space-y-2">
                           <p className="text-[10px] text-slate-500">
-                            {hasValidTarget ? "Set next target date when current one passes:" : "Set your target date & time:"}
+                            {canAdminOverrideTarget
+                              ? "Admin override — change target date before current one passes:"
+                              : task?.current_target?.target_at
+                                ? "Set next target date (current target has passed):"
+                                : "Set your target date & time:"}
                           </p>
                           <input
                             type="datetime-local"
@@ -837,9 +908,20 @@ export default function TaskDetailPage() {
                             disabled={targetDateSaving || !targetDateInput}
                             className="w-full py-2 text-xs font-semibold rounded-xl bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-40 transition-colors"
                           >
-                            {targetDateSaving ? "Saving…" : hasValidTarget ? "Set Next Target Date" : "Set Target Date"}
+                            {targetDateSaving
+                              ? "Saving…"
+                              : canAdminOverrideTarget
+                                ? "Override Target Date"
+                                : task?.current_target?.target_at
+                                  ? "Set Next Target Date"
+                                  : "Set Target Date"}
                           </button>
                         </div>
+                      )}
+                      {hasValidTarget && !canSetTargetDate && isL1 && (
+                        <p className="text-[10px] text-sky-700 bg-sky-50 border border-sky-100 rounded-lg px-3 py-2">
+                          Target date is locked until {formatDateTime(task.current_target.target_at)} passes. Contact Admin to change it earlier.
+                        </p>
                       )}
                       {(task?.target_dates?.length ?? 0) > 0 && (
                         <div className="border-t border-slate-100 pt-2">
@@ -1101,8 +1183,8 @@ export default function TaskDetailPage() {
                         {selfNewFiles.length > 0 && ` · ${selfNewFiles.length} file(s) pending`}
                         {selfRemove.length > 0   && ` · ${selfRemove.length} file(s) to remove`}
                       </p>
-                      <button onClick={handleSaveSelf}
-                        disabled={selfSaving || (!selfNote.trim() && selfNewFiles.length === 0 && selfRemove.length === 0 && !selfReminder)}
+                      <button onClick={() => handleSaveSelf()}
+                        disabled={selfSaving || (!selfNote.trim() && selfNewFiles.length === 0 && selfRemove.length === 0)}
                         className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white text-xs font-semibold rounded-xl hover:bg-amber-600 transition-all disabled:opacity-50 shadow-sm">
                         {selfSaving ? <RefreshCw size={12} className="animate-spin" /> : <CheckCircle2 size={12} />} Save Note
                       </button>

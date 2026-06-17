@@ -5,6 +5,8 @@ import { toast } from "react-toastify";
 
 import { formatDateTime, getInitials } from "@/core/utils/utilHelper";
 import { userService } from "@/features/shared/auth/services/userService";
+import { departmentService } from "@/features/admin/services/departmentService";
+import { designationService } from "@/features/admin/services/designationService";
 
 import ActionButton from "@/core/components/ui/ActionButton";
 import ViewToggle from "@/core/components/ui/ViewToggle";
@@ -15,13 +17,29 @@ import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, sortRowsByKey, fetchAllListPages } from "@/core/utils/listSearch";
+import { applyClientSearch, sortRowsByKey, fetchAllListPages, defaultSearchParts } from "@/core/utils/listSearch";
 
 import { USER_STATUS_CONFIG, USER_TYPE_CONFIG, getAvatarColor, ROLE_LABELS, TYPES, USER_STATUSES } from "@/core/components/common/Constants";
 
-function matchesRoleStatus(row, roleFilter, statusFilter) {
+function rowDepartmentId(row) {
+  return row?.department_id ?? row?.department?.id ?? null;
+}
+
+function rowDesignationId(row) {
+  return row?.designation_id ?? row?.designation?.id ?? null;
+}
+
+function matchesFilters(row, { roleFilter, statusFilter, departmentFilter, designationFilter }) {
   if (roleFilter && roleFilter !== "all" && row.type !== roleFilter) return false;
   if (statusFilter && statusFilter !== "all" && row.status !== statusFilter) return false;
+  if (departmentFilter && departmentFilter !== "all") {
+    const deptId = rowDepartmentId(row);
+    if (deptId == null || String(deptId) !== String(departmentFilter)) return false;
+  }
+  if (designationFilter && designationFilter !== "all") {
+    const desigId = rowDesignationId(row);
+    if (desigId == null || String(desigId) !== String(designationFilter)) return false;
+  }
   return true;
 }
 
@@ -56,8 +74,8 @@ function desigLabel(row) {
 }
 
 const DEPT_DESIG_HEADERS = [
-  // ["Department", "department_name", (_v, row) => <span className="text-xs text-slate-700">{deptLabel(row)}</span>],
-  // ["Designation", "designation_name", (_v, row) => <span className="text-xs text-slate-700">{desigLabel(row)}</span>],
+  ["Department", "department_name", (_v, row) => <span className="text-xs text-slate-700">{deptLabel(row)}</span>],
+  ["Designation", "designation_name", (_v, row) => <span className="text-xs text-slate-700">{desigLabel(row)}</span>],
 ];
 
 const LIST_SCOPE_ERP = "erp_directory";
@@ -77,8 +95,12 @@ export default function UsersPage() {
     listScope: LIST_SCOPE_ALL,
     roleFilter: "all",
     statusFilter: "all",
+    departmentFilter: "all",
+    designationFilter: "all",
   });
 
+  const [deptOptions, setDeptOptions] = useState([]);
+  const [desigOptions, setDesigOptions] = useState([]);
   const [tempSearch, setTempSearch] = useState("");
   const [selected, setSelected] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -86,10 +108,48 @@ export default function UsersPage() {
   const [deleteUser, setDeleteUser] = useState(null);
   const [blockedMessage, setBlockedMessage] = useState("");
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [deptRes, desigRes] = await Promise.all([
+          fetchAllListPages(
+            async (page, limit) => {
+              const body = await departmentService.getAll({ page, limit, sortBy: "name", order: "ASC" });
+              return { data: body.data || [], total: body.total || 0 };
+            },
+            500
+          ),
+          fetchAllListPages(
+            async (page, limit) => {
+              const body = await designationService.getAll({ page, limit, sortBy: "name", order: "ASC" });
+              return { data: body.data || [], total: body.total || 0 };
+            },
+            500
+          ),
+        ]);
+        if (!cancelled) {
+          setDeptOptions(deptRes.data || []);
+          setDesigOptions(desigRes.data || []);
+        }
+      } catch {
+        // filter dropdowns fall back to "All" only
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   /** Search is client-only (no API). Filters use Apply / refresh. */
   const displayRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
-    if (q) return applyClientSearch(allRows, tempSearch);
+    const getParts = (row) => [
+      ...defaultSearchParts(row),
+      deptLabel(row),
+      desigLabel(row),
+    ];
+    if (q) return applyClientSearch(allRows, tempSearch, { getParts });
     return sortRowsByKey(allRows, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir]);
 
@@ -103,7 +163,7 @@ export default function UsersPage() {
           let list = Array.isArray(body.data) ? body.data : [];
           list = Array.isArray(list) ? list : [];
           list = list.filter((row) =>
-            matchesRoleStatus(row, params.roleFilter, params.statusFilter)
+            matchesFilters(row, params)
           );
           setAllRows(list);
           setTotalItems(list.length);
@@ -113,6 +173,12 @@ export default function UsersPage() {
         const filters = { auth_source: "local" };
         if (params.roleFilter && params.roleFilter !== "all") filters.type = params.roleFilter;
         if (params.statusFilter && params.statusFilter !== "all") filters.status = params.statusFilter;
+        if (params.departmentFilter && params.departmentFilter !== "all") {
+          filters.department_id = Number(params.departmentFilter);
+        }
+        if (params.designationFilter && params.designationFilter !== "all") {
+          filters.designation_id = Number(params.designationFilter);
+        }
 
         const fetchAppPages = () =>
           fetchAllListPages(
@@ -141,7 +207,7 @@ export default function UsersPage() {
           ]);
           let erpList = Array.isArray(erpBody.data) ? erpBody.data : [];
           erpList = erpList.filter((row) =>
-            matchesRoleStatus(row, params.roleFilter, params.statusFilter)
+            matchesFilters(row, params)
           );
           const erpTagged = erpList.map((row) => ({ ...row, _listSource: LIST_SCOPE_ERP }));
           const appRows = Array.isArray(appResult.data) ? appResult.data : [];
@@ -171,11 +237,11 @@ export default function UsersPage() {
       } finally {
         setLoading(false);
       }
-    }, [params.listScope, params.pageSize, params.roleFilter, params.statusFilter, params.sortKey, params.sortDir]);
+    }, [params.listScope, params.pageSize, params.roleFilter, params.statusFilter, params.departmentFilter, params.designationFilter, params.sortKey, params.sortDir]);
 
   useEffect(() => {
     setSelected(null);
-  }, [params.listScope, params.roleFilter, params.statusFilter]);
+  }, [params.listScope, params.roleFilter, params.statusFilter, params.departmentFilter, params.designationFilter]);
 
   useEffect(() => {
     fetchUsers();
@@ -188,6 +254,8 @@ export default function UsersPage() {
       const nextScope = data.listScope ?? prev.listScope;
       const roleFilter = data.roleFilter !== undefined ? data.roleFilter : prev.roleFilter;
       const statusFilter = data.statusFilter !== undefined ? data.statusFilter : prev.statusFilter;
+      const departmentFilter = data.departmentFilter !== undefined ? data.departmentFilter : prev.departmentFilter;
+      const designationFilter = data.designationFilter !== undefined ? data.designationFilter : prev.designationFilter;
       const scopeChanged = nextScope !== prev.listScope;
       const sortDefaults =
         nextScope === LIST_SCOPE_APP || nextScope === LIST_SCOPE_ALL
@@ -198,6 +266,8 @@ export default function UsersPage() {
         listScope: nextScope,
         roleFilter,
         statusFilter,
+        departmentFilter,
+        designationFilter,
         ...(scopeChanged ? sortDefaults : {}),
       };
     });
@@ -210,6 +280,8 @@ export default function UsersPage() {
       listScope: LIST_SCOPE_ALL,
       roleFilter: "all",
       statusFilter: "all",
+      departmentFilter: "all",
+      designationFilter: "all",
       sortKey: "created_at",
       sortDir: "desc",
     }));
@@ -223,6 +295,16 @@ export default function UsersPage() {
   const statusFilterOptions = useMemo(
     () => [{ label: "All Status", value: "all" }, ...USER_STATUSES.map((s) => ({ label: USER_STATUS_CONFIG[s]?.label ?? s, value: s}))],
     []
+  );
+
+  const departmentFilterOptions = useMemo(
+    () => [{ label: "All Departments", value: "all" }, ...deptOptions.map((d) => ({ label: d.name, value: String(d.id) }))],
+    [deptOptions]
+  );
+
+  const designationFilterOptions = useMemo(
+    () => [{ label: "All Designations", value: "all" }, ...desigOptions.map((d) => ({ label: d.name, value: String(d.id) }))],
+    [desigOptions]
   );
 
   const extraFilters = useMemo(
@@ -244,13 +326,35 @@ export default function UsersPage() {
         options: roleFilterOptions,
       },
       {
+        label: "Department",
+        key: "departmentFilter",
+        value: params.departmentFilter,
+        options: departmentFilterOptions,
+      },
+      {
+        label: "Designation",
+        key: "designationFilter",
+        value: params.designationFilter,
+        options: designationFilterOptions,
+      },
+      {
         label: "Status",
         key: "statusFilter",
         value: params.statusFilter,
         options: statusFilterOptions,
       },
     ],
-    [params.listScope, params.roleFilter, params.statusFilter, roleFilterOptions, statusFilterOptions]
+    [
+      params.listScope,
+      params.roleFilter,
+      params.departmentFilter,
+      params.designationFilter,
+      params.statusFilter,
+      roleFilterOptions,
+      departmentFilterOptions,
+      designationFilterOptions,
+      statusFilterOptions,
+    ]
   );
 
   const selectedRow = useMemo(() => allRows.find((u) => tableRowKey(u) === selected), [allRows, selected]);
@@ -550,7 +654,7 @@ export default function UsersPage() {
             cardConfig={{
               titleKey: "name",
               tagsKeys: ["type", "status"],
-              detailKeys: ["email", "phone", "usercode"],
+              detailKeys: ["email", "phone", "department_name", "designation_name"],
               footerKey: "created_at",
               className: "rounded-none shadow-sm border border-slate-200 overflow-hidden",
             }}

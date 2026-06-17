@@ -383,7 +383,7 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
       noPadding
       bodyScrollable={false}
     >
-      <div className="flex flex-col flex-1 min-h-0 w-full max-w-full min-w-0 overflow-hidden bg-slate-50 antialiased">
+      <div className="flex h-full min-h-0 flex-col w-full max-w-full min-w-0 overflow-hidden bg-slate-50 antialiased">
         {loading ? (
           <FormPanelLoader
             className="flex-1 border-0 rounded-none min-h-0"

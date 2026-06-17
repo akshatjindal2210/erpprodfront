@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDispatch } from "react-redux";
 import { useSearchParams } from "next/navigation";
 import { toast } from "react-toastify";
@@ -24,21 +24,48 @@ export default function UserLogin() {
   const [showPass, setShowPass] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+    };
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     try {
       const res = await userService.login({ username: email, password });
       if (res.success) {
-        applyListViewSpanFromSession(res.data);
+        let profile = res.data;
+        try {
+          const meRes = await userService.me();
+          if (meRes?.success && meRes.data) {
+            profile = { ...profile, ...meRes.data };
+          }
+        } catch {
+          /* login payload is enough to continue */
+        }
+        applyListViewSpanFromSession(profile);
         dispatch(
           setCredentials({
-            id: res.data.id,
-            name: res.data.name,
-            email: res.data.email,
-            role: res.data.role ?? res.data.type ?? "user",
-            permissions: res.data.permissions,
-            app_access: res.data.app_access,
+            id: profile.id,
+            name: profile.name,
+            email: profile.email,
+            role: profile.role ?? profile.type ?? "user",
+            type: profile.type ?? profile.role ?? "user",
+            designation: profile.designation ?? null,
+            designation_name: profile.designation_name ?? profile.designation?.name ?? null,
+            department: profile.department ?? null,
+            department_id: profile.department_id ?? profile.department?.id ?? null,
+            permissions: profile.permissions,
+            app_access: profile.app_access,
           })
         );
         try {
@@ -61,17 +88,17 @@ export default function UserLogin() {
   };
 
   return (
-    <div className="min-h-screen min-h-[100dvh] bg-[#f8fafc] flex items-center justify-center px-4 sm:px-6 font-sans">
-      <div className="w-full max-w-sm mx-auto text-center">
+    <div className="fixed inset-0 z-0 flex items-center justify-center overflow-y-auto overscroll-none bg-[#f8fafc] px-4 sm:px-6 font-sans">
+      <div className="w-full max-w-sm mx-auto my-auto py-4 text-center">
         <img
           src="/logo.png"
           alt="JFL ERP"
-          className="h-14 sm:h-16 w-auto max-w-[12rem] sm:max-w-[14rem] mx-auto mb-5 object-contain"
+          className="h-12 sm:h-16 w-auto max-w-[11rem] sm:max-w-[14rem] mx-auto mb-4 sm:mb-5 object-contain"
         />
         <h1 className="text-xl font-bold text-slate-900">Welcome back</h1>
-        <p className="text-slate-500 text-sm mt-1 mb-6">Sign in to your account to continue.</p>
+        <p className="text-slate-500 text-sm mt-1 mb-4 sm:mb-6">Sign in to your account to continue.</p>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
           <form onSubmit={handleSubmit} className="space-y-4 text-left">
             <div className="space-y-1.5">
               <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wide">

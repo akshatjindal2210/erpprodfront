@@ -9,13 +9,15 @@ import { useRouter } from "next/navigation";
 import { notificationService } from "@/features/apps/task/services/notificationApi";
 import Pagination from "@/features/apps/task/components/common/Pagination";
 import { AppConfigFormFooter, AppConfigFormLoading, CONFIG_INPUT, CONFIG_LABEL, CONFIG_TEXTAREA } from "@/features/admin/configuration/components/AppConfigFormFields";
-import { TASK_NOTIFY_VARIABLE_GROUPS } from "@/features/apps/task/config/notificationVariables";
+import SendMessageTab from "./SendMessageTab";
+import NotificationVariablesHint from "./NotificationVariablesHint";
 
 /** Native select — works on PWA / handheld (no appearance-none). */
 const NOTIFY_SELECT =
   "w-full bg-white border border-slate-200 rounded-lg px-3 h-10 text-[11px] text-slate-800 outline-none transition-all cursor-pointer relative z-[2] touch-manipulation focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50/80 disabled:opacity-50 disabled:cursor-not-allowed";
 
 const TEMPLATE_TABS = [
+  { id: "send_message", label: "Send Message" },
   { id: "task_assigned", label: "New Task" },
   { id: "daily_reminder", label: "Daily" },
   { id: "personal_reminder", label: "Personal" },
@@ -31,20 +33,20 @@ const SEND_VIA_OPTIONS = [
 ];
 
 const LOG_STATUS = {
-  sent:    { label: "Sent",           className: "bg-emerald-50 text-emerald-700" },
-  console: { label: "ERP Offline",    className: "bg-amber-50 text-amber-800" },
-  failed:  { label: "Failed",         className: "bg-rose-50 text-rose-700" },
-  skipped: { label: "Skipped / Offline", className: "bg-slate-100 text-slate-600" },
+  sent:    { label: "Sent",    className: "bg-emerald-50 text-emerald-700" },
+  failed:  { label: "Failed",  className: "bg-rose-50 text-rose-700" },
+  skipped: { label: "Skipped", className: "bg-slate-100 text-slate-600" },
+  console: { label: "Failed",  className: "bg-rose-50 text-rose-700" },
 };
 
 const LOG_CHANNEL_LABELS = {
-  gateway: "ERP",
   pwa_push: "PWA",
   free: "Free",
   paid: "Paid",
+  gateway: "WhatsApp",
+  console: "WhatsApp",
   whatsapp_1: "Free",
   whatsapp_2: "Paid",
-  console: "Console",
 };
 
 function LogStatusBadge({ status }) {
@@ -96,59 +98,12 @@ function Field({ label, children, className = "" }) {
   );
 }
 
-function TemplateVariablesHint() {
-  const copyVar = (key) => {
-    const token = `{{${key}}}`;
-    navigator.clipboard?.writeText(token).then(
-      () => toast.info(`Copied ${token}`, { autoClose: 1500 }),
-      () => toast.error("Copy failed")
-    );
-  };
-
-  return (
-    <div className="mt-3 rounded border border-slate-200 bg-slate-50/80 p-3">
-      <p className="text-[10px] text-slate-600 mb-2.5">
-        <span className="font-semibold">Variables</span>
-        <span className="text-slate-400"> - click to copy, paste in subject or message</span>
-      </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {TASK_NOTIFY_VARIABLE_GROUPS.map((group) => (
-          <div key={group.label}>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-              {group.label}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {group.keys.map((key) => {
-                const hint = group.labels?.[key];
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => copyVar(key)}
-                    className="px-2 py-1 text-[10px] font-mono text-slate-700 bg-white border border-slate-200 rounded hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50/50 transition-colors"
-                    title={hint ? `${hint} - copy {{${key}}}` : `Copy {{${key}}}`}
-                  >
-                    {hint ? `${hint}` : `{{${key}}}`}
-                    {hint ? (
-                      <span className="block text-[8px] text-slate-400 font-normal not-italic">{`{{${key}}}`}</span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export default function NotificationsPage() {
   const router = useRouter();
   const role = useSelector((s) => s.auth?.role);
   const isSuperAdmin = String(role || "").toLowerCase() === "super_admin";
 
-  const [activeTab, setActiveTab] = useState("task_assigned");
+  const [activeTab, setActiveTab] = useState("send_message");
   const [templates, setTemplates] = useState([]);
   const [channels, setChannels] = useState({});
   const [edits, setEdits] = useState({});
@@ -227,14 +182,15 @@ export default function NotificationsPage() {
   }, [isSuperAdmin, activeTab, fetchLogs]);
 
   const isLogsTab = activeTab === "logs";
+  const isSendTab = activeTab === "send_message";
   const logTotalPages = Math.ceil(logTotal / logPageSize) || 0;
   const current = edits[activeTab];
   const original = templates.find((t) => t.template_key === activeTab);
 
   const isDirty = useMemo(() => {
-    if (!current || !original || isLogsTab) return false;
+    if (!current || !original || isLogsTab || isSendTab) return false;
     return JSON.stringify(current) !== JSON.stringify(normalizeTpl(original));
-  }, [current, original, isLogsTab]);
+  }, [current, original, isLogsTab, isSendTab]);
 
   const updateField = (field, value) => {
     if (isLogsTab) return;
@@ -288,7 +244,9 @@ export default function NotificationsPage() {
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 shadow-sm overflow-hidden rounded-sm">
         <NotificationTabBar activeId={activeTab} onSelect={setActiveTab} />
 
-        {isLogsTab ? (
+        {isSendTab ? (
+          <SendMessageTab templates={templates} />
+        ) : isLogsTab ? (
           <div className="flex flex-col flex-1 min-h-0">
             <div className="shrink-0 px-4 md:px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
               <div>
@@ -465,7 +423,9 @@ export default function NotificationsPage() {
                           placeholder="Hi {{user_name}},&#10;&#10;Your message here..."
                         />
                       </Field>
-                      <TemplateVariablesHint />
+                      <div className="mt-3">
+                        <NotificationVariablesHint />
+                      </div>
                     </div>
                   </div>
                 </div>

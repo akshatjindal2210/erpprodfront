@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { Check, Loader2, QrCode, MapPin, Package, Plus, X, Trash2, MessageSquare, CheckCircle2, XCircle, Search, ScanLine, Camera, Locate, Layers } from "lucide-react";
 import { inventoryInwardService } from "@/features/apps/ims/services/inventoryInward";
 import { locationService }        from "@/features/apps/ims/services/location";
-import { extractLocationNo, detectQrType, extractBoxCode, boxNoUidDisplayLabel, locationNoDisplayLabel } from "@/features/apps/ims/helpers/qrScan";
+import { extractLocationNo, detectQrType, extractBoxCode, parseStickerScan, normalizeScanInput, boxNoUidDisplayLabel, locationNoDisplayLabel } from "@/features/apps/ims/helpers/qrScan";
 import { useHtml5QrScanner }      from "@/core/hooks/useHtml5QrScanner";
 import QrScannerOverlay           from "@/core/components/common/QrScannerOverlay";
 import Drawer                     from "@/core/components/ui/Drawer";
@@ -537,9 +537,14 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
               : loc
           );
         });
+        showScanSuccess(
+          `scan-confirmed-${canonical.toLowerCase()}`,
+          SCAN_SNACK_MSG.BOX_ADDED(canonical),
+          1200
+        );
       }
     },
-    [removePendingBoxById, showScanToast]
+    [removePendingBoxById, showScanToast, showScanSuccess]
   );
 
   const processScanBatch = useCallback(
@@ -564,7 +569,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         for (const group of byLocation.values()) {
           const res = await inventoryInwardService.batchScanBoxes(
             group.location_id,
-            group.items.map((row) => ({ id: row.id, code: row.code }))
+            group.items.map((row) => ({ id: row.id, code: row.raw || row.code }))
           );
           applyBatchScanResults(group.li, group.items, res?.results);
         }
@@ -821,13 +826,15 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
   };
 
   const tryAddBox = async (li, val, source = "manual") => {
-    const detectedType = detectQrType(val);
+    const normalizedRaw = normalizeScanInput(val);
+    const detectedType = detectQrType(normalizedRaw);
     if (detectedType === "location") {
       showScanToast("error", "generic-scan-step2", SCAN_SNACK_MSG.REJECTED);
       return;
     }
 
-    const candidate = extractBoxCode(val);
+    const { box_no_uid: scanNoUid, box_uid: scanUid } = parseStickerScan(normalizedRaw);
+    const candidate = scanNoUid || scanUid || extractBoxCode(normalizedRaw);
     if (!candidate) {
       showScanToast("error", "generic-invalid-sticker", SCAN_SNACK_MSG.REJECTED);
       return;
@@ -922,10 +929,6 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         setLocHasError((prev) => prev.map((e, i) => (i === li ? false : e)));
       });
 
-      if (source === "scanner") {
-        showScanSuccess(`scan-added-${candidate.toLowerCase()}`, SCAN_SNACK_MSG.BOX_ADDED(candidate));
-      }
-
       pendingCountRef.current += 1;
       setPendingScanCount(pendingCountRef.current);
 
@@ -933,6 +936,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         id: pendingId,
         li,
         code: candidate,
+        raw: normalizedRaw,
         source,
       });
 

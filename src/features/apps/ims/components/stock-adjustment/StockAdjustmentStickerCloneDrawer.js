@@ -18,6 +18,12 @@ import { masterService } from "@/features/apps/ims/services/master";
 import { focusFirstError } from "@/core/utils/formFocus";
 import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 import { rowInIndianFinancialYear } from "@/core/utils/indianFinancialYear";
+import {
+  boxRowCustomerLabel,
+  groupSelectedMinusBoxesByCustomer,
+  parseMinusCustomerLinesFromRow,
+  resolveMinusAccCodeFromSelection,
+} from "@/features/apps/ims/utils/minusCustomerBreakdown";
 
 const FIELD_ORDER = ["addNumBoxes", "addExtraBoxes", "addPerBoxQty", "minusBoxes"];
 import { formatStockAdjustmentBoxNoUid, isLooseBoxComparedToStandard, parseOptionalStandardQtyPerBox, parseStockAdjustmentBoxIndex } from "@/features/apps/ims/utils/stockAdjustmentPacking";
@@ -173,6 +179,16 @@ function minusBoxNoUidLabel(row) {
   return label || "—";
 }
 
+/** Minus: customer per box row; acc_code only when all selected boxes share one customer. */
+function resolveMinusAccCode(form, packingPreview, minusSelectedUids) {
+  return resolveMinusAccCodeFromSelection(
+    packingPreview?.boxes,
+    minusSelectedUids,
+    form,
+    packingPreview
+  );
+}
+
 /** Minus: sticker-style table + checkbox (sticky # / sticky select) */
 function MinusBreakdownTable({
   boxes,
@@ -202,6 +218,13 @@ function MinusBreakdownTable({
       .sort((a, b) => Number(a.box_uid) - Number(b.box_uid));
     total = displayBoxes.length;
   }
+
+  const customerSummary = groupSelectedMinusBoxesByCustomer(
+    displayBoxes.filter((b) => isMinusBoxUidSelected(selectedUids, b.box_uid)),
+    selectedUids,
+    packingNo
+  );
+
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0">
       <div className="shrink-0 px-3 py-2 lg:px-4 bg-rose-50 border-b border-rose-100 flex flex-wrap items-center justify-between gap-2">
@@ -226,6 +249,25 @@ function MinusBreakdownTable({
             <span className="mx-2 text-rose-300">|</span>
             Qty impact: <span className="font-black tabular-nums">-{selectedQty}</span> PCS
           </p>
+          {customerSummary.length > 0 ? (
+            <div className="mt-1.5 flex flex-col gap-1 w-full">
+              {customerSummary.map((line) => (
+                <div
+                  key={`${line.acc_code}-${line.packing_number}`}
+                  className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[9px] text-rose-950"
+                >
+                  <span className="font-mono font-bold tabular-nums">{line.packing_number || packingNo}</span>
+                  <span className="font-black uppercase truncate max-w-[200px]" title={line.acc_name}>
+                    {line.acc_name}
+                  </span>
+                  <span className="font-black tabular-nums text-rose-700">
+                    −{line.qty.toLocaleString()} PCS
+                  </span>
+                  <span className="text-rose-400 font-bold">({line.box_count} box)</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-0 lg:p-1">
@@ -236,7 +278,7 @@ function MinusBreakdownTable({
         ) : (
           <div className="bg-white border border-slate-200 overflow-hidden w-full max-w-full min-w-0">
             <div className="overflow-x-auto overscroll-x-contain touch-pan-x max-w-full [-webkit-overflow-scrolling:touch]">
-              <table className="w-full min-w-[560px] sm:min-w-[620px] lg:min-w-[720px] text-left border-separate border-spacing-0">
+              <table className="w-full min-w-[640px] sm:min-w-[700px] lg:min-w-[820px] text-left border-separate border-spacing-0">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th
@@ -256,6 +298,12 @@ function MinusBreakdownTable({
                       className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
                     >
                       Packing
+                    </th>
+                    <th
+                      scope="col"
+                      className="sticky top-0 z-20 bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] font-black uppercase text-slate-500 whitespace-nowrap"
+                    >
+                      Customer
                     </th>
                     <th
                       scope="col"
@@ -313,6 +361,12 @@ function MinusBreakdownTable({
                         </td>
                         <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-700 whitespace-nowrap tabular-nums">
                           {row.packing_number ?? packingNo}
+                        </td>
+                        <td
+                          className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-700 min-w-0 max-w-[140px] lg:max-w-[180px] truncate"
+                          title={boxRowCustomerLabel(row)}
+                        >
+                          {boxRowCustomerLabel(row)}
                         </td>
                         <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-800 whitespace-nowrap tabular-nums">
                           {Number(row.qty ?? 0).toLocaleString()} {unit}
@@ -691,19 +745,28 @@ export default function StockAdjustmentStickerCloneDrawer({
           
           const rowAcc = hydrated.row?.acc_code;
           const dpAcc = hydrated.packingPreview?.dailyprod?.acc_code;
-          
+          const isMinusHydrate = hydrated.gateEntryType === "minus";
+          const minusLines = isMinusHydrate
+            ? parseMinusCustomerLinesFromRow(hydrated.row)
+            : [];
+
           let finalAccCode = null;
           let finalAccName = null;
           let finalPartyRate = null;
-          
-          if (rowAcc != null && String(rowAcc).trim() !== "") {
-            finalAccCode = rowAcc;
-            finalAccName = hydrated.row?.acc_name;
-            finalPartyRate = hydrated.row?.party_rate_cust_code;
-          } else if (dpAcc != null && String(dpAcc).trim() !== "") {
-            finalAccCode = dpAcc;
-            finalAccName = hydrated.packingPreview?.dailyprod?.acc_name;
-            finalPartyRate = hydrated.packingPreview?.dailyprod?.party_rate_cust_code;
+
+          if (!isMinusHydrate) {
+            if (rowAcc != null && String(rowAcc).trim() !== "") {
+              finalAccCode = rowAcc;
+              finalAccName = hydrated.row?.acc_name;
+              finalPartyRate = hydrated.row?.party_rate_cust_code;
+            } else if (dpAcc != null && String(dpAcc).trim() !== "") {
+              finalAccCode = dpAcc;
+              finalAccName = hydrated.packingPreview?.dailyprod?.acc_name;
+              finalPartyRate = hydrated.packingPreview?.dailyprod?.party_rate_cust_code;
+            }
+          } else if (minusLines.length === 1) {
+            finalAccCode = minusLines[0].acc_code;
+            finalAccName = minusLines[0].acc_name;
           }
 
           setForm({ 
@@ -775,7 +838,11 @@ export default function StockAdjustmentStickerCloneDrawer({
     setLoading(true);
     try {
       const payload = { approved: true };
-      if (form.acc_code) payload.acc_code = form.acc_code;
+      const approveAccCode =
+        gateEntryType === "minus"
+          ? resolveMinusAccCode(form, packingPreview, minusSelectedUids)
+          : form.acc_code;
+      if (approveAccCode) payload.acc_code = approveAccCode;
       
       await stockAdjustmentService.update(adjId, payload);
       toast.success(
@@ -1041,6 +1108,29 @@ export default function StockAdjustmentStickerCloneDrawer({
     }
     return sum;
   }, [packingPreview, minusSelectedUids]);
+
+  const isMinusFlow = gateEntryType === "minus";
+
+  const minusCustomerLinesDisplay = useMemo(() => {
+    if (!isMinusFlow) return [];
+    const stored = parseMinusCustomerLinesFromRow(savedRow);
+    if (stored.length) return stored;
+    const grouped = groupSelectedMinusBoxesByCustomer(
+      packingPreview?.boxes,
+      minusSelectedUids,
+      gatePackingNo.trim()
+    );
+    if (grouped.length) return grouped;
+    return [];
+  }, [
+    isMinusFlow,
+    savedRow,
+    packingPreview?.boxes,
+    minusSelectedUids,
+    gatePackingNo,
+  ]);
+
+  const minusViewMode = isMinusFlow && readOnly;
 
   const handleGateLoad = async () => {
     if (!gateEntryType) {
@@ -1330,7 +1420,7 @@ export default function StockAdjustmentStickerCloneDrawer({
             payload.no_of_boxes = nb;
           }
         } else if (gateEntryType === "minus") {
-          payload.acc_code = form.acc_code;
+          payload.acc_code = resolveMinusAccCode(form, packingPreview, minusSelectedUids);
           payload.removed_box_uids = [...minusSelectedUids]
             .map((u) => parseInt(u, 10))
             .filter((n) => Number.isFinite(n));
@@ -1370,7 +1460,7 @@ export default function StockAdjustmentStickerCloneDrawer({
           removed_box_uids: uids,
           unit: "PCS",
           remarks: remarksForApi,
-          acc_code: form.acc_code,
+          acc_code: resolveMinusAccCode(form, packingPreview, minusSelectedUids),
           approved: showApproval && form.approved === true,
         });
       }
@@ -1954,7 +2044,7 @@ export default function StockAdjustmentStickerCloneDrawer({
 
   const breakdownPanel = (
     <>
-      {/* Mobile / tablet: tabs so breakdown table gets full height */}
+      {/* Mobile / tablet: Details + Boxes tabs */}
       <div className="flex flex-1 flex-col min-h-0 min-w-0 w-full overflow-hidden lg:hidden bg-slate-100/80">
         <div
           role="tablist"
@@ -1990,6 +2080,9 @@ export default function StockAdjustmentStickerCloneDrawer({
                 onCustomerChange={handleCustomerChange}
                 customerSelectDisabled={structureLocked}
                 customerChanging={customerChanging}
+                hideCustomerSection={isMinusFlow && !readOnly}
+                minusViewMode={minusViewMode}
+                minusCustomerLines={minusViewMode ? minusCustomerLinesDisplay : null}
               />
             </div>
           ) : (
@@ -1998,7 +2091,7 @@ export default function StockAdjustmentStickerCloneDrawer({
         </div>
       </div>
 
-      {/* Desktop: side-by-side */}
+      {/* Desktop: details sidebar + breakdown table */}
       <div className="hidden lg:flex lg:flex-row flex-1 min-h-0 w-full min-w-0 overflow-hidden bg-slate-50">
         <div className="shrink-0 lg:w-80 xl:w-96 border-r border-slate-200 bg-slate-50 overflow-y-auto overflow-x-hidden">
           <StockAdjustmentStickerDetailCards
@@ -2007,6 +2100,9 @@ export default function StockAdjustmentStickerCloneDrawer({
             onCustomerChange={handleCustomerChange}
             customerSelectDisabled={structureLocked}
             customerChanging={customerChanging}
+            hideCustomerSection={isMinusFlow && !readOnly}
+            minusViewMode={minusViewMode}
+            minusCustomerLines={minusViewMode ? minusCustomerLinesDisplay : null}
           />
         </div>
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">{breakdownTableBlock}</div>
@@ -2043,7 +2139,7 @@ export default function StockAdjustmentStickerCloneDrawer({
       noPadding
       bodyScrollable={false}
     >
-      <div className="flex flex-col flex-1 min-h-0 w-full max-w-full min-w-0 overflow-hidden bg-slate-50 antialiased overscroll-contain">
+      <div className="flex h-full min-h-0 flex-col w-full max-w-full min-w-0 overflow-hidden bg-slate-50 antialiased">
         {viewHydrating || packLoading ? (
           <FormPanelLoader
             className="flex-1 border-0 rounded-none min-h-0"
@@ -2068,7 +2164,10 @@ export default function StockAdjustmentStickerCloneDrawer({
                   ? "Enter packing number, then Load"
                   : "Select type first"}
             </p>
-            <p className="text-[10px] text-slate-400 max-w-md">After load, use Details / Boxes tabs on small screens.</p>
+            <p className="text-[10px] text-slate-400 max-w-md">
+              After load, use Details / Boxes tabs on small screens
+              {gateEntryType === "minus" ? " — tick boxes to remove in Boxes tab." : "."}
+            </p>
           </div>
         ) : (
           <div className="flex-1 flex flex-col min-h-0 w-full max-w-full min-w-0 overflow-hidden">

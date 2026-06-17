@@ -13,11 +13,20 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     setCredentials: (state, action) => {
-      const { id, name, role, email, permissions, app_access } = action.payload;
-      state.user = { id, name, email };
-      state.role = role;
-      state.permissions = permissions || [];
-      state.app_access = normalizeAppAccess(app_access);
+      const p = action.payload;
+      state.user = {
+        id: p.id,
+        name: p.name,
+        email: p.email ?? "",
+        type: p.type ?? p.role ?? "user",
+        designation: p.designation ?? null,
+        designation_name: p.designation_name ?? p.designation?.name ?? null,
+        department: p.department ?? null,
+        department_id: p.department_id ?? p.department?.id ?? null,
+      };
+      state.role = p.role ?? p.type ?? "user";
+      state.permissions = p.permissions || [];
+      state.app_access = normalizeAppAccess(p.app_access);
     },
     logout: (state) => {
       state.user = null;

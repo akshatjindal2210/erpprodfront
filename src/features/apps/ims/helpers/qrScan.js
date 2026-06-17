@@ -3,8 +3,85 @@
  * Keep behavior aligned across Inward, Override, and similar flows.
  */
 
+/** Strip scanner control chars / BOM; first line only (HID often appends CR/LF). */
+export function normalizeScanInput(rawValue) {
+  return String(rawValue ?? "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    .replace(/\uFEFF/g, "")
+    .split(/\r?\n/)[0]
+    .trim();
+}
+
+function readBoxParamsFromUrl(url) {
+  const noParam = url.searchParams.get("box_no_uid");
+  const idParam = url.searchParams.get("id");
+  let box_no_uid = "";
+  let box_uid = "";
+
+  if (noParam != null && String(noParam).trim() !== "") {
+    box_no_uid = String(noParam).trim();
+  }
+  if (idParam != null && String(idParam).trim() !== "") {
+    const id = String(idParam).trim();
+    if (/^\d+$/.test(id)) box_uid = id;
+    else if (!box_no_uid) box_no_uid = id;
+  }
+  if (!box_uid) {
+    const uidParam = url.searchParams.get("box_uid");
+    if (uidParam != null && /^\d+$/.test(String(uidParam).trim())) {
+      box_uid = String(uidParam).trim();
+    }
+  }
+
+  return { box_no_uid, box_uid };
+}
+
+function parseUrlStickerScan(trimmed) {
+  const attempts = [trimmed];
+  if (!/^https?:\/\//i.test(trimmed)) {
+    if (/[?&](box_no_uid|id|box_uid)=/i.test(trimmed) || trimmed.includes("://")) {
+      attempts.push(`https://${trimmed.replace(/^\/+/, "")}`);
+    }
+  }
+
+  for (const candidate of attempts) {
+    if (!/^https?:\/\//i.test(candidate)) continue;
+    try {
+      const u = new URL(candidate);
+      const { box_no_uid, box_uid } = readBoxParamsFromUrl(u);
+      if (box_no_uid || box_uid) {
+        return {
+          box_no_uid: box_no_uid.trim(),
+          box_uid: /^\d+$/.test(String(box_uid).trim()) ? String(box_uid).trim() : "",
+        };
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+/** True when idle-commit should wait (slow phone/BT scanners still sending URL chars). */
+export function scanBufferLooksIncomplete(rawValue) {
+  const s = normalizeScanInput(rawValue);
+  if (!s) return false;
+
+  if (/^https?:\/\//i.test(s) || s.includes("://")) {
+    if (/[?&]box_no_uid=[^&]+/i.test(s) || /[?&]id=\d+/i.test(s)) return false;
+    if (!/[?&](box_no_uid|id|box_uid)=/i.test(s)) return true;
+  }
+
+  if (/[?&]box_no_uid=/i.test(s)) {
+    const m = s.match(/[?&]box_no_uid=([^&#\s]*)/i);
+    if (!m?.[1] || m[1].length < 3) return true;
+  }
+
+  return false;
+}
+
 export function extractLocationNo(rawValue) {
-  const normalizedValue = String(rawValue ?? "").trim();
+  const normalizedValue = normalizeScanInput(rawValue);
   if (!normalizedValue) return null;
 
   if (/\bbox(?:_no)?\s*uid\b/i.test(normalizedValue)) return null;
@@ -31,9 +108,13 @@ export function extractLocationNo(rawValue) {
 }
 
 export function detectQrType(rawValue) {
-  const trimmed = String(rawValue ?? "").trim();
+  const trimmed = normalizeScanInput(rawValue);
   const normalized = trimmed.toLowerCase();
   if (!normalized) return "unknown";
+
+  if (/[?&](box_no_uid|box_uid)=/i.test(trimmed) || /[?&]id=\d+/i.test(trimmed)) {
+    return "box";
+  }
 
   if (/^https?:\/\//i.test(trimmed)) {
     try {
@@ -69,7 +150,7 @@ export const extractLocationId = extractLocationNo;
  * `box_no_uid` is required on printed stickers; numeric panel id comes from external `id=` (not `box_uid=`).
  */
 export function parseStickerScan(rawValue) {
-  const trimmed = String(rawValue ?? "").trim();
+  const trimmed = normalizeScanInput(rawValue);
   let box_no_uid = "";
   let box_uid = "";
 
@@ -77,29 +158,10 @@ export function parseStickerScan(rawValue) {
     return { box_no_uid: "", box_uid: "" };
   }
 
-  if (/^https?:\/\//i.test(trimmed)) {
-    try {
-      const u = new URL(trimmed);
-      const noParam = u.searchParams.get("box_no_uid");
-      const idParam = u.searchParams.get("id");
-      if (noParam != null && String(noParam).trim() !== "") {
-        box_no_uid = String(noParam).trim();
-      }
-      if (idParam != null && String(idParam).trim() !== "") {
-        const id = String(idParam).trim();
-        if (/^\d+$/.test(id)) box_uid = id;
-        else if (!box_no_uid) box_no_uid = id;
-      }
-      // Legacy external links that used box_uid= instead of id=
-      if (!box_uid) {
-        const uidParam = u.searchParams.get("box_uid");
-        if (uidParam != null && /^\d+$/.test(String(uidParam).trim())) {
-          box_uid = String(uidParam).trim();
-        }
-      }
-    } catch {
-      /* fall through */
-    }
+  const fromUrl = parseUrlStickerScan(trimmed);
+  if (fromUrl) {
+    box_no_uid = fromUrl.box_no_uid;
+    box_uid = fromUrl.box_uid;
   }
 
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
@@ -120,11 +182,19 @@ export function parseStickerScan(rawValue) {
   }
 
   if (!box_no_uid) {
-    const noMatch = trimmed.match(/\bbox_no_uid\s*[:=-]?\s*([A-Za-z0-9_-]+)\b/i);
-    if (noMatch?.[1]) box_no_uid = noMatch[1].trim();
+    const noMatch =
+      trimmed.match(/[?&]box_no_uid=([^&#\s]+)/i) ||
+      trimmed.match(/\bbox_no_uid\s*[:=-]?\s*([A-Za-z0-9_-]+)\b/i);
+    if (noMatch?.[1]) {
+      try {
+        box_no_uid = decodeURIComponent(noMatch[1].replace(/\+/g, " ")).trim();
+      } catch {
+        box_no_uid = noMatch[1].trim();
+      }
+    }
   }
   if (!box_uid) {
-    const uidMatch = trimmed.match(/\bbox_uid\s*[:=-]?\s*(\d+)\b/i);
+    const uidMatch = trimmed.match(/[?&]id=(\d+)/i) || trimmed.match(/\bbox_uid\s*[:=-]?\s*(\d+)\b/i);
     if (uidMatch?.[1]) box_uid = uidMatch[1].trim();
   }
 
@@ -144,20 +214,12 @@ export function parseStickerScan(rawValue) {
 
 /** Plain-text / legacy QR fallback (no parseStickerScan — avoids recursion). */
 function extractBoxCodeLegacy(normalizedValue) {
-  const trimmed = String(normalizedValue ?? "").trim();
+  const trimmed = normalizeScanInput(normalizedValue);
   if (!trimmed) return "";
 
-  if (/^https?:\/\//i.test(trimmed)) {
-    try {
-      const u = new URL(trimmed);
-      const idParam = u.searchParams.get("id");
-      if (idParam != null && String(idParam).trim() !== "") {
-        return String(idParam).trim();
-      }
-    } catch {
-      /* fall through */
-    }
-  }
+  const fromUrl = parseUrlStickerScan(trimmed);
+  if (fromUrl?.box_no_uid) return fromUrl.box_no_uid;
+  if (fromUrl?.box_uid) return fromUrl.box_uid;
 
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
@@ -180,7 +242,10 @@ function extractBoxCodeLegacy(normalizedValue) {
   const idMatch = trimmed.match(/\bid\s*[:=-]?\s*([A-Za-z0-9_-]+)\b/i);
   if (idMatch?.[1]) return idMatch[1].trim();
 
-  return trimmed.split(/\r?\n/)[0].trim();
+  if (!/^https?:\/\//i.test(trimmed) && !trimmed.includes("?")) {
+    return trimmed;
+  }
+  return "";
 }
 
 export function extractBoxCode(rawValue) {

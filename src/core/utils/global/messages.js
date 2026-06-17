@@ -5,11 +5,13 @@ export const FLOW_SCAN_REJECTED_MSG = "This scan couldn't be verified. Try again
 
 export const FLOW_SCAN_CAMERA_ERROR_MSG = "Could not access the camera. Check that a camera is connected and try again.";
 
-export const FLOW_SCAN_CAMERA_INSECURE_MSG =
-  "Camera access requires a secure connection (HTTPS). Please check your URL and try again.";
+export const FLOW_SCAN_CAMERA_INSECURE_MSG = "Camera access requires a secure connection (HTTPS). Please check your URL and try again.";
 
-export const FLOW_SCAN_CAMERA_DENIED_MSG =
-  "Camera access was blocked. In your browser, open this site's settings and set Camera to Allow (not “Ask every time”), then reload and tap Scan again. After Allow, the app will not ask again for about 30 days on this device.";
+export const FLOW_SCAN_CAMERA_DENIED_MSG = "Camera access was blocked. In your browser, open this site's settings and set Camera to Allow (not “Ask every time”), then reload and tap Scan again. After Allow, the app will not ask again for about 30 days on this device.";
+
+export const COMPANY_WIFI_TITLE = "Connect to company Wi-Fi";
+export const COMPANY_WIFI_MESSAGE = "Please connect to company Wi-Fi and try again.";
+export const COMPANY_WIFI_HINT = "This app runs on the company network. Mobile data or other Wi-Fi may not reach the server, so pages can stay blank.";
 
 export const SCAN_SNACK_MSG = {
   REJECTED: FLOW_SCAN_REJECTED_MSG,

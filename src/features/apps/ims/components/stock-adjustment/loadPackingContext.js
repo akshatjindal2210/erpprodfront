@@ -8,6 +8,7 @@ import {
   isBoxVisibleForStockAdjustmentMinus,
   isValidMinusDrawerBoxRow,
 } from "@/features/apps/ims/utils/boxInventory";
+import { enrichMinusBoxCustomerNames } from "@/features/apps/ims/utils/minusCustomerBreakdown";
 function normDoc(v) {
   return String(v ?? "").trim();
 }
@@ -41,6 +42,9 @@ function mapBoxRow(b, pn, itemdcode, jobCardNo) {
     packing_number: b.packing_number ?? pn,
     is_loose: !!b.is_loose,
     override_cust: b.override_cust ?? null,
+    acc_code: b.acc_code ?? null,
+    acc_name: b.acc_name ?? null,
+    prod_acc_code: b.prod_acc_code ?? null,
     itemdcode: itemdcode ?? b.itemdcode ?? b.item_dcode,
     unit: b.unit || "PCS",
     job_card_no: jobCardNo,
@@ -137,9 +141,14 @@ export async function loadPackingContext(packingNumber, options = {}) {
       )
     : [];
 
+  const boxesWithCustomerNames =
+    forMinus && boxes.length
+      ? await enrichMinusBoxCustomerNames(boxes, itemdcode)
+      : boxes;
+
   let preview = {
     dailyprod,
-    boxes,
+    boxes: boxesWithCustomerNames,
     stickerRow: null,
     standard_qty_per_box: serverMeta?.standard_qty_per_box ?? null,
   };

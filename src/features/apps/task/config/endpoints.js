@@ -23,10 +23,8 @@ export const ENDPOINTS = {
     forward: (taskId) => `${TASK_API}/tasks/${taskId}/forward`,
     reassign: (taskId) => `${TASK_API}/tasks/${taskId}/reassign`,
     requestCompletion: (taskId) => `${TASK_API}/tasks/${taskId}/request-completion`,
-    approveSub: (taskId, assignmentId) =>
-      `${TASK_API}/tasks/${taskId}/approve-sub/${assignmentId}`,
-    rejectSub: (taskId, assignmentId) =>
-      `${TASK_API}/tasks/${taskId}/reject-sub/${assignmentId}`,
+    approveSub: (taskId, assignmentId) => `${TASK_API}/tasks/${taskId}/approve-sub/${assignmentId}`,
+    rejectSub: (taskId, assignmentId) => `${TASK_API}/tasks/${taskId}/reject-sub/${assignmentId}`,
     creatorDecision: (taskId) => `${TASK_API}/tasks/${taskId}/creator-decision`,
     activity: (taskId) => `${TASK_API}/tasks/${taskId}/activity`,
     chat: (taskId) => `${TASK_API}/tasks/${taskId}/chat`,
@@ -41,6 +39,7 @@ export const ENDPOINTS = {
     TEMPLATES: `${TASK_API}/notifications/templates`,
     template: (key) => `${TASK_API}/notifications/templates/${key}`,
     LOGS: `${TASK_API}/notifications/logs`,
+    SEND: `${TASK_API}/notifications/send`,
   },
 
   RECURRING_TASKS: {
@@ -65,5 +64,24 @@ export const ENDPOINTS = {
 
   REMINDERS: {
     LIST: `${TASK_API}/reminders`,
+  },
+
+  CL_TASKS: {
+    LIST: `${TASK_API}/cl-tasks`,
+    MY: `${TASK_API}/cl-tasks/my`,
+    VERIFICATION: `${TASK_API}/cl-tasks/verification`,
+    item: (id) => `${TASK_API}/cl-tasks/${id}`,
+    submit: (id) => `${TASK_API}/cl-tasks/${id}/submit`,
+    verify: (id) => `${TASK_API}/cl-tasks/${id}/verify`,
+  },
+
+  RED_TICKETS: {
+    LIST: `${TASK_API}/red-tickets`,
+    item: (id) => `${TASK_API}/red-tickets/${id}`,
+  },
+
+  REPORTS: {
+    DAILY: `${TASK_API}/reports/daily`,
+    REVIEW: `${TASK_API}/reports/review`,
   },
 };

@@ -6,8 +6,6 @@ export const TASK_NOTIFY_VARIABLE_KEYS = [
   "task_description",
   "user_name",
   "status",
-  "old_status",
-  "new_status",
   "priority",
   "category",
   "assigned_by",
@@ -35,7 +33,7 @@ export const TASK_NOTIFY_VARIABLE_GROUPS = [
   },
   {
     label: "Status",
-    keys: ["status", "old_status", "new_status"],
+    keys: ["status"],
   },
   {
     label: "Dates",

@@ -8,4 +8,5 @@ export const notificationService = {
   getTemplates: () => api.get(N.TEMPLATES),
   updateTemplate: (key, data) => api.put(N.template(key), data),
   getLogs: (params) => api.get(N.LOGS, { params }),
+  sendInstant: (data) => api.post(N.SEND, data),
 };

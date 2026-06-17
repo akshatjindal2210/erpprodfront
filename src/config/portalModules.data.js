@@ -9,7 +9,7 @@ export const APP_GATES = {
 export const APP_META = {
   core: { label: "Admin Console", permissions: true },
   ims: { label: "IMS", permissions: true },
-  task: { label: "Task", permissions: false },
+  task: { label: "Task", permissions: true },
 };
 
 export const MODULES = {
@@ -40,11 +40,10 @@ export const MODULES = {
     { name: "audit", label: "Inventory Audit" },
   ],
   task: [
-    { name: "tasks", label: "Tasks" },
-    { name: "recurring_tasks", label: "Recurring Tasks" },
-    { name: "categories", label: "Categories" },
-    { name: "holidays", label: "Holidays" },
-    { name: "activity_logs", label: "Activity Logs" },
+    // { name: "cl_task", label: "CL Task" },
+    // { name: "cl_task_verification", label: "CL Task Verification" },
+    // { name: "task_report", label: "CL Task Report" },
+    // { name: "red_ticket", label: "Red Ticket" },
   ],
 };
 

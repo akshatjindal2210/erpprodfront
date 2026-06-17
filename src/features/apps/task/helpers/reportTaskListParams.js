@@ -15,6 +15,7 @@ export function readReportFilterStateFromSession() {
     sortDir: sessionStorage.getItem("report_filter_sort_dir") || "desc",
     selectedAssignedBy: sessionStorage.getItem("report_filter_assigned_by") || "",
     selectedDepartment: sessionStorage.getItem("report_filter_department") || "",
+    selectedDesignation: sessionStorage.getItem("report_filter_designation") || "",
     selectedUser: sessionStorage.getItem("report_filter_user") || "",
   };
 }
@@ -40,6 +41,7 @@ export function buildReportTaskListApiParams(filterState, currentUser, paginatio
     sortDir,
     selectedAssignedBy,
     selectedDepartment,
+    selectedDesignation,
     selectedUser,
   } = filterState;
 
@@ -79,6 +81,7 @@ export function buildReportTaskListApiParams(filterState, currentUser, paginatio
 
     assigned_by_id: selectedAssignedBy || undefined,
     department_id: selectedDepartment || undefined,
+    designation_id: selectedDesignation || undefined,
     user_id: selectedUser || undefined,
     report: true,
   };

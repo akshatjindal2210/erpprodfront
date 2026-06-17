@@ -13,6 +13,7 @@ import SearchableSelect from "../common/SearchableSelect";
 import { recurringTaskService } from "@/features/apps/task/services/recurringTaskApi";
 import { FILE_BASE_URL } from "@/core/utils/lib";
 import RichTextEditor from "../common/RichTextEditor";
+import YearlyRecurrencePicker from "../common/YearlyRecurrencePicker";
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const base    = "w-full bg-white border rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder-slate-400 outline-none transition-all";
@@ -249,9 +250,6 @@ function SubUserSelector({ users, value = [], onChange, disabled }) {
 
 // ─── Recurring Section ────────────────────────────────────────────────────────
 function RecurringSection({ form, setForm, isEdit }) {
-  const currentMonthNum = String(new Date().getMonth() + 1).padStart(2, "0");
-  const [selectedMonth, setSelectedMonth] = useState(currentMonthNum);
-
   const safeWeekdays   = Array.isArray(form.recurrence_weekdays)    ? form.recurrence_weekdays    : [];
   const safeMonthDates = Array.isArray(form.recurrence_month_dates) ? form.recurrence_month_dates : [];
   const safeYearDates  = Array.isArray(form.recurrence_year_dates)  ? form.recurrence_year_dates  : [];
@@ -266,13 +264,6 @@ function RecurringSection({ form, setForm, isEdit }) {
       const arr = Array.isArray(p.recurrence_month_dates) ? p.recurrence_month_dates : [];
       return { ...p, recurrence_month_dates: arr.includes(date) ? arr.filter((d) => d !== date) : [...arr, date] };
     });
-  const toggleYearDate = (mmdd) =>
-    setForm((p) => {
-      const arr = Array.isArray(p.recurrence_year_dates) ? p.recurrence_year_dates : [];
-      return { ...p, recurrence_year_dates: arr.includes(mmdd) ? arr.filter((d) => d !== mmdd) : [...arr, mmdd] };
-    });
-
-  const currentMonthDays = MONTHS.find((m) => m.value === selectedMonth)?.days ?? 31;
 
   const selectionSummary = () => {
     if (form.recurrence_type === "weekly" && safeWeekdays.length > 0)
@@ -441,51 +432,11 @@ function RecurringSection({ form, setForm, isEdit }) {
       )}
 
       {form.recurrence_type === "yearly" && (
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Select Month</label>
-            <div className="grid grid-cols-4 md:grid-cols-6 gap-1">
-              {MONTHS.map((m) => (
-                <button key={m.value} type="button" onClick={() => setSelectedMonth(m.value)}
-                  className={`py-1.5 rounded-lg text-[10px] md:text-xs font-semibold border transition-all ${
-                    selectedMonth === m.value
-                      ? "bg-indigo-600 border-indigo-600 text-white shadow-sm"
-                      : "bg-white border-slate-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-600"
-                  }`}>
-                  {m.short}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider truncate mr-2">
-                {MONTHS.find((m) => m.value === selectedMonth)?.label} — Dates
-              </label>
-              {safeYearDates.filter((d) => d.startsWith(selectedMonth)).length > 0 && (
-                <span className="text-[10px] md:text-xs text-indigo-500 font-medium whitespace-nowrap">
-                  {safeYearDates.filter((d) => d.startsWith(selectedMonth)).length} selected
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-7 sm:grid-cols-[repeat(auto-fill,minmax(38px,1fr))] gap-1">
-              {Array.from({ length: currentMonthDays }, (_, i) => {
-                const day = String(i + 1).padStart(2, "0");
-                const mmdd = `${selectedMonth}-${day}`;
-                return (
-                  <button key={mmdd} type="button" onClick={() => toggleYearDate(mmdd)}
-                    className={`h-8 md:h-9 rounded-lg text-[10px] md:text-xs font-semibold border transition-all ${
-                      safeYearDates.includes(mmdd)
-                        ? "bg-indigo-600 border-indigo-600 text-white shadow-sm"
-                        : "bg-white border-slate-200 text-slate-500 hover:border-indigo-300"
-                    }`}>
-                    {i + 1}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+        <YearlyRecurrencePicker
+          yearDates={safeYearDates}
+          resetKey={form.recurrence_type}
+          onChange={(dates) => setForm((p) => ({ ...p, recurrence_year_dates: dates }))}
+        />
       )}
     </div>
   );

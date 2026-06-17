@@ -19,6 +19,7 @@ import {
   shouldIncludeInUserPermissionForm,
   isAppGateModule,
   PORTAL_APP_KEYS,
+  clearModulePermissions,
 } from "@/config/moduleAppRegistry";
 import UserPermissionsPanel from "./UserPermissionsPanel";
 import { departmentService } from "@/features/admin/services/departmentService";
