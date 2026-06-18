@@ -21,9 +21,27 @@ import { formatDocDate } from "@/core/utils/utilHelper";
 const STICKER_PREVIEW_W_PX = 5.7 * 96;
 const STICKER_PREVIEW_H_PX = 3.6 * 96;
 
+function resolvePackingStandardId(row) {
+  if (!row) return null;
+  const candidates = [
+    row.packing_standard_id,
+    row.standard_id,
+    row.packing_details?.standard_id,
+  ];
+  for (const c of candidates) {
+    if (c != null && String(c).trim() !== "") return String(c).trim();
+  }
+  return null;
+}
+
 /** Live production snapshot for sticker/packing-standard match (no `dailyprod` row required beforehand). */
-function packRowForStickerApi(row) {
+function packRowForStickerApi(row, { categoryId = null } = {}) {
   if (!row?.doc_no || row.itemdcode == null || String(row.itemdcode).trim() === "") return null;
+  const packingStandardId = resolvePackingStandardId(row);
+  const rowType = row.type != null ? String(row.type).trim() : "";
+  const catId = categoryId != null ? String(categoryId).trim() : "";
+  const includeStdId =
+    packingStandardId && (!catId || !rowType || catId === rowType);
   return {
     doc_no: row.doc_no,
     doc_dt: row.doc_dt,
@@ -33,12 +51,12 @@ function packRowForStickerApi(row) {
     total_qty: row.total_qty,
     acc_code: row.acc_code,
     sticker_generated: row.sticker_generated,
-    packing_standard_id: row.packing_standard_id,
+    ...(includeStdId ? { packing_standard_id: packingStandardId } : {}),
   };
 }
 
 function stickerFetchBody(row, overrides = {}) {
-  const prod = packRowForStickerApi(row);
+  const prod = packRowForStickerApi(row, { categoryId: overrides.category_id ?? null });
   const body = { ...overrides };
   if (body.itemdcode == null && row?.itemdcode != null) body.itemdcode = row.itemdcode;
   if (body.doc_no == null && row?.doc_no != null) body.doc_no = row.doc_no;
@@ -1007,7 +1025,16 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       }
 
       const cleared = await enrichRowPartyRateCustCode(
-        { ...selectedRow, type: String(catId), packing_details: null, party_rate_cust_code: null },
+        {
+          ...selectedRow,
+          type: String(catId),
+          packing_details: null,
+          standard_id: null,
+          packing_standard_id: null,
+          standard_qty_per_box: null,
+          ims_category: null,
+          party_rate_cust_code: null,
+        },
         selectedRow.acc_code
       );
       setSelectedRow(cleared);
