@@ -159,7 +159,7 @@ const GATE_ADD_MINUS = [
   { value: "minus", label: "Minus (-)" },
 ];
 
-const FINANCIAL_YEAR_RANGE_PAST = 5;
+const FINANCIAL_YEAR_RANGE_PAST = 9;
 /** 0 = no FY starting year after current calendar year (no "2027-2028" while CY is 2026). */
 const FINANCIAL_YEAR_RANGE_FUTURE = 0;
 
