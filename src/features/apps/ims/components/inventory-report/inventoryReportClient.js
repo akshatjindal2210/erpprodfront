@@ -1,21 +1,5 @@
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 
-/** API filter shape (export / legacy). */
-export function buildInventoryApiFilters(filters = {}) {
-  const toList = (val) => {
-    if (val == null) return [];
-    const list = Array.isArray(val) ? val : [val];
-    return [...new Set(list.map((v) => String(v).trim()).filter(Boolean))];
-  };
-
-  return {
-    item_dcodes: toList(filters.item_dcodes),
-    customer_codes: toList(filters.customer_codes),
-    location_ids: toList(filters.location_ids),
-    packing_numbers: toList(filters.packing_numbers),
-  };
-}
-
 export const EMPTY_INVENTORY_TOTALS = {
   fg_stock_qty: 0,
   in_store_qty: 0,

@@ -7,14 +7,4 @@ export const inventoryReportService = {
       method: "POST",
       body: { page, limit, filters, sortKey, sortDir, includeTotals },
     }),
-
-  getFilterOptions: (filters = {}, fields = null) =>
-    api(ENDPOINTS.INVENTORY_REPORT.LIST, {
-      method: "POST",
-      body: {
-        action: "filter_options",
-        filters,
-        ...(Array.isArray(fields) && fields.length ? { fields } : {}),
-      },
-    }),
 };

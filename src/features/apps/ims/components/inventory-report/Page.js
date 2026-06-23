@@ -10,22 +10,15 @@ import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import { inventoryReportService } from "@/features/apps/ims/services/inventoryReport";
-import { fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
-import {
-  buildInventoryFilterOptionsFromRows,
-  computeInventoryTotals,
-  EMPTY_FILTERS,
-  filterInventoryRows,
-  hasActiveInventoryFilters,
-  normalizeMultiFilterIds,
-} from "@/features/apps/ims/components/inventory-report/inventoryReportClient";
+import { buildInventoryFilterOptionsFromRows, computeInventoryTotals, EMPTY_FILTERS, filterInventoryRows, hasActiveInventoryFilters, normalizeMultiFilterIds } from "@/features/apps/ims/components/inventory-report/inventoryReportClient";
 import { notifyListPageExportResult } from "@/core/utils/listPageExport";
 import { exportInventoryReport, formatInventoryTableCell, INVENTORY_REPORT_TABLE_COLUMNS } from "@/features/apps/ims/components/inventory-report/inventoryReportExport";
 
-/** Backend fetch chunk (hidden from user). */
-const FETCH_PAGE_SIZE = 1000;
+/** Single backend request — avoids re-running heavy SQL per page. */
+const LOAD_LIMIT = 10000;
 /** Table scroll — render more rows on scroll (no server call). */
 const TABLE_RENDER_CHUNK = 150;
 
@@ -92,27 +85,23 @@ export default function InventoryReportPage() {
     setDisplayLimit(TABLE_RENDER_CHUNK);
 
     try {
-      const { data } = await fetchAllListPages(
-        async (page, limit) => {
-          const body = await inventoryReportService.list({
-            page,
-            limit,
-            filters: {},
-            sortKey: "packing_number",
-            sortDir: "desc",
-            includeTotals: false,
-          });
-          return { data: body?.data ?? [], total: body?.total ?? 0 };
-        },
-        FETCH_PAGE_SIZE,
-        50000
-      );
+      const body = await inventoryReportService.list({
+        page: 1,
+        limit: LOAD_LIMIT,
+        filters: {},
+        sortKey: "packing_number",
+        sortDir: "desc",
+        includeTotals: false,
+      });
 
       if (gen !== loadGenRef.current) return;
 
-      const rows = Array.isArray(data) ? data : [];
+      const rows = Array.isArray(body?.data) ? body.data : [];
       setAllRows(rows);
       if (!rows.length) toast.info("No inventory entries found.");
+      else if (Number(body?.total) > rows.length) {
+        toast.info(`Showing first ${rows.length.toLocaleString()} of ${Number(body.total).toLocaleString()} rows.`);
+      }
     } catch (err) {
       if (gen !== loadGenRef.current) return;
       toast.error(err?.message || "Report load failed");
