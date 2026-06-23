@@ -16,7 +16,12 @@ import LaserScanField from "@/core/components/common/LaserScanField";
 import { blurActiveElement, getDeviceScanSettings, isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
 import { extractLocationNo, parseStickerScan, boxNoUidDisplayLabel, locationNoDisplayLabel } from "@/features/apps/ims/helpers/qrScan";
 import { unlockScanAudio } from "@/features/apps/ims/helpers/scanFeedback";
-import { SCAN_SNACK_MSG, FLOW_SCAN_CAMERA_INSECURE_MSG, useScanSnackbarActions } from "@/core/utils/global";
+import {
+  SCAN_SNACK_MSG,
+  FLOW_SCAN_CAMERA_INSECURE_MSG,
+  notifyDecodeSuppressedScan,
+  useScanSnackbarActions,
+} from "@/core/utils/global";
 import {
   buildScannedDataFromAudit,
   getLocationFromAudit,
@@ -206,7 +211,11 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
       return;
     }
 
-    if (processingRef.current.has(boxCode)) return;
+    if (processingRef.current.has(boxCode)) {
+      showScanToast("error", `audit-in-flight-${boxCode.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(boxCode), 1400);
+      setScannedInput("");
+      return;
+    }
 
     processingRef.current.add(boxCode);
     setLoading(true);
@@ -293,10 +302,18 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
     setIsScannerOpen(true);
   };
 
+  const handleDecodeSuppressed = useCallback(
+    (text) => {
+      notifyDecodeSuppressedScan(showScanToast, text, "audit-cooldown");
+    },
+    [showScanToast]
+  );
+
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,
     elementId: AUDIT_SCANNER_ELEMENT_ID,
     onDecoded: (text) => handleScanValue(text),
+    onDecodeSuppressed: handleDecodeSuppressed,
     fps: 15,
     qrbox: { width: 250, height: 250 },
     onCameraFailed: (err) => {

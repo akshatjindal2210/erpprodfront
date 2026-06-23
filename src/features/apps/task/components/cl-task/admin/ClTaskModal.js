@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
 import Drawer from "@/core/components/ui/Drawer";
 import { clTaskService } from "@/features/apps/task/services/clTaskApi";
+// import { userPreferenceService } from "@/features/apps/task/services/userPreferenceApi";
 import { userService } from "@/features/apps/task/services/userApi";
 import { departmentService } from "@/features/admin/services/departmentService";
 import { designationService } from "@/features/admin/services/designationService";
@@ -42,6 +43,7 @@ export default function ClTaskModal({ open, onClose, onSuccess }) {
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [designations, setDesignations] = useState([]);
+  // const [saveAsDefaultVerifier, setSaveAsDefaultVerifier] = useState(true);
 
   useEffect(() => {
     if (!open) return;
@@ -52,11 +54,21 @@ export default function ClTaskModal({ open, onClose, onSuccess }) {
       userService.getViews(),
       departmentService.getViews(),
       designationService.getViews(),
+      // userPreferenceService.getClTaskDefaults().catch(() => null),
     ])
       .then(([userRes, deptRes, desRes]) => {
         setUsers((userRes.data?.data || []).map(mapTaskUserToOption));
         setDepartments((deptRes.data || []).map((d) => ({ id: d.id, name: d.name })));
         setDesignations((desRes.data || []).map((d) => ({ id: d.id, name: d.name })));
+
+        // const prefs = prefRes?.data?.data?.pref_value ?? {};
+        // const defaultVerifierId = prefs.verification_user_id;
+        // const defaultVerificationRequired = prefs.verification_required;
+        // setForm((f) => ({
+        //   ...f,
+        //   ...(defaultVerificationRequired === false ? { verification_required: false } : {}),
+        //   ...(defaultVerifierId ? { verification_user_id: String(defaultVerifierId) } : {}),
+        // }));
       })
       .catch(() => toast.error("Failed to load form data"))
       .finally(() => setLoading(false));
@@ -136,6 +148,14 @@ export default function ClTaskModal({ open, onClose, onSuccess }) {
           : form.end_date_time,
         form_schema: form.form_fields,
       });
+
+      // if (saveAsDefaultVerifier && form.verification_required && form.verification_user_id) {
+      //   await userPreferenceService.saveClTaskDefaults({
+      //     verification_user_id: Number(form.verification_user_id),
+      //     verification_required: true,
+      //   });
+      // }
+
       toast.success("CL Task created successfully");
       onSuccess?.();
       onClose?.();

@@ -91,6 +91,10 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
     const res = await fetch(url, options);
     const data = await res.json().catch(() => null);
 
+    if (typeof window !== "undefined" && res.status) {
+      if (isNetworkMarkedDown()) markNetworkReachableFromApi();
+    }
+
     if (!res.ok) {
       maybeToastImsUnavailable(data?.ims_meta);
       if (typeof window !== "undefined") {
@@ -115,8 +119,6 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
     }
 
     maybeToastImsUnavailable(data?.ims_meta);
-
-    if (isNetworkMarkedDown()) markNetworkReachableFromApi();
 
     return data;
   } catch (err) {

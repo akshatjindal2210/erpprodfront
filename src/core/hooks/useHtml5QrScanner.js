@@ -36,11 +36,13 @@ export function useHtml5QrScanner({
   fps = DEFAULT_FPS,
   qrbox = DEFAULT_QRBOX,
   onCameraFailed,
+  onDecodeSuppressed,
   decodeCooldownMs = 900,
 }) {
   const scannerRef = useRef(null);
   const onDecodedRef = useRef(onDecoded);
   const onCameraFailedRef = useRef(onCameraFailed);
+  const onDecodeSuppressedRef = useRef(onDecodeSuppressed);
   const lastDecodeRef = useRef({ text: "", at: 0 });
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -69,6 +71,7 @@ export function useHtml5QrScanner({
   useEffect(() => {
     onDecodedRef.current = onDecoded;
     onCameraFailedRef.current = onCameraFailed;
+    onDecodeSuppressedRef.current = onDecodeSuppressed;
   });
 
   const qrboxWidth = qrbox?.width ?? DEFAULT_QRBOX.width;
@@ -106,7 +109,10 @@ export function useHtml5QrScanner({
       if (!normalized) return;
       const now = Date.now();
       const last = lastDecodeRef.current;
-      if (last.text === normalized && now - last.at < decodeCooldownMs) return;
+      if (last.text === normalized && now - last.at < decodeCooldownMs) {
+        onDecodeSuppressedRef.current?.(normalized);
+        return;
+      }
       lastDecodeRef.current = { text: normalized, at: now };
       onDecodedRef.current?.(normalized);
     };

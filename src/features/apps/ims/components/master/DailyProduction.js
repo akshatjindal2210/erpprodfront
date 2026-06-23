@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { Package, Eye, Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
 import { formatDateTime, formatDocDate } from "@/core/utils/utilHelper";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
-import { masterService } from "@/features/apps/ims/services/master";
+import { masterService, peekDailyProdListCache, invalidateDailyProdListCache } from "@/features/apps/ims/services/master";
 import { boxService } from "@/features/apps/ims/services/box";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
@@ -22,9 +22,64 @@ import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { useMasterClientList } from "@/features/apps/ims/helpers/useMasterClientList";
+import { applyClientSearch, fetchListFirstPage, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
+import { toastDataRefreshed } from "@/core/utils/toastNotify";
 import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/features/apps/ims/helpers/masterListUi";
-import { DAILY_PRODUCTION_HEADERS, STICKER_STATUS_FILTER_OPTIONS, DAILY_PROD_CARD_CONFIG, dailyProdRowKey, dailyProdSearchParts, filterDailyProdByStickerStatus } from "./masterColumns";
+import { DAILY_PRODUCTION_HEADERS, DAILY_PRODUCTION_COMPARISON_HEADERS, STICKER_STATUS_FILTER_OPTIONS, DAILY_PROD_CARD_CONFIG, dailyProdRowKey, dailyProdSearchParts, dailyProdComparisonSearchParts, filterDailyProdByStickerStatus, isDailyProdStickerGenerated, hasDailyProdComparisonMismatch } from "./masterColumns";
+
+const LIST_FETCH_CAP = 50000;
+const DISPLAY_CHUNK = 150;
+const DAILY_PROD_CLIENT_CACHE_MS = 60_000;
+
+/** Session cache — same filters reopen instantly while background refresh runs. */
+const dailyProdClientCache = new Map();
+
+function dailyProdCacheKey(query) {
+  return `${query.stickerStatus}|${query.fromDate}|${query.toDate}`;
+}
+
+function apiStickerStatusForTab(tab) {
+  if (tab === "comparison") return "comparison";
+  if (tab === "generated") return "generated";
+  if (tab === "all") return "all";
+  return "pending";
+}
+
+async function loadDailyProdRows(query, { forceRefresh = false } = {}) {
+  const base = {
+    list_view: true,
+    ...(forceRefresh ? { refresh: true } : {}),
+    filters: buildDailyProdFetchFilters(query.stickerStatus, query.fromDate, query.toDate),
+  };
+  const loadOnePage = async (page, limit) => {
+    const body = { ...base, page, limit };
+    if (!forceRefresh && page === 1) {
+      const warmed = peekDailyProdListCache(body);
+      if (warmed) {
+        return { data: warmed.data, total: warmed.total };
+      }
+    }
+    const res = await masterService.getDailyProd(body);
+    const list = res?.data ?? [];
+    return {
+      data: Array.isArray(list) ? list : [],
+      total: res?.total ?? list.length,
+    };
+  };
+  // One API call — full date range in memory; search/sort/filter stay on device.
+  return fetchListFirstPage(loadOnePage, LIST_FETCH_CAP);
+}
+
+function buildDailyProdFetchFilters(stickerStatus, fromDate, toDate) {
+  const filters = {
+    sticker_status: apiStickerStatusForTab(stickerStatus),
+    ...(fromDate ? { from_date: fromDate } : {}),
+    ...(toDate ? { to_date: toDate } : {}),
+  };
+  if (stickerStatus === "pending") filters.sticker_generated = false;
+  else if (stickerStatus === "generated") filters.sticker_generated = true;
+  return filters;
+}
 
 const StickerCreationModel = dynamic(
   () => import("@/features/apps/ims/components/stickers/StickerCreationModel"),
@@ -46,86 +101,256 @@ export default function DailyProductionPage() {
   const [isStickerModalOpen, setIsStickerModalOpen] = useState(false);
   const [removeStickersLoading, setRemoveStickersLoading] = useState(false);
   const [removeStickersConfirmOpen, setRemoveStickersConfirmOpen] = useState(false);
-  const [listParams, setListParams] = useState({
-    stickerStatus: "pending",
-    fromDate: dateFilterDefaults.from,
-    toDate: dateFilterDefaults.to,
-  });
+
+  const [loading, setLoading] = useState(true);
+  const [allRows, setAllRows] = useState([]);
+  const [displayLimit, setDisplayLimit] = useState(DISPLAY_CHUNK);
+  const [draftSearch, setDraftSearch] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [params, setParams] = useState({ sortKey: "doc_dt", sortDir: "desc" });
+  const initialQuerySet = useRef(false);
+
+  /** Applied only when user clicks Search (or Reset). Default: Pending + date range. */
+  const [appliedQuery, setAppliedQuery] = useState(null);
 
   useEffect(() => {
-    if (dateFilterDefaults.from || dateFilterDefaults.to) {
-      setListParams((prev) => ({
-        ...prev,
-        fromDate: dateFilterDefaults.from,
-        toDate: dateFilterDefaults.to,
-      }));
-    }
-  }, [dateFilterDefaults.from, dateFilterDefaults.to]);
-
-  const loadData = useCallback(async () => {
-    const res = await masterService.getDailyProd({
-      filters: {
-        ...(listParams.fromDate ? { from_date: listParams.fromDate } : {}),
-        ...(listParams.toDate ? { to_date: listParams.toDate } : {}),
-      },
-    });
-    return res.data ?? [];
-  }, [listParams.fromDate, listParams.toDate]);
-
-  const preFilter = useCallback(
-    (rows) => filterDailyProdByStickerStatus(rows, listParams.stickerStatus),
-    [listParams.stickerStatus]
-  );
-
-  const {
-    loading,
-    reload,
-    tempSearch,
-    setTempSearch,
-    params,
-    selected,
-    setSelected,
-    selectedRecord,
-    rowByKey,
-    filteredData,
-    items,
-    totalItems,
-    handleLoadMore,
-    toggleSort,
-    resetDisplayLimit,
-    refreshAndKeepSelection,
-  } = useMasterClientList({
-    loadData,
-    errorMessage: "Failed to load production data",
-    getSearchParts: dailyProdSearchParts,
-    preFilter,
-    getRowKey: dailyProdRowKey,
-  });
-
-  const handleReset = useCallback(() => {
-    setTempSearch("");
-    setListParams({
+    if (!dateFilterDefaults.from && !dateFilterDefaults.to) return;
+    if (initialQuerySet.current) return;
+    initialQuerySet.current = true;
+    setAppliedQuery({
       stickerStatus: "pending",
       fromDate: dateFilterDefaults.from,
       toDate: dateFilterDefaults.to,
     });
-    setSelected(null);
-    resetDisplayLimit();
-  }, [dateFilterDefaults.from, dateFilterDefaults.to, resetDisplayLimit, setSelected, setTempSearch]);
+  }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const extraFilters = useMemo(
-    () => [{ label: "Sticker Status", key: "stickerStatus", value: listParams.stickerStatus, options: STICKER_STATUS_FILTER_OPTIONS }],
-    [listParams.stickerStatus]
+  const fetchProduction = useCallback(async ({ preferCache = false, forceRefresh = false } = {}) => {
+    if (!appliedQuery?.fromDate && !appliedQuery?.toDate) return;
+    const cacheKey = dailyProdCacheKey(appliedQuery);
+    const cached = dailyProdClientCache.get(cacheKey);
+    const cacheFresh = !forceRefresh && cached && Date.now() - cached.at < DAILY_PROD_CLIENT_CACHE_MS;
+
+    if (cacheFresh && preferCache && !forceRefresh) {
+      setAllRows(cached.data);
+      setDisplayLimit(DISPLAY_CHUNK);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
+    if (forceRefresh) {
+      dailyProdClientCache.delete(cacheKey);
+      invalidateDailyProdListCache({
+        filters: buildDailyProdFetchFilters(
+          appliedQuery.stickerStatus,
+          appliedQuery.fromDate,
+          appliedQuery.toDate
+        ),
+      });
+    }
+
+    try {
+      const { data } = await loadDailyProdRows(appliedQuery, { forceRefresh });
+      dailyProdClientCache.set(cacheKey, { at: Date.now(), data });
+      setAllRows(data);
+      setDisplayLimit(DISPLAY_CHUNK);
+    } catch (err) {
+      toast.error(err?.message || "Failed to load production data");
+      setAllRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [appliedQuery]);
+
+  useEffect(() => {
+    if (!appliedQuery) return;
+    void fetchProduction({ preferCache: true });
+  }, [appliedQuery, fetchProduction]);
+
+  const reload = useCallback(
+    async (isManualRefresh = false) => {
+      await fetchProduction({ forceRefresh: true });
+      if (isManualRefresh) toastDataRefreshed();
+    },
+    [fetchProduction]
   );
 
+  const rowByKey = useMemo(() => {
+    const map = new Map();
+    for (const row of allRows) map.set(dailyProdRowKey(row), row);
+    return map;
+  }, [allRows]);
+
+  const selectedRecord = useMemo(() => {
+    if (!selected) return null;
+    return rowByKey.get(selected) ?? null;
+  }, [selected, rowByKey]);
+
+  const getSearchParts = useCallback(
+    (row) => {
+      if (appliedQuery?.stickerStatus === "comparison") return dailyProdComparisonSearchParts(row);
+      return dailyProdSearchParts(row);
+    },
+    [appliedQuery?.stickerStatus]
+  );
+
+  const filteredRows = useMemo(() => {
+    if (!appliedQuery) return [];
+    let data = filterDailyProdByStickerStatus(allRows, appliedQuery.stickerStatus);
+    const q = String(draftSearch || "").trim();
+    if (q) {
+      data = applyClientSearch(data, q, { getParts: getSearchParts });
+    } else {
+      data = sortRowsByKey(data, params.sortKey, params.sortDir);
+    }
+    return data;
+  }, [allRows, appliedQuery, draftSearch, params.sortKey, params.sortDir, getSearchParts]);
+
+  const handleDraftSearchChange = useCallback((value) => {
+    setDraftSearch(value);
+    setDisplayLimit(DISPLAY_CHUNK);
+  }, []);
+
+  const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
+  const totalItems = filteredRows.length;
+
+  const handleLoadMore = useCallback(() => {
+    if (!loading && items.length < totalItems) {
+      setDisplayLimit((n) => n + DISPLAY_CHUNK);
+    }
+  }, [loading, items.length, totalItems]);
+
+  const toggleSort = useCallback((key) => {
+    setParams((prev) => nextSortParams(prev, key));
+    setDisplayLimit(DISPLAY_CHUNK);
+  }, []);
+
+  const handleReset = useCallback(() => {
+    setDraftSearch("");
+    dailyProdClientCache.clear();
+    setAppliedQuery({
+      stickerStatus: "pending",
+      fromDate: dateFilterDefaults.from,
+      toDate: dateFilterDefaults.to,
+    });
+    setParams({ sortKey: "doc_dt", sortDir: "desc" });
+    setSelected(null);
+    setDisplayLimit(DISPLAY_CHUNK);
+  }, [dateFilterDefaults.from, dateFilterDefaults.to]);
+
+  const refreshAndKeepSelection = useCallback(
+    async (selectionKey) => {
+      if (!appliedQuery) return;
+      setLoading(true);
+      try {
+        const cacheKey = dailyProdCacheKey(appliedQuery);
+        dailyProdClientCache.delete(cacheKey);
+        invalidateDailyProdListCache({
+          filters: buildDailyProdFetchFilters(
+            appliedQuery.stickerStatus,
+            appliedQuery.fromDate,
+            appliedQuery.toDate
+          ),
+        });
+        const { data } = await loadDailyProdRows(appliedQuery, { forceRefresh: true });
+        dailyProdClientCache.set(cacheKey, { at: Date.now(), data });
+        setAllRows(data);
+        setDisplayLimit(DISPLAY_CHUNK);
+        if (!selectionKey) {
+          setSelected(null);
+          return;
+        }
+        const nextKey = data.some((row) => dailyProdRowKey(row) === selectionKey) ? selectionKey : null;
+        setSelected(nextKey);
+      } catch (err) {
+        toast.error(err?.message || "Failed to load production data");
+        setAllRows([]);
+        setSelected(null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [appliedQuery]
+  );
+
+  useEffect(() => {
+    if (!selected || !selectedRecord || !appliedQuery) return;
+    const isGenerated = isDailyProdStickerGenerated(selectedRecord);
+    if (appliedQuery.stickerStatus === "pending" && isGenerated) setSelected(null);
+    if (appliedQuery.stickerStatus === "generated" && !isGenerated) setSelected(null);
+    if (
+      appliedQuery.stickerStatus === "comparison" &&
+      (!isGenerated || !hasDailyProdComparisonMismatch(selectedRecord))
+    ) {
+      setSelected(null);
+    }
+  }, [appliedQuery?.stickerStatus, selected, selectedRecord, appliedQuery]);
+
+  const extraFilters = useMemo(
+    () => [
+      {
+        label: "Sticker Status",
+        key: "stickerStatus",
+        value: appliedQuery?.stickerStatus ?? "pending",
+        options: STICKER_STATUS_FILTER_OPTIONS,
+      },
+    ],
+    [appliedQuery?.stickerStatus]
+  );
+
+  const isComparisonView = appliedQuery?.stickerStatus === "comparison";
+
+  const tableHeaders = useMemo(() => {
+    if (isComparisonView) return DAILY_PRODUCTION_COMPARISON_HEADERS;
+    return DAILY_PRODUCTION_HEADERS;
+  }, [isComparisonView]);
+
+  const searchPlaceholder = useMemo(
+    () =>
+      appliedQuery?.stickerStatus === "comparison"
+        ? "Search customer, doc, job, item..."
+        : "Search Doc or Job Card...",
+    [appliedQuery?.stickerStatus]
+  );
+
+  const emptyState = useMemo(() => {
+    const status = appliedQuery?.stickerStatus ?? "pending";
+    if (status === "generated") {
+      return {
+        message: "No generated stickers in this date range",
+        subMessage: "Values from database snapshot saved at sticker generate — not live IMS packing",
+      };
+    }
+    if (status === "comparison") {
+      return {
+        message: "No IMS vs DB mismatches in this date range",
+        subMessage: "IMS (ERP) vs DB snapshot — red rows show date, job, item or qty mismatch (customer ignored)",
+      };
+    }
+    if (status === "all") {
+      return {
+        message: "No packing entries in this date range",
+        subMessage: "All IMS pack rows — pending and generated",
+      };
+    }
+    return {
+      message: "No pending packing entries",
+      subMessage: "IMS pack rows without stickers show here — generate sticker to move to Generated",
+    };
+  }, [appliedQuery?.stickerStatus]);
+
   const imsDateFilter = useMemo(
-    () => ({ from_date: listParams.fromDate || undefined, to_date: listParams.toDate || undefined }),
-    [listParams.fromDate, listParams.toDate]
+    () => ({
+      from_date: appliedQuery?.fromDate || undefined,
+      to_date: appliedQuery?.toDate || undefined,
+    }),
+    [appliedQuery?.fromDate, appliedQuery?.toDate]
   );
 
   const openStickerModal = useCallback(() => setIsStickerModalOpen(true), []);
   const openRemoveConfirm = useCallback(() => setRemoveStickersConfirmOpen(true), []);
-  const getSelectedRow = useCallback(() => (selected ? rowByKey?.get(selected) ?? null : null), [selected, rowByKey]);
+  const getSelectedRow = useCallback(() => (selected ? rowByKey.get(selected) ?? null : null), [selected, rowByKey]);
 
   const { openNewModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "packing_entry",
@@ -145,7 +370,7 @@ export default function DailyProductionPage() {
       toast.error("You do not have permission to remove stickers. Delete permission is required.");
       return;
     }
-    if (!selectedRecord?.doc_no || !selectedRecord?.sticker_generated || !selected) return;
+    if (!selectedRecord?.doc_no || !isDailyProdStickerGenerated(selectedRecord) || !selected) return;
 
     setRemoveStickersLoading(true);
     try {
@@ -162,16 +387,27 @@ export default function DailyProductionPage() {
   };
 
   const handleStickerSuccess = useCallback(async () => {
-    await refreshAndKeepSelection(selected);
+    await reload(false);
+    setSelected(null);
     setIsStickerModalOpen(false);
-    toast.success("Sticker created successfully!");
-  }, [selected, refreshAndKeepSelection]);
+    toast.success("Stickers generated — row moved to Generated filter.");
+  }, [reload]);
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: "Daily Production",
-    rows: filteredData,
-    headers: DAILY_PRODUCTION_HEADERS,
+    rows: filteredRows,
+    headers: tableHeaders,
   });
+
+  const handleFilterApply = useCallback((data) => {
+    setDisplayLimit(DISPLAY_CHUNK);
+    setAppliedQuery({
+      fromDate: data.fromDate,
+      toDate: data.toDate,
+      stickerStatus: data.stickerStatus || "pending",
+    });
+    setSelected(null);
+  }, []);
 
   return (
     <div className={`${IMS_LIST_PAGE_SHELL} font-sans`}>
@@ -202,11 +438,11 @@ export default function DailyProductionPage() {
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none"
                 />
 
-                {canRemoveGeneratedStickers && selectedRecord?.sticker_generated ? (
+                {canRemoveGeneratedStickers && selected && isDailyProdStickerGenerated(selectedRecord) ? (
                   <button
                     type="button"
                     onClick={openRemoveConfirm}
-                    disabled={!selected || removeStickersLoading || loading}
+                    disabled={removeStickersLoading || loading}
                     className="rounded-none h-9 text-[11px] font-bold uppercase px-4 border border-rose-300 bg-white text-rose-700 hover:bg-rose-50 flex items-center justify-center gap-2 shadow-none disabled:opacity-40 disabled:cursor-not-allowed"
                     title="Delete production stickers for this packing (stock adjustment boxes stay)"
                   >
@@ -234,7 +470,11 @@ export default function DailyProductionPage() {
             }
           />
 
-          {selected ? (
+          {selected && isComparisonView ? (
+            <MasterSelectionBanner onClear={() => setSelected(null)}>
+              Mismatch · Doc {selectedRecord?.doc_no} — IMS vs DB (red = mismatch, customer not counted)
+            </MasterSelectionBanner>
+          ) : selected ? (
             <MasterSelectionBanner onClear={() => setSelected(null)}>
               Selected Document: {selectedRecord?.doc_no} | Job: {selectedRecord?.job_card_no}
             </MasterSelectionBanner>
@@ -243,23 +483,15 @@ export default function DailyProductionPage() {
 
         <ListPageFilterStrip>
           <DateRangeFilter
-            key={`${listParams.fromDate}-${listParams.toDate}`}
-            fromDate={listParams.fromDate}
-            toDate={listParams.toDate}
+            fromDate={appliedQuery?.fromDate ?? dateFilterDefaults.from}
+            toDate={appliedQuery?.toDate ?? dateFilterDefaults.to}
             extraFilters={extraFilters}
-            onApply={(data) => {
-              setListParams((prev) => ({
-                ...prev,
-                fromDate: data.fromDate,
-                toDate: data.toDate,
-                stickerStatus: data.stickerStatus,
-              }));
-              resetDisplayLimit();
-            }}
+            applyOnSearchEnter={false}
+            onApply={handleFilterApply}
             onReset={handleReset}
-            searchValue={tempSearch}
-            onSearchChange={setTempSearch}
-            searchPlaceholder="Search Doc or Job Card..."
+            searchValue={draftSearch}
+            onSearchChange={handleDraftSearchChange}
+            searchPlaceholder={searchPlaceholder}
             searchLabel="Production Search"
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
@@ -268,7 +500,7 @@ export default function DailyProductionPage() {
 
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
           <DataTable
-            headers={DAILY_PRODUCTION_HEADERS}
+            headers={tableHeaders}
             data={items}
             loading={loading}
             viewMode={viewMode}
@@ -285,7 +517,17 @@ export default function DailyProductionPage() {
             onLoadMore={handleLoadMore}
             hasMore={items.length < totalItems}
             totalItems={totalItems}
+            emptyMessage={emptyState.message}
+            emptySubMessage={emptyState.subMessage}
             cardConfig={DAILY_PROD_CARD_CONFIG}
+            getRowClassName={
+              isComparisonView
+                ? (row) =>
+                    hasDailyProdComparisonMismatch(row)
+                      ? "bg-rose-50 group-hover:bg-rose-50 [&_td]:!bg-rose-50"
+                      : ""
+                : undefined
+            }
           />
         </div>
 
@@ -296,15 +538,22 @@ export default function DailyProductionPage() {
         {selectedRecord ? (
           <MasterDetailBody>
             <MasterDetailHero
-              eyebrow="Daily production"
+              eyebrow={isDailyProdStickerGenerated(selectedRecord) ? "Saved in database" : "Daily production (IMS)"}
               icon={Package}
               title={selectedRecord.acc_name}
               badge={`Doc ${selectedRecord.doc_no} · ${formatDocDate(selectedRecord.doc_dt) || "—"}`}
             />
+            {isDailyProdStickerGenerated(selectedRecord) ? (
+              <MasterDetailProse label="About this record" tone="indigo">
+                Values below are frozen in our database when stickers were generated — not live ERP packing data.
+                Use the Comparison tab to see IMS vs saved snapshot.
+              </MasterDetailProse>
+            ) : null}
             <MasterDetailGrid columns={2}>
               <MasterDetailSection label="Document no." tone="indigo"><span>{selectedRecord.doc_no}</span></MasterDetailSection>
               <MasterDetailSection label="Entry date" tone="white"><span>{formatDocDate(selectedRecord.doc_dt) || "—"}</span></MasterDetailSection>
             </MasterDetailGrid>
+            <MasterDetailSection label="Job card" tone="white"><span>{selectedRecord.job_card_no || "—"}</span></MasterDetailSection>
             <MasterDetailSection label="Item code" tone="white"><span>{selectedRecord.item_code}</span></MasterDetailSection>
             {selectedRecord.item_desc ? (
               <MasterDetailProse label="Item description" tone="slate">{selectedRecord.item_desc}</MasterDetailProse>
@@ -314,13 +563,63 @@ export default function DailyProductionPage() {
               value={parseFloat(selectedRecord.total_qty || 0).toLocaleString()}
               valueClassName="text-emerald-700 text-base tabular-nums"
             />
-            {selectedRecord.sticker_generated ? (
-              <MasterDetailGrid columns={2}>
-                <MasterDetailKV label="Sticker created" value={formatDateTime(selectedRecord.sticker_created_at) || "—"} />
-                <MasterDetailKV label="Created by" value={selectedRecord.sticker_created_by_name || "—"} />
-                <MasterDetailKV label="Sticker updated" value={formatDateTime(selectedRecord.sticker_updated_at) || "—"} />
-                <MasterDetailKV label="Updated by" value={selectedRecord.sticker_updated_by_name || "—"} />
-              </MasterDetailGrid>
+            {isDailyProdStickerGenerated(selectedRecord) ? (
+              <>
+                <MasterDetailKV
+                  label="Customer (saved)"
+                  value={selectedRecord.acc_name || "—"}
+                  valueClassName="text-slate-800 font-bold uppercase"
+                />
+                {selectedRecord.packing_category ? (
+                  <MasterDetailKV
+                    label="Packing category (saved)"
+                    value={selectedRecord.packing_category}
+                    valueClassName="text-amber-800 font-bold uppercase"
+                  />
+                ) : null}
+                <MasterDetailGrid columns={2}>
+                  <MasterDetailKV
+                    label="Full boxes"
+                    value={(() => {
+                      const count = parseInt(String(selectedRecord.full_boxes_count ?? "0"), 10) || 0;
+                      const perBox = parseFloat(selectedRecord.qty_per_box || 0);
+                      const qty = Number.isFinite(perBox) && perBox > 0 ? count * perBox : 0;
+                      return `${count} box${count === 1 ? "" : "es"} · Qty: ${qty.toLocaleString()}`;
+                    })()}
+                    valueClassName="text-blue-700 font-bold tabular-nums"
+                  />
+                  <MasterDetailKV
+                    label="Loose boxes"
+                    value={(() => {
+                      const loose = parseFloat(selectedRecord.loose_box_qty || 0);
+                      const hasLoose = Number.isFinite(loose) && loose > 0;
+                      return hasLoose
+                        ? `1 box · Qty: ${loose.toLocaleString()}`
+                        : "0 boxes · Qty: 0";
+                    })()}
+                    valueClassName="text-orange-700 font-bold tabular-nums"
+                  />
+                  {selectedRecord.qty_per_box != null && selectedRecord.qty_per_box !== "" ? (
+                    <MasterDetailKV
+                      label="Per full box"
+                      value={`${parseFloat(selectedRecord.qty_per_box || 0).toLocaleString()} ${selectedRecord.sticker_unit || "PCS"}`}
+                      valueClassName="tabular-nums"
+                    />
+                  ) : null}
+                </MasterDetailGrid>
+                {selectedRecord.party_rate_cust_code ? (
+                  <MasterDetailKV label="Cust. code (narration)" value={selectedRecord.party_rate_cust_code} />
+                ) : null}
+                {selectedRecord.fg_location ? (
+                  <MasterDetailKV label="FG location" value={selectedRecord.fg_location} />
+                ) : null}
+                <MasterDetailGrid columns={2}>
+                  <MasterDetailKV label="Sticker created" value={formatDateTime(selectedRecord.sticker_created_at) || "—"} />
+                  <MasterDetailKV label="Created by" value={selectedRecord.sticker_created_by_name || "—"} />
+                  <MasterDetailKV label="Sticker updated" value={formatDateTime(selectedRecord.sticker_updated_at) || "—"} />
+                  <MasterDetailKV label="Updated by" value={selectedRecord.sticker_updated_by_name || "—"} />
+                </MasterDetailGrid>
+              </>
             ) : null}
           </MasterDetailBody>
         ) : null}

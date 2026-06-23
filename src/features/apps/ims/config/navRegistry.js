@@ -1,4 +1,4 @@
-import { Zap, Package, Truck, Users, Database, FileSearch, BarChart3, Map, Boxes, ClipboardCheck, ListChecksIcon, Locate, ClipboardList, Scale, Sticker, Ship, History } from "lucide-react";
+import { Zap, Package, Truck, Users, Database, FileSearch, BarChart3, Map, Boxes, ClipboardCheck, ListChecksIcon, Locate, ClipboardList, Scale, Sticker, Ship, History, ShieldAlert } from "lucide-react";
 import { ROUTES } from "@/features/apps/ims/utils/routes";
 
 export const NAV_REGISTRY = [
@@ -19,6 +19,7 @@ export const NAV_REGISTRY = [
   { id: "packing-entry", name: "Packing Entry", icon: <Truck size={16} />, href: ROUTES.PACKING_ENTRY, module: "packing_entry" },
   { id: "inventory-box-table", name: "Boxes", icon: <Boxes size={16} />, href: ROUTES.BOX_TABLE, module: "boxes" },
   { id: "inward-entry", name: "Store In", icon: <ClipboardCheck size={16} />, href: ROUTES.INVENTORY_INWARD, module: "inventory_inwards" },
+  { id: "qc-hold-material", name: "QC Hold Material", icon: <ShieldAlert size={16} />, href: ROUTES.QC_HOLD_MATERIAL, module: "qc_hold_material" },
   { id: "forwarding-note", name: "Forwarding Note", icon: <FileSearch size={16} />, href: ROUTES.FORWARDING_NOTE, module: "forwarding_note_master" },
   { id: "store-outward", name: "Store Out", icon: <Truck size={16} />, href: ROUTES.OUT_ENTRY, module: "out_entry" },
   { id: "sticker-override", name: "Change / Override Customer", icon: <Map size={16} />, href: ROUTES.STICKER_OVERRIDE, module: "change_override_customer" },

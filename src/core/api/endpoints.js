@@ -76,6 +76,7 @@ export const CORE_ENDPOINTS = {
     read: (id) => `${CORE_API}/inbox/${id}/read`,
     READ_ALL: `${CORE_API}/inbox/read-all`,
   },
+  // USER_PREFERENCES: `${CORE_API}/user-preferences`,
   APP_CONFIG: {
     LIST: "/app-config/list",
     UPDATE: "/app-config",

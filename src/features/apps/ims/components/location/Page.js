@@ -47,14 +47,6 @@ export default function LocationMasterPage() {
     sortDir: "desc",
   });
 
-  useEffect(() => {
-    setParams(prev => ({
-      ...prev,
-      fromDate: null,
-      toDate: null
-    }));
-  }, []);
-
   const [tempSearch, setTempSearch] = useState("");
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
@@ -117,8 +109,8 @@ export default function LocationMasterPage() {
   const handleFilterApply = (data) => {
     setParams((prev) => ({
       ...prev,
-      fromDate: data.fromDate,
-      toDate: data.toDate,
+      fromDate: data.fromDate || null,
+      toDate: data.toDate || null,
       status: data.approvedStatus || prev.status,
     }));
   };
@@ -128,8 +120,8 @@ export default function LocationMasterPage() {
     setParams({
       pageSize: 1000,
       status: "all",
-      fromDate: dateFilterDefaults.from,
-      toDate: dateFilterDefaults.to,
+      fromDate: null,
+      toDate: null,
       sortKey: "location_id",
       sortDir: "desc",
     });

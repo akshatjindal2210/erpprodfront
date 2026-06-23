@@ -18,6 +18,28 @@ const cache = {
   dailyProd: null
 };
 
+const DAILY_PROD_LIST_SLICE_TTL_MS = 60_000;
+/** @type {Map<string, { at: number, data: unknown[], total: number }>} */
+const dailyProdListSliceCache = new Map();
+
+function dailyProdListCacheKey(params = {}) {
+  const f = params?.filters || {};
+  const search = String(params?.search ?? "").trim().toLowerCase();
+  return `${f.sticker_status || "pending"}|${f.from_date || ""}|${f.to_date || ""}|${f.sticker_generated ?? ""}|${search}`;
+}
+
+export function peekDailyProdListCache(params = {}) {
+  const key = dailyProdListCacheKey(params);
+  const hit = dailyProdListSliceCache.get(key);
+  if (!hit || Date.now() - hit.at > DAILY_PROD_LIST_SLICE_TTL_MS) return null;
+  return { data: [...hit.data], total: hit.total };
+}
+
+export function invalidateDailyProdListCache(params = {}) {
+  const key = dailyProdListCacheKey(params);
+  dailyProdListSliceCache.delete(key);
+}
+
 function wantsInHandInventoryFilter(params = {}) {
   const f = params?.filters ?? params;
   return (
@@ -111,6 +133,7 @@ export const masterService = {
       cache.ledgers = null;
       cache.partyRates = null;
       cache.dailyProd = null;
+      dailyProdListSliceCache.clear();
       packByFyDocCache.clear();
       packByFyInflight.clear();
     }
@@ -372,6 +395,12 @@ export const masterService = {
       const mapped = res.data.map((dp) => ({ ...dp, id: dp.doc_no }));
       cache.dailyProd = mapped;
       res.data = mapped;
+      const key = dailyProdListCacheKey(params);
+      dailyProdListSliceCache.set(key, {
+        at: Date.now(),
+        data: mapped,
+        total: Number(res.total ?? mapped.length),
+      });
     }
     return res;
   },

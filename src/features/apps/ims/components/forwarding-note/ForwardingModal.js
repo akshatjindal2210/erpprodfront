@@ -12,14 +12,10 @@ import SearchableSelect          from "@/core/components/common/SearchableSelect
 import { applyClientSearch } from "@/features/apps/ims/helpers/clientListSearch";
 import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
+import { calculateFifoBoxes } from "@/core/utils/utilHelper";
 import RemarksTextarea           from "@/core/components/common/RemarksTextarea";
 import FormPanelLoader           from "@/core/components/common/FormPanelLoader";
-import {
-  OK_INPUT,
-  FORM_LABEL_CLASS,
-  FORM_MICRO_LABEL_CLASS,
-  FORM_ERROR_CLASS,
-} from "@/core/components/common/Constants";
+import { OK_INPUT, FORM_LABEL_CLASS, FORM_MICRO_LABEL_CLASS, FORM_ERROR_CLASS } from "@/core/components/common/Constants";
 import { useCanAccess }          from "@/core/hooks/useCanAccess";
 import { focusFirstError } from "@/core/utils/formFocus";
 
@@ -56,16 +52,54 @@ const INITIAL_ITEM_ROW = {
 // Total qty of a box array
 const sumQty = (boxes) => boxes.reduce((s, b) => s + Number(b.qty), 0);
 
-const selectBoxesByQty = (boxes, targetQty) => {
-  if (!targetQty) return [];
-  const selected = [];
-  let acc = 0;
-  for (const box of boxes) {
-    selected.push(box);
-    acc += Number(box.qty);
-    if (acc >= targetQty) break;
+/** FIFO pick capped to target qty; last box may be partial (`calculateFifoBoxes`). */
+const selectBoxesByQty = (boxes, targetQty) =>
+  calculateFifoBoxes(boxes, targetQty).selectedBoxes;
+
+/** Group by qty for display. `selection` = pick order (loose priority); `asc`/`desc` = qty sort. */
+const formatBoxQtyGroups = (boxes = [], { qtyOrder = "desc" } = {}) => {
+  if (!boxes.length) return "—";
+  if (qtyOrder === "selection") {
+    const parts = [];
+    let runQty = null;
+    let runCount = 0;
+    const flush = () => {
+      if (runCount > 0) parts.push(`${runCount} x ${runQty.toLocaleString()}`);
+      runQty = null;
+      runCount = 0;
+    };
+    for (const b of boxes) {
+      const q = Math.round(Number(b.qty) || 0);
+      if (q === runQty) runCount += 1;
+      else {
+        flush();
+        runQty = q;
+        runCount = 1;
+      }
+    }
+    flush();
+    return parts.join(", ") || "—";
   }
-  return selected;
+  const byQty = new Map();
+  for (const b of boxes) {
+    const q = Math.round(Number(b.qty) || 0);
+    byQty.set(q, (byQty.get(q) || 0) + 1);
+  }
+  const sortFn = qtyOrder === "asc" ? (a, b) => a[0] - b[0] : (a, b) => b[0] - a[0];
+  return [...byQty.entries()]
+    .sort(sortFn)
+    .map(([qty, count]) => `${count} x ${qty.toLocaleString()}`)
+    .join(", ");
+};
+
+/** Saved breakdown row — only aggregate count + total; never fake equal per-box qty. */
+const formatAggregatedBoxCount = (count, totalQty) => {
+  const n = Number(count) || 0;
+  const total = Number(totalQty) || 0;
+  if (n <= 0 || total <= 0) return null;
+  // const perBox = total / n;
+  // if (Number.isInteger(perBox)) return `${n} x ${perBox.toLocaleString()}`;
+  return `${n} box${n > 1 ? "es" : ""} · ${total.toLocaleString()} qty`;
 };
 
 const sortBoxesForFifo = (boxes = []) => {
@@ -84,7 +118,7 @@ const sortBoxesForFifo = (boxes = []) => {
   });
 };
 
-/** Per packing # (FIFO): loose boxes first, then full — never pull loose from a later packing ahead of earlier packing stock. */
+/** Per packing #: loose boxes first, then full — each group smallest qty first when loose priority is on. */
 const reorderBoxesForSelection = (boxes = [], loosePriority = false) => {
   if (!loosePriority) return boxes;
 
@@ -99,12 +133,18 @@ const reorderBoxesForSelection = (boxes = [], loosePriority = false) => {
     byPacking.get(pNo).push(b);
   }
 
-  const byUid = (a, b) => Number(a?.box_uid ?? 0) - Number(b?.box_uid ?? 0);
+  const byQtyAsc = (a, b) => {
+    const qA = Number(a?.qty) || 0;
+    const qB = Number(b?.qty) || 0;
+    if (qA !== qB) return qA - qB;
+    return Number(a?.box_uid ?? 0) - Number(b?.box_uid ?? 0);
+  };
+
   const ordered = [];
   for (const pNo of packingOrder) {
     const group = byPacking.get(pNo) || [];
-    const loose = group.filter((box) => box?.is_loose).sort(byUid);
-    const regular = group.filter((box) => !box?.is_loose).sort(byUid);
+    const loose = group.filter((box) => box?.is_loose).sort(byQtyAsc);
+    const regular = group.filter((box) => !box?.is_loose).sort(byQtyAsc);
     ordered.push(...loose, ...regular);
   }
   return ordered;
@@ -497,11 +537,11 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     const item = form.items[idx];
     const ordered = reorderBoxesForSelection(item.available_boxes, checked);
     const qty = Number(item.dispatch_qty || 0);
-    const reselection = qty > 0 ? selectBoxesByQty(ordered, qty) : [];
+    const { selectedBoxes } = calculateFifoBoxes(ordered, qty);
     updateItemRow(idx, {
       loose_priority: checked,
-      selected_boxes: reselection,
-      dispatch_qty: qty > 0 ? sumQty(reselection) : "",
+      selected_boxes: selectedBoxes,
+      dispatch_qty: qty > 0 ? qty : "",
     });
   };
 
@@ -1017,14 +1057,19 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                               const looseBoxes = boxes.filter(b => b.is_loose);
                               const openQty = sumQty(openBoxes);
                               const looseQty = sumQty(looseBoxes);
+                              const boxFmtOpts = item.loose_priority ? { qtyOrder: "selection" } : undefined;
                               return (
                                 <tr key={packingNo} className="hover:bg-slate-50/30 transition-colors">
                                   <td className="px-2 py-1 font-bold text-slate-600">#{packingNo}</td>
                                   <td className="px-2 py-1 text-center">
-                                    {openBoxes.length > 0 ? <span className="text-indigo-600 font-bold">{openBoxes.length} x {Math.round(openQty / openBoxes.length)}</span> : "—"}
+                                    {openBoxes.length > 0 ? (
+                                      <span className="text-indigo-600 font-bold">{formatBoxQtyGroups(openBoxes, boxFmtOpts)}</span>
+                                    ) : "—"}
                                   </td>
                                   <td className="px-2 py-1 text-center">
-                                    {looseBoxes.length > 0 ? <span className="text-amber-600 font-bold">{looseBoxes.length} x {Math.round(looseQty / looseBoxes.length)}</span> : "—"}
+                                    {looseBoxes.length > 0 ? (
+                                      <span className="text-amber-600 font-bold">{formatBoxQtyGroups(looseBoxes, boxFmtOpts)}</span>
+                                    ) : "—"}
                                   </td>
                                   <td className="px-2 py-1 text-right font-black text-slate-700">{(openQty + looseQty).toLocaleString()}</td>
                                 </tr>
@@ -1035,8 +1080,16 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                           item.original_breakdowns.map((bd, bidx) => (
                             <tr key={bidx} className="hover:bg-slate-50/30 transition-colors">
                               <td className="px-2 py-1 font-bold text-slate-600">#{bd.packing_number}</td>
-                              <td className="px-2 py-1 text-center">{bd.box > 0 ? <span className="text-indigo-600 font-bold">{bd.box} x {Math.round(bd.box_qty / bd.box)}</span> : "—"}</td>
-                              <td className="px-2 py-1 text-center">{bd.loose_box > 0 ? <span className="text-amber-600 font-bold">{bd.loose_box} x {Math.round(bd.loose_box_qty / bd.loose_box)}</span> : "—"}</td>
+                              <td className="px-2 py-1 text-center">
+                                {bd.box > 0 ? (
+                                  <span className="text-indigo-600 font-bold">{formatAggregatedBoxCount(bd.box, bd.box_qty)}</span>
+                                ) : "—"}
+                              </td>
+                              <td className="px-2 py-1 text-center">
+                                {bd.loose_box > 0 ? (
+                                  <span className="text-amber-600 font-bold">{formatAggregatedBoxCount(bd.loose_box, bd.loose_box_qty)}</span>
+                                ) : "—"}
+                              </td>
                               <td className="px-2 py-1 text-right font-black text-slate-700">{bd.total_qty.toLocaleString()}</td>
                             </tr>
                           ))

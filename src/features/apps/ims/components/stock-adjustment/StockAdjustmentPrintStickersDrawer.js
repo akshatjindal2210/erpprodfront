@@ -12,7 +12,7 @@ import StockAdjustmentStickerDetailCards from "./StockAdjustmentStickerDetailCar
 import { hydrateStockAdjustmentStickerView } from "./hydrateStockAdjustmentStickerView";
 import { buildStockAdjustmentStickerPrintMeta, printSingleStockAdjustmentSticker, printStockAdjustmentAddStickers } from "./stockAdjustmentStickerPrint";
 
-function StickerPrintBreakdownTable({ rows, dlTracking, packingFullCount, onPrintOne, canPrint = true }) {
+export function StickerPrintBreakdownTable({ rows, dlTracking, packingFullCount, onPrintOne, canPrint = true }) {
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0">
       <div className="px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center gap-1.5 min-w-0 shrink-0">

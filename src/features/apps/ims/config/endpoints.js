@@ -152,6 +152,8 @@ export const ENDPOINTS = {
     VERIFY_BOX: "/out-entries/verify-box",
     BATCH_SCAN_BOXES: "/out-entries/batch-scan-boxes",
     GET_FUID_DETAILS: "/out-entries/get-details",
+    GET_QC_HOLD_DETAILS: "/out-entries/get-qc-hold-details",
+    LINKED_BOXES: "/out-entries/linked-boxes",
     LOCK_FUID: "/out-entries/lock-fuid",
   },
 
@@ -161,6 +163,21 @@ export const ENDPOINTS = {
 
   DASHBOARD: {
     STATS: "/ims/dashboard/stats",
+  },
+  QC_HOLD_MATERIAL: {
+    LIST: "/qc-hold-material/list",
+    GET: "/qc-hold-material/get",
+    CREATE: "/qc-hold-material/create",
+    SUBMIT: "/qc-hold-material/submit",
+    APPROVE_SUBMISSION: "/qc-hold-material/approve-submission",
+    ACTIVE_HOLDS: "/qc-hold-material/active-holds",
+    UPDATE: "/qc-hold-material/update",
+    DELETE: "/qc-hold-material/delete",
+    PACKING_META: "/qc-hold-material/packing-meta",
+    VERIFY_BOX: "/qc-hold-material/verify-box",
+    EXPAND_FULL_HOLD: "/qc-hold-material/expand-full-hold",
+    COMPLETION_BOXES: "/qc-hold-material/completion-boxes",
+    REASONS: "/qc-hold-material/reason-helper",
   },
   AUDIT: {
     LIST: "/audit/list",

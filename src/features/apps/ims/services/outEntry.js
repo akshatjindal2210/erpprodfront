@@ -20,6 +20,16 @@ export const outEntryService = {
         ...(for_out_uid != null && for_out_uid !== "" ? { for_out_uid } : {}),
       },
     }),
+  getQcHoldDetails: (qc_hold_id, for_out_uid) =>
+    api(ENDPOINTS.OUT_ENTRIES.GET_QC_HOLD_DETAILS, {
+      method: "POST",
+      body: {
+        qc_hold_id,
+        ...(for_out_uid != null && for_out_uid !== "" ? { for_out_uid } : {}),
+      },
+    }),
+  getLinkedBoxes: (out_uid) =>
+    api(ENDPOINTS.OUT_ENTRIES.LINKED_BOXES, { method: "POST", body: { out_uid } }),
   lockFuid: (fuid) => api(ENDPOINTS.OUT_ENTRIES.LOCK_FUID, { method: "POST", body: { fuid } }),
   getReasons: (params) => imsApiViews(ENDPOINTS.OUT_ENTRIES.REASONS, params, "reason"),
 };

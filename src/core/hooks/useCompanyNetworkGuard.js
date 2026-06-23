@@ -1,24 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  NETWORK_REACHABLE_EVENT,
-  NETWORK_UNREACHABLE_EVENT,
-  checkCompanyBackendReachable,
-  isBrowserOffline,
-} from "@/core/utils/companyNetwork";
+import { NETWORK_REACHABLE_EVENT, NETWORK_UNREACHABLE_EVENT, checkCompanyBackendReachable, isBrowserOffline, shouldShowCompanyWifiGate } from "@/core/utils/companyNetwork";
+import { isPwaStandalone } from "@/core/utils/pwa";
 
 const ONLINE_RECHECK_MS = 1500;
+const BLOCKED_RECHECK_MS = 3000;
 
 export function useCompanyNetworkGuard() {
-  const [blocked, setBlocked] = useState(() => isBrowserOffline());
+  const [blocked, setBlocked] = useState(false);
   const [checking, setChecking] = useState(false);
   const onlineRecheckRef = useRef(null);
 
   const verifyReachability = useCallback(async () => {
+    if (!isPwaStandalone()) {
+      setBlocked(false);
+      return true;
+    }
+
     if (isBrowserOffline()) {
-      setBlocked(true);
-      return false;
+      const show = await shouldShowCompanyWifiGate({ offline: true });
+      setBlocked(show);
+      return !show;
     }
 
     setChecking(true);
@@ -32,7 +35,16 @@ export function useCompanyNetworkGuard() {
   }, []);
 
   useEffect(() => {
-    const onOffline = () => setBlocked(true);
+    void verifyReachability();
+  }, [verifyReachability]);
+
+  useEffect(() => {
+    const onOffline = () => {
+      void (async () => {
+        const show = await shouldShowCompanyWifiGate({ offline: true });
+        setBlocked(show);
+      })();
+    };
 
     const onOnline = () => {
       if (onlineRecheckRef.current) clearTimeout(onlineRecheckRef.current);
@@ -41,7 +53,12 @@ export function useCompanyNetworkGuard() {
       }, ONLINE_RECHECK_MS);
     };
 
-    const onUnreachable = () => setBlocked(true);
+    const onUnreachable = () => {
+      void (async () => {
+        const show = await shouldShowCompanyWifiGate({ transportFailure: true });
+        if (show) setBlocked(true);
+      })();
+    };
     const onReachable = () => setBlocked(false);
 
     window.addEventListener("offline", onOffline);
@@ -58,5 +75,15 @@ export function useCompanyNetworkGuard() {
     };
   }, [verifyReachability]);
 
-  return { blocked, checking, retry: verifyReachability };
+  useEffect(() => {
+    if (!blocked || !isPwaStandalone()) return undefined;
+
+    const id = setInterval(() => {
+      void verifyReachability();
+    }, BLOCKED_RECHECK_MS);
+
+    return () => clearInterval(id);
+  }, [blocked, verifyReachability]);
+
+  return { blocked: blocked && isPwaStandalone(), checking };
 }

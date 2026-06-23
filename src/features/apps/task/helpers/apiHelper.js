@@ -75,6 +75,8 @@ async function request(method, path, { params, data, headers = {}, signal } = {}
     }
   }
 
+  if (isNetworkMarkedDown()) markNetworkReachableFromApi();
+
   if (!res.ok) {
     const error = new Error(
       parsed?.message || `Request failed with status ${res.status}`,
@@ -84,7 +86,6 @@ async function request(method, path, { params, data, headers = {}, signal } = {}
     throw error;
   }
 
-  if (isNetworkMarkedDown()) markNetworkReachableFromApi();
   return { data: parsed, status: res.status };
 }
 

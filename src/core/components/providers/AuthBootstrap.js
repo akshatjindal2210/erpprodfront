@@ -7,7 +7,7 @@ import { selectUser } from "@/core/store/slices/authSlice";
 import { useSyncAuthSession } from "@/core/hooks/useSyncAuthSession";
 import { useSocket } from "@/core/hooks/useSocket";
 import FormPanelLoader from "@/core/components/common/FormPanelLoader";
-import { COMPANY_WIFI_HINT, COMPANY_WIFI_MESSAGE } from "@/core/utils/global/messages";
+import { SESSION_SLOW_HINT, SESSION_SLOW_MESSAGE } from "@/core/utils/global/messages";
 
 /** Wait for redux-persist rehydrate (via PersistGate) then sync cookie session if Redux is empty. */
 export default function AuthBootstrap({ children }) {
@@ -44,8 +44,8 @@ export default function AuthBootstrap({ children }) {
         />
         {showRetry && (
           <div className="absolute bottom-12 text-center animate-in slide-in-from-bottom-2 duration-500 px-6 max-w-sm">
-            <p className="text-[11px] text-amber-700 font-semibold leading-relaxed">{COMPANY_WIFI_MESSAGE}</p>
-            <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">{COMPANY_WIFI_HINT}</p>
+            <p className="text-[11px] text-amber-700 font-semibold leading-relaxed">{SESSION_SLOW_MESSAGE}</p>
+            <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">{SESSION_SLOW_HINT}</p>
             <button
               type="button"
               onClick={() => window.location.reload()}

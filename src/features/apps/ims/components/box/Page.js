@@ -24,7 +24,9 @@ import { formatDateTime } from "@/core/utils/utilHelper";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchListFirstPage, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
+import { getBoxRowClassName, getBoxStockZone, getBoxClientSearchParts, renderBoxForwardNoteCustomerCell, renderBoxLocationCell, renderBoxQcHoldIdCell, resolveBoxLocationLabel } from "./boxTableVisuals";
 
 export default function BoxTablePage() {
   const canAccess = useCanAccess();
@@ -38,20 +40,26 @@ export default function BoxTablePage() {
   const [params, setParams] = useState({
     pageSize: 1000,
     status: "all",
+    packingNumber: "",
     fromDate: dateFilterDefaults.from, toDate: dateFilterDefaults.to, sortKey: "box_uid", sortDir: "desc"
   });
 
   useEffect(() => {
-    if (dateFilterDefaults.from || dateFilterDefaults.to) {
-      setParams(prev => ({
+    if (!dateFilterDefaults.from && !dateFilterDefaults.to) return;
+    setParams((prev) => {
+      if (prev.fromDate === dateFilterDefaults.from && prev.toDate === dateFilterDefaults.to) {
+        return prev;
+      }
+      return {
         ...prev,
         fromDate: dateFilterDefaults.from,
-        toDate: dateFilterDefaults.to
-      }));
-    }
+        toDate: dateFilterDefaults.to,
+      };
+    });
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const [tempSearch, setTempSearch] = useState("");
+  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
+  const [packingSearchInput, setPackingSearchInput] = useState("");
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
@@ -62,17 +70,19 @@ export default function BoxTablePage() {
   const [finderOpen, setFinderOpen] = useState(false);
 
   const fetchBoxes = useCallback(async () => {
+    if (!params.fromDate && !params.toDate) return;
     setLoading(true);
     try {
       const base = {
-        sortBy: params.sortKey || undefined,
-        order: params.sortDir.toUpperCase(),
+        order: "DESC",
         filters: {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
+          ...(params.packingNumber && { packing_number: params.packingNumber }),
         },
+        ...(appliedSearch && { search: appliedSearch }),
       };
-      const { data } = await fetchAllListPages(async (page, limit) => {
+      const { data } = await fetchListFirstPage(async (page, limit) => {
         const body = await boxService.getAll({ ...base, page, limit });
         const list = body.data?.data ?? body.data ?? [];
         return { data: Array.isArray(list) ? list : [], total: body.data?.total ?? body.total ?? 0 };
@@ -85,7 +95,7 @@ export default function BoxTablePage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status]);
+  }, [params.pageSize, params.fromDate, params.toDate, params.packingNumber, appliedSearch]);
 
   useEffect(() => {
     fetchBoxes();
@@ -93,9 +103,17 @@ export default function BoxTablePage() {
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
-    if (q) return applyClientSearch(allRows, tempSearch);
+    if (q) {
+      return applyClientSearch(allRows, tempSearch, { getParts: getBoxClientSearchParts });
+    }
     return sortRowsByKey(allRows, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+
+  const applyPackingFilter = useCallback(() => {
+    const pn = String(packingSearchInput || "").trim();
+    setDisplayLimit(100);
+    setParams((prev) => ({ ...prev, packingNumber: pn }));
+  }, [packingSearchInput]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -107,19 +125,25 @@ export default function BoxTablePage() {
   }, [loading, items.length, totalItems]);
 
   const handleFilterApply = (data) => {
+    applySearchFromInput();
+    const pn = String(packingSearchInput || "").trim();
+    setDisplayLimit(100);
     setParams((prev) => ({
       ...prev,
       fromDate: data.fromDate,
       toDate: data.toDate,
       status: data.approvedStatus || prev.status,
+      packingNumber: pn,
     }));
   };
 
   const handleReset = () => {
-    setTempSearch("");
+    resetSearch();
+    setPackingSearchInput("");
     setParams({
       pageSize: 1000,
       status: "all",
+      packingNumber: "",
       fromDate: dateFilterDefaults.from,
       toDate: dateFilterDefaults.to,
       sortKey: "box_uid",
@@ -127,7 +151,19 @@ export default function BoxTablePage() {
     });
   };
 
-  const extraFilters = useMemo(() => [], []);
+  const extraFilters = useMemo(
+    () => [
+      {
+        type: "text",
+        label: "Packing No",
+        placeholder: "Exact packing only",
+        value: packingSearchInput,
+        onChange: setPackingSearchInput,
+        onEnter: applyPackingFilter,
+      },
+    ],
+    [packingSearchInput, applyPackingFilter]
+  );
 
   const selectedRecord = useMemo(() => filteredRows.find((u) => u.box_uid === selected), [filteredRows, selected]);
 
@@ -156,18 +192,60 @@ export default function BoxTablePage() {
 
   const HEADERS = [
     ["Box No", "box_no_uid", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { fixed: true, width: "120px" }],
-    ["Packing No", "packing_number", (v) => <span className="font-semibold text-slate-700 text-[10px] uppercase">{v || "—"}</span>, { width: "120px" }],
-    ["Qty", "qty", (v) => <span className="font-black text-emerald-600 text-[11px]">{v ?? "0"}</span>, { width: "70px", align: "center" }],
-    ["Location", "location_no", (v, row) => (
-      <span className="text-[10px] font-bold text-slate-600 uppercase">
-        {v || `${row?.rack_no || ""}${(row?.shelf_no || "").toString().toUpperCase()}` || "—"}
-      </span>
-    ), {
+    ["Packing No", "packing_number", (v) => <span className="font-semibold text-slate-700 text-[10px] uppercase">{v || "—"}</span>, { width: "110px" }],
+
+    ["Item Code", "item_code", (v) => <span className="font-mono text-[10px] font-bold tracking-tighter">{v}</span>, { width: "150px" }],
+    ["Description", "itemdesc", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v}</span>, { width: "240px" }],
+
+    ["Qty", "qty", (v, row) => {
+      const zone = getBoxStockZone(row);
+      const qtyClass =
+        zone === "qc_hold"
+          ? "text-amber-800"
+          : zone === "dispatched"
+            ? "text-blue-800"
+            : zone === "in_store"
+              ? "text-emerald-800"
+              : zone === "packing_area"
+                ? "text-green-900"
+                : "text-emerald-600";
+      return <span className={`font-black text-[11px] tabular-nums ${qtyClass}`}>{v ?? "0"}</span>;
+    }, { width: "70px", align: "center" }],
+
+    ["Location", "location_no", renderBoxLocationCell, {
       width: "120px",
-      copyValue: (row) => row.location_no || `${row?.rack_no || ""}${(row?.shelf_no || "").toString().toUpperCase()}` || "—",
+      copyValue: (row) => resolveBoxLocationLabel(row),
     }],
-    ["Inward UID", "in_uid", (v) => <span className="text-[10px] text-slate-400">{v || "—"}</span>, { width: "120px" }],
-    ["Outward UID", "out_uid", (v) => <span className="text-[10px] text-slate-400">{v || "—"}</span>, { width: "120px" }],
+
+    ["QC Hold ID", "qc_hold_id", renderBoxQcHoldIdCell, {
+      width: "96px",
+      align: "center",
+      copyValue: (row) => (row.qc_hold_id != null ? String(row.qc_hold_id) : "—"),
+    }],
+
+    ["Inward UID", "in_uid", (v, row) => {
+      const zone = getBoxStockZone(row);
+      return (
+        <span className={`text-[10px] ${zone === "in_store" ? "text-emerald-700 font-semibold" : "text-slate-400"}`}>
+          {v || "—"}
+        </span>
+      );
+    }, { width: "120px" }],
+    
+    ["Customer", "forward_note_customer_name", renderBoxForwardNoteCustomerCell, {
+      width: "180px",
+      wrap: true,
+      copyValue: (row) => (getBoxStockZone(row) === "dispatched" ? row.forward_note_customer_name || "—" : "—"),
+    }],
+
+    ["Outward UID", "out_uid", (v, row) => {
+      const zone = getBoxStockZone(row);
+      return (
+        <span className={`text-[10px] ${zone === "dispatched" ? "text-blue-800 font-bold" : "text-slate-400"}`}>
+          {v || "—"}
+        </span>
+      );
+    }, { width: "120px" }],
   ];
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
@@ -222,16 +300,23 @@ export default function BoxTablePage() {
         </ListPageToolbar>
 
         <ListPageFilterStrip>
-          <DateRangeFilter 
-            key={`${params.fromDate}-${params.toDate}`}
-            fromDate={params.fromDate} 
-            toDate={params.toDate} 
+          <DateRangeFilter
+            key={`${params.fromDate}-${params.toDate}-${params.packingNumber}`}
+            fromDate={params.fromDate}
+            toDate={params.toDate}
             extraFilters={extraFilters}
-            onApply={handleFilterApply} 
+            onApply={handleFilterApply}
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            searchPlaceholder="Search box no, packing..."
+            onSearchEnter={() =>
+              handleFilterApply({
+                fromDate: params.fromDate,
+                toDate: params.toDate,
+                approvedStatus: params.status,
+              })
+            }
+              searchPlaceholder="Search box UID, box no, packing, location..."
             searchLabel="Search Box Records"
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
@@ -249,6 +334,7 @@ export default function BoxTablePage() {
               sortKey={params.sortKey} 
               sortDir={params.sortDir}
               allowCopy={true}
+              getRowClassName={getBoxRowClassName}
               onSort={(key) => {
                 setDisplayLimit(100);
                 setParams((p) => ({
@@ -265,18 +351,35 @@ export default function BoxTablePage() {
               hasMore={items.length < totalItems}
               totalItems={totalItems}
               cardConfig={{
-                titleKey: "box_no_uid", 
-                badgeIndices: [2], 
-                detailIndices: [3, 4, 5], 
-                footerKey: "acc_name"
+                titleKey: "box_no_uid",
+                badgeIndices: [5],
+                detailKeys: [
+                  "packing_number",
+                  "item_code",
+                  "item_desc",
+                  "forward_note_customer_name",
+                  "location_no",
+                  "qc_hold_id",
+                  "in_uid",
+                  "out_uid",
+                ],
+                footerKey: "forward_note_customer_name",
               }}
             />
           </div>
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 shrink-0">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
             Showing {items.length} of {totalItems} Box Records
+          </span>
+          <span className="text-[9px] text-slate-500">
+            <span className="text-amber-700 font-bold">Yellow row</span> QC hold ·{" "}
+            <span className="text-blue-700 font-bold">Blue row</span> dispatched ·{" "}
+            Location: <span className="text-emerald-700 font-bold">in store</span> /{" "}
+            <span className="text-green-900 font-bold">packing area</span> /{" "}
+            <span className="text-amber-700 font-bold">QC area</span> /{" "}
+            <span className="text-blue-800 font-bold">dispatch</span>
           </span>
           <div className="flex items-center gap-2">
              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />

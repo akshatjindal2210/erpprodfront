@@ -10,6 +10,7 @@ export const INVENTORY_REPORT_TABLE_COLUMNS = [
   { label: "Total Stock", key: "fg_stock_qty", type: "number" },
   { label: "In Store", key: "in_store_qty", type: "number" },
   { label: "Packing Area", key: "packing_area_qty", type: "number" },
+  { label: "QC Hold Area", key: "qc_hold_qty", type: "number" },
 ];
 
 export function formatInventoryTableCell(type, value) {

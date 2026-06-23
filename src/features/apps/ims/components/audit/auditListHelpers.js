@@ -1,16 +1,59 @@
 "use client";
 
-import {
-  expandLocationAssignmentRows,
-  getAuditPlanUsers,
-  formatAuditParticipantNames,
-  filterLocationListRows,
-  computeAuditBatchScore,
-  isLocationSubmittedRow,
-  formatLocationScorePct,
-  getLocationStatusLabel,
-  getLocationStatusBadgeClass,
-} from "./auditScanHelpers";
+import { expandLocationAssignmentRows, getAuditPlanUsers, formatAuditParticipantNames, filterLocationListRows, computeAuditBatchScore, isLocationSubmittedRow, formatLocationScorePct, getLocationStatusLabel, getLocationStatusBadgeClass } from "./auditScanHelpers";
+import { getAuditExecutionStatusLabel } from "./auditStatusHelpers";
+
+export function auditMasterSearchParts(row) {
+  const parts = [
+    row?.audit_id,
+    row?.remarks,
+    row?.status,
+    getAuditExecutionStatusLabel(row?.status),
+    row?.assigned_user_names,
+    getAssignedUsersLabel(row),
+    row?.created_by_name,
+    row?.approved_by_name,
+    row?.approved ? "AUTHORIZED" : "PENDING",
+  ];
+  if (Array.isArray(row?.locations)) {
+    for (const loc of row.locations) {
+      parts.push(
+        loc?.location_no,
+        loc?.assigned_user_name,
+        loc?.plan_assigned_user_name,
+        loc?.status,
+        getLocationStatusLabel(loc?.status)
+      );
+    }
+  }
+  const batch = computeAuditBatchScore(row);
+  if (batch?.score_pct != null) parts.push(formatLocationScorePct(batch.score_pct));
+  return parts.filter((p) => p != null && p !== "");
+}
+
+export function auditLocationSearchParts(row) {
+  const parts = [
+    row?.audit_id,
+    row?.location_no,
+    row?.assigned_user_name,
+    row?.plan_assigned_user_name,
+    row?.location_status,
+    getLocationStatusLabel(row?.location_status),
+    row?.remarks,
+    row?.scanned_count,
+    row?.expected_count,
+    row?.score_pct != null ? formatLocationScorePct(row.score_pct) : null,
+  ];
+  return parts.filter((p) => p != null && p !== "");
+}
+
+export function buildAuditApiFilters({ status, authorization }) {
+  return {
+    ...(status !== "all" && { status }),
+    ...(authorization === "pending" && { approved: false }),
+    ...(authorization === "authorized" && { approved: true }),
+  };
+}
 
 export function getAssignedUsersLabel(audit) {
   if (audit?.assigned_user_names) return audit.assigned_user_names;

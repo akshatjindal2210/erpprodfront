@@ -175,6 +175,8 @@ export default function DataTable({
   enableCellSelection = true,
   /** When true, automatically focus/select the first row if none is selected. */
   autoFocusFirstRow = false,
+  /** Optional per-row class for status tint on table rows. */
+  getRowClassName,
 }) {
   const selW = DATA_TABLE_SELECTION_COL_PX;
   const lastApiError = typeof window !== "undefined" ? window.__LAST_API_ERROR__ : null;
@@ -1055,13 +1057,18 @@ export default function DataTable({
                     const trRowSelectedClass = isRowHighlighted
                       ? "[&_td]:!bg-indigo-100 [&_td:first-child]:!shadow-[inset_3px_0_0_0_#6366f1]"
                       : "";
+                    const rowToneClass = getRowClassName?.(item, rowIndex) ?? "";
                     const defaultCellBg = isRowHighlighted
                       ? ""
-                      : "bg-white group-hover:bg-slate-50/80";
+                      : rowToneClass
+                        ? ""
+                        : "bg-white group-hover:bg-slate-50/80";
                     /** Fixed/sticky columns need a fully opaque background so scrolled cells do not show through. */
                     const stickyCellBg = isRowHighlighted
                       ? ""
-                      : "bg-white group-hover:bg-slate-50";
+                      : rowToneClass
+                        ? ""
+                        : "bg-white group-hover:bg-slate-50";
                     const isLastElement = data.length === rowIndex + 1;
 
                     return (
@@ -1080,7 +1087,7 @@ export default function DataTable({
                               ? () => handleRowClick(item, currentId)
                               : undefined
                         }
-                        className={`group ${trRowSelectedClass}${!cellSelectActive && rowClickable ? " cursor-pointer" : ""}`}
+                        className={`group ${trRowSelectedClass}${rowToneClass ? ` ${rowToneClass}` : ""}${!cellSelectActive && rowClickable ? " cursor-pointer" : ""}`}
                       >
                         {showSelection && (
                           <td

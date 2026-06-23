@@ -64,6 +64,7 @@ export const OUT_ENTRY_TYPE_FILTER_OPTIONS = [
   { label: getOutEntryTypeLabel(OUT_ENTRY_TYPE.FORWARDING_NOTE), value: OUT_ENTRY_TYPE.FORWARDING_NOTE },
   { label: getOutEntryTypeLabel(OUT_ENTRY_TYPE.INVENTORY_OUT), value: OUT_ENTRY_TYPE.INVENTORY_OUT },
   { label: getOutEntryTypeLabel(OUT_ENTRY_TYPE.PACKING_AREA), value: OUT_ENTRY_TYPE.PACKING_AREA },
+  { label: getOutEntryTypeLabel(OUT_ENTRY_TYPE.QC_AREA), value: OUT_ENTRY_TYPE.QC_AREA },
 ];
 
 

@@ -50,7 +50,7 @@ export default function TaskNotifyEnableBanner() {
   }
 
   if (permission === "granted" || permission === "unsupported") return null;
-  if (dismissed && permission !== "default") return null;
+  if (dismissed) return null;
 
   if (permission === "denied") {
     return (

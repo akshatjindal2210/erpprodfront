@@ -169,11 +169,6 @@ export const FEATURE_PERMISSIONS = {
   //   update: ALL,
   //   delete: ALL,
   // },
-  // task_report: {
-  //   read:   ALL,
-  //   update: ALL,
-  //   delete: ALL,
-  // },
   // red_ticket: {
   //   create: ALL,
   //   read:   ALL,

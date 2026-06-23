@@ -54,6 +54,15 @@ export function isBoxInHand(box) {
   return true;
 }
 
+export function isBoxOnQcHold(box) {
+  const id = box?.qc_hold_id;
+  return id != null && String(id).trim() !== "";
+}
+
+export function isBoxSellable(box) {
+  return isBoxInHand(box) && !isBoxOnQcHold(box);
+}
+
 /** In-hand or outward OK; deleted / SA minus (removed) not OK. */
 export function isBoxEligibleForOverrideCustomer(box) {
   if (!box || box.is_deleted) return false;

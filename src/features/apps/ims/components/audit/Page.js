@@ -22,7 +22,8 @@ import ImsSegmentedTabs from "@/features/apps/ims/components/common/ImsSegmented
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchAllListPages, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchListFirstPage, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
+import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
 import { useSelector } from "react-redux";
 import { selectUser, selectRole } from "@/core/store/slices/authSlice";
 import { getAuditExecutionStatusLabel } from "./auditStatusHelpers";
@@ -36,6 +37,9 @@ import {
   buildLocationAuditFilterOptions,
   indexAuditsById,
   indexLocationRowsById,
+  auditMasterSearchParts,
+  auditLocationSearchParts,
+  buildAuditApiFilters,
 } from "./auditListHelpers";
 import { AUDIT_MASTER_HEADERS, buildAuditLocationHeaders } from "./auditColumns";
 
@@ -48,6 +52,9 @@ const PAGE_TABS = {
   LOCATION: "location",
   MASTER: "master",
 };
+
+const LIST_PAGE_SIZE = 1000;
+const DISPLAY_CHUNK = 100;
 
 export default function AuditPage() {
   const canAccess = useCanAccess();
@@ -67,7 +74,7 @@ export default function AuditPage() {
   const isLocationView = pageTab === PAGE_TABS.LOCATION;
 
   const [params, setParams] = useState({
-    pageSize: 1000,
+    pageSize: LIST_PAGE_SIZE,
     status: "all",
     authorization: "all",
     locationAuditFilter: "all",
@@ -77,9 +84,9 @@ export default function AuditPage() {
     sortDir: "desc",
   });
 
-  const [tempSearch, setTempSearch] = useState("");
+  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
-  const [displayLimit, setDisplayLimit] = useState(100);
+  const [displayLimit, setDisplayLimit] = useState(DISPLAY_CHUNK);
   const [selected, setSelected] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("add"); 
@@ -157,22 +164,17 @@ export default function AuditPage() {
   const fetchAudits = useCallback(async () => {
     setLoading(true);
     try {
-      const base = {
-        sortBy: params.sortKey || "audit_id",
-        order: params.sortDir.toUpperCase(),
-        filters: {
-          ...(params.status !== "all" && { status: params.status }),
-          ...(params.authorization === "pending" && { approved: false }),
-          ...(params.authorization === "authorized" && { approved: true }),
-        },
-      };
-      const { data } = await fetchAllListPages(async (page, limit) => {
-        const body = await auditService.getAll({ ...base, page, limit });
-        const list = body.data?.data ?? body.data ?? [];
-        return { data: Array.isArray(list) ? list : [], total: body.data?.total ?? body.total ?? 0 };
+      const { data } = await fetchListFirstPage(async (page, limit) => {
+        const body = await auditService.getAll({
+          page,
+          limit,
+          ...(appliedSearch && { search: appliedSearch }),
+          filters: buildAuditApiFilters(params),
+        });
+        return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
-      setDisplayLimit(100);
+      setDisplayLimit(DISPLAY_CHUNK);
       return data;
     } catch (err) {
       toast.error(err?.message || "Failed to load audits");
@@ -181,7 +183,7 @@ export default function AuditPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.status, params.authorization]);
+  }, [params.pageSize, params.status, params.authorization, appliedSearch]);
 
   const flattenContext = useMemo(
     () => ({ userId: currentUser?.id, isSuperAdmin, canManageAudit }),
@@ -193,9 +195,22 @@ export default function AuditPage() {
       locationAuditFilter: params.locationAuditFilter,
       locationUserFilter: params.locationUserFilter,
       locationStatusFilter: params.locationStatusFilter,
-      search: tempSearch,
     }),
-    [params.locationAuditFilter, params.locationUserFilter, params.locationStatusFilter, tempSearch]
+    [params.locationAuditFilter, params.locationUserFilter, params.locationStatusFilter]
+  );
+
+  const filterLocationRowsWithSearch = useCallback(
+    (rows) => {
+      let filtered = filterAuditLocationRows(rows, locationListFilters);
+      const q = String(tempSearch || "").trim();
+      if (q) {
+        filtered = applyClientSearch(filtered, tempSearch, {
+          getParts: (row) => auditLocationSearchParts(row),
+        });
+      }
+      return filtered;
+    },
+    [locationListFilters, tempSearch]
   );
 
   const flattenedLocationRows = useMemo(
@@ -208,11 +223,7 @@ export default function AuditPage() {
   const advanceToNextExecutableLocation = useCallback(
     async (completedRowId = null) => {
       const data = await fetchAudits();
-      const rows = filterAuditLocationRows(
-        flattenAuditLocations(data, flattenContext),
-        locationListFilters,
-        applyClientSearch
-      );
+      const rows = filterLocationRowsWithSearch(flattenAuditLocations(data, flattenContext));
       const nextRow = findNextExecutableLocationRow(rows, locationExecutionContext, {
         excludeRowId: completedRowId,
       });
@@ -226,7 +237,7 @@ export default function AuditPage() {
       setExecutionLocationRow(null);
       return false;
     },
-    [fetchAudits, flattenContext, locationListFilters, locationExecutionContext, openAuditExecution]
+    [fetchAudits, flattenContext, filterLocationRowsWithSearch, locationExecutionContext, openAuditExecution]
   );
 
   const handleReopenLocation = async () => {
@@ -269,9 +280,17 @@ export default function AuditPage() {
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
-    const base = q ? applyClientSearch(allRows, tempSearch) : [...allRows];
-    return sortRowsByKey(base, params.sortKey || "audit_id", params.sortDir);
+    if (q) {
+      return applyClientSearch(allRows, tempSearch, {
+        getParts: (row) => auditMasterSearchParts(row),
+      });
+    }
+    return sortRowsByKey(allRows, params.sortKey || "audit_id", params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+
+  useEffect(() => {
+    setDisplayLimit(DISPLAY_CHUNK);
+  }, [tempSearch, pageTab]);
 
   const locationUserFilterOptions = useMemo(
     () =>
@@ -289,9 +308,9 @@ export default function AuditPage() {
   );
 
   const filteredLocationRows = useMemo(() => {
-    const filtered = filterAuditLocationRows(flattenedLocationRows, locationListFilters, applyClientSearch);
+    const filtered = filterLocationRowsWithSearch(flattenedLocationRows);
     return sortRowsByKey(filtered, params.sortKey || "audit_id", params.sortDir);
-  }, [flattenedLocationRows, locationListFilters, params.sortKey, params.sortDir]);
+  }, [flattenedLocationRows, filterLocationRowsWithSearch, params.sortKey, params.sortDir]);
 
   const locationRowById = useMemo(
     () => indexLocationRowsById(filteredLocationRows),
@@ -309,6 +328,7 @@ export default function AuditPage() {
   }, [loading, items.length, totalItems]);
 
   const handleFilterApply = (data) => {
+    applySearchFromInput();
     setParams((prev) => ({
       ...prev,
       status: data.auditStatus ?? prev.status,
@@ -320,9 +340,9 @@ export default function AuditPage() {
   };
 
   const handleReset = () => {
-    setTempSearch("");
+    resetSearch();
     setParams({
-      pageSize: 1000,
+      pageSize: LIST_PAGE_SIZE,
       status: "all",
       authorization: "all",
       locationAuditFilter: "all",
@@ -408,15 +428,15 @@ export default function AuditPage() {
   const handleTabChange = useCallback((tab) => {
     setPageTab(tab);
     setSelected(null);
-    setTempSearch("");
-    setDisplayLimit(100);
+    resetSearch();
+    setDisplayLimit(DISPLAY_CHUNK);
     if (tab === PAGE_TABS.LOCATION) {
       setParams((prev) => ({
         ...prev,
         locationUserFilter: defaultLocationUserFilter,
       }));
     }
-  }, [defaultLocationUserFilter]);
+  }, [defaultLocationUserFilter, resetSearch]);
 
   const { openNewModal, openEditModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "audit",
@@ -666,6 +686,15 @@ export default function AuditPage() {
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
+            onSearchEnter={() =>
+              handleFilterApply({
+                auditStatus: params.status,
+                authorization: params.authorization,
+                locationAudit: params.locationAuditFilter,
+                locationUser: params.locationUserFilter,
+                locationStatus: params.locationStatusFilter,
+              })
+            }
             searchPlaceholder={isLocationView ? "Search location, audit id, person..." : "Search remarks, person..."}
             searchLabel={isLocationView ? "Search Locations" : "Search Audits"}
           />
@@ -677,7 +706,7 @@ export default function AuditPage() {
               viewMode={viewMode} allowCopy={true} {...tableHotkeyProps} showSelection={true}
               emptyIcon={isLocationView ? MapPin : ClipboardCheck} sortKey={params.sortKey ?? ""} sortDir={params.sortDir}
               onSort={(key) => {
-                setDisplayLimit(100);
+                setDisplayLimit(DISPLAY_CHUNK);
                 setParams((p) => nextSortParams(p, key));
               }}
               selectedId={selected} onSelect={setSelected}

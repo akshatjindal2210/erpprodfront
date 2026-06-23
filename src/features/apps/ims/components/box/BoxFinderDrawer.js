@@ -16,6 +16,7 @@ import ScanEnterInput from "@/core/components/common/ScanEnterInput";
 import LaserScanField from "@/core/components/common/LaserScanField";
 import { getScanInputPlaceholder, isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
 import QrScannerOverlay from "@/core/components/common/QrScannerOverlay";
+import { FinderQcHoldBanner, getFinderBoxCardShellClass, getFinderBoxIconShellClass, getFinderBoxLabelClass, getFinderBoxMetaClass, getFinderBoxTitleClass } from "@/features/apps/ims/components/box/finderBoxVisuals";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "info", title: "", message: "", duration: SNACK_DUR.med };
@@ -329,15 +330,16 @@ export default function BoxFinderDrawer({ open, onClose }) {
             </div>
           ) : boxData ? (
             <div className="space-y-4 animate-in slide-in-from-bottom-2 duration-300">
-              <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+              <div className={`p-3 rounded-xl border ${getFinderBoxCardShellClass(boxData)}`}>
+                <FinderQcHoldBanner box={boxData} />
                 <div className="flex items-start gap-2">
-                  <div className="w-9 h-9 bg-indigo-600 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${getFinderBoxIconShellClass(boxData)}`}>
                     <Package size={18} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-medium text-indigo-600 leading-none">This box</p>
-                    <p className="text-sm font-bold text-indigo-950 font-mono leading-tight">{boxData.box_no_uid}</p>
-                    <p className="text-[11px] text-indigo-900/90 mt-1">
+                    <p className={`text-[10px] font-medium leading-none ${getFinderBoxLabelClass(boxData)}`}>This box</p>
+                    <p className={`text-sm font-bold font-mono leading-tight ${getFinderBoxTitleClass(boxData)}`}>{boxData.box_no_uid}</p>
+                    <p className={`text-[11px] mt-1 ${getFinderBoxMetaClass(boxData)}`}>
                       Packing no. <span className="font-mono font-semibold">{boxData.packing_number ?? "—"}</span>
                       <span className="text-indigo-400 mx-1">·</span>
                       Qty <span className="font-semibold">{boxData.qty ?? "—"}</span>

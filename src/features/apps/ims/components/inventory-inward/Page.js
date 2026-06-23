@@ -25,6 +25,7 @@ import LocationFinderDrawer from "@/features/apps/ims/components/location/Locati
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchListFirstPage, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
 import { formatDateTime, formatDocDate } from "@/core/utils/utilHelper";
 import { pipeMetaRenderers } from "@/features/apps/ims/helpers/pipeMetaDisplay";
 
@@ -67,12 +68,12 @@ export default function InwardPage() {
   const [packingParams, setPackingParams] = useState({
     pageSize: 500,
     sortKey: "packing_number",
-    sortDir: "asc",
+    sortDir: "desc",
   });
   const [packingBoxParams, setPackingBoxParams] = useState({
     pageSize: 500,
     sortKey: "box_no_uid",
-    sortDir: "asc",
+    sortDir: "desc",
   });
 
   useEffect(() => {
@@ -85,7 +86,7 @@ export default function InwardPage() {
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const [tempSearch, setTempSearch] = useState("");
+  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
   const [packingRows, setPackingRows] = useState([]);
   const [packingBoxRows, setPackingBoxRows] = useState([]);
@@ -101,8 +102,6 @@ export default function InwardPage() {
     setLoading(true);
     try {
       const base = {
-        sortBy: params.sortKey || undefined,
-        order: params.sortDir.toUpperCase(),
         filters: {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
@@ -110,7 +109,12 @@ export default function InwardPage() {
         },
       };
       const { data } = await fetchListFirstPage(async (page, limit) => {
-        const body = await inventoryInwardService.getAll({ ...base, page, limit });
+        const body = await inventoryInwardService.getAll({
+          ...base,
+          page,
+          limit,
+          ...(appliedSearch && { search: appliedSearch }),
+        });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
@@ -121,23 +125,20 @@ export default function InwardPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status]);
-
-  const packingDateFilters = useMemo(
-    () => ({}),
-    []
-  );
+  }, [params.pageSize, params.fromDate, params.toDate, params.status, appliedSearch]);
 
   const fetchPackingArea = useCallback(async () => {
     setLoading(true);
     try {
-      const base = {
-        sortBy: packingParams.sortKey || undefined,
-        order: packingParams.sortDir.toUpperCase(),
-        filters: packingDateFilters,
-      };
       const { data } = await fetchListFirstPage(async (page, limit) => {
-        const body = await inventoryInwardService.getPackingAreaList({ ...base, page, limit });
+        const body = await inventoryInwardService.getPackingAreaList({
+          page,
+          limit,
+          sortBy: packingParams.sortKey,
+          order: String(packingParams.sortDir || "desc").toUpperCase(),
+          filters: {},
+          ...(appliedSearch && { search: appliedSearch }),
+        });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, packingParams.pageSize);
       setPackingRows(data);
@@ -148,26 +149,26 @@ export default function InwardPage() {
     } finally {
       setLoading(false);
     }
-  }, [
-    packingParams.pageSize,
-    packingParams.sortKey,
-    packingParams.sortDir,
-    packingDateFilters,
-  ]);
+  }, [packingParams.pageSize, packingParams.sortKey, packingParams.sortDir, appliedSearch]);
 
   const fetchPackingAreaBoxes = useCallback(async () => {
     setLoading(true);
     try {
       const base = {
-        sortBy: packingBoxParams.sortKey || undefined,
-        order: packingBoxParams.sortDir.toUpperCase(),
-        filters: packingDateFilters,
+        filters: {},
+        sortBy: packingBoxParams.sortKey,
+        order: String(packingBoxParams.sortDir || "desc").toUpperCase(),
         ...(packingFilterPn ? { packing_number: packingFilterPn } : {}),
         ...(packingFilterItem?.dcode ? { item_dcode: packingFilterItem.dcode } : {}),
         ...(packingFilterCust?.code ? { acc_code: packingFilterCust.code } : {}),
       };
       const { data } = await fetchListFirstPage(async (page, limit) => {
-        const body = await inventoryInwardService.getPackingAreaBoxes({ ...base, page, limit });
+        const body = await inventoryInwardService.getPackingAreaBoxes({
+          ...base,
+          page,
+          limit,
+          ...(appliedSearch && { search: appliedSearch }),
+        });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, packingBoxParams.pageSize);
       setPackingBoxRows(data);
@@ -185,7 +186,7 @@ export default function InwardPage() {
     packingFilterPn,
     packingFilterItem,
     packingFilterCust,
-    packingDateFilters,
+    appliedSearch,
   ]);
 
   const isPackingBoxView = !isStoreIn && packingView === PACKING_VIEWS.BOXES;
@@ -228,6 +229,7 @@ export default function InwardPage() {
   }, [loading, items.length, totalItems]);
 
   const handleFilterApply = (data) => {
+    applySearchFromInput();
     if (isStoreIn) {
       setParams((prev) => ({
         ...prev,
@@ -241,7 +243,7 @@ export default function InwardPage() {
   };
 
   const handleReset = () => {
-    setTempSearch("");
+    resetSearch();
     if (isStoreIn) {
       setParams({
         pageSize: 500,
@@ -254,18 +256,20 @@ export default function InwardPage() {
     } else if (isPackingBoxView) {
       setPackingFilterPn("");
       setPackingFilterItem(null);
+      setPackingFilterCust(null);
       setPackingBoxParams({
         pageSize: 500,
         sortKey: "box_no_uid",
-        sortDir: "asc",
+        sortDir: "desc",
       });
     } else {
       setPackingFilterPn("");
       setPackingFilterItem(null);
+      setPackingFilterCust(null);
       setPackingParams({
         pageSize: 500,
         sortKey: "packing_number",
-        sortDir: "asc",
+        sortDir: "desc",
       });
     }
   };
@@ -284,6 +288,7 @@ export default function InwardPage() {
     setPackingView(view);
     setPackingFilterPn("");
     setPackingFilterItem(null);
+    setPackingFilterCust(null);
     setSelected(null);
     setDisplayLimit(100);
   };
@@ -335,14 +340,8 @@ export default function InwardPage() {
     const row = getSelectedRow();
     if (!row?.packing_number) return;
     setPackingFilterPn(String(row.packing_number).trim());
-    if (row.item_dcode) {
-      setPackingFilterItem({ dcode: String(row.item_dcode).trim(), code: row.item_code });
-    }
-    if (row.acc_code) {
-      setPackingFilterCust({ code: String(row.acc_code).trim(), name: row.acc_name });
-    } else {
-      setPackingFilterCust(null);
-    }
+    setPackingFilterItem(null);
+    setPackingFilterCust(null);
     setPackingView(PACKING_VIEWS.BOXES);
     setSelected(null);
     setDisplayLimit(100);
@@ -528,7 +527,7 @@ export default function InwardPage() {
     ), { width: "220px" }],
     
     [
-      "Unassigned Boxes",
+      "Unassigned boxes",
       "box_count",
       (v) => (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-200">
@@ -705,14 +704,10 @@ export default function InwardPage() {
             }
           />
 
-          {!isStoreIn && (packingFilterPn || packingFilterItem || packingFilterCust) && isPackingBoxView && (
+          {!isStoreIn && packingFilterPn && isPackingBoxView && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50 border border-amber-200">
               <span className="text-[10px] font-bold text-amber-800 uppercase">
-                Filtered by: {packingFilterPn ? `Packing ${packingFilterPn}` : ""}
-                {packingFilterPn && (packingFilterItem || packingFilterCust) ? " · " : ""}
-                {packingFilterItem ? `Item ${packingFilterItem.code || packingFilterItem.dcode}` : ""}
-                {packingFilterItem && packingFilterCust ? " · " : ""}
-                {packingFilterCust ? `Customer ${packingFilterCust.name || packingFilterCust.code}` : ""}
+                Packing {packingFilterPn} — {totalItems} box{totalItems === 1 ? "" : "es"}
               </span>
               <button
                 type="button"
@@ -724,7 +719,7 @@ export default function InwardPage() {
                 }}
                 className="text-amber-600 hover:text-amber-900 flex items-center gap-1 font-bold text-[10px] uppercase"
               >
-                <X size={14} /> Clear filter
+                <X size={14} /> Show all boxes
               </button>
             </div>
           )}
@@ -765,12 +760,23 @@ export default function InwardPage() {
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
+            onSearchEnter={() => {
+              if (isStoreIn) {
+                handleFilterApply({
+                  fromDate: params.fromDate,
+                  toDate: params.toDate,
+                  approvedStatus: params.status,
+                });
+              } else {
+                applySearchFromInput();
+              }
+            }}
             searchPlaceholder={
               isStoreIn
                 ? "Search packing no..."
                 : isPackingBoxView
                   ? "Search box UID or packing no..."
-                  : "Search packing no..."
+                  : "Search packing, item or customer..."
             }
             searchLabel={
               isStoreIn
@@ -814,8 +820,8 @@ export default function InwardPage() {
             {isStoreIn
               ? `Showing ${items.length} of ${totalItems} store-in entries`
               : isPackingBoxView
-                ? `Showing ${items.length} of ${totalItems} boxes (packing area, in-hand, no location assigned)`
-                : `Showing ${items.length} of ${totalItems} packings with generated stickers (awaiting location)`}
+                ? `Showing ${items.length} of ${totalItems} boxes in packing area`
+                : `Showing ${items.length} of ${totalItems} packings in packing area`}
           </span>
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />

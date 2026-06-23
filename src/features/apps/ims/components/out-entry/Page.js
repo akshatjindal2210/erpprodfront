@@ -13,23 +13,8 @@ import { formatDateTime } from "@/core/utils/utilHelper";
 
 // Components
 import OutEntryModal from "@/features/apps/ims/components/out-entry/OutEntryModal";
-import {
-  OUT_ENTRY_STATUS_FILTER_OPTIONS,
-  OUT_ENTRY_TYPE_FILTER_OPTIONS,
-  buildOutEntryListFilters,
-  isOutEntryScanDraft,
-  matchesOutEntryStatusFilter,
-  outEntryScanProgressLabel,
-  outEntryStatusLabel,
-} from "@/features/apps/ims/utils/outEntryScanStatus";
-import {
-  isOutEntryAutoAuthorized,
-  isOutEntryInventoryOut,
-  isOutEntryPackingArea,
-  getOutEntryTypeTableLabel,
-  getOutEntryTypeBadgeClass,
-  OUT_ENTRY_TYPE,
-} from "@/features/apps/ims/utils/outEntryTypes";
+import { OUT_ENTRY_STATUS_FILTER_OPTIONS, OUT_ENTRY_TYPE_FILTER_OPTIONS, buildOutEntryListFilters, isOutEntryScanDraft, matchesOutEntryStatusFilter, outEntryScanProgressLabel, outEntryStatusLabel } from "@/features/apps/ims/utils/outEntryScanStatus";
+import { isOutEntryAutoAuthorized, isOutEntryInventoryOut, isOutEntryPackingArea, isOutEntryQcArea, getOutEntryTypeTableLabel, getOutEntryTypeBadgeClass, OUT_ENTRY_TYPE } from "@/features/apps/ims/utils/outEntryTypes";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
@@ -42,7 +27,8 @@ import ActionButton from "@/core/components/ui/ActionButton";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchListFirstPage, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
 import { pipeMetaRenderers } from "@/features/apps/ims/helpers/pipeMetaDisplay";
 
 const PAGE_TABS = {
@@ -89,7 +75,7 @@ export default function OutEntryPage() {
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const [tempSearch, setTempSearch] = useState("");
+  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
   const [forwardingRows, setForwardingRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
@@ -109,17 +95,17 @@ export default function OutEntryPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const base = {
-        sortBy: params.sortKey,
-        order: params.sortDir.toUpperCase(),
-        filters: {
-          ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
-          ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
-          ...buildOutEntryListFilters(params.status),
-        },
-      };
-      const { data } = await fetchAllListPages(async (page, limit) => {
-        const body = await outEntryService.getAll({ ...base, page, limit });
+      const { data } = await fetchListFirstPage(async (page, limit) => {
+        const body = await outEntryService.getAll({
+          page,
+          limit,
+          ...(appliedSearch && { search: appliedSearch }),
+          filters: {
+            ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
+            ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
+            ...buildOutEntryListFilters(params.status),
+          },
+        });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
@@ -130,21 +116,21 @@ export default function OutEntryPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status]);
+  }, [params.pageSize, params.fromDate, params.toDate, params.status, appliedSearch]);
 
   const fetchForwardingNotes = useCallback(async () => {
     setLoading(true);
     try {
-      const base = {
-        sortBy: forwardingParams.sortKey,
-        order: forwardingParams.sortDir.toUpperCase(),
-        filters: {
-          approved: true,
-          out_entry_complete: false,
-        },
-      };
-      const { data } = await fetchAllListPages(async (page, limit) => {
-        const body = await forwardingNoteService.getAll({ ...base, page, limit });
+      const { data } = await fetchListFirstPage(async (page, limit) => {
+        const body = await forwardingNoteService.getAll({
+          page,
+          limit,
+          ...(appliedSearch && { search: appliedSearch }),
+          filters: {
+            approved: true,
+            out_entry_complete: false,
+          },
+        });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, forwardingParams.pageSize);
       setForwardingRows(data);
@@ -155,7 +141,7 @@ export default function OutEntryPage() {
     } finally {
       setLoading(false);
     }
-  }, [forwardingParams.pageSize, forwardingParams.sortKey, forwardingParams.sortDir]);
+  }, [forwardingParams.pageSize, appliedSearch]);
 
   useEffect(() => {
     if (isStoreOut) fetchData();
@@ -178,6 +164,9 @@ export default function OutEntryPage() {
           if (params.entryType === OUT_ENTRY_TYPE.PACKING_AREA) {
             return isOutEntryPackingArea(r.entry_type);
           }
+          if (params.entryType === OUT_ENTRY_TYPE.QC_AREA) {
+            return isOutEntryQcArea(r.entry_type);
+          }
           if (params.entryType === OUT_ENTRY_TYPE.INVENTORY_OUT) {
             return isOutEntryInventoryOut(r.entry_type);
           }
@@ -199,6 +188,7 @@ export default function OutEntryPage() {
   }, [loading, items.length, totalItems]);
 
   const handleFilterApply = (data) => {
+    applySearchFromInput();
     if (!isStoreOut) return;
     const nextStatus = data.approvedStatus || params.status;
     const nextType = data.entryType || params.entryType;
@@ -212,7 +202,7 @@ export default function OutEntryPage() {
   };
 
   const handleReset = () => {
-    setTempSearch("");
+    resetSearch();
     if (isStoreOut) {
       setParams({
         pageSize: 1000,
@@ -703,6 +693,18 @@ export default function OutEntryPage() {
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
+            onSearchEnter={() => {
+              if (isStoreOut) {
+                handleFilterApply({
+                  fromDate: params.fromDate,
+                  toDate: params.toDate,
+                  approvedStatus: params.status,
+                  entryType: params.entryType,
+                });
+              } else {
+                applySearchFromInput();
+              }
+            }}
             searchPlaceholder={isStoreOut ? "Search FUID or UID..." : "Search FUID, Customer, PO..."}
             searchLabel="Quick Search"
             minDate={isStoreOut ? dateFilterDefaults.minDate : undefined}

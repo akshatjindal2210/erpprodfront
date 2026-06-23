@@ -2,6 +2,7 @@ export const OUT_ENTRY_TYPE = {
   FORWARDING_NOTE: "forwarding_note",
   INVENTORY_OUT: "inventory_out",
   PACKING_AREA: "packing_area",
+  QC_AREA: "qc_area",
   /** @deprecated */
   LEGACY_OTHER: "other",
 };
@@ -9,6 +10,7 @@ export const OUT_ENTRY_TYPE = {
 export const OUT_ENTRY_TYPE_BADGE = {
   red: "bg-red-50 text-red-800 border-red-200",
   yellow: "bg-yellow-50 text-yellow-900 border-yellow-300",
+  indigo: "bg-indigo-50 text-indigo-900 border-indigo-200",
 };
 
 export const OUT_ENTRY_MODE_PICKER_OPTIONS = [
@@ -36,6 +38,14 @@ export const OUT_ENTRY_MODE_PICKER_OPTIONS = [
     accent: "yellow",
     icon: "package",
   },
+  {
+    id: "qc_area",
+    mode: OUT_ENTRY_TYPE.QC_AREA,
+    title: "QC Area",
+    description: "Move QC hold boxes from store to QC area.",
+    accent: "indigo",
+    icon: "shield",
+  },
 ];
 
 export function isOutEntryInventoryOut(entryType) {
@@ -49,12 +59,20 @@ export function isOutEntryPackingArea(entryType) {
   );
 }
 
+export function isOutEntryQcArea(entryType) {
+  return entryType === OUT_ENTRY_TYPE.QC_AREA;
+}
+
 export function isOutEntryForwardingNote(entryType) {
   return entryType === OUT_ENTRY_TYPE.FORWARDING_NOTE;
 }
 
 export function isOutEntryAutoAuthorized(entryType) {
-  return isOutEntryInventoryOut(entryType) || isOutEntryPackingArea(entryType);
+  return (
+    isOutEntryInventoryOut(entryType) ||
+    isOutEntryPackingArea(entryType) ||
+    isOutEntryQcArea(entryType)
+  );
 }
 
 export function isOutEntrySimpleScanMode(entryMode) {
@@ -67,12 +85,14 @@ export function isOutEntrySimpleScanMode(entryMode) {
 export function getOutEntryTypeTableLabel(entryType) {
   if (isOutEntryInventoryOut(entryType)) return "Inventory";
   if (isOutEntryPackingArea(entryType)) return "Packing";
+  if (isOutEntryQcArea(entryType)) return "QC Area";
   if (isOutEntryForwardingNote(entryType)) return "Forwarding";
   return entryType ? String(entryType).replace(/_/g, " ") : "—";
 }
 
 export function getOutEntryTypeBadgeClass(entryType) {
   if (isOutEntryPackingArea(entryType)) return OUT_ENTRY_TYPE_BADGE.yellow;
+  if (isOutEntryQcArea(entryType)) return OUT_ENTRY_TYPE_BADGE.indigo;
   return OUT_ENTRY_TYPE_BADGE.red;
 }
 
@@ -91,6 +111,7 @@ export function entryModeFromPickerId(pickerId) {
 export function pickerIdFromEntryType(entryType) {
   if (isOutEntryInventoryOut(entryType)) return "inventory_out";
   if (isOutEntryPackingArea(entryType)) return "packing_area";
+  if (isOutEntryQcArea(entryType)) return "qc_area";
   if (isOutEntryForwardingNote(entryType)) return "forwarding_note";
   return null;
 }

@@ -1,8 +1,7 @@
 "use client";
 
 /** Shared label for list-page filter strip fields. */
-export const LIST_PAGE_SEARCH_LABEL_CLASS =
-  "text-[10px] font-bold text-slate-500 uppercase ml-1 tracking-tight italic";
+export const LIST_PAGE_SEARCH_LABEL_CLASS = "text-[10px] font-bold text-slate-500 uppercase ml-1 tracking-tight italic";
 
 /**
  * Filter value / placeholder — compact 12px typography via globals.css
@@ -12,8 +11,7 @@ export const LIST_PAGE_FILTER_VALUE_CLASS = "list-page-filter-value";
 export const LIST_PAGE_FILTER_PLACEHOLDER_CLASS = "list-page-filter-placeholder";
 
 /** Compact control shell — h-8 on phone, h-9 on desktop. */
-export const LIST_PAGE_FILTER_BOX_CLASS =
-  "list-page-filter-control h-8 md:h-9 w-full min-w-0 rounded-none border border-slate-300 bg-white px-2 md:px-3 transition-all focus-within:border-slate-500 focus:border-slate-500";
+export const LIST_PAGE_FILTER_BOX_CLASS = "list-page-filter-control h-8 md:h-9 w-full min-w-0 rounded-none border border-slate-300 bg-white px-2 md:px-3 transition-all focus-within:border-slate-500 focus:border-slate-500";
 
 export const LIST_PAGE_FILTER_FIELD_WRAP_CLASS = "flex min-w-0 flex-col gap-0.5 md:gap-1";
 
@@ -52,6 +50,7 @@ export default function ListPageSearchField({
   placeholder = "Search...",
   value,
   onChange,
+  onKeyDown,
   className = "",
   containerClassName = LIST_PAGE_SEARCH_CONTAINER_CLASS,
   inputClassName = "",
@@ -65,6 +64,7 @@ export default function ListPageSearchField({
           type="text"
           value={value ?? ""}
           onChange={(e) => onChange?.(e.target.value)}
+          onKeyDown={onKeyDown}
           placeholder={placeholder}
           disabled={disabled}
           className={`${LIST_PAGE_SEARCH_INPUT_CLASS} ${inputClassName}`.trim()}

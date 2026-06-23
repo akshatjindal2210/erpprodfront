@@ -32,6 +32,9 @@ export default function DateRangeFilter({
   applyExtrasOnChange = false,
   searchValue,
   onSearchChange,
+  onSearchEnter,
+  /** When false, Enter in the search field does not run Apply (client-side search only). */
+  applyOnSearchEnter = true,
   searchPlaceholder = "Search...",
   searchLabel = "Search",
   minDate,
@@ -67,6 +70,7 @@ export default function DateRangeFilter({
       let changed = false;
       const next = { ...prev };
       extraFilters.forEach((f) => {
+        if (f.type === "text" || !f.key) return;
         if (f.value !== undefined && f.value !== null && prev[f.key] !== f.value) {
           next[f.key] = f.value;
           changed = true;
@@ -124,6 +128,13 @@ export default function DateRangeFilter({
             placeholder={searchPlaceholder}
             value={searchValue}
             onChange={onSearchChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (applyOnSearchEnter) handleApply();
+                onSearchEnter?.();
+              }
+            }}
             containerClassName="w-full min-w-0 space-y-0 md:space-y-1"
           />
         </div>
@@ -178,39 +189,55 @@ export default function DateRangeFilter({
       )}
 
       {extraFilterCount > 0 &&
-        extraFilters.map((filter, index) => (
-          <div key={index} className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
-            <label className={`${LIST_PAGE_SEARCH_LABEL_CLASS} max-md:hidden`}>{filter.label}</label>
-            <select
-              value={localExtras[filter.key] ?? filter.value ?? ""}
-              onChange={(e) => {
-                const v = e.target.value;
-                setLocalExtras((prev) => {
-                  const next = { ...prev, [filter.key]: v };
+        extraFilters.map((filter, index) =>
+          filter.type === "text" ? (
+            <div key={index} className="min-w-0">
+              <ListPageSearchField
+                label={filter.label}
+                placeholder={filter.placeholder ?? ""}
+                value={filter.value}
+                onChange={filter.onChange}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    filter.onEnter?.();
+                  }
+                }}
+                containerClassName="w-full min-w-0 space-y-0 md:space-y-1"
+              />
+            </div>
+          ) : (
+            <div key={index} className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
+              <label className={`${LIST_PAGE_SEARCH_LABEL_CLASS} max-md:hidden`}>{filter.label}</label>
+              <select
+                value={localExtras[filter.key] ?? filter.value ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const nextExtras = { ...localExtras, [filter.key]: v };
+                  setLocalExtras(nextExtras);
                   if (showInstantExtras || applyExtrasOnChange) {
-                    onApply?.({ fromDate: localFrom, toDate: localTo, ...next });
+                    onApply?.({ fromDate: localFrom, toDate: localTo, ...nextExtras });
                     if (showInstantExtras) mobileFilterStrip?.collapseMobile?.();
                   }
-                  return next;
-                });
-              }}
-              className={LIST_PAGE_FILTER_SELECT_CLASS}
-              style={{
-                backgroundImage:
-                  'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2364748b\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\'/%3E%3C/svg%3E")',
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "right 0.5rem center",
-                backgroundSize: "0.875rem",
-              }}
-            >
-              {sortFilterOptionsAsc(filter.options).map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ))}
+                }}
+                className={LIST_PAGE_FILTER_SELECT_CLASS}
+                style={{
+                  backgroundImage:
+                    'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2364748b\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\'/%3E%3C/svg%3E")',
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "right 0.5rem center",
+                  backgroundSize: "0.875rem",
+                }}
+              >
+                {sortFilterOptionsAsc(filter.options).map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )
+        )}
 
       {showActionButtons && (
         <div className={`${LIST_PAGE_FILTER_FIELD_WRAP_CLASS} max-md:col-span-2`}>

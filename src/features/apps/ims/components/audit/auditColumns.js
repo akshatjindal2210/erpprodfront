@@ -32,7 +32,7 @@ export const AUDIT_MASTER_HEADERS = [
         <User size={12} />
       </div>
       <span className="font-bold text-slate-800 text-[11px] leading-snug whitespace-normal break-words">
-        {v || getAssignedUsersLabel(row)}
+        {getAssignedUsersLabel(row)}
       </span>
     </div>
   ), {

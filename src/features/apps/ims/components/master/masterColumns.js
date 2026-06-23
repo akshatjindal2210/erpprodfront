@@ -10,7 +10,6 @@
  *   4. Party Rate Master → PartyRateMaster.js
  */
 import { formatDateTime, formatDocDate } from "@/core/utils/utilHelper";
-import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 import { bestTierForStrings } from "@/features/apps/ims/helpers/liveSearchRank";
 
 /* ─── 1. Packing Entry (DailyProduction.js) ─── */
@@ -19,6 +18,20 @@ export function dailyProdRowKey(row) {
   return `${row.doc_no}-${row.itemdcode}`;
 }
 
+function renderDailyProdStickerStatus(_v, row) {
+  const generated = isDailyProdStickerGenerated(row);
+  return (
+    <span
+      className={`px-2 py-0.5 text-[9px] font-black uppercase border ${
+        generated ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"
+      }`}
+    >
+      {generated ? "● GENERATED" : "○ PENDING"}
+    </span>
+  );
+}
+
+/** All / Pending / Generated — same columns as original packing entry table. */
 export const DAILY_PRODUCTION_HEADERS = [
   ["Packing No", "doc_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v}</span>, { width: "100px", fixed: true }],
   ["Date", "doc_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDocDate(v) || "—"}</span>, { width: "100px" }],
@@ -39,38 +52,259 @@ export const DAILY_PRODUCTION_HEADERS = [
   ["Item Description", "item_desc", (v) => (
     <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v}>{v}</span>
   ), { width: "220px" }],
-  ["Sticker Status", "sticker_generated", (v) => (
-    <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
-      {v ? "● GENERATED" : "○ PENDING"}
-    </span>
-  ), { width: "110px" }],
-  ["Created By", "sticker_created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px", copyValue: (row) => (row.sticker_generated ? formatDateTime(row.sticker_created_at) || "—" : "") }],
-  ["Created At", "sticker_created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-  ["Updated By", "sticker_updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px", copyValue: (row) => (row.sticker_generated ? row.sticker_updated_by_name || "—" : "") }],
-  ["Updated At", "sticker_updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+  ["Sticker Status", "sticker_generated", renderDailyProdStickerStatus, { width: "110px" }],
+  ["Created By", "sticker_created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+  ["Created At", "sticker_created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
+  ["Updated By", "sticker_updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+  ["Updated At", "sticker_updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
 ];
 
-export const STICKER_STATUS_FILTER_OPTIONS = sortFilterOptionsAsc([
-  { label: "All Status", value: "all" },
-  { label: "Generated", value: "generated" },
-  { label: "Pending", value: "pending" },
-]);
+/** @deprecated Same as DAILY_PRODUCTION_HEADERS */
+export const DAILY_PRODUCTION_PENDING_HEADERS = DAILY_PRODUCTION_HEADERS;
 
-export const DAILY_PROD_CARD_CONFIG = {
+/** @deprecated Same as DAILY_PRODUCTION_HEADERS */
+export const DAILY_PRODUCTION_GENERATED_HEADERS = DAILY_PRODUCTION_HEADERS;
+
+export const STICKER_STATUS_FILTER_OPTIONS = [
+  { label: "All Status", value: "all" },
+  { label: "Pending", value: "pending" },
+  { label: "Generated", value: "generated" },
+  { label: "Comparison", value: "comparison" },
+];
+
+function formatComparePlain(v, { date = false, qty = false } = {}) {
+  if (v == null || v === "") return "—";
+  if (date) return formatDocDate(v) || "—";
+  if (qty) return parseFloat(v || 0).toLocaleString();
+  return String(v);
+}
+
+function CompareImsDbLines({ imsText, dbText, mismatch = false }) {
+  const rowClass = mismatch
+    ? "rounded border border-rose-200 bg-rose-50 px-1 py-0.5"
+    : "";
+  const labelClass = mismatch ? "text-rose-500" : "text-slate-400";
+  const textClass = mismatch ? "font-bold text-rose-700" : "font-semibold text-slate-700";
+
+  return (
+    <div className="space-y-1 text-[10px] leading-snug min-w-[120px]">
+      <div className={`flex flex-wrap gap-x-1 ${rowClass}`}>
+        <span className={`shrink-0 font-black uppercase text-[8px] ${labelClass}`}>IMS</span>
+        <span className={`${textClass} break-words`}>{imsText}</span>
+      </div>
+      <div className={`flex flex-wrap gap-x-1 ${rowClass}`}>
+        <span className={`shrink-0 font-black uppercase text-[8px] ${labelClass}`}>DB</span>
+        <span className={`${textClass} break-words`}>{dbText}</span>
+      </div>
+    </div>
+  );
+}
+
+function renderDailyProdCompareCell(row, field, { date = false, qty = false } = {}) {
+  if (row?.comparison?.missing_ims) {
+    const dbVal = row?.local_source?.[field] ?? row?.[field];
+    return (
+      <CompareImsDbLines
+        imsText="—"
+        dbText={formatComparePlain(dbVal, { date, qty })}
+        mismatch
+      />
+    );
+  }
+  if (row?.comparison?.missing_local) {
+    return (
+      <CompareImsDbLines
+        imsText={formatComparePlain(row?.ims_source?.[field] ?? row?.[field], { date, qty })}
+        dbText="—"
+        mismatch
+      />
+    );
+  }
+  const cmp = row?.comparison?.fields?.[field];
+  if (!cmp) {
+    return (
+      <span className="text-[10px] text-slate-400" title="No saved snapshot for this field">
+        —
+      </span>
+    );
+  }
+  return (
+    <CompareImsDbLines
+      imsText={formatComparePlain(cmp.ims, { date, qty })}
+      dbText={formatComparePlain(cmp.local, { date, qty })}
+      mismatch={field === "acc_name" ? false : Boolean(cmp.mismatch)}
+    />
+  );
+}
+
+const COMPARE_FIELD_LABELS = {
+  doc_dt: "Date",
+  job_card_no: "Job card",
+  acc_name: "Customer",
+  item_code: "Item",
+  total_qty: "Qty",
+};
+
+function renderDailyProdMismatchSummary(_v, row) {
+  if (row?.comparison?.missing_ims || row?.ims_missing) {
+    return <span className="text-[9px] font-bold uppercase text-rose-700">Not in IMS</span>;
+  }
+  if (row?.comparison?.missing_local) {
+    return <span className="text-[9px] font-bold uppercase text-rose-700">No DB snapshot</span>;
+  }
+  const fields = row?.comparison?.fields || {};
+  const keys = Object.keys(fields).filter((k) => k !== "acc_name" && fields[k]?.mismatch);
+  if (!keys.length) {
+    return <span className="text-[10px] text-slate-400">—</span>;
+  }
+  return (
+    <span className="text-[9px] font-bold uppercase text-rose-700 leading-snug">
+      {keys.map((k) => COMPARE_FIELD_LABELS[k] || k).join(", ")}
+    </span>
+  );
+}
+
+function dailyProdImsCustomerName(row) {
+  if (row?.comparison?.missing_ims || row?.ims_missing) return null;
+  return (
+    row?.ims_source?.acc_name ??
+    row?.comparison?.fields?.acc_name?.ims ??
+    null
+  );
+}
+
+function renderDailyProdImsCustomer(_v, row) {
+  const name = dailyProdImsCustomerName(row);
+  return (
+    <span
+      className="text-slate-800 font-bold text-[10px] uppercase whitespace-normal break-words leading-snug hyphens-auto"
+      title={name || undefined}
+    >
+      {name || "—"}
+    </span>
+  );
+}
+
+export const DAILY_PRODUCTION_COMPARISON_HEADERS = [
+  ["Packing No", "doc_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v}</span>, { width: "100px", fixed: true }],
+  ["Date", "doc_dt", (_v, row) => renderDailyProdCompareCell(row, "doc_dt", { date: true }), { width: "140px", wrap: true }],
+  ["Job Card", "job_card_no", (_v, row) => renderDailyProdCompareCell(row, "job_card_no"), { width: "140px", wrap: true }],
+  ["Customer", "acc_name", renderDailyProdImsCustomer, { width: "220px", wrap: true }],
+  ["Item", "item_code", (_v, row) => renderDailyProdCompareCell(row, "item_code"), { width: "140px", wrap: true }],
+  ["Quantity", "total_qty", (_v, row) => renderDailyProdCompareCell(row, "total_qty", { qty: true }), { width: "140px", wrap: true }],
+  ["Mismatch", "has_comparison_mismatch", renderDailyProdMismatchSummary, { width: "120px", wrap: true }],
+];
+
+/** True when production stickers exist in local DB for this packing row. */
+export function isDailyProdStickerGenerated(row) {
+  return row?.sticker_generated === true || row?.sticker_generated === "true";
+}
+
+export function hasDailyProdComparisonMismatch(row, { ignoreCustomer = true } = {}) {
+  if (row?.comparison?.missing_ims || row?.ims_missing) return true;
+  if (row?.comparison?.missing_local) return true;
+  const fields = row?.comparison?.fields || {};
+  return Object.entries(fields).some(([key, f]) => {
+    if (ignoreCustomer && key === "acc_name") return false;
+    return Boolean(f?.mismatch);
+  });
+}
+
+export const DAILY_PROD_PENDING_CARD_CONFIG = {
   titleKey: "job_card_no",
-  badgeIndices: [0, 2],
+  badgeIndices: [0, 7],
   detailIndices: [4, 5, 6],
   footerKey: "doc_dt",
 };
 
+export const DAILY_PROD_GENERATED_CARD_CONFIG = DAILY_PROD_PENDING_CARD_CONFIG;
+
+export const DAILY_PROD_CARD_CONFIG = DAILY_PROD_PENDING_CARD_CONFIG;
+
+export function dailyProdPendingSearchParts(row) {
+  return [
+    row.doc_no,
+    row.job_card_no,
+    row.acc_name,
+    row.item_code,
+    row.item_desc,
+    isDailyProdStickerGenerated(row) ? "generated" : "pending",
+    row.sticker_created_by_name,
+    row.sticker_updated_by_name,
+  ];
+}
+
+export function dailyProdGeneratedSearchParts(row) {
+  return [
+    ...dailyProdPendingSearchParts(row),
+    row.packing_category,
+    row.qty_per_box,
+    row.full_boxes_count,
+    row.loose_box_qty,
+    row.party_rate_cust_code,
+  ];
+}
+
 export function dailyProdSearchParts(row) {
-  return [row.doc_no, row.job_card_no, row.acc_name, row.item_code, row.item_desc];
+  return isDailyProdStickerGenerated(row)
+    ? dailyProdGeneratedSearchParts(row)
+    : dailyProdPendingSearchParts(row);
+}
+
+/** Comparison tab: search IMS + DB snapshot values (customer name, job, item, qty, etc.). */
+export function dailyProdComparisonSearchParts(row) {
+  const parts = [
+    row?.doc_no,
+    row?.job_card_no,
+    row?.acc_name,
+    row?.acc_code,
+    row?.item_code,
+    row?.item_desc,
+    row?.total_qty,
+    formatDocDate(row?.doc_dt),
+    row?.ims_source?.doc_no,
+    row?.ims_source?.job_card_no,
+    row?.ims_source?.acc_name,
+    row?.ims_source?.acc_code,
+    row?.ims_source?.item_code,
+    row?.ims_source?.total_qty,
+    formatDocDate(row?.ims_source?.doc_dt),
+    row?.local_source?.job_card_no,
+    row?.local_source?.acc_name,
+    row?.local_source?.acc_code,
+    row?.local_source?.item_code,
+    row?.local_source?.total_qty,
+    formatDocDate(row?.local_source?.doc_dt),
+  ];
+
+  const fields = row?.comparison?.fields;
+  if (fields && typeof fields === "object") {
+    for (const f of Object.values(fields)) {
+      if (f?.ims != null && f.ims !== "") parts.push(f.ims);
+      if (f?.local != null && f.local !== "") parts.push(f.local);
+    }
+  }
+
+  if (row?.comparison?.missing_ims) parts.push("not in ims");
+  if (row?.comparison?.missing_local) parts.push("no db snapshot");
+
+  return parts.filter((p) => p != null && String(p).trim() !== "");
 }
 
 export function filterDailyProdByStickerStatus(rows, status) {
-  if (status === "all") return rows;
-  const wantGenerated = status === "generated";
-  return rows.filter((row) => !!row.sticker_generated === wantGenerated);
+  if (status === "all") {
+    return rows;
+  }
+  if (status === "generated") {
+    return rows.filter((row) => isDailyProdStickerGenerated(row));
+  }
+  if (status === "comparison") {
+    return rows.filter(
+      (row) => isDailyProdStickerGenerated(row) && hasDailyProdComparisonMismatch(row)
+    );
+  }
+  // Pending: IMS pack rows not yet sticker-generated in our DB
+  return rows.filter((row) => !isDailyProdStickerGenerated(row));
 }
 
 /* ─── 2. Product Master (ProductMaster.js) ─── */

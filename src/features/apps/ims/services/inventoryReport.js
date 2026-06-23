@@ -2,8 +2,12 @@ import { api } from "@/core/api/apiClient";
 import { ENDPOINTS } from "@/features/apps/ims/config/endpoints";
 
 export const inventoryReportService = {
-  getReport: (params) =>
-    api(ENDPOINTS.INVENTORY_REPORT.LIST, { method: "POST", body: params }),
+  list: ({ page = 1, limit = 100, filters = {}, sortKey = "packing_number", sortDir = "desc", includeTotals = false } = {}) =>
+    api(ENDPOINTS.INVENTORY_REPORT.LIST, {
+      method: "POST",
+      body: { page, limit, filters, sortKey, sortDir, includeTotals },
+    }),
+
   getFilterOptions: (filters = {}, fields = null) =>
     api(ENDPOINTS.INVENTORY_REPORT.LIST, {
       method: "POST",
@@ -13,19 +17,4 @@ export const inventoryReportService = {
         ...(Array.isArray(fields) && fields.length ? { fields } : {}),
       },
     }),
-  /** One backend round-trip for the full report (used on load / refresh). */
-  fetchAll: () =>
-    api(ENDPOINTS.INVENTORY_REPORT.LIST, {
-      method: "POST",
-      body: {
-        fetchAll: true,
-        page: 1,
-        limit: 50000,
-        filters: {},
-        includeTotals: true,
-        sortBy: "packing_number",
-        order: "DESC",
-      },
-    }),
 };
-

@@ -26,4 +26,5 @@ export const ROUTES = {
   ANALYTICS: `${IMS}/inventory-report`,
   STOCK_ADJUSTMENT: `${IMS}/stock-adjustment`,
   AUDIT: `${IMS}/audit`,
+  QC_HOLD_MATERIAL: `${IMS}/qc-hold-material`,
 };

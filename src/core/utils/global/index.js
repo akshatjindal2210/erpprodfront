@@ -37,6 +37,7 @@ export {
   SCAN_SNACK_DUR,
   buildScanSnackbarState,
   useScanSnackbarActions,
+  notifyDecodeSuppressedScan,
 } from "./scanSnackbar";
 
 export {

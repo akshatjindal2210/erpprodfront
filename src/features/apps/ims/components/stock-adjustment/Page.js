@@ -3,18 +3,15 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, RefreshCw, Trash2, CheckCircle, X, Printer, Eye, Edit3 } from "lucide-react";
 import { toast } from "react-toastify";
-import dayjs from "dayjs";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
 
 import { stockAdjustmentService } from "@/features/apps/ims/services/stockAdjustment";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 
-// Components
 import StockAdjustmentModal from "@/features/apps/ims/components/stock-adjustment/StockAdjustmentModal";
 import StockAdjustmentStickerCloneDrawer from "@/features/apps/ims/components/stock-adjustment/StockAdjustmentStickerCloneDrawer";
 import StockAdjustmentPrintStickersDrawer from "@/features/apps/ims/components/stock-adjustment/StockAdjustmentPrintStickersDrawer";
-import { plainRemarksForDisplay } from "@/features/apps/ims/components/stock-adjustment/StockAdjustmentModal";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
@@ -27,51 +24,11 @@ import PrintActionButton from "@/core/components/ui/PrintActionButton";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
-import { formatDateTime } from "@/core/utils/utilHelper";
+import { fetchListFirstPage } from "@/features/apps/ims/helpers/clientListSearch";
+import { STOCK_ADJUSTMENT_CARD_CONFIG, STOCK_ADJUSTMENT_HEADERS, STOCK_ADJUSTMENT_STATUS_FILTER_OPTIONS, filterStockAdjustmentRows } from "./stockAdjustmentColumns";
 
-function stockAdjustmentCustomerCell(v, row) {
-  const lines =
-    row.entry_type === "minus" && Array.isArray(row.minus_customer_lines)
-      ? row.minus_customer_lines
-      : null;
-
-  if (lines && lines.length > 1) {
-    const title = lines
-      .map((l) => {
-        const name = l.acc_name || l.acc_code || "—";
-        const q = Number(l.qty || 0);
-        return q > 0 ? `${name} (−${q.toLocaleString()} PCS)` : name;
-      })
-      .join(", ");
-    const label = lines
-      .map((l) => l.acc_name || l.acc_code || "—")
-      .join(", ");
-    return (
-      <span
-        className="text-[10px] text-slate-700 font-bold uppercase block max-w-[140px] sm:max-w-[220px] leading-snug whitespace-normal break-words"
-        title={title}
-      >
-        {label}
-      </span>
-    );
-  }
-
-  const label =
-    (lines?.length === 1 ? lines[0].acc_name || lines[0].acc_code : null) ||
-    (typeof v === "string" ? v.replace(/\s*·\s*/g, ", ") : v) ||
-    (typeof row.acc_name === "string" ? row.acc_name.replace(/\s*·\s*/g, ", ") : row.acc_name) ||
-    "—";
-
-  return (
-    <span
-      className="text-[10px] text-slate-700 font-bold uppercase truncate block max-w-[140px] sm:max-w-[220px]"
-      title={String(label)}
-    >
-      {label}
-    </span>
-  );
-}
+const LIST_PAGE_SIZE = 1000;
+const DISPLAY_CHUNK = 100;
 
 export default function StockAdjustmentPage() {
   const canAccess = useCanAccess();
@@ -83,25 +40,28 @@ export default function StockAdjustmentPage() {
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [params, setParams] = useState({
-    pageSize: 1000,
+    pageSize: LIST_PAGE_SIZE,
     status: "all",
-    fromDate: dateFilterDefaults.from, toDate: dateFilterDefaults.to, sortKey: "adjustment_id", sortDir: "desc"
+    fromDate: dateFilterDefaults.from,
+    toDate: dateFilterDefaults.to,
+    sortKey: "adjustment_id",
+    sortDir: "desc",
   });
 
   useEffect(() => {
     if (dateFilterDefaults.from || dateFilterDefaults.to) {
-      setParams(prev => ({
+      setParams((prev) => ({
         ...prev,
         fromDate: dateFilterDefaults.from,
-        toDate: dateFilterDefaults.to
+        toDate: dateFilterDefaults.to,
       }));
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const [tempSearch, setTempSearch] = useState("");
+  const [searchText, setSearchText] = useState("");
   const [allRows, setAllRows] = useState([]);
-  const [displayLimit, setDisplayLimit] = useState(100);
-  const [selected, setSelected] = useState(null); 
+  const [displayLimit, setDisplayLimit] = useState(DISPLAY_CHUNK);
+  const [selected, setSelected] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("add");
   const [editItem, setEditItem] = useState(null);
@@ -121,28 +81,23 @@ export default function StockAdjustmentPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const base = {
-        sortBy: params.sortKey || undefined,
-        order: params.sortDir.toUpperCase(),
-        filters: {
-          ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
-          ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
-          ...(params.status !== "all" && { approved: params.status === "approved" }),
-        },
-      };
-      const { data } = await fetchAllListPages(async (page, limit) => {
-        const body = await stockAdjustmentService.getAll({ ...base, page, limit });
+      const { data } = await fetchListFirstPage(async (page, limit) => {
+        const body = await stockAdjustmentService.getAll({
+          page,
+          limit,
+          filters: {},
+        });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
-      setDisplayLimit(100);
+      setDisplayLimit(DISPLAY_CHUNK);
     } catch (err) {
       toast.error(err?.message || "Failed to load data");
       setAllRows([]);
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status]);
+  }, [params.pageSize]);
 
   const handleModalSuccess = useCallback(() => {
     fetchData();
@@ -153,20 +108,37 @@ export default function StockAdjustmentPage() {
     fetchData();
   }, [fetchData]);
 
-  const filteredRows = useMemo(() => {
-    const q = String(tempSearch || "").trim();
-    if (q) {
-      return applyClientSearch(allRows, tempSearch);
-    }
-    return sortRowsByKey(allRows, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+  const filteredRows = useMemo(
+    () =>
+      filterStockAdjustmentRows(allRows, {
+        fromDate: params.fromDate,
+        toDate: params.toDate,
+        status: params.status,
+        search: searchText,
+        sortKey: params.sortKey,
+        sortDir: params.sortDir,
+      }),
+    [
+      allRows,
+      params.fromDate,
+      params.toDate,
+      params.status,
+      searchText,
+      params.sortKey,
+      params.sortDir,
+    ]
+  );
+
+  useEffect(() => {
+    setDisplayLimit(DISPLAY_CHUNK);
+  }, [searchText, params.fromDate, params.toDate, params.status]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
 
   const handleLoadMore = useCallback(() => {
     if (!loading && items.length < totalItems) {
-      setDisplayLimit((n) => n + 100);
+      setDisplayLimit((n) => n + DISPLAY_CHUNK);
     }
   }, [loading, items.length, totalItems]);
 
@@ -180,9 +152,9 @@ export default function StockAdjustmentPage() {
   };
 
   const handleReset = () => {
-    setTempSearch("");
+    setSearchText("");
     setParams({
-      pageSize: 1000,
+      pageSize: LIST_PAGE_SIZE,
       status: "all",
       fromDate: dateFilterDefaults.from,
       toDate: dateFilterDefaults.to,
@@ -191,16 +163,17 @@ export default function StockAdjustmentPage() {
     });
   };
 
-  const extraFilters = useMemo(() => [
-    { 
-      label: "Status", key: "approvedStatus", value: params.status, 
-      options: [
-        { label: "All Status", value: "all" }, 
-        { label: "Authorized", value: "approved" }, 
-        { label: "Pending", value: "pending" }
-      ] 
-    },
-  ], [params.status]);
+  const extraFilters = useMemo(
+    () => [
+      {
+        label: "Status",
+        key: "approvedStatus",
+        value: params.status,
+        options: STOCK_ADJUSTMENT_STATUS_FILTER_OPTIONS,
+      },
+    ],
+    [params.status]
+  );
 
   const selectedRecord = useMemo(
     () => filteredRows.find((i) => String(i.adjustment_id) === String(selected)),
@@ -266,60 +239,16 @@ export default function StockAdjustmentPage() {
     canDeleteSelection: useCallback(() => !!selected, [selected]),
   });
 
-  const HEADERS = [
-    ["ADJ ID", "adjustment_id", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "80px" }],
-    ["Type", "entry_type", (v) => (<span className="text-[10px] font-black uppercase text-slate-700">{v === "add" ? "Add (+)" : v === "minus" ? "Minus (-)" : "—"}</span>), { width: "72px", align: "center" }],
-    ["Packing no.", "packing_number", (v) => (<span className="font-mono text-[10px] text-slate-700 truncate block max-w-[120px]">{v || "—"}</span>), { width: "120px" }],
-    ["Fin. year", "financial_year", (v) => (<span className="text-[10px] text-slate-600">{v || "—"}</span>), { width: "80px", align: "center" }],
-    ["Customer", "acc_name", stockAdjustmentCustomerCell, { width: "200px", wrap: true }],
-
-    ["Total qty", "qty", (v, row) => (
-      <div className="flex items-baseline gap-1 py-1 justify-center">
-        <span className={`font-black text-[12px] ${Number(v) < 0 ? "text-rose-600" : "text-emerald-600"}`}>
-          {Number(v) > 0 ? `+${v}` : v}
-        </span>
-        <span className="text-[9px] text-slate-400 font-bold uppercase italic">{row.unit || "PCS"}</span>
-      </div>
-    ), { width: "100px", align: "center" }],
-
-    ["Box impact", "box_count_impact", (v) => (<span className="text-[10px] font-bold text-slate-700 tabular-nums">{v != null ? v : "—"}</span>), { width: "80px", align: "center" }],
-
-    ["Item code", "item_code", (v) => (<span className="font-bold text-slate-800 uppercase text-[10px] tracking-tight">{v || "—"}</span>), { width: "120px" }],
-
-    ["Description", "item_desc", (v) => (
-      <span className="text-[10px] text-slate-600 truncate block max-w-[200px]" title={v || ""}>
-        {v || "—"}
-      </span>
-    ), { width: "200px" }],
-
-    ["Remarks", "remarks", (v) => (
-      <span className="text-[10px] text-slate-500 truncate block max-w-[180px]">
-        {plainRemarksForDisplay(v) || "—"}
-      </span>
-    ), { width: "180px" }],
-    ["Status", "approved", (v) => (
-      <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
-        {v ? "● AUTHORIZED" : "○ PENDING"}
-      </span>
-    ), { width: "120px" }],
-    ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-    ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-    ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-    ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-    ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
-    ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-  ];
-
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: "Stock Adjustment",
     rows: filteredRows,
-    headers: HEADERS,
+    headers: STOCK_ADJUSTMENT_HEADERS,
   });
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
-        
+
         <ListPageToolbar>
           <ListPageToolbarLayout
             actions={
@@ -354,9 +283,9 @@ export default function StockAdjustmentPage() {
                 onClick={() => setDeleteItem(selectedRecord)}
                 className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
               />
-              
+
               <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
-              
+
               <button onClick={() => fetchData()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center shadow-none transition-all shrink-0">
                 <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
               </button>
@@ -388,15 +317,23 @@ export default function StockAdjustmentPage() {
         </ListPageToolbar>
 
         <ListPageFilterStrip>
-          <DateRangeFilter 
+          <DateRangeFilter
             key={`${params.fromDate}-${params.toDate}`}
-            fromDate={params.fromDate} 
-            toDate={params.toDate} 
-            extraFilters={extraFilters} 
-            onApply={handleFilterApply} 
+            fromDate={params.fromDate}
+            toDate={params.toDate}
+            extraFilters={extraFilters}
+            onApply={handleFilterApply}
             onReset={handleReset}
-            searchValue={tempSearch}
-            onSearchChange={setTempSearch}
+            searchValue={searchText}
+            onSearchChange={setSearchText}
+            onSearchEnter={() =>
+              handleFilterApply({
+                fromDate: params.fromDate,
+                toDate: params.toDate,
+                approvedStatus: params.status,
+              })
+            }
+            applyOnSearchEnter={false}
             searchPlaceholder="Search packing, item, remark…"
             searchLabel="Search Adjustment"
             minDate={dateFilterDefaults.minDate}
@@ -406,14 +343,14 @@ export default function StockAdjustmentPage() {
 
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
             <DataTable
-              headers={HEADERS}
+              headers={STOCK_ADJUSTMENT_HEADERS}
               data={items}
               allowCopy={true}
               loading={loading}
               viewMode={viewMode}
               {...tableHotkeyProps}
               onSort={(key) => {
-                setDisplayLimit(100);
+                setDisplayLimit(DISPLAY_CHUNK);
                 setParams((p) => ({
                   ...p,
                   sortKey: key,
@@ -428,13 +365,7 @@ export default function StockAdjustmentPage() {
               onLoadMore={handleLoadMore}
               hasMore={items.length < totalItems}
               totalItems={totalItems}
-              cardConfig={{ 
-                titleKey: "item_code", 
-                badgeIndices: [9], 
-                detailIndices: [1, 2, 3, 6], 
-                footerKey: "created_at",
-                className: "rounded-none border border-slate-200 shadow-none" 
-              }}
+              cardConfig={STOCK_ADJUSTMENT_CARD_CONFIG}
             />
         </div>
 
@@ -506,7 +437,6 @@ export default function StockAdjustmentPage() {
           onSuccess={handleModalSuccess}
         />
       )}
-      {/* Legacy approve modal (non packing add/minus rows only) — edit mode disabled */}
       {modalOpen &&
         modalMode === "approve" &&
         editItem?.entry_type !== "add" &&
@@ -525,4 +455,3 @@ export default function StockAdjustmentPage() {
     </div>
   );
 }
-

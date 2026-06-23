@@ -26,7 +26,8 @@ import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilte
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchListFirstPage, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
 import { printFromBackendHtml } from "@/features/apps/ims/utils/printHtmlDocument";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/core/components/common/ListPageSearchField";
@@ -169,7 +170,7 @@ export default function ForwardingPage() {
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const [tempSearch, setTempSearch] = useState("");
+  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selectedId, setSelectedId] = useState(null); 
@@ -184,18 +185,17 @@ export default function ForwardingPage() {
     setLoading(true);
     try {
       const base = {
-        sortBy: params.sortKey || undefined,
-        order: params.sortDir.toUpperCase(),
+        ...(appliedSearch && { search: appliedSearch }),
         filters: {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
           ...(params.status !== "all" && { approved: params.status === "approved" }),
           ...buildDispatchApiFilters(params.dispatchFilter),
-        }
+        },
       };
 
       const service = reportType === "summary" ? forwardingNoteService : { getAll: forwardingNoteService.getAllItems };
-      const { data } = await fetchAllListPages(async (page, limit) => {
+      const { data } = await fetchListFirstPage(async (page, limit) => {
         const body = await service.getAll({ ...base, page, limit });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
@@ -210,13 +210,12 @@ export default function ForwardingPage() {
     }
   }, [
     params.pageSize,
-    params.sortKey,
-    params.sortDir,
     params.fromDate,
     params.toDate,
     params.status,
     params.dispatchFilter,
     reportType,
+    appliedSearch,
   ]);
 
   useEffect(() => { 
@@ -235,7 +234,7 @@ export default function ForwardingPage() {
 
   useEffect(() => {
     setDisplayLimit(100);
-  }, [tempSearch]);
+  }, [tempSearch, reportType]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -246,7 +245,16 @@ export default function ForwardingPage() {
     }
   }, [loading, items.length, totalItems]);
 
+  const getRowId = useCallback(
+    (item) => {
+      if (reportType === "summary") return String(item.fuid ?? "");
+      return String(item.id ?? `${item.fuid}-${item.item_dcode}-${item.packing_number}`);
+    },
+    [reportType]
+  );
+
   const handleFilterApply = (data) => {
+    applySearchFromInput();
     setParams((prev) => ({
       ...prev,
       fromDate: data.fromDate,
@@ -257,7 +265,7 @@ export default function ForwardingPage() {
   };
 
   const handleReset = () => {
-    setTempSearch("");
+    resetSearch();
     setParams({
       pageSize: 1000,
       status: "all",
@@ -269,18 +277,10 @@ export default function ForwardingPage() {
     });
   };
 
-  const selectedRecord = useMemo(() => {
-    return items.find((item, index) => {
-      let rowId;
-      if (reportType === "summary") {
-        rowId = `sum-${item.fuid || 'no-fuid'}-${index}`;
-      } else {
-        const uniqueId = item.id || `${item.fuid || 'no-fuid'}-${item.item_dcode || 'no-dcode'}`;
-        rowId = `itm-${uniqueId}-${index}`;
-      }
-      return rowId === selectedId;
-    }) || null;
-  }, [items, selectedId, reportType]);
+  const selectedRecord = useMemo(
+    () => filteredRows.find((item) => getRowId(item) === selectedId) || null,
+    [filteredRows, selectedId, getRowId]
+  );
   const isSelectedLocked = Boolean(selectedRecord?.out_entry_locked);
   const selectedLockStatus = useMemo(
     () => (selectedRecord ? formatLockStatusCell(selectedRecord) : null),
@@ -702,6 +702,14 @@ export default function ForwardingPage() {
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
+            onSearchEnter={() =>
+              handleFilterApply({
+                fromDate: params.fromDate,
+                toDate: params.toDate,
+                approvedStatus: params.status,
+                dispatchFilter: params.dispatchFilter,
+              })
+            }
             searchPlaceholder="Search table..."
             searchLabel="Quick Search"
             minDate={dateFilterDefaults.minDate}
@@ -726,13 +734,7 @@ export default function ForwardingPage() {
             onLoadMore={handleLoadMore}
             hasMore={items.length < totalItems}
             totalItems={totalItems}
-            getRowId={(item, index) => {
-              if (reportType === "summary") {
-                return `sum-${item.fuid || 'no-fuid'}-${index}`;
-              }
-              const uniqueId = item.id || `${item.fuid || 'no-fuid'}-${item.item_dcode || 'no-dcode'}`;
-              return `itm-${uniqueId}-${index}`;
-            }}
+            getRowId={getRowId}
             emptyIcon={FileText}
             cardConfig={{ 
               titleKey: reportType === "summary" ? "po_number" : "item_code", 

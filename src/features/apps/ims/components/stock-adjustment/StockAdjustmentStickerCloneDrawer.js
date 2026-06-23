@@ -17,13 +17,8 @@ import StockAdjustmentStickerDetailCards from "./StockAdjustmentStickerDetailCar
 import { masterService } from "@/features/apps/ims/services/master";
 import { focusFirstError } from "@/core/utils/formFocus";
 import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
-import { rowInIndianFinancialYear } from "@/core/utils/indianFinancialYear";
-import {
-  boxRowCustomerLabel,
-  groupSelectedMinusBoxesByCustomer,
-  parseMinusCustomerLinesFromRow,
-  resolveMinusAccCodeFromSelection,
-} from "@/features/apps/ims/utils/minusCustomerBreakdown";
+import { getCurrentIndianFinancialYearStartYear, rowInIndianFinancialYear } from "@/core/utils/indianFinancialYear";
+import { boxRowCustomerLabel, groupSelectedMinusBoxesByCustomer, parseMinusCustomerLinesFromRow, resolveMinusAccCodeFromSelection } from "@/features/apps/ims/utils/minusCustomerBreakdown";
 
 const FIELD_ORDER = ["addNumBoxes", "addExtraBoxes", "addPerBoxQty", "minusBoxes"];
 import { formatStockAdjustmentBoxNoUid, isLooseBoxComparedToStandard, parseOptionalStandardQtyPerBox, parseStockAdjustmentBoxIndex } from "@/features/apps/ims/utils/stockAdjustmentPacking";
@@ -159,15 +154,20 @@ const GATE_ADD_MINUS = [
   { value: "minus", label: "Minus (-)" },
 ];
 
+/** Past FY options in Add gate dropdown (current FY + this many previous years). */
 const FINANCIAL_YEAR_RANGE_PAST = 9;
-/** 0 = no FY starting year after current calendar year (no "2027-2028" while CY is 2026). */
+/** 0 = no FY starting year after current Indian FY. */
 const FINANCIAL_YEAR_RANGE_FUTURE = 0;
 
 /** e.g. 2025-2026 — driven by FINANCIAL_YEAR_RANGE_* above */
 function getFinancialYearOptions() {
-  const cy = new Date().getFullYear();
+  const currentFyStart = getCurrentIndianFinancialYearStartYear();
   const out = [];
-  for (let y = cy - FINANCIAL_YEAR_RANGE_PAST; y <= cy + FINANCIAL_YEAR_RANGE_FUTURE; y++) {
+  for (
+    let y = currentFyStart - FINANCIAL_YEAR_RANGE_PAST;
+    y <= currentFyStart + FINANCIAL_YEAR_RANGE_FUTURE;
+    y++
+  ) {
     const v = `${y}-${y + 1}`;
     out.push({ value: v, label: v });
   }

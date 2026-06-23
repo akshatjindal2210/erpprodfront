@@ -12,7 +12,13 @@ import Drawer from "@/core/components/ui/Drawer";
 import ModuleSopAcknowledgment from "@/core/components/common/ModuleSopAcknowledgment";
 import Snackbar from "@/core/components/ui/Snackbar";
 import { OK_INPUT } from "@/core/components/common/Constants";
-import { SCAN_SNACK_MSG, getBoxNoUidPrefix, parseStandardBoxNoUid, useScanSnackbarActions } from "@/core/utils/global";
+import {
+  SCAN_SNACK_MSG,
+  getBoxNoUidPrefix,
+  notifyDecodeSuppressedScan,
+  parseStandardBoxNoUid,
+  useScanSnackbarActions,
+} from "@/core/utils/global";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useDeviceScanSettings } from "@/core/hooks/useDeviceScanSettings";
 import ScanEnterInput from "@/core/components/common/ScanEnterInput";
@@ -25,6 +31,7 @@ import {
   isBoxEligibleForOverrideCustomer,
   overrideCustomerScanRejectMessage,
 } from "@/features/apps/ims/utils/boxInventory";
+import { effectiveBoxCustomerAcc } from "@/features/apps/ims/utils/boxCustomerOverride";
 import { useHtml5QrScanner } from "@/core/hooks/useHtml5QrScanner";
 import QrScannerOverlay from "@/core/components/common/QrScannerOverlay";
 import { focusFirstError } from "@/core/utils/formFocus";
@@ -48,8 +55,12 @@ function itemCodeForOverrideRow(row) {
 }
 const normalizeCode = (value = "") => String(value).trim().toUpperCase();
 
+function resolveOverrideCustCode(row) {
+  return effectiveBoxCustomerAcc(row?.override_cust, row?.prod_acc_code ?? row?.acc_code);
+}
+
 function isAccNameSameAsCustCode(row, name) {
-  const code = row?.override_cust ?? row?.acc_code ?? row?.from_customer;
+  const code = resolveOverrideCustCode(row) ?? row?.from_customer;
   const label = name != null ? String(name).trim() : "";
   if (code == null || !label) return false;
   return label === String(code).trim();
@@ -72,8 +83,8 @@ const currentCustomerDisplay = (row) => {
 
 async function enrichOverrideBoxCustomer(box, permissionAction = "view") {
   if (!box) return null;
-  const custCode = box.override_cust ?? box.acc_code;
-  let accName = box.acc_name?.trim() || "";
+  const custCode = resolveOverrideCustCode(box);
+  let accName = (box.acc_name ?? box.from_customer_name)?.trim() || "";
   if (custCode && (!accName || isAccNameSameAsCustCode(box, accName))) {
     try {
       const res = await masterService.getLedgerViewById(String(custCode), {
@@ -89,6 +100,7 @@ async function enrichOverrideBoxCustomer(box, permissionAction = "view") {
   }
   return {
     ...box,
+    acc_code: custCode ?? box.acc_code ?? null,
     acc_name: accName || null,
   };
 }
@@ -171,10 +183,12 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
           ).then((rows) => setScanRows(rows.filter(Boolean)));
         } else if (editData.box_uids && Array.isArray(editData.box_uids)) {
           const mappedRows = editData.box_uids.map((id, index) => ({
-              box_uid: id,
-              box_no_uid: editData.box_no_uids ? editData.box_no_uids[index] : id,
-              override_cust: editData.from_customer,
-              packing_number: editData.packing_number,
+            box_uid: id,
+            box_no_uid: editData.box_no_uids ? editData.box_no_uids[index] : id,
+            override_cust: editData.from_customer,
+            from_customer_name: editData.from_customer_name,
+            acc_name: editData.from_customer_name,
+            packing_number: editData.packing_number,
           }));
           void Promise.all(
             mappedRows.map((r) => enrichOverrideBoxCustomer(r, sopPermissionType))
@@ -337,6 +351,7 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
         }
       }
 
+      let wasDuplicate = false;
       setScanRows((prev) => {
         if (
           prev.some(
@@ -345,10 +360,15 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
               String(r.box_no_uid).toLowerCase() === String(found.box_no_uid).toLowerCase()
           )
         ) {
+          wasDuplicate = true;
           return prev;
         }
         return [...prev, found];
       });
+      if (wasDuplicate) {
+        showScanToast("error", `duplicate-sticker-${code.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1400);
+        return;
+      }
       const addedCode = found.box_no_uid || code;
       if (source === "scanner") {
         showScanSuccess(
@@ -404,11 +424,20 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
       return;
     }
     const rawBox = parseBoxScanRaw(decodedText) || String(decodedText || "").trim();
-    if (!rawBox) return;
+    if (!rawBox) {
+      showScanToast("error", "generic-invalid-sticker", SCAN_SNACK_MSG.REJECTED);
+      return;
+    }
 
     const now = Date.now();
     const scanKey = `box:${rawBox}`;
     if (scanKey === lastScanRef.current.key && now - lastScanRef.current.at < 2000) {
+      showScanToast(
+        "error",
+        `cam-rapid-dup-${rawBox.toLowerCase()}`,
+        SCAN_SNACK_MSG.BOX_DUPLICATE(rawBox),
+        1200
+      );
       return;
     }
     lastScanRef.current = { key: scanKey, at: now };
@@ -416,10 +445,18 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
     void onScanByCodeRef.current(decodedText, "scanner");
   }
 
+  const handleDecodeSuppressed = useCallback(
+    (text) => {
+      notifyDecodeSuppressedScan(showScanToast, text, "sticker-override-cooldown");
+    },
+    [showScanToast]
+  );
+
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,
     elementId: STICKER_SCANNER_ELEMENT_ID,
     onDecoded: handleStickerCameraDecoded,
+    onDecodeSuppressed: handleDecodeSuppressed,
     fps: 15,
     qrbox: { width: 250, height: 250 },
     onCameraFailed: () => {

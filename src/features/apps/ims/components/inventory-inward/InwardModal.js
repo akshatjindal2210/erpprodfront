@@ -18,7 +18,12 @@ import { useCanAccess }           from "@/core/hooks/useCanAccess";
 import { useDeviceScanSettings }  from "@/core/hooks/useDeviceScanSettings";
 import LaserScanField from "@/core/components/common/LaserScanField";
 import { getDeviceScanSettings, getScanInputPlaceholder, isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
-import { SCAN_SNACK_MSG, FLOW_SCAN_CAMERA_INSECURE_MSG, useScanSnackbarActions } from "@/core/utils/global";
+import {
+  SCAN_SNACK_MSG,
+  FLOW_SCAN_CAMERA_INSECURE_MSG,
+  notifyDecodeSuppressedScan,
+  useScanSnackbarActions,
+} from "@/core/utils/global";
 import { prepareQrScanSession, unlockScanAudio }   from "@/features/apps/ims/helpers/scanFeedback";
 import { createScanBatchQueue }   from "@/features/apps/ims/helpers/scanBatchQueue";
 import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
@@ -226,7 +231,6 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
   const lastScanRef = useRef({ key: "", at: 0, mode: "" });
   const inFlightScanRef = useRef(new Set());
   const scanToastRef = useRef({});
-  const duplicateSnackCooldownRef = useRef({});
   const sopAckRef = useRef(null);
   const scanBatchRef = useRef(null);
   const scanSeqRef = useRef(0);
@@ -858,13 +862,12 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         boxEntryMatchesCode(normalizeInwardBoxEntry(b), candidate)
       );
       if (duplicateInSame) {
-        const dk = `${li}:${candidate.toLowerCase()}`;
-        const now = Date.now();
-        if (now - (duplicateSnackCooldownRef.current[dk] || 0) < 2300) {
-          return;
-        }
-        duplicateSnackCooldownRef.current[dk] = now;
-        showScanToast("error", dk, SCAN_SNACK_MSG.BOX_DUPLICATE(candidate), 2300);
+        showScanToast(
+          "error",
+          `${li}:${candidate.toLowerCase()}`,
+          SCAN_SNACK_MSG.BOX_DUPLICATE(candidate),
+          1200
+        );
         return;
       }
 
@@ -1110,6 +1113,12 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         lastScanRef.current.mode === "location" &&
         now - lastScanRef.current.at < 2000
       ) {
+        showScanToast(
+          "error",
+          `cam-loc-dup-${(locationId || "").toLowerCase()}`,
+          MSG.LOCATION_ALREADY_SCANNING(locationId || "this location"),
+          1200
+        );
         return;
       }
       lastScanRef.current = { key: scanKey, at: now, mode: "location" };
@@ -1130,30 +1139,89 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
       lastScanRef.current.mode === "box" &&
       now - lastScanRef.current.at < 2000
     ) {
+      if (rawBoxCode) {
+        showScanToast(
+          "error",
+          `cam-rapid-dup-${rawBoxCode.toLowerCase()}`,
+          SCAN_SNACK_MSG.BOX_DUPLICATE(rawBoxCode),
+          1200
+        );
+      }
       return;
     }
     lastScanRef.current = { key: scanKey, at: now, mode: "box" };
 
-    if (!rawBoxCode) return;
-    const flat = flatBoxesByLocation(locationsRef.current);
-    if (flat.some(({ box }) => String(box).toLowerCase() === String(rawBoxCode).toLowerCase())) {
+    if (!rawBoxCode) {
+      showScanToast("error", "generic-invalid-sticker", SCAN_SNACK_MSG.REJECTED);
       return;
     }
+
+    const flat = flatBoxesByLocation(locs);
+    const otherLoc = flat.find(
+      ({ box, locIndex }) =>
+        locIndex !== locIdx &&
+        String(box).toLowerCase() === String(rawBoxCode).toLowerCase()
+    );
+    if (otherLoc) {
+      showScanToast(
+        "error",
+        `cam-dup-other-${rawBoxCode.toLowerCase()}`,
+        MSG.BOX_DUPLICATE_OTHER(otherLoc.locName),
+        1500
+      );
+      return;
+    }
+
     const alreadyInCurrentLocation = locs[locIdx]?.boxes?.some((box) => {
       const e = normalizeInwardBoxEntry(box);
-      return e && e.boxNoUid.toLowerCase() === String(rawBoxCode).toLowerCase();
+      return e && boxEntryMatchesCode(e, rawBoxCode);
     });
     if (alreadyInCurrentLocation) {
+      showScanToast(
+        "error",
+        `cam-dup-${locIdx}:${rawBoxCode.toLowerCase()}`,
+        SCAN_SNACK_MSG.BOX_DUPLICATE(rawBoxCode),
+        1200
+      );
       return;
     }
 
     tryAddBoxRef.current(locIdx, decodedText, "scanner");
   }
 
+  const handleDecodeSuppressed = useCallback(
+    (text) => {
+      const locIdx = scanLocIdxRef.current;
+      if (locIdx === null) {
+        const locationId = extractLocationNo(text) || String(text || "").trim();
+        showScanToast(
+          "error",
+          `cam-loc-cooldown-${locationId.toLowerCase()}`,
+          MSG.LOCATION_ALREADY_SCANNING(locationId || "this location"),
+          1200
+        );
+        return;
+      }
+      const rawBox = extractBoxCode(text) || String(text || "").trim();
+      if (rawBox) {
+        showScanToast(
+          "error",
+          `cam-cooldown-${rawBox.toLowerCase()}`,
+          SCAN_SNACK_MSG.BOX_DUPLICATE(rawBox),
+          1200
+        );
+      } else {
+        notifyDecodeSuppressedScan(showScanToast, text, "inward-cooldown");
+      }
+    },
+    [showScanToast]
+  );
+
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,
     elementId: INWARD_SCANNER_ELEMENT_ID,
     onDecoded: handleInwardCameraDecoded,
+    onDecodeSuppressed: handleDecodeSuppressed,
     fps: 15,
     qrbox: { width: 250, height: 250 },
     onCameraFailed: (err) => {

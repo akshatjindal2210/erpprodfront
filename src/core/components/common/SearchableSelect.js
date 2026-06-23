@@ -339,7 +339,12 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         setSearch(""); 
         return; 
       }
-      if (selected?.[dataKey] == value) return;
+      if (selected?.[dataKey] == value) {
+        if (!open) {
+          setSearch(getSearchTextFromSelection(selected));
+        }
+        return;
+      }
 
       getByIdServiceRef.current(value).then((res) => {
         const item = res?.data || res;

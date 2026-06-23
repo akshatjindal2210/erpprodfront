@@ -203,6 +203,42 @@ function pickPackingCategoryId(uniqueCats, ...preferredIds) {
   return "";
 }
 
+/** Display name for packing category — never show raw id (e.g. "1") in UI or snapshot. */
+function resolvePackingCategoryName(categories, categoryId, row = {}) {
+  const id =
+    categoryId != null && String(categoryId).trim() !== ""
+      ? String(categoryId).trim()
+      : row?.type != null
+        ? String(row.type).trim()
+        : "";
+  const fromCats = (categories || []).find((c) => String(c.id) === id)?.name;
+  const candidates = [row?.ims_category, row?.category, fromCats]
+    .map((v) => (v != null ? String(v).trim() : ""))
+    .filter(Boolean);
+  for (const label of candidates) {
+    if (!id || label !== id) return label;
+  }
+  return fromCats || "";
+}
+
+function applyPackingCategoryDisplay(row, categories, categoryId) {
+  if (!row) return row;
+  const typeId =
+    categoryId != null && String(categoryId).trim() !== ""
+      ? String(categoryId).trim()
+      : row.type != null
+        ? String(row.type).trim()
+        : "";
+  const displayName = resolvePackingCategoryName(categories, typeId, row);
+  return {
+    ...row,
+    ...(typeId ? { type: typeId } : {}),
+    ...(displayName
+      ? { category: displayName, ims_category: displayName }
+      : {}),
+  };
+}
+
 function hasValidPackingDetails(details) {
   return (
     details &&
@@ -268,7 +304,11 @@ async function resolveStickerRowForCategory(row, catId, accCode, imsDatePayload)
     acc_name: row?.acc_name ?? payload.acc_name,
   };
   if (catId) newData.type = String(catId);
-  newData.category = newData.ims_category || newData.category || null;
+  newData.category =
+    resolvePackingCategoryName([], catId, newData) ||
+    newData.ims_category ||
+    newData.category ||
+    null;
   newData = await enrichRowPartyRateCustCode(newData, chosenAcc || row?.acc_code);
   newData = preservePackingProductionIdentity(row, newData);
   return { ok: true, data: newData };
@@ -276,6 +316,7 @@ async function resolveStickerRowForCategory(row, catId, accCode, imsDatePayload)
 
 function StickerDetailCards({selectedRow, packing, generated, isMultiple, categories, selectedCategory, onCategoryChange, onCustomerChange, customerSelectDisabled, customerChanging}) {
   const categoriesAsc = useMemo(() => sortSelectRowsAsc(categories, "name"), [categories]);
+  const isSavedSnapshot = generated.length > 0;
   return (
     <>
       <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
@@ -300,7 +341,9 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
       <div className="bg-white border border-amber-200 rounded-lg shadow-sm overflow-hidden">
         <div className="bg-amber-50/50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-amber-100 flex items-center gap-2">
           <Layers className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] shrink-0 text-amber-600" aria-hidden />
-          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-amber-800">Packing Category</span>
+          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-amber-800">
+            {isSavedSnapshot ? "Packing Category (Saved)" : "Packing Category"}
+          </span>
         </div>
         <div className="p-2 sm:p-3 lg:p-4 space-y-1.5 sm:space-y-2 lg:space-y-2.5">
           {generated.length > 0 ? (
@@ -328,7 +371,7 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
             </select>
           )}
           <div className="flex justify-between items-center text-[10px] lg:text-[11px] text-amber-600 font-bold italic">
-            <span>{generated.length > 0 ? "* Category Fixed" : null}</span>
+            <span>{isSavedSnapshot ? "* Locked at generate" : generated.length > 0 ? "* Category Fixed" : null}</span>
             {generated.length === 0 && <span className="bg-amber-100 px-1 rounded">{selectedRow.category || "—"}</span>}
           </div>
         </div>
@@ -337,7 +380,9 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
       <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
         <div className="bg-slate-50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-slate-200 flex items-center gap-2">
           <User className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-500" aria-hidden />
-          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-slate-700">Customer</span>
+          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-slate-700">
+            {isSavedSnapshot ? "Customer (Saved)" : "Customer"}
+          </span>
         </div>
         <div className="p-2 sm:p-3 lg:p-4 flex flex-col gap-2 sm:gap-3 min-w-0">
           {!customerSelectDisabled ? (
@@ -386,7 +431,13 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
                     className="text-[12px] lg:text-sm font-bold text-slate-700 leading-snug whitespace-normal break-words"
                     title={selectedRow.acc_name}
                   >
-                    {selectedRow.acc_name?.trim() ? selectedRow.acc_name : "—"}
+                    {customerChanging ? (
+                      <span className="text-slate-400 italic font-medium">Loading…</span>
+                    ) : selectedRow.acc_name?.trim() ? (
+                      selectedRow.acc_name
+                    ) : (
+                      "—"
+                    )}
                   </p>
                 </div>
                 <div>
@@ -417,7 +468,9 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
       <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
         <div className="bg-slate-50 px-3 py-1.5 lg:px-4 lg:py-2 border-b border-slate-200 flex items-center gap-2">
           <ClipboardList className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-500" aria-hidden />
-          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-slate-700">Production Info</span>
+          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-slate-700">
+            {isSavedSnapshot ? "Production Info (Saved)" : "Production Info"}
+          </span>
         </div>
         <div className="p-2 sm:p-3 lg:p-4 grid grid-cols-2 gap-x-2 sm:gap-x-3 gap-y-1.5 sm:gap-y-2 lg:gap-y-3">
           <div>
@@ -442,7 +495,9 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
       <div className="bg-blue-50/30 border border-blue-200 rounded-lg shadow-sm overflow-hidden">
         <div className="bg-blue-600 px-3 py-1.5 lg:px-4 lg:py-2 flex items-center gap-2">
           <RefreshCw className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] text-white shrink-0" aria-hidden />
-          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-white">Breakdown Summary</span>
+          <span className="text-[11px] lg:text-xs font-bold uppercase tracking-wider text-white">
+            {isSavedSnapshot ? "Breakdown (Saved)" : "Breakdown Summary"}
+          </span>
         </div>
         <div className="p-2 sm:p-3 lg:p-4 space-y-1.5 sm:space-y-2 lg:space-y-2.5">
           <div className="flex justify-between items-center border-b border-blue-100 pb-1">
@@ -461,6 +516,25 @@ function StickerDetailCards({selectedRow, packing, generated, isMultiple, catego
               <p className="text-[9px] lg:text-[11px] font-bold text-slate-400 uppercase mt-1">Loose Box</p>
             </div>
           </div>
+          {isSavedSnapshot ? (
+            <div className="grid grid-cols-2 gap-1.5 sm:gap-2 pt-1 border-t border-blue-100">
+              <div className="text-center">
+                <p className="text-[9px] font-bold text-slate-400 uppercase">Total Stickers</p>
+                <p className="text-sm font-black text-indigo-700 tabular-nums">{packing.total_stickers ?? "—"}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-[9px] font-bold text-slate-400 uppercase">Loose Qty</p>
+                <p className="text-sm font-black text-orange-700 tabular-nums">
+                  {packing.loose_box_qty > 0 ? Number(packing.loose_box_qty).toLocaleString() : "—"}
+                </p>
+              </div>
+            </div>
+          ) : null}
+          {isSavedSnapshot && selectedRow.fg_location ? (
+            <p className="text-[10px] text-blue-800/80 pt-1 border-t border-blue-100">
+              <span className="font-bold uppercase">FG location:</span> {selectedRow.fg_location}
+            </p>
+          ) : null}
         </div>
       </div>
     </>
@@ -580,18 +654,6 @@ function StickerBreakdownPanel({
                             <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-700 min-w-0 max-w-[110px] sm:max-w-[180px] lg:max-w-[240px]">
                               <div className="flex flex-col leading-snug min-w-0">
                                 <span className={`${isGeneratedStickerList ? "text-blue-700" : "text-slate-800"} font-bold text-[10px] lg:text-xs break-all`}>{row.box_no_uid}</span>
-                                <span className="text-[8px] lg:text-[10px] text-slate-400 uppercase font-bold truncate">Box {row.box_no} / {row.total_boxes}</span>
-                                {row.acc_name?.trim() ? (
-                                  row.is_customer_overridden ? (
-                                    <span className="text-[8px] lg:text-[9px] text-violet-700 font-bold uppercase truncate" title={row.acc_name}>
-                                      Override · {row.acc_name}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[8px] lg:text-[9px] text-slate-500 font-semibold truncate" title={row.acc_name}>
-                                      {row.acc_name}
-                                    </span>
-                                  )
-                                ) : null}
                               </div>
                             </td>
                             <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] lg:text-[13px] font-bold text-slate-700 whitespace-nowrap tabular-nums">{row.package_no}</td>
@@ -870,14 +932,15 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         const stickersExist = data?.sticker_generated === true;
         const packingAccFromList =
           stickersExist && data?.acc_code != null ? String(data.acc_code).trim() : "";
-        const firstRowBase = stickersExist
-          ? withPackingEntryCustomer(list[0], data, { lockToPackingList: true })
-          : list[0];
+        const stickerRow =
+          list.find((r) => String(r.doc_no) === String(data?.doc_no ?? "")) || list[0];
+        const rowBase = stickersExist
+          ? withPackingEntryCustomer(stickerRow, data, { lockToPackingList: true })
+          : stickerRow;
         const effectiveAcc =
           packingAccFromList ||
-          (firstRowBase?.acc_code != null ? String(firstRowBase.acc_code).trim() : "") ||
+          (rowBase?.acc_code != null ? String(rowBase.acc_code).trim() : "") ||
           (data?.acc_code != null ? String(data.acc_code).trim() : "");
-        const firstRow = await enrichRowPartyRateCustCode(firstRowBase, effectiveAcc);
         const uniqueCats = uniqueCategoriesFromStandards(
           allStandards,
           data.itemdcode,
@@ -886,21 +949,49 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
 
         setCategories(sortSelectRowsAsc(uniqueCats, "name"));
         setIsMultiple(uniqueCats.length > 1);
+
+        let firstRow = applyPackingCategoryDisplay(
+          await enrichRowPartyRateCustCode(rowBase, effectiveAcc),
+          uniqueCats,
+          stickerRow.type
+        );
         setSelectedRow(firstRow);
 
-        const catId = pickPackingCategoryId(uniqueCats, firstRow.type);
+        const catId = pickPackingCategoryId(uniqueCats, firstRow.type, stickerRow.type);
         let autoSelected = false;
 
-        if (catId && effectiveAcc) {
+        // Generated + DB snapshot: use frozen packing_details (no extra category API).
+        if (stickersExist && stickerRow?.packing_details?.qty_per_box) {
+          const snapRow = applyPackingCategoryDisplay(
+            {
+              ...firstRow,
+              packing_details: stickerRow.packing_details,
+              fg_location: stickerRow.fg_location ?? data?.fg_location ?? firstRow.fg_location,
+              full_boxes_count: stickerRow.packing_details?.full_boxes_count ?? data?.full_boxes_count,
+              total_stickers: stickerRow.packing_details?.total_stickers ?? data?.total_stickers,
+            },
+            uniqueCats,
+            catId || stickerRow.type
+          );
+          setSelectedRow(snapRow);
+          if (catId) setSelectedCategory(catId);
+          else if (stickerRow.type) setSelectedCategory(String(stickerRow.type));
+          setIsMultiple(uniqueCats.length <= 1);
+          autoSelected = true;
+        } else if (catId && effectiveAcc) {
           setSelectedCategory(catId);
           autoSelected = true;
 
           const resolved = await resolveStickerRowForCategory(firstRow, catId, effectiveAcc, imsDatePayload);
           if (resolved.ok) {
             setSelectedRow(
-              stickersExist
-                ? withPackingEntryCustomer(resolved.data, data, { lockToPackingList: true })
-                : resolved.data
+              applyPackingCategoryDisplay(
+                stickersExist
+                  ? withPackingEntryCustomer(resolved.data, data, { lockToPackingList: true })
+                  : resolved.data,
+                uniqueCats,
+                catId
+              )
             );
             setIsMultiple(uniqueCats.length <= 1);
           } else {
@@ -970,25 +1061,36 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       if (!accCode || !selectedRow?.doc_no) return;
       if (String(accCode) === String(selectedRow.acc_code || "")) return;
 
-      const itemAnchor = data?.itemdcode != null ? data : selectedRow;
+      const accName = ledgerObj?.acc_name || selectedRow.acc_name || "";
+      // Sync value immediately — SearchableSelect re-syncs on dropdown close; delayed acc_code
+      // would revert the trigger to the previous customer until async enrich finishes.
+      setSelectedRow((prev) =>
+        prev ? { ...prev, acc_code: accCode, acc_name: accName } : prev
+      );
 
       setCustomerChanging(true);
       try {
-        const nextRow = preservePackingProductionIdentity(itemAnchor, {
-          ...selectedRow,
-          acc_code: accCode,
-          acc_name: ledgerObj?.acc_name || selectedRow.acc_name || "",
-        });
-        const enriched = await enrichRowPartyRateCustCode(nextRow, accCode);
-        const finalRow = preservePackingProductionIdentity(itemAnchor, enriched);
-        setSelectedRow(finalRow);
+        const enriched = await enrichRowPartyRateCustCode(
+          { ...selectedRow, acc_code: accCode, acc_name: accName },
+          accCode
+        );
+        setSelectedRow((prev) =>
+          prev
+            ? {
+                ...prev,
+                acc_code: accCode,
+                acc_name: enriched.acc_name ?? accName,
+                party_rate_cust_code: enriched.party_rate_cust_code ?? null,
+              }
+            : prev
+        );
         setGenerated((prev) =>
           prev.length
             ? prev.map((r) => ({
                 ...r,
-                acc_code: finalRow.acc_code,
-                acc_name: finalRow.acc_name,
-                party_rate_cust_code: finalRow.party_rate_cust_code ?? null,
+                acc_code: accCode,
+                acc_name: enriched.acc_name ?? accName,
+                party_rate_cust_code: enriched.party_rate_cust_code ?? null,
               }))
             : prev
         );
@@ -998,7 +1100,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         setCustomerChanging(false);
       }
     },
-    [selectedRow, data]
+    [selectedRow]
   );
 
   const handleCategoryChange = async (catId) => {
@@ -1019,7 +1121,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       );
 
       if (resolved.ok) {
-        setSelectedRow(resolved.data);
+        setSelectedRow(applyPackingCategoryDisplay(resolved.data, categories, catId));
         setIsMultiple(false);
         return;
       }
@@ -1095,15 +1197,22 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
     setSubmitting(true);
     try {
       const packingCustomer = packingEntryCustomerRow(data, selectedRow);
+      const categoryName = resolvePackingCategoryName(categories, selectedCategory, selectedRow);
       const res = await boxService.generateStickers({
         doc_no: selectedRow.doc_no,
         itemdcode: selectedRow.itemdcode,
         item_code: selectedRow.item_code,
         acc_name: packingCustomer.acc_name,
         acc_code: packingCustomer.acc_code,
+        party_rate_cust_code: packingCustomer.party_rate_cust_code,
         doc_dt: selectedRow.doc_dt,
         job_card_no: selectedRow.job_card_no,
         total_qty: selectedRow.total_qty,
+        unit: selectedRow.unit,
+        category_id: selectedCategory,
+        category_name: categoryName,
+        itemdesc: packingCustomer.itemdesc || packingCustomer.description || "",
+        fg_location: packingCustomer.fg_location || "",
         packing_config: packing,
       });
       const enriched = (res.data || []).map((row) => ({
@@ -1120,7 +1229,20 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
 
       setGenerated(enriched);
       setDlTracking({});
-      await fetchGeneratedSummary({ ...selectedRow, ...packingCustomer });
+      setSelectedRow((prev) =>
+        prev
+          ? applyPackingCategoryDisplay(
+              {
+                ...prev,
+                ...packingCustomer,
+                packing_details: packing,
+              },
+              categories,
+              selectedCategory
+            )
+          : prev
+      );
+      await fetchGeneratedSummary({ ...selectedRow, ...packingCustomer, category: categoryName });
       toast.success("Stickers generated successfully.");
       setStickerTab("breakdown");
     } catch (err) { 
@@ -1253,7 +1375,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlePackingClick(s); } }}
-                    className={`px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-[11px] md:text-xs font-bold transition-all border shrink-0 text-left min-w-[96px] sm:min-w-[110px] md:min-w-[140px] cursor-pointer touch-manipulation select-none active:opacity-90 ${selectedRow.doc_no === s.doc_no && selectedRow.acc_code === s.acc_code ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-100" : "bg-white border-slate-200 text-slate-500"}`}
+                    className={`px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-[11px] md:text-xs font-bold transition-all border shrink-0 text-left min-w-[96px] sm:min-w-[110px] md:min-w-[140px] cursor-pointer touch-manipulation select-none active:opacity-90 ${String(selectedRow.doc_no) === String(s.doc_no) ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-100" : "bg-white border-slate-200 text-slate-500"}`}
                   >
                     <p className="text-[8px] uppercase font-bold opacity-70 mb-0.5">Packing No</p>
                     <span className="block text-[10px] md:text-[11px] font-black tracking-wide">#{s.doc_no}</span>

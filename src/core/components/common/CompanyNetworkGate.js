@@ -1,11 +1,11 @@
 "use client";
 
-import { RefreshCcw, WifiOff } from "lucide-react";
+import { WifiOff } from "lucide-react";
 import { useCompanyNetworkGuard } from "@/core/hooks/useCompanyNetworkGuard";
 import { COMPANY_WIFI_HINT, COMPANY_WIFI_MESSAGE, COMPANY_WIFI_TITLE } from "@/core/utils/global/messages";
 
 export default function CompanyNetworkGate({ children }) {
-  const { blocked, checking, retry } = useCompanyNetworkGuard();
+  const { blocked, checking } = useCompanyNetworkGuard();
 
   if (!blocked) return children;
 
@@ -18,15 +18,11 @@ export default function CompanyNetworkGate({ children }) {
         <h1 className="text-sm font-bold uppercase tracking-wider text-slate-800">{COMPANY_WIFI_TITLE}</h1>
         <p className="mt-3 text-sm text-slate-600 leading-relaxed">{COMPANY_WIFI_MESSAGE}</p>
         <p className="mt-2 text-[11px] text-slate-400 leading-relaxed">{COMPANY_WIFI_HINT}</p>
-        <button
-          type="button"
-          onClick={() => void retry()}
-          disabled={checking}
-          className="mt-6 inline-flex items-center justify-center gap-2 rounded-none border border-slate-300 bg-white px-5 h-10 text-[11px] font-bold uppercase tracking-wider text-indigo-600 hover:bg-slate-50 disabled:opacity-60 transition-colors"
-        >
-          <RefreshCcw size={14} className={checking ? "animate-spin" : ""} />
-          {checking ? "Checking…" : "Try again"}
-        </button>
+        {checking && (
+          <p className="mt-6 text-[11px] font-medium uppercase tracking-wider text-indigo-600">
+            Checking connection…
+          </p>
+        )}
       </div>
     </div>
   );

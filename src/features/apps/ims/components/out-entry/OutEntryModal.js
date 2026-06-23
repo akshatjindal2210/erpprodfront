@@ -6,13 +6,14 @@ import { toast } from "react-toastify";
 // Services & Components
 import { outEntryService } from "@/features/apps/ims/services/outEntry";
 import { forwardingNoteService } from "@/features/apps/ims/services/forwardingNote";
+import { qcHoldMaterialService } from "@/features/apps/ims/services/qcHoldMaterial";
 import Drawer from "@/core/components/ui/Drawer";
 import { ERR_INPUT, FORM_LABEL_CLASS, OK_INPUT } from "@/core/components/common/Constants";
 import FormPanelLoader from "@/core/components/common/FormPanelLoader";
 import ModuleSopAcknowledgment from "@/core/components/common/ModuleSopAcknowledgment";
 import Snackbar from "@/core/components/ui/Snackbar";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
-import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/core/utils/global";
+import { SCAN_SNACK_MSG, notifyDecodeSuppressedScan, useScanSnackbarActions } from "@/core/utils/global";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useDeviceScanSettings } from "@/core/hooks/useDeviceScanSettings";
 import { isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
@@ -46,9 +47,11 @@ import {
   getOutEntryModePickerOption,
   isOutEntryAutoAuthorized,
   isOutEntryInventoryOut,
+  isOutEntryQcArea,
   isOutEntrySimpleScanMode,
   pickerIdFromEntryType,
 } from "@/features/apps/ims/utils/outEntryTypes";
+import { mapQcHoldSelectRow } from "@/features/apps/ims/utils/qcHoldTypes";
 import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
 
 const OUT_ENTRY_SCANNER_ID = "out-entry-scanner-reader";
@@ -57,13 +60,14 @@ const SIMPLE_SCAN_FIELD_ORDER = ["reason"];
 
 const INITIAL_FORM = {
   fuid: "",
+  qc_hold_id: "",
   reason: "",
   remarks: "",
   approved: false,
 };
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "info", title: "", message: "", duration: SNACK_DUR.med };
-const PICKER_ICONS = { truck: Truck, "log-out": LogOut, package: Package };
+const PICKER_ICONS = { truck: Truck, "log-out": LogOut, package: Package, shield: Shield };
 const PICKER_ACCENT = {
   red: {
     card: "border-red-200 bg-red-50/60 hover:border-red-400 hover:bg-red-50",
@@ -77,7 +81,166 @@ const PICKER_ACCENT = {
     banner: "border-yellow-300 bg-yellow-50 text-yellow-900",
     submit: "bg-yellow-600 shadow-yellow-100 hover:bg-yellow-700",
   },
+  indigo: {
+    card: "border-indigo-200 bg-indigo-50/60 hover:border-indigo-400 hover:bg-indigo-50",
+    title: "text-indigo-900",
+    banner: "border-indigo-200 bg-indigo-50 text-indigo-900",
+    submit: "bg-indigo-600 shadow-indigo-100 hover:bg-indigo-700",
+  },
 };
+
+function buildQcHoldBoxIndex(boxes = []) {
+  const map = new Map();
+  for (const box of boxes) {
+    if (!box?.box_no_uid || box.is_needs_scan === false || box.is_released) continue;
+    map.set(String(box.box_no_uid).toLowerCase(), box);
+  }
+  return map;
+}
+
+function normalizeIsLoose(val) {
+  return val === true || val === 1 || val === "true" || val === "1";
+}
+
+function countQcHoldBoxKinds(boxes = []) {
+  let full = 0;
+  let loose = 0;
+  for (const box of boxes) {
+    if (box?.is_needs_scan === false || box?.is_released) continue;
+    if (normalizeIsLoose(box?.is_loose)) loose += 1;
+    else full += 1;
+  }
+  return { full, loose, total: full + loose };
+}
+
+function BoxKindBadge({ isLoose, size = "md" }) {
+  const loose = normalizeIsLoose(isLoose);
+  const sizeClass = size === "sm" ? "w-5 h-5 text-[8px]" : "w-8 h-8 text-[10px]";
+  return (
+    <div
+      className={`${sizeClass} rounded-lg flex items-center justify-center font-black shrink-0 ${
+        loose ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
+      }`}
+      title={loose ? "Loose (L)" : "Full box (B)"}
+    >
+      {loose ? "L" : "B"}
+    </div>
+  );
+}
+
+function CollapsibleQcHoldBoxes({ hold, boxes = [], scannedCount = 0, packingAreaBoxCount = 0 }) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [hold?.hold_id]);
+
+  if (!hold) return null;
+
+  const item = hold.item_code || hold.item_dcode || "—";
+  const { full, loose, total } = countQcHoldBoxKinds(boxes);
+  const scanTotal = total || Number(hold.store_box_count) || 0;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={open ? "Collapse QC hold boxes" : "Expand QC hold boxes"}
+        onClick={() => setOpen((p) => !p)}
+        className={`w-full px-2.5 py-1.5 flex items-center gap-1.5 text-left hover:bg-slate-50 transition-colors min-h-[40px] ${open ? "border-b border-slate-100" : ""}`}
+      >
+        <span className="text-[11px] flex-1 truncate min-w-0 flex flex-wrap items-center gap-x-1 gap-y-0.5">
+          <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">QC hold:</span>
+          <span className="font-bold text-slate-800">#{hold.hold_id}</span>
+          <span className="text-slate-300 hidden sm:inline">·</span>
+          <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">Packing:</span>
+          <span className="font-bold text-slate-800">#{hold.packing_number || "—"}</span>
+          <span className="text-slate-300 hidden sm:inline">·</span>
+          <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">Item:</span>
+          <span className="font-bold text-slate-800">{item}</span>
+          <span className="text-slate-300 hidden sm:inline">·</span>
+          <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">In store:</span>
+          <span className="font-bold text-slate-800 tabular-nums">{scanTotal}</span>
+          {full > 0 ? (
+            <>
+              <span className="text-slate-300 hidden sm:inline">·</span>
+              <span className="text-[9px] font-bold text-emerald-700 tabular-nums" title="Full boxes">
+                {full} B
+              </span>
+            </>
+          ) : null}
+          {loose > 0 ? (
+            <>
+              <span className="text-slate-300 hidden sm:inline">·</span>
+              <span className="text-[9px] font-bold text-amber-700 tabular-nums" title="Loose boxes">
+                {loose} L
+              </span>
+            </>
+          ) : null}
+          {packingAreaBoxCount > 0 ? (
+            <>
+              <span className="text-slate-300 hidden sm:inline">·</span>
+              <span className="text-[9px] font-semibold text-indigo-500 uppercase tracking-wide">QC area:</span>
+              <span className="font-bold text-indigo-700 tabular-nums" title="Already in packing / QC area — no scan needed">
+                {packingAreaBoxCount} auto
+              </span>
+            </>
+          ) : null}
+        </span>
+        <span
+          className={`shrink-0 px-1.5 py-0.5 text-[9px] font-bold uppercase border rounded ${
+            scannedCount > 0
+              ? "bg-amber-50 text-amber-800 border-amber-200"
+              : "bg-slate-50 text-slate-500 border-slate-200"
+          }`}
+        >
+          {scannedCount}/{scanTotal} scanned
+        </span>
+        <ChevronRight
+          className={`text-slate-400 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+          size={14}
+        />
+      </button>
+
+      {open ? (
+        <div className="px-2 pb-2 pt-1.5 max-h-[min(28dvh,220px)] overflow-y-auto custom-scrollbar">
+          {boxes.length ? (
+            <div className="flex flex-wrap gap-1">
+              {boxes.map((box) => (
+                <div
+                  key={box.box_no_uid}
+                  className={`px-1.5 py-0.5 rounded text-[8px] font-mono font-bold border flex items-center gap-1 max-w-full ${
+                    box.is_scanned
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : box.is_released
+                        ? "bg-slate-50 text-slate-500 border-slate-200"
+                        : "bg-white text-slate-700 border-slate-200"
+                  }`}
+                >
+                  <BoxKindBadge isLoose={box.is_loose} size="sm" />
+                  {box.is_scanned ? <CheckCircle2 size={10} className="shrink-0" aria-hidden /> : null}
+                  <span className="truncate">{box.box_no_uid}</span>
+                  {box.location_no ? (
+                    <span className="text-[7px] font-sans font-semibold text-indigo-600 uppercase shrink-0">
+                      @ {box.location_no}
+                    </span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[10px] text-slate-400 italic px-0.5">
+              {packingAreaBoxCount > 0
+                ? "All hold boxes are already in QC area — nothing to scan from store."
+                : "No in-store boxes on this hold."}
+            </p>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export default function OutEntryModal({ open, onClose, onSuccess, editData, mode = "add" }) {
   const canAccess = useCanAccess();
@@ -93,6 +256,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   const [formReady, setFormReady] = useState(false);
   const [fetchingFuid, setFetchingFuid] = useState(false);
   const [fuidDetails, setFuidDetails] = useState(null);
+  const [qcHoldDetails, setQcHoldDetails] = useState(null);
+  const [fetchingQcHold, setFetchingQcHold] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [activePackingIdx, setActivePackingIdx] = useState(0);
   const [form, setForm] = useState(INITIAL_FORM);
@@ -126,6 +291,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   const [otherBoxMap, setOtherBoxMap] = useState(() => new Map());
   const [manualOtherBoxId, setManualOtherBoxId] = useState("");
   const otherBoxMapRef = useRef(new Map());
+  const qcHoldBoxIndexRef = useRef(new Map());
   const [reasonOpts, setReasonOpts] = useState([]);
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reasonHighlight, setReasonHighlight] = useState(-1);
@@ -141,8 +307,13 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     scanBtnCount > 1 ? "flex-1 basis-0 min-w-0 w-full" : "w-full";
 
   const isSimpleScanMode = isOutEntrySimpleScanMode(entryMode);
+  const isQcAreaMode = isOutEntryQcArea(entryMode);
+  const isAutoScanFlow =
+    isSimpleScanMode ||
+    (isQcAreaMode && isConfirmed && (qcHoldDetails || fetchingQcHold));
   const isInventoryOutMode = entryMode === OUT_ENTRY_TYPE.INVENTORY_OUT;
   const isForwardingMode = entryMode === OUT_ENTRY_TYPE.FORWARDING_NOTE;
+  const selectedQcHoldId = form?.qc_hold_id ?? "";
 
   const loadReasonSuggestions = useCallback(async (search = "") => {
     try {
@@ -262,6 +433,54 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     }
   }, [isEdit, isApprove, editData?.out_uid, editData?.outUid, editData?.id]);
 
+  const fetchQcHoldInfo = useCallback(async (holdId, opts = {}) => {
+    if (!holdId) return false;
+    setFetchingQcHold(true);
+    setQcHoldDetails(null);
+    qcHoldBoxIndexRef.current = new Map();
+    try {
+      const res = await outEntryService.getQcHoldDetails(holdId, opts.forOutUid);
+      if (res.success && res.data) {
+        setQcHoldDetails(res.data);
+        qcHoldBoxIndexRef.current = buildQcHoldBoxIndex(res.data.boxes || []);
+        if (isEdit || isApprove) {
+          const linkedFromApi = (res.data.boxes || []).filter((b) => b.is_scanned);
+          const alreadyOut = new Set(
+            linkedFromApi.map((b) => b.box_no_uid).filter(Boolean)
+          );
+          setScannedBoxIds(alreadyOut);
+          scannedBoxIdsRef.current = new Set(alreadyOut);
+          const boxMap = new Map();
+          linkedFromApi.forEach((b) => {
+            if (b?.box_no_uid) {
+              boxMap.set(b.box_no_uid, {
+                box_no_uid: b.box_no_uid,
+                packing_number: b.packing_number,
+                qty: b.qty,
+                is_loose: b.is_loose === true || b.is_loose === 1,
+              });
+            }
+          });
+          setOtherBoxMap(boxMap);
+          otherBoxMapRef.current = new Map(boxMap);
+        } else {
+          setScannedBoxIds(new Set());
+          scannedBoxIdsRef.current = new Set();
+          otherBoxMapRef.current = new Map();
+          setOtherBoxMap(new Map());
+        }
+        return true;
+      }
+      toast.error("QC hold not found");
+      return false;
+    } catch (err) {
+      toast.error(err?.message || "Error fetching QC hold details");
+      return false;
+    } finally {
+      setFetchingQcHold(false);
+    }
+  }, [isEdit, isApprove]);
+
   const fetchApprovedForwardingNotes = useCallback(
     (params = {}) =>
       forwardingNoteService.getViews({
@@ -312,6 +531,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         setReasonOpts([]);
         setReasonOpen(false);
         setReasonHighlight(-1);
+        setQcHoldDetails(null);
+        qcHoldBoxIndexRef.current = new Map();
       }, 300);
       return () => clearTimeout(timeoutId);
     }
@@ -336,41 +557,51 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       setReasonOpts([]);
       setReasonOpen(false);
       setReasonHighlight(-1);
+      setQcHoldDetails(null);
+      qcHoldBoxIndexRef.current = new Map();
 
       if (editData) {
         const isAutoEntry = isOutEntryAutoAuthorized(editData.entry_type);
         if (isAutoEntry) {
+          const outUid = editData.out_uid ?? editData.outUid ?? editData.id;
+          const entryType = isOutEntryInventoryOut(editData.entry_type)
+            ? OUT_ENTRY_TYPE.INVENTORY_OUT
+            : isOutEntryQcArea(editData.entry_type)
+              ? OUT_ENTRY_TYPE.QC_AREA
+              : OUT_ENTRY_TYPE.PACKING_AREA;
+
           if (!cancelled) {
-            setEntryMode(
-              isOutEntryInventoryOut(editData.entry_type)
-                ? OUT_ENTRY_TYPE.INVENTORY_OUT
-                : OUT_ENTRY_TYPE.PACKING_AREA
-            );
+            setEntryMode(entryType);
             setPickerChoiceId(pickerIdFromEntryType(editData.entry_type));
             setIsConfirmed(true);
             setForm({
               fuid: "",
+              qc_hold_id: editData.qc_hold_id ? String(editData.qc_hold_id) : "",
               reason: editData.reason || "",
               remarks: editData.remarks || "",
               approved: editData?.approved ?? false,
             });
-            
-            // Load linked boxes for packing area entry
-            const outUid = editData.out_uid ?? editData.outUid ?? editData.id;
-            if (outUid) {
+
+            if (isOutEntryQcArea(editData.entry_type) && editData.qc_hold_id) {
+              try {
+                await fetchQcHoldInfo(editData.qc_hold_id, { forOutUid: outUid });
+              } catch {
+                /* fetchQcHoldInfo shows toast */
+              }
+            } else if (outUid) {
               try {
                 const res = await outEntryService.getLinkedBoxes(outUid);
                 if (res.success && res.data && !cancelled) {
                   const boxes = res.data || [];
-                  const uids = new Set(boxes.map(b => b.box_no_uid).filter(Boolean));
+                  const uids = new Set(boxes.map((b) => b.box_no_uid).filter(Boolean));
                   const boxMap = new Map();
-                  boxes.forEach(b => {
+                  boxes.forEach((b) => {
                     if (b.box_no_uid) {
                       boxMap.set(b.box_no_uid, {
                         box_no_uid: b.box_no_uid,
                         packing_number: b.packing_number,
                         qty: b.qty,
-                        is_loose: b.is_loose === true || b.is_loose === 1
+                        is_loose: b.is_loose === true || b.is_loose === 1,
                       });
                     }
                   });
@@ -432,22 +663,28 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     return () => {
       cancelled = true;
     };
-  }, [open, editData?.out_uid, editData?.outUid, editData?.id, editData?.fuid, isApprove, isEdit, lockForwardingNoteForProcessing]);
+  }, [open, editData?.out_uid, editData?.outUid, editData?.id, editData?.fuid, editData?.qc_hold_id, editData?.entry_type, isApprove, isEdit, lockForwardingNoteForProcessing, fetchQcHoldInfo]);
 
   useEffect(() => {
-    if (!open || !formReady || !isSimpleScanMode) return;
+    if (!open || !formReady || !isAutoScanFlow) return;
     loadReasonSuggestions("");
-  }, [open, formReady, isSimpleScanMode, loadReasonSuggestions]);
+  }, [open, formReady, isAutoScanFlow, loadReasonSuggestions]);
 
   const selectEntryMode = useCallback((mode, choiceId = null) => {
     setEntryMode(mode);
     setPickerChoiceId(choiceId);
     setErrors({});
+    setQcHoldDetails(null);
+    qcHoldBoxIndexRef.current = new Map();
     if (isOutEntrySimpleScanMode(mode)) {
       setIsConfirmed(true);
       setFuidDetails(null);
-      setForm((prev) => ({ ...prev, fuid: "", reason: "" }));
+      setForm((prev) => ({ ...prev, fuid: "", qc_hold_id: "", reason: "" }));
       loadReasonSuggestions("");
+    } else if (isOutEntryQcArea(mode)) {
+      setIsConfirmed(false);
+      setFuidDetails(null);
+      setForm((prev) => ({ ...prev, fuid: "", qc_hold_id: "", reason: "" }));
     } else {
       setIsConfirmed(false);
     }
@@ -462,9 +699,37 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     otherBoxMapRef.current = new Map();
     setOtherBoxMap(new Map());
     setFuidDetails(null);
+    setQcHoldDetails(null);
+    qcHoldBoxIndexRef.current = new Map();
     setForm(INITIAL_FORM);
     setErrors({});
   }, []);
+
+  const handleConfirmQcHold = async (holdIdOverride = null) => {
+    const holdId = String(holdIdOverride ?? form.qc_hold_id ?? "").trim();
+    if (!holdId) {
+      setIsConfirmed(false);
+      setQcHoldDetails(null);
+      qcHoldBoxIndexRef.current = new Map();
+      scannedBoxIdsRef.current = new Set();
+      setScannedBoxIds(new Set());
+      otherBoxMapRef.current = new Map();
+      setOtherBoxMap(new Map());
+      return;
+    }
+    setLoading(true);
+    try {
+      const ok = await fetchQcHoldInfo(holdId);
+      if (ok) {
+        setIsConfirmed(true);
+        loadReasonSuggestions("");
+      } else {
+        setIsConfirmed(false);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleConfirm = async () => {
     if (!form.fuid) {
@@ -662,6 +927,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
         const res = await outEntryService.batchScanBoxes({
           entry_type: entryMode,
+          ...(isQcAreaMode && selectedQcHoldId
+            ? { qc_hold_id: Number(selectedQcHoldId) }
+            : {}),
           for_out_uid: scopedOutUid,
           session_scanned,
           items: batch.map((item) => ({ id: item.id, code: item.code })),
@@ -675,7 +943,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               box_no_uid: item.canonicalBoxId,
               packing_number: result.packing_number ?? null,
               qty: result.qty ?? 0,
-              is_loose: result.is_loose === true,
+              is_loose: result.is_loose === true || result.is_loose === 1,
             });
             continue;
           }
@@ -720,7 +988,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         scheduleDisplaySync();
       }
     },
-    [scopedOutUid, entryMode, scheduleDisplaySync, showScanToast]
+    [scopedOutUid, entryMode, isQcAreaMode, selectedQcHoldId, scheduleDisplaySync, showScanToast]
   );
 
   useEffect(() => {
@@ -745,7 +1013,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   }, [open, isConfirmed, isSimpleScanMode, processScanBatch]);
 
   useEffect(() => {
-    if (!open || !isConfirmed || !isSimpleScanMode) {
+    if (!open || !isConfirmed || !isAutoScanFlow) {
       return undefined;
     }
 
@@ -758,7 +1026,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     return () => {
       scanBatchRef.current = null;
     };
-  }, [open, isConfirmed, isSimpleScanMode, processOtherScanBatch]);
+  }, [open, isConfirmed, isAutoScanFlow, processOtherScanBatch]);
 
   const tryAddOtherBox = useCallback(
     (rawScanValue) => {
@@ -775,9 +1043,26 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       }
 
       const canonicalBoxId = bId;
+      const qcHoldHit = isQcAreaMode ? qcHoldBoxIndexRef.current.get(bId.toLowerCase()) : null;
+      if (isQcAreaMode && !qcHoldHit) {
+        showScanToast("error", "qc-not-on-hold", "This box is not an in-store box on the selected QC hold.");
+        return;
+      }
+
       if (scannedBoxIdsRef.current.has(canonicalBoxId)) {
         showScanToast("error", "other-duplicate-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(canonicalBoxId), 1200);
         return;
+      }
+
+      if (qcHoldHit) {
+        otherBoxMapRef.current.set(canonicalBoxId, {
+          box_no_uid: canonicalBoxId,
+          packing_number: qcHoldHit.packing_number ?? null,
+          qty: Number(qcHoldHit.qty) || 0,
+          is_loose: normalizeIsLoose(qcHoldHit.is_loose),
+          location_no: qcHoldHit.location_no ?? null,
+        });
+        setOtherBoxMap(new Map(otherBoxMapRef.current));
       }
 
       scannedBoxIdsRef.current.add(canonicalBoxId);
@@ -796,7 +1081,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         canonicalBoxId,
       });
     },
-    [showScanSuccess, showScanToast, scheduleDisplaySync]
+    [isQcAreaMode, showScanSuccess, showScanToast, scheduleDisplaySync]
   );
 
   const tryAddBox = useCallback(
@@ -901,7 +1186,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     (boxNoUid) => {
       if (!boxNoUid) return;
       scannedBoxIdsRef.current.delete(boxNoUid);
-      if (isSimpleScanMode) {
+      if (isAutoScanFlow) {
         otherBoxMapRef.current.delete(boxNoUid);
         setOtherBoxMap(new Map(otherBoxMapRef.current));
       } else {
@@ -909,7 +1194,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       }
       setScannedBoxIds(new Set(scannedBoxIdsRef.current));
     },
-    [revertScanCount, isSimpleScanMode]
+    [revertScanCount, isAutoScanFlow]
   );
 
   const activeBD = packingGroups?.[activePackingIdx];
@@ -918,14 +1203,16 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     open &&
     formReady &&
     isConfirmed &&
-    !isSimpleScanMode &&
+    !isAutoScanFlow &&
     Boolean(activeBD) &&
     (laserScan || isLaserScanEnabled());
 
   const otherLaserActive =
-    open && formReady && isConfirmed && isSimpleScanMode && (laserScan || isLaserScanEnabled());
+    open && formReady && isConfirmed && isAutoScanFlow && (laserScan || isLaserScanEnabled());
 
-  const laserScanSessionKey = `${Number(isConfirmed)}-${isSimpleScanMode ? "other" : `packing-${activePackingIdx}`}`;
+  const laserScanSessionKey = `${Number(isConfirmed)}-${
+    isAutoScanFlow ? (isQcAreaMode ? "qc-area" : "other") : `packing-${activePackingIdx}`
+  }`;
 
   const handleLaserScanRejected = useCallback(
     ({ reason, code }) => {
@@ -980,16 +1267,24 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         return;
       }
       lastCameraScanRef.current = { code, at: now };
-      if (isSimpleScanMode) tryAddOtherBox(decodedText);
+      if (isAutoScanFlow) tryAddOtherBox(decodedText);
       else tryAddBox(decodedText);
     },
-    [tryAddBox, tryAddOtherBox, isSimpleScanMode, showScanToast]
+    [tryAddBox, tryAddOtherBox, isAutoScanFlow, showScanToast]
+  );
+
+  const handleDecodeSuppressed = useCallback(
+    (text) => {
+      notifyDecodeSuppressedScan(showScanToast, text, "out-entry-cooldown");
+    },
+    [showScanToast]
   );
 
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,
     elementId: OUT_ENTRY_SCANNER_ID,
     onDecoded: handleCameraDecoded,
+    onDecodeSuppressed: handleDecodeSuppressed,
     fps: 15,
     qrbox: { width: 250, height: 250 },
     onCameraFailed: () => {
@@ -1046,16 +1341,28 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const otherScannedList = useMemo(
-    () =>
-      [...scannedBoxIds].map((uid) => otherBoxMap.get(uid) || { box_no_uid: uid, packing_number: null, qty: 0, is_loose: false }),
-    [scannedBoxIds, otherBoxMap]
-  );
+  const otherScannedList = useMemo(() => {
+    const holdBoxes = qcHoldDetails?.boxes || [];
+    return [...scannedBoxIds].map((uid) => {
+      const fromMap = otherBoxMap.get(uid);
+      if (fromMap) return fromMap;
+      const fromHold = holdBoxes.find((b) => b.box_no_uid === uid);
+      if (fromHold) {
+        return {
+          box_no_uid: uid,
+          packing_number: fromHold.packing_number ?? null,
+          qty: Number(fromHold.qty) || 0,
+          is_loose: normalizeIsLoose(fromHold.is_loose),
+        };
+      }
+      return { box_no_uid: uid, packing_number: null, qty: 0, is_loose: false };
+    });
+  }, [scannedBoxIds, otherBoxMap, qcHoldDetails?.boxes]);
 
   const handleSave = async (statusOverride = null) => {
     if (!sopAckRef.current?.assertAcknowledged()) return;
 
-    if (isSimpleScanMode) {
+    if (isAutoScanFlow) {
       await scanBatchRef.current?.flushPending();
       if (displayFlushTimerRef.current) {
         clearTimeout(displayFlushTimerRef.current);
@@ -1070,7 +1377,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
       const scannedList = Array.from(scannedBoxIdsRef.current);
       if (!scannedList.length) {
-        toast.error("Scan at least one box from store.");
+        toast.error(isQcAreaMode ? "Scan at least one in-store box from the QC hold." : "Scan at least one box from store.");
         return;
       }
 
@@ -1089,6 +1396,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       try {
         const res = await outEntryService.create({
           entry_type: entryMode,
+          ...(isQcAreaMode ? { qc_hold_id: Number(selectedQcHoldId) } : {}),
           reason: reasonValue,
           remarks: form.remarks,
           approved: true,
@@ -1096,7 +1404,11 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         });
         toast.success(
           res?.message ||
-            (isInventoryOutMode ? "Inventory out completed." : "Boxes moved to packing area.")
+            (isInventoryOutMode
+              ? "Inventory out completed."
+              : isQcAreaMode
+                ? "QC area out completed."
+                : "Boxes moved to packing area.")
         );
         onSuccess();
         onClose();
@@ -1177,28 +1489,42 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
   const isBlockingDataLoad =
     open &&
-    (!formReady || (fetchingFuid && ((isEdit || isApprove) || (isConfirmed && isForwardingMode))));
+    (!formReady ||
+      (fetchingFuid && ((isEdit || isApprove) || (isConfirmed && isForwardingMode))) ||
+      (fetchingQcHold && ((isEdit || isApprove) || (isQcAreaMode && isConfirmed))));
 
   const showModePicker = !isEdit && !isApprove && entryMode == null;
   const otherScannedCount = scannedBoxIds.size;
+  const qcHoldBoxRows = useMemo(() => {
+    if (!qcHoldDetails?.boxes?.length) return [];
+    return qcHoldDetails.boxes.map((box) => ({
+      ...box,
+      is_scanned: scannedBoxIds.has(box.box_no_uid),
+    }));
+  }, [qcHoldDetails, scannedBoxIds]);
+
   const activePickerOption = useMemo(() => {
     if (isForwardingMode) return OUT_ENTRY_MODE_PICKER_OPTIONS[0];
-    if (isSimpleScanMode) {
+    if (isSimpleScanMode || isQcAreaMode) {
       return (
         getOutEntryModePickerOption(pickerChoiceId) ||
         OUT_ENTRY_MODE_PICKER_OPTIONS.find((o) => o.id === "inventory_out")
       );
     }
     return null;
-  }, [isForwardingMode, isSimpleScanMode, pickerChoiceId]);
+  }, [isForwardingMode, isSimpleScanMode, isQcAreaMode, pickerChoiceId]);
 
   const drawerDescription = useMemo(() => {
     if (showModePicker) return "Select out type";
-    const hint = isSimpleScanMode
-      ? "Scan boxes & submit"
-      : isForwardingMode
-        ? "Select FUID, scan & submit"
-        : "Select out type";
+    const hint = isAutoScanFlow
+      ? isQcAreaMode
+        ? "Select QC hold, scan & submit"
+        : "Scan boxes & submit"
+      : isQcAreaMode
+        ? "Select QC hold"
+        : isForwardingMode
+          ? "Select FUID, scan & submit"
+          : "Select out type";
     if (!isEdit && !isApprove) {
       return (
         <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 normal-case tracking-normal font-semibold">
@@ -1219,7 +1545,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     return hint;
   }, [
     showModePicker,
-    isSimpleScanMode,
+    isAutoScanFlow,
+    isQcAreaMode,
     isForwardingMode,
     isEdit,
     isApprove,
@@ -1232,7 +1559,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       isOpen={open} 
       onClose={onClose} 
       onSubmit={() => {
-        if (isSimpleScanMode) {
+        if (isAutoScanFlow) {
           handleSave();
           return;
         }
@@ -1247,9 +1574,11 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           ? "Authorize exit"
           : isEdit
             ? "Edit Out Entry"
-            : isSimpleScanMode
+            : isAutoScanFlow
               ? `Out Entry — ${activePickerOption?.title || "Inventory Out"}`
-              : isForwardingMode
+              : isQcAreaMode
+                ? "Out Entry — QC Area"
+                : isForwardingMode
                 ? "Out Entry — Forwarding Note"
                 : "New Out Entry"
       }
@@ -1264,7 +1593,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                 {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Authorize exit
               </button>
             </>
-          ) : isSimpleScanMode ? (
+          ) : isAutoScanFlow || (isQcAreaMode && (fetchingQcHold || loading)) ? (
             <button
               onClick={() => handleSave()}
               disabled={loading || !isConfirmed || isBlockingDataLoad || pendingScanCount > 0 || otherScannedCount === 0}
@@ -1321,7 +1650,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         ) : showModePicker ? (
           <div className="space-y-3 py-2">
             <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">Select out type</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {OUT_ENTRY_MODE_PICKER_OPTIONS.map((option) => {
                 const accent = PICKER_ACCENT[option.accent] || PICKER_ACCENT.red;
                 const Icon = PICKER_ICONS[option.icon] || Package;
@@ -1342,8 +1671,63 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               })}
             </div>
           </div>
-        ) : isSimpleScanMode ? (
+        ) : isQcAreaMode && !isConfirmed ? (
           <div className="space-y-3 animate-in fade-in duration-300">
+            <div className="space-y-2 min-w-0 w-full" data-field="qc_hold_id">
+              <SearchableSelect
+                className="min-w-0 w-full"
+                label="QC Hold"
+                value={form.qc_hold_id}
+                onChange={(id) => {
+                  const nextId = id ? String(id) : "";
+                  setForm((prev) => ({ ...prev, qc_hold_id: nextId }));
+                  if (errors.qc_hold_id) setErrors((prev) => ({ ...prev, qc_hold_id: "" }));
+                  void handleConfirmQcHold(nextId || null);
+                }}
+                fetchService={async (params) => {
+                  const res = await qcHoldMaterialService.getActiveHolds(params?.search, {
+                    requireInStoreBoxes: true,
+                  });
+                  const rows = (res?.data || []).map((row) => mapQcHoldSelectRow(row));
+                  return { data: rows, total: rows.length };
+                }}
+                getByIdService={async (id) => {
+                  const res = await qcHoldMaterialService.getById(id);
+                  const row = res?.data;
+                  return row ? mapQcHoldSelectRow(row) : null;
+                }}
+                dataKey="hold_id"
+                labelKey="label"
+                placeholder="Search hold # or packing…"
+                error={errors.qc_hold_id}
+                required
+                disabled={isEdit && isConfirmed || loading || fetchingQcHold}
+              />
+            </div>
+            {loading || fetchingQcHold ? (
+              <FormPanelLoader
+                label="Loading QC hold..."
+                hint="Fetching in-store boxes for this hold."
+              />
+            ) : (
+              <div className="p-3 bg-indigo-50 rounded-lg border border-dashed border-indigo-200 flex items-center gap-2">
+                <Shield size={16} className="text-indigo-600 shrink-0" />
+                <p className="text-[10px] text-indigo-800 italic leading-relaxed">
+                  Select an active QC hold — scan in-store boxes (with location) to move them to QC area. Packing-area boxes on the hold are already in QC area.
+                </p>
+              </div>
+            )}
+          </div>
+        ) : isAutoScanFlow ? (
+          <div className="space-y-3 animate-in fade-in duration-300">
+            {isQcAreaMode && qcHoldDetails ? (
+              <CollapsibleQcHoldBoxes
+                hold={qcHoldDetails}
+                boxes={qcHoldBoxRows}
+                scannedCount={otherScannedCount}
+                packingAreaBoxCount={qcHoldDetails.packing_area_box_count ?? 0}
+              />
+            ) : null}
             <div className="space-y-1 relative min-w-0" data-field="reason">
               <label className={FORM_LABEL_CLASS}>
                 Reason <span className="text-rose-500">*</span>
@@ -1412,7 +1796,6 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
             </div>
 
             <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100 shadow-sm">
-              <div className="space-y-2 p-1.5 bg-white border border-indigo-100 rounded-lg w-full min-w-0">
                 {(showPhoneQr || laserScan) ? (
                   <div className="flex items-stretch gap-2 w-full min-w-0">
                     {showPhoneQr && (
@@ -1489,7 +1872,6 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                 ) : !showPhoneQr && !laserScan && !keyboardType ? (
                   <p className="text-[10px] text-slate-500 px-1">Enable scan mode in Settings.</p>
                 ) : null}
-              </div>
 
               {pendingScanCount > 0 && (
                 <div className="flex items-center gap-2 px-2 py-1 bg-white border border-indigo-100 rounded-lg">
@@ -1501,9 +1883,12 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               )}
 
               <div className="bg-white/60 rounded-lg border border-indigo-50 overflow-hidden">
-                <div className="px-3 py-1.5 bg-indigo-100/50 border-b border-indigo-100 flex justify-between items-center">
+                <div className="px-3 py-1.5 bg-indigo-100/50 border-b border-indigo-100 flex justify-between items-center gap-2">
                   <span className="text-[10px] font-bold text-indigo-600 uppercase">Scanned boxes</span>
-                  <span className="text-[9px] font-black text-indigo-600/50 uppercase">{otherScannedCount} total</span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[8px] font-semibold text-slate-400 hidden sm:inline">B = Full · L = Loose</span>
+                    <span className="text-[9px] font-black text-indigo-600/50 uppercase">{otherScannedCount} total</span>
+                  </div>
                 </div>
                 <div className="max-h-[min(40dvh,280px)] overflow-y-auto overscroll-y-contain p-2 custom-scrollbar">
                   {otherScannedList.length > 0 ? (
@@ -1514,17 +1899,13 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                           className="bg-white p-2 rounded-lg border border-emerald-100 flex items-center justify-between shadow-sm"
                         >
                           <div className="flex items-center gap-3 min-w-0">
-                            <div
-                              className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0 ${
-                                box.is_loose ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
-                              }`}
-                            >
-                              {box.is_loose ? "L" : "B"}
-                            </div>
+                            <BoxKindBadge isLoose={box.is_loose} />
                             <div className="flex flex-col leading-tight min-w-0">
                               <span className="text-[11px] font-mono font-black text-slate-700 truncate">{box.box_no_uid}</span>
                               <span className="text-[8px] font-bold text-slate-400 uppercase truncate">
                                 #{box.packing_number || "—"} · Qty: {box.qty ?? 0}
+                                {normalizeIsLoose(box.is_loose) ? " · Loose" : " · Full"}
+                                {box.location_no ? ` · ${box.location_no}` : ""}
                               </span>
                             </div>
                           </div>
@@ -1543,7 +1924,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center text-slate-300 py-10">
                       <ScanLine size={32} className="opacity-20 mb-3" />
-                      <p className="text-[10px] font-black uppercase tracking-widest">Scan store boxes</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest">
+                        {isQcAreaMode ? "Scan in-store boxes" : "Scan store boxes"}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -2097,10 +2480,14 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               All boxes scanned. Click <span className="font-bold">Submit</span> below, then authorize from the Out Entry list when ready.
             </p>
           </div>
-        ) : isSimpleScanMode ? (
+        ) : isAutoScanFlow ? (
           <div className="p-3 bg-emerald-50 rounded-lg border border-dashed border-emerald-200 flex items-center gap-2">
             <CheckCircle size={16} className="text-emerald-600" />
-            <p className="text-[10px] text-emerald-700 italic">This entry will be automatically authorized on submission.</p>
+            <p className="text-[10px] text-emerald-700 italic">
+              {isQcAreaMode
+                ? "QC area out is auto-authorized. Scanned in-store boxes move to QC area and are logged in box transactions."
+                : "This entry will be automatically authorized on submission."}
+            </p>
           </div>
         ) : (
           <div className="p-3 bg-slate-50 rounded-lg border border-dashed border-slate-200 flex items-center gap-2">
@@ -2109,7 +2496,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           </div>
         )}
 
-        {!isSimpleScanMode ? (
+        {!isAutoScanFlow ? (
           <ModuleSopAcknowledgment
             ref={sopAckRef}
             key={`${open}-${sopPermissionType}`}
