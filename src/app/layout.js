@@ -7,6 +7,7 @@ import PwaRegister from "@/features/shared/pwa/components/PwaRegister";
 import TaskNotifyEnableBanner from "@/features/apps/task/pwa/TaskNotifyEnableBanner";
 import PwaAutoOpenHandler from "@/features/shared/pwa/components/PwaAutoOpenHandler";
 import PwaLaunchQueueHandler from "@/features/shared/pwa/components/PwaLaunchQueueHandler";
+import PwaOrientationLock from "@/features/shared/pwa/components/PwaOrientationLock";
 import PwaDevBypass from "@/features/shared/pwa/components/PwaDevBypass";
 import PwaSecurityGuards from "@/features/shared/pwa/components/PwaSecurityGuards";
 import AppKeyboardShortcutGuard from "@/core/components/common/AppKeyboardShortcutGuard";
@@ -30,6 +31,8 @@ export const metadata = {
 export const viewport = {
   width: "device-width",
   initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
   themeColor: "#000000",
 };
 
@@ -45,6 +48,7 @@ export default function RootLayout({ children }) {
             {children}
           </SocketProvider>
           <PwaRegister />
+          <PwaOrientationLock />
           <TaskNotifyEnableBanner />
           <PwaLaunchQueueHandler />
           {/* <PwaAutoOpenHandler /> */}

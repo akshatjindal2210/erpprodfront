@@ -23,7 +23,7 @@ import ActionButton from "@/core/components/ui/ActionButton";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchListFirstPage, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
 import { QC_HOLD_CARD_CONFIG, QC_HOLD_HEADERS, activeQcHoldStatusTabs, buildQcHoldApiFilters, canEditQcHoldRow, canPrintQcHoldStickersRow, getQcHoldEmptyState, isIncompleteQcHoldRow, qcHoldSearchParts, rowHoldStatus } from "./qcHoldColumns";
 
@@ -77,7 +77,7 @@ export default function QcHoldMaterialPage() {
     const gen = ++loadGenRef.current;
     setLoading(true);
     try {
-      const { data } = await fetchListFirstPage(async (page, limit) => {
+      const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await qcHoldMaterialService.getAll({
           page,
           limit,

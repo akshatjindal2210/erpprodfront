@@ -22,7 +22,7 @@ import ImsSegmentedTabs from "@/features/apps/ims/components/common/ImsSegmented
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchListFirstPage, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
 import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
 import { useSelector } from "react-redux";
 import { selectUser, selectRole } from "@/core/store/slices/authSlice";
@@ -164,7 +164,7 @@ export default function AuditPage() {
   const fetchAudits = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await fetchListFirstPage(async (page, limit) => {
+      const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await auditService.getAll({
           page,
           limit,

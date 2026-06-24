@@ -52,7 +52,7 @@ const INITIAL_ITEM_ROW = {
 // Total qty of a box array
 const sumQty = (boxes) => boxes.reduce((s, b) => s + Number(b.qty), 0);
 
-/** FIFO pick capped to target qty; last box may be partial (`calculateFifoBoxes`). */
+/** FIFO pick; always takes full boxes (never partial) to avoid breaking boxes. */
 const selectBoxesByQty = (boxes, targetQty) =>
   calculateFifoBoxes(boxes, targetQty).selectedBoxes;
 
@@ -104,50 +104,43 @@ const formatAggregatedBoxCount = (count, totalQty) => {
 
 const sortBoxesForFifo = (boxes = []) => {
   return [...boxes].sort((a, b) => {
+    // 1. Full boxes first (is_loose: false < is_loose: true)
+    const looseA = a?.is_loose ? 1 : 0;
+    const looseB = b?.is_loose ? 1 : 0;
+    if (looseA !== looseB) return looseA - looseB;
+
+    // 2. FIFO (Packing Number)
     const pA = Number(a?.packing_number ?? 0);
     const pB = Number(b?.packing_number ?? 0);
     if (pA !== pB) return pA - pB;
 
-    const looseA = a?.is_loose ? 1 : 0;
-    const looseB = b?.is_loose ? 1 : 0;
-    if (looseA !== looseB) return looseA - looseB; // full boxes first, then loose
-
+    // 3. UID
     const uidA = Number(a?.box_uid ?? 0);
     const uidB = Number(b?.box_uid ?? 0);
     return uidA - uidB;
   });
 };
 
-/** Per packing #: loose boxes first, then full — each group smallest qty first when loose priority is on. */
+/** Global prioritization of loose vs full boxes based on preference, maintaining FIFO within groups. */
 const reorderBoxesForSelection = (boxes = [], loosePriority = false) => {
-  if (!loosePriority) return boxes;
+  if (!loosePriority) return boxes; // Already sorted by sortBoxesForFifo (Full first)
 
-  const packingOrder = [];
-  const byPacking = new Map();
-  for (const b of boxes) {
-    const pNo = String(b?.packing_number ?? "");
-    if (!byPacking.has(pNo)) {
-      byPacking.set(pNo, []);
-      packingOrder.push(pNo);
-    }
-    byPacking.get(pNo).push(b);
-  }
+  return [...boxes].sort((a, b) => {
+    // 1. Loose boxes first (is_loose: true > is_loose: false)
+    const looseA = a?.is_loose ? 1 : 0;
+    const looseB = b?.is_loose ? 1 : 0;
+    if (looseA !== looseB) return looseB - looseA;
 
-  const byQtyAsc = (a, b) => {
-    const qA = Number(a?.qty) || 0;
-    const qB = Number(b?.qty) || 0;
-    if (qA !== qB) return qA - qB;
-    return Number(a?.box_uid ?? 0) - Number(b?.box_uid ?? 0);
-  };
+    // 2. FIFO (Packing Number)
+    const pA = Number(a?.packing_number ?? 0);
+    const pB = Number(b?.packing_number ?? 0);
+    if (pA !== pB) return pA - pB;
 
-  const ordered = [];
-  for (const pNo of packingOrder) {
-    const group = byPacking.get(pNo) || [];
-    const loose = group.filter((box) => box?.is_loose).sort(byQtyAsc);
-    const regular = group.filter((box) => !box?.is_loose).sort(byQtyAsc);
-    ordered.push(...loose, ...regular);
-  }
-  return ordered;
+    // 3. UID
+    const uidA = Number(a?.box_uid ?? 0);
+    const uidB = Number(b?.box_uid ?? 0);
+    return uidA - uidB;
+  });
 };
 
 export default function ForwardingModal({ open, onClose, onSuccess, editData, mode = "add" }) {
@@ -491,9 +484,22 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     const qty = Math.min(Math.max(0, Number(val)), item.fg_qty);
     const ordered = reorderBoxesForSelection(item.available_boxes, item.loose_priority);
     const selected = selectBoxesByQty(ordered, qty);
+    
+    // Update both raw input and the actual boxes.
+    // If the selected boxes sum to more than the input (due to full box rule),
+    // we keep the raw input for now but STD QTY will show the actual rounded total.
     updateItemRow(idx, {
-      dispatch_qty: qty || "",
+      dispatch_qty: val || "",
       selected_boxes: selected,
+    });
+  };
+
+  const handleDispatchQtyBlur = (idx) => {
+    const item = form.items[idx];
+    const roundedQty = sumQty(item.selected_boxes);
+    // When focus is lost, update the input to match the actual selected boxes
+    updateItemRow(idx, {
+      dispatch_qty: roundedQty || "",
     });
   };
 
@@ -541,7 +547,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     updateItemRow(idx, {
       loose_priority: checked,
       selected_boxes: selectedBoxes,
-      dispatch_qty: qty > 0 ? qty : "",
+      dispatch_qty: sumQty(selectedBoxes) || "",
     });
   };
 
@@ -988,6 +994,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                       type="number"
                       value={item.dispatch_qty}
                       onChange={(e) => handleDispatchQtyChange(idx, e.target.value)}
+                      onBlur={() => handleDispatchQtyBlur(idx)}
                       className={`${OK_INPUT} text-center font-bold text-slate-700 h-[38px] text-[11px] rounded-lg border-slate-200`}
                       placeholder="0"
                     />

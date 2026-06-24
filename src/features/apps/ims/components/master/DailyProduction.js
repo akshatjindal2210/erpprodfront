@@ -22,7 +22,7 @@ import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchListFirstPage, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
 import { toastDataRefreshed } from "@/core/utils/toastNotify";
 import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/features/apps/ims/helpers/masterListUi";
 import { DAILY_PRODUCTION_HEADERS, DAILY_PRODUCTION_COMPARISON_HEADERS, STICKER_STATUS_FILTER_OPTIONS, DAILY_PROD_CARD_CONFIG, dailyProdRowKey, dailyProdSearchParts, dailyProdComparisonSearchParts, filterDailyProdByStickerStatus, isDailyProdStickerGenerated, hasDailyProdComparisonMismatch } from "./masterColumns";
@@ -66,8 +66,8 @@ async function loadDailyProdRows(query, { forceRefresh = false } = {}) {
       total: res?.total ?? list.length,
     };
   };
-  // One API call — full date range in memory; search/sort/filter stay on device.
-  return fetchListFirstPage(loadOnePage, LIST_FETCH_CAP);
+  // Repeated GET list until all rows for current filters are loaded (backend caps page size).
+  return fetchAllListPages(loadOnePage, 1000, LIST_FETCH_CAP);
 }
 
 function buildDailyProdFetchFilters(stickerStatus, fromDate, toDate) {

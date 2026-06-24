@@ -20,6 +20,7 @@ export const NAV_REGISTRY = [
   { id: "inventory-box-table", name: "Boxes", icon: <Boxes size={16} />, href: ROUTES.BOX_TABLE, module: "boxes" },
   { id: "inward-entry", name: "Store In", icon: <ClipboardCheck size={16} />, href: ROUTES.INVENTORY_INWARD, module: "inventory_inwards" },
   { id: "qc-hold-material", name: "QC Hold Material", icon: <ShieldAlert size={16} />, href: ROUTES.QC_HOLD_MATERIAL, module: "qc_hold_material" },
+  { id: "schedule-planning", name: "Schedule Planning", icon: <ClipboardList size={16} />, href: ROUTES.SCHEDULE_PLANNING, module: "schedule_planning" },
   { id: "forwarding-note", name: "Forwarding Note", icon: <FileSearch size={16} />, href: ROUTES.FORWARDING_NOTE, module: "forwarding_note_master" },
   { id: "store-outward", name: "Store Out", icon: <Truck size={16} />, href: ROUTES.OUT_ENTRY, module: "out_entry" },
   { id: "sticker-override", name: "Change / Override Customer", icon: <Map size={16} />, href: ROUTES.STICKER_OVERRIDE, module: "change_override_customer" },

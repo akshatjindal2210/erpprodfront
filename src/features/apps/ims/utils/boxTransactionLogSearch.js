@@ -400,15 +400,7 @@ export function boxTransactionSearchText(row, typeLabels = {}) {
   add(row?.total_qty);
   add(row?.created_at);
 
-  let details = row?.details;
-  if (typeof details === "string") {
-    add(details);
-    try {
-      details = JSON.parse(details);
-    } catch {
-      details = null;
-    }
-  }
+  const details = typeof row?.details === "string" ? parseDetails(row.details) : (row?.details || {});
   if (details && typeof details === "object") {
     add(details.box_kind);
     add(details.count);
@@ -435,11 +427,6 @@ export function boxTransactionSearchText(row, typeLabels = {}) {
     }
     if (Array.isArray(details.packing_numbers)) {
       details.packing_numbers.forEach(add);
-    }
-    try {
-      add(JSON.stringify(details));
-    } catch {
-      /* ignore */
     }
   }
 

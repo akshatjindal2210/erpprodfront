@@ -26,7 +26,7 @@ import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilte
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchListFirstPage, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
 import { printFromBackendHtml } from "@/features/apps/ims/utils/printHtmlDocument";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
@@ -195,7 +195,7 @@ export default function ForwardingPage() {
       };
 
       const service = reportType === "summary" ? forwardingNoteService : { getAll: forwardingNoteService.getAllItems };
-      const { data } = await fetchListFirstPage(async (page, limit) => {
+      const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await service.getAll({ ...base, page, limit });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);

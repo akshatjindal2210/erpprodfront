@@ -23,6 +23,9 @@ const authSlice = createSlice({
         designation_name: p.designation_name ?? p.designation?.name ?? null,
         department: p.department ?? null,
         department_id: p.department_id ?? p.department?.id ?? null,
+        special_permissions: (typeof p.special_permissions === 'string' 
+          ? JSON.parse(p.special_permissions) 
+          : p.special_permissions) ?? {},
       };
       state.role = p.role ?? p.type ?? "user";
       state.permissions = p.permissions || [];

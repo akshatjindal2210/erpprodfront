@@ -11,7 +11,7 @@ const COMPANY_LAYOUT = [
 
 export default function AdminConsoleConfigForm() {
   const { loading, saving, draft, setDraft, dirtyRows, rowsBySection, handleReset, handleSubmit } =
-    useAppConfigForm("admin-console");
+    useAppConfigForm("company");
 
   const companyByKey = rowsBySection("company");
 

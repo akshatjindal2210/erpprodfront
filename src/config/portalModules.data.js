@@ -39,6 +39,7 @@ export const MODULES = {
     { name: "sticker_download_logs", label: "Sticker Download Logs" },
     { name: "audit", label: "Inventory Audit" },
     { name: "qc_hold_material", label: "QC Hold Material" },
+    { name: "schedule_planning", label: "Schedule Planning" },
   ],
   task: [
     // { name: "cl_task", label: "CL Task" },

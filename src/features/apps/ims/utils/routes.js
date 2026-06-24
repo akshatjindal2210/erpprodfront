@@ -27,4 +27,5 @@ export const ROUTES = {
   STOCK_ADJUSTMENT: `${IMS}/stock-adjustment`,
   AUDIT: `${IMS}/audit`,
   QC_HOLD_MATERIAL: `${IMS}/qc-hold-material`,
+  SCHEDULE_PLANNING: `${IMS}/schedule-planning`,
 };

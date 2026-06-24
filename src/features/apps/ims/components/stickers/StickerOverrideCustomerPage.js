@@ -22,7 +22,7 @@ import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilte
 
 import { STICKER_DOWNLOAD_SOURCE_KEYS } from "@/core/utils/global";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchListFirstPage, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
 import { printFromBackendHtml } from "@/features/apps/ims/utils/printHtmlDocument";
 import {
@@ -83,7 +83,7 @@ export default function StickerOverrideCustomerPage() {
   const fetchRequests = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await fetchListFirstPage(async (page, limit) => {
+      const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await boxService.getOverrideRequests({
           page,
           limit,

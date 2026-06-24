@@ -24,8 +24,8 @@ import PrintActionButton from "@/core/components/ui/PrintActionButton";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { fetchListFirstPage } from "@/features/apps/ims/helpers/clientListSearch";
-import { STOCK_ADJUSTMENT_CARD_CONFIG, STOCK_ADJUSTMENT_HEADERS, STOCK_ADJUSTMENT_STATUS_FILTER_OPTIONS, filterStockAdjustmentRows } from "./stockAdjustmentColumns";
+import { fetchAllListPages } from "@/features/apps/ims/helpers/clientListSearch";
+import { STOCK_ADJUSTMENT_CARD_CONFIG, STOCK_ADJUSTMENT_HEADERS, STOCK_ADJUSTMENT_STATUS_FILTER_OPTIONS, filterStockAdjustmentRows, buildStockAdjustmentApiFilters } from "./stockAdjustmentColumns";
 
 const LIST_PAGE_SIZE = 1000;
 const DISPLAY_CHUNK = 100;
@@ -81,11 +81,15 @@ export default function StockAdjustmentPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await fetchListFirstPage(async (page, limit) => {
+      const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await stockAdjustmentService.getAll({
           page,
           limit,
-          filters: {},
+          filters: buildStockAdjustmentApiFilters({
+            fromDate: params.fromDate,
+            toDate: params.toDate,
+            status: params.status,
+          }),
         });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
@@ -97,7 +101,7 @@ export default function StockAdjustmentPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize]);
+  }, [params.pageSize, params.fromDate, params.toDate, params.status]);
 
   const handleModalSuccess = useCallback(() => {
     fetchData();

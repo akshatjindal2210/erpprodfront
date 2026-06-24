@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useSelector } from "react-redux";
+import { selectUser } from "@/core/store/slices/authSlice";
 import { Check, AlertCircle, Loader2, Shield, Hash, Truck, User, Package, ChevronRight, CheckCircle2, QrCode, ScanLine, Camera, X, MapPin, CheckCircle, LogOut } from "lucide-react";
 import { toast } from "react-toastify";
 // Services & Components
@@ -243,6 +245,7 @@ function CollapsibleQcHoldBoxes({ hold, boxes = [], scannedCount = 0, packingAre
 }
 
 export default function OutEntryModal({ open, onClose, onSuccess, editData, mode = "add" }) {
+  const user = useSelector(selectUser);
   const canAccess = useCanAccess();
   const canApprove = canAccess("out_entry", "authorize").allowed;
   const canRemoveScannedBox = canAccess("out_entry", "delete").allowed;
@@ -1651,7 +1654,16 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           <div className="space-y-3 py-2">
             <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">Select out type</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {OUT_ENTRY_MODE_PICKER_OPTIONS.map((option) => {
+              {OUT_ENTRY_MODE_PICKER_OPTIONS.filter((option) => {
+                if (option.id === "inventory_out") {
+                  const isSuperAdmin = user?.type === "super_admin" || user?.role === "super_admin";
+                  const specialPerms = typeof user?.special_permissions === 'string' 
+                    ? JSON.parse(user.special_permissions) 
+                    : user?.special_permissions;
+                  return isSuperAdmin || !!specialPerms?.ims?.inventory_out;
+                }
+                return true;
+              }).map((option) => {
                 const accent = PICKER_ACCENT[option.accent] || PICKER_ACCENT.red;
                 const Icon = PICKER_ICONS[option.icon] || Package;
                 return (

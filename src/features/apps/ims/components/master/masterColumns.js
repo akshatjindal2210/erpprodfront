@@ -53,10 +53,8 @@ export const DAILY_PRODUCTION_HEADERS = [
     <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v}>{v}</span>
   ), { width: "220px" }],
   ["Sticker Status", "sticker_generated", renderDailyProdStickerStatus, { width: "110px" }],
-  ["Created By", "sticker_created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-  ["Created At", "sticker_created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
-  ["Updated By", "sticker_updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-  ["Updated At", "sticker_updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
+  ["Created By", "sticker_created_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
+  ["Created At", "sticker_created_at", (v) => <span className="text-[10px] text-slate-400 font-bold">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
 ];
 
 /** @deprecated Same as DAILY_PRODUCTION_HEADERS */
@@ -202,7 +200,6 @@ export function isDailyProdStickerGenerated(row) {
 
 export function hasDailyProdComparisonMismatch(row, { ignoreCustomer = true } = {}) {
   if (row?.comparison?.missing_ims || row?.ims_missing) return true;
-  if (row?.comparison?.missing_local) return true;
   const fields = row?.comparison?.fields || {};
   return Object.entries(fields).some(([key, f]) => {
     if (ignoreCustomer && key === "acc_name") return false;

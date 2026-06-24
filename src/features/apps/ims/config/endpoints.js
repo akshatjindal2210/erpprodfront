@@ -42,6 +42,7 @@ export const ENDPOINTS = {
       VIEWS: "/master/daily-prod/helper",
       PACK_BY_FY: "/master/daily-prod/pack-by-fy",
     },
+    FINANCIAL_YEARS: "/master/financial-years",
   },
 
   LOCATIONS: {
@@ -159,6 +160,10 @@ export const ENDPOINTS = {
 
   INVENTORY_REPORT: {
     LIST: "/inventory-report/list",
+  },
+
+  SCHEDULE_PLANNING: {
+    LIST: "/schedule-planning/list",
   },
 
   DASHBOARD: {

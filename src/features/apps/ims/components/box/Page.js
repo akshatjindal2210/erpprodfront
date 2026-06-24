@@ -24,7 +24,7 @@ import { formatDateTime } from "@/core/utils/utilHelper";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchListFirstPage, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
 import { getBoxRowClassName, getBoxStockZone, getBoxClientSearchParts, renderBoxForwardNoteCustomerCell, renderBoxLocationCell, renderBoxQcHoldIdCell, resolveBoxLocationLabel } from "./boxTableVisuals";
 
@@ -82,7 +82,7 @@ export default function BoxTablePage() {
         },
         ...(appliedSearch && { search: appliedSearch }),
       };
-      const { data } = await fetchListFirstPage(async (page, limit) => {
+      const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await boxService.getAll({ ...base, page, limit });
         const list = body.data?.data ?? body.data ?? [];
         return { data: Array.isArray(list) ? list : [], total: body.data?.total ?? body.total ?? 0 };

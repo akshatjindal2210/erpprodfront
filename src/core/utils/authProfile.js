@@ -25,6 +25,7 @@ export function buildCredentialsFromMe(d, existing = {}) {
       d.designation_name ?? d.designation?.name ?? existing.designation_name ?? null,
     department: d.department ?? existing.department ?? null,
     department_id: d.department_id ?? d.department?.id ?? existing.department_id ?? null,
+    special_permissions: d.special_permissions ?? existing.special_permissions ?? {},
     permissions: Array.isArray(d.permissions) ? d.permissions : existing.permissions || [],
     app_access: normalizeAppAccess(d.app_access ?? existing.app_access),
   };
@@ -52,5 +53,9 @@ export function authProfileUnchanged(currentUser, role, me, authState = {}) {
 
   const prevDept = String(currentUser.department_id ?? currentUser.department?.id ?? "");
   const nextDept = String(me.department_id ?? me.department?.id ?? "");
-  return prevDept === nextDept;
+  if (prevDept !== nextDept) return false;
+
+  const prevSpecial = JSON.stringify(currentUser.special_permissions ?? {});
+  const nextSpecial = JSON.stringify(me.special_permissions ?? {});
+  return prevSpecial === nextSpecial;
 }

@@ -435,5 +435,7 @@ export const masterService = {
     packByFyInflight.set(key, promise);
     return promise;
   },
+
+  getFinancialYears: () => api(ENDPOINTS.MASTER.FINANCIAL_YEARS, { method: "POST" }),
 };
 

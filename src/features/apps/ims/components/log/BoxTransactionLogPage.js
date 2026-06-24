@@ -39,7 +39,7 @@ export default function BoxTransactionLogPage() {
 
   const [params, setParams] = useState({
     page: 1,
-    pageSize: 500,
+    pageSize: 100,
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
     sortKey: "created_at",
@@ -69,13 +69,12 @@ export default function BoxTransactionLogPage() {
   }, []);
 
   const filteredItems = useMemo(() => {
-    const viewed = applyBoxTransactionLogView(items, {
+    return applyBoxTransactionLogView(items, {
       query: tempSearch,
       typeLabels,
       mode: displayMode,
     });
-    return sortRowsByKey(viewed, params.sortKey, params.sortDir);
-  }, [items, tempSearch, typeLabels, params.sortKey, params.sortDir, displayMode]);
+  }, [items, tempSearch, typeLabels, displayMode]);
 
   const selectedRecord = useMemo(
     () => filteredItems.find((r) => String(r.id) === String(selected)),
@@ -134,15 +133,11 @@ export default function BoxTransactionLogPage() {
 
         if (body.typeLabels) setTypeLabels(body.typeLabels);
 
-        const sortKey = params.sortKey || "created_at";
-        const sortDir = params.sortDir || "desc";
-        const sortedNew = sortRowsByKey(newItems, sortKey, sortDir);
-
         if (append) {
-          setItems((prev) => sortRowsByKey([...prev, ...sortedNew], sortKey, sortDir));
+          setItems((prev) => [...prev, ...newItems]);
           setParams((prev) => ({ ...prev, page: currentPage }));
         } else {
-          setItems(sortedNew);
+          setItems(newItems);
           setParams((prev) => ({ ...prev, page: 1 }));
           setSelected(null);
         }

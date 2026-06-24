@@ -114,7 +114,7 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
           setSidebarOpen={setSidebarOpen}
           collapsed={collapsed}
           hideQuickLinks={hideQuickLinks}
-          hideSearch={isPortal || isSettings}
+          hideSearch={false}
           whoAmi={{ name: userData?.name || "JFL Admin", email: userData?.email || "admin@jfl-dynamics.io" }}
         />
 
@@ -147,7 +147,7 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
       </div>
 
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[90] md:hidden" onClick={() => setSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[115] md:hidden" onClick={() => setSidebarOpen(false)} />
       )}
     </div>
   );

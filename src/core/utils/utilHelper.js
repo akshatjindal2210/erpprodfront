@@ -127,16 +127,11 @@ export function calculateFifoBoxes(boxes, requestedQty) {
     if (allocated >= needed) break;
 
     const boxQty    = Number(box.qty);
-    const remaining = needed - allocated;
+    // const remaining = needed - allocated;
 
-    if (boxQty <= remaining) {
-      selectedBoxes.push({ ...box });
-      allocated += boxQty;
-    } else {
-      // Partial allocation: same box row, qty capped to what is still needed
-      selectedBoxes.push({ ...box, qty: remaining, is_partial: true });
-      allocated += remaining;
-    }
+    // Always take the full box to avoid breaking FIFO / breaking boxes
+    selectedBoxes.push({ ...box });
+    allocated += boxQty;
 
     if (allocated >= needed) break;
   }

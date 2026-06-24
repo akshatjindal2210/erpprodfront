@@ -33,8 +33,13 @@ export default function StickerManagementPage() {
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [params, setParams] = useState({
-    pageSize: 1000,
-    fromDate: dateFilterDefaults.from, toDate: dateFilterDefaults.to, sortKey: "last_downloaded_at", sortDir: "desc"
+    page: 1,
+    pageSize: 100,
+    fromDate: dateFilterDefaults.from,
+    toDate: dateFilterDefaults.to,
+    sortKey: "last_downloaded_at",
+    sortDir: "desc",
+    search: "",
   });
 
   useEffect(() => {
@@ -48,75 +53,82 @@ export default function StickerManagementPage() {
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const [tempSearch, setTempSearch] = useState("");
-  const [displayLimit, setDisplayLimit] = useState(100);
+  const [totalItems, setTotalItems] = useState(0);
 
-  const fetchStickers = useCallback(async () => {
+  const fetchStickers = useCallback(async ({ append = false, forcePage = null } = {}) => {
     setLoading(true);
     try {
+      const currentPage = forcePage ?? (append ? params.page + 1 : 1);
       const base = {
+        page: currentPage,
+        limit: params.pageSize,
         sortBy: params.sortKey || undefined,
         order: params.sortDir,
+        search: params.search,
         filters: {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
         },
       };
-      const { data } = await fetchAllListPages(async (page, limit) => {
-        const res = await boxService.getStickerManagementList({ ...base, page, limit });
-        return { data: res?.data ?? [], total: res?.total ?? 0 };
-      }, params.pageSize);
-      setAllRows(data);
-      setDisplayLimit(100);
+      
+      const res = await boxService.getStickerManagementList(base);
+      const newData = res?.data ?? [];
+      
+      if (append) {
+        setAllRows(prev => [...prev, ...newData]);
+        setParams(prev => ({ ...prev, page: currentPage }));
+      } else {
+        setAllRows(newData);
+        setParams(prev => ({ ...prev, page: 1 }));
+      }
+      setTotalItems(res?.total ?? 0);
     } catch (err) {
       toast.error(err?.message || "Failed to load sticker data");
       setAllRows([]);
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate]);
+  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.search, params.page]);
 
   useEffect(() => {
     fetchStickers();
-  }, [fetchStickers]);
+  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.search]);
 
-  const filteredRows = useMemo(() => {
-    const q = String(tempSearch || "").trim();
-    if (q) return applyClientSearch(allRows, tempSearch);
-    return sortRowsByKey(allRows, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
-
-  const rows = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
-  const totalItems = filteredRows.length;
+  const rows = allRows;
 
   const handleLoadMore = useCallback(() => {
     if (!loading && rows.length < totalItems) {
-      setDisplayLimit((n) => n + 100);
+      fetchStickers({ append: true });
     }
-  }, [loading, rows.length, totalItems]);
+  }, [loading, rows.length, totalItems, fetchStickers]);
 
   const handleFilterApply = (data) => {
     setParams((prev) => ({
       ...prev,
+      page: 1,
       fromDate: data.fromDate,
       toDate: data.toDate,
+      search: tempSearch,
     }));
   };
 
   const handleReset = () => {
     setTempSearch("");
     setParams({
-      pageSize: 1000,
+      page: 1,
+      pageSize: 100,
       fromDate: dateFilterDefaults.from,
       toDate: dateFilterDefaults.to,
       sortKey: "last_downloaded_at",
       sortDir: "desc",
+      search: "",
     });
   };
 
   const onSort = (key) => {
-    setDisplayLimit(100);
     setParams((p) => ({
       ...p,
+      page: 1,
       sortKey: key,
       sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
     }));
@@ -168,7 +180,7 @@ export default function StickerManagementPage() {
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: "Sticker Management",
-    rows: filteredRows,
+    rows: rows,
     headers: HEADERS,
   });
 

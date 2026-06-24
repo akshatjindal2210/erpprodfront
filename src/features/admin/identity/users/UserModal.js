@@ -86,6 +86,11 @@ const EMPTY_FORM = {
   usercode: "",
   department_id: "",
   designation_id: "",
+  special_permissions: {
+    ims: {
+      inventory_out: false,
+    },
+  },
 };
 
 function masterListFromApi(res) {
@@ -125,6 +130,9 @@ function normalizedUserPayload(user) {
     password: "",
     department_id: user.department_id ?? user.department?.id ?? "",
     designation_id: user.designation_id ?? user.designation?.id ?? "",
+    special_permissions: (typeof user.special_permissions === 'string' 
+      ? JSON.parse(user.special_permissions) 
+      : user.special_permissions) ?? { ims: { inventory_out: false } },
   };
   const snapshot = { auth: snapAuth, usercode: snapUc };
   let erpPickKey = "";
@@ -850,9 +858,11 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
       if (!Number.isFinite(payload.designation_id)) payload.designation_id = null;
 
       if (isDbUpdate) {
+        console.log("Updating user payload:", payload);
         await userService.update(editUser.id, payload);
         toast.success("User updated successfully");
       } else {
+        console.log("Creating user payload:", payload);
         await userService.create(payload);
         toast.success("User created successfully");
       }
@@ -1285,6 +1295,31 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
               onSelectAllPermissions={setAllPermissionsForList}
               userRole={form.type}
             />
+
+            <div className="mt-6 pt-4 border-t border-slate-100">
+              <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Special Permissions (IMS)</h3>
+              <div className="flex items-center gap-2 px-1">
+                <input
+                  id="inv-out-perm"
+                  type="checkbox"
+                  checked={form.special_permissions?.ims?.inventory_out || false}
+                  onChange={(e) => setForm((prev) => ({ 
+                    ...prev, 
+                    special_permissions: {
+                      ...prev.special_permissions,
+                      ims: {
+                        ...prev.special_permissions?.ims,
+                        inventory_out: e.target.checked
+                      }
+                    }
+                  }))}
+                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <label htmlFor="inv-out-perm" className="text-sm font-bold text-slate-700 cursor-pointer select-none uppercase tracking-tight">
+                  Inventory Out
+                </label>
+              </div>
+            </div>
           </div>
         </section>
 

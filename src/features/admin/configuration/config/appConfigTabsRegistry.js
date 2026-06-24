@@ -5,6 +5,7 @@ export const APP_CONFIG_TABS = [
   { id: "admin-console", label: "Admin Console", group: "global" },
   { id: "ims", label: "IMS", group: "app" },
   { id: "task", label: "Task", group: "app" },
+  { id: "shortcut", label: "Shortcut", group: "global" },
 ];
 
 export const DEFAULT_APP_CONFIG_TAB = APP_CONFIG_TABS[0]?.id ?? "admin-console";

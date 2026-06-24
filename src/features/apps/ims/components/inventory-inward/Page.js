@@ -24,7 +24,7 @@ import LocationFinderDrawer from "@/features/apps/ims/components/location/Locati
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchListFirstPage, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
 import { formatDateTime, formatDocDate } from "@/core/utils/utilHelper";
 import { pipeMetaRenderers } from "@/features/apps/ims/helpers/pipeMetaDisplay";
@@ -108,7 +108,7 @@ export default function InwardPage() {
           ...(params.status !== "all" && { approved: params.status === "approved" }),
         },
       };
-      const { data } = await fetchListFirstPage(async (page, limit) => {
+      const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await inventoryInwardService.getAll({
           ...base,
           page,
@@ -130,7 +130,7 @@ export default function InwardPage() {
   const fetchPackingArea = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await fetchListFirstPage(async (page, limit) => {
+      const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await inventoryInwardService.getPackingAreaList({
           page,
           limit,
@@ -162,7 +162,7 @@ export default function InwardPage() {
         ...(packingFilterItem?.dcode ? { item_dcode: packingFilterItem.dcode } : {}),
         ...(packingFilterCust?.code ? { acc_code: packingFilterCust.code } : {}),
       };
-      const { data } = await fetchListFirstPage(async (page, limit) => {
+      const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await inventoryInwardService.getPackingAreaBoxes({
           ...base,
           page,
