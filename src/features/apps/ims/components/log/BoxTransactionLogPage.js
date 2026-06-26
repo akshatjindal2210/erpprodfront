@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { RefreshCcw, History, Layers, Eye } from "lucide-react";
 import { toast } from "react-toastify";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
@@ -17,7 +17,7 @@ import { useCanAccess } from "@/core/hooks/useCanAccess";
 import BoxTransactionLogDetailModal from "@/features/apps/ims/components/log/BoxTransactionLogDetailModal";
 import BoxStickerNosCell, { getBoxStickerEntries } from "@/features/apps/ims/components/log/BoxStickerNosCell";
 import { applyBoxTransactionLogView, BOX_TX_DISPLAY_MODES, isUniquePerLogSearch } from "@/features/apps/ims/utils/boxTransactionLogSearch";
-import { sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { formatDateTime } from "@/core/utils/utilHelper";
 import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 import {
@@ -25,21 +25,22 @@ import {
   resolveBoxTxTypeLabel,
 } from "@/features/apps/ims/utils/boxTransactionVisuals";
 
+const LIST_PAGE_SIZE = 1000;
+const DISPLAY_CHUNK = 100;
+
 export default function BoxTransactionLogPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("box_transaction_logs", "view"), [canAccess]);
 
-  const [items, setItems] = useState([]);
+  const [allRows, setAllRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [totalItems, setTotalItems] = useState(0);
   const [typeLabels, setTypeLabels] = useState({});
   const [viewMode, handleViewMode] = useViewMode();
+  const loadGenRef = useRef(0);
 
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [params, setParams] = useState({
-    page: 1,
-    pageSize: 100,
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
     sortKey: "created_at",
@@ -57,6 +58,9 @@ export default function BoxTransactionLogPage() {
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const [tempSearch, setTempSearch] = useState("");
+  const [journeyInput, setJourneyInput] = useState("");
+  const [appliedJourney, setAppliedJourney] = useState("");
+  const [displayLimit, setDisplayLimit] = useState(DISPLAY_CHUNK);
   const [displayMode, setDisplayMode] = useState(BOX_TX_DISPLAY_MODES.SUMMARY);
   const [selected, setSelected] = useState(null);
   const [viewRow, setViewRow] = useState(null);
@@ -69,19 +73,30 @@ export default function BoxTransactionLogPage() {
   }, []);
 
   const filteredItems = useMemo(() => {
-    return applyBoxTransactionLogView(items, {
+    const viewed = applyBoxTransactionLogView(allRows, {
       query: tempSearch,
       typeLabels,
       mode: displayMode,
+      skipSort: !!params.sortKey,
     });
-  }, [items, tempSearch, typeLabels, displayMode]);
+    return sortRowsByKey(viewed, params.sortKey, params.sortDir);
+  }, [allRows, tempSearch, typeLabels, displayMode, params.sortKey, params.sortDir]);
+
+  const rows = useMemo(
+    () => filteredItems.slice(0, displayLimit),
+    [filteredItems, displayLimit]
+  );
+
+  const totalItems = filteredItems.length;
 
   const selectedRecord = useMemo(
-    () => filteredItems.find((r) => String(r.id) === String(selected)),
-    [filteredItems, selected]
+    () => rows.find((r) => String(r.id) === String(selected)),
+    [rows, selected]
   );
 
   const hasActiveSearch = Boolean(String(tempSearch ?? "").trim());
+  const journeyTyping = Boolean(String(journeyInput ?? "").trim());
+  const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
   const isUniqueView = displayMode === BOX_TX_DISPLAY_MODES.UNIQUE;
   const isUniquePerLog = hasActiveSearch && isUniquePerLogSearch(tempSearch);
 
@@ -99,6 +114,13 @@ export default function BoxTransactionLogPage() {
   const extraFilters = useMemo(
     () => [
       {
+        type: "text",
+        label: "Journey Name",
+        placeholder: "Packing no or box sticker no",
+        value: journeyInput,
+        onChange: setJourneyInput,
+      },
+      {
         label: "View",
         key: "displayMode",
         value: displayMode,
@@ -108,84 +130,96 @@ export default function BoxTransactionLogPage() {
         ],
       },
     ],
-    [displayMode]
+    [journeyInput, displayMode]
   );
 
-  const fetchLogs = useCallback(
-    async (isLoadMore = false) => {
-      const append = isLoadMore === true;
-      if (!append) setLoading(true);
-      try {
-        const currentPage = append ? params.page + 1 : 1;
-        const apiParams = {
-          page: currentPage,
-          limit: params.pageSize,
-          sortBy: params.sortKey || "created_at",
-          order: params.sortDir.toUpperCase(),
-          filters: {
-            fromDate: params.fromDate ? `${params.fromDate} 00:00:00` : undefined,
-            toDate: params.toDate ? `${params.toDate} 23:59:59` : undefined,
-          },
-        };
-
-        const body = await boxTransactionLogService.getAll(apiParams);
-        const newItems = body.data ?? [];
-
+  const fetchLogs = useCallback(async () => {
+    const journey = String(appliedJourney ?? "").trim();
+    if (!journey && !params.fromDate && !params.toDate) return;
+    const gen = ++loadGenRef.current;
+    setLoading(true);
+    try {
+      const { data } = await fetchAllListPages(async (page, limit) => {
+        const body = await boxTransactionLogService.getAll({
+          page,
+          limit,
+          sortBy: "created_at",
+          order: "DESC",
+          filters: journey
+            ? { journey }
+            : {
+                ...(params.fromDate && { fromDate: `${params.fromDate} 00:00:00` }),
+                ...(params.toDate && { toDate: `${params.toDate} 23:59:59` }),
+              },
+        });
         if (body.typeLabels) setTypeLabels(body.typeLabels);
-
-        if (append) {
-          setItems((prev) => [...prev, ...newItems]);
-          setParams((prev) => ({ ...prev, page: currentPage }));
-        } else {
-          setItems(newItems);
-          setParams((prev) => ({ ...prev, page: 1 }));
-          setSelected(null);
-        }
-        setTotalItems(body.total ?? 0);
-      } catch (err) {
-        toast.error(err?.message || "Failed to load box transaction logs");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [
-      params.pageSize,
-      params.sortKey,
-      params.sortDir,
-      params.fromDate,
-      params.toDate,
-      params.page,
-    ]
-  );
+        return { data: body.data ?? [], total: body.total ?? 0 };
+      }, LIST_PAGE_SIZE);
+      if (gen !== loadGenRef.current) return;
+      setAllRows(data);
+      setDisplayLimit(DISPLAY_CHUNK);
+      setSelected(null);
+    } catch (err) {
+      if (gen !== loadGenRef.current) return;
+      toast.error(err?.message || "Failed to load box transaction logs");
+      setAllRows([]);
+    } finally {
+      if (gen === loadGenRef.current) setLoading(false);
+    }
+  }, [appliedJourney, params.fromDate, params.toDate]);
 
   useEffect(() => {
-    fetchLogs(false);
-  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate]);
+    fetchLogs();
+  }, [fetchLogs]);
+
+  useEffect(() => {
+    setDisplayLimit(DISPLAY_CHUNK);
+  }, [tempSearch, displayMode]);
 
   useEffect(() => {
     setSelected(null);
   }, [displayMode, tempSearch]);
 
   const handleLoadMore = useCallback(() => {
-    if (!loading && items.length < totalItems) fetchLogs(true);
-  }, [loading, items.length, totalItems, fetchLogs]);
+    if (!loading && rows.length < totalItems) {
+      setDisplayLimit((n) => n + DISPLAY_CHUNK);
+    }
+  }, [loading, rows.length, totalItems]);
 
   const handleFilterApply = (data) => {
-    if (data?.displayMode) setDisplayMode(data.displayMode);
+    const journey = String(journeyInput ?? "").trim();
+    const searchSubmit = data?.searchSubmit === true;
+
+    if (data?.displayMode) {
+      setDisplayMode(data.displayMode);
+      setDisplayLimit(DISPLAY_CHUNK);
+      // View dropdown only — pending journey text should not auto-search
+      if (!searchSubmit && journey && journey !== appliedJourney) {
+        return;
+      }
+    }
+
+    setDisplayLimit(DISPLAY_CHUNK);
+    if (journey) {
+      setAppliedJourney(journey);
+      return;
+    }
+    setAppliedJourney("");
     setParams((prev) => ({
       ...prev,
-      page: 1,
-      fromDate: data.fromDate ?? prev.fromDate,
-      toDate: data.toDate ?? prev.toDate,
+      fromDate: data?.fromDate ?? prev.fromDate,
+      toDate: data?.toDate ?? prev.toDate,
     }));
   };
 
   const handleReset = () => {
     setTempSearch("");
+    setJourneyInput("");
+    setAppliedJourney("");
     setDisplayMode(BOX_TX_DISPLAY_MODES.SUMMARY);
+    setDisplayLimit(DISPLAY_CHUNK);
     setParams((prev) => ({
       ...prev,
-      page: 1,
       fromDate: dateFilterDefaults.from,
       toDate: dateFilterDefaults.to,
       sortKey: "created_at",
@@ -287,8 +321,9 @@ export default function BoxTransactionLogPage() {
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: "Box Transaction Log",
-    rows: filteredItems,
+    rows,
     headers: HEADERS,
+    onExport: async () => filteredItems,
   });
 
   return (
@@ -314,7 +349,7 @@ export default function BoxTransactionLogPage() {
 
               <button
                 type="button"
-                onClick={() => fetchLogs(false)}
+                onClick={() => fetchLogs()}
                 disabled={loading}
                 className="h-8 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 inline-flex items-center justify-center gap-2 transition-all disabled:opacity-60"
               >
@@ -344,9 +379,10 @@ export default function BoxTransactionLogPage() {
 
         <ListPageFilterStrip>
           <DateRangeFilter
-            key={`${params.fromDate}-${params.toDate}-${displayMode}`}
+            key={`${params.fromDate}-${params.toDate}-${displayMode}-${appliedJourney}`}
             fromDate={params.fromDate}
             toDate={params.toDate}
+            dateDisabled={journeyTyping}
             applyExtrasOnChange
             extraFilters={extraFilters}
             onApply={handleFilterApply}
@@ -355,6 +391,7 @@ export default function BoxTransactionLogPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search box sticker, type, module..."
             searchLabel="Search"
+            applyOnSearchEnter={false}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
           />
@@ -363,7 +400,7 @@ export default function BoxTransactionLogPage() {
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
           <DataTable
             headers={HEADERS}
-            data={filteredItems}
+            data={rows}
             loading={loading}
             allowCopy={true}
             viewMode={viewMode}
@@ -372,7 +409,6 @@ export default function BoxTransactionLogPage() {
                 ...p,
                 sortKey: key,
                 sortDir: p.sortKey === key && p.sortDir === "desc" ? "asc" : "desc",
-                page: 1,
               }))
             }
             sortKey={params.sortKey}
@@ -383,8 +419,8 @@ export default function BoxTransactionLogPage() {
             idKey="id"
             emptyIcon={History}
             onLoadMore={handleLoadMore}
-            hasMore={!hasActiveSearch && !isUniqueView && items.length < totalItems}
-            totalItems={hasActiveSearch || isUniqueView ? filteredItems.length : totalItems}
+            hasMore={rows.length < totalItems}
+            totalItems={totalItems}
             cardConfig={{
               titleKey: "user_name",
               badgeIndices: [1],
@@ -400,12 +436,14 @@ export default function BoxTransactionLogPage() {
             {isUniqueView
               ? hasActiveSearch
                 ? isUniquePerLog
-                  ? `Unique · ${filteredItems.length} log row${filteredItems.length !== 1 ? "s" : ""} matching search`
-                  : `Unique · ${filteredItems.length} box${filteredItems.length !== 1 ? "es" : ""} from ${uniqueSourceLogCount} log${uniqueSourceLogCount !== 1 ? "s" : ""} matching search`
-                : `Unique · ${filteredItems.length} box row${filteredItems.length !== 1 ? "s" : ""} from ${items.length} log${items.length !== 1 ? "s" : ""}`
+                  ? `Unique · ${rows.length} of ${totalItems} log row${totalItems !== 1 ? "s" : ""} matching search`
+                  : `Unique · ${rows.length} of ${totalItems} box${totalItems !== 1 ? "es" : ""} from ${uniqueSourceLogCount} log${uniqueSourceLogCount !== 1 ? "s" : ""} matching search`
+                : `Unique · ${rows.length} of ${totalItems} box row${totalItems !== 1 ? "s" : ""} from ${allRows.length} log${allRows.length !== 1 ? "s" : ""}`
               : hasActiveSearch
-                ? `Summary · ${filteredItems.length} match${filteredItems.length !== 1 ? "es" : ""} in ${items.length} loaded (${totalItems} total)`
-                : `Summary · ${items.length} of ${totalItems} box transaction logs`}
+                ? `Summary · ${rows.length} of ${totalItems} match${totalItems !== 1 ? "es" : ""} (${allRows.length} loaded)`
+                : isJourneyMode
+                  ? `Summary · ${rows.length} of ${totalItems} journey matches (all DB)`
+                  : `Summary · ${rows.length} of ${totalItems} in date range`}
           </span>
         </div>
       </div>

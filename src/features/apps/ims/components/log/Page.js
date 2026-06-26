@@ -37,16 +37,26 @@ export default function LogsPage() {
 
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
+  const [tempSearch, setTempSearch] = useState("");
+  const [expandedLogId, setExpandedLogId] = useState(null);
+
   // Unified Params State
   const [params, setParams] = useState({
     page: 1,
-    pageSize: 50,
+    pageSize: 100,
     search: "",
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
     sortKey: "created_at",
     sortDir: "desc"
   });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setParams(prev => ({ ...prev, search: tempSearch, page: 1 }));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [tempSearch]);
 
   useEffect(() => {
     if (dateFilterDefaults.from || dateFilterDefaults.to) {
@@ -57,9 +67,6 @@ export default function LogsPage() {
       }));
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
-
-  const [tempSearch, setTempSearch] = useState("");
-  const [expandedLogId, setExpandedLogId] = useState(null);
 
   const fetchLogs = useCallback(async (isLoadMore = false) => {
     const append = isLoadMore === true;
@@ -202,6 +209,24 @@ export default function LogsPage() {
     moduleName: "Activity Log",
     rows: items,
     headers: HEADERS,
+    onExport: async () => {
+      try {
+        const response = await activityLogService.getLogs({
+          app_type: "ims",
+          page: 1,
+          limit: 100000,
+          isExport: "true",
+          search: params.search || undefined,
+          date_from: params.fromDate ? `${params.fromDate} 00:00:00` : undefined,
+          date_to: params.toDate ? `${params.toDate} 23:59:59` : undefined,
+          all_users: "true"
+        });
+        return response.data || [];
+      } catch (err) {
+        toast.error("Failed to fetch all data for export");
+        return [];
+      }
+    }
   });
 
   return (

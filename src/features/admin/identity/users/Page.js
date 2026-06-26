@@ -141,16 +141,14 @@ export default function UsersPage() {
     };
   }, []);
 
-  /** Search is client-only (no API). Filters use Apply / refresh. */
   const displayRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
-    const getParts = (row) => [
-      ...defaultSearchParts(row),
-      deptLabel(row),
-      desigLabel(row),
-    ];
-    if (q) return applyClientSearch(allRows, tempSearch, { getParts });
-    return sortRowsByKey(allRows, params.sortKey, params.sortDir);
+    const getParts = (row) => [...defaultSearchParts(row), deptLabel(row), desigLabel(row)];
+    let data = allRows;
+    if (q) {
+      data = applyClientSearch(allRows, tempSearch, { getParts, skipSort: !!params.sortKey });
+    }
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir]);
 
   const fetchUsers = useCallback(async () => {

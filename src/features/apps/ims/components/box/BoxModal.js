@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 
 import { boxService } from "@/features/apps/ims/services/box";
 import { masterService } from "@/features/apps/ims/services/master";
+import { helperPerms } from "@/features/apps/ims/helpers/helperPerms";
 import Drawer from "@/core/components/ui/Drawer";
 import ModuleSopAcknowledgment from "@/core/components/common/ModuleSopAcknowledgment";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
@@ -200,13 +201,11 @@ export default function BoxModal({ open, onClose, onSuccess, editData, mode = "a
             onChange={(id) => handleChange("location_id", id)}
             fetchService={(params) => locationService.getViews({ 
               ...params, 
-              permission_module: "inventory_inwards", 
-              permission_action: "view" 
+              ...helperPerms("boxes"),
             })}
             getByIdService={(id) => locationService.getViews({ 
               id, 
-              permission_module: "inventory_inwards", 
-              permission_action: "view" 
+              ...helperPerms("boxes"),
             })}
             dataKey="id"
             labelKey="location_no"
@@ -248,8 +247,8 @@ export default function BoxModal({ open, onClose, onSuccess, editData, mode = "a
           label="Assigned Customer / Account (Optional)"
           value={form.override_cust}
           onChange={(id) => handleChange("override_cust", id)}
-          fetchService={masterService.getLedgersViews}
-          getByIdService={masterService.getLedgerViewById}
+          fetchService={(params) => masterService.getLedgersViews({ ...params, ...helperPerms("boxes") })}
+          getByIdService={(id) => masterService.getLedgerViewById(id, helperPerms("boxes"))}
           dataKey="id"
           labelKey="acc_name"
         />

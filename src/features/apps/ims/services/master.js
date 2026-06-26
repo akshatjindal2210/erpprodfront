@@ -4,6 +4,15 @@ import { applyClientSearch, fetchAllListPages } from "@/features/apps/ims/helper
 import { compareAscStrings, resolveRowSortLabel, sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
 
+function missingHelperPage(method) {
+  return {
+    success: false,
+    message: `${method}: permission_module required — pass current page (e.g. out_entry, packing_entry)`,
+    data: [],
+    total: 0,
+  };
+}
+
 /**
  * Master IMS data: use `getItems` / `getLedgers` / … → `MASTER.*.LIST` (full list for pages).
  * Use `getItemsViews` / `getLedgersViews` / … → `MASTER.*.VIEWS` (`/helper`, compact for dropdowns).
@@ -109,6 +118,7 @@ const getFilteredFromCache = (data, params = {}) => {
     filtered = applyClientSearch(filtered, search, {
       tieBreaker: (a, b) =>
         compareAscStrings(resolveRowSortLabel(a), resolveRowSortLabel(b)),
+      skipSort: true,
     });
   } else {
     filtered = sortSelectRowsAsc(filtered);
@@ -201,11 +211,8 @@ export const masterService = {
 
   // Helper Views (Optimized with Cache for Dropdowns)
   getItemsViews: async (params = {}) => {
-    const {
-      permission_module = "product_master",
-      permission_action = "view",
-      ...rest
-    } = params;
+    const { permission_module, permission_action = "view", ...rest } = params;
+    if (!permission_module) return missingHelperPage("getItemsViews");
     const inHandOnly = wantsInHandInventoryFilter(rest);
     const mustUseServerFilter =
       rest?.filters?.sticker_generated === true ||
@@ -251,15 +258,10 @@ export const masterService = {
 
   getItemViewById: (id, perms = {}) => api(ENDPOINTS.MASTER.ITEMS.VIEWS, { method: "POST", body: { id, ...perms } }),
 
-  /** Dropdowns / SearchableSelect — `/master/ledgers/helper` (field subset + resolveLedgerViewsSelectFields). Not `/ledgers/list`. */
+  /** Dropdowns — `/master/ledgers/helper` (not `/ledgers/list`). */
   getLedgersViews: async (params = {}) => {
-    const {
-      permission_module = "customer_master",
-      permission_action = "view",
-      itemdcode,
-      item_dcode,
-      ...rest
-    } = params;
+    const { permission_module, permission_action = "view", itemdcode, item_dcode, ...rest } = params;
+    if (!permission_module) return missingHelperPage("getLedgersViews");
 
     const itemFilter = itemdcode ?? item_dcode;
     const skipLedgerCache =

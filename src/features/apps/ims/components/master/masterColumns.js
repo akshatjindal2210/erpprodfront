@@ -53,8 +53,10 @@ export const DAILY_PRODUCTION_HEADERS = [
     <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v}>{v}</span>
   ), { width: "220px" }],
   ["Sticker Status", "sticker_generated", renderDailyProdStickerStatus, { width: "110px" }],
-  ["Created By", "sticker_created_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
-  ["Created At", "sticker_created_at", (v) => <span className="text-[10px] text-slate-400 font-bold">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
+  ["Created By", "internal_create_user", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
+  ["Created At", "internal_create_date", (v) => <span className="text-[10px] text-slate-400 font-bold">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
+  ["Generate By", "system_generate_user_name", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
+  ["Generate At", "system_generate_date", (v) => <span className="text-[10px] text-slate-400 font-bold">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
 ];
 
 /** @deprecated Same as DAILY_PRODUCTION_HEADERS */
@@ -87,7 +89,7 @@ function CompareImsDbLines({ imsText, dbText, mismatch = false }) {
   return (
     <div className="space-y-1 text-[10px] leading-snug min-w-[120px]">
       <div className={`flex flex-wrap gap-x-1 ${rowClass}`}>
-        <span className={`shrink-0 font-black uppercase text-[8px] ${labelClass}`}>IMS</span>
+        <span className={`shrink-0 font-black uppercase text-[8px] ${labelClass}`}>ERP</span>
         <span className={`${textClass} break-words`}>{imsText}</span>
       </div>
       <div className={`flex flex-wrap gap-x-1 ${rowClass}`}>
@@ -145,7 +147,7 @@ const COMPARE_FIELD_LABELS = {
 
 function renderDailyProdMismatchSummary(_v, row) {
   if (row?.comparison?.missing_ims || row?.ims_missing) {
-    return <span className="text-[9px] font-bold uppercase text-rose-700">Not in IMS</span>;
+    return <span className="text-[9px] font-bold uppercase text-rose-700">Not in ERP</span>;
   }
   if (row?.comparison?.missing_local) {
     return <span className="text-[9px] font-bold uppercase text-rose-700">No DB snapshot</span>;
@@ -226,8 +228,8 @@ export function dailyProdPendingSearchParts(row) {
     row.item_code,
     row.item_desc,
     isDailyProdStickerGenerated(row) ? "generated" : "pending",
-    row.sticker_created_by_name,
-    row.sticker_updated_by_name,
+    row.internal_create_user,
+    row.system_generate_user_name,
   ];
 }
 
@@ -282,7 +284,7 @@ export function dailyProdComparisonSearchParts(row) {
     }
   }
 
-  if (row?.comparison?.missing_ims) parts.push("not in ims");
+  if (row?.comparison?.missing_ims) parts.push("not in erp");
   if (row?.comparison?.missing_local) parts.push("no db snapshot");
 
   return parts.filter((p) => p != null && String(p).trim() !== "");

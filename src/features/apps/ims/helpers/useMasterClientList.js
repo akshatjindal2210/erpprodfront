@@ -72,7 +72,7 @@ export function useMasterClientList({
     const q = tempSearch.trim();
 
     if (q && getSearchParts) {
-      data = applyClientSearch(data, q, { getParts: getSearchParts });
+      data = applyClientSearch(data, q, { getParts: getSearchParts, skipSort: !!params.sortKey });
     }
 
     return sortRowsByKey(data, params.sortKey, params.sortDir);

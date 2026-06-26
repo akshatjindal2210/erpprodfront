@@ -119,12 +119,14 @@ export default function QcHoldMaterialPage() {
     }
 
     const q = String(tempSearch || "").trim();
+    let data = rows;
     if (q) {
-      return applyClientSearch(rows, tempSearch, {
+      data = applyClientSearch(rows, tempSearch, {
         getParts: (row) => qcHoldSearchParts(row),
+        skipSort: !!params.sortKey,
       });
     }
-    return sortRowsByKey(rows, params.sortKey, params.sortDir);
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir, statusTab, pendingFilter]);
 
   useEffect(() => {

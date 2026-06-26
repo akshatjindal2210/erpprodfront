@@ -174,7 +174,9 @@ export default function OutEntryPage() {
         });
       }
     }
-    if (q) return applyClientSearch(rows, tempSearch);
+    if (q) {
+      rows = applyClientSearch(rows, tempSearch, { skipSort: !!activeSortKey });
+    }
     return sortRowsByKey(rows, activeSortKey, activeSortDir);
   }, [activeSourceRows, tempSearch, activeSortKey, activeSortDir, params.status, params.entryType, isStoreOut]);
 

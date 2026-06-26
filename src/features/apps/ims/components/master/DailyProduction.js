@@ -200,11 +200,9 @@ export default function DailyProductionPage() {
     let data = filterDailyProdByStickerStatus(allRows, appliedQuery.stickerStatus);
     const q = String(draftSearch || "").trim();
     if (q) {
-      data = applyClientSearch(data, q, { getParts: getSearchParts });
-    } else {
-      data = sortRowsByKey(data, params.sortKey, params.sortDir);
+      data = applyClientSearch(data, q, { getParts: getSearchParts, skipSort: !!params.sortKey });
     }
-    return data;
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allRows, appliedQuery, draftSearch, params.sortKey, params.sortDir, getSearchParts]);
 
   const handleDraftSearchChange = useCallback((value) => {
@@ -324,8 +322,8 @@ export default function DailyProductionPage() {
     }
     if (status === "comparison") {
       return {
-        message: "No IMS vs DB mismatches in this date range",
-        subMessage: "IMS (ERP) vs DB snapshot — red rows show date, job, item or qty mismatch (customer ignored)",
+        message: "No ERP vs DB mismatches in this date range",
+        subMessage: "ERP vs DB snapshot — red rows show date, job, item or qty mismatch (customer ignored)",
       };
     }
     if (status === "all") {
@@ -348,7 +346,20 @@ export default function DailyProductionPage() {
     [appliedQuery?.fromDate, appliedQuery?.toDate]
   );
 
-  const openStickerModal = useCallback(() => setIsStickerModalOpen(true), []);
+  const openStickerModal = useCallback(() => {
+    if (!canNewSticker) return;
+    setIsStickerModalOpen(true);
+  }, [canNewSticker]);
+
+  const handleRowDoubleClick = useCallback(
+    (_item, id) => {
+      if (!canNewSticker) return;
+      setSelected(id);
+      setIsStickerModalOpen(true);
+    },
+    [canNewSticker]
+  );
+
   const openRemoveConfirm = useCallback(() => setRemoveStickersConfirmOpen(true), []);
   const getSelectedRow = useCallback(() => (selected ? rowByKey.get(selected) ?? null : null), [selected, rowByKey]);
 
@@ -472,7 +483,7 @@ export default function DailyProductionPage() {
 
           {selected && isComparisonView ? (
             <MasterSelectionBanner onClear={() => setSelected(null)}>
-              Mismatch · Doc {selectedRecord?.doc_no} — IMS vs DB (red = mismatch, customer not counted)
+              Mismatch · Doc {selectedRecord?.doc_no} — ERP vs DB (red = mismatch, customer not counted)
             </MasterSelectionBanner>
           ) : selected ? (
             <MasterSelectionBanner onClear={() => setSelected(null)}>
@@ -513,6 +524,7 @@ export default function DailyProductionPage() {
             getRowId={dailyProdRowKey}
             selectedId={selected}
             onSelect={setSelected}
+            onRowDoubleClick={handleRowDoubleClick}
             emptyIcon={Package}
             onLoadMore={handleLoadMore}
             hasMore={items.length < totalItems}
@@ -546,7 +558,7 @@ export default function DailyProductionPage() {
             {isDailyProdStickerGenerated(selectedRecord) ? (
               <MasterDetailProse label="About this record" tone="indigo">
                 Values below are frozen in our database when stickers were generated — not live ERP packing data.
-                Use the Comparison tab to see IMS vs saved snapshot.
+                Use the Comparison tab to see ERP vs saved snapshot.
               </MasterDetailProse>
             ) : null}
             <MasterDetailGrid columns={2}>
@@ -563,8 +575,32 @@ export default function DailyProductionPage() {
               value={parseFloat(selectedRecord.total_qty || 0).toLocaleString()}
               valueClassName="text-emerald-700 text-base tabular-nums"
             />
+            <MasterDetailGrid columns={2}>
+              <MasterDetailKV
+                label="Sticker Create (Internal)"
+                value={selectedRecord.internal_create_user || "—"}
+                valueClassName="text-slate-700 font-bold"
+              />
+              <MasterDetailKV
+                label="Create Time"
+                value={formatDateTime(selectedRecord.internal_create_date) || "—"}
+                valueClassName="text-slate-700 font-bold"
+              />
+            </MasterDetailGrid>
             {isDailyProdStickerGenerated(selectedRecord) ? (
               <>
+                <MasterDetailGrid columns={2}>
+                  <MasterDetailKV
+                    label="Sticker Generate (System)"
+                    value={selectedRecord.system_generate_user_name || "—"}
+                    valueClassName="text-indigo-700 font-bold"
+                  />
+                  <MasterDetailKV
+                    label="Generate Time"
+                    value={formatDateTime(selectedRecord.system_generate_date) || "—"}
+                    valueClassName="text-indigo-700 font-bold"
+                  />
+                </MasterDetailGrid>
                 <MasterDetailKV
                   label="Customer (saved)"
                   value={selectedRecord.acc_name || "—"}
@@ -613,12 +649,6 @@ export default function DailyProductionPage() {
                 {selectedRecord.fg_location ? (
                   <MasterDetailKV label="FG location" value={selectedRecord.fg_location} />
                 ) : null}
-                <MasterDetailGrid columns={2}>
-                  <MasterDetailKV label="Sticker created" value={formatDateTime(selectedRecord.sticker_created_at) || "—"} />
-                  <MasterDetailKV label="Created by" value={selectedRecord.sticker_created_by_name || "—"} />
-                  <MasterDetailKV label="Sticker updated" value={formatDateTime(selectedRecord.sticker_updated_at) || "—"} />
-                  <MasterDetailKV label="Updated by" value={selectedRecord.sticker_updated_by_name || "—"} />
-                </MasterDetailGrid>
               </>
             ) : null}
           </MasterDetailBody>
@@ -633,9 +663,9 @@ export default function DailyProductionPage() {
         onConfirm={() => void handleRemoveGeneratedStickersForRow()}
       />
 
-      {isStickerModalOpen && selectedRecord ? (
+      {isStickerModalOpen && selectedRecord && canNewSticker ? (
         <StickerCreationModel
-          open={isStickerModalOpen}
+          open={isStickerModalOpen && canNewSticker}
           data={selectedRecord}
           imsDateFilter={imsDateFilter}
           onClose={() => setIsStickerModalOpen(false)}

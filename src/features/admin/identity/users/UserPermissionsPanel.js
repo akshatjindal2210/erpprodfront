@@ -259,6 +259,7 @@ export default function UserPermissionsPanel({
   onClearAllForList,
   onSelectAllPermissions,
   userRole,
+  imsSpecialPermissionsSection = null,
 }) {
   const isSuperAdmin = userRole === "super_admin";
   const activeMeta = APP_ACCESS[activePermTab];
@@ -394,6 +395,12 @@ export default function UserPermissionsPanel({
             onDaysChange={onPermissionDaysChange}
             onApplyGlobalDays={onApplyGlobalDays}
           />
+        ) : null}
+
+        {activePermTab === "ims" && imsSpecialPermissionsSection ? (
+          <div className="border-t border-slate-100 px-3 py-4 bg-slate-50/40">
+            {imsSpecialPermissionsSection}
+          </div>
         ) : null}
       </div>
     </div>

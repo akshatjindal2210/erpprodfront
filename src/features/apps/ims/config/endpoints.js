@@ -164,6 +164,13 @@ export const ENDPOINTS = {
 
   SCHEDULE_PLANNING: {
     LIST: "/schedule-planning/list",
+    ACTION_DATES: "/schedule-planning/action-dates",
+    TRANSACTIONS: "/schedule-planning/transactions",
+    SAVE: "/schedule-planning/save",
+    REJECT: "/schedule-planning/reject",
+    HOLD: "/schedule-planning/hold",
+    SHORTAGE: "/schedule-planning/shortage",
+    DELETE: "/schedule-planning/delete",
   },
 
   DASHBOARD: {

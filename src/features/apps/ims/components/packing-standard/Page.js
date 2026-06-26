@@ -24,7 +24,7 @@ import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
-import { applyClientSearch, fetchAllListPages } from "@/features/apps/ims/helpers/clientListSearch";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 
 export default function PackingStandardPage() {
   const canAccess = useCanAccess();
@@ -85,9 +85,12 @@ export default function PackingStandardPage() {
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
-    if (q) return applyClientSearch(allRows, tempSearch);
-    return [...allRows];
-  }, [allRows, tempSearch]);
+    let data = allRows;
+    if (q) {
+      data = applyClientSearch(allRows, tempSearch, { skipSort: !!params.sortKey });
+    }
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;

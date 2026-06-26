@@ -348,7 +348,7 @@ function scopeUniqueRowToMatchingPackings(row, query = "", typeLabels = {}) {
 }
 
 /** Summary + search: keep the full log row (all stickers). Unique + search: matching stickers only. */
-export function applyBoxTransactionLogView(rows = [], { query = "", typeLabels = {}, mode = "summary" } = {}) {
+export function applyBoxTransactionLogView(rows = [], { query = "", typeLabels = {}, mode = "summary", skipSort = false } = {}) {
   const key = String(mode || BOX_TX_DISPLAY_MODES.SUMMARY).toLowerCase();
   const q = String(query ?? "").trim();
 
@@ -359,7 +359,7 @@ export function applyBoxTransactionLogView(rows = [], { query = "", typeLabels =
     return rows;
   }
 
-  const filtered = filterBoxTransactionLogs(rows, query, typeLabels);
+  const filtered = filterBoxTransactionLogs(rows, query, typeLabels, { skipSort });
 
   if (key === BOX_TX_DISPLAY_MODES.UNIQUE) {
     // Packing number (e.g. 34462): max one row per log, only matching stickers + qty.
@@ -434,12 +434,12 @@ export function boxTransactionSearchText(row, typeLabels = {}) {
 }
 
 /** Client-side filter for box transaction logs (type labels, sticker nos, box kind, etc.). */
-export function filterBoxTransactionLogs(rows = [], query = "", typeLabels = {}) {
+export function filterBoxTransactionLogs(rows = [], query = "", typeLabels = {}, options = {}) {
   const q = String(query ?? "").trim();
   if (!q) return rows;
   const tokens = normalizeSearchTokens(q);
 
-  return rows.filter((row) => {
+  const filtered = rows.filter((row) => {
     const sourceRow = stripUniqueScopeRow(row);
     const entries = getBoxStickerEntries(sourceRow);
 
@@ -453,6 +453,10 @@ export function filterBoxTransactionLogs(rows = [], query = "", typeLabels = {})
 
     return tokensMatchHaystack(tokens, boxTransactionSearchText(row, typeLabels));
   });
+
+  if (options.skipSort) return filtered;
+
+  return filtered; // Original sort preserved or handled by caller
 }
 
 function compareBoxTransactionRows(a, b, sortKey) {

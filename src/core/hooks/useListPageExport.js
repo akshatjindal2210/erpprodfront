@@ -7,23 +7,30 @@ import { exportListPageTable, notifyListPageExportResult } from "@/core/utils/li
 /**
  * Export exactly what the list table shows (pass filtered rows, not paginated slice).
  */
-export function useListPageExport({ moduleName, rows = [], headers }) {
+export function useListPageExport({ moduleName, rows = [], headers, onExport }) {
   const [exporting, setExporting] = useState(false);
   const headersRef = useRef(headers);
   headersRef.current = headers;
 
   const handleExport = useCallback(
     async (format) => {
-      if (!rows?.length) {
-        toast.info("No rows to export.");
-        return;
-      }
+      let exportRows = rows;
+      
       setExporting(true);
       try {
+        if (typeof onExport === "function") {
+          exportRows = await onExport(format);
+        }
+
+        if (!exportRows?.length) {
+          toast.info("No rows to export.");
+          return;
+        }
+
         const { filename } = await exportListPageTable({
           moduleName,
           headers: headersRef.current,
-          rows,
+          rows: exportRows,
           format,
         });
         const { message } = notifyListPageExportResult(format, filename);
@@ -34,7 +41,7 @@ export function useListPageExport({ moduleName, rows = [], headers }) {
         setExporting(false);
       }
     },
-    [moduleName, rows]
+    [moduleName, rows, onExport]
   );
 
   return {

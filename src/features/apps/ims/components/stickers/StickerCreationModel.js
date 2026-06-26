@@ -1213,6 +1213,8 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         category_name: categoryName,
         itemdesc: packingCustomer.itemdesc || packingCustomer.description || "",
         fg_location: packingCustomer.fg_location || "",
+        internal_create_user: selectedRow.internal_create_user || "",
+        internal_create_date: selectedRow.internal_create_date || "",
         packing_config: packing,
       });
       const enriched = (res.data || []).map((row) => ({

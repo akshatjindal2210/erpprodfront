@@ -203,11 +203,11 @@ export default function TrainingPage() {
     }
 
     const q = String(tempSearch || "").trim();
-    if (q) return applyClientSearch(rows, tempSearch);
-    if (params.sortKey == null || params.sortKey === "") {
-      return rows;
+    let data = rows;
+    if (q) {
+      data = applyClientSearch(rows, tempSearch, { skipSort: !!params.sortKey });
     }
-    return sortRowsByKey(rows, params.sortKey, params.sortDir);
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allModules, tempSearch, params.sortKey, params.sortDir, params.appType]);
 
   const visibleModules = useMemo(

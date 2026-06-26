@@ -40,7 +40,6 @@ export default function BoxTablePage() {
   const [params, setParams] = useState({
     pageSize: 1000,
     status: "all",
-    packingNumber: "",
     fromDate: dateFilterDefaults.from, toDate: dateFilterDefaults.to, sortKey: "box_uid", sortDir: "desc"
   });
 
@@ -59,7 +58,8 @@ export default function BoxTablePage() {
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
-  const [packingSearchInput, setPackingSearchInput] = useState("");
+  const [journeyInput, setJourneyInput] = useState("");
+  const [appliedJourney, setAppliedJourney] = useState("");
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
@@ -70,16 +70,18 @@ export default function BoxTablePage() {
   const [finderOpen, setFinderOpen] = useState(false);
 
   const fetchBoxes = useCallback(async () => {
-    if (!params.fromDate && !params.toDate) return;
+    const journey = String(appliedJourney ?? "").trim();
+    if (!journey && !params.fromDate && !params.toDate) return;
     setLoading(true);
     try {
       const base = {
         order: "DESC",
-        filters: {
-          ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
-          ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
-          ...(params.packingNumber && { packing_number: params.packingNumber }),
-        },
+        filters: journey
+          ? { journey }
+          : {
+              ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
+              ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
+            },
         ...(appliedSearch && { search: appliedSearch }),
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
@@ -95,7 +97,7 @@ export default function BoxTablePage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.fromDate, params.toDate, params.packingNumber, appliedSearch]);
+  }, [params.pageSize, params.fromDate, params.toDate, appliedJourney, appliedSearch]);
 
   useEffect(() => {
     fetchBoxes();
@@ -103,17 +105,18 @@ export default function BoxTablePage() {
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
+    let data = allRows;
     if (q) {
-      return applyClientSearch(allRows, tempSearch, { getParts: getBoxClientSearchParts });
+      data = applyClientSearch(allRows, tempSearch, { getParts: getBoxClientSearchParts, skipSort: !!params.sortKey });
     }
-    return sortRowsByKey(allRows, params.sortKey, params.sortDir);
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir]);
 
-  const applyPackingFilter = useCallback(() => {
-    const pn = String(packingSearchInput || "").trim();
+  const applyJourneyFilter = useCallback(() => {
+    const journey = String(journeyInput ?? "").trim();
     setDisplayLimit(100);
-    setParams((prev) => ({ ...prev, packingNumber: pn }));
-  }, [packingSearchInput]);
+    setAppliedJourney(journey);
+  }, [journeyInput]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -126,24 +129,28 @@ export default function BoxTablePage() {
 
   const handleFilterApply = (data) => {
     applySearchFromInput();
-    const pn = String(packingSearchInput || "").trim();
+    const journey = String(journeyInput ?? "").trim();
     setDisplayLimit(100);
+    if (journey) {
+      setAppliedJourney(journey);
+      return;
+    }
+    setAppliedJourney("");
     setParams((prev) => ({
       ...prev,
       fromDate: data.fromDate,
       toDate: data.toDate,
       status: data.approvedStatus || prev.status,
-      packingNumber: pn,
     }));
   };
 
   const handleReset = () => {
     resetSearch();
-    setPackingSearchInput("");
+    setJourneyInput("");
+    setAppliedJourney("");
     setParams({
       pageSize: 1000,
       status: "all",
-      packingNumber: "",
       fromDate: dateFilterDefaults.from,
       toDate: dateFilterDefaults.to,
       sortKey: "box_uid",
@@ -151,18 +158,21 @@ export default function BoxTablePage() {
     });
   };
 
+  const journeyTyping = Boolean(String(journeyInput ?? "").trim());
+  const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
+
   const extraFilters = useMemo(
     () => [
       {
         type: "text",
-        label: "Packing No",
-        placeholder: "Exact packing only",
-        value: packingSearchInput,
-        onChange: setPackingSearchInput,
-        onEnter: applyPackingFilter,
+        label: "Journey",
+        placeholder: "Packing no or box no",
+        value: journeyInput,
+        onChange: setJourneyInput,
+        onEnter: applyJourneyFilter,
       },
     ],
-    [packingSearchInput, applyPackingFilter]
+    [journeyInput, applyJourneyFilter]
   );
 
   const selectedRecord = useMemo(() => filteredRows.find((u) => u.box_uid === selected), [filteredRows, selected]);
@@ -301,9 +311,10 @@ export default function BoxTablePage() {
 
         <ListPageFilterStrip>
           <DateRangeFilter
-            key={`${params.fromDate}-${params.toDate}-${params.packingNumber}`}
+            key={`${params.fromDate}-${params.toDate}-${appliedJourney}`}
             fromDate={params.fromDate}
             toDate={params.toDate}
+            dateDisabled={journeyTyping}
             extraFilters={extraFilters}
             onApply={handleFilterApply}
             onReset={handleReset}
@@ -371,7 +382,9 @@ export default function BoxTablePage() {
 
         <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 shrink-0">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Box Records
+            {isJourneyMode
+              ? `Showing ${items.length} of ${totalItems} journey matches (all DB)`
+              : `Showing ${items.length} of ${totalItems} Box Records`}
           </span>
           <span className="text-[9px] text-slate-500">
             <span className="text-amber-700 font-bold">Yellow row</span> QC hold ·{" "}

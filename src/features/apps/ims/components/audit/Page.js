@@ -203,14 +203,15 @@ export default function AuditPage() {
     (rows) => {
       let filtered = filterAuditLocationRows(rows, locationListFilters);
       const q = String(tempSearch || "").trim();
-      if (q) {
-        filtered = applyClientSearch(filtered, tempSearch, {
-          getParts: (row) => auditLocationSearchParts(row),
-        });
-      }
-      return filtered;
+    if (q) {
+      filtered = applyClientSearch(filtered, tempSearch, {
+        getParts: (row) => auditLocationSearchParts(row),
+        skipSort: !!params.sortKey,
+      });
+    }
+    return filtered;
     },
-    [locationListFilters, tempSearch]
+    [locationListFilters, tempSearch, params.sortKey]
   );
 
   const flattenedLocationRows = useMemo(
@@ -280,12 +281,14 @@ export default function AuditPage() {
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
+    let data = allRows;
     if (q) {
-      return applyClientSearch(allRows, tempSearch, {
+      data = applyClientSearch(allRows, tempSearch, {
         getParts: (row) => auditMasterSearchParts(row),
+        skipSort: !!params.sortKey,
       });
     }
-    return sortRowsByKey(allRows, params.sortKey || "audit_id", params.sortDir);
+    return sortRowsByKey(data, params.sortKey || "audit_id", params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir]);
 
   useEffect(() => {

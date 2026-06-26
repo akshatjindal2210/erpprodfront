@@ -387,6 +387,65 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     });
   }, [items, dataKey, labelKey, labelOnlyDisplay]);
 
+  const selectedIdSet = useCallback(() => {
+    return new Set((selected || []).map((s) => String(s[dataKey])));
+  }, [selected, dataKey]);
+
+  const unselectedListItems = useCallback(() => {
+    const ids = selectedIdSet();
+    return getVisibleSelectableItems().filter((item) => !ids.has(String(item[dataKey])));
+  }, [getVisibleSelectableItems, selectedIdSet]);
+
+  /** Toolbar multi: selected in a fixed top panel; bottom list scroll stays put when picking more. */
+  const pinSelectedAtTop = multiCompactMode && !searchText.trim();
+
+  const renderOptionRow = (item, idx, keyPrefix = "") => {
+    const isItemSelected = selectedIdSet().has(String(item[dataKey]));
+    const rowLabel = getDisplayLabel(item, labelKey) || (labelOnlyDisplay ? "" : toSearchText(item[labelKey]));
+    if (labelOnlyDisplay && !rowLabel) return null;
+    const subLabelText =
+      !labelOnlyDisplay && subLabelKey && item[subLabelKey] != null
+        ? String(item[subLabelKey]).trim()
+        : "";
+    const showSubLabel =
+      subLabelText !== "" &&
+      subLabelText.toLowerCase() !== String(item[labelKey] ?? "").trim().toLowerCase();
+    const rowTitleClass = showSubLabel ? dropdownRowTitleWithDescClass : dropdownRowLabelClass;
+
+    return (
+      <li
+        key={`${keyPrefix}${item[dataKey] ?? idx}`}
+        onClick={() => handleSelect(item)}
+        onMouseEnter={() => !("ontouchstart" in window) && setActiveIndex(idx)}
+        className={`px-3 py-2 cursor-pointer border-b border-slate-50 last:border-0 transition-colors flex flex-col ${
+          activeIndex === idx ? "bg-indigo-50/50" : "hover:bg-slate-50"
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <span className={rowTitleClass}>{rowLabel}</span>
+          <div className="flex items-center gap-2">
+            {item.box_count != null && (
+              <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] sm:text-xs font-bold border border-slate-200">
+                {item.box_count} Boxes
+              </span>
+            )}
+            {multiple && isItemSelected ? (
+              <CheckCircle2 size={12} className="text-indigo-600 shrink-0" />
+            ) : null}
+          </div>
+        </div>
+        {showSubLabel ? (
+          <span className={`${dropdownRowSubLabelClass} whitespace-normal break-words`}>{subLabelText}</span>
+        ) : null}
+        {!labelOnlyDisplay && listHintKey && item[listHintKey] != null && item[listHintKey] !== "" ? (
+          <span className="text-[11px] font-mono text-slate-500 font-normal tracking-tight">
+            {listHintLabel}: {String(item[listHintKey])}
+          </span>
+        ) : null}
+      </li>
+    );
+  };
+
   const handleClearAll = () => {
     if (!multiple) return;
     setSelected([]);
@@ -419,7 +478,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       nextSelected.map((s) => s[dataKey]),
       nextSelected
     );
-    if (showTags || compactMulti) {
+    if (showTags) {
       setSearch("");
       setLastFetchedQuery("");
       lastFetchedQueryRef.current = "";
@@ -439,9 +498,8 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       setSelected(nextSelected);
       const nextIds = nextSelected.map(s => s[dataKey]);
       onChange(nextIds, nextSelected);
-      if (showTags || compactMulti) {
+      if (showTags) {
         setSearch("");
-        // Keep current filtered list + scroll — do not refetch full list (avoids jump to top).
         setLastFetchedQuery("");
         lastFetchedQueryRef.current = "";
       }
@@ -566,19 +624,45 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       }
       className={`bg-white border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-100 ${dropdownSurface}`}
     >
-      <ul ref={listRef} className="max-h-[220px] overflow-y-auto"
+      {pinSelectedAtTop && selectedCount > 0 ? (
+        <div className="border-b border-slate-200 bg-slate-50/60">
+          <div className="flex items-center justify-between px-3 py-1">
+            <span className="text-[10px] font-semibold text-slate-600">
+              Selected · {selectedCount}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClearAll();
+              }}
+              className="text-[10px] font-semibold text-slate-500 hover:text-rose-600"
+            >
+              Clear all
+            </button>
+          </div>
+          <ul className="max-h-[96px] overflow-y-auto">
+            {(selected || []).map((item, idx) => renderOptionRow(item, idx, "sel-"))}
+          </ul>
+        </div>
+      ) : null}
+
+      <ul
+        ref={listRef}
+        className={`overflow-y-auto ${pinSelectedAtTop && selectedCount > 0 ? "max-h-[124px]" : "max-h-[220px]"}`}
         onScroll={(e) => {
           const el = e.currentTarget;
           if (el.scrollTop + el.clientHeight >= el.scrollHeight - 20 && hasMore && !loadingMore && !loading) {
             fetchData(searchText, page + 1);
           }
-        }}>
-        {loading && items.length === 0 ? (
+        }}
+      >
+        {loading && items.length === 0 && !(pinSelectedAtTop && selectedCount > 0) ? (
           <div className="p-10 flex flex-col items-center gap-2">
             <Loader2 size={20} className="animate-spin text-indigo-500" />
             <span className="text-xs text-slate-400 font-medium">Fetching data...</span>
           </div>
-        ) : items.length === 0 && !(multiple && showAllOption) ? (
+        ) : items.length === 0 && !(multiple && showAllOption) && !(pinSelectedAtTop && selectedCount > 0) ? (
           <li className="p-8 text-center text-slate-400 text-xs flex flex-col gap-2">
             <span>{searchText.trim() ? "No results found" : (apiMessage || emptyMessage)}</span>
             {!searchText.trim() && apiMessage && <span className="text-xs text-slate-500 font-normal leading-relaxed">{apiMessage}</span>}
@@ -603,50 +687,10 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
               ) : null}
             </li>
           ) : null}
-          {items.map((item, idx) => {
-            const rowLabel = getDisplayLabel(item, labelKey) || (labelOnlyDisplay ? "" : toSearchText(item[labelKey]));
-            if (labelOnlyDisplay && !rowLabel) return null;
-            const isItemSelected = multiple 
-              ? (selected || []).some(s => String(s[dataKey]) === String(item[dataKey]))
-              : selected?.[dataKey] === item[dataKey];
-            const subLabelText =
-              !labelOnlyDisplay && subLabelKey && item[subLabelKey] != null
-                ? String(item[subLabelKey]).trim()
-                : "";
-            const showSubLabel =
-              subLabelText !== "" &&
-              subLabelText.toLowerCase() !== String(item[labelKey] ?? "").trim().toLowerCase();
-            const rowTitleClass = showSubLabel ? dropdownRowTitleWithDescClass : dropdownRowLabelClass;
-            
-            return (
-            <li key={item[dataKey] || idx} onClick={() => handleSelect(item)}
-              onMouseEnter={() => !('ontouchstart' in window) && setActiveIndex(idx)}
-              className={`px-3 py-2 cursor-pointer border-b border-slate-50 last:border-0 transition-colors flex flex-col ${
-                activeIndex === idx ? "bg-indigo-50/50" : ""
-              } ${isItemSelected ? "bg-indigo-100/50" : ""}`}
-            >
-              <div className="flex items-center justify-between">
-                <span className={rowTitleClass}>{rowLabel}</span>
-                <div className="flex items-center gap-2">
-                  {item.box_count != null && (
-                    <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] sm:text-xs font-bold border border-slate-200">
-                      {item.box_count} Boxes
-                    </span>
-                  )}
-                  {isItemSelected && <CheckCircle2 size={12} className="text-indigo-600" />}
-                </div>
-              </div>
-              {showSubLabel ? (
-                <span className={`${dropdownRowSubLabelClass} whitespace-normal break-words`}>{subLabelText}</span>
-              ) : null}
-              {!labelOnlyDisplay && listHintKey && item[listHintKey] != null && item[listHintKey] !== "" ? (
-                <span className="text-[11px] font-mono text-slate-500 font-normal tracking-tight">
-                  {listHintLabel}: {String(item[listHintKey])}
-                </span>
-              ) : null}
-            </li>
-            );
-          })}
+
+          {(pinSelectedAtTop ? unselectedListItems() : getVisibleSelectableItems()).map((item, idx) =>
+            renderOptionRow(item, idx)
+          )}
           </>
         )}
         {loadingMore && <li className="p-3 text-center border-t border-slate-50 bg-slate-50/30"><Loader2 size={16} className="animate-spin mx-auto text-indigo-400" /></li>}

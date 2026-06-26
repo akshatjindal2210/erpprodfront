@@ -73,7 +73,7 @@ export function filterStockAdjustmentRows(
   );
   const q = String(search ?? "").trim();
   if (q) {
-    return applyClientSearch(list, search, { getParts: (row) => stockAdjustmentSearchParts(row) });
+    list = applyClientSearch(list, search, { getParts: (row) => stockAdjustmentSearchParts(row), skipSort: !!sortKey });
   }
   return sortRowsByKey(list, sortKey, sortDir);
 }

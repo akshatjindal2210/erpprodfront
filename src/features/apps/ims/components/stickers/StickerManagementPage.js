@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { Download, Box, RefreshCcw, Search, Filter, X, Sticker } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Box, RefreshCcw, Sticker } from "lucide-react";
 import { toast } from "react-toastify";
 
-import dayjs from "dayjs";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
 
 import { formatDateTime } from "@/core/utils/utilHelper";
@@ -19,8 +18,12 @@ import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 
 import { useCanAccess } from "@/core/hooks/useCanAccess";
-import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { filterStickerDownloadLogs } from "@/features/apps/ims/utils/stickerDownloadLogSearch";
 import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
+
+const LIST_PAGE_SIZE = 1000;
+const DISPLAY_CHUNK = 100;
 
 export default function StickerManagementPage() {
   const canAccess = useCanAccess();
@@ -29,110 +32,148 @@ export default function StickerManagementPage() {
   const [allRows, setAllRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
+  const loadGenRef = useRef(0);
 
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [params, setParams] = useState({
-    page: 1,
-    pageSize: 100,
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
     sortKey: "last_downloaded_at",
     sortDir: "desc",
-    search: "",
   });
 
   useEffect(() => {
     if (dateFilterDefaults.from || dateFilterDefaults.to) {
-      setParams(prev => ({
+      setParams((prev) => ({
         ...prev,
         fromDate: dateFilterDefaults.from,
-        toDate: dateFilterDefaults.to
+        toDate: dateFilterDefaults.to,
       }));
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const [tempSearch, setTempSearch] = useState("");
-  const [totalItems, setTotalItems] = useState(0);
+  const [journeyInput, setJourneyInput] = useState("");
+  const [appliedJourney, setAppliedJourney] = useState("");
+  const [displayLimit, setDisplayLimit] = useState(DISPLAY_CHUNK);
 
-  const fetchStickers = useCallback(async ({ append = false, forcePage = null } = {}) => {
+  const fetchStickers = useCallback(async () => {
+    const journey = String(appliedJourney ?? "").trim();
+    if (!journey && !params.fromDate && !params.toDate) return;
+    const gen = ++loadGenRef.current;
     setLoading(true);
     try {
-      const currentPage = forcePage ?? (append ? params.page + 1 : 1);
-      const base = {
-        page: currentPage,
-        limit: params.pageSize,
-        sortBy: params.sortKey || undefined,
-        order: params.sortDir,
-        search: params.search,
-        filters: {
-          ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
-          ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
-        },
-      };
-      
-      const res = await boxService.getStickerManagementList(base);
-      const newData = res?.data ?? [];
-      
-      if (append) {
-        setAllRows(prev => [...prev, ...newData]);
-        setParams(prev => ({ ...prev, page: currentPage }));
-      } else {
-        setAllRows(newData);
-        setParams(prev => ({ ...prev, page: 1 }));
-      }
-      setTotalItems(res?.total ?? 0);
+      const { data } = await fetchAllListPages(async (page, limit) => {
+        const body = await boxService.getStickerManagementList({
+          page,
+          limit,
+          sortBy: "last_downloaded_at",
+          order: "desc",
+          filters: journey
+            ? { journey }
+            : {
+                ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
+                ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
+              },
+        });
+        return { data: body?.data ?? [], total: body?.total ?? 0 };
+      }, LIST_PAGE_SIZE);
+      if (gen !== loadGenRef.current) return;
+      setAllRows(data);
+      setDisplayLimit(DISPLAY_CHUNK);
     } catch (err) {
+      if (gen !== loadGenRef.current) return;
       toast.error(err?.message || "Failed to load sticker data");
       setAllRows([]);
     } finally {
-      setLoading(false);
+      if (gen === loadGenRef.current) setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.search, params.page]);
+  }, [appliedJourney, params.fromDate, params.toDate]);
 
   useEffect(() => {
     fetchStickers();
-  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.search]);
+  }, [fetchStickers]);
 
-  const rows = allRows;
+  useEffect(() => {
+    setDisplayLimit(DISPLAY_CHUNK);
+  }, [tempSearch]);
+
+  const filteredRows = useMemo(() => {
+    const q = String(tempSearch ?? "").trim();
+    let data = allRows;
+    if (q) {
+      data = filterStickerDownloadLogs(allRows, tempSearch, { skipSort: !!params.sortKey });
+    }
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+
+  const rows = useMemo(
+    () => filteredRows.slice(0, displayLimit),
+    [filteredRows, displayLimit]
+  );
+
+  const totalItems = filteredRows.length;
 
   const handleLoadMore = useCallback(() => {
     if (!loading && rows.length < totalItems) {
-      fetchStickers({ append: true });
+      setDisplayLimit((n) => n + DISPLAY_CHUNK);
     }
-  }, [loading, rows.length, totalItems, fetchStickers]);
+  }, [loading, rows.length, totalItems]);
 
   const handleFilterApply = (data) => {
+    const journey = String(journeyInput ?? "").trim();
+    setDisplayLimit(DISPLAY_CHUNK);
+    if (journey) {
+      setAppliedJourney(journey);
+      return;
+    }
+    setAppliedJourney("");
     setParams((prev) => ({
       ...prev,
-      page: 1,
-      fromDate: data.fromDate,
-      toDate: data.toDate,
-      search: tempSearch,
+      fromDate: data?.fromDate ?? prev.fromDate,
+      toDate: data?.toDate ?? prev.toDate,
     }));
   };
 
   const handleReset = () => {
     setTempSearch("");
+    setJourneyInput("");
+    setAppliedJourney("");
+    setDisplayLimit(DISPLAY_CHUNK);
     setParams({
-      page: 1,
-      pageSize: 100,
       fromDate: dateFilterDefaults.from,
       toDate: dateFilterDefaults.to,
       sortKey: "last_downloaded_at",
       sortDir: "desc",
-      search: "",
     });
   };
+
+  const journeyExtras = useMemo(
+    () => [
+      {
+        type: "text",
+        label: "Journey Name",
+        placeholder: "Packing no or box sticker no",
+        value: journeyInput,
+        onChange: setJourneyInput,
+      },
+    ],
+    [journeyInput]
+  );
+
+  const journeyTyping = Boolean(String(journeyInput ?? "").trim());
+  const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
 
   const onSort = (key) => {
     setParams((p) => ({
       ...p,
-      page: 1,
       sortKey: key,
       sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
     }));
   };
+
+  const hasSearch = Boolean(String(tempSearch ?? "").trim());
 
   const HEADERS = [
     ["Sticker UID", "primary_label", (v) => (
@@ -180,21 +221,22 @@ export default function StickerManagementPage() {
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: "Sticker Management",
-    rows: rows,
+    rows,
     headers: HEADERS,
+    onExport: async () => filteredRows,
   });
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
-        
+
         <ListPageToolbar>
           <ListPageToolbarLayout
             actions={
               <>
-              <button 
+              <button
                 type="button"
-                onClick={() => fetchStickers()} 
+                onClick={() => fetchStickers()}
                 className="h-9 shrink-0 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all touch-manipulation"
               >
                 <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
@@ -215,16 +257,19 @@ export default function StickerManagementPage() {
         </ListPageToolbar>
 
         <ListPageFilterStrip>
-          <DateRangeFilter 
-            key={`${params.fromDate}-${params.toDate}`}
-            fromDate={params.fromDate} 
-            toDate={params.toDate} 
-            onApply={handleFilterApply} 
+          <DateRangeFilter
+            key={`${params.fromDate}-${params.toDate}-${appliedJourney}`}
+            fromDate={params.fromDate}
+            toDate={params.toDate}
+            dateDisabled={journeyTyping}
+            extraFilters={journeyExtras}
+            onApply={handleFilterApply}
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             searchPlaceholder="Quick search logs..."
             searchLabel="Search (Box, Packing, Customer)"
+            applyOnSearchEnter={false}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
           />
@@ -233,17 +278,17 @@ export default function StickerManagementPage() {
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
           <div className="flex-1 overflow-hidden flex flex-col">
               <DataTable
-                headers={HEADERS} 
-                data={rows} 
+                headers={HEADERS}
+                data={rows}
                 loading={loading}
-                viewMode={viewMode} 
+                viewMode={viewMode}
                 allowCopy={true}
-                showSelection={false} 
+                showSelection={false}
                 getRowId={(item) => String(item.log_id ?? item.box_uid ?? "")}
-                skeletonCount={params.pageSize}
-                emptyIcon={Box} 
+                skeletonCount={DISPLAY_CHUNK}
+                emptyIcon={Box}
                 emptyMessage="No sticker logs found"
-                sortKey={params.sortKey} 
+                sortKey={params.sortKey}
                 sortDir={params.sortDir}
                 onSort={onSort}
                 onLoadMore={handleLoadMore}
@@ -254,7 +299,7 @@ export default function StickerManagementPage() {
                   tagsKeys: ["last_download_type"],
                   detailKeys: ["packing_number", "acc_name", "itemdcode", "last_downloaded_by_name"],
                   footerKey: "last_downloaded_at",
-                  className: "rounded-none border border-slate-200" 
+                  className: "rounded-none border border-slate-200",
                 }}
               />
           </div>
@@ -262,7 +307,11 @@ export default function StickerManagementPage() {
 
         <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {rows.length} of {totalItems} download log rows
+            {hasSearch
+              ? `Showing ${rows.length} of ${totalItems} matches (${allRows.length} loaded)`
+              : isJourneyMode
+                ? `Showing ${rows.length} of ${totalItems} journey matches (all DB)`
+                : `Showing ${rows.length} of ${totalItems} log rows in date range`}
           </span>
           <div className="flex items-center gap-2">
              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -273,4 +322,3 @@ export default function StickerManagementPage() {
     </div>
   );
 }
-

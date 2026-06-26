@@ -165,6 +165,7 @@ export default function DataTable({
   hasMore = false,
   totalItems = 0,
   onRowClick,
+  onRowDoubleClick,
   /** When true, hide the bottom “Loading more…” row/cards (parent shows a centered overlay instead). */
   suppressLoadingFooterRow = false,
   /** When true and `loading`, show centered loader over the list and hide skeleton/footer rows (API fetch from parent). */
@@ -1086,6 +1087,14 @@ export default function DataTable({
                             : rowClickable
                               ? () => handleRowClick(item, currentId)
                               : undefined
+                        }
+                        onDoubleClick={
+                          onRowDoubleClick
+                            ? (e) => {
+                                e.stopPropagation();
+                                onRowDoubleClick(item, currentId);
+                              }
+                            : undefined
                         }
                         className={`group ${trRowSelectedClass}${rowToneClass ? ` ${rowToneClass}` : ""}${!cellSelectActive && rowClickable ? " cursor-pointer" : ""}`}
                       >

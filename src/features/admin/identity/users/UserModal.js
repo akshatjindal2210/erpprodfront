@@ -321,7 +321,10 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
   const phoneCheck    = useDuplicateCheck(checkPhoneFn);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setModules([]);
+      return;
+    }
     setErrors({});
     setShowPass(false);
     setErpPickKey("");
@@ -1294,32 +1297,40 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
               onClearAllForList={clearAllForModuleList}
               onSelectAllPermissions={setAllPermissionsForList}
               userRole={form.type}
-            />
-
-            <div className="mt-6 pt-4 border-t border-slate-100">
-              <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Special Permissions (IMS)</h3>
-              <div className="flex items-center gap-2 px-1">
-                <input
-                  id="inv-out-perm"
-                  type="checkbox"
-                  checked={form.special_permissions?.ims?.inventory_out || false}
-                  onChange={(e) => setForm((prev) => ({ 
-                    ...prev, 
-                    special_permissions: {
-                      ...prev.special_permissions,
-                      ims: {
-                        ...prev.special_permissions?.ims,
-                        inventory_out: e.target.checked
+              imsSpecialPermissionsSection={
+                <>
+                  <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">
+                    Special Permissions
+                  </h3>
+                  <div className="flex items-center gap-2 px-1">
+                    <input
+                      id="inv-out-perm"
+                      type="checkbox"
+                      checked={form.special_permissions?.ims?.inventory_out || false}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          special_permissions: {
+                            ...prev.special_permissions,
+                            ims: {
+                              ...prev.special_permissions?.ims,
+                              inventory_out: e.target.checked,
+                            },
+                          },
+                        }))
                       }
-                    }
-                  }))}
-                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                />
-                <label htmlFor="inv-out-perm" className="text-sm font-bold text-slate-700 cursor-pointer select-none uppercase tracking-tight">
-                  Inventory Out
-                </label>
-              </div>
-            </div>
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <label
+                      htmlFor="inv-out-perm"
+                      className="text-sm font-bold text-slate-700 cursor-pointer select-none uppercase tracking-tight"
+                    >
+                      Inventory Out
+                    </label>
+                  </div>
+                </>
+              }
+            />
           </div>
         </section>
 

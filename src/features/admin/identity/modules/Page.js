@@ -86,11 +86,14 @@ export default function ModulesPage() {
     }
 
     const q = String(tempSearch || "").trim();
-    if (q) return applyClientSearch(rows, tempSearch);
-    if (params.sortKey == null || params.sortKey === "") {
-      return rows;
+    let data = rows;
+    if (q) {
+      data = applyClientSearch(rows, tempSearch, { skipSort: !!params.sortKey });
     }
-    return sortRowsByKey(rows, params.sortKey, params.sortDir);
+    if (params.sortKey == null || params.sortKey === "") {
+      return data;
+    }
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir, params.status, params.appType]);
 
   const totalLoaded = allRows.length;

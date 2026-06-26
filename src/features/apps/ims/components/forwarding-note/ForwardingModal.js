@@ -12,7 +12,7 @@ import SearchableSelect          from "@/core/components/common/SearchableSelect
 import { applyClientSearch } from "@/features/apps/ims/helpers/clientListSearch";
 import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
-import { calculateFifoBoxes } from "@/core/utils/utilHelper";
+import { calculateFifoBoxes, isForwardingLooseBox } from "@/core/utils/utilHelper";
 import RemarksTextarea           from "@/core/components/common/RemarksTextarea";
 import FormPanelLoader           from "@/core/components/common/FormPanelLoader";
 import { OK_INPUT, FORM_LABEL_CLASS, FORM_MICRO_LABEL_CLASS, FORM_ERROR_CLASS } from "@/core/components/common/Constants";
@@ -46,6 +46,36 @@ const INITIAL_ITEM_ROW = {
   dispatch_qty:    "", // user input
   dispatch_std:    "", // dispatch according to standard
   fetching:        false,
+  boxes_edited:    false, // true once user changes box selection (prevents edit fallback)
+};
+
+const forwardingBoxKey = (box) =>
+  String(box?.box_no_uid ?? box?.box_uid ?? "").trim();
+
+/** Box count / breakdown source — never revert to saved breakdown after user edits selection. */
+const itemBoxDisplay = (item) => {
+  if (item.selected_boxes.length > 0 || item.boxes_edited) {
+    return { boxes: item.selected_boxes, fromSelection: true };
+  }
+  if (item.original_breakdowns?.length > 0) {
+    return { boxes: [], fromSelection: false, breakdowns: item.original_breakdowns };
+  }
+  return { boxes: [], fromSelection: true };
+};
+
+const itemSelectedBoxCount = (item) => {
+  const display = itemBoxDisplay(item);
+  if (display.fromSelection) return display.boxes.length;
+  return (display.breakdowns || []).reduce(
+    (acc, bd) => acc + (Number(bd.box) || 0) + (Number(bd.loose_box) || 0),
+    0
+  );
+};
+
+const itemStdQty = (item) => {
+  const display = itemBoxDisplay(item);
+  if (display.fromSelection) return sumQty(display.boxes);
+  return (display.breakdowns || []).reduce((acc, bd) => acc + (Number(bd.total_qty) || 0), 0);
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -104,15 +134,15 @@ const formatAggregatedBoxCount = (count, totalQty) => {
 
 const sortBoxesForFifo = (boxes = []) => {
   return [...boxes].sort((a, b) => {
-    // 1. Full boxes first (is_loose: false < is_loose: true)
-    const looseA = a?.is_loose ? 1 : 0;
-    const looseB = b?.is_loose ? 1 : 0;
-    if (looseA !== looseB) return looseA - looseB;
-
-    // 2. FIFO (Packing Number)
+    // 1. FIFO (Packing Number)
     const pA = Number(a?.packing_number ?? 0);
     const pB = Number(b?.packing_number ?? 0);
     if (pA !== pB) return pA - pB;
+
+    // 2. Full boxes first (`is_loose` from box table)
+    const looseA = isForwardingLooseBox(a) ? 1 : 0;
+    const looseB = isForwardingLooseBox(b) ? 1 : 0;
+    if (looseA !== looseB) return looseA - looseB;
 
     // 3. UID
     const uidA = Number(a?.box_uid ?? 0);
@@ -123,18 +153,18 @@ const sortBoxesForFifo = (boxes = []) => {
 
 /** Global prioritization of loose vs full boxes based on preference, maintaining FIFO within groups. */
 const reorderBoxesForSelection = (boxes = [], loosePriority = false) => {
-  if (!loosePriority) return boxes; // Already sorted by sortBoxesForFifo (Full first)
-
   return [...boxes].sort((a, b) => {
-    // 1. Loose boxes first (is_loose: true > is_loose: false)
-    const looseA = a?.is_loose ? 1 : 0;
-    const looseB = b?.is_loose ? 1 : 0;
-    if (looseA !== looseB) return looseB - looseA;
-
-    // 2. FIFO (Packing Number)
+    // 1. FIFO (Packing Number)
     const pA = Number(a?.packing_number ?? 0);
     const pB = Number(b?.packing_number ?? 0);
     if (pA !== pB) return pA - pB;
+
+    // 2. Loose boxes first if loosePriority is true
+    const looseA = isForwardingLooseBox(a) ? 1 : 0;
+    const looseB = isForwardingLooseBox(b) ? 1 : 0;
+    if (looseA !== looseB) {
+      return loosePriority ? looseB - looseA : looseA - looseB;
+    }
 
     // 3. UID
     const uidA = Number(a?.box_uid ?? 0);
@@ -232,6 +262,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       if (q) {
         list = applyClientSearch(list, q, {
           getParts: (item) => [item.item_code, item.itemdesc, item.item_desc].filter(Boolean),
+          skipSort: true,
         });
       } else {
         list = sortSelectRowsAsc(list, "item_code", ["itemdesc"]);
@@ -320,6 +351,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
             dispatch_qty: i.total_qty || "",
             dispatch_std: i.total_qty || "",
             fetching: false,
+            boxes_edited: false,
             original_breakdowns: i.breakdowns || [],
           };
         }));
@@ -491,6 +523,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     updateItemRow(idx, {
       dispatch_qty: val || "",
       selected_boxes: selected,
+      boxes_edited: true,
     });
   };
 
@@ -506,35 +539,36 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
   const handleBoxChange = (idx, type) => {
     const item = form.items[idx];
     const orderedBoxes = reorderBoxesForSelection(item.available_boxes, item.loose_priority);
-    
-    // If we are in edit mode and haven't selected any boxes yet, 
-    // we should initialize selected_boxes from available_boxes based on current dispatch_qty
+
     let currentSelected = [...item.selected_boxes];
-    if (isEdit && currentSelected.length === 0 && item.dispatch_qty > 0 && orderedBoxes.length > 0) {
-      // Maintain selection order based on row preference (FIFO vs loose-priority).
+    if (
+      isEdit &&
+      !item.boxes_edited &&
+      currentSelected.length === 0 &&
+      Number(item.dispatch_qty) > 0 &&
+      orderedBoxes.length > 0
+    ) {
       currentSelected = selectBoxesByQty(orderedBoxes, Number(item.dispatch_qty));
     }
 
-    const selectedIds = new Set(currentSelected.map((b) => b.box_no_uid));
+    const selectedIds = new Set(currentSelected.map(forwardingBoxKey));
 
     if (type === "add") {
-      const nextBox = orderedBoxes.find((b) => !selectedIds.has(b.box_no_uid));
+      const nextBox = orderedBoxes.find((b) => !selectedIds.has(forwardingBoxKey(b)));
       if (!nextBox) return toast.info("All available boxes are already selected.");
-      const nextIds = new Set([...selectedIds, nextBox.box_no_uid]);
-      const newSelected = orderedBoxes.filter((b) => nextIds.has(b.box_no_uid));
+      const newSelected = [...currentSelected, nextBox];
       updateItemRow(idx, {
         selected_boxes: newSelected,
-        dispatch_qty: sumQty(newSelected),
+        dispatch_qty: sumQty(newSelected) || "",
+        boxes_edited: true,
       });
     } else {
       if (!currentSelected.length) return;
-      const nextIds = new Set(
-        currentSelected.slice(0, -1).map((b) => b.box_no_uid)
-      );
-      const newSelected = orderedBoxes.filter((b) => nextIds.has(b.box_no_uid));
+      const newSelected = currentSelected.slice(0, -1);
       updateItemRow(idx, {
         selected_boxes: newSelected,
-        dispatch_qty: sumQty(newSelected),
+        dispatch_qty: sumQty(newSelected) || "",
+        boxes_edited: true,
       });
     }
   };
@@ -548,6 +582,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       loose_priority: checked,
       selected_boxes: selectedBoxes,
       dispatch_qty: sumQty(selectedBoxes) || "",
+      boxes_edited: true,
     });
   };
 
@@ -565,7 +600,9 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       return;
     }
 
-    const validItems = form.items.filter(i => i.item_dcode && (i.selected_boxes.length > 0 || i.original_breakdowns?.length > 0));
+    const validItems = form.items.filter(
+      (i) => i.item_dcode && (i.selected_boxes.length > 0 || (!i.boxes_edited && i.original_breakdowns?.length > 0))
+    );
     if (!validItems.length) return toast.error("Please add at least one item with boxes to proceed.");
     if (!sopAckRef.current?.assertAcknowledged()) return;
 
@@ -585,12 +622,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
         cartage: parseFloat(form.cartage) || 0,
         customer_qty: parseInt(form.customer_qty) || 0,
         approved: finalApproved,
-        total_items: validItems.reduce((s, i) => {
-          const rowTotal = i.selected_boxes.length > 0 
-            ? sumQty(i.selected_boxes) 
-            : (i.total_qty || 0);
-          return s + rowTotal;
-        }, 0),
+        total_items: validItems.reduce((s, i) => s + itemStdQty(i), 0),
         items:       validItems.flatMap(i => {
           if (i.selected_boxes.length > 0) {
             return [{
@@ -600,7 +632,8 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
               qty:        sumQty(i.selected_boxes),
               selected_boxes: i.selected_boxes,
             }];
-          } else if (isEdit && i.original_breakdowns?.length > 0) {
+          }
+          if (!i.boxes_edited && i.original_breakdowns?.length > 0) {
             return i.original_breakdowns.map(bd => ({
               item_dcode: i.item_dcode,
               item_code:  i.item_code,
@@ -646,12 +679,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     : "Setting up a new forwarding note.";
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const confirmedTotal = form.items.reduce((s, i) => {
-    const rowTotal = i.selected_boxes.length > 0 
-      ? sumQty(i.selected_boxes) 
-      : (i.total_qty || 0);
-    return s + rowTotal;
-  }, 0);
+  const confirmedTotal = form.items.reduce((s, i) => s + itemStdQty(i), 0);
   const customerQty    = parseInt(form.customer_qty) || 0;
   const isQtyExceeded  = customerQty > 0 && confirmedTotal > customerQty;
 
@@ -1011,7 +1039,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                       >-</button>
                       <div className="flex flex-col items-center justify-center min-w-[40px]">
                         <span className="text-[11px] font-black text-slate-700 leading-none">
-                          {item.selected_boxes.length > 0 ? item.selected_boxes.length : (item.original_breakdowns?.reduce((acc, bd) => acc + (bd.box || 0) + (bd.loose_box || 0), 0) || 0)}
+                          {itemSelectedBoxCount(item)}
                         </span>
                         <div className="h-[1px] w-3 bg-slate-200 my-0.5" />
                         <span className="text-[11px] sm:text-xs font-bold text-slate-400 leading-none">{item.available_boxes.length}</span>
@@ -1028,13 +1056,19 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                   <div className="lg:col-span-2 space-y-0.5">
                     <label className={`${FORM_MICRO_LABEL_CLASS} text-indigo-600 block ml-1`}>Std QTY</label>
                     <div className="bg-indigo-600 text-white text-center font-black h-[38px] flex items-center justify-center rounded-lg shadow-sm text-xs">
-                      {(item.selected_boxes.length > 0 ? sumQty(item.selected_boxes) : item.total_qty || 0).toLocaleString()}
+                      {itemStdQty(item).toLocaleString()}
                     </div>
                   </div>
                 </div>
 
                 {/* Table Breakdown */}
-                {item.item_dcode && (item.selected_boxes.length > 0 || (isEdit && item.original_breakdowns?.length > 0)) && (
+                {item.item_dcode && (() => {
+                  const display = itemBoxDisplay(item);
+                  const showTable = display.fromSelection
+                    ? display.boxes.length > 0
+                    : (display.breakdowns?.length > 0);
+                  if (!showTable) return null;
+                  return (
                   <div className="mt-1.5 border border-slate-100 rounded-md overflow-x-auto">
                     <table className="w-full min-w-[280px] text-xs">
                       <thead className="bg-slate-50 border-b border-slate-100">
@@ -1046,11 +1080,11 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
-                        {item.selected_boxes.length > 0 ? (
+                        {display.fromSelection ? (
                           (() => {
                             const groups = [];
                             const groupMap = new Map();
-                            item.selected_boxes.forEach(box => {
+                            display.boxes.forEach(box => {
                               const pNo = box.packing_number || "N/A";
                               if (!groupMap.has(pNo)) {
                                 const newGroup = { packingNo: pNo, boxes: [] };
@@ -1060,8 +1094,8 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                               groupMap.get(pNo).boxes.push(box);
                             });
                             return groups.map(({ packingNo, boxes }) => {
-                              const openBoxes = boxes.filter(b => !b.is_loose);
-                              const looseBoxes = boxes.filter(b => b.is_loose);
+                              const openBoxes = boxes.filter(b => !isForwardingLooseBox(b));
+                              const looseBoxes = boxes.filter(b => isForwardingLooseBox(b));
                               const openQty = sumQty(openBoxes);
                               const looseQty = sumQty(looseBoxes);
                               const boxFmtOpts = item.loose_priority ? { qtyOrder: "selection" } : undefined;
@@ -1084,7 +1118,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                             });
                           })()
                         ) : (
-                          item.original_breakdowns.map((bd, bidx) => (
+                          display.breakdowns.map((bd, bidx) => (
                             <tr key={bidx} className="hover:bg-slate-50/30 transition-colors">
                               <td className="px-2 py-1 font-bold text-slate-600">#{bd.packing_number}</td>
                               <td className="px-2 py-1 text-center">
@@ -1104,7 +1138,8 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                       </tbody>
                     </table>
                   </div>
-                )}
+                  );
+                })()}
               </div>
             ))}
           </div>

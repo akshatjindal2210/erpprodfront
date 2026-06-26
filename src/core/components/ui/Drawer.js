@@ -25,7 +25,10 @@ const Drawer = ({
   noPadding = false,
   bodyScrollable = true,
   headerVariant = "default",
+  stackLevel = 0,
 }) => {
+  const drawerRootRef = useRef(null);
+  const zBase = 1050 + stackLevel * 50;
   const isFormHeader = headerVariant === "form";
   const printHotkeyRef = useRef({ onPrintHotkey, canPrintHotkey });
   const scrollLockYRef = useRef(0);
@@ -57,6 +60,12 @@ const Drawer = ({
 
       const handleKeyDown = (e) => {
         if (e.key === 'Escape') {
+          const roots = [...document.querySelectorAll("[data-app-drawer-root]")];
+          const topLevel = roots.reduce((max, el) => {
+            const level = Number(el.dataset.drawerStackLevel || 0);
+            return level > max ? level : max;
+          }, -1);
+          if (stackLevel < topLevel) return;
           e.stopPropagation();
           onClose?.();
           return;
@@ -109,7 +118,7 @@ const Drawer = ({
     } else {
       document.documentElement.removeAttribute('data-app-drawer-open');
     }
-  }, [isOpen, onClose, onSubmit]);
+  }, [isOpen, onClose, onSubmit, stackLevel]);
 
   const handleBackdropPointerDown = (e) => {
     e.preventDefault();
@@ -120,7 +129,13 @@ const Drawer = ({
   if (!isOpen || !mounted) return null;
 
   const drawerTree = (
-    <div data-app-drawer-root className="fixed inset-0 z-[1050] isolate">
+    <div
+      ref={drawerRootRef}
+      data-app-drawer-root
+      data-drawer-stack-level={stackLevel}
+      className="fixed inset-0 isolate"
+      style={{ zIndex: zBase }}
+    >
       <div
         role="presentation"
         aria-hidden="true"

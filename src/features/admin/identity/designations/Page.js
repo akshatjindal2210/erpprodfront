@@ -39,12 +39,14 @@ export default function DesignationsPage() {
 
   const displayRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
+    let data = allRows;
     if (q) {
-      return applyClientSearch(allRows, tempSearch, {
-        tieBreaker: (a, b) => (b.id - a.id) // Last created first if match strength is equal
+      data = applyClientSearch(allRows, tempSearch, {
+        tieBreaker: (a, b) => b.id - a.id, // Last created first if match strength is equal
+        skipSort: !!params.sortKey,
       });
     }
-    return sortRowsByKey(allRows, params.sortKey, params.sortDir);
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir]);
 
   const fetchDesignations = useCallback(async () => {

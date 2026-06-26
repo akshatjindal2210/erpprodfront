@@ -78,6 +78,51 @@ export function docDateToDayjs(v) {
   return d.isValid() ? d : null;
 }
 
+/** List filter: YYYY-MM-DD → DD/MM/YYYY display text. */
+export function filterDateToDisplay(ymd) {
+  if (ymd == null || String(ymd).trim() === "") return "";
+  const f = formatDocDate(ymd);
+  return f && /^\d{2}\/\d{2}\/\d{4}$/.test(f) ? f : "";
+}
+
+/** Auto-insert slashes while typing digits (max 8): 20062026 → 20/06/2026 */
+export function formatDateTypingInput(raw) {
+  const digits = String(raw ?? "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+/**
+ * Parse typed / pasted filter date → YYYY-MM-DD, or "" if empty / invalid.
+ * Accepts DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD (via formatDocDate).
+ */
+export function parseFilterDateInput(text) {
+  if (text == null) return "";
+  const s = String(text).trim();
+  if (!s) return "";
+  const d = docDateToDayjs(s);
+  if (!d) return "";
+  return d.format("YYYY-MM-DD");
+}
+
+/** Clamp YYYY-MM-DD to optional min/max (inclusive). */
+export function clampFilterDateYmd(ymd, { min, max } = {}) {
+  if (!ymd) return "";
+  const d = docDateToDayjs(ymd);
+  if (!d) return "";
+  let out = d;
+  if (min) {
+    const lo = docDateToDayjs(min);
+    if (lo && out.isBefore(lo, "day")) out = lo;
+  }
+  if (max) {
+    const hi = docDateToDayjs(max);
+    if (hi && out.isAfter(hi, "day")) out = hi;
+  }
+  return out.format("YYYY-MM-DD");
+}
+
 export function getInitials(name = "") {
   if (!name) return "??";
 
@@ -104,8 +149,11 @@ export const maskTaskId = (id) => {
   return btoa(pattern).replace(/=/g, "");
 };
 
-
-
+/** Full/open vs loose — `ims_box_table.is_loose` from API (sticker / adjustment). */
+export function isForwardingLooseBox(box) {
+  const v = box?.is_loose;
+  return v === true || v === 1 || v === "true" || v === "t";
+}
 
 /**
  * Allocates boxes in FIFO order; never returns more than `requestedQty`.

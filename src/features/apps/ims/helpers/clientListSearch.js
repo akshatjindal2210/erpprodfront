@@ -18,13 +18,14 @@ export function defaultSearchParts(row) {
  * exact → startsWith → word boundary → substring (same tiers as {@link bestTierForStrings}).
  */
 export function applyClientSearch(rows, queryRaw, options = {}) {
-  const { getParts = defaultSearchParts, tieBreaker } = options;
+  const { getParts = defaultSearchParts, tieBreaker, skipSort = false } = options;
   const q = String(queryRaw ?? "").trim();
   if (!q) return [...rows];
   const ql = q.toLowerCase();
   const filtered = rows.filter((row) =>
     getParts(row).some((p) => String(p).toLowerCase().includes(ql))
   );
+  if (skipSort) return filtered;
   return filtered.sort((a, b) => {
     const ra = bestTierForStrings(q, getParts(a).map(String));
     const rb = bestTierForStrings(q, getParts(b).map(String));

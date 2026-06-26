@@ -215,8 +215,11 @@ export default function InwardPage() {
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
-    if (q) return applyClientSearch(activeSourceRows, tempSearch);
-    return sortRowsByKey(activeSourceRows, activeSortKey, activeSortDir);
+    let data = activeSourceRows;
+    if (q) {
+      data = applyClientSearch(activeSourceRows, tempSearch, { skipSort: !!activeSortKey });
+    }
+    return sortRowsByKey(data, activeSortKey, activeSortDir);
   }, [activeSourceRows, tempSearch, activeSortKey, activeSortDir]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);

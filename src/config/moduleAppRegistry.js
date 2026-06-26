@@ -44,8 +44,23 @@ export function isSettingsCoreModule(mod) {
   return SETTINGS_MODULES.includes(String(mod?.name ?? "").toLowerCase());
 }
 
+/** DB / API may send boolean, 1/0, or "t"/"f". Missing is_active = active (helper views omit the column). */
+export function isModuleActive(mod) {
+  if (!mod) return false;
+  if (!Object.prototype.hasOwnProperty.call(mod, "is_active")) return true;
+  const v = mod.is_active;
+  if (v === true || v === 1) return true;
+  if (v === false || v === 0 || v == null) return false;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "false" || s === "0" || s === "f" || s === "no" || s === "off") return false;
+    return s === "true" || s === "1" || s === "t" || s === "yes" || s === "on";
+  }
+  return !!v;
+}
+
 export function shouldIncludeInUserPermissionForm(mod) {
-  return true;
+  return isModuleActive(mod);
 }
 
 export function partitionModulesForUserForm(modules = []) {
@@ -55,6 +70,7 @@ export function partitionModulesForUserForm(modules = []) {
   const sort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0);
 
   for (const mod of modules) {
+    if (!shouldIncludeInUserPermissionForm(mod)) continue;
     const t = appType(mod);
     if (t === "ims") imsModules.push(mod);
     else if (t === "core" && isSettingsCoreModule(mod)) coreModules.push(mod);
@@ -184,6 +200,22 @@ export function getModulesForAppKey(
   return [];
 }
 
-export function sanitizePermissionsPayload(permissions) {
-  return permissions;
+export function sanitizePermissionsPayload(permissions, modules = []) {
+  if (!permissions || typeof permissions !== "object" || Array.isArray(permissions)) {
+    return permissions;
+  }
+  const activeIds = new Set(
+    (Array.isArray(modules) ? modules : [])
+      .filter(shouldIncludeInUserPermissionForm)
+      .map((m) => Number(m.id))
+      .filter(Number.isFinite)
+  );
+  if (!activeIds.size) return permissions;
+
+  const out = {};
+  for (const [id, row] of Object.entries(permissions)) {
+    const mid = Number(id);
+    if (activeIds.has(mid)) out[id] = row;
+  }
+  return out;
 }

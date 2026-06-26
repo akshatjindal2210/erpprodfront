@@ -110,10 +110,11 @@ export default function StickerOverrideCustomerPage() {
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
+    let data = allRows;
     if (q) {
-      return applyClientSearch(allRows, tempSearch, { getParts: overrideSearchParts });
+      data = applyClientSearch(allRows, tempSearch, { getParts: overrideSearchParts, skipSort: !!params.sortKey });
     }
-    return sortRowsByKey(allRows, params.sortKey, params.sortDir);
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir]);
 
   useEffect(() => {

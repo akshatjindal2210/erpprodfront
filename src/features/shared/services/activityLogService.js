@@ -15,6 +15,8 @@ export const activityLogService = {
     if (params.date_to) query.append("date_to", params.date_to);
     if (params.entity) query.append("entity", params.entity);
     if (params.entity_id) query.append("entity_id", params.entity_id);
+    if (params.skipCount) query.append("skipCount", params.skipCount);
+    if (params.isExport) query.append("isExport", params.isExport);
 
     return api(`${ENDPOINTS.ACTIVITY_LOGS.LIST}?${query.toString()}`, { method: "GET" });
   },

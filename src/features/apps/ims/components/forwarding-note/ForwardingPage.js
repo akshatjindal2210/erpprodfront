@@ -224,12 +224,14 @@ export default function ForwardingPage() {
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
+    let data = allRows;
     if (q) {
-      return applyClientSearch(allRows, tempSearch, {
+      data = applyClientSearch(allRows, tempSearch, {
         getParts: (row) => forwardingTableSearchParts(row, reportType),
+        skipSort: !!params.sortKey,
       });
     }
-    return sortRowsByKey(allRows, params.sortKey, params.sortDir);
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir, reportType]);
 
   useEffect(() => {
