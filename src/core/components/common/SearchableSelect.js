@@ -388,8 +388,14 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   }, [items, dataKey, labelKey, labelOnlyDisplay]);
 
   const selectedIdSet = useCallback(() => {
-    return new Set((selected || []).map((s) => String(s[dataKey])));
-  }, [selected, dataKey]);
+    if (multiple) {
+      return new Set((Array.isArray(selected) ? selected : []).map((s) => String(s[dataKey])));
+    }
+    if (selected?.[dataKey] != null) {
+      return new Set([String(selected[dataKey])]);
+    }
+    return new Set();
+  }, [selected, dataKey, multiple]);
 
   const unselectedListItems = useCallback(() => {
     const ids = selectedIdSet();

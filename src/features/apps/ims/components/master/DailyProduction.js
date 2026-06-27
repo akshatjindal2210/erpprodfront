@@ -81,6 +81,16 @@ function buildDailyProdFetchFilters(stickerStatus, fromDate, toDate) {
   return filters;
 }
 
+/** Sticker generate/remove moves rows between Pending ↔ Generated — clear every tab cache for this range. */
+function invalidateDailyProdCachesForDateRange(fromDate, toDate) {
+  dailyProdClientCache.clear();
+  for (const status of ["pending", "generated", "all", "comparison"]) {
+    invalidateDailyProdListCache({
+      filters: buildDailyProdFetchFilters(status, fromDate, toDate),
+    });
+  }
+}
+
 const StickerCreationModel = dynamic(
   () => import("@/features/apps/ims/components/stickers/StickerCreationModel"),
   { ssr: false }
@@ -243,14 +253,8 @@ export default function DailyProductionPage() {
       setLoading(true);
       try {
         const cacheKey = dailyProdCacheKey(appliedQuery);
+        invalidateDailyProdCachesForDateRange(appliedQuery.fromDate, appliedQuery.toDate);
         dailyProdClientCache.delete(cacheKey);
-        invalidateDailyProdListCache({
-          filters: buildDailyProdFetchFilters(
-            appliedQuery.stickerStatus,
-            appliedQuery.fromDate,
-            appliedQuery.toDate
-          ),
-        });
         const { data } = await loadDailyProdRows(appliedQuery, { forceRefresh: true });
         dailyProdClientCache.set(cacheKey, { at: Date.now(), data });
         setAllRows(data);
@@ -373,7 +377,7 @@ export default function DailyProductionPage() {
     canOpenNew: () => Boolean(selected),
     newBlockedMessage: "Select a row in the list first — New Sticker opens only after a row is selected.",
     openDelete: openRemoveConfirm,
-    canDeleteSelection: () => Boolean(selected && selectedRecord?.sticker_generated),
+    canDeleteSelection: () => Boolean(selected && isDailyProdStickerGenerated(selectedRecord)),
   });
 
   const handleRemoveGeneratedStickersForRow = async () => {
