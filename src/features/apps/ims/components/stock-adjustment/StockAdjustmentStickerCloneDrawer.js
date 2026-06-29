@@ -20,8 +20,9 @@ import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 import { getCurrentIndianFinancialYearStartYear, rowInIndianFinancialYear } from "@/core/utils/indianFinancialYear";
 import { boxRowCustomerLabel, groupSelectedMinusBoxesByCustomer, parseMinusCustomerLinesFromRow, resolveMinusAccCodeFromSelection } from "@/features/apps/ims/utils/minusCustomerBreakdown";
 
-const FIELD_ORDER = ["addNumBoxes", "addExtraBoxes", "addPerBoxQty", "minusBoxes"];
-import { formatStockAdjustmentBoxNoUid, isLooseBoxComparedToStandard, parseOptionalStandardQtyPerBox, parseStockAdjustmentBoxIndex } from "@/features/apps/ims/utils/stockAdjustmentPacking";
+const FIELD_ORDER = ["addNumBoxes", "addExtraBoxes", "addPerBoxQty", "category", "minusBoxes"];
+import { formatStockAdjustmentBoxNoUid, isLooseBoxComparedToStandard, parseOptionalStandardQtyPerBox, parseStockAdjustmentBoxIndex, resolveDefaultStockAdjustmentCategoryId } from "@/features/apps/ims/utils/stockAdjustmentPacking";
+import { categoryService } from "@/features/apps/ims/services/category";
 import { hydrateStockAdjustmentStickerView } from "./hydrateStockAdjustmentStickerView";
 import {
   boxInventoryStatus,
@@ -670,6 +671,29 @@ export default function StockAdjustmentStickerCloneDrawer({
   const [addExtraBoxes, setAddExtraBoxes] = useState("0");
   const [minusSelectedUids, setMinusSelectedUids] = useState(() => new Set());
   const [itemMeta, setItemMeta] = useState(null);
+  const [categoryOptions, setCategoryOptions] = useState([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState("");
+
+  const loadCategoriesForItem = useCallback(async (preferredId = null) => {
+    try {
+      const res = await categoryService.getViews({
+        permission_module: "stock_adjustment",
+        permission_action: "view",
+      });
+      const cats = sortFilterOptionsAsc(
+        (res?.data || []).map((c) => ({
+          id: String(c.id),
+          name: c.name || `Category #${c.id}`,
+        })),
+        "name"
+      );
+      setCategoryOptions(cats);
+      setSelectedCategoryId(resolveDefaultStockAdjustmentCategoryId(cats, preferredId));
+    } catch {
+      setCategoryOptions([]);
+      setSelectedCategoryId("");
+    }
+  }, []);
 
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(INITIAL_FORM);
@@ -724,6 +748,8 @@ export default function StockAdjustmentStickerCloneDrawer({
       setAddExtraBoxes("0");
       setMinusSelectedUids(new Set());
       setItemMeta(null);
+      setCategoryOptions([]);
+      setSelectedCategoryId("");
       setForm(INITIAL_FORM);
       setErrors({});
       setMobileBreakdownTab("details");
@@ -788,6 +814,9 @@ export default function StockAdjustmentStickerCloneDrawer({
           setSavedRow(hydrated.row);
           setGatePassed(true);
           setMobileBreakdownTab("details");
+          if (hydrated.gateEntryType === "add") {
+            await loadCategoriesForItem(hydrated.row?.category_id);
+          }
         } catch (err) {
           if (!cancelled) {
             toast.error(err?.message || "Failed to load adjustment");
@@ -1246,6 +1275,14 @@ export default function StockAdjustmentStickerCloneDrawer({
 
       setPackingPreview(previewPayload);
       setItemMeta(im);
+      if (gateEntryType === "add") {
+        const itemId = previewPayload.dailyprod?.itemdcode ?? previewPayload.stickerRow?.itemdcode;
+        const acc = previewPayload.dailyprod?.acc_code ?? null;
+        await loadCategoriesForItem();
+      } else {
+        setCategoryOptions([]);
+        setSelectedCategoryId("");
+      }
       setGatePassed(true);
       setMinusSelectedUids(new Set());
       setMobileBreakdownTab("details");
@@ -1331,6 +1368,7 @@ export default function StockAdjustmentStickerCloneDrawer({
     if (gateEntryType === "add") {
       const pb = parseInt(String(addPerBoxQty).trim(), 10);
       if (!Number.isFinite(pb) || pb < 1) e.addPerBoxQty = "Per box qty ≥ 1";
+      if (!selectedCategoryId) e.category = "Select packing category";
       if (isAddEditRebuild) {
         const extra = parseInt(String(addExtraBoxes).trim(), 10);
         if (!Number.isFinite(extra) || extra < 0) e.addExtraBoxes = "Add more must be 0 or more";
@@ -1409,6 +1447,7 @@ export default function StockAdjustmentStickerCloneDrawer({
           const pb = parseInt(String(addPerBoxQty).trim(), 10);
           payload.per_box_qty = pb;
           payload.acc_code = form.acc_code;
+          payload.category_id = Number(selectedCategoryId);
           if (isAddEditRebuild) {
             payload.add_extra_boxes = parseInt(String(addExtraBoxes).trim(), 10) || 0;
             payload.remove_add_box_uids = [...addRemoveUids]
@@ -1450,6 +1489,7 @@ export default function StockAdjustmentStickerCloneDrawer({
           unit: "PCS",
           remarks: remarksForApi,
           acc_code: form.acc_code,
+          category_id: Number(selectedCategoryId),
           approved: showApproval && form.approved === true,
         });
       } else if (gateEntryType === "minus") {
@@ -2083,6 +2123,14 @@ export default function StockAdjustmentStickerCloneDrawer({
                 hideCustomerSection={isMinusFlow && !readOnly}
                 minusViewMode={minusViewMode}
                 minusCustomerLines={minusViewMode ? minusCustomerLinesDisplay : null}
+                categories={categoryOptions}
+                selectedCategoryId={selectedCategoryId}
+                onCategoryChange={(id) => {
+                  setSelectedCategoryId(id);
+                  if (errors.category) setErrors((prev) => ({ ...prev, category: "" }));
+                }}
+                categorySelectDisabled={structureLocked || gateEntryType !== "add"}
+                categoryError={errors.category || ""}
               />
             </div>
           ) : (
@@ -2103,6 +2151,14 @@ export default function StockAdjustmentStickerCloneDrawer({
             hideCustomerSection={isMinusFlow && !readOnly}
             minusViewMode={minusViewMode}
             minusCustomerLines={minusViewMode ? minusCustomerLinesDisplay : null}
+            categories={categoryOptions}
+            selectedCategoryId={selectedCategoryId}
+            onCategoryChange={(id) => {
+              setSelectedCategoryId(id);
+              if (errors.category) setErrors((prev) => ({ ...prev, category: "" }));
+            }}
+            categorySelectDisabled={structureLocked || gateEntryType !== "add"}
+            categoryError={errors.category || ""}
           />
         </div>
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">{breakdownTableBlock}</div>

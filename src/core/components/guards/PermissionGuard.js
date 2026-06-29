@@ -100,9 +100,15 @@ export default function PermissionGuard({ children }) {
       } else {
         return { authorized: false, noAccessAtAll: false };
       }
-    } else {
-      return { authorized: true, noAccessAtAll: false };
     }
+
+    // Route not in nav registry — only app dashboard home is open without a module gate.
+    const isOpenDashboard =
+      pathname === ROUTES.DASHBOARD ||
+      pathname === "/ims/dashboard" ||
+      pathname === "/task/dashboard" ||
+      pathname === "/settings";
+    return { authorized: isOpenDashboard, noAccessAtAll: false };
   }, [pathname, hasPermissionOnly, allowedModules]);
 
   useEffect(() => {

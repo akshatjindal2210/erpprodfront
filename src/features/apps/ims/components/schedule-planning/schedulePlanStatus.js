@@ -38,7 +38,7 @@ export const SCHEDULE_STATUS_FILTER_OPTIONS = [
   { value: SCHEDULE_LIST_FILTER.REJECT, label: "Reject" },
 ];
 
-/** Report view — Default = current list; Custom = customer report (coming soon). */
+/** Report view — Default = current month (IMS only, not sent from client); Custom = month/date via internal API. */
 export const SCHEDULE_REPORT_FILTER = {
   DEFAULT: "default",
   CUSTOM: "custom",

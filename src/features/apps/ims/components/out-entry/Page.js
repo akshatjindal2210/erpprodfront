@@ -39,7 +39,6 @@ const PAGE_TABS = {
 export default function OutEntryPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("out_entry", "view"), [canAccess]);
-  const forwardingViewAccess = useMemo(() => canAccess("forwarding_notes", "view"), [canAccess]);
 
   const [pageTab, setPageTab] = useState(PAGE_TABS.PENDING_FORWARDING);
   const isStoreOut = pageTab === PAGE_TABS.STORE_OUT;
@@ -252,7 +251,8 @@ export default function OutEntryPage() {
   );
 
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
-    module: isStoreOut ? "out_entry" : "forwarding_notes",
+    // Always out_entry — both tabs run store-out actions (pending FN opens OutEntryModal, not FN edit).
+    module: "out_entry",
     modalOpen,
     selectedId: selected,
     getSelectedRow,

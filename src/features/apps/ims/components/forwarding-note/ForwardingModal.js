@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Check, Loader2, Shield, Package, Trash2, Plus, AlertCircle } from "lucide-react";
+import { Check, Loader2, Shield, Package, Trash2, Plus, AlertCircle, ChevronRight } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { forwardingNoteService } from "@/features/apps/ims/services/forwardingNote";
@@ -12,7 +12,7 @@ import SearchableSelect          from "@/core/components/common/SearchableSelect
 import { applyClientSearch } from "@/features/apps/ims/helpers/clientListSearch";
 import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
-import { calculateFifoBoxes, isForwardingLooseBox } from "@/core/utils/utilHelper";
+import { calculateFifoBoxes, enrichForwardingBoxesWithPackingStd, isForwardingLooseBox } from "@/core/utils/utilHelper";
 import RemarksTextarea           from "@/core/components/common/RemarksTextarea";
 import FormPanelLoader           from "@/core/components/common/FormPanelLoader";
 import { OK_INPUT, FORM_LABEL_CLASS, FORM_MICRO_LABEL_CLASS, FORM_ERROR_CLASS } from "@/core/components/common/Constants";
@@ -23,6 +23,7 @@ const FIELD_ORDER = ["acc_code", "po_number"];
 
 const INITIAL_FORM = {
   acc_code:            "",
+  packing_category_id: "",
   po_number:           "",
   transporter_sel_id:  "",
   transporter_name:    "",
@@ -42,7 +43,9 @@ const INITIAL_ITEM_ROW = {
   available_boxes: [], // full stock from API
   selected_boxes:  [], // Boxes selected in FIFO order
   loose_priority:  false,
-  fg_qty:          0,  // total available
+  fg_qty:          0,
+  erp_qty:         0,
+  erp_by_packing:  {},
   dispatch_qty:    "", // user input
   dispatch_std:    "", // dispatch according to standard
   fetching:        false,
@@ -76,6 +79,29 @@ const itemStdQty = (item) => {
   const display = itemBoxDisplay(item);
   if (display.fromSelection) return sumQty(display.boxes);
   return (display.breakdowns || []).reduce((acc, bd) => acc + (Number(bd.total_qty) || 0), 0);
+};
+
+const erpQtyForPacking = (item, packingNo) => {
+  const key = String(packingNo ?? "").trim();
+  return Number(item?.erp_by_packing?.[key] ?? 0) || 0;
+};
+
+/** ERP FG rows keyed by Doc No. — for packing-wise display. */
+const erpPackingEntries = (item) => {
+  const map = item?.erp_by_packing;
+  if (!map || typeof map !== "object") return [];
+  return Object.entries(map)
+    .map(([packingNo, qty]) => ({
+      packingNo: String(packingNo).trim(),
+      qty: Number(qty) || 0,
+    }))
+    .filter((r) => r.packingNo)
+    .sort((a, b) => {
+      const na = Number(a.packingNo);
+      const nb = Number(b.packingNo);
+      if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return nb - na;
+      return b.packingNo.localeCompare(a.packingNo);
+    });
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -181,8 +207,11 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
   const formItemsRef = useRef(form.items);
+  const prevCategoryRef = useRef("");
   const [transporterOpts, setTransporterOpts] = useState([]);
   const [transporterOpen, setTransporterOpen] = useState(false);
+  const [categoryOpts, setCategoryOpts] = useState([]);
+  const [categoryLoading, setCategoryLoading] = useState(false);
 
   const canAccess = useCanAccess();
   const canAuthorize = canAccess("forwarding_note_master", "authorize").allowed;
@@ -201,13 +230,10 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     formItemsRef.current = form.items;
   }, [form.items]);
 
-  const inHandItemsPerms = useMemo(
-    () => ({
-      permission_module: "forwarding_note_master",
-      permission_action: "view",
-    }),
-    []
-  );
+  const editingFuid = useMemo(() => {
+    const fuid = parseInt(String(editData?.fuid ?? "").trim(), 10);
+    return Number.isFinite(fuid) && fuid > 0 ? fuid : null;
+  }, [editData?.fuid]);
 
   useEffect(() => {
     if (!open || !formReady) {
@@ -218,9 +244,12 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     let cancelled = false;
     (async () => {
       try {
-        const res = await masterService.getInHandItemsViews(inHandItemsPerms);
+        const res = await forwardingNoteService.getAvailableItems({
+          exclude_fuid: editingFuid ?? undefined,
+        });
         if (!cancelled) {
-          setInHandItemCatalog(Array.isArray(res?.data) ? res.data : []);
+          const rows = Array.isArray(res?.data) ? res.data : [];
+          setInHandItemCatalog(rows.map((item) => ({ ...item, id: item.id ?? item.itemdcode })));
         }
       } catch {
         if (!cancelled) setInHandItemCatalog([]);
@@ -230,7 +259,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     return () => {
       cancelled = true;
     };
-  }, [open, formReady, inHandItemsPerms]);
+  }, [open, formReady, editingFuid]);
 
   const getItemById = useCallback(
     (id) => {
@@ -286,6 +315,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       setFormReady(false);
       setForm(INITIAL_FORM);
       setTransporterOpts([]);
+      prevCategoryRef.current = "";
       return undefined;
     }
 
@@ -313,18 +343,49 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
         }
         const fullData = res.data;
 
+        let defaultCategoryId = null;
+        if (fullData.acc_code) {
+          try {
+            const catRes = await forwardingNoteService.getCustomerCategory({ acc_code: Number(fullData.acc_code) });
+            const categoryOptions = Array.isArray(catRes?.data?.options) ? catRes.data.options : [];
+            defaultCategoryId = catRes?.data?.packing_category_id ?? null;
+            if (!cancelled) setCategoryOpts(categoryOptions);
+          } catch {
+            if (!cancelled) setCategoryOpts([]);
+          }
+        }
+
+        const resolvedCategoryId =
+          fullData.packing_category_id != null && fullData.packing_category_id !== ""
+            ? fullData.packing_category_id
+            : defaultCategoryId;
+
         const itemsWithStock = await Promise.all((fullData.items || []).map(async (i) => {
           let available_boxes = [];
           let fg_qty = i.total_qty || 0;
+          let erp_qty = 0;
+          let erp_by_packing = {};
+
+          const stockBody = {
+            item_dcode: i.item_dcode,
+            exclude_fuid: fuid || undefined,
+            ...(resolvedCategoryId != null && resolvedCategoryId !== ""
+              ? { packing_category_id: Number(resolvedCategoryId) }
+              : {}),
+          };
 
           try {
-            const stockRes = await forwardingNoteService.getAvailableBoxes({
-              item_dcode: i.item_dcode,
-              exclude_fuid: fuid || undefined,
-            });
+            const [stockRes, erpRes] = await Promise.all([
+              forwardingNoteService.getAvailableBoxes(stockBody),
+              forwardingNoteService.getErpStock(stockBody),
+            ]);
             if (stockRes.success) {
-              available_boxes = sortBoxesForFifo(stockRes.data || []);
+              available_boxes = sortBoxesForFifo(enrichForwardingBoxesWithPackingStd(stockRes.data || []));
               fg_qty = sumQty(available_boxes);
+            }
+            if (erpRes?.success !== false) {
+              erp_qty = Number(erpRes?.total) || 0;
+              erp_by_packing = erpRes?.by_packing && typeof erpRes.by_packing === "object" ? erpRes.by_packing : {};
             }
           } catch (e) {
             console.error("Stock fetch error", e);
@@ -348,6 +409,8 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
             selected_boxes,
             loose_priority: loosePriorityFromSaved,
             fg_qty,
+            erp_qty,
+            erp_by_packing,
             dispatch_qty: i.total_qty || "",
             dispatch_std: i.total_qty || "",
             fetching: false,
@@ -358,8 +421,18 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
         if (cancelled) return;
 
+        const categoryKey =
+          resolvedCategoryId != null && resolvedCategoryId !== ""
+            ? String(resolvedCategoryId)
+            : "";
+        prevCategoryRef.current = categoryKey;
+
         setForm({
           acc_code: fullData.acc_code || "",
+          packing_category_id:
+            resolvedCategoryId != null && resolvedCategoryId !== ""
+              ? String(resolvedCategoryId)
+              : "",
           po_number: fullData.po_number || "",
           transporter_sel_id: "",
           transporter_name: fullData.transporter_name || "",
@@ -393,14 +466,58 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     if (errors[k]) setErrors((prev) => ({ ...prev, [k]: "" }));
   };
 
+  const buildStockRequestBody = useCallback(
+    (itemDcode, categoryId) => {
+      const body = {
+        item_dcode: itemDcode,
+        exclude_fuid: editingFuid ?? undefined,
+      };
+      const catId = categoryId != null && String(categoryId).trim() !== "" ? Number(categoryId) : null;
+      if (Number.isFinite(catId) && catId > 0) body.packing_category_id = catId;
+      return body;
+    },
+    [editingFuid]
+  );
+
+  const loadCustomerCategory = useCallback(async (accCode) => {
+    if (!accCode) {
+      setCategoryOpts([]);
+      setCategoryLoading(false);
+      return;
+    }
+    setCategoryLoading(true);
+    try {
+      const res = await forwardingNoteService.getCustomerCategory({ acc_code: Number(accCode) });
+      const options = Array.isArray(res?.data?.options) ? res.data.options : [];
+      setCategoryOpts(options);
+      const defaultId = res?.data?.packing_category_id;
+      setForm((prev) => ({
+        ...prev,
+        packing_category_id:
+          defaultId != null && defaultId !== ""
+            ? String(defaultId)
+            : options[0]?.id != null
+              ? String(options[0].id)
+              : "",
+      }));
+    } catch {
+      setCategoryOpts([]);
+    } finally {
+      setCategoryLoading(false);
+    }
+  }, []);
+
   const handleAccCodeChange = (id) => {
     setForm((prev) => ({
       ...prev,
       acc_code: id ?? "",
+      packing_category_id: "",
       transporter_sel_id: "",
       transporter_name: "",
       transporter_id: "",
     }));
+    if (id) void loadCustomerCategory(id);
+    else setCategoryOpts([]);
     if (errors.acc_code) setErrors((prev) => ({ ...prev, acc_code: "" }));
   };
 
@@ -458,6 +575,106 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     }));
   };
 
+  const fetchItemStock = useCallback(
+    async (idx, itemDcode, categoryId, { resetSelection = true } = {}) => {
+      const catId = categoryId != null && String(categoryId).trim() !== "" ? String(categoryId) : "";
+      if (!catId) {
+        updateItemRow(idx, {
+          available_boxes: [],
+          selected_boxes: [],
+          loose_priority: false,
+          fg_qty: 0,
+          erp_qty: 0,
+          erp_by_packing: {},
+          dispatch_qty: "",
+          fetching: false,
+          boxes_edited: true,
+          original_breakdowns: [],
+        });
+        return;
+      }
+
+      updateItemRow(idx, { fetching: true });
+      try {
+        const body = buildStockRequestBody(itemDcode, categoryId);
+        const [res, erpRes] = await Promise.all([
+          forwardingNoteService.getAvailableBoxes(body),
+          forwardingNoteService.getErpStock(body),
+        ]);
+
+        const erp_qty = erpRes?.success !== false ? Number(erpRes?.total) || 0 : 0;
+        const erp_by_packing =
+          erpRes?.by_packing && typeof erpRes.by_packing === "object" ? erpRes.by_packing : {};
+
+        if (res.success) {
+          const fifoBoxes = sortBoxesForFifo(enrichForwardingBoxesWithPackingStd(res.data || []));
+          const fg_qty = sumQty(fifoBoxes);
+          const updates = {
+            available_boxes: fifoBoxes,
+            fg_qty,
+            erp_qty,
+            erp_by_packing,
+            fetching: false,
+          };
+          if (resetSelection) {
+            Object.assign(updates, {
+              selected_boxes: [],
+              loose_priority: false,
+              dispatch_qty: "",
+              boxes_edited: true,
+              original_breakdowns: [],
+            });
+          }
+          updateItemRow(idx, updates);
+          if (fifoBoxes.length === 0) {
+            toast.info("No stock for this item in the selected category.");
+          }
+        } else {
+          updateItemRow(idx, {
+            available_boxes: [],
+            fg_qty: 0,
+            erp_qty,
+            erp_by_packing,
+            fetching: false,
+            ...(resetSelection
+              ? {
+                  selected_boxes: [],
+                  dispatch_qty: "",
+                  boxes_edited: true,
+                  original_breakdowns: [],
+                }
+              : {}),
+          });
+        }
+      } catch (err) {
+        updateItemRow(idx, { fetching: false });
+        toast.error(err?.message || "Failed to fetch available stock for this item.");
+      }
+    },
+    [buildStockRequestBody]
+  );
+
+  const handleCategoryChange = (categoryId) => {
+    if (!categoryId) return;
+    handleInputChange("packing_category_id", categoryId);
+    formItemsRef.current.forEach((item, idx) => {
+      if (item.item_dcode) void fetchItemStock(idx, item.item_dcode, categoryId);
+    });
+  };
+
+  useEffect(() => {
+    if (!open || !formReady || categoryLoading) return;
+    const cat = String(form.packing_category_id ?? "");
+    const prev = prevCategoryRef.current;
+    prevCategoryRef.current = cat;
+    // Only refetch when category changes from one value to another — not on the
+    // initial assignment after edit/approve hydrate (that would wipe saved qty/boxes).
+    if (!cat || cat === prev || !prev) return;
+    formItemsRef.current.forEach((item, idx) => {
+      if (item.item_dcode) void fetchItemStock(idx, item.item_dcode, cat);
+    });
+  }, [open, formReady, categoryLoading, form.packing_category_id, fetchItemStock]);
+
   // ── Item select — fetch boxes from API ────────────────────────────────────
   const handleItemChange = async (idx, id, rawData) => {
     if (!id) {
@@ -473,6 +690,15 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       return;
     }
 
+    if (categoryLoading) {
+      toast.info("Category is loading — please wait a moment.");
+      return;
+    }
+    if (form.acc_code && !form.packing_category_id) {
+      toast.error("Please select a category before adding items.");
+      return;
+    }
+
     updateItemRow(idx, {
       item_dcode:      id,
       item_code:       rawData?.item_code || "",
@@ -481,34 +707,16 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       selected_boxes:  [],
       loose_priority:  false,
       fg_qty:          0,
+      erp_qty:         0,
+      erp_by_packing:  {},
       dispatch_qty:    "",
       dispatch_std:    "",
       fetching:        true,
+      boxes_edited:    false,
+      original_breakdowns: [],
     });
 
-    try {
-      const res = await forwardingNoteService.getAvailableBoxes({
-        item_dcode: id,
-        exclude_fuid: editData?.fuid || undefined,
-      });
-      if (res.success) {
-        const fifoBoxes = sortBoxesForFifo(res.data || []);
-        const fg_qty = sumQty(fifoBoxes);
-        updateItemRow(idx, {
-          available_boxes: fifoBoxes,
-          fg_qty,
-          fetching: false,
-        });
-        if (res.count === 0) {
-          toast.info(
-            "No remaining stock for this item (warehouse empty or qty already reserved on other forwarding notes)."
-          );
-        }
-      }
-    } catch (err) {
-      updateItemRow(idx, { fetching: false });
-      toast.error(err?.message || "Failed to fetch available stock for this item.");
-    }
+    await fetchItemStock(idx, id, form.packing_category_id, { resetSelection: true });
   };
 
   const handleDispatchQtyChange = (idx, val) => {
@@ -619,6 +827,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       const payload = {
         ...formRest,
         acc_code: parseInt(form.acc_code) || null,
+        packing_category_id: form.packing_category_id ? parseInt(form.packing_category_id, 10) : null,
         cartage: parseFloat(form.cartage) || 0,
         customer_qty: parseInt(form.customer_qty) || 0,
         approved: finalApproved,
@@ -767,7 +976,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
         {/* ── Header fields ── */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-1">
-          <div className="md:col-span-3 space-y-1 relative" data-field="acc_code">
+          <div className="md:col-span-2 space-y-1 relative" data-field="acc_code">
             <SearchableSelect 
               label="Customer / Account"
               required
@@ -787,6 +996,30 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
               labelKey="acc_name"
             />
           </div>
+
+          {/* {form.acc_code ? ( */}
+            <div className="md:col-span-1 space-y-1">
+              <label className={FORM_LABEL_CLASS}>Category</label>
+              <select
+                value={String(form.packing_category_id ?? "")}
+                onChange={(e) => handleCategoryChange(e.target.value)}
+                disabled={!form.acc_code || categoryLoading}
+                className={`${OK_INPUT} rounded-lg border-slate-200 disabled:bg-slate-50 disabled:text-slate-400`}
+              >
+                {!form.acc_code ? (
+                  <option value="">Select customer first</option>
+                ) : categoryLoading ? (
+                  <option value="">Loading category…</option>
+                ) : categoryOpts.length === 0 ? (
+                  <option value="">No categories</option>
+                ) : (
+                  categoryOpts.map((opt) => (
+                    <option key={opt.id} value={String(opt.id)}>{opt.name}</option>
+                  ))
+                )}
+              </select>
+            </div>
+          {/* ) : null} */}
 
           {/* Transporter — suggestions from previous forwarding notes (per customer) + manual entry */}
           <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-3 min-w-0">
@@ -993,7 +1226,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-12 gap-2 items-end">
                   {/* Search Item */}
-                  <div className="col-span-2 sm:col-span-4 lg:col-span-4 text-[11px] min-w-0">
+                  <div className="col-span-2 sm:col-span-4 lg:col-span-3 text-[11px] min-w-0">
                     <SearchableSelect
                       label="Search Item"
                       value={item.item_dcode}
@@ -1003,8 +1236,29 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                       dataKey="id"
                       labelKey="item_code"
                       subLabelKey="itemdesc"
-                      emptyMessage="No items with in-hand stock"
+                      disabled={!form.acc_code || categoryLoading || !form.packing_category_id}
+                      emptyMessage={
+                        !form.acc_code
+                          ? "Select customer first"
+                          : categoryLoading
+                            ? "Loading category…"
+                            : !form.packing_category_id
+                              ? "Select category first"
+                              : "No items with in-hand stock"
+                      }
                     />
+                  </div>
+
+                  {/* ERP Stock */}
+                  <div className="lg:col-span-2 space-y-0.5 min-w-0">
+                    <label className={`${FORM_MICRO_LABEL_CLASS} text-slate-600 block ml-1`}>ERP Stock</label>
+                    <div className="bg-slate-700 text-white text-center font-black h-[38px] flex items-center justify-center rounded-lg shadow-sm text-xs">
+                      {item.fetching ? (
+                        <Loader2 size={14} className="animate-spin opacity-80" />
+                      ) : (
+                        (Number(item.erp_qty) || 0).toLocaleString()
+                      )}
+                    </div>
                   </div>
 
                   {/* FG Stock */}
@@ -1053,13 +1307,43 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                   </div>
 
                   {/* Dispatch Std QTY */}
-                  <div className="lg:col-span-2 space-y-0.5">
+                  <div className="lg:col-span-1 space-y-0.5">
                     <label className={`${FORM_MICRO_LABEL_CLASS} text-indigo-600 block ml-1`}>Std QTY</label>
                     <div className="bg-indigo-600 text-white text-center font-black h-[38px] flex items-center justify-center rounded-lg shadow-sm text-xs">
                       {itemStdQty(item).toLocaleString()}
                     </div>
                   </div>
                 </div>
+
+                {/* ERP by packing — collapsed by default, total already in box above */}
+                {/* 
+                {item.item_dcode && !item.fetching && erpPackingEntries(item).length > 0 && (
+                  <details className="mt-1 rounded-md border border-slate-200 overflow-hidden text-xs group">
+                    <summary className="flex items-center justify-between gap-2 px-2 py-1 bg-slate-50 cursor-pointer select-none hover:bg-slate-100 list-none [&::-webkit-details-marker]:hidden">
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-slate-600 min-w-0">
+                        <ChevronRight
+                          size={12}
+                          className="shrink-0 text-slate-400 transition-transform group-open:rotate-90"
+                        />
+                        ERP by packing
+                        <span className="font-normal text-slate-400">({erpPackingEntries(item).length})</span>
+                      </span>
+                      <span className="text-[9px] text-slate-400 shrink-0">tap to view</span>
+                    </summary>
+                    <div className="border-t border-slate-100 bg-white max-h-24 overflow-y-auto divide-y divide-slate-50">
+                      {erpPackingEntries(item).map(({ packingNo, qty }) => (
+                        <div
+                          key={packingNo}
+                          className="flex items-center justify-between gap-2 px-2 py-0.5 hover:bg-slate-50/80"
+                        >
+                          <span className="font-bold text-slate-500">#{packingNo}</span>
+                          <span className="font-black text-slate-700 tabular-nums">{qty.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+                */}
 
                 {/* Table Breakdown */}
                 {item.item_dcode && (() => {
@@ -1077,6 +1361,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                           <th className="px-2 py-1 text-center font-black text-slate-400 uppercase">Open Boxes</th>
                           <th className="px-2 py-1 text-center font-black text-slate-400 uppercase">Loose Boxes</th>
                           <th className="px-2 py-1 text-right font-black text-slate-400 uppercase">Total</th>
+                          <th className="px-2 py-1 text-right font-black text-yellow-500 uppercase">ERP Stock</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
@@ -1113,6 +1398,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                                     ) : "—"}
                                   </td>
                                   <td className="px-2 py-1 text-right font-black text-slate-700">{(openQty + looseQty).toLocaleString()}</td>
+                                  <td className="px-2 py-1 text-right font-bold text-slate-700 tabular-nums">{erpQtyForPacking(item, packingNo).toLocaleString()}</td>
                                 </tr>
                               );
                             });
@@ -1121,6 +1407,9 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                           display.breakdowns.map((bd, bidx) => (
                             <tr key={bidx} className="hover:bg-slate-50/30 transition-colors">
                               <td className="px-2 py-1 font-bold text-slate-600">#{bd.packing_number}</td>
+                              <td className="px-2 py-1 text-right font-bold text-slate-700 tabular-nums">
+                                {erpQtyForPacking(item, bd.packing_number).toLocaleString()}
+                              </td>
                               <td className="px-2 py-1 text-center">
                                 {bd.box > 0 ? (
                                   <span className="text-indigo-600 font-bold">{formatAggregatedBoxCount(bd.box, bd.box_qty)}</span>

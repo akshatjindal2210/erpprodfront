@@ -23,6 +23,9 @@ export const forwardingNoteService = {
   unlockLock:  (fuid) => api(ENDPOINTS.FORWARDING_NOTES.UNLOCK_LOCK, { method: "POST", body: { fuid } }),
   lockLock:    (fuid) => api(ENDPOINTS.FORWARDING_NOTES.LOCK_LOCK, { method: "POST", body: { fuid } }),
   getAvailableBoxes: (data) => api(ENDPOINTS.FORWARDING_NOTES.AVAILABLE_BOXES, { method: "POST", body: data }),
+  getAvailableItems: (data) => api(ENDPOINTS.FORWARDING_NOTES.AVAILABLE_ITEMS, { method: "POST", body: data }),
+  getErpStock: (data) => api(ENDPOINTS.FORWARDING_NOTES.ERP_STOCK, { method: "POST", body: data }),
+  getCustomerCategory: (data) => api(ENDPOINTS.FORWARDING_NOTES.CUSTOMER_CATEGORY, { method: "POST", body: data }),
   /** Full note + items; opens print dialog (user can “Save as PDF”). Optional `company_info`: { name, address } */
   printBill: (body) => api(ENDPOINTS.FORWARDING_NOTES.PRINT_BILL, { method: "POST", body }),
 };

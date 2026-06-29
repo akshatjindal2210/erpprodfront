@@ -1293,22 +1293,38 @@ export default function DataTable({
                         ))}
                       </div>
                       <div className="space-y-2 mb-3">
-                        {detailSlots.map((slot, idx) => (
+                        {detailSlots.map((slot, idx) => {
+                          const headerConfig = slot.kind === "header" ? slot.h[3] || {} : {};
+                          const detailFullWidth = Boolean(headerConfig.cardDetailFullWidth);
+                          const detailLabel =
+                            slot.kind === "header"
+                              ? headerConfig.cardLabel || slot.h[0]
+                              : fieldLabelFromKey(slot.key);
+
+                          return (
                           <div
                             key={`${rowReactKey}-d-${slot.kind === "header" ? slot.h[1] : slot.key}-${idx}`}
-                            className="flex justify-between items-baseline group/row"
+                            className={detailFullWidth ? "space-y-1.5" : "flex justify-between items-baseline group/row"}
                           >
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                              {slot.kind === "header" ? slot.h[0] : fieldLabelFromKey(slot.key)}
+                              {detailLabel}
                             </span>
-                            <div className="flex-1 mx-2 border-b border-dotted border-slate-100" />
-                            <span className="min-w-0 max-w-[70%] text-[11px] font-bold text-slate-600 text-right whitespace-normal break-words hyphens-auto" title={slot.kind === "raw" ? String(item[slot.key] ?? "") : undefined}>
+                            {!detailFullWidth ? <div className="flex-1 mx-2 border-b border-dotted border-slate-100" /> : null}
+                            <div
+                              className={
+                                detailFullWidth
+                                  ? "w-full"
+                                  : "min-w-0 max-w-[70%] text-[11px] font-bold text-slate-600 text-right whitespace-normal break-words hyphens-auto"
+                              }
+                              title={slot.kind === "raw" ? String(item[slot.key] ?? "") : undefined}
+                            >
                               {slot.kind === "header"
                                 ? renderCell(item, slot.h, rowIndex, "card")
                                 : renderCardValue(item, slot.key, rowIndex)}
-                            </span>
+                            </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       {(footerH || footerKeyStr) && cardFooterHasContent(item, footerH, footerKeyStr) && (
                         <div className="flex items-center justify-between pt-3 border-t border-slate-50 mt-1">

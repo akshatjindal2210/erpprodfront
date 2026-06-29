@@ -35,6 +35,8 @@ export default function DateRangeFilter({
   extraFiltersBeforeDate = [],
   /** When true, date pickers are visible but not editable (e.g. journey search mode). */
   dateDisabled = false,
+  /** Called when an extra dropdown value changes (before Search). */
+  onExtraFilterChange,
 }) {
   const [localFrom, setLocalFrom] = useState(externalFromDate || "");
   const [localTo, setLocalTo] = useState(externalToDate || "");
@@ -126,16 +128,19 @@ export default function DateRangeFilter({
         <label className={`${LIST_PAGE_SEARCH_LABEL_CLASS} max-md:hidden`}>{filter.label}</label>
         <select
           value={localExtras[filter.key] ?? filter.value ?? ""}
+          disabled={Boolean(filter.disabled)}
           onChange={(e) => {
+            if (filter.disabled) return;
             const v = e.target.value;
             const nextExtras = { ...localExtras, [filter.key]: v };
             setLocalExtras(nextExtras);
+            onExtraFilterChange?.(filter.key, v, nextExtras);
             if (showInstantExtras || applyExtrasOnChange) {
               onApply?.({ fromDate: localFrom, toDate: localTo, ...nextExtras });
               if (showInstantExtras) mobileFilterStrip?.collapseMobile?.();
             }
           }}
-          className={LIST_PAGE_FILTER_SELECT_CLASS}
+          className={`${LIST_PAGE_FILTER_SELECT_CLASS}${filter.disabled ? " opacity-50 cursor-not-allowed" : ""}`}
           style={{
             backgroundImage:
               'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2364748b\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\'/%3E%3C/svg%3E")',
@@ -178,7 +183,7 @@ export default function DateRangeFilter({
 
       {showDate && (
         <>
-          <div className={dateDisabled ? "pointer-events-none" : ""}>
+          <div className={dateDisabled ? "pointer-events-none opacity-50" : ""}>
             <FilterDateInput
               label="From Date"
               valueYmd={localFrom}
@@ -191,7 +196,7 @@ export default function DateRangeFilter({
             />
           </div>
 
-          <div className={dateDisabled ? "pointer-events-none" : ""}>
+          <div className={dateDisabled ? "pointer-events-none opacity-50" : ""}>
             <FilterDateInput
               label="To Date"
               valueYmd={localTo}

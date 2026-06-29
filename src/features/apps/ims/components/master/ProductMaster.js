@@ -95,7 +95,7 @@ export default function ProductMasterPage() {
         <ListPageFilterStrip className="space-y-2">
           <ListPageSearchField
             label="Product search"
-            placeholder="Item Code, Item description, group"
+            placeholder="Item Code, Prim item, description, group"
             value={tempSearch}
             onChange={(v) => {
               setTempSearch(v);
@@ -140,7 +140,9 @@ export default function ProductMasterPage() {
             />
             <MasterDetailGrid columns={2}>
               <MasterDetailSection label="Group name" tone="white"><span>{selectedRecord.grpname || "N/A"}</span></MasterDetailSection>
-              <MasterDetailSection label="Primary item" tone="white"><span>{selectedRecord.primitemdesc || "—"}</span></MasterDetailSection>
+              <MasterDetailSection label="Primary item code" tone="white"><span className="font-mono">{selectedRecord.primitem_code || "—"}</span></MasterDetailSection>
+              <MasterDetailSection label="Primary item description" tone="white"><span>{selectedRecord.primitemdesc || "—"}</span></MasterDetailSection>
+              <MasterDetailSection label="Weight" tone="white"><span className="tabular-nums">{selectedRecord.weight != null && selectedRecord.weight !== "" ? Number(selectedRecord.weight) : "—"}</span></MasterDetailSection>
             </MasterDetailGrid>
             <MasterDetailMetrics
               columns={3}

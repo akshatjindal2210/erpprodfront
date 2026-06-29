@@ -15,13 +15,24 @@ export default function StockAdjustmentStickerDetailCards({
   hideCustomerSection = false,
   minusCustomerLines = null,
   minusViewMode = false,
+  categories = [],
+  selectedCategoryId = "",
+  onCategoryChange,
+  categorySelectDisabled = false,
+  categoryError = "",
 }) {
   const row = selectedRow || {};
   const p = packing || {};
+  const categoryLabel =
+    categories.find((c) => String(c.id) === String(selectedCategoryId))?.name ||
+    (selectedCategoryId ? `Category #${selectedCategoryId}` : null) ||
+    row.category ||
+    row.type_name ||
+    "—";
+  const showCategorySelect = !categorySelectDisabled && !minusViewMode;
 
   const itemCode = row.item_code ?? "—";
   const itemDesc = row.itemdesc || row.description || row.item_desc || "—";
-  const categoryLabel = row.category || row.type_name || "—";
 
   return (
     <div className="p-2 lg:p-3 space-y-2 lg:space-y-3">
@@ -50,13 +61,40 @@ export default function StockAdjustmentStickerDetailCards({
           <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">Packing Category</span>
         </div>
         <div className="p-3 lg:p-4 space-y-2 lg:space-y-2.5">
-          <div className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded border border-slate-100">
-            <span className="text-[12px] font-black text-slate-700 uppercase tracking-tight">{categoryLabel}</span>
-            <CheckCircle2 className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] text-emerald-500 shrink-0" aria-hidden />
-          </div>
-          <div className="flex justify-between items-center text-[10px] text-amber-600 font-bold italic">
-            <span className="text-slate-400 font-bold normal-case">Read-only</span>
-          </div>
+          {showCategorySelect ? (
+            <div className="space-y-1" data-field="category">
+              <label className="text-[10px] font-bold text-amber-700 uppercase tracking-tighter">
+                Select category *
+              </label>
+              <select
+                value={String(selectedCategoryId ?? "")}
+                onChange={(e) => onCategoryChange?.(e.target.value)}
+                className={`w-full text-[11px] h-[36px] rounded-lg border bg-white px-2 font-bold text-slate-700 ${
+                  categoryError ? "border-rose-400" : "border-amber-200"
+                }`}
+              >
+                <option value="">Select category</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={String(cat.id)}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+              {categoryError ? (
+                <p className="text-[10px] font-bold text-rose-600">{categoryError}</p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded border border-slate-100">
+              <span className="text-[12px] font-black text-slate-700 uppercase tracking-tight">{categoryLabel}</span>
+              <CheckCircle2 className="w-3.5 h-3.5 lg:w-[18px] lg:h-[18px] text-emerald-500 shrink-0" aria-hidden />
+            </div>
+          )}
+          {!showCategorySelect ? (
+            <div className="flex justify-between items-center text-[10px] text-amber-600 font-bold italic">
+              <span className="text-slate-400 font-bold normal-case">Read-only</span>
+            </div>
+          ) : null}
         </div>
       </div>
 

@@ -25,7 +25,7 @@ import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
 import { toastDataRefreshed } from "@/core/utils/toastNotify";
 import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/features/apps/ims/helpers/masterListUi";
-import { DAILY_PRODUCTION_HEADERS, DAILY_PRODUCTION_COMPARISON_HEADERS, STICKER_STATUS_FILTER_OPTIONS, DAILY_PROD_CARD_CONFIG, dailyProdRowKey, dailyProdSearchParts, dailyProdComparisonSearchParts, filterDailyProdByStickerStatus, isDailyProdStickerGenerated, hasDailyProdComparisonMismatch } from "./masterColumns";
+import { DAILY_PRODUCTION_HEADERS, DAILY_PRODUCTION_PENDING_HEADERS, DAILY_PRODUCTION_COMPARISON_HEADERS, STICKER_STATUS_FILTER_OPTIONS, DAILY_PROD_PENDING_CARD_CONFIG, DAILY_PROD_GENERATED_CARD_CONFIG, DAILY_PROD_COMPARISON_CARD_CONFIG, dailyProdRowKey, dailyProdSearchParts, dailyProdComparisonSearchParts, filterDailyProdByStickerStatus, isDailyProdStickerGenerated, hasDailyProdComparisonMismatch } from "./masterColumns";
 
 const LIST_FETCH_CAP = 50000;
 const DISPLAY_CHUNK = 150;
@@ -305,8 +305,16 @@ export default function DailyProductionPage() {
 
   const tableHeaders = useMemo(() => {
     if (isComparisonView) return DAILY_PRODUCTION_COMPARISON_HEADERS;
+    if (appliedQuery?.stickerStatus === "pending") return DAILY_PRODUCTION_PENDING_HEADERS;
     return DAILY_PRODUCTION_HEADERS;
-  }, [isComparisonView]);
+  }, [isComparisonView, appliedQuery?.stickerStatus]);
+
+  const cardConfig = useMemo(() => {
+    const status = appliedQuery?.stickerStatus ?? "pending";
+    if (status === "pending") return DAILY_PROD_PENDING_CARD_CONFIG;
+    if (status === "comparison") return DAILY_PROD_COMPARISON_CARD_CONFIG;
+    return DAILY_PROD_GENERATED_CARD_CONFIG;
+  }, [appliedQuery?.stickerStatus]);
 
   const searchPlaceholder = useMemo(
     () =>
@@ -535,7 +543,7 @@ export default function DailyProductionPage() {
             totalItems={totalItems}
             emptyMessage={emptyState.message}
             emptySubMessage={emptyState.subMessage}
-            cardConfig={DAILY_PROD_CARD_CONFIG}
+            cardConfig={cardConfig}
             getRowClassName={
               isComparisonView
                 ? (row) =>

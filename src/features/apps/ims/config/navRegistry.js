@@ -27,6 +27,7 @@ export const NAV_REGISTRY = [
   { id: "stock-adjustment", name: "Stock Adjustment", icon: <Scale size={16} />, href: ROUTES.STOCK_ADJUSTMENT, module: "stock_adjustment" },
   { id: "audit", name: "Inventory Audit", icon: <ClipboardList size={16} />, href: ROUTES.AUDIT, module: "audit" },
   { id: "inventory-report", name: "Inventory Report", icon: <BarChart3 size={16} />, href: ROUTES.ANALYTICS, module: "inventory_report" },
+  { id: "erp-stock-report", name: "ERP Stock Report", icon: <BarChart3 size={16} />, href: ROUTES.ERP_STOCK_REPORT, module: "erp_stock_report" },
   {
     id: "logs-group",
     name: "Logs",

@@ -149,10 +149,64 @@ export const maskTaskId = (id) => {
   return btoa(pattern).replace(/=/g, "");
 };
 
-/** Full/open vs loose — `ims_box_table.is_loose` from API (sticker / adjustment). */
-export function isForwardingLooseBox(box) {
+/** Keep in sync with `backend/src/apps/ims/utils/box/boxLooseKind.js`. */
+export function inferForwardingPackingStandardQty(boxes = []) {
+  const counts = new Map();
+  for (const box of boxes || []) {
+    const flaggedLoose = box?.is_loose === true || box?.is_loose === 1 || box?.is_loose === "true" || box?.is_loose === "t";
+    if (flaggedLoose) continue;
+    const qty = Math.round(Number(box?.qty) || 0);
+    if (qty > 0) counts.set(qty, (counts.get(qty) || 0) + 1);
+  }
+  if (counts.size === 0) {
+    for (const box of boxes || []) {
+      const qty = Math.round(Number(box?.qty) || 0);
+      if (qty > 0) counts.set(qty, (counts.get(qty) || 0) + 1);
+    }
+  }
+  let bestQty = 0;
+  let bestCount = 0;
+  for (const [qty, count] of counts) {
+    if (count > bestCount || (count === bestCount && qty > bestQty)) {
+      bestQty = qty;
+      bestCount = count;
+    }
+  }
+  return bestQty > 0 ? bestQty : 0;
+}
+
+/** Full/open vs loose — `is_loose` flag, else qty vs packing standard (full box qty). */
+export function isForwardingLooseBox(box, packingStandardQty = null) {
   const v = box?.is_loose;
-  return v === true || v === 1 || v === "true" || v === "t";
+  if (v === true || v === 1 || v === "true" || v === "t") return true;
+
+  const qty = Math.round(Number(box?.qty) || 0);
+  const std = Math.round(
+    Number(
+      packingStandardQty != null
+        ? packingStandardQty
+        : box?._packing_std_qty ?? box?.standard_qty_per_box ?? 0
+    ) || 0
+  );
+  if (std > 0 && qty > 0 && qty !== std) return true;
+  return false;
+}
+
+export function enrichForwardingBoxesWithPackingStd(boxes = []) {
+  const byPacking = new Map();
+  for (const box of boxes || []) {
+    const pn = String(box?.packing_number ?? "").trim() || "N/A";
+    if (!byPacking.has(pn)) byPacking.set(pn, []);
+    byPacking.get(pn).push(box);
+  }
+  const stdByPacking = new Map();
+  for (const [pn, list] of byPacking) {
+    stdByPacking.set(pn, inferForwardingPackingStandardQty(list));
+  }
+  return (boxes || []).map((box) => {
+    const pn = String(box?.packing_number ?? "").trim() || "N/A";
+    return { ...box, _packing_std_qty: stdByPacking.get(pn) || null };
+  });
 }
 
 /**

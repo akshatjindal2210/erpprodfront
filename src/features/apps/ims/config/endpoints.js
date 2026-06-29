@@ -129,6 +129,9 @@ export const ENDPOINTS = {
     UNLOCK_LOCK: "/forwarding-notes/unlock-lock",
     LOCK_LOCK: "/forwarding-notes/lock-lock",
     AVAILABLE_BOXES: "/forwarding-notes/available-boxes",
+    AVAILABLE_ITEMS: "/forwarding-notes/available-items",
+    ERP_STOCK: "/forwarding-notes/erp-stock",
+    CUSTOMER_CATEGORY: "/forwarding-notes/customer-category",
     PRINT_BILL: "/forwarding-notes/print-bill",
     TRANSPORTERS: "/forwarding-notes/transporter-helper",
     BILL_NUMBERS: "/forwarding-notes/bill-helper",
@@ -160,6 +163,10 @@ export const ENDPOINTS = {
 
   INVENTORY_REPORT: {
     LIST: "/inventory-report/list",
+  },
+
+  ERP_STOCK_REPORT: {
+    LIST: "/erp-stock-report/list",
   },
 
   SCHEDULE_PLANNING: {

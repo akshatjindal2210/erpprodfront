@@ -183,6 +183,14 @@ export default function PackingStandardPage() {
         <span className="text-[9px] text-slate-400 font-bold uppercase italic">{row.unit}</span>
       </div>
     ), { width: "80px", align: "center" }],
+    ["KG", "row_kg", (v) => {
+      const n = Number(v);
+      return (
+        <span className="font-semibold text-slate-800 text-[11px] tabular-nums">
+          {Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
+        </span>
+      );
+    }, { width: "90px", align: "right" }],
     ["Category", "category_name", (v, row) => (
       <div className="flex flex-col leading-tight">
         <span className="text-[10px] font-bold text-slate-600 uppercase">{v || "—"}</span>

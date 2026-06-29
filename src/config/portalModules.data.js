@@ -34,6 +34,7 @@ export const MODULES = {
     { name: "change_override_customer", label: "Change / Override Customer" },
     { name: "stock_adjustment", label: "Stock Adjustment" },
     { name: "inventory_report", label: "Inventory Report" },
+    { name: "erp_stock_report", label: "ERP Stock Report" },
     { name: "activity_logs", label: "Activity Logs" },
     { name: "box_transaction_logs", label: "Box Transaction Logs" },
     { name: "sticker_download_logs", label: "Sticker Download Logs" },

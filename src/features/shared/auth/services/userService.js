@@ -20,6 +20,14 @@ export const userService = {
 
   delete: (id) => api(ENDPOINTS.USERS.DELETE, { method: "POST", body: { id } }),
 
-  getViews: (body = {}) => api(ENDPOINTS.USERS.HELPER, { method: "POST", body }),
+  getViews: (body = {}) =>
+    api(ENDPOINTS.USERS.HELPER, {
+      method: "POST",
+      body: {
+        permission_module: "tasks",
+        permission_action: "view",
+        ...body,
+      },
+    }),
 };
 

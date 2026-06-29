@@ -24,6 +24,7 @@ export const ROUTES = {
   BOX_TRANSACTION_LOGS: `${IMS}/logs/box-transactions`,
 
   ANALYTICS: `${IMS}/inventory-report`,
+  ERP_STOCK_REPORT: `${IMS}/erp-stock-report`,
   STOCK_ADJUSTMENT: `${IMS}/stock-adjustment`,
   AUDIT: `${IMS}/audit`,
   QC_HOLD_MATERIAL: `${IMS}/qc-hold-material`,

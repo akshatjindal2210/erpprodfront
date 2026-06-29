@@ -184,8 +184,9 @@ export default function ForwardingPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      const apiSearch = reportType === "summary" ? appliedSearch : "";
       const base = {
-        ...(appliedSearch && { search: appliedSearch }),
+        ...(apiSearch && { search: apiSearch }),
         filters: {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
@@ -215,7 +216,7 @@ export default function ForwardingPage() {
     params.status,
     params.dispatchFilter,
     reportType,
-    appliedSearch,
+    reportType === "summary" ? appliedSearch : "",
   ]);
 
   useEffect(() => { 

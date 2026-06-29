@@ -513,22 +513,25 @@ export default function InwardPage() {
       ),
       { width: "100px" },
     ],
+    /*
     ["Customer", "acc_name", (v, row) => (
       <div className="flex flex-col leading-tight min-w-0">
-        <span className="text-slate-800 font-bold text-[10px] uppercase whitespace-normal break-words leading-snug hyphens-auto" title={v}>{v || "Unknown"}</span>
+      <span className="text-slate-800 font-bold text-[10px] uppercase whitespace-normal break-words leading-snug hyphens-auto" title={v}>{v || "Unknown"}</span>
       </div>
     ), { width: "250px", wrap: true }],
+    */ 
     ["Item Details", "item_code", (v, row) => (
       <div className="flex flex-col leading-tight">
         <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v}>{v}</span>
       </div>
     )],
+    /*
     ["Item Description", "item_desc", (v, row) => (
       <div className="flex flex-col leading-tight">
         <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v}>{v}</span>
       </div>
     ), { width: "220px" }],
-    
+    */
     [
       "Unassigned boxes",
       "box_count",
@@ -540,6 +543,8 @@ export default function InwardPage() {
       ),
       { width: "130px" },
     ],
+    ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+    ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 
   const headers = isStoreIn
@@ -594,8 +599,8 @@ export default function InwardPage() {
       : {
           titleKey: "packing_number",
           badgeIndices: [8],
-          detailKeys: ["job_card_no", "acc_name", "item_code", "stock_qty"],
-          footerKey: "doc_dt",
+          detailKeys: ["job_card_no", "acc_name", "item_code", "stock_qty", "created_by_name"],
+          footerKey: "created_at",
         };
 
   return (

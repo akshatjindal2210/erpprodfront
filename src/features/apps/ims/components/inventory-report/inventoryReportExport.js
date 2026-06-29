@@ -2,7 +2,7 @@ import { createModuleExporter } from "@/core/utils/tableExport";
 import { formatDocDate } from "@/core/utils/utilHelper";
 export const INVENTORY_REPORT_TABLE_COLUMNS = [
   { label: "Packing Entry", key: "packing_number", type: "text" },
-  { label: "Date", key: "doc_dt", type: "date" },
+  { label: "Doc Date", key: "doc_dt", type: "date" },
   { label: "Item Code", key: "item_code", type: "text" },
   { label: "Item Details", key: "item_desc", type: "text" },
   { label: "Customer", key: "customer_name", type: "text" },

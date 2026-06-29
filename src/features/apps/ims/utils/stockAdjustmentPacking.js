@@ -1,5 +1,5 @@
 /**
- * Same rules as `backend/src/utils/stockAdjustmentPacking.js` (keep in sync).
+ * Same rules as `backend/src/apps/ims/utils/box/boxLooseKind.js` (keep in sync).
  * Client-only: no DB, safe for "use client" bundles.
  */
 
@@ -22,15 +22,6 @@ export function formatStockAdjustmentBoxNoUid(packingNumber, saToken, totalBoxes
   return pfx ? `${pfx}_${core}` : core;
 }
 
-/*
-export function isLooseBoxComparedToStandard(perBoxQty, standardQtyPerBox) {
-  console.log(perBoxQty, standardQtyPerBox);
-  const p = parseInt(String(perBoxQty ?? ""), 10);
-  const s = parseInt(String(standardQtyPerBox ?? ""), 10);
-  return Number.isFinite(p) && p > 0 && Number.isFinite(s) && s > 0 && p < s;
-}
-*/
-
 export function isLooseBoxComparedToStandard(perBoxQty, standardQtyPerBox) {
   const p = parseInt(String(perBoxQty ?? ""), 10);
   const s = parseInt(String(standardQtyPerBox ?? ""), 10);
@@ -43,4 +34,14 @@ export function parseOptionalStandardQtyPerBox(value) {
   if (value == null || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Default OEM, else first category — stock adjustment category dropdown. */
+export function resolveDefaultStockAdjustmentCategoryId(categories, preferredId = null) {
+  const cats = Array.isArray(categories) ? categories : [];
+  const pref = preferredId != null && String(preferredId).trim() !== "" ? String(preferredId) : "";
+  if (pref && cats.some((c) => String(c.id) === pref)) return pref;
+  const oem = cats.find((c) => String(c.name || "").trim().toLowerCase() === "oem");
+  if (oem?.id != null) return String(oem.id);
+  return cats[0]?.id != null ? String(cats[0].id) : "";
 }

@@ -11,6 +11,7 @@
  */
 import { formatDateTime, formatDocDate } from "@/core/utils/utilHelper";
 import { bestTierForStrings } from "@/features/apps/ims/helpers/liveSearchRank";
+import { Box } from "lucide-react";
 
 /* ─── 1. Packing Entry (DailyProduction.js) ─── */
 
@@ -31,16 +32,159 @@ function renderDailyProdStickerStatus(_v, row) {
   );
 }
 
-/** All / Pending / Generated — same columns as original packing entry table. */
-export const DAILY_PRODUCTION_HEADERS = [
+function renderPendingQtyPerBox(v, row) {
+  const n = parseFloat(v ?? row?.qty_per_box);
+  if (!Number.isFinite(n) || n <= 0) {
+    return <span className="text-[10px] text-slate-300 font-bold">—</span>;
+  }
+  return <span className="font-black text-blue-700 text-[11px] tabular-nums">{n.toLocaleString()}</span>;
+}
+
+function renderPendingTotalBoxes(v) {
+
+  if (v == null || v === "") {
+    return <span className="text-[10px] text-slate-300 font-bold">—</span>;
+  }
+  return (
+  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-200">
+    <Box size={10} />
+    {Number(v) || 0}
+  </span>)
+}
+
+function renderPendingFullBoxes(v, row) {
+  if (v == null || v === "") {
+    return <span className="text-[11px] text-slate-300 font-medium tracking-wider">—</span>;
+  }
+
+  const count = Number(v) || 0;
+  const per = parseFloat(row?.qty_per_box || 0);
+  const totalQty = count * per;
+
+  return (
+    <div className="flex flex-col justify-center leading-none py-0.5">
+      {/* Box Count / Multiplier Display */}
+      <span className={`font-bold text-[11px] tabular-nums ${count > 0 ? "text-blue-600" : "text-slate-400"}`}>
+        {count > 0 && per > 0 ? `${count} × ${per.toLocaleString()}` : count}
+      </span>
+      
+      {/* Total Qty Display */}
+      {count > 0 && per > 0 && (
+        <span className="text-[9px] text-slate-500 font-semibold tabular-nums mt-0.5">
+          Qty: {totalQty.toLocaleString()}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function renderPendingLooseBoxes(v, row) {
+  if (v == null || v === "") {
+    return <span className="text-[11px] text-slate-300 font-medium tracking-wider">—</span>;
+  }
+
+  const count = Number(v) || 0;
+  const looseQty = parseFloat(row?.loose_box_qty || 0);
+  // Agar per item loose qty 1 box ki calculation ke liye hai, toh count * looseQty
+  const totalLooseQty = count * looseQty; 
+
+  return (
+    <div className="flex flex-col justify-center leading-none py-0.5">
+      {/* Loose Box Count / Multiplier Display */}
+      <span className={`font-bold text-[11px] tabular-nums ${count > 0 ? "text-amber-600" : "text-slate-400"}`}>
+        {count > 0 && looseQty > 0 ? `${count} × ${looseQty.toLocaleString()}` : count}
+      </span>
+      
+      {/* Total Loose Qty Display */}
+      {count > 0 && looseQty > 0 && (
+        <span className="text-[9px] text-slate-500 font-semibold tabular-nums mt-0.5">
+          Qty: {totalLooseQty.toLocaleString()}
+        </span>
+      )}
+    </div>
+  );
+}
+/** Card view — sticker-style box breakdown (pending tab). */
+function renderPendingBoxCardPlan(_v, row) {
+  const per = parseFloat(row?.qty_per_box || 0);
+  const total = row?.total_boxes;
+  const full = row?.full_boxes_count;
+  const loose = row?.loose_boxes_count;
+  const looseQty = parseFloat(row?.loose_box_qty || 0);
+  const hasPlan =
+    (total != null && total !== "") ||
+    (full != null && full !== "") ||
+    (Number.isFinite(per) && per > 0);
+
+  if (!hasPlan) {
+    return <span className="text-[10px] text-slate-300 font-bold">—</span>;
+  }
+
+  const fullQty =
+    Number.isFinite(per) && per > 0 && full != null && full !== ""
+      ? Number(full) * per
+      : null;
+  const looseCount = Number(loose) || 0;
+
+  return (
+    <div className="w-full space-y-2">
+      <div className="grid grid-cols-3 gap-1.5">
+        <div className="rounded border border-indigo-100 bg-indigo-50/60 px-1.5 py-1.5 text-center">
+          <p className="text-[8px] font-bold text-slate-500 uppercase">Total Boxes</p>
+          <p className="text-base font-black text-indigo-700 tabular-nums leading-none mt-0.5">{total ?? "—"}</p>
+        </div>
+        <div className="rounded border border-blue-100 bg-blue-50/60 px-1.5 py-1.5 text-center">
+          <p className="text-[8px] font-bold text-slate-500 uppercase">Full Boxes</p>
+          <p className="text-base font-black text-blue-600 tabular-nums leading-none mt-0.5">{full ?? "—"}</p>
+          {fullQty != null ? (
+            <p className="text-[8px] text-slate-500 font-semibold mt-0.5 tabular-nums">Qty: {fullQty.toLocaleString()}</p>
+          ) : null}
+        </div>
+        <div className="rounded border border-amber-100 bg-amber-50/60 px-1.5 py-1.5 text-center">
+          <p className="text-[8px] font-bold text-slate-500 uppercase">Loose Box</p>
+          <p
+            className={`text-base font-black tabular-nums leading-none mt-0.5 ${looseCount > 0 ? "text-amber-600" : "text-slate-400"}`}
+          >
+            {looseCount}
+          </p>
+          {looseCount > 0 && Number.isFinite(looseQty) && looseQty > 0 ? (
+            <p className="text-[8px] text-slate-500 font-semibold mt-0.5 tabular-nums">Qty: {looseQty.toLocaleString()}</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const renderDailyProdQtyCell = (v) => (
+  <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px]">
+    {parseFloat(v || 0).toLocaleString()}
+  </span>
+);
+
+const PENDING_BOX_CARD_META = {
+  cardRender: renderPendingBoxCardPlan,
+  cardLabel: "Box Breakdown",
+  cardDetailFullWidth: true,
+};
+
+const DAILY_PRODUCTION_BASE_HEADERS = [
   ["Packing No", "doc_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v}</span>, { width: "100px", fixed: true }],
   ["Date", "doc_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDocDate(v) || "—"}</span>, { width: "100px" }],
   ["Job Card", "job_card_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v}</span>, { width: "120px" }],
-  ["Quantity", "total_qty", (v) => (
-    <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px]">
-      {parseFloat(v || 0).toLocaleString()}
-    </span>
-  ), { width: "100px" }],
+  ["Quantity", "total_qty", renderDailyProdQtyCell, {
+    width: "100px",
+    cardRender: renderDailyProdQtyCell,
+  }],
+];
+
+const DAILY_PRODUCTION_PENDING_BOX_HEADERS = [
+  ["Total Boxes", "total_boxes", renderPendingTotalBoxes, { width: "82px", ...PENDING_BOX_CARD_META }],
+  ["Full Boxes", "full_boxes_count", renderPendingFullBoxes, { width: "88px" }],
+  ["Loose Box", "loose_boxes_count", renderPendingLooseBoxes, { width: "88px" }],
+];
+
+const DAILY_PRODUCTION_TAIL_HEADERS = [
   ["Customer", "acc_name", (v) => (
     <span className="text-slate-800 font-bold text-[10px] uppercase whitespace-normal break-words leading-snug hyphens-auto" title={v}>
       {v || "Unknown"}
@@ -49,9 +193,9 @@ export const DAILY_PRODUCTION_HEADERS = [
   ["Item Details", "item_code", (v) => (
     <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v}>{v}</span>
   )],
-  ["Item Description", "item_desc", (v) => (
-    <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v}>{v}</span>
-  ), { width: "220px" }],
+  // ["Item Description", "item_desc", (v) => (
+  //   <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v}>{v}</span>
+  // ), { width: "220px" }],
   ["Sticker Status", "sticker_generated", renderDailyProdStickerStatus, { width: "110px" }],
   ["Created By", "internal_create_user", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
   ["Created At", "internal_create_date", (v) => <span className="text-[10px] text-slate-400 font-bold">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
@@ -59,8 +203,18 @@ export const DAILY_PRODUCTION_HEADERS = [
   ["Generate At", "system_generate_date", (v) => <span className="text-[10px] text-slate-400 font-bold">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
 ];
 
-/** @deprecated Same as DAILY_PRODUCTION_HEADERS */
-export const DAILY_PRODUCTION_PENDING_HEADERS = DAILY_PRODUCTION_HEADERS;
+/** All / Generated — same columns as original packing entry table. */
+export const DAILY_PRODUCTION_HEADERS = [
+  ...DAILY_PRODUCTION_BASE_HEADERS,
+  ...DAILY_PRODUCTION_TAIL_HEADERS,
+];
+
+/** Pending tab — includes expected box split from packing standard (display only). */
+export const DAILY_PRODUCTION_PENDING_HEADERS = [
+  ...DAILY_PRODUCTION_BASE_HEADERS,
+  ...DAILY_PRODUCTION_PENDING_BOX_HEADERS,
+  ...DAILY_PRODUCTION_TAIL_HEADERS,
+];
 
 /** @deprecated Same as DAILY_PRODUCTION_HEADERS */
 export const DAILY_PRODUCTION_GENERATED_HEADERS = DAILY_PRODUCTION_HEADERS;
@@ -211,14 +365,25 @@ export function hasDailyProdComparisonMismatch(row, { ignoreCustomer = true } = 
 
 export const DAILY_PROD_PENDING_CARD_CONFIG = {
   titleKey: "job_card_no",
-  badgeIndices: [0, 7],
-  detailIndices: [4, 5, 6],
+  tagsKeys: ["doc_no", "sticker_generated"],
+  detailKeys: ["total_qty", "total_boxes", "acc_name", "item_code", "item_desc"],
   footerKey: "doc_dt",
 };
 
-export const DAILY_PROD_GENERATED_CARD_CONFIG = DAILY_PROD_PENDING_CARD_CONFIG;
+export const DAILY_PROD_GENERATED_CARD_CONFIG = {
+  titleKey: "job_card_no",
+  tagsKeys: ["doc_no", "sticker_generated"],
+  detailKeys: ["total_qty", "acc_name", "item_code", "item_desc"],
+  footerKey: "doc_dt",
+};
 
-export const DAILY_PROD_CARD_CONFIG = DAILY_PROD_PENDING_CARD_CONFIG;
+export const DAILY_PROD_COMPARISON_CARD_CONFIG = {
+  titleKey: "doc_no",
+  tagsKeys: ["has_comparison_mismatch"],
+  detailKeys: ["doc_dt", "job_card_no", "acc_name", "item_code", "total_qty"],
+};
+
+export const DAILY_PROD_CARD_CONFIG = DAILY_PROD_GENERATED_CARD_CONFIG;
 
 export function dailyProdPendingSearchParts(row) {
   return [
@@ -230,6 +395,11 @@ export function dailyProdPendingSearchParts(row) {
     isDailyProdStickerGenerated(row) ? "generated" : "pending",
     row.internal_create_user,
     row.system_generate_user_name,
+    row.total_boxes,
+    row.full_boxes_count,
+    row.loose_boxes_count,
+    row.qty_per_box,
+    row.loose_box_qty,
   ];
 }
 
@@ -308,14 +478,26 @@ export function filterDailyProdByStickerStatus(rows, status) {
 
 /* ─── 2. Product Master (ProductMaster.js) ─── */
 
+function formatProductWeight(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
 export const PRODUCT_MASTER_HEADERS = [
-  ["Item Code", "item_code", (v) => <span className="font-mono text-[10px] font-bold tracking-tighter">{v}</span>, { width: "150px" }],
+  ["Item Code", "item_code", (v) => <span className="font-mono text-[10px] font-bold tracking-tighter">{v}</span>, { width: "120px" }],
   ["Description", "itemdesc", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v}</span>, { width: "180px" }],
   ["Group", "grpname", (v) => (
     <span className="px-2 py-0.5 rounded-none text-[9px] font-bold border bg-slate-50 text-slate-600 border-slate-200 uppercase tracking-tighter">{v}</span>
   )],
+  ["Weight", "weight", (v) => (
+    <span className="text-slate-600 font-medium text-[10px] tabular-nums">{formatProductWeight(v)}</span>
+  ), { width: "80px" }],
   ["Min/Max", "minqty", (v, row) => <span className="text-slate-500 font-medium text-[10px]">{v} / {row.maxqty}</span>],
   ["Reorder", "reorderqty", (v) => <span className="font-bold text-amber-600 text-[11px]">{v}</span>],
+  ["Primary Item Code", "primitem_code", (v) => (
+    <span className="font-mono text-[10px] font-bold tracking-tighter">{v || "—"}</span>
+  ), { width: "110px" }],
   ["Status", "apvitem", (v) => (
     <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
       {v ? "Active" : "Inactive"}
@@ -325,8 +507,8 @@ export const PRODUCT_MASTER_HEADERS = [
 
 export const PRODUCT_CARD_CONFIG = {
   titleKey: "itemdesc",
-  tagsKeys: ["grpname"],
-  detailKeys: ["item_code", "reorderqty", "minqty"],
+  tagsKeys: ["grpname", "primitem_code"],
+  detailKeys: ["item_code", "weight", "reorderqty", "minqty"],
   className: "rounded-none border border-slate-200 shadow-none",
 };
 
@@ -335,7 +517,7 @@ export function productRowKey(row) {
 }
 
 export function productSearchParts(row) {
-  return [row.item_code, row.itemdesc, row.grpname];
+  return [row.item_code, row.primitem_code, row.itemdesc, row.grpname];
 }
 
 /* ─── 3. Customer Master (CustomerMaster.js) ─── */
