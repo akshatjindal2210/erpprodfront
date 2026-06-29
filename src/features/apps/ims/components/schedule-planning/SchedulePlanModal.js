@@ -11,20 +11,21 @@ import { SCHEDULE_PLAN_STATUS, isDbRow } from "./schedulePlanStatus";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import ScheduleShortageModal from "./ScheduleShortageModal";
 import { scheduleItemRowKey, formatSchHeaderDate, formatPreviousPlanDates, formatScheduleRemarks, remarkDateToInputValue, schMonthLabel, ScheduleStatusBadge, getScheduleTargetDateRange, isScheduleTargetDateAllowed, formatScheduleTargetDateHint } from "./schedulePlanningColumns";
+import { IMS_MODAL_LABEL, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 const ROW_STATUS = { PENDING: "pending", PLAN: "plan", HOLD: "hold", REJECT: "reject" };
 const PICK_OTHER = "__other__";
-const INPUT = "h-7 px-1.5 text-[10px] border border-slate-200 rounded-none focus:border-indigo-500 outline-none bg-white";
+const INPUT = "h-7 px-1.5 text-[11px] text-slate-800 border border-slate-200 rounded-none focus:border-indigo-500 outline-none bg-white";
 const REJECT_INPUT = `${INPUT} w-full focus:border-rose-500`;
 const SELECT = `${INPUT} w-full`;
-const BTN = "h-7 px-2 text-[9px] font-bold uppercase border border-slate-300 rounded-none hover:bg-slate-50 disabled:opacity-40";
-const ICON_BTN = "h-7 w-full px-1 text-[8px] font-bold uppercase border border-slate-300 rounded-none hover:bg-slate-50 flex items-center justify-center gap-1 disabled:opacity-40";
+const BTN = "h-7 px-2 text-[10px] font-bold uppercase border border-slate-300 rounded-none hover:bg-slate-50 disabled:opacity-40 text-slate-700";
+const ICON_BTN = "h-7 w-full px-1 text-[10px] font-bold uppercase border border-slate-300 rounded-none hover:bg-slate-50 flex items-center justify-center gap-1 disabled:opacity-40 text-slate-700";
 
 function DetailField({ label, value, wide = false }) {
   return (
     <div className={wide ? "min-w-0 sm:col-span-2 lg:col-span-4" : "min-w-0"}>
-      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1">{label}</span>
-      <span className="text-sm font-semibold text-slate-900 break-words leading-snug block">{value || "—"}</span>
+      <span className={`${IMS_MODAL_LABEL} block mb-1`}>{label}</span>
+      <span className={`${IMS_TABLE_CELL_TEXT} text-[12px] text-slate-800 break-words leading-snug block`}>{value ?? "—"}</span>
     </div>
   );
 }
@@ -56,8 +57,8 @@ function ScheduleDetailsCard({ schedule, singleItem }) {
         <DetailField label="Customer" value={schedule?.acc_name} wide />
         {singleItem && items[0]?.itemdesc ? (
           <div className="sm:col-span-2 lg:col-span-4 min-w-0">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block mb-1">Description</span>
-            <span className="text-[12px] text-slate-600 leading-snug break-words block">{items[0].itemdesc}</span>
+            <span className={`${IMS_MODAL_LABEL} block mb-1`}>Description</span>
+            <span className={`${IMS_TABLE_CELL_TEXT} text-[12px] text-slate-800 leading-snug break-words block`}>{items[0].itemdesc}</span>
           </div>
         ) : null}
       </div>
@@ -143,7 +144,7 @@ function ScheduleTargetDateField({ value, onChange, className = "", placeholder 
           autoComplete="off"
           value={text}
           placeholder={placeholder}
-          className="flex-1 min-w-0 h-full px-1.5 text-[10px] border-0 outline-none bg-transparent text-slate-700 font-medium"
+          className="flex-1 min-w-0 h-full px-1.5 text-[11px] border-0 outline-none bg-transparent text-slate-800 font-medium"
           onFocus={() => {
             focused.current = true;
           }}
@@ -579,7 +580,7 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                 {itemsLoading ? (
                   <tr>
                     <td colSpan={12} className="py-14 text-center">
-                      <div className="flex flex-col items-center justify-center gap-2 text-slate-400">
+                      <div className="flex flex-col items-center justify-center gap-2 text-slate-600">
                         <Loader2 size={22} className="animate-spin text-indigo-500" />
                         <span className="text-[11px] font-bold uppercase">Loading all schedule items...</span>
                       </div>
@@ -600,18 +601,18 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
 
                   return (
                     <tr key={plan.key} className="border-b border-slate-100 bg-white hover:bg-slate-50/50 transition-colors">
-                      <td className="px-2 py-1.5 text-[11px] text-slate-400 border-r border-slate-100 text-center align-top">{idx + 1}</td>
-                      <td className="px-2 py-1.5 text-[11px] font-bold uppercase text-slate-900 border-r border-slate-100 align-top">{plan.row.item_code || "—"}</td>
-                      <td className="px-2 py-1.5 text-[10px] text-slate-500 italic border-r border-slate-100 align-top leading-snug max-w-[180px]" title={plan.row.itemdesc}>
-                        <span className="block break-words line-clamp-3">{plan.row.itemdesc || "—"}</span>
+                      <td className={`px-2 py-1.5 border-r border-slate-100 text-center align-top ${IMS_TABLE_CELL_TEXT}`}>{idx + 1}</td>
+                      <td className={`px-2 py-1.5 border-r border-slate-100 align-top uppercase ${IMS_TABLE_CELL_TEXT} text-slate-800`}>{plan.row.item_code || "—"}</td>
+                      <td className="px-2 py-1.5 border-r border-slate-100 align-top leading-snug max-w-[180px]" title={plan.row.itemdesc}>
+                        <span className={`block break-words ${IMS_TABLE_CELL_TEXT} text-slate-800`}>{plan.row.itemdesc || "—"}</span>
                       </td>
-                      <td className="px-2 py-1.5 text-[11px] font-bold tabular-nums text-center border-r border-slate-100 align-top">{totalQty.toLocaleString()}</td>
-                      <td className="px-2 py-1.5 text-[11px] font-bold tabular-nums text-center text-emerald-700 border-r border-slate-100 align-top">{fgStock.toLocaleString()}</td>
-                      <td className="px-2 py-1.5 text-[10px] text-slate-600 bg-slate-50/30 border-r border-slate-100 align-top select-text" title={custRequest}>
-                        <span className="block break-words line-clamp-3">{custRequest}</span>
+                      <td className={`px-2 py-1.5 text-center border-r border-slate-100 align-top ${IMS_TABLE_CELL_NUMBER}`}>{totalQty.toLocaleString()}</td>
+                      <td className={`px-2 py-1.5 text-center border-r border-slate-100 align-top ${IMS_TABLE_CELL_NUMBER} text-emerald-800`}>{fgStock.toLocaleString()}</td>
+                      <td className="px-2 py-1.5 bg-slate-50/30 border-r border-slate-100 align-top select-text" title={custRequest}>
+                        <span className={`block break-words ${IMS_TABLE_CELL_TEXT} text-slate-800`}>{custRequest}</span>
                       </td>
-                      <td className="px-2 py-1.5 text-[10px] text-amber-900 bg-amber-50/30 border-r border-slate-100 align-top select-text" title={prevDates}>
-                        <span className="block break-words line-clamp-2">{prevDates}</span>
+                      <td className="px-2 py-1.5 bg-amber-50/30 border-r border-slate-100 align-top select-text" title={prevDates}>
+                        <span className={`block break-words ${IMS_TABLE_CELL_TEXT} text-amber-950`}>{prevDates}</span>
                       </td>
                       <td className="px-1.5 py-1.5 border-r border-slate-100 align-top">
                         <ScheduleStatusBadge row={plan.row} />
@@ -630,9 +631,9 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                       </td>
                       <td className="px-1.5 py-1.5 border-r border-slate-100 align-top">
                         {isPending ? (
-                          <span className="text-[9px] text-slate-400 italic px-1">Not required for pending</span>
+                          <span className={`${IMS_TABLE_CELL_TEXT} text-slate-600 px-1`}>Not required for pending</span>
                         ) : isHold ? (
-                          <span className="text-[9px] text-slate-400 italic px-1">Not required for hold</span>
+                          <span className={`${IMS_TABLE_CELL_TEXT} text-slate-600 px-1`}>Not required for hold</span>
                         ) : isReject ? (
                           <PickOrOtherReasonField
                             value={plan.reason}

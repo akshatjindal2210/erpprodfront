@@ -6,8 +6,10 @@ import { toast } from "react-toastify";
 import Drawer from "@/core/components/ui/Drawer";
 import { schedulePlanningService } from "@/features/apps/ims/services/schedulePlanning";
 import { formatSchHeaderDate } from "./schedulePlanningColumns";
+import { IMS_MODAL_LABEL, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
 
-const INPUT = "h-8 px-2 text-[11px] border border-slate-200 rounded-none focus:border-indigo-500 outline-none bg-white w-full";
+const INPUT =
+  "h-8 px-2 text-[11px] text-slate-800 border border-slate-300 rounded-none focus:border-indigo-500 outline-none bg-white w-full";
 
 export default function ScheduleShortageModal({ open, onClose, item, stackLevel = 1 }) {
   const [qty, setQty] = useState("");
@@ -68,7 +70,7 @@ export default function ScheduleShortageModal({ open, onClose, item, stackLevel 
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="h-8 px-4 text-[10px] font-bold uppercase border border-slate-300 bg-white text-slate-600"
+            className="h-8 px-4 text-[10px] font-bold uppercase border border-slate-300 bg-white text-slate-700"
           >
             Cancel
           </button>
@@ -84,36 +86,36 @@ export default function ScheduleShortageModal({ open, onClose, item, stackLevel 
         </div>
       )}
     >
-      <div className="space-y-3 text-[11px]">
+      <div className="space-y-3">
         <div className="grid grid-cols-2 gap-2 border border-slate-200 bg-slate-50 p-3">
           <div>
-            <span className="text-[9px] font-bold text-slate-500 uppercase block">Sch No</span>
-            <span className="font-bold">{item.schno}</span>
+            <span className={`${IMS_MODAL_LABEL} block`}>Sch No</span>
+            <span className={IMS_TABLE_CELL_TEXT}>{item.schno ?? "—"}</span>
           </div>
           <div>
-            <span className="text-[9px] font-bold text-slate-500 uppercase block">Item</span>
-            <span className="font-bold">{item.item_code || "—"}</span>
+            <span className={`${IMS_MODAL_LABEL} block`}>Item</span>
+            <span className={IMS_TABLE_CELL_TEXT}>{item.item_code || "—"}</span>
           </div>
           <div className="col-span-2">
-            <span className="text-[9px] font-bold text-slate-500 uppercase block">Party</span>
-            <span className="font-bold break-words">{item.acc_name || "—"}</span>
+            <span className={`${IMS_MODAL_LABEL} block`}>Party</span>
+            <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{item.acc_name || "—"}</span>
           </div>
           <div>
-            <span className="text-[9px] font-bold text-slate-500 uppercase block">Schedule Date</span>
-            <span className="font-bold">{formatSchHeaderDate(item.schdt)}</span>
+            <span className={`${IMS_MODAL_LABEL} block`}>Schedule Date</span>
+            <span className={IMS_TABLE_CELL_TEXT}>{formatSchHeaderDate(item.schdt)}</span>
           </div>
           <div>
-            <span className="text-[9px] font-bold text-slate-500 uppercase block">Schedule Qty</span>
-            <span className="font-bold tabular-nums">{originalQty.toLocaleString()}</span>
+            <span className={`${IMS_MODAL_LABEL} block`}>Schedule Qty</span>
+            <span className={IMS_TABLE_CELL_NUMBER}>{originalQty.toLocaleString()}</span>
           </div>
         </div>
 
         {item.itemdesc ? (
-          <p className="text-[10px] text-slate-500 italic border-l-2 border-slate-200 pl-2">{item.itemdesc}</p>
+          <p className={`${IMS_TABLE_CELL_TEXT} text-slate-800 border-l-2 border-slate-300 pl-2 break-words`}>{item.itemdesc}</p>
         ) : null}
 
         <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Shortage Qty</label>
+          <label className={`${IMS_MODAL_LABEL} block mb-1`}>Shortage Qty</label>
           <input
             type="number"
             min={0}
@@ -122,7 +124,6 @@ export default function ScheduleShortageModal({ open, onClose, item, stackLevel 
             onChange={(e) => setQty(e.target.value)}
             className={INPUT}
           />
-          <p className="text-[9px] text-slate-400 mt-1">Change the quantity and submit.</p>
         </div>
       </div>
     </Drawer>

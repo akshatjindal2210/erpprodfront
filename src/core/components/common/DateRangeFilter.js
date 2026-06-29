@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { RotateCcw, Send } from "lucide-react";
 import FilterDateInput from "@/core/components/common/FilterDateInput";
 import ListPageSearchField, {
-  LIST_PAGE_SEARCH_LABEL_CLASS,
+  listPageFilterLabelClass,
   LIST_PAGE_FILTER_SELECT_CLASS,
   LIST_PAGE_FILTER_FIELD_WRAP_CLASS,
   LIST_PAGE_FILTER_ACTION_BTN_CLASS,
@@ -94,7 +94,7 @@ export default function DateRangeFilter({
 
   const actionsLabelSpacer = (
     <span
-      className={`${LIST_PAGE_SEARCH_LABEL_CLASS} max-md:hidden block min-h-[0.875rem] md:min-h-[1.125rem] shrink-0 select-none leading-tight opacity-0`}
+      className={`${listPageFilterLabelClass("server")} max-md:hidden block min-h-[0.875rem] md:min-h-[1.125rem] shrink-0 select-none leading-tight opacity-0`}
       aria-hidden
     >
       {"\u00a0"}
@@ -113,6 +113,7 @@ export default function DateRangeFilter({
           placeholder={filter.placeholder ?? ""}
           value={filter.value}
           onChange={filter.onChange}
+          variant={filter.variant || "server"}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -125,7 +126,7 @@ export default function DateRangeFilter({
       </div>
     ) : (
       <div key={index} className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
-        <label className={`${LIST_PAGE_SEARCH_LABEL_CLASS} max-md:hidden`}>{filter.label}</label>
+        <label className={`${listPageFilterLabelClass("server")} max-md:hidden`}>{filter.label}</label>
         <select
           value={localExtras[filter.key] ?? filter.value ?? ""}
           disabled={Boolean(filter.disabled)}
@@ -167,6 +168,7 @@ export default function DateRangeFilter({
             placeholder={searchPlaceholder}
             value={searchValue}
             onChange={onSearchChange}
+            variant="quick"
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();

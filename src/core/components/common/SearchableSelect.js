@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Loader2, Search, X, AlertCircle, CheckCircle2 } from "lucide-react";
 import { FORM_ERROR_CLASS, FORM_HINT_CLASS, FORM_LABEL_CLASS } from "./Constants";
-import { LIST_PAGE_SEARCH_LABEL_CLASS, LIST_PAGE_FILTER_VALUE_CLASS, LIST_PAGE_FILTER_BOX_CLASS } from "./ListPageSearchField";
+import { listPageFilterLabelClass, LIST_PAGE_FILTER_VALUE_CLASS, LIST_PAGE_FILTER_SERVER_BOX_CLASS } from "./ListPageSearchField";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 
 const PAGE_SIZE = 50;
@@ -68,7 +68,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     : "text-[11px] text-slate-500 font-normal leading-snug";
   const triggerRadius = isToolbar ? "rounded-none" : "rounded-lg";
   const triggerShellClass = isToolbar
-    ? `${LIST_PAGE_FILTER_BOX_CLASS}${multiTagsMode ? " searchable-select-multi" : ""}`
+    ? `${LIST_PAGE_FILTER_SERVER_BOX_CLASS}${multiTagsMode ? " searchable-select-multi" : ""}`
     : `${
         multiTagsMode ? "min-h-9 h-auto" : "min-h-9 h-9"
       } w-full min-w-0 border border-slate-200 bg-white px-3 transition-all duration-200`;
@@ -711,7 +711,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   return (
     <div className={`space-y-1 ${className} ${usePortal ? "" : "relative"}`}>
       {label && (
-        <label className={isToolbar ? LIST_PAGE_SEARCH_LABEL_CLASS : FORM_LABEL_CLASS}>
+        <label className={isToolbar ? listPageFilterLabelClass("server") : FORM_LABEL_CLASS}>
           {label}
           {required ? <span className="text-rose-500"> *</span> : null}
         </label>

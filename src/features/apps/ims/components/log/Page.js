@@ -8,7 +8,7 @@ import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilte
 
 import { activityLogService } from "@/features/shared/services/activityLogService";
 import { useViewMode } from "@/core/hooks/useViewMode";
-import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
+import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 // Components
 import DataTable from "@/core/components/ui/DataTable";
@@ -122,7 +122,7 @@ export default function LogsPage() {
   };
 
   const HEADERS = [
-    ["#", "id", (v, row, i) => i + 1, { fixed: true, width: '50px', align: 'center'}],
+    ["#", "id", (_v, _row, i) => <span className={IMS_TABLE_CELL_TEXT}>{i + 1}</span>, { fixed: true, width: '50px', align: 'center'}],
 
     ["Action", "action_type", (v) => {
         const colors = {
@@ -142,9 +142,9 @@ export default function LogsPage() {
 
     ["Module / Entity", "module", (v, row) => (
         <div className="flex flex-col leading-tight min-w-[140px]">
-          <div className="flex items-center gap-1 text-slate-700">
-            <Layers size={10} />
-            <span className="font-bold capitalize text-[11px]">{v?.replace(/_/g, ' ')}</span>
+          <div className="flex items-center gap-1">
+            <Layers size={10} className="text-slate-500 shrink-0" />
+            <span className={`capitalize ${IMS_TABLE_CELL_TEXT}`}>{v?.replace(/_/g, ' ')}</span>
           </div>
           <span className="text-[9px] text-indigo-500 font-mono ml-3">REF: {row.entity_id || '—'}</span>
         </div>
@@ -181,7 +181,7 @@ export default function LogsPage() {
 
         return (
           <div className="flex flex-col gap-1 py-1">
-            <span className="text-[11px] text-slate-700 font-medium">{row.description}</span>
+            <span className={IMS_TABLE_CELL_TEXT}>{row.description}</span>
             {hasDetails ? (
               <button
                 type="button"
@@ -201,8 +201,8 @@ export default function LogsPage() {
       }, { width: '350px' }
     ],
 
-    ["Created By", "user_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-    ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+    ["Created By", "user_name", (v) => <span className={IMS_TABLE_CELL_TEXT}>{v || "—"}</span>, { width: "110px" }],
+    ["Created At", "created_at", (v) => <span className={IMS_TABLE_CELL_DATE}>{v ? formatDateTime(v) : "—"}</span>, { width: "150px" }],
   ];
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({

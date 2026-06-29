@@ -10,7 +10,7 @@ import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
 import { useViewMode } from "@/core/hooks/useViewMode";
 import { erpStockReportService } from "@/features/apps/ims/services/erpStockReport";
-import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
+import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
 import { notifyListPageExportResult } from "@/core/utils/listPageExport";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 import { ERP_STOCK_REPORT_TABLE_COLUMNS, exportErpStockReport, formatErpStockTableCell, erpStockRowClassName, stockDiffCellClass } from "@/features/apps/ims/components/erp-stock-report/erpStockReportExport";
@@ -20,6 +20,16 @@ import { normalizeMultiFilterIds } from "@/features/apps/ims/components/inventor
 
 const LOAD_LIMIT = 10000;
 const TABLE_RENDER_CHUNK = 100;
+
+function filterLabel(label, count) {
+  return `${label} (${Number(count) || 0})`;
+}
+
+function tableCellClass(type) {
+  if (type === "number") return IMS_TABLE_CELL_NUMBER;
+  if (type === "date") return IMS_TABLE_CELL_DATE;
+  return IMS_TABLE_CELL_TEXT;
+}
 
 const MISMATCH_FILTER_DEFS = [
   { id: "all", label: "All rows" },
@@ -34,10 +44,6 @@ function mismatchCountForId(id, rowCount, mismatchStats) {
   if (id === "red") return mismatchStats.red;
   if (id === "yellow") return mismatchStats.yellow;
   return 0;
-}
-
-function filterLabel(label, count) {
-  return `${label} (${Number(count) || 0})`;
 }
 
 function formatQty(n) {
@@ -268,7 +274,9 @@ export default function ErpStockReportPage() {
               </span>
             );
           }
-          return formatErpStockTableCell(type, v);
+          return (
+            <span className={tableCellClass(type)}>{formatErpStockTableCell(type, v)}</span>
+          );
         },
         {
           ...(index === 0 ? { fixed: true } : {}),
@@ -278,8 +286,10 @@ export default function ErpStockReportPage() {
               : type === "number" || type === "diff"
                 ? "96px"
                 : key === "packing_number"
-                  ? "100px"
-                  : "88px",
+                  ? "130px"
+                  : key === "doc_dt"
+                    ? "100px"
+                    : "88px",
         },
       ]),
     []
@@ -355,7 +365,7 @@ export default function ErpStockReportPage() {
                 showAllOption
                 variant="toolbar"
                 className="w-full min-w-0"
-                label={filterLabel("Packing", filterOptions.packings.length)}
+                label={filterLabel("Packing Entry", filterOptions.packings.length)}
                 placeholder="Search packings..."
                 value={filters.packing_numbers}
                 onChange={(ids) => setMultiFilter("packing_numbers", ids)}

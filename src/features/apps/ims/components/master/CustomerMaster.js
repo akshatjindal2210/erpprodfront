@@ -99,7 +99,7 @@ export default function CustomerLedgerPage() {
             onSort={toggleSort}
             sortKey={params.sortKey}
             sortDir={params.sortDir}
-            allowCopy={false}
+            allowCopy={true}
             showSelection={false}
             selectedId={selected}
             onSelect={setSelected}

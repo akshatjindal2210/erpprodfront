@@ -173,6 +173,12 @@ export default function PackingStandardPage() {
     canDeleteSelection: useCallback(() => !!selected, [selected]),
   });
 
+  function formatProductWeight(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "—";
+    return n.toLocaleString(undefined, { maximumFractionDigits: 6 });
+  }
+
   const HEADERS = [
     ["Standard ID", "standard_id", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "120px" }],
     ["Item Code", "item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{v}</span>, { fixed: true, width: "150px" }],
@@ -183,6 +189,9 @@ export default function PackingStandardPage() {
         <span className="text-[9px] text-slate-400 font-bold uppercase italic">{row.unit}</span>
       </div>
     ), { width: "80px", align: "center" }],
+    ["Weight", "item_weight", (v) => (
+      <span className="text-slate-600 font-medium text-[10px] tabular-nums">{formatProductWeight(v)}</span>
+    ), { width: "80px" }],
     ["KG", "row_kg", (v) => {
       const n = Number(v);
       return (

@@ -2,6 +2,7 @@
 
 import { Calendar, List } from "lucide-react";
 import { formatDateTime, formatDocDate, filterDateToDisplay } from "@/core/utils/utilHelper";
+import { IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
 import {
   SCHEDULE_PLAN_STATUS,
   SCHEDULE_STATUS_FILTER_OPTIONS,
@@ -470,7 +471,7 @@ export function buildScheduleItemWiseComparisonHeaders({ onDrillToItems } = {}) 
     ],
     ["Month", "schmonth", (_v, row) => renderScheduleCompareCell(row, "schmonth", { month: true }), { width: "140px", wrap: true }],
     ["Date", "schdt", (_v, row) => renderScheduleCompareCell(row, "schdt", { date: true }), { width: "140px", wrap: true }],
-    ["Party", "acc_name", renderScheduleImsParty, { width: "200px", wrap: true }],
+    ["Custommer", "acc_name", renderScheduleImsParty, { width: "200px", wrap: true }],
     ["Item", "item_code", (_v, row) => renderScheduleCompareCell(row, "item_code"), { width: "140px", wrap: true }],
     ["Description", "itemdesc", (_v, row) => renderScheduleCompareCell(row, "itemdesc"), { width: "200px", wrap: true }],
     ["Qty", "totalqty", (_v, row) => renderScheduleCompareCell(row, "totalqty", { qty: true }), { width: "140px", wrap: true }],
@@ -488,7 +489,7 @@ export function buildScheduleUniqueComparisonHeaders({ onDrillToItems } = {}) {
       { fixed: true, width: "100px" },
     ],
     ["Date", "schdt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatSchHeaderDate(v)}</span>, { width: "100px" }],
-    ["Party", "acc_name", (v) => (
+    ["Custommer", "acc_name", (v) => (
       <span className="font-bold text-slate-900 text-[10px] uppercase break-words leading-snug" title={v}>{v || "—"}</span>
     ), { width: "220px", wrap: true }],
     ["Items", "item_count", (v) => <span className="font-black text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>, { align: "center", width: "80px" }],
@@ -522,7 +523,7 @@ export function buildScheduleUniqueHeaders({ onDrillToItems } = {}) {
       { fixed: true, width: "100px" },
     ],
     ["Date", "schdt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatSchHeaderDate(v)}</span>, { width: "100px" }],
-    ["Party", "acc_name", (v) => (
+    ["Custommer", "acc_name", (v) => (
       <span className="font-bold text-slate-900 text-[10px] uppercase whitespace-normal break-words leading-snug" title={v}>{v || "—"}</span>
     ), { width: "280px", wrap: true, copyValue: (row) => row.acc_name || "—" }],
     ["Month", "schmonth", (_v, row) => <span className="text-[10px] text-slate-600 font-medium">{schMonthLabel(row.schmonth)}</span>, { width: "110px" }],
@@ -554,12 +555,12 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
       { fixed: true, width: "100px" },
     ],
     ["Date", "schdt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatSchHeaderDate(v)}</span>, { width: "100px" }],
-    ["Party", "acc_name", (v) => (
+    ["Custommer", "acc_name", (v) => (
       <span className="font-bold text-slate-900 text-[10px] uppercase whitespace-normal break-words leading-snug" title={v}>{v || "—"}</span>
     ), { width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" }],
     ["Month", "schmonth", (_v, row) => <span className="text-[10px] text-slate-600 font-medium">{schMonthLabel(row.schmonth)}</span>, { width: "100px" }],
     ["Item Code", "item_code", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "160px" }],
-    ["Description", "itemdesc", (v) => <span className="text-[10px] text-slate-500 italic break-words">{v || "—"}</span>, { width: "220px", wrap: true }],
+    ["Description", "itemdesc", (v) => <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{v || "—"}</span>, { width: "220px", wrap: true }],
     ["Total Qty", "totalqty", (v, row) => (
       <span className="font-black text-slate-700 text-[11px] tabular-nums">{Number(v ?? row.total_qty ?? 0).toLocaleString()}</span>
     ), { align: "center", width: "100px" }],
@@ -567,7 +568,7 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
       <span className="font-black text-emerald-700 text-[11px] tabular-nums">{Number(v ?? row.fg_stock_qty ?? 0).toLocaleString()}</span>
     ), { align: "center", width: "90px" }],
     ["Remarks", "remarks", (_v, row) => (
-      <span className="text-[10px] text-slate-500 break-words">{formatScheduleRemarks(row.Remarks ?? row.remarks)}</span>
+      <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{formatScheduleRemarks(row.Remarks ?? row.remarks)}</span>
     ), { width: "200px", wrap: true }],
     ...SCHEDULE_ACTION_HEADERS,
     ...SCHEDULE_AUDIT_HEADERS,
@@ -578,18 +579,18 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
       (_v, row) => {
         const label = row.last_action_label || "—";
         if (!onViewHistory || !row.last_action_type) {
-          return <span className="text-[10px] text-slate-400">{label}</span>;
+          return <span className={IMS_TABLE_CELL_TEXT}>{label}</span>;
         }
         return (
           <div className="flex flex-col items-start gap-0.5">
-            <span className="text-[10px] font-bold text-slate-700 uppercase">{label}</span>
+            <span className={`${IMS_TABLE_CELL_TEXT} text-slate-800 uppercase`}>{label}</span>
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onViewHistory(row);
               }}
-              className="text-[9px] font-bold uppercase text-indigo-600 hover:underline"
+              className="text-[10px] font-bold uppercase text-indigo-600 hover:underline"
             >
               View
             </button>

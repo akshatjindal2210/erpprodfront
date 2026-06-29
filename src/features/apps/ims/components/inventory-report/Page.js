@@ -12,7 +12,7 @@ import { useViewMode } from "@/core/hooks/useViewMode";
 import { inventoryReportService } from "@/features/apps/ims/services/inventoryReport";
 import { sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
-import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
+import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
 import { buildInventoryFilterOptionsFromRows, computeInventoryTotals, EMPTY_FILTERS, filterInventoryRows, hasActiveInventoryFilters, normalizeMultiFilterIds } from "@/features/apps/ims/components/inventory-report/inventoryReportClient";
 import { notifyListPageExportResult } from "@/core/utils/listPageExport";
 import { exportInventoryReport, formatInventoryTableCell, INVENTORY_REPORT_TABLE_COLUMNS } from "@/features/apps/ims/components/inventory-report/inventoryReportExport";
@@ -22,8 +22,14 @@ const LOAD_LIMIT = 10000;
 /** Table scroll — render more rows on scroll (no server call). */
 const TABLE_RENDER_CHUNK = 150;
 
-function filterLabelWithCount(label, count) {
+function filterLabel(label, count) {
   return `${label} (${Number(count) || 0})`;
+}
+
+function tableCellClass(type) {
+  if (type === "number") return IMS_TABLE_CELL_NUMBER;
+  if (type === "date") return IMS_TABLE_CELL_DATE;
+  return IMS_TABLE_CELL_TEXT;
 }
 
 export default function InventoryReportPage() {
@@ -165,18 +171,12 @@ export default function InventoryReportPage() {
               : key === "item_code"
                 ? "120px"
                 : "110px";
-      const isNumber = type === "number";
-      const isDate = type === "date";
 
       return [
         label,
         key,
         (v) => (
-          <span
-            className={`text-[11px] ${isNumber ? "font-semibold text-slate-800 tabular-nums" : isDate ? "text-slate-600 font-semibold tabular-nums" : "text-slate-700 font-medium"}`}
-          >
-            {formatInventoryTableCell(type, v)}
-          </span>
+          <span className={tableCellClass(type)}>{formatInventoryTableCell(type, v)}</span>
         ),
         { ...(index === 0 ? { fixed: true } : {}), width },
       ];
@@ -251,10 +251,10 @@ export default function InventoryReportPage() {
 
   const filterLabels = useMemo(
     () => ({
-      item: filterLabelWithCount("Item", filterOptions.items.length),
-      customer: filterLabelWithCount("Customer", filterOptions.customers.length),
-      location: filterLabelWithCount("Store location", filterOptions.locations.length),
-      packing: filterLabelWithCount("Packing Entry", filterOptions.packings.length),
+      item: filterLabel("Item", filterOptions.items.length),
+      customer: filterLabel("Customer", filterOptions.customers.length),
+      location: filterLabel("Store location", filterOptions.locations.length),
+      packing: filterLabel("Packing Entry", filterOptions.packings.length),
     }),
     [filterOptions]
   );

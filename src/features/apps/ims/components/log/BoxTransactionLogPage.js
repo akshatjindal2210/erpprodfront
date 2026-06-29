@@ -19,7 +19,7 @@ import BoxStickerNosCell, { getBoxStickerEntries } from "@/features/apps/ims/com
 import { applyBoxTransactionLogView, BOX_TX_DISPLAY_MODES, isUniquePerLogSearch } from "@/features/apps/ims/utils/boxTransactionLogSearch";
 import { fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 import { formatDateTime } from "@/core/utils/utilHelper";
-import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
+import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
 import {
   getBoxTxTypeBadgeClass,
   resolveBoxTxTypeLabel,
@@ -242,7 +242,7 @@ export default function BoxTransactionLogPage() {
 
   const HEADERS = useMemo(
     () => [
-      [ "#", "_row", (_v, _row, i) => i + 1, {
+      [ "#", "_row", (_v, _row, i) => <span className={IMS_TABLE_CELL_TEXT}>{i + 1}</span>, {
           fixed: true,
           width: "50px",
           align: "center",
@@ -278,9 +278,7 @@ export default function BoxTransactionLogPage() {
         },
       ],
 
-      [ "Box Count", "box_count", (v) => (
-          <span className="tabular-nums font-bold text-[11px] text-slate-800">{v != null ? v : "—"}</span>
-        ),
+      [ "Box Count", "box_count", (v) => <span className={IMS_TABLE_CELL_NUMBER}>{v != null ? v : "—"}</span>,
         {
           width: "56px",
           align: "center",
@@ -288,9 +286,7 @@ export default function BoxTransactionLogPage() {
         },
       ],
 
-      [ "Qty", "total_qty", (v) => (
-          <span className="tabular-nums font-bold text-[11px] text-slate-800">{v != null ? v : "—"}</span>
-        ),
+      [ "Qty", "total_qty", (v) => <span className={IMS_TABLE_CELL_NUMBER}>{v != null ? v : "—"}</span>,
         {
           width: "56px",
           align: "center",
@@ -300,9 +296,9 @@ export default function BoxTransactionLogPage() {
 
       [ "Module / Entity", "source_module", (v, row) => (
           <div className="flex flex-col leading-tight min-w-[140px]">
-            <div className="flex items-center gap-1 text-slate-700">
-              <Layers size={10} />
-              <span className="font-bold capitalize text-[11px]">{v?.replace(/_/g, " ")}</span>
+            <div className="flex items-center gap-1">
+              <Layers size={10} className="text-slate-500 shrink-0" />
+              <span className={`capitalize ${IMS_TABLE_CELL_TEXT}`}>{v?.replace(/_/g, " ")}</span>
             </div>
             <span className="text-[9px] text-indigo-500 font-mono ml-3">REF: {row.source_id || "N/A"}</span>
           </div>
@@ -313,8 +309,8 @@ export default function BoxTransactionLogPage() {
         },
       ],
 
-      ["Created By", "user_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+      ["Created By", "user_name", (v) => <span className={IMS_TABLE_CELL_TEXT}>{v || "—"}</span>, { width: "110px" }],
+      ["Created At", "created_at", (v) => <span className={IMS_TABLE_CELL_DATE}>{v ? formatDateTime(v) : "—"}</span>, { width: "150px" }],
     ],
     [labelForType, copyModuleEntity]
   );

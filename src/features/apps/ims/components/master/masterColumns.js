@@ -69,11 +69,11 @@ function renderPendingFullBoxes(v, row) {
       </span>
       
       {/* Total Qty Display */}
-      {count > 0 && per > 0 && (
+      {/* {count > 0 && per > 0 && (
         <span className="text-[9px] text-slate-500 font-semibold tabular-nums mt-0.5">
           Qty: {totalQty.toLocaleString()}
         </span>
-      )}
+      )} */}
     </div>
   );
 }
@@ -96,11 +96,11 @@ function renderPendingLooseBoxes(v, row) {
       </span>
       
       {/* Total Loose Qty Display */}
-      {count > 0 && looseQty > 0 && (
+      {/* {count > 0 && looseQty > 0 && (
         <span className="text-[9px] text-slate-500 font-semibold tabular-nums mt-0.5">
           Qty: {totalLooseQty.toLocaleString()}
         </span>
-      )}
+      )} */}
     </div>
   );
 }
