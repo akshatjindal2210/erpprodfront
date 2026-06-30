@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "2.1.18",
+  "version": "2.2.19",
   "private": true,
   "overrides": {
     "postcss": "^8.5.10"
@@ -25,6 +25,7 @@
     "next": "^16.2.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-grid-layout": "^2.2.3",
     "react-qr-code": "^2.0.18",
     "react-redux": "^9.2.0",
     "react-toastify": "^11.0.5",

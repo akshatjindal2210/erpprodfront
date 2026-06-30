@@ -178,6 +178,8 @@ export const ENDPOINTS = {
     HOLD: "/schedule-planning/hold",
     SHORTAGE: "/schedule-planning/shortage",
     DELETE: "/schedule-planning/delete",
+    DISPATCH_HELPER: "/schedule-planning/dispatch-helper",
+    COMPLETE: "/schedule-planning/complete",
   },
 
   DASHBOARD: {

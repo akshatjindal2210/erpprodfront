@@ -29,4 +29,5 @@ export const ROUTES = {
   AUDIT: `${IMS}/audit`,
   QC_HOLD_MATERIAL: `${IMS}/qc-hold-material`,
   SCHEDULE_PLANNING: `${IMS}/schedule-planning`,
+  DASHBOARD_BUILDER: `${IMS}/builder`,
 };

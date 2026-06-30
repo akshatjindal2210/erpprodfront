@@ -80,11 +80,14 @@ export default function Sidebar({
   const [dynamicShortcuts, setDynamicShortcuts] = useState([]);
 
   useEffect(() => {
+    const isSuperAdmin = role?.toLowerCase() === 'super_admin' || role?.toLowerCase() === 'super admin';
+    const hasAppConfigAccess = isSuperAdmin || permissions?.some(p => p.module_name === 'app_configuration' && p.can_view);
+    if (!hasAppConfigAccess) return;
+
     const fetchShortcuts = async () => {
       try {
         const res = await appConfigService.list("shortcut");
         if (res?.success) {
-          // The backend now filters by section if 'shortcut' is passed as app/scope
           const configRow = res.data?.find(r => r.key === DYNAMIC_SHORTCUTS_KEY || r.config_key === DYNAMIC_SHORTCUTS_KEY);
           if (configRow?.config_value) {
             const parsed = JSON.parse(configRow.config_value);
@@ -92,11 +95,13 @@ export default function Sidebar({
           }
         }
       } catch (err) {
-        console.error("Failed to fetch shortcuts", err);
+        if (err?.status !== 403 && err?.status !== 401) {
+          console.error("Failed to fetch shortcuts", err);
+        }
       }
     };
     fetchShortcuts();
-  }, []);
+  }, [role, permissions]);
 
   const PORTAL_NAV = [
     { id: 'home', name: 'Home', href: ROUTES.HOME, icon: <LayoutDashboard size={14} /> },

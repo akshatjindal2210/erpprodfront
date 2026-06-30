@@ -513,6 +513,36 @@ export default function InwardPage() {
       ),
       { width: "100px" },
     ],
+    [
+      "Full Boxes",
+      "full_box_count",
+      (v, row) => {
+        const count = Number(v) || 0;
+        const perBox = Number(row?.full_box_qty) || 0;
+        if (count === 0) return <span className="text-slate-300 text-[11px] font-medium">0</span>;
+        return (
+          <span className="font-bold text-[11px] tabular-nums text-blue-600">
+            {perBox > 0 ? `${count} × ${perBox.toLocaleString()}` : count}
+          </span>
+        );
+      },
+      { width: "100px" },
+    ],
+    [
+      "Loose Box",
+      "loose_box_count",
+      (v, row) => {
+        const count = Number(v) || 0;
+        const looseQty = Number(row?.loose_total_qty) || 0;
+        if (count === 0) return <span className="text-slate-300 text-[11px] font-medium">0</span>;
+        return (
+          <span className="font-bold text-[11px] tabular-nums text-amber-600">
+            {looseQty > 0 ? `${count} × ${looseQty.toLocaleString()}` : count}
+          </span>
+        );
+      },
+      { width: "88px" },
+    ],
     /*
     ["Customer", "acc_name", (v, row) => (
       <div className="flex flex-col leading-tight min-w-0">

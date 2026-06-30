@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Truck, FileText, Info, List, Package, Lock, Unlock, Printer } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Truck, FileText, Info, List, Package, Lock, Unlock, Printer, CalendarClock, CheckCircle2 } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 
@@ -32,6 +32,8 @@ import { printFromBackendHtml } from "@/features/apps/ims/utils/printHtmlDocumen
 import SearchableSelect from "@/core/components/common/SearchableSelect";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/core/components/common/ListPageSearchField";
 import { parseSavedBillNos, fetchBillOptions, formatBillNosForSave, getBillByNo, uniqueBillNos } from "@/features/apps/ims/utils/forwardingBillOptions";
+import TodayDispatchPlanTab from "@/features/apps/ims/components/forwarding-note/TodayDispatchPlanTab";
+import { buildScheduleItemWiseHeaders } from "@/features/apps/ims/components/schedule-planning/schedulePlanningColumns";
 
 /** Search matches visible table cells (raw + formatted labels). */
 function forwardingTableSearchParts(row, reportType = "summary") {
@@ -143,6 +145,14 @@ export default function ForwardingPage() {
   const viewAccess = useMemo(() => canAccess("forwarding_note_master", "view"), [canAccess]);
   const canEditBill = useMemo(() => canAccess("forwarding_note_master", "edit").allowed, [canAccess]);
   const role = useSelector(state => state.auth.role);
+
+  const [outerTab, setOuterTab] = useState("dispatch_plan");
+
+  // Dispatch plan tab ref + state
+  const dispatchPlanRef = useRef(null);
+  const [dispatchSearch, setDispatchSearch] = useState("");
+  const [dispatchSelected, setDispatchSelected] = useState(null);
+  const [dispatchRows, setDispatchRows] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
@@ -535,6 +545,13 @@ export default function ForwardingPage() {
     headers: HEADERS,
   });
 
+  const DISPATCH_HEADERS = useMemo(() => buildScheduleItemWiseHeaders({}), []);
+  const { exporting: dispatchExporting, handleExport: handleDispatchExport, exportDisabled: dispatchExportDisabled } = useListPageExport({
+    moduleName: "Today Dispatch Plan",
+    rows: dispatchRows,
+    headers: DISPATCH_HEADERS,
+  });
+
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
@@ -544,76 +561,138 @@ export default function ForwardingPage() {
             tabs={
               <ImsSegmentedTabs
                 className="mr-2"
-                active={reportType}
+                active={outerTab}
                 onChange={(id) => {
-                  setReportType(id);
+                  setOuterTab(id);
                   setSelectedId(null);
+                  setDispatchSelected(null);
                 }}
                 tabs={[
-                  { id: "summary", label: "Summary", icon: List },
-                  { id: "item_wise", label: "Item-wise", icon: Package },
+                  { id: "dispatch_plan", label: "Today Dispatch Plan", icon: CalendarClock },
+                  { id: "forwarding_master", label: "Forwarding Master", icon: FileText },
                 ]}
               />
             }
+            subTabs={
+              outerTab === "forwarding_master" ? (
+                <ImsSegmentedTabs
+                  className="mr-2"
+                  active={reportType}
+                  onChange={(id) => {
+                    setReportType(id);
+                    setSelectedId(null);
+                  }}
+                  tabs={[
+                    { id: "summary", label: "Summary", icon: List },
+                    { id: "item_wise", label: "Item-wise", icon: Package },
+                  ]}
+                />
+              ) : null
+            }
             actions={
-              <>
-              <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
-              <ActionButton module="forwarding_note_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selectedId || isSelectedLocked} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
-              <ActionButton module="forwarding_note_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selectedId || isSelectedLocked} onClick={() => openModal("approve")} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
-              <ActionButton module="forwarding_note_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedId || isSelectedLocked} onClick={() => setIsDeleting(true)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
-              <PrintActionButton
-                module="forwarding_note_master"
-                variant="outline"
-                label={billPrinting ? "…" : "Print Bill"}
-                icon={Printer}
-                disabled={!selectedId || !selectedRecord?.fuid || billPrinting}
-                onClick={openPrintModal}
-                title="Print bill (Ctrl+Alt+P / Ctrl+P in app)"
-                className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-3 border-slate-300 shadow-none shrink-0"
-              />
-              {role === "super_admin" && (
+              outerTab === "dispatch_plan" ? (
                 <>
+                  <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" /> 
+                  {canAccess("schedule_planning", "add").allowed && dispatchSelected && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => dispatchPlanRef.current?.completeSelected()}
+                        disabled={dispatchPlanRef.current?.completing}
+                        className="h-9 px-4 border border-emerald-400 bg-emerald-600 text-white hover:bg-emerald-700 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shrink-0 disabled:opacity-50"
+                      >
+                        <CheckCircle2 size={14} />
+                        Complete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => dispatchPlanRef.current?.openRescheduleForSelected()}
+                        disabled={dispatchPlanRef.current?.completing}
+                        className="h-9 px-4 border border-amber-400 bg-amber-500 text-white hover:bg-amber-600 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shrink-0 disabled:opacity-50"
+                      >
+                        <CalendarClock size={14} />
+                        Reschedule
+                      </button>
+                    </>
+                  )}
+                  <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
                   <button
                     type="button"
-                    onClick={handleLock}
-                    disabled={!selectedId || isSelectedLocked}
-                    className="h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                    title="Super Admin: lock for out entry"
+                    onClick={() => dispatchPlanRef.current?.refresh()}
+                    className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center transition-all shrink-0"
                   >
-                    <Lock size={14} />
-                    Lock
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleUnlock}
-                    disabled={!selectedId || !isSelectedLocked}
-                    className="h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                    title="Super Admin: unlock out-entry lock"
-                  >
-                    <Unlock size={14} />
-                    Unlock
+                    <RefreshCw size={14} />
                   </button>
                 </>
-              )}
-              <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
-              
-              <button type="button" onClick={() => fetchData()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shrink-0">
-                <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-              </button>
-              </>
+              ) : (
+                <>
+                  <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+                  <ActionButton module="forwarding_note_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selectedId || isSelectedLocked} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
+                  <ActionButton module="forwarding_note_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selectedId || isSelectedLocked} onClick={() => openModal("approve")} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
+                  <ActionButton module="forwarding_note_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedId || isSelectedLocked} onClick={() => setIsDeleting(true)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+                  <PrintActionButton
+                    module="forwarding_note_master"
+                    variant="outline"
+                    label={billPrinting ? "…" : "Print Bill"}
+                    icon={Printer}
+                    disabled={!selectedId || !selectedRecord?.fuid || billPrinting}
+                    onClick={openPrintModal}
+                    title="Print bill (Ctrl+Alt+P / Ctrl+P in app)"
+                    className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-3 border-slate-300 shadow-none shrink-0"
+                  />
+                  {role === "super_admin" && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleLock}
+                        disabled={!selectedId || isSelectedLocked}
+                        className="h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                        title="Super Admin: lock for out entry"
+                      >
+                        <Lock size={14} />
+                        Lock
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleUnlock}
+                        disabled={!selectedId || !isSelectedLocked}
+                        className="h-9 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                        title="Super Admin: unlock out-entry lock"
+                      >
+                        <Unlock size={14} />
+                        Unlock
+                      </button>
+                    </>
+                  )}
+                  <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
+                  <button type="button" onClick={() => fetchData()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center transition-all shrink-0">
+                    <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+                  </button>
+                </>
+              )
             }
             viewToggle={
-              <ListPageExportToggle
-                viewMode={viewMode}
-                setMode={handleViewMode}
-                exporting={exporting}
-                disabled={loading || exportDisabled}
-                onExport={handleExport}
-              />
+              outerTab === "dispatch_plan" ? (
+                <ListPageExportToggle
+                  viewMode={viewMode}
+                  setMode={handleViewMode}
+                  exporting={dispatchExporting}
+                  disabled={dispatchExportDisabled}
+                  onExport={handleDispatchExport}
+                />
+              ) : (
+                <ListPageExportToggle
+                  viewMode={viewMode}
+                  setMode={handleViewMode}
+                  exporting={exporting}
+                  disabled={loading || exportDisabled}
+                  onExport={handleExport}
+                />
+              )
             }
           />
 
-          {selectedId && (
+          {outerTab === "forwarding_master" && selectedId && (
             <div className="border-b border-indigo-100 bg-indigo-50 px-3 py-2 space-y-2">
               <div className="flex items-start justify-between gap-2 min-w-0">
                 <span className="text-[10px] font-bold text-indigo-600 uppercase flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0 flex-1 leading-snug">
@@ -694,70 +773,95 @@ export default function ForwardingPage() {
           )}
         </ListPageToolbar>
 
-        <ListPageFilterStrip>
-          <DateRangeFilter
-            key={`${params.fromDate}-${params.toDate}`}
-            fromDate={params.fromDate}
-            toDate={params.toDate}
-            extraFilters={extraFilters}
-            applyExtrasOnChange
-            onApply={handleFilterApply}
-            onReset={handleReset}
-            searchValue={tempSearch}
-            onSearchChange={setTempSearch}
-            onSearchEnter={() =>
-              handleFilterApply({
-                fromDate: params.fromDate,
-                toDate: params.toDate,
-                approvedStatus: params.status,
-                dispatchFilter: params.dispatchFilter,
-              })
-            }
-            searchPlaceholder="Search table..."
-            searchLabel="Quick Search"
-            minDate={dateFilterDefaults.minDate}
-            maxDate={dateFilterDefaults.maxDate}
-          />
-        </ListPageFilterStrip>
+        {outerTab === "dispatch_plan" ? (
+          <>
+            <ListPageFilterStrip>
+              <DateRangeFilter
+                showDate={false}
+                searchValue={dispatchSearch}
+                onSearchChange={setDispatchSearch}
+                searchPlaceholder="Quick search items, party, sch no..."
+                searchLabel="Quick Search"
+                onApply={() => {}}
+                onReset={() => setDispatchSearch("")}
+              />
+            </ListPageFilterStrip>
+            <TodayDispatchPlanTab
+              ref={dispatchPlanRef}
+              search={dispatchSearch}
+              onSelectedChange={setDispatchSelected}
+              onRowsChange={setDispatchRows}
+              viewMode={viewMode}
+            />
+          </>
+        ) : (
+          <>
+            <ListPageFilterStrip>
+              <DateRangeFilter
+                key={`${params.fromDate}-${params.toDate}`}
+                fromDate={params.fromDate}
+                toDate={params.toDate}
+                extraFilters={extraFilters}
+                applyExtrasOnChange
+                onApply={handleFilterApply}
+                onReset={handleReset}
+                searchValue={tempSearch}
+                onSearchChange={setTempSearch}
+                onSearchEnter={() =>
+                  handleFilterApply({
+                    fromDate: params.fromDate,
+                    toDate: params.toDate,
+                    approvedStatus: params.status,
+                    dispatchFilter: params.dispatchFilter,
+                  })
+                }
+                searchPlaceholder="Search table..."
+                searchLabel="Quick Search"
+                minDate={dateFilterDefaults.minDate}
+                maxDate={dateFilterDefaults.maxDate}
+              />
+            </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
-          <DataTable
-            key={`${reportType}-${tempSearch}`}
-            headers={HEADERS}
-            data={items}
-            allowCopy={true}
-            loading={loading}
-            viewMode={viewMode}
-            {...tableHotkeyProps}
-            onSort={(key) => setParams(p => ({ ...p, sortKey: key, sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc" }))}
-            sortKey={params.sortKey}
-            sortDir={params.sortDir}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            onLoadMore={handleLoadMore}
-            hasMore={items.length < totalItems}
-            totalItems={totalItems}
-            getRowId={getRowId}
-            emptyIcon={FileText}
-            cardConfig={{ 
-              titleKey: reportType === "summary" ? "po_number" : "item_code", 
-              badgeIndices: [reportType === 'summary' ? 8 : 10], 
-              detailIndices: [2, 3, 4, 5], 
-              footerKey: "created_at",
-              className: "rounded-none border border-slate-200" 
-            }}
-          />
-        </div>
+            <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+              <DataTable
+                key={`${reportType}-${tempSearch}`}
+                headers={HEADERS}
+                data={items}
+                allowCopy={true}
+                loading={loading}
+                viewMode={viewMode}
+                {...tableHotkeyProps}
+                onSort={(key) => setParams(p => ({ ...p, sortKey: key, sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc" }))}
+                sortKey={params.sortKey}
+                sortDir={params.sortDir}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                onLoadMore={handleLoadMore}
+                hasMore={items.length < totalItems}
+                totalItems={totalItems}
+                getRowId={getRowId}
+                emptyIcon={FileText}
+                cardConfig={{ 
+                  titleKey: reportType === "summary" ? "po_number" : "item_code", 
+                  badgeIndices: [reportType === 'summary' ? 8 : 10], 
+                  detailIndices: [2, 3, 4, 5], 
+                  footerKey: "created_at",
+                  className: "rounded-none border border-slate-200" 
+                }}
+              />
+            </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} {reportType === 'summary' ? 'Notes' : 'Items'}
-          </span>
-          <div className="flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+            <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                Showing {items.length} of {totalItems} {reportType === 'summary' ? 'Notes' : 'Items'}
+              </span>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {modalOpen && (

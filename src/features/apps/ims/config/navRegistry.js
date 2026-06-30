@@ -3,6 +3,7 @@ import { ROUTES } from "@/features/apps/ims/utils/routes";
 
 export const NAV_REGISTRY = [
   { id: "dashboard", name: "Dashboard", icon: <Zap size={16} />, href: ROUTES.DASHBOARD, module: null },
+  { id: "dashboard-builder", name: "Dashboard Builder", icon: <BarChart3 size={16} />, href: ROUTES.DASHBOARD_BUILDER, module: null, roles: ["super_admin"] },
   {
     id: "masters-group",
     name: "Masters",

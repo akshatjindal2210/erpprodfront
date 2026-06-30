@@ -136,9 +136,9 @@ function renderPendingBoxCardPlan(_v, row) {
         <div className="rounded border border-blue-100 bg-blue-50/60 px-1.5 py-1.5 text-center">
           <p className="text-[8px] font-bold text-slate-500 uppercase">Full Boxes</p>
           <p className="text-base font-black text-blue-600 tabular-nums leading-none mt-0.5">{full ?? "—"}</p>
-          {fullQty != null ? (
+          {/* {fullQty != null ? (
             <p className="text-[8px] text-slate-500 font-semibold mt-0.5 tabular-nums">Qty: {fullQty.toLocaleString()}</p>
-          ) : null}
+          ) : null} */}
         </div>
         <div className="rounded border border-amber-100 bg-amber-50/60 px-1.5 py-1.5 text-center">
           <p className="text-[8px] font-bold text-slate-500 uppercase">Loose Box</p>
@@ -147,9 +147,9 @@ function renderPendingBoxCardPlan(_v, row) {
           >
             {looseCount}
           </p>
-          {looseCount > 0 && Number.isFinite(looseQty) && looseQty > 0 ? (
+          {/* {looseCount > 0 && Number.isFinite(looseQty) && looseQty > 0 ? (
             <p className="text-[8px] text-slate-500 font-semibold mt-0.5 tabular-nums">Qty: {looseQty.toLocaleString()}</p>
-          ) : null}
+          ) : null} */}
         </div>
       </div>
     </div>

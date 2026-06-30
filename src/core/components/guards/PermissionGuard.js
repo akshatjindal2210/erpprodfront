@@ -106,8 +106,10 @@ export default function PermissionGuard({ children }) {
     const isOpenDashboard =
       pathname === ROUTES.DASHBOARD ||
       pathname === "/ims/dashboard" ||
+      pathname === "/ims/dashboard/builder" ||
       pathname === "/task/dashboard" ||
-      pathname === "/settings";
+      pathname === "/settings" ||
+      pathname === ROUTES.DASHBOARD_BUILDER;
     return { authorized: isOpenDashboard, noAccessAtAll: false };
   }, [pathname, hasPermissionOnly, allowedModules]);
 

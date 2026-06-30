@@ -67,4 +67,25 @@ export const schedulePlanningService = {
       method: "POST",
       body: finYearBody(body),
     }),
+
+  /** Dispatch-plan helper — no fin_year_id required. Caller must pass permission_module + permission_action. */
+  dispatchHelper: (body = {}) =>
+    api(ENDPOINTS.SCHEDULE_PLANNING.DISPATCH_HELPER, {
+      method: "POST",
+      body,
+    }),
+
+  /** Mark a dispatch plan item as complete. fin_year_id must be included in body (taken from row data). */
+  dispatchComplete: (body = {}) =>
+    api(ENDPOINTS.SCHEDULE_PLANNING.COMPLETE, {
+      method: "POST",
+      body,
+    }),
+
+  /** Reschedule a dispatch plan item to a new target date. fin_year_id must be included in body (taken from row data). */
+  dispatchReschedule: (body = {}) =>
+    api(ENDPOINTS.SCHEDULE_PLANNING.SAVE, {
+      method: "POST",
+      body,
+    }),
 };

@@ -558,20 +558,15 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
     ["Custommer", "acc_name", (v) => (
       <span className="font-bold text-slate-900 text-[10px] uppercase whitespace-normal break-words leading-snug" title={v}>{v || "—"}</span>
     ), { width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" }],
-    ["Month", "schmonth", (_v, row) => <span className="text-[10px] text-slate-600 font-medium">{schMonthLabel(row.schmonth)}</span>, { width: "100px" }],
+    // ["Month", "schmonth", (_v, row) => <span className="text-[10px] text-slate-600 font-medium">{schMonthLabel(row.schmonth)}</span>, { width: "100px" }],
     ["Item Code", "item_code", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "160px" }],
     ["Description", "itemdesc", (v) => <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{v || "—"}</span>, { width: "220px", wrap: true }],
     ["Total Qty", "totalqty", (v, row) => (
       <span className="font-black text-slate-700 text-[11px] tabular-nums">{Number(v ?? row.total_qty ?? 0).toLocaleString()}</span>
     ), { align: "center", width: "100px" }],
-    ["In Hand", "in_hand_qty", (v, row) => (
+    ["FG Stock", "in_hand_qty", (v, row) => (
       <span className="font-black text-emerald-700 text-[11px] tabular-nums">{Number(v ?? row.fg_stock_qty ?? 0).toLocaleString()}</span>
     ), { align: "center", width: "90px" }],
-    ["Remarks", "remarks", (_v, row) => (
-      <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{formatScheduleRemarks(row.Remarks ?? row.remarks)}</span>
-    ), { width: "200px", wrap: true }],
-    ...SCHEDULE_ACTION_HEADERS,
-    ...SCHEDULE_AUDIT_HEADERS,
     ["Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { width: "120px", copyValue: (row) => row.status_label || statusLabel(row.is_planned) }],
     [
       "Last Action",
@@ -599,5 +594,10 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
       },
       { width: "110px" },
     ],
+    ["Remarks", "remarks", (_v, row) => (
+      <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{formatScheduleRemarks(row.Remarks ?? row.remarks)}</span>
+    ), { width: "200px", wrap: true }],
+    ...SCHEDULE_ACTION_HEADERS,
+    ...SCHEDULE_AUDIT_HEADERS
   ];
 }

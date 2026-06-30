@@ -1,5 +1,5 @@
-import DashboardHome from "@/features/shared/dashboard/components/DashboardHome";
+import DashboardBuilder from "@/features/dashboard-builder/components/DashboardBuilder";
 
-export default function Page() {
-  return <DashboardHome title="IMS" appType="ims" />;
+export default function DashboardViewerPage() {
+  return <DashboardBuilder readOnly={true} />;
 }

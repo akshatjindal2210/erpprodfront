@@ -8,22 +8,22 @@ const LABEL_BASE = "text-[10px] font-bold uppercase ml-1 tracking-tight italic";
 export const LIST_PAGE_SEARCH_LABEL_CLASS = `${LABEL_BASE} text-slate-500`;
 
 /** Quick filter — screen par loaded rows filter (warm accent) */
-export const LIST_PAGE_FILTER_QUICK_LABEL_CLASS = `${LABEL_BASE} `;
+export const LIST_PAGE_FILTER_QUICK_LABEL_CLASS = `${LABEL_BASE} text-indigo-700`;
 
 /** Server filter — date / dropdown / Search button (cool accent) */
-export const LIST_PAGE_FILTER_SERVER_LABEL_CLASS = `${LABEL_BASE} `;
+export const LIST_PAGE_FILTER_SERVER_LABEL_CLASS = `${LABEL_BASE} text-slate-500`;
 
 export const LIST_PAGE_FILTER_VALUE_CLASS = "list-page-filter-value";
 export const LIST_PAGE_FILTER_PLACEHOLDER_CLASS = "list-page-filter-placeholder";
 
 const BOX_BASE =
-  "list-page-filter-control h-8 md:h-9 w-full min-w-0 rounded-none border border-slate-300 bg-white px-2 md:px-3 transition-all focus-within:border-slate-500 focus:outline-none";
+  "list-page-filter-control h-8 md:h-9 w-full min-w-0 rounded-none border px-2 md:px-3 transition-all focus-within:border-slate-500 focus:outline-none";
 
 /** Subtle left stripe — quick (client) */
-export const LIST_PAGE_FILTER_QUICK_BOX_CLASS = `${BOX_BASE} border-l-2 border-l-amber-400`;
+export const LIST_PAGE_FILTER_QUICK_BOX_CLASS = `${BOX_BASE} bg-indigo-50 border-indigo-300`;
 
 /** Subtle left stripe — server (DB search) */
-export const LIST_PAGE_FILTER_SERVER_BOX_CLASS = `${BOX_BASE} border-l-2 border-l-indigo-500`;
+export const LIST_PAGE_FILTER_SERVER_BOX_CLASS = `${BOX_BASE} bg-white border-slate-300`;
 
 /** @deprecated use listPageFilterBoxClass() */
 export const LIST_PAGE_FILTER_BOX_CLASS = LIST_PAGE_FILTER_SERVER_BOX_CLASS;
