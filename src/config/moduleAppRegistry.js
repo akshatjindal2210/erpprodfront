@@ -60,7 +60,7 @@ export function isModuleActive(mod) {
 }
 
 export function shouldIncludeInUserPermissionForm(mod) {
-  return isModuleActive(mod);
+  return true;
 }
 
 export function partitionModulesForUserForm(modules = []) {
