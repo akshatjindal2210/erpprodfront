@@ -3,12 +3,7 @@
 import { Calendar, List } from "lucide-react";
 import { formatDateTime, formatDocDate, filterDateToDisplay } from "@/core/utils/utilHelper";
 import { IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
-import {
-  SCHEDULE_PLAN_STATUS,
-  SCHEDULE_STATUS_FILTER_OPTIONS,
-  isDbRow,
-  statusLabel,
-} from "./schedulePlanStatus";
+import { SCHEDULE_PLAN_STATUS, SCHEDULE_STATUS_FILTER_OPTIONS, isDbRow, statusLabel } from "./schedulePlanStatus";
 
 export { SCHEDULE_STATUS_FILTER_OPTIONS, SCHEDULE_REPORT_FILTER, SCHEDULE_REPORT_FILTER_OPTIONS } from "./schedulePlanStatus";
 export { isDbRow as isScheduleRowPlanned, canDeleteRow } from "./schedulePlanStatus";
@@ -40,21 +35,87 @@ export function scheduleSchnoKey(row) {
   return String(row.schno ?? "");
 }
 
-export function formatScheduleRemarks(raw) {
-  if (raw == null || String(raw).trim() === "") return "—";
+/** IMS Remarks JSON — one or many `{ date, qty }` pairs, e.g. `[{"date":"1/7/26","qty":6000}]`. */
+export function normalizeScheduleRemarksRaw(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) return raw;
+  const text = String(raw).trim();
+  if (!text) return [];
   try {
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return String(raw);
-    return arr
-      .map((e) => {
-        const iso = remarkDateToInputValue(e.date);
-        const d = iso ? formatDocDate(iso) : formatDocDate(e.date);
-        return `${d || e.date || "—"} — Qty: ${Number(e.qty || 0).toLocaleString()}`;
-      })
-      .join("; ");
+    let parsed = JSON.parse(text);
+    if (typeof parsed === "string") {
+      const inner = String(parsed).trim();
+      parsed = inner ? JSON.parse(inner) : [];
+    }
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
+    return [];
+  }
+}
+
+export function parseScheduleRemarks(raw) {
+  const arr = normalizeScheduleRemarksRaw(raw);
+  if (!arr.length) return [];
+  return arr
+    .map((e, index) => {
+      if (e == null || typeof e !== "object") return null;
+      const iso = remarkDateToInputValue(e.date);
+      const d = iso ? formatDocDate(iso) : formatDocDate(e.date);
+      const qty = Number(e.qty ?? e.quantity ?? 0);
+      return {
+        index: index + 1,
+        date: d || (e.date != null ? String(e.date) : "—"),
+        qty: Number.isFinite(qty) ? qty : 0,
+        sortKey: iso || String(e.date || ""),
+      };
+    })
+    .filter(Boolean)
+    .filter((e) => e.date !== "—" || e.qty > 0)
+    .sort((a, b) => String(a.sortKey).localeCompare(String(b.sortKey)));
+}
+
+export function formatScheduleRemarks(raw) {
+  const entries = parseScheduleRemarks(raw);
+  if (!entries.length) {
+    if (raw == null || String(raw).trim() === "") return "—";
     return String(raw);
   }
+  return entries.map((e) => `${e.date} — Qty: ${e.qty.toLocaleString()}`).join("; ");
+}
+
+export function ScheduleCustRequestCell({ raw, className = "", showIndex = false }) {
+  const entries = parseScheduleRemarks(raw);
+  if (!entries.length) {
+    const text = raw != null && String(raw).trim() !== "" ? String(raw) : "—";
+    return <span className={`${IMS_TABLE_CELL_TEXT} text-slate-500 ${className}`.trim()}>{text}</span>;
+  }
+
+  const multi = entries.length > 1;
+
+  return (
+    <div
+      className={`min-w-[130px] ${multi ? "divide-y divide-slate-200/90" : ""} ${className}`.trim()}
+      title={formatScheduleRemarks(raw)}
+    >
+      {entries.map((e) => (
+        <div
+          key={`${e.date}-${e.qty}-${e.index}`}
+          className={`leading-snug ${multi ? "py-1 first:pt-0 last:pb-0" : ""}`}
+        >
+          <div className="flex items-baseline gap-1.5">
+            {showIndex && multi ? (
+              <span className="text-[9px] font-bold text-slate-400 tabular-nums shrink-0">{e.index}.</span>
+            ) : null}
+            <span className={`${IMS_TABLE_CELL_TEXT} text-slate-800 font-medium`}>{e.date}</span>
+          </div>
+          <div className={`whitespace-nowrap ${showIndex && multi ? "pl-4" : ""}`}>
+            <span className="text-[10px] font-semibold uppercase text-slate-500">Qty:</span>{" "}
+            <span className="text-[10px] font-bold tabular-nums text-slate-900">{e.qty.toLocaleString()}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function formatPreviousPlanDates(rawOrRow) {
@@ -594,8 +655,8 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
       },
       { width: "110px" },
     ],
-    ["Remarks", "remarks", (_v, row) => (
-      <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{formatScheduleRemarks(row.Remarks ?? row.remarks)}</span>
+    ["Cust. Request", "remarks", (_v, row) => (
+      <ScheduleCustRequestCell raw={row.Remarks ?? row.remarks} />
     ), { width: "200px", wrap: true }],
     ...SCHEDULE_ACTION_HEADERS,
     ...SCHEDULE_AUDIT_HEADERS

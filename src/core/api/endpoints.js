@@ -76,6 +76,17 @@ export const CORE_ENDPOINTS = {
     read: (id) => `${CORE_API}/inbox/${id}/read`,
     READ_ALL: `${CORE_API}/inbox/read-all`,
   },
+  PUSH: {
+    VAPID_PUBLIC_KEY: `${CORE_API}/push/vapid-public-key`,
+    SUBSCRIBE: `${CORE_API}/push/subscribe`,
+    LINK: `${CORE_API}/push/link`,
+    UNLINK: `${CORE_API}/push/unlink`,
+    UNSUBSCRIBE: `${CORE_API}/push/unsubscribe`,
+    DELIVERY_RECEIVED: `${CORE_API}/push/delivery/received`,
+    DELIVERY_READ: `${CORE_API}/push/delivery/read`,
+    LOGS: `${CORE_API}/push/logs`,
+    SEND: `${CORE_API}/push/send`,
+  },
   // USER_PREFERENCES: `${CORE_API}/user-preferences`,
   APP_CONFIG: {
     LIST: "/app-config/list",

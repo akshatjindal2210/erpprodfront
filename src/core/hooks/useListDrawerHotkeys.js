@@ -19,8 +19,8 @@ function canOpenNewByAccess(canAccess, module, addAction, addActions) {
 }
 
 /**
- * List drawer shortcuts (N/E/P/A) — window listener here; pass `tableHotkeyProps` to DataTable for `hotkeysDisabled` only.
- * Ctrl+Alt+N / Ctrl+Alt+E / Ctrl+Alt+P (browser); Ctrl+N / E / P in PWA.
+ * List drawer shortcuts — window listener here; pass `tableHotkeyProps` to DataTable for `hotkeysDisabled` only.
+ * Browser: Ctrl+Alt+N / E / P / A. PWA: Ctrl+A (New), Ctrl+E (Edit), Ctrl+D (Delete), Ctrl+P (Print).
  */
 export function useListDrawerHotkeys({
   module,
@@ -160,12 +160,20 @@ export function useListDrawerHotkeys({
       const isPWA = typeof window !== "undefined" &&
         (window.matchMedia("(display-mode: standalone)").matches || !!window.navigator.standalone);
 
-      // 1. NEW: Ctrl+Alt+N (Browser), Ctrl+N (PWA), or Insert
-      if ((mod && key === "n") || e.key === "Insert") {
+      // 1. NEW: Ctrl+A (PWA), Ctrl+Alt+N (Browser), Ctrl+N (PWA legacy), or Insert
+      if ((mod && (key === "n" || key === "a")) || e.key === "Insert") {
         e.preventDefault();
         e.stopPropagation();
-        const allowN = (mod && isAlt) || (mod && !isAlt && isPWA) || e.key === "Insert";
-        if (allowN && typeof openAdd === "function" && openAdd !== null) {
+        const allowA = key === "a" && mod && !isAlt && !isShift && isPWA;
+        const allowN = key === "n" && ((mod && isAlt) || (mod && !isAlt && isPWA));
+        const allowInsert = e.key === "Insert";
+        const allowNew = allowA || allowN || allowInsert;
+        const allowApproveByA = key === "a" && ((mod && isAlt && !isShift) || (!isPWA && mod && !isAlt && !isShift));
+        if (allowApproveByA && typeof openApprove === "function" && openApprove !== null) {
+          openApproveModal();
+          return;
+        }
+        if (allowNew && typeof openAdd === "function" && openAdd !== null) {
           openNewModal();
         }
         return;
@@ -192,15 +200,15 @@ export function useListDrawerHotkeys({
         return;
       }
 
-      // 4. APPROVE: Ctrl+A or Ctrl+Alt+A
-      if (mod && key === "a") {
-        e.preventDefault();
-        e.stopPropagation();
-        if (typeof openApprove === "function" && openApprove !== null) {
-          openApproveModal();
-        }
-        return;
-      }
+      // // 4. APPROVE: Ctrl+A or Ctrl+Alt+A
+      // if (mod && key === "a") {
+      //   e.preventDefault();
+      //   e.stopPropagation();
+      //   if (typeof openApprove === "function" && openApprove !== null) {
+      //     openApproveModal();
+      //   }
+      //   return;
+      // }
 
       // 5. DELETE: Ctrl+D, Ctrl+Alt+D, or Delete key
       if ((mod && key === "d") || e.key === "Delete") {

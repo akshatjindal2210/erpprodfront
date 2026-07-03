@@ -19,9 +19,9 @@ import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilte
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { applyClientSearch, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
 import { schedulePlanningService } from "@/features/apps/ims/services/schedulePlanning";
-import { SCHEDULE_LIST_FILTER, canOpenPlanModal, SCHEDULE_REPORT_FILTER } from "./schedulePlanStatus";
+import { SCHEDULE_LIST_FILTER, SCHEDULE_PLAN_STATUS, canOpenPlanModal, isDbRow, SCHEDULE_REPORT_FILTER } from "./schedulePlanStatus";
 import { SCHEDULE_PAGE_TABS, MONTH_FILTER_OPTIONS, currentScheduleMonthValue, SCHEDULE_STATUS_FILTER_OPTIONS, SCHEDULE_REPORT_FILTER_OPTIONS, scheduleItemRowKey, scheduleSchnoKey, canDeleteRow, scheduleItemWiseSearchParts,
-  scheduleUniqueSearchParts, toUniqueScheduleRows, SCHEDULE_UNIQUE_HEADERS, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders } from "./schedulePlanningColumns";
+  scheduleUniqueSearchParts, toUniqueScheduleRows, SCHEDULE_UNIQUE_HEADERS, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, hasScheduleComparisonMismatch } from "./schedulePlanningColumns";
 import SchedulePlanModal from "./SchedulePlanModal";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import SchedulePlanRemoveConfirmModal from "./SchedulePlanRemoveConfirmModal";
@@ -31,7 +31,7 @@ function buildScheduleListFilters(query) {
   const reportType = String(query?.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT).toLowerCase();
   const body = {
     reportType,
-    status: query?.status ?? SCHEDULE_LIST_FILTER.PENDING,
+    status: SCHEDULE_LIST_FILTER.ALL,
   };
 
   if (reportType === SCHEDULE_REPORT_FILTER.CUSTOM) {
@@ -45,6 +45,24 @@ function buildScheduleListFilters(query) {
   }
 
   return body;
+}
+
+function matchesFrontendStatusFilter(row, status) {
+  const st = String(status ?? SCHEDULE_LIST_FILTER.ALL).toLowerCase();
+  if (st === SCHEDULE_LIST_FILTER.ALL) return true;
+  if (st === SCHEDULE_LIST_FILTER.COMPARISON) return hasScheduleComparisonMismatch(row);
+  if (st === SCHEDULE_LIST_FILTER.PENDING) return !isDbRow(row) || Number(row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING) === SCHEDULE_PLAN_STATUS.PENDING;
+
+  const code = Number(row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
+  if (!Number.isFinite(code)) return false;
+
+  if (st === SCHEDULE_LIST_FILTER.SCHEDULE) {
+    return code === SCHEDULE_PLAN_STATUS.PLANNED || code === SCHEDULE_PLAN_STATUS.RUNNING;
+  }
+  if (st === SCHEDULE_LIST_FILTER.COMPLETE) return code === SCHEDULE_PLAN_STATUS.COMPLETE;
+  if (st === SCHEDULE_LIST_FILTER.REJECT) return code === SCHEDULE_PLAN_STATUS.REJECT;
+  if (st === SCHEDULE_LIST_FILTER.HOLD) return code === SCHEDULE_PLAN_STATUS.HOLD;
+  return true;
 }
 
 export default function SchedulePlanningPage() {
@@ -61,6 +79,7 @@ export default function SchedulePlanningPage() {
   const [tempSearch, setTempSearch] = useState("");
   const [params, setParams] = useState({ sortKey: "", sortDir: "asc" });
   const [appliedQuery, setAppliedQuery] = useState(null);
+  const [statusFilter, setStatusFilter] = useState(SCHEDULE_LIST_FILTER.PENDING);
   const [draftReportType, setDraftReportType] = useState(SCHEDULE_REPORT_FILTER.DEFAULT);
   const initialQuerySet = useRef(false);
 
@@ -82,10 +101,11 @@ export default function SchedulePlanningPage() {
     initialQuerySet.current = true;
     setAppliedQuery({
       reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
-      status: SCHEDULE_LIST_FILTER.PENDING,
+      status: SCHEDULE_LIST_FILTER.ALL,
       month: currentScheduleMonthValue(),
     });
     setDraftReportType(SCHEDULE_REPORT_FILTER.DEFAULT);
+    setStatusFilter(SCHEDULE_LIST_FILTER.PENDING);
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const isCustomReport = String(draftReportType) === SCHEDULE_REPORT_FILTER.CUSTOM;
@@ -142,7 +162,12 @@ export default function SchedulePlanningPage() {
     setDisplayLimit(100);
   }, [tempSearch, pageTab]);
 
-  const uniqueSchedulesAll = useMemo(() => toUniqueScheduleRows(rows), [rows]);
+  const frontendFilteredRows = useMemo(
+    () => rows.filter((row) => matchesFrontendStatusFilter(row, statusFilter)),
+    [rows, statusFilter]
+  );
+
+  const uniqueSchedulesAll = useMemo(() => toUniqueScheduleRows(frontendFilteredRows), [frontendFilteredRows]);
   const uniqueSchedules = useMemo(() => {
     const q = String(tempSearch || "").trim();
     let data = uniqueSchedulesAll;
@@ -155,13 +180,13 @@ export default function SchedulePlanningPage() {
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
     let data = itemWiseSchnoFilter
-      ? rows.filter((row) => scheduleSchnoKey(row) === itemWiseSchnoFilter)
-      : [...rows];
+      ? frontendFilteredRows.filter((row) => scheduleSchnoKey(row) === itemWiseSchnoFilter)
+      : [...frontendFilteredRows];
     if (q) {
       data = applyClientSearch(data, tempSearch, { getParts: scheduleItemWiseSearchParts, skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [rows, itemWiseSchnoFilter, tempSearch, params.sortKey, params.sortDir]);
+  }, [frontendFilteredRows, itemWiseSchnoFilter, tempSearch, params.sortKey, params.sortDir]);
 
   const drillToItemWise = useCallback((scheduleRow) => {
     const schno = scheduleSchnoKey(scheduleRow);
@@ -251,7 +276,7 @@ export default function SchedulePlanningPage() {
     };
   }, [selectedRecord, planModalOpen, modalScheduleItems, modalItemsLoading]);
 
-  const canOpenPlan = Boolean(canOpenPlanModal(appliedQuery?.status) && selectedRecord);
+  const canOpenPlan = Boolean(canOpenPlanModal(statusFilter) && selectedRecord);
 
   const deleteSchno = selectedRecord ? scheduleSchnoKey(selectedRecord) : "";
 
@@ -282,12 +307,12 @@ export default function SchedulePlanningPage() {
   const handleRowDoubleClick = useCallback(
     (_item, id) => {
       if (!canAddPlan) return;
-      if (!canOpenPlanModal(appliedQuery?.status)) return;
+      if (!canOpenPlanModal(statusFilter)) return;
       setSelected(id);
       setPlanModalMode("plan");
       setPlanModalOpen(true);
     },
-    [canAddPlan, appliedQuery?.status]
+    [canAddPlan, statusFilter]
   );
 
   const handleViewHistory = useCallback((row) => {
@@ -352,14 +377,14 @@ export default function SchedulePlanningPage() {
   const extraFilters = useMemo(
     () => [
       { label: "Month", key: "month", value: isCustomReport ? (appliedQuery?.month ?? "all") : (appliedQuery?.month ?? currentScheduleMonthValue()), options: MONTH_FILTER_OPTIONS, preserveOrder: true, disabled: !isCustomReport },
-      { label: "Status", key: "status", value: appliedQuery?.status ?? SCHEDULE_LIST_FILTER.PENDING, options: SCHEDULE_STATUS_FILTER_OPTIONS },
+      { label: "Status", key: "status", value: statusFilter, options: SCHEDULE_STATUS_FILTER_OPTIONS, variant: "quick" },
       { label: "Report", key: "reportType", value: draftReportType, options: SCHEDULE_REPORT_FILTER_OPTIONS, preserveOrder: false },
     ],
-    [appliedQuery?.month, appliedQuery?.status, draftReportType, isCustomReport]
+    [appliedQuery?.month, draftReportType, isCustomReport, statusFilter]
   );
 
   const emptyState = useMemo(() => {
-    const st = String(appliedQuery?.status ?? SCHEDULE_LIST_FILTER.PENDING).toLowerCase();
+    const st = String(statusFilter ?? SCHEDULE_LIST_FILTER.ALL).toLowerCase();
     const map = {
       [SCHEDULE_LIST_FILTER.SCHEDULE]: { message: "No active schedules", subMessage: "Planned / running rows saved in database" },
       [SCHEDULE_LIST_FILTER.COMPLETE]: { message: "No completed schedules", subMessage: "Finished schedules appear here" },
@@ -369,9 +394,9 @@ export default function SchedulePlanningPage() {
       [SCHEDULE_LIST_FILTER.HOLD]: { message: "No items on hold", subMessage: "Held schedule items appear here" },
     };
     return map[st] || { message: "No pending schedule items", subMessage: "IMS rows not yet entered in database" };
-  }, [appliedQuery?.status]);
+  }, [statusFilter]);
 
-  const isComparisonView = String(appliedQuery?.status ?? "").toLowerCase() === SCHEDULE_LIST_FILTER.COMPARISON;
+  const isComparisonView = String(statusFilter ?? "").toLowerCase() === SCHEDULE_LIST_FILTER.COMPARISON;
 
   const scheduleHeaders = useMemo(
     () => (isComparisonView ? buildScheduleUniqueComparisonHeaders({ onDrillToItems: drillToItemWise }) : buildScheduleUniqueHeaders({ onDrillToItems: drillToItemWise })),
@@ -475,13 +500,19 @@ export default function SchedulePlanningPage() {
 
         <ListPageFilterStrip>
           <DateRangeFilter
-            fromDate={isCustomReport ? (appliedQuery?.fromDate ?? dateFilterDefaults.from) : ""}
-            toDate={isCustomReport ? (appliedQuery?.toDate ?? dateFilterDefaults.to) : ""}
+            key={draftReportType}
+            fromDate={isCustomReport ? (appliedQuery?.fromDate ?? "") : ""}
+            toDate={isCustomReport ? (appliedQuery?.toDate ?? "") : ""}
             dateDisabled={!isCustomReport}
             extraFilters={extraFilters}
             extraFiltersBeforeDate={["month"]}
             applyOnSearchEnter={false}
             onExtraFilterChange={(key, value) => {
+              if (key === "status") {
+                setStatusFilter(value ?? SCHEDULE_LIST_FILTER.ALL);
+                setSelected(null);
+                setItemWiseSchnoFilter(null);
+              }
               if (key === "reportType") setDraftReportType(value ?? SCHEDULE_REPORT_FILTER.DEFAULT);
             }}
             onApply={(data) => {
@@ -501,7 +532,7 @@ export default function SchedulePlanningPage() {
               setDraftReportType(reportType);
               setAppliedQuery({
                 reportType,
-                status: data.status ?? SCHEDULE_LIST_FILTER.PENDING,
+                status: SCHEDULE_LIST_FILTER.ALL,
                 ...(isCustom
                   ? { month, fromDate: hasDate ? fromDate : "", toDate: hasDate ? toDate : "" }
                   : { month: currentScheduleMonthValue() }),
@@ -512,9 +543,10 @@ export default function SchedulePlanningPage() {
             onReset={() => {
               setTempSearch("");
               setDraftReportType(SCHEDULE_REPORT_FILTER.DEFAULT);
+              setStatusFilter(SCHEDULE_LIST_FILTER.PENDING);
               setAppliedQuery({
                 reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
-                status: SCHEDULE_LIST_FILTER.PENDING,
+                status: SCHEDULE_LIST_FILTER.ALL,
                 month: currentScheduleMonthValue(),
               });
               setSelected(null);

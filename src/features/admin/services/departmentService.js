@@ -7,6 +7,14 @@ export const departmentService = {
   create: (data) => api(ENDPOINTS.DEPARTMENTS.CREATE, { method: "POST", body: data }),
   update: (id, data) => api(ENDPOINTS.DEPARTMENTS.UPDATE, { method: "POST", body: { id, ...data } }),
   delete: (id) => api(ENDPOINTS.DEPARTMENTS.DELETE, { method: "POST", body: { id } }),
-  getViews: (body = {}) => api(ENDPOINTS.DEPARTMENTS.HELPER, { method: "POST", body }),
+  getViews: (body = {}) =>
+    api(ENDPOINTS.DEPARTMENTS.HELPER, {
+      method: "POST",
+      body: {
+        permission_module: "departments",
+        permission_action: "view",
+        ...body,
+      },
+    }),
 };
 

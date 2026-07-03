@@ -15,7 +15,7 @@ import FormPanelLoader from "@/core/components/common/FormPanelLoader";
 import ModuleSopAcknowledgment from "@/core/components/common/ModuleSopAcknowledgment";
 import Snackbar from "@/core/components/ui/Snackbar";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
-import { SCAN_SNACK_MSG, notifyDecodeSuppressedScan, useScanSnackbarActions } from "@/core/utils/global";
+import { SCAN_SNACK_MSG, notifyDecodeSuppressedScan, markRecentScanSuccess, shouldSilenceScanDuplicate, useScanSnackbarActions } from "@/core/utils/global";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useDeviceScanSettings } from "@/core/hooks/useDeviceScanSettings";
 import { isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
@@ -278,6 +278,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   const packingFocusSeedRef = useRef("");
   const packingWasCompleteRef = useRef({});
   const lastCameraScanRef = useRef({ code: "", at: 0 });
+  const recentSuccessRef = useRef(new Map());
   const scanToastRef = useRef({});
   const scannedBoxIdsRef = useRef(new Set());
   const scannedCountsByPackingRef = useRef(new Map());
@@ -884,12 +885,14 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
           if (result?.duplicate) {
             revertScanCount(item.canonicalBoxId);
-            showScanToast(
-              "error",
-              `batch-dup-${item.id}`,
-              result?.message || SCAN_SNACK_MSG.BOX_DUPLICATE(item.canonicalBoxId),
-              2200
-            );
+            if (!shouldSilenceScanDuplicate(recentSuccessRef, item.canonicalBoxId)) {
+              showScanToast(
+                "error",
+                `batch-dup-${item.id}`,
+                result?.message || SCAN_SNACK_MSG.BOX_DUPLICATE(item.canonicalBoxId),
+                2200
+              );
+            }
             continue;
           }
 
@@ -954,12 +957,14 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           if (result?.duplicate) {
             scannedBoxIdsRef.current.delete(item.canonicalBoxId);
             otherBoxMapRef.current.delete(item.canonicalBoxId);
-            showScanToast(
-              "error",
-              `other-batch-dup-${item.id}`,
-              result?.message || SCAN_SNACK_MSG.BOX_DUPLICATE(item.canonicalBoxId),
-              2200
-            );
+            if (!shouldSilenceScanDuplicate(recentSuccessRef, item.canonicalBoxId)) {
+              showScanToast(
+                "error",
+                `other-batch-dup-${item.id}`,
+                result?.message || SCAN_SNACK_MSG.BOX_DUPLICATE(item.canonicalBoxId),
+                2200
+              );
+            }
             continue;
           }
 
@@ -1053,7 +1058,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       }
 
       if (scannedBoxIdsRef.current.has(canonicalBoxId)) {
-        showScanToast("error", "other-duplicate-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(canonicalBoxId), 1200);
+        if (!shouldSilenceScanDuplicate(recentSuccessRef, canonicalBoxId)) {
+          showScanToast("error", "other-duplicate-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(canonicalBoxId), 1200);
+        }
         return;
       }
 
@@ -1069,6 +1076,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       }
 
       scannedBoxIdsRef.current.add(canonicalBoxId);
+      markRecentScanSuccess(recentSuccessRef, canonicalBoxId);
       showScanSuccess(
         `other-scan-ok-${String(canonicalBoxId).toLowerCase()}`,
         SCAN_SNACK_MSG.BOX_SCANNED_TOTAL(canonicalBoxId, scannedBoxIdsRef.current.size)
@@ -1134,7 +1142,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       }
 
       if (scannedBoxIdsRef.current.has(canonicalBoxId)) {
-        showScanToast("error", "duplicate-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(canonicalBoxId), 1200);
+        if (!shouldSilenceScanDuplicate(recentSuccessRef, canonicalBoxId)) {
+          showScanToast("error", "duplicate-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(canonicalBoxId), 1200);
+        }
         return;
       }
 
@@ -1167,6 +1177,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         setActivePackingIdx(tabIdx);
       }
 
+      markRecentScanSuccess(recentSuccessRef, canonicalBoxId);
       showScanSuccess(
         `scan-ok-${String(canonicalBoxId).toLowerCase()}`,
         SCAN_SNACK_MSG.BOX_SCANNED_TOTAL(canonicalBoxId, scannedBoxIdsRef.current.size)
@@ -1218,15 +1229,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   }`;
 
   const handleLaserScanRejected = useCallback(
-    ({ reason, code }) => {
-      if (reason === "duplicate") {
-        showScanToast(
-          "error",
-          `laser-dup-${String(code ?? "").toLowerCase()}`,
-          SCAN_SNACK_MSG.BOX_DUPLICATE(code),
-          1200
-        );
-      } else if (reason === "empty") {
+    ({ reason }) => {
+      if (reason === "empty") {
         showScanToast("error", "laser-empty-scan", SCAN_SNACK_MSG.REJECTED, 1800);
       }
     },
@@ -1266,7 +1270,6 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         lastCameraScanRef.current.code === code &&
         now - lastCameraScanRef.current.at < 1200
       ) {
-        showScanToast("error", "camera-dup-scan", SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1200);
         return;
       }
       lastCameraScanRef.current = { code, at: now };
@@ -1276,12 +1279,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     [tryAddBox, tryAddOtherBox, isAutoScanFlow, showScanToast]
   );
 
-  const handleDecodeSuppressed = useCallback(
-    (text) => {
-      notifyDecodeSuppressedScan(showScanToast, text, "out-entry-cooldown");
-    },
-    [showScanToast]
-  );
+  const handleDecodeSuppressed = useCallback(() => {
+    notifyDecodeSuppressedScan();
+  }, []);
 
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,

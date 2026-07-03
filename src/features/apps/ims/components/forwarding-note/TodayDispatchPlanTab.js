@@ -80,7 +80,7 @@ function buildDispatchHeaders() {
   return cols;
 }
 
-const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search = "", onSelectedChange, onRowsChange, viewMode }, ref) {
+const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search = "", statusFilter = "all", onSelectedChange, onRowsChange, viewMode }, ref) {
   const canAccess = useCanAccess();
   const canAddPlan = useMemo(() => canAccess("schedule_planning", "add").allowed, [canAccess]);
 
@@ -92,6 +92,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
   const [rescheduleModalOpen, setRescheduleModalOpen] = useState(false);
   const [rescheduleItem, setRescheduleItem] = useState(null);
   const [completing, setCompleting] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
 
   const rangeLabel = useMemo(getTodayLabel, []);
 
@@ -101,6 +102,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       const res = await schedulePlanningService.dispatchHelper({
         permission_module: "forwarding_note_master",
         permission_action: "view",
+        status: statusFilter,
       });
       setRows(Array.isArray(res?.data) ? res.data : []);
       setDisplayLimit(100);
@@ -110,7 +112,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [statusFilter]);
 
   useEffect(() => {
     void fetchData();
@@ -135,6 +137,15 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
   useEffect(() => {
     onRowsChange?.(filteredRows);
   }, [filteredRows, onRowsChange]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const stillExists = rows.some((r) => scheduleItemRowKey(r) === selected);
+    if (!stillExists) {
+      setSelected(null);
+      onSelectedChange?.(null);
+    }
+  }, [rows, selected, onSelectedChange]);
 
   const displayRows = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
 
@@ -191,6 +202,43 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     [canAddPlan]
   );
 
+  const handleRejectRow = useCallback(
+    async (row) => {
+      if (!row || !canAddPlan) return;
+      if (!row.fin_year_id) {
+        toast.error("Financial year not found for this item.");
+        return;
+      }
+      setRejecting(true);
+      try {
+        const res = await schedulePlanningService.reject({
+          fin_year_id: String(row.fin_year_id),
+          schno: row.schno,
+          itemdcode: row.itemdcode,
+          schmonth: row.schmonth,
+          schdt: row.schdt,
+          acc_code: row.acc_code,
+          acc_name: row.acc_name,
+          item_code: row.item_code,
+          itemdesc: row.itemdesc,
+          totalqty: Number(row.totalqty ?? 0),
+          action_reason: "Rejected from dispatch plan",
+          item_remark: row.item_remark ?? null,
+        });
+        if (!res?.success) throw new Error(res?.message || "Reject failed.");
+        toast.success("Item marked as reject.");
+        setSelected(null);
+        onSelectedChange?.(null);
+        void fetchData();
+      } catch (err) {
+        toast.error(err?.message || "Failed to reject item.");
+      } finally {
+        setRejecting(false);
+      }
+    },
+    [canAddPlan, fetchData, onSelectedChange]
+  );
+
   const handleRescheduleSaved = useCallback(() => {
     setSelected(null);
     onSelectedChange?.(null);
@@ -203,10 +251,23 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
   );
 
   const getRowClassName = useCallback((row) => {
+    const status = Number(row.is_planned);
     const qty = Number(row.totalqty ?? row.total_qty ?? 0);
     const stock = Number(row.fg_stock_qty ?? 0);
-    if (qty > 0 && stock >= qty) {
-      return "[&_td]:bg-emerald-50/60";
+
+    // Hold items should always stand out in red.
+    if (status === 6) {
+      return "[&_td]:bg-rose-50/70";
+    }
+
+    // Scheduled / planned rows use stock adequacy highlighting.
+    if (status === 1) {
+      if (qty > 0 && stock >= qty) {
+        return "[&_td]:bg-emerald-50/60";
+      }
+      if (qty > 0 && stock < qty) {
+        return "[&_td]:bg-amber-50/70";
+      }
     }
     return "";
   }, []);
@@ -217,9 +278,14 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       refresh: fetchData,
       loading,
       completing,
+      rejecting,
       completeSelected: () => {
         const row = getSelectedRow();
-        if (row) void handleCompleteRow(row);
+        if (row && Number(row.is_planned) === 1) void handleCompleteRow(row);
+      },
+      rejectSelected: () => {
+        const row = getSelectedRow();
+        if (row) void handleRejectRow(row);
       },
       openRescheduleForSelected: () => {
         const row = getSelectedRow();
@@ -227,7 +293,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       },
       hasSelected: Boolean(selected),
     }),
-    [fetchData, loading, completing, selected, getSelectedRow, handleCompleteRow, handleOpenRescheduleRow]
+    [fetchData, loading, completing, rejecting, selected, getSelectedRow, handleCompleteRow, handleRejectRow, handleOpenRescheduleRow]
   );
 
   const headers = useMemo(() => buildDispatchHeaders(), []);

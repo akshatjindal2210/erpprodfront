@@ -2,12 +2,7 @@
 import { useState, useEffect } from "react";
 import { RotateCcw, Send } from "lucide-react";
 import FilterDateInput from "@/core/components/common/FilterDateInput";
-import ListPageSearchField, {
-  listPageFilterLabelClass,
-  LIST_PAGE_FILTER_SELECT_CLASS,
-  LIST_PAGE_FILTER_FIELD_WRAP_CLASS,
-  LIST_PAGE_FILTER_ACTION_BTN_CLASS,
-} from "@/core/components/common/ListPageSearchField";
+import ListPageSearchField, { listPageFilterLabelClass, LIST_PAGE_FILTER_VALUE_CLASS, LIST_PAGE_FILTER_FIELD_WRAP_CLASS, LIST_PAGE_FILTER_ACTION_BTN_CLASS, listPageFilterBoxClass } from "@/core/components/common/ListPageSearchField";
 import { useMobileFilterStrip } from "@/core/components/common/ListPageFilterStrip";
 import { sortFilterOptionsAsc } from "@/core/utils/sortSelectOptions";
 
@@ -126,7 +121,7 @@ export default function DateRangeFilter({
       </div>
     ) : (
       <div key={index} className={LIST_PAGE_FILTER_FIELD_WRAP_CLASS}>
-        <label className={`${listPageFilterLabelClass("server")} max-md:hidden`}>{filter.label}</label>
+        <label className={`${listPageFilterLabelClass(filter.variant === "quick" ? "quick" : "server")} max-md:hidden`}>{filter.label}</label>
         <select
           value={localExtras[filter.key] ?? filter.value ?? ""}
           disabled={Boolean(filter.disabled)}
@@ -141,7 +136,13 @@ export default function DateRangeFilter({
               if (showInstantExtras) mobileFilterStrip?.collapseMobile?.();
             }
           }}
-          className={`${LIST_PAGE_FILTER_SELECT_CLASS}${filter.disabled ? " opacity-50 cursor-not-allowed" : ""}`}
+          className={`${
+            [
+              listPageFilterBoxClass(filter.variant === "quick" ? "quick" : "server"),
+              LIST_PAGE_FILTER_VALUE_CLASS,
+              "cursor-pointer appearance-none outline-none pr-7 md:pr-8",
+            ].join(" ")
+          }${filter.disabled ? " opacity-50 cursor-not-allowed" : ""}`}
           style={{
             backgroundImage:
               'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2364748b\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\'/%3E%3C/svg%3E")',

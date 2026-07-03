@@ -20,6 +20,8 @@ import {
   SCAN_SNACK_MSG,
   FLOW_SCAN_CAMERA_INSECURE_MSG,
   notifyDecodeSuppressedScan,
+  markRecentScanSuccess,
+  shouldSilenceScanDuplicate,
   useScanSnackbarActions,
 } from "@/core/utils/global";
 import {
@@ -41,6 +43,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
   const processingRef = useRef(new Set());
+  const recentSuccessRef = useRef(new Map());
 
   const inputRef = useRef(null);
   const lastScanRef = useRef({ key: "", at: 0 });
@@ -80,6 +83,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
       locationVerifiedRef.current = false;
       setIsScannerOpen(false);
       processingRef.current.clear();
+      recentSuccessRef.current.clear();
       lastScanRef.current = { key: "", at: 0 };
       setSnackbar(INITIAL_SNACK);
       if (getDeviceScanSettings().laserScan) {
@@ -135,7 +139,6 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
 
     const now = Date.now();
     if (val === lastScanRef.current.key && now - lastScanRef.current.at < 1500) {
-      showScanToast("error", `audit-dup-${val.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(val), 1400);
       return;
     }
     lastScanRef.current = { key: val, at: now };
@@ -206,13 +209,14 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
     const currentBoxes = scannedData[locId] || [];
 
     if (currentBoxes.includes(boxCode)) {
-      showScanToast("error", `audit-dup-${boxCode.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(boxCode), 1400);
+      if (!shouldSilenceScanDuplicate(recentSuccessRef, boxCode)) {
+        showScanToast("error", `audit-dup-${boxCode.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(boxCode), 1400);
+      }
       setScannedInput("");
       return;
     }
 
     if (processingRef.current.has(boxCode)) {
-      showScanToast("error", `audit-in-flight-${boxCode.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(boxCode), 1400);
       setScannedInput("");
       return;
     }
@@ -235,10 +239,14 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
           return { ...prev, [locId]: [boxCode, ...boxes] };
         });
 
-        if (res?.data?.auto_completed) {
-          locationVerifiedRef.current = false;
-          showScanSuccess("audit-auto-complete", `All boxes matched — ${assignedLocation.location_no} completed`, 4000);
-          onSuccess(false);
+        markRecentScanSuccess(recentSuccessRef, boxCode);
+
+        if (res?.data?.comparison?.exact) {
+          showScanSuccess(
+            "audit-all-scanned",
+            "All boxes scanned — tap Submit Location when ready",
+            3500
+          );
         } else {
           showScanSuccess(`audit-box-${boxCode.toLowerCase()}`, SCAN_SNACK_MSG.BOX_ADDED(boxCode), 1200);
         }
@@ -263,15 +271,8 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
   }, []);
 
   const handleLaserScanRejected = useCallback(
-    ({ reason, code }) => {
-      if (reason === "duplicate") {
-        showScanToast(
-          "error",
-          `laser-dup-${String(code ?? "").toLowerCase()}`,
-          SCAN_SNACK_MSG.BOX_DUPLICATE(code),
-          1200
-        );
-      } else if (reason === "empty") {
+    ({ reason }) => {
+      if (reason === "empty") {
         showScanToast("error", "laser-empty-scan", SCAN_SNACK_MSG.REJECTED, 1800);
       }
     },
@@ -302,12 +303,9 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
     setIsScannerOpen(true);
   };
 
-  const handleDecodeSuppressed = useCallback(
-    (text) => {
-      notifyDecodeSuppressedScan(showScanToast, text, "audit-cooldown");
-    },
-    [showScanToast]
-  );
+  const handleDecodeSuppressed = useCallback(() => {
+    notifyDecodeSuppressedScan();
+  }, []);
 
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,

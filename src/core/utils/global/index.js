@@ -35,9 +35,12 @@ export {
 
 export {
   SCAN_SNACK_DUR,
+  SCAN_DUPLICATE_SILENT_MS,
   buildScanSnackbarState,
   useScanSnackbarActions,
   notifyDecodeSuppressedScan,
+  markRecentScanSuccess,
+  shouldSilenceScanDuplicate,
 } from "./scanSnackbar";
 
 export {

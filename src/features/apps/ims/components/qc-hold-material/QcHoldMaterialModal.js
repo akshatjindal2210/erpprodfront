@@ -17,7 +17,7 @@ import { useDeviceScanSettings } from "@/core/hooks/useDeviceScanSettings";
 import { isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
 import { detectQrType, parseBoxScanRaw, boxNoUidDisplayLabel } from "@/features/apps/ims/helpers/qrScan";
 import { prepareQrScanSession } from "@/features/apps/ims/helpers/scanFeedback";
-import { SCAN_SNACK_MSG, notifyDecodeSuppressedScan, useScanSnackbarActions } from "@/core/utils/global";
+import { SCAN_SNACK_MSG, notifyDecodeSuppressedScan, markRecentScanSuccess, shouldSilenceScanDuplicate, useScanSnackbarActions } from "@/core/utils/global";
 import { OK_INPUT, ERR_INPUT, FORM_LABEL_CLASS } from "@/core/components/common/Constants";
 import { activeQcHoldModePickerOptions, activeQcHoldPendingScanOptions, QC_HOLD_PICKER_ACCENT, QC_HOLD_PICKER_ICONS, QC_HOLD_MODE_PENDING, QC_HOLD_MODE_PARTIAL, QC_HOLD_MODE_FULL, QC_HOLD_MODE_REVERT, QC_HOLD_SCAN_PARTIAL, QC_HOLD_SCAN_FULL, defaultQcHoldScanMode, formatQcHoldActiveHoldLabel, getQcHoldPickerOption, isPendingHoldMode, isSubmitMode, isFullSubmitMode, isRevertSubmitMode, isFullPendingScanMode, mapQcHoldSelectRow, QC_HOLD_PARTIAL_ENABLED, submissionTypeForPickerMode, pickerIdFromSubmissionType } from "@/features/apps/ims/utils/qcHoldTypes";
 import SearchableSelect from "@/core/components/common/SearchableSelect";
@@ -692,6 +692,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
   const keyboardInputRef = useRef(null);
   const scanToastRef = useRef({});
   const scannedIdsRef = useRef(new Set());
+  const recentSuccessRef = useRef(new Map());
   const lockedPackingRef = useRef("");
 
   const { showScanToast, showScanSuccess } = useScanSnackbarActions(setSnackbar, scanToastRef);
@@ -1058,7 +1059,9 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
       }
       const codeKey = String(code).trim().toLowerCase();
       if (isBoxAlreadyScanned(code, scannedBoxes, scannedIdsRef.current)) {
-        showScanToast("error", "qc-hold-dup", SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1200);
+        if (!shouldSilenceScanDuplicate(recentSuccessRef, code)) {
+          showScanToast("error", "qc-hold-dup", SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1200);
+        }
         return;
       }
 
@@ -1086,8 +1089,10 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
           return resolvedKeys.some((k) => existing.includes(k));
         });
         if (duplicateResolved) {
-          showScanToast("error", "qc-hold-dup", SCAN_SNACK_MSG.BOX_DUPLICATE(data.box_no_uid), 1200);
           scannedIdsRef.current.delete(codeKey);
+          if (!shouldSilenceScanDuplicate(recentSuccessRef, data.box_no_uid)) {
+            showScanToast("error", "qc-hold-dup", SCAN_SNACK_MSG.BOX_DUPLICATE(data.box_no_uid), 1200);
+          }
           return;
         }
 
@@ -1107,6 +1112,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
         };
         const next = [...scannedBoxes, nextBox];
         syncBoxes(next);
+        markRecentScanSuccess(recentSuccessRef, data.box_no_uid);
         showScanSuccess(
           `qc-hold-ok-${codeKey}`,
           SCAN_SNACK_MSG.BOX_SCANNED_TOTAL(data.box_no_uid, next.length)
@@ -1142,12 +1148,9 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
     [isFullPendingScan, tryFullHoldByBoxScan, tryAddBox]
   );
 
-  const handleDecodeSuppressed = useCallback(
-    (text) => {
-      notifyDecodeSuppressedScan(showScanToast, text, "qc-hold-cooldown");
-    },
-    [showScanToast]
-  );
+  const handleDecodeSuppressed = useCallback(() => {
+    notifyDecodeSuppressedScan();
+  }, []);
 
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen && open,

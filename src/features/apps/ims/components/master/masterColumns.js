@@ -11,6 +11,7 @@
  */
 import { formatDateTime, formatDocDate } from "@/core/utils/utilHelper";
 import { bestTierForStrings } from "@/features/apps/ims/helpers/liveSearchRank";
+import { formatDateTimeLocalLabel } from "@/features/apps/task/helpers/utilHelper";
 import { Box } from "lucide-react";
 
 /* ─── 1. Packing Entry (DailyProduction.js) ─── */
@@ -198,7 +199,7 @@ const DAILY_PRODUCTION_TAIL_HEADERS = [
   // ), { width: "220px" }],
   ["Sticker Status", "sticker_generated", renderDailyProdStickerStatus, { width: "110px" }],
   ["Created By", "internal_create_user", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
-  ["Created At", "internal_create_date", (v) => <span className="text-[10px] text-slate-400 font-bold">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
+  ["Created At", "internal_create_date", (v) => <span className="text-[10px] text-slate-400 font-bold">{formatDateTimeLocalLabel(v) || "—"}</span>, { width: "150px" }],
   ["Generate By", "system_generate_user_name", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
   ["Generate At", "system_generate_date", (v) => <span className="text-[10px] text-slate-400 font-bold">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
 ];

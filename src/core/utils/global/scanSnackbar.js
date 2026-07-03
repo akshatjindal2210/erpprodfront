@@ -1,7 +1,5 @@
 import { useCallback } from "react";
 import { playScanSuccessBeep } from "@/features/apps/ims/helpers/scanFeedback";
-import { parseBoxScanRaw } from "@/features/apps/ims/helpers/qrScan";
-import { SCAN_SNACK_MSG } from "./messages";
 
 export const SCAN_SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 
@@ -54,19 +52,26 @@ export function useScanSnackbarActions(setSnackbar, scanToastRef) {
   return { showScanToast, showScanSuccess };
 }
 
-/** Toast when the QR scanner hook suppresses a rapid re-decode of the same code. */
-export function notifyDecodeSuppressedScan(showScanToast, decodedText, dedupePrefix = "scanner-cooldown") {
-  const raw = String(decodedText ?? "").trim();
-  if (!raw) {
-    showScanToast("error", `${dedupePrefix}-empty`, SCAN_SNACK_MSG.REJECTED, 1200);
-    return;
-  }
-  const code = parseBoxScanRaw(raw) || raw;
-  showScanToast(
-    "error",
-    `${dedupePrefix}-${String(code).toLowerCase()}`,
-    SCAN_SNACK_MSG.BOX_DUPLICATE(code),
-    1200
-  );
+/** After a successful scan, suppress duplicate toasts for this window (camera re-read). */
+export const SCAN_DUPLICATE_SILENT_MS = 4000;
+
+function scanCodeKey(code) {
+  return String(code ?? "").trim().toLowerCase();
 }
+
+export function markRecentScanSuccess(recentSuccessRef, code) {
+  const key = scanCodeKey(code);
+  if (key) recentSuccessRef.current.set(key, Date.now());
+}
+
+export function shouldSilenceScanDuplicate(recentSuccessRef, code) {
+  const key = scanCodeKey(code);
+  if (!key) return false;
+  const at = recentSuccessRef.current.get(key);
+  if (at == null) return false;
+  return Date.now() - at < SCAN_DUPLICATE_SILENT_MS;
+}
+
+/** Rapid camera re-read — first decode already handled; ignore silently. */
+export function notifyDecodeSuppressedScan() {}
 

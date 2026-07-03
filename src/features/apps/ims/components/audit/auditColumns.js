@@ -81,7 +81,38 @@ export const AUDIT_MASTER_HEADERS = [
   ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
 ];
 
-export function buildAuditLocationHeaders({ canViewAudit, openLocationComparison }) {
+export function buildAuditScannerLocationHeaders() {
+  return [
+    ["Location", "location_no", (v, row) => (
+      <div className="flex items-center gap-2 min-w-0">
+        <MapPin size={12} className="shrink-0 text-indigo-500" />
+        <span className={`font-black uppercase text-[11px] ${row.is_history_row ? "text-slate-500" : "text-slate-800"}`}>
+          {v || "—"}
+        </span>
+      </div>
+    ), { width: "140px" }],
+    ["Audit ID", "audit_id", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">#{v}</span>, { width: "80px" }],
+    ["Users", "assigned_user_name", (v, row) => renderLocationUsersCell(row), {
+      width: "200px",
+      wrap: true,
+      copyValue: (item) => item.users_label || item.assigned_user_name,
+    }],
+    ["Date Range", "start_date", (v, row) => (
+      <span className="text-[10px] font-bold text-slate-700">{formatDate(row.start_date)} — {formatDate(row.end_date)}</span>
+    ), {
+      width: "170px",
+      copyValue: (item) => `${formatDate(item.start_date)} — ${formatDate(item.end_date)}`,
+    }],
+    ["Status", "location_status", (v) => renderLocationStatusBadge(v), {
+      width: "110px",
+      copyValue: (item) => getLocationStatusLabel(item.location_status),
+    }],
+  ];
+}
+
+export function buildAuditLocationHeaders({ canViewAudit, openLocationComparison, scannerOnly = false }) {
+  if (scannerOnly) return buildAuditScannerLocationHeaders();
+
   return [
     ["Location", "location_no", (v, row) => {
       const submitted = isLocationSubmittedRow(row);

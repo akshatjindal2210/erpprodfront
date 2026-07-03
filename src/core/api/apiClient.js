@@ -62,7 +62,7 @@ function sanitizeForJson(value, seen = new WeakSet()) {
   return undefined;
 }
 
-export async function api(endpoint, { method = "GET", body, headers = {}, signal } = {}) {
+export async function api(endpoint, { method = "GET", body, headers = {}, signal, expectStatuses = [] } = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
 
   let serializedBody;
@@ -96,6 +96,15 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
     }
 
     if (!res.ok) {
+      if (expectStatuses.includes(res.status)) {
+        return {
+          success: false,
+          status: res.status,
+          message: data?.message || `Request failed with status ${res.status}`,
+          data: data?.data ?? null,
+        };
+      }
+
       maybeToastImsUnavailable(data?.ims_meta);
       if (typeof window !== "undefined") {
         window.__LAST_API_ERROR__ = {

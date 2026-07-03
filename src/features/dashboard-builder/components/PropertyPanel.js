@@ -26,6 +26,9 @@ const PropertyPanel = ({
   onDelete,
   onClose,
   onPixelSizeChange,
+  appKey = "ims",
+  pageOptions = [],
+  dbSourceOptions = [],
   widthPx = 0,
   heightPx = 0,
   busy = false,
@@ -35,22 +38,16 @@ const PropertyPanel = ({
   const [validationError, setValidationError] = useState("");
   const [tablesCollapsed, setTablesCollapsed] = useState(true);
   const [copiedTable, setCopiedTable] = useState("");
-  const [widthInput, setWidthInput] = useState(String(widthPx || 0));
-  const [heightInput, setHeightInput] = useState(String(heightPx || 0));
 
   useEffect(() => {
-    getTables()
+    if (String(selectedWidget?.dataSource || "ims_postgresql") === "erp_mssql") {
+      setTables([]);
+      return;
+    }
+    getTables({ appKey, dbSource: selectedWidget?.dataSource || "ims_postgresql" })
       .then((res) => setTables(res.data || []))
       .catch(() => setTables([]));
-  }, []);
-
-  useEffect(() => {
-    setWidthInput(String(widthPx || 0));
-  }, [widthPx, selectedWidget?.id]);
-
-  useEffect(() => {
-    setHeightInput(String(heightPx || 0));
-  }, [heightPx, selectedWidget?.id]);
+  }, [appKey, selectedWidget?.dataSource]);
 
   if (!selectedWidget) {
     return (
@@ -65,6 +62,7 @@ const PropertyPanel = ({
       </div>
     );
   }
+  const isMssqlSource = String(selectedWidget.dataSource || "ims_postgresql") === "erp_mssql";
 
   const handleChange = (path, value) => {
     const updated = { ...selectedWidget };
@@ -95,13 +93,18 @@ const PropertyPanel = ({
   };
 
   const handlePreview = () => {
-    const parsedWidth = Math.max(80, Number(widthInput) || 80);
-    const parsedHeight = Math.max(80, Number(heightInput) || 80);
+    const parsedWidth = Math.max(80, Number(widthPx) || 80);
+    const parsedHeight = Math.max(80, Number(heightPx) || 80);
     onPixelSizeChange?.({
       widthPx: parsedWidth,
       heightPx: parsedHeight,
     });
     if (!REQUIRES_SQL.has(selectedWidget.rawType)) {
+      setValidationError("");
+      onPreview?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
+      return;
+    }
+    if (isMssqlSource) {
       setValidationError("");
       onPreview?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
@@ -113,13 +116,18 @@ const PropertyPanel = ({
   };
 
   const handleSave = () => {
-    const parsedWidth = Math.max(80, Number(widthInput) || 80);
-    const parsedHeight = Math.max(80, Number(heightInput) || 80);
+    const parsedWidth = Math.max(80, Number(widthPx) || 80);
+    const parsedHeight = Math.max(80, Number(heightPx) || 80);
     onPixelSizeChange?.({
       widthPx: parsedWidth,
       heightPx: parsedHeight,
     });
     if (!REQUIRES_SQL.has(selectedWidget.rawType)) {
+      setValidationError("");
+      onSave?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
+      return;
+    }
+    if (isMssqlSource) {
       setValidationError("");
       onSave?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
@@ -130,29 +138,39 @@ const PropertyPanel = ({
     onSave?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
   };
 
-  const copyTableName = async (tableName) => {
-    try {
-      await navigator.clipboard.writeText(tableName);
-      setCopiedTable(tableName);
-      setTimeout(() => setCopiedTable(""), 1200);
-    } catch (_error) {
+  const insertTableName = (tableName) => {
+    if (!REQUIRES_SQL.has(selectedWidget.rawType) || isMssqlSource) {
       setCopiedTable("");
+      return;
     }
+    const currentQuery = String(selectedWidget.query || "").trim();
+    const nextQuery = currentQuery
+      ? `${currentQuery}\n${tableName}`
+      : `SELECT * FROM ${tableName}`;
+    handleChange("query", nextQuery);
+    setCopiedTable(tableName);
+    setTimeout(() => setCopiedTable(""), 1200);
   };
 
   return (
-    <div className="w-full bg-white h-full flex flex-col overflow-hidden">
+    <div
+      className="w-full bg-white h-full flex flex-col overflow-hidden"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
       <div className="px-3 py-2.5 border-b border-slate-100 flex items-center justify-between bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
         <h3 className="font-bold text-xs uppercase tracking-widest text-slate-800">Widget Builder</h3>
         <div className="flex items-center gap-2">
           <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
             <button
+              type="button"
               onClick={() => setActiveTab("data")}
               className={`p-1.5 rounded-md transition-all ${activeTab === "data" ? "bg-white shadow-sm text-blue-600" : "text-slate-400 hover:text-slate-600"}`}
             >
               <Database size={14} />
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab("style")}
               className={`p-1.5 rounded-md transition-all ${activeTab === "style" ? "bg-white shadow-sm text-blue-600" : "text-slate-400 hover:text-slate-600"}`}
             >
@@ -175,7 +193,7 @@ const PropertyPanel = ({
           <>
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Widget Type</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-4 gap-1.5">
                 {[
                   { key: "kpi", label: "KPI" },
                   { key: "table", label: "Table" },
@@ -183,6 +201,7 @@ const PropertyPanel = ({
                   { key: "heading", label: "Heading" },
                 ].map((t) => (
                   <button
+                    type="button"
                     key={t.key}
                     onClick={() => {
                       setValidationError("");
@@ -215,12 +234,56 @@ const PropertyPanel = ({
               </div>
             </div>
 
+            <div className="grid grid-cols-1 gap-2">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Page Access</label>
+                <select
+                  value={selectedWidget.targetPageKey || "dashboard"}
+                  onChange={(e) => {
+                    const nextPage = pageOptions.find((opt) => opt.value === e.target.value);
+                    applyWidgetPatch({
+                      targetPageKey: e.target.value,
+                      targetPageModule: nextPage?.module || null,
+                    });
+                  }}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                >
+                  {pageOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[9px] text-slate-400 leading-relaxed">
+                  Widget shows on the user&apos;s dashboard only if they have permission for this page.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Database Type</label>
+                <select
+                  value={selectedWidget.dataSource || "ims_postgresql"}
+                  onChange={(e) => applyWidgetPatch({ dataSource: e.target.value })}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                >
+                  {dbSourceOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             {selectedWidget.rawType === "graph" && (
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Chart Type</label>
                 <div className="grid grid-cols-3 gap-2">
                   {["bar", "line", "pie"].map((chartType) => (
                     <button
+                      type="button"
                       key={chartType}
                       onClick={() => handleChange("type", chartType)}
                       className={`px-2 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all border ${
@@ -238,12 +301,18 @@ const PropertyPanel = ({
 
             {REQUIRES_SQL.has(selectedWidget.rawType) && <div className="space-y-4">
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">SQL Query</label>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
+                  {isMssqlSource ? "Internal API Payload" : "SQL Query"}
+                </label>
                 <div className="relative">
                   <Code size={14} className="absolute top-2.5 left-3 text-slate-400" />
                   <textarea
                   className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-3 py-2.5 pl-9 text-[10px] font-mono text-blue-100 min-h-[120px] shadow-inner custom-scrollbar"
-                    placeholder="SELECT ... FROM ..."
+                    placeholder={
+                      isMssqlSource
+                        ? `{"requestedData":"pack","filter":"dailyprod.docdt >= '2Apr2010' and dailyprod.docdt <= '6Apr2026'"}`
+                        : "SELECT ... FROM ... WHERE created_at BETWEEN {{fromDate}} AND {{toDate}} AND user_id = {{userId}}"
+                    }
                     value={selectedWidget.query || ""}
                     onChange={(e) => {
                       setValidationError("");
@@ -251,16 +320,24 @@ const PropertyPanel = ({
                     }}
                   />
                 </div>
+                {!isMssqlSource ? (
+                  <p className="mt-1 text-[9px] text-slate-400">
+                    Runtime filters supported: <span className="font-mono">{`{{fromDate}}`}</span>, <span className="font-mono">{`{{toDate}}`}</span>, <span className="font-mono">{`{{userId}}`}</span>
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[9px] text-slate-400">MSSQL mode: JSON payload bhejega (requestedData + filter) backend internal API par.</p>
+                )}
                 {!!validationError && <p className="mt-1 text-[10px] text-rose-500 font-semibold">{validationError}</p>}
               </div>
 
+              {!isMssqlSource && (
               <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
                 <button
                   type="button"
                   onClick={() => setTablesCollapsed((prev) => !prev)}
                   className="w-full flex items-center justify-between text-[9px] text-blue-600 font-bold uppercase tracking-widest"
                 >
-                  <span>Available Tables ({tables.length})</span>
+                  <span>Available Tables ({tables.length}) - {appKey.toUpperCase()}</span>
                   {tablesCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                 </button>
                 {!tablesCollapsed && (
@@ -271,9 +348,9 @@ const PropertyPanel = ({
                         <button
                           key={t}
                           type="button"
-                          onClick={() => copyTableName(t)}
+                          onClick={() => insertTableName(t)}
                           className="px-1.5 py-0.5 bg-white rounded text-[9px] text-slate-600 font-mono border border-blue-100/60 hover:border-blue-300 hover:text-blue-700 transition-all inline-flex items-center gap-1"
-                          title="Click to copy table name"
+                          title="Click to add table in query"
                         >
                           {isCopied ? <Check size={10} /> : <Copy size={10} />}
                           {t}
@@ -283,22 +360,10 @@ const PropertyPanel = ({
                   </div>
                 )}
               </div>
+              )}
             </div>}
 
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                  Card Size (Pixels)
-                </label>
-                <button
-                  type="button"
-                  onClick={() => onPixelSizeChange?.({ widthPx: 99999 })}
-                  className="text-[9px] font-bold text-blue-600 hover:text-blue-800 uppercase tracking-widest border border-blue-200 hover:border-blue-400 rounded px-1.5 py-0.5 transition-all"
-                  title="Stretch widget to full row width"
-                >
-                  ↔ Full Width
-                </button>
-              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-widest mb-1">Width</p>
@@ -307,11 +372,9 @@ const PropertyPanel = ({
                     min={80}
                     max={3000}
                     className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
-                    value={widthInput}
+                    value={Math.max(80, Number(widthPx) || 80)}
                     onChange={(e) => {
-                      const value = e.target.value;
-                      setWidthInput(value);
-                      const parsed = Number(value);
+                      const parsed = Number(e.target.value);
                       if (Number.isFinite(parsed)) {
                         onPixelSizeChange?.({
                           widthPx: Math.max(80, parsed),
@@ -321,13 +384,13 @@ const PropertyPanel = ({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         onPixelSizeChange?.({
-                          widthPx: Math.max(80, Number(widthInput) || 80),
+                          widthPx: Math.max(80, Number(widthPx) || 80),
                         });
                       }
                     }}
                     onBlur={() =>
                       onPixelSizeChange?.({
-                        widthPx: Math.max(80, Number(widthInput) || 80),
+                        widthPx: Math.max(80, Number(widthPx) || 80),
                       })
                     }
                   />
@@ -339,11 +402,9 @@ const PropertyPanel = ({
                     min={80}
                     max={3000}
                     className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
-                    value={heightInput}
+                    value={Math.max(80, Number(heightPx) || 80)}
                     onChange={(e) => {
-                      const value = e.target.value;
-                      setHeightInput(value);
-                      const parsed = Number(value);
+                      const parsed = Number(e.target.value);
                       if (Number.isFinite(parsed)) {
                         onPixelSizeChange?.({
                           heightPx: Math.max(80, parsed),
@@ -353,13 +414,13 @@ const PropertyPanel = ({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         onPixelSizeChange?.({
-                          heightPx: Math.max(80, Number(heightInput) || 80),
+                          heightPx: Math.max(80, Number(heightPx) || 80),
                         });
                       }
                     }}
                     onBlur={() =>
                       onPixelSizeChange?.({
-                        heightPx: Math.max(80, Number(heightInput) || 80),
+                        heightPx: Math.max(80, Number(heightPx) || 80),
                       })
                     }
                   />
@@ -378,7 +439,6 @@ const PropertyPanel = ({
                   onChange={(e) => handleChange("title", e.target.value)}
                 />
               </div>
-
             </div>
           </>
         ) : (
@@ -409,6 +469,7 @@ const PropertyPanel = ({
               <div className="grid grid-cols-3 gap-2">
                 {["left", "center", "right"].map((align) => (
                   <button
+                    type="button"
                     key={align}
                     onClick={() => handleChange("style.contentAlign", align)}
                     className={`px-2 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all border ${
@@ -423,12 +484,83 @@ const PropertyPanel = ({
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Font Family</label>
+                <select
+                  value={selectedWidget.style?.fontFamily || "inherit"}
+                  onChange={(e) => handleChange("style.fontFamily", e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                >
+                  <option value="inherit">System</option>
+                  <option value="Inter, sans-serif">Inter</option>
+                  <option value="Arial, sans-serif">Arial</option>
+                  <option value="'Segoe UI', sans-serif">Segoe UI</option>
+                  <option value="'Roboto', sans-serif">Roboto</option>
+                  <option value="'Courier New', monospace">Courier</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
+                  {selectedWidget.rawType === "kpi" ? "Value Size (px)" : "Font Size (px)"}
+                </label>
+                <input
+                  type="number"
+                  min={8}
+                  max={selectedWidget.rawType === "kpi" ? 48 : 30}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                  value={selectedWidget.style?.fontSize ?? (selectedWidget.rawType === "kpi" ? 26 : 10)}
+                  onChange={(e) => handleChange("style.fontSize", Math.max(8, Number(e.target.value) || 10))}
+                />
+              </div>
+            </div>
+
+            {selectedWidget.rawType === "kpi" && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Label Size (px)</label>
+                <input
+                  type="number"
+                  min={8}
+                  max={18}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                  value={selectedWidget.style?.kpiLabelFontSize ?? 10}
+                  onChange={(e) => handleChange("style.kpiLabelFontSize", Math.max(8, Number(e.target.value) || 10))}
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Padding (px)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={60}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                  value={selectedWidget.style?.padding ?? (selectedWidget.rawType === "kpi" ? 6 : 8)}
+                  onChange={(e) => handleChange("style.padding", Math.max(0, Number(e.target.value) || 0))}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Margin (px)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={40}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                  value={selectedWidget.style?.margin ?? 0}
+                  onChange={(e) => handleChange("style.margin", Math.max(0, Number(e.target.value) || 0))}
+                />
+              </div>
+            </div>
+
             {selectedWidget.rawType === "kpi" && (
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">KPI Label Position</label>
                 <div className="grid grid-cols-2 gap-2">
                   {["top", "bottom"].map((pos) => (
                     <button
+                      type="button"
                       key={pos}
                       onClick={() => handleChange("style.kpiLabelPosition", pos)}
                       className={`px-2 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all border ${
@@ -447,8 +579,9 @@ const PropertyPanel = ({
         )}
       </div>
 
-      <div className="sticky bottom-0 p-2 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90 space-y-1.5 z-10">
+      <div className="p-2 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90 space-y-1.5 z-10 shrink-0">
         <button
+          type="button"
           onClick={handlePreview}
           disabled={busy}
           className="w-full bg-white border border-blue-200 text-blue-600 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
@@ -456,6 +589,7 @@ const PropertyPanel = ({
           <Eye size={14} /> Preview
         </button>
         <button
+          type="button"
           onClick={handleSave}
           disabled={busy}
           className="w-full bg-blue-600 border border-blue-600 text-white py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
@@ -463,6 +597,7 @@ const PropertyPanel = ({
           <Save size={14} /> Save Draft
         </button>
         <button
+          type="button"
           onClick={() => onDelete?.(selectedWidget)}
           disabled={busy}
           className="w-full bg-white border border-rose-200 text-rose-500 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest hover:bg-rose-500 hover:text-white hover:border-rose-500 transition-all flex items-center justify-center gap-2"

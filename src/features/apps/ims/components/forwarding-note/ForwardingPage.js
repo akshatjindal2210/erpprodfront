@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Truck, FileText, Info, List, Package, Lock, Unlock, Printer, CalendarClock, CheckCircle2 } from "lucide-react";
+import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Truck, FileText, Info, List, Package, Lock, Unlock, Printer, CalendarClock, CheckCircle2, Ban } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 
@@ -126,6 +126,12 @@ const DISPATCH_FILTER_OPTIONS = [
   { label: "Complete", value: "complete" },
 ];
 
+const DISPATCH_PLAN_STATUS_OPTIONS = [
+  { label: "All", value: "all" },
+  { label: "Plan", value: "plan" },
+  { label: "Hold", value: "hold" },
+];
+
 /** Match Lock Status column: COMPLETE → scan done; LOCKED → locked & not complete; UNLOCKED → neither. */
 function buildDispatchApiFilters(dispatchFilter) {
   switch (dispatchFilter) {
@@ -151,6 +157,7 @@ export default function ForwardingPage() {
   // Dispatch plan tab ref + state
   const dispatchPlanRef = useRef(null);
   const [dispatchSearch, setDispatchSearch] = useState("");
+  const [dispatchStatusFilter, setDispatchStatusFilter] = useState("all");
   const [dispatchSelected, setDispatchSelected] = useState(null);
   const [dispatchRows, setDispatchRows] = useState([]);
 
@@ -595,19 +602,31 @@ export default function ForwardingPage() {
                   <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" /> 
                   {canAccess("schedule_planning", "add").allowed && dispatchSelected && (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => dispatchPlanRef.current?.completeSelected()}
-                        disabled={dispatchPlanRef.current?.completing}
-                        className="h-9 px-4 border border-emerald-400 bg-emerald-600 text-white hover:bg-emerald-700 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shrink-0 disabled:opacity-50"
-                      >
-                        <CheckCircle2 size={14} />
-                        Complete
-                      </button>
+                      {Number(dispatchSelected?.is_planned) === 6 ? (
+                        <button
+                          type="button"
+                          onClick={() => dispatchPlanRef.current?.rejectSelected()}
+                          disabled={dispatchPlanRef.current?.rejecting}
+                          className="h-9 px-4 border border-rose-400 bg-rose-600 text-white hover:bg-rose-700 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shrink-0 disabled:opacity-50"
+                        >
+                          <Ban size={14} />
+                          Reject
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => dispatchPlanRef.current?.completeSelected()}
+                          disabled={dispatchPlanRef.current?.completing}
+                          className="h-9 px-4 border border-emerald-400 bg-emerald-600 text-white hover:bg-emerald-700 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shrink-0 disabled:opacity-50"
+                        >
+                          <CheckCircle2 size={14} />
+                          Complete
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => dispatchPlanRef.current?.openRescheduleForSelected()}
-                        disabled={dispatchPlanRef.current?.completing}
+                        disabled={dispatchPlanRef.current?.completing || dispatchPlanRef.current?.rejecting}
                         className="h-9 px-4 border border-amber-400 bg-amber-500 text-white hover:bg-amber-600 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shrink-0 disabled:opacity-50"
                       >
                         <CalendarClock size={14} />
@@ -778,17 +797,34 @@ export default function ForwardingPage() {
             <ListPageFilterStrip>
               <DateRangeFilter
                 showDate={false}
+                instantClientExtras
+                extraFilters={[
+                  {
+                    label: "Status",
+                    key: "status",
+                    value: dispatchStatusFilter,
+                    options: DISPATCH_PLAN_STATUS_OPTIONS,
+                    preserveOrder: false,
+                    variant: "quick",
+                  },
+                ]}
                 searchValue={dispatchSearch}
                 onSearchChange={setDispatchSearch}
+                onApply={(data) => {
+                  setDispatchStatusFilter(data.status ?? "all");
+                }}
                 searchPlaceholder="Quick search items, party, sch no..."
                 searchLabel="Quick Search"
-                onApply={() => {}}
-                onReset={() => setDispatchSearch("")}
+                onReset={() => {
+                  setDispatchSearch("");
+                  setDispatchStatusFilter("all");
+                }}
               />
             </ListPageFilterStrip>
             <TodayDispatchPlanTab
               ref={dispatchPlanRef}
               search={dispatchSearch}
+              statusFilter={dispatchStatusFilter}
               onSelectedChange={setDispatchSelected}
               onRowsChange={setDispatchRows}
               viewMode={viewMode}

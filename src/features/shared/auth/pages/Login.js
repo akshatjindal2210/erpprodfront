@@ -9,6 +9,7 @@ import { setCredentials } from "@/core/store/slices/authSlice";
 import { persistor } from "@/core/store/index";
 import { userService } from "@/features/shared/auth/services/userService";
 import { applyListViewSpanFromSession } from "@/core/utils/global";
+import { linkPushSubscriptionToUser } from "@/features/shared/pwa/webPushSubscribe";
 
 const primaryClass =
   "w-full bg-[#1e293b] hover:bg-slate-900 disabled:bg-slate-300 text-white font-semibold py-3 rounded-xl text-sm transition-all flex items-center justify-center gap-2";
@@ -71,6 +72,7 @@ export default function UserLogin() {
         try {
           await persistor.flush();
         } catch {}
+        void linkPushSubscriptionToUser({ userId: profile.id }).catch(() => {});
         toast.success("Welcome to JFL Portal");
         let redirectPath = searchParams.get("redirect") || "/home";
         if (redirectPath.startsWith("/login")) {

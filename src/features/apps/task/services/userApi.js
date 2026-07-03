@@ -6,7 +6,12 @@ const U = ENDPOINTS.USERS;
 export const userService = {
   getAll: (params) => api.post(U.LIST, params),
   getById: (id) => api.post(U.GET, { id }),
-  getViews: (params = {}) => api.post(U.HELPER, params),
+  getViews: (params = {}) =>
+    api.post(U.HELPER, {
+      permission_module: "tasks",
+      permission_action: "view",
+      ...params,
+    }),
   create: (data) => api.post(U.CREATE, data),
   update: (id, data) => api.post(U.UPDATE, { id, ...data }),
   delete: (id) => api.post(U.DELETE, { id }),

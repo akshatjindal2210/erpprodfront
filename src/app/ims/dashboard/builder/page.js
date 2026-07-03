@@ -1,5 +1,5 @@
-import DashboardBuilder from "@/features/dashboard-builder/components/DashboardBuilder";
+import { redirect } from "next/navigation";
 
 export default function DashboardBuilderPage() {
-  return <DashboardBuilder />;
+  redirect("/settings/dashboard-builder");
 }

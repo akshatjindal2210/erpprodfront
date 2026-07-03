@@ -28,6 +28,12 @@ export function useSyncAuthSession() {
       return;
     }
 
+    const isLoginPage = pathname === "/login" || pathname?.startsWith("/login/");
+    if (isLoginPage) {
+      setSessionReady(true);
+      return;
+    }
+
     if (typeof window !== "undefined" && sessionStorage.getItem("imp_skip_auth_sync") === "1") {
       sessionStorage.removeItem("imp_skip_auth_sync");
       setSessionReady(true);
@@ -44,13 +50,26 @@ export function useSyncAuthSession() {
 
     (async () => {
       try {
-        const res = await userService.me({ signal: controller.signal });
+        const res = await userService.me({
+          signal: controller.signal,
+          expectStatuses: [401, 403, 404],
+        });
         clearTimeout(timeoutId);
         if (!active) return;
 
         if (res?.success && res.data?.id) {
           applyListViewSpanFromSession(res.data);
           dispatch(setCredentials(buildCredentialsFromMe(res.data)));
+        } else if (res?.status === 401 || res?.status === 403 || res?.status === 404) {
+          dispatch(logout());
+          try {
+            await persistor.purge();
+          } catch {
+            /* ignore */
+          }
+          if (pathname !== "/login" && !pathname?.startsWith("/login/")) {
+            router.replace(`/login?redirect=${pathname}`);
+          }
         }
       } catch (err) {
         if (!active) return;

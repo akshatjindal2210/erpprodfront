@@ -1,6 +1,6 @@
 // ─── CENTRAL CONFIG — Sidebar + Navbar + Roles + Permissions ─────────────────
 
-import { LayoutDashboard, CheckSquare, Shield, List, CalendarDays, Recycle, Bell, BarChart3 } from "lucide-react";
+import { LayoutDashboard, CheckSquare, Shield, List, CalendarDays, Recycle, BarChart3 } from "lucide-react";
 
 // ════════════════════════════════════════════════════════════════════════════
 // 1. ROLES
@@ -42,7 +42,6 @@ export const SIDEBAR_MENU = [
   { name: "Category",       icon: List,            href: "/task/dashboard/category",       roles: STAFF },
   { name: "Holiday",        icon: CalendarDays,    href: "/task/dashboard/holidays",       roles: STAFF },
   { name: "Logs",           icon: Shield,          href: "/task/dashboard/logs",           roles: ALL },
-  { name: "Notifications",  icon: Bell,            href: "/task/dashboard/notifications",  roles: SUPER },
 ];
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -61,7 +60,6 @@ export const NAVBAR_PAGES = [
   { label: "Category",        path: "/task/dashboard/category",          icon: "🏷️",     category: "Master Data", roles: STAFF },
   { label: "Holiday",         path: "/task/dashboard/holidays",          icon: "📅",     category: "Master Data", roles: STAFF },
   { label: "Logs",            path: "/task/dashboard/logs",              icon: "📋",     category: "System",      roles: SUPER },
-  { label: "Notifications",   path: "/task/dashboard/notifications",     icon: "🔔",     category: "System",      roles: SUPER },
 ];
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -197,7 +195,6 @@ const PATH_FEATURE_MAP = {
   // "/task/dashboard/cl-task/my-tasks": { feature: "tasks",     action: "read" },
   // "/task/dashboard/cl-task/verification": { feature: "cl_task_verification", action: "read" },
   // "/task/dashboard/red-ticket":     { feature: "red_ticket",  action: "read" },
-  "/task/dashboard/notifications":  { feature: "notifications", action: "read" },
 };
 
 // ════════════════════════════════════════════════════════════════════════════

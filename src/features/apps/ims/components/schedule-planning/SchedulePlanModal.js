@@ -10,13 +10,14 @@ import { getSelectedFinancialYear } from "@/features/apps/ims/helpers/financialY
 import { SCHEDULE_PLAN_STATUS, isDbRow } from "./schedulePlanStatus";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import ScheduleShortageModal from "./ScheduleShortageModal";
-import { scheduleItemRowKey, formatSchHeaderDate, formatPreviousPlanDates, formatScheduleRemarks, remarkDateToInputValue, schMonthLabel, ScheduleStatusBadge, getScheduleTargetDateRange, isScheduleTargetDateAllowed, formatScheduleTargetDateHint } from "./schedulePlanningColumns";
+import { scheduleItemRowKey, formatSchHeaderDate, formatPreviousPlanDates, ScheduleCustRequestCell, remarkDateToInputValue, schMonthLabel, ScheduleStatusBadge, getScheduleTargetDateRange, isScheduleTargetDateAllowed, formatScheduleTargetDateHint } from "./schedulePlanningColumns";
 import { IMS_MODAL_LABEL, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 const ROW_STATUS = { PENDING: "pending", PLAN: "plan", HOLD: "hold", REJECT: "reject" };
 const PICK_OTHER = "__other__";
 const INPUT = "h-7 px-1.5 text-[11px] text-slate-800 border border-slate-200 rounded-none focus:border-indigo-500 outline-none bg-white";
 const REJECT_INPUT = `${INPUT} w-full focus:border-rose-500`;
+const FIELD_ERROR_CLASS = "border-rose-500 bg-rose-50 ring-2 ring-rose-200 focus:border-rose-600 focus-within:border-rose-600";
 const SELECT = `${INPUT} w-full`;
 const BTN = "h-7 px-2 text-[10px] font-bold uppercase border border-slate-300 rounded-none hover:bg-slate-50 disabled:opacity-40 text-slate-700";
 const ICON_BTN = "h-7 w-full px-1 text-[10px] font-bold uppercase border border-slate-300 rounded-none hover:bg-slate-50 flex items-center justify-center gap-1 disabled:opacity-40 text-slate-700";
@@ -51,22 +52,24 @@ function ScheduleDetailsCard({ schedule, singleItem }) {
         <DetailField label="Sch No" value={schedule?.schno} />
         <DetailField label="Schedule Date" value={formatSchHeaderDate(schedule?.schdt)} />
         <DetailField label="Month" value={schMonthLabel(schedule?.schmonth)} />
+        <DetailField label="Customer" value={schedule?.acc_name} />
         {singleItem ? (
-          <DetailField label="Item" value={items[0]?.item_code} />
-        ) : null}
-        <DetailField label="Customer" value={schedule?.acc_name} wide />
-        {singleItem && items[0]?.itemdesc ? (
-          <div className="sm:col-span-2 lg:col-span-4 min-w-0">
-            <span className={`${IMS_MODAL_LABEL} block mb-1`}>Description</span>
-            <span className={`${IMS_TABLE_CELL_TEXT} text-[12px] text-slate-800 leading-snug break-words block`}>{items[0].itemdesc}</span>
-          </div>
+          <>
+            <DetailField label="Item" value={items[0]?.item_code} />
+            {items[0]?.itemdesc ? (
+              <div className="sm:col-span-2 lg:col-span-3 min-w-0">
+                <span className={`${IMS_MODAL_LABEL} block mb-1`}>Description</span>
+                <span className={`${IMS_TABLE_CELL_TEXT} text-[12px] text-slate-800 leading-snug break-words block`}>{items[0].itemdesc}</span>
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
     </div>
   );
 }
 
-function ScheduleTargetDateField({ value, onChange, className = "", placeholder = "DD/MM/YYYY", minDate, maxDate, onOutOfRange }) {
+function ScheduleTargetDateField({ value, onChange, className = "", placeholder = "DD/MM/YYYY", minDate, maxDate, onOutOfRange, hasError = false, title }) {
   const [text, setText] = useState(() => filterDateToDisplay(value));
   const focused = useRef(false);
   const pickerRef = useRef(null);
@@ -136,8 +139,12 @@ function ScheduleTargetDateField({ value, onChange, className = "", placeholder 
   );
 
   return (
-    <div className={`relative min-w-0 ${className}`.trim()}>
-      <div className="relative flex items-center w-full h-7 border border-slate-200 bg-white focus-within:border-indigo-500">
+    <div className={`relative min-w-0 ${className}`.trim()} title={title}>
+      <div
+        className={`relative flex items-center w-full h-7 border bg-white ${
+          hasError ? FIELD_ERROR_CLASS : "border-slate-200 focus-within:border-indigo-500"
+        }`}
+      >
         <input
           type="text"
           inputMode="numeric"
@@ -189,8 +196,9 @@ function ScheduleTargetDateField({ value, onChange, className = "", placeholder 
   );
 }
 
-function PickOrOtherReasonField({ value, onChange, options, inputClass = REJECT_INPUT }) {
+function PickOrOtherReasonField({ value, onChange, options, inputClass = REJECT_INPUT, hasError = false }) {
   const known = useMemo(() => (Array.isArray(options) ? options.filter(Boolean) : []), [options]);
+  const fieldClass = `${inputClass}${hasError ? ` ${FIELD_ERROR_CLASS}` : ""}`;
   const [pick, setPick] = useState(() => {
     if (!value) return "";
     return known.includes(value) ? value : PICK_OTHER;
@@ -209,7 +217,7 @@ function PickOrOtherReasonField({ value, onChange, options, inputClass = REJECT_
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Enter reason..."
-        className={inputClass}
+        className={fieldClass}
       />
     );
   }
@@ -223,7 +231,8 @@ function PickOrOtherReasonField({ value, onChange, options, inputClass = REJECT_
         if (next === PICK_OTHER) onChange("");
         else onChange(next);
       }}
-      className={inputClass}
+      className={fieldClass}
+      aria-invalid={hasError || undefined}
     >
       <option value="">Select reason...</option>
       {known.map((reason) => (
@@ -282,6 +291,10 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
   const [itemPlans, setItemPlans] = useState([]);
   const [globalTargetDate, setGlobalTargetDate] = useState("");
   const [globalRejectReason, setGlobalRejectReason] = useState("");
+  const [globalAction, setGlobalAction] = useState("");
+  const [globalRemark, setGlobalRemark] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+  const rowRefs = useRef({});
   const [reasonOptions, setReasonOptions] = useState([]);
   const [saving, setSaving] = useState(false);
   const [historyItem, setHistoryItem] = useState(null);
@@ -302,6 +315,26 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
 
   const onTargetDateOutOfRange = useCallback(() => {
     toast.error("Target date must be in schedule month from today onwards.");
+  }, []);
+
+  const clearFieldError = useCallback((key, field) => {
+    setFieldErrors((prev) => {
+      if (!prev[key]?.[field]) return prev;
+      const next = { ...prev };
+      const rowErr = { ...next[key] };
+      delete rowErr[field];
+      if (Object.keys(rowErr).length) next[key] = rowErr;
+      else delete next[key];
+      return next;
+    });
+  }, []);
+
+  const scrollToFirstFieldError = useCallback((errors) => {
+    const firstKey = Object.keys(errors)[0];
+    if (!firstKey) return;
+    requestAnimationFrame(() => {
+      rowRefs.current[firstKey]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   }, []);
 
   useEffect(() => {
@@ -342,6 +375,9 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
     setItemPlans(activeSchedule._items.map((row) => initItemPlan(row, mode)));
     setGlobalTargetDate("");
     setGlobalRejectReason("");
+    setGlobalAction("");
+    setGlobalRemark("");
+    setFieldErrors({});
     setReasonOptions((prev) => {
       const fromRows = activeSchedule._items
         .map((r) => String(r.action_reason || "").trim())
@@ -353,12 +389,73 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
 
   const handleGlobalTargetDate = useCallback((date) => {
     setGlobalTargetDate(date);
+    if (String(date || "").trim()) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const key of Object.keys(next)) {
+          if (!next[key]?.actionDate) continue;
+          const rowErr = { ...next[key] };
+          delete rowErr.actionDate;
+          changed = true;
+          if (Object.keys(rowErr).length) next[key] = rowErr;
+          else delete next[key];
+        }
+        return changed ? next : prev;
+      });
+    }
     setItemPlans((prev) => prev.map((p) => (p.status === ROW_STATUS.PLAN ? { ...p, actionDate: date } : p)));
   }, []);
 
   const handleGlobalRejectReason = useCallback((reason) => {
     setGlobalRejectReason(reason);
+    if (String(reason || "").trim()) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const key of Object.keys(next)) {
+          if (!next[key]?.reason) continue;
+          const rowErr = { ...next[key] };
+          delete rowErr.reason;
+          changed = true;
+          if (Object.keys(rowErr).length) next[key] = rowErr;
+          else delete next[key];
+        }
+        return changed ? next : prev;
+      });
+    }
     setItemPlans((prev) => prev.map((p) => (p.status === ROW_STATUS.REJECT ? { ...p, reason } : p)));
+  }, []);
+
+  const applyStatusToPlan = useCallback(
+    (plan, status) => {
+      if (status === ROW_STATUS.REJECT) {
+        return { ...plan, status, reason: plan.reason || globalRejectReason };
+      }
+      if (status === ROW_STATUS.HOLD) {
+        return { ...plan, status, reason: "", actionDate: "" };
+      }
+      if (status === ROW_STATUS.PENDING) {
+        if (isDbRow(plan.row)) return plan;
+        return { ...plan, status, reason: "", actionDate: "" };
+      }
+      return { ...plan, status, reason: "", actionDate: plan.actionDate || globalTargetDate };
+    },
+    [globalRejectReason, globalTargetDate]
+  );
+
+  const handleGlobalAction = useCallback(
+    (status) => {
+      setGlobalAction(status);
+      if (!status) return;
+      setItemPlans((prev) => prev.map((p) => applyStatusToPlan(p, status)));
+    },
+    [applyStatusToPlan]
+  );
+
+  const handleGlobalRemark = useCallback((remark) => {
+    setGlobalRemark(remark);
+    setItemPlans((prev) => prev.map((p) => ({ ...p, remark })));
   }, []);
 
   const setRowStatus = useCallback(
@@ -366,30 +463,22 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
       setItemPlans((prev) =>
         prev.map((p) => {
           if (p.key !== key) return p;
-          if (status === ROW_STATUS.REJECT) {
-            return { ...p, status, reason: p.reason || globalRejectReason };
-          }
-          if (status === ROW_STATUS.HOLD) {
-            return { ...p, status, reason: "", actionDate: "" };
-          }
-          if (status === ROW_STATUS.PENDING) {
-            if (isDbRow(p.row)) return p;
-            return { ...p, status, reason: "", actionDate: "" };
-          }
-          return { ...p, status, reason: "", actionDate: p.actionDate || globalTargetDate };
+          return applyStatusToPlan(p, status);
         })
       );
     },
-    [globalRejectReason, globalTargetDate]
+    [applyStatusToPlan]
   );
 
   const setActionDate = useCallback((key, date) => {
     setItemPlans((prev) => prev.map((p) => (p.key === key && p.status === ROW_STATUS.PLAN ? { ...p, actionDate: date } : p)));
-  }, []);
+    if (String(date || "").trim()) clearFieldError(key, "actionDate");
+  }, [clearFieldError]);
 
   const setItemReason = useCallback((key, reason) => {
     setItemPlans((prev) => prev.map((p) => (p.key === key ? { ...p, reason } : p)));
-  }, []);
+    if (String(reason || "").trim()) clearFieldError(key, "reason");
+  }, [clearFieldError]);
 
   const setItemRemark = useCallback((key, remark) => {
     setItemPlans((prev) => prev.map((p) => (p.key === key ? { ...p, remark } : p)));
@@ -404,6 +493,9 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
     setItemPlans([]);
     setGlobalTargetDate("");
     setGlobalRejectReason("");
+    setGlobalAction("");
+    setGlobalRemark("");
+    setFieldErrors({});
     setHistoryItem(null);
     setShortageItem(null);
     onClose?.();
@@ -415,20 +507,59 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
       return;
     }
 
+    setFieldErrors({});
+
+    const nextErrors = {};
+    let firstErrorMessage = null;
+
     for (const plan of itemPlans) {
       const code = plan.row.item_code || "item";
       if (plan.status === ROW_STATUS.REJECT && !String(plan.reason || "").trim()) {
-        toast.error(`Enter reject reason for ${code}.`);
-        return;
+        nextErrors[plan.key] = { ...(nextErrors[plan.key] || {}), reason: true };
+        if (!firstErrorMessage) firstErrorMessage = `Enter reject reason for ${code}.`;
       }
+    }
+
+    if (firstErrorMessage) {
+      setFieldErrors(nextErrors);
+      scrollToFirstFieldError(nextErrors);
+      toast.error(firstErrorMessage);
+      return;
     }
 
     const toPlan = itemPlans.filter((p) => p.status === ROW_STATUS.PLAN && effectiveDate(p));
     const toHold = itemPlans.filter((p) => p.status === ROW_STATUS.HOLD && !isUnchangedHoldRow(p));
     const toReject = itemPlans.filter((p) => p.status === ROW_STATUS.REJECT && !isUnchangedRejectRow(p));
+
     if (!toPlan.length && !toHold.length && !toReject.length) {
+      const planRowsMissingDate = itemPlans.filter((p) => p.status === ROW_STATUS.PLAN && !effectiveDate(p));
+      if (planRowsMissingDate.length) {
+        const dateErrors = {};
+        for (const plan of planRowsMissingDate) {
+          dateErrors[plan.key] = { actionDate: true };
+        }
+        const code = planRowsMissingDate[0].row.item_code || "item";
+        setFieldErrors(dateErrors);
+        scrollToFirstFieldError(dateErrors);
+        toast.error(`Enter target date for ${code}.`);
+        return;
+      }
       toast.info("Change action to Plan, Hold or Reject for items you want to update.");
       return;
+    }
+
+    for (const plan of toPlan) {
+      const date = effectiveDate(plan);
+      const schmonth = plan.row.schmonth ?? activeSchedule?.schmonth;
+      const schdt = plan.row.schdt ?? activeSchedule?.schdt;
+      if (!isScheduleTargetDateAllowed(date, schmonth, schdt)) {
+        const code = plan.row.item_code || "item";
+        const dateErrors = { [plan.key]: { actionDate: true } };
+        setFieldErrors(dateErrors);
+        scrollToFirstFieldError(dateErrors);
+        toast.error(`${code}: pick a date within ${formatScheduleTargetDateHint(schmonth, schdt)}.`);
+        return;
+      }
     }
 
     setSaving(true);
@@ -471,11 +602,6 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
           if (!date) continue;
           const schmonth = plan.row.schmonth ?? activeSchedule?.schmonth;
           const schdt = plan.row.schdt ?? activeSchedule?.schdt;
-          if (!isScheduleTargetDateAllowed(date, schmonth, schdt)) {
-            const code = plan.row.item_code || "item";
-            toast.error(`${code}: pick a date within ${formatScheduleTargetDateHint(schmonth, schdt)}.`);
-            return;
-          }
           const res = await schedulePlanningService.save({
             ...base,
             action_date: date,
@@ -533,6 +659,7 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
       <Drawer
         isOpen={open}
         onClose={handleClose}
+        onSubmit={() => void handleSubmit()}
         title={singleItem ? "Plan Item" : "Schedule Plan"}
         maxWidth="max-w-7xl"
         footer={drawerFooter}
@@ -549,11 +676,24 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                   <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 min-w-[140px]">Description</th>
                   <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 w-[70px] text-center">Qty</th>
                   <th className="px-2 py-2 text-[10px] font-bold uppercase text-emerald-700 border-b border-r border-slate-200 w-[80px] text-center">In Hand</th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-600 border-b border-r border-slate-200 min-w-[140px]">Cust. request</th>
+                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-600 border-b border-r border-slate-200 min-w-[152px] align-top">Cust. request</th>
                   <th className="px-2 py-2 text-[10px] font-bold uppercase text-amber-700 border-b border-r border-slate-200 min-w-[120px]">Previous dates</th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-600 border-b border-r border-slate-200 w-[100px]">Status</th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-600 border-b border-r border-slate-200 w-[100px]">Action</th>
-                  <th className="px-1.5 py-1.5 text-[10px] font-bold uppercase text-indigo-600 border-b border-r border-slate-200 w-[180px]">
+                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-600 border-b border-r border-slate-200 w-[108px] align-top">Status</th>
+                  <th className="px-1.5 py-1.5 text-[10px] font-bold uppercase text-slate-600 border-b border-r border-slate-200 min-w-[118px] align-top">
+                    <span className="block px-0.5 pb-1">Action</span>
+                    <select
+                      value={globalAction}
+                      onChange={(e) => handleGlobalAction(e.target.value)}
+                      className={`${SELECT} font-semibold`}
+                      disabled={itemsLoading || !itemPlans.length}
+                    >
+                      <option value="">Apply to all...</option>
+                      <option value={ROW_STATUS.PLAN}>Plan</option>
+                      <option value={ROW_STATUS.HOLD}>Hold</option>
+                      <option value={ROW_STATUS.REJECT}>Reject</option>
+                    </select>
+                  </th>
+                  <th className="px-1.5 py-1.5 text-[10px] font-bold uppercase text-indigo-600 border-b border-r border-slate-200 w-[180px] align-top">
                     <span className="block px-0.5 pb-1">Target date / Reason</span>
                     <div className="space-y-1">
                       <ScheduleTargetDateField
@@ -572,8 +712,18 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                       />
                     </div>
                   </th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 min-w-[120px]">Remark</th>
-                  <th className="px-1.5 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-slate-200 w-[88px] text-center">More</th>
+                  <th className="px-1.5 py-1.5 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 min-w-[120px] align-top">
+                    <span className="block px-0.5 pb-1">Remark</span>
+                    <input
+                      type="text"
+                      value={globalRemark}
+                      onChange={(e) => handleGlobalRemark(e.target.value)}
+                      placeholder="Apply remark to all..."
+                      disabled={itemsLoading || !itemPlans.length}
+                      className={`${INPUT} w-full`}
+                    />
+                  </th>
+                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-slate-200 w-[88px] text-center align-top">More</th>
                 </tr>
               </thead>
               <tbody>
@@ -590,7 +740,6 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                 itemPlans.map((plan, idx) => {
                   const totalQty = Number(plan.row.totalqty ?? plan.row.total_qty ?? 0);
                   const fgStock = Number(plan.row.in_hand_qty ?? plan.row.fg_stock_qty ?? 0);
-                  const custRequest = formatScheduleRemarks(plan.row.Remarks ?? plan.row.remarks);
                   const prevDates = formatPreviousPlanDates(plan.row);
                   const isReject = plan.status === ROW_STATUS.REJECT;
                   const isHold = plan.status === ROW_STATUS.HOLD;
@@ -598,9 +747,20 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                   const isPending = plan.status === ROW_STATUS.PENDING;
                   const canStayPending = !isDbRow(plan.row);
                   const dateRange = rowDateRange(plan.row);
+                  const rowErr = fieldErrors[plan.key] || {};
+                  const rowHasError = Boolean(rowErr.reason || rowErr.actionDate);
 
                   return (
-                    <tr key={plan.key} className="border-b border-slate-100 bg-white hover:bg-slate-50/50 transition-colors">
+                    <tr
+                      key={plan.key}
+                      ref={(el) => {
+                        if (el) rowRefs.current[plan.key] = el;
+                        else delete rowRefs.current[plan.key];
+                      }}
+                      className={`border-b border-slate-100 transition-colors ${
+                        rowHasError ? "bg-rose-50/70 hover:bg-rose-50" : "bg-white hover:bg-slate-50/50"
+                      }`}
+                    >
                       <td className={`px-2 py-1.5 border-r border-slate-100 text-center align-top ${IMS_TABLE_CELL_TEXT}`}>{idx + 1}</td>
                       <td className={`px-2 py-1.5 border-r border-slate-100 align-top uppercase ${IMS_TABLE_CELL_TEXT} text-slate-800`}>{plan.row.item_code || "—"}</td>
                       <td className="px-2 py-1.5 border-r border-slate-100 align-top leading-snug max-w-[180px]" title={plan.row.itemdesc}>
@@ -608,13 +768,13 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                       </td>
                       <td className={`px-2 py-1.5 text-center border-r border-slate-100 align-top ${IMS_TABLE_CELL_NUMBER}`}>{totalQty.toLocaleString()}</td>
                       <td className={`px-2 py-1.5 text-center border-r border-slate-100 align-top ${IMS_TABLE_CELL_NUMBER} text-emerald-800`}>{fgStock.toLocaleString()}</td>
-                      <td className="px-2 py-1.5 bg-slate-50/30 border-r border-slate-100 align-top select-text" title={custRequest}>
-                        <span className={`block break-words ${IMS_TABLE_CELL_TEXT} text-slate-800`}>{custRequest}</span>
+                      <td className="px-2 py-1.5 bg-slate-50/30 border-r border-slate-100 align-top select-text">
+                        <ScheduleCustRequestCell raw={plan.row.Remarks ?? plan.row.remarks} showIndex />
                       </td>
                       <td className="px-2 py-1.5 bg-amber-50/30 border-r border-slate-100 align-top select-text" title={prevDates}>
                         <span className={`block break-words ${IMS_TABLE_CELL_TEXT} text-amber-950`}>{prevDates}</span>
                       </td>
-                      <td className="px-1.5 py-1.5 border-r border-slate-100 align-top">
+                      <td className="px-1.5 py-1.5 border-r border-slate-100 align-top whitespace-nowrap">
                         <ScheduleStatusBadge row={plan.row} />
                       </td>
                       <td className="px-1.5 py-1.5 border-r border-slate-100 align-top">
@@ -635,20 +795,37 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                         ) : isHold ? (
                           <span className={`${IMS_TABLE_CELL_TEXT} text-slate-600 px-1`}>Not required for hold</span>
                         ) : isReject ? (
-                          <PickOrOtherReasonField
-                            value={plan.reason}
-                            onChange={(reason) => setItemReason(plan.key, reason)}
-                            options={reasonOptions}
-                          />
+                          <div className="space-y-1">
+                            <PickOrOtherReasonField
+                              value={plan.reason}
+                              onChange={(reason) => setItemReason(plan.key, reason)}
+                              options={reasonOptions}
+                              hasError={Boolean(rowErr.reason)}
+                            />
+                            {rowErr.reason ? (
+                              <span className="block px-0.5 text-[9px] font-bold uppercase text-rose-600">
+                                Reject reason required
+                              </span>
+                            ) : null}
+                          </div>
                         ) : (
-                          <ScheduleTargetDateField
-                            value={plan.actionDate}
-                            onChange={(date) => setActionDate(plan.key, date)}
-                            minDate={dateRange.min}
-                            maxDate={dateRange.max}
-                            onOutOfRange={onTargetDateOutOfRange}
-                            placeholder={formatScheduleTargetDateHint(plan.row.schmonth ?? activeSchedule?.schmonth, plan.row.schdt ?? activeSchedule?.schdt)}
-                          />
+                          <div className="space-y-1">
+                            <ScheduleTargetDateField
+                              value={plan.actionDate}
+                              onChange={(date) => setActionDate(plan.key, date)}
+                              minDate={dateRange.min}
+                              maxDate={dateRange.max}
+                              onOutOfRange={onTargetDateOutOfRange}
+                              placeholder="Pick date"
+                              hasError={Boolean(rowErr.actionDate)}
+                              title={formatScheduleTargetDateHint(plan.row.schmonth ?? activeSchedule?.schmonth, plan.row.schdt ?? activeSchedule?.schdt)}
+                            />
+                            {rowErr.actionDate ? (
+                              <span className="block px-0.5 text-[9px] font-bold uppercase text-rose-600">
+                                Target date required
+                              </span>
+                            ) : null}
+                          </div>
                         )}
                       </td>
                       <td className="px-1.5 py-1.5 border-r border-slate-100 align-top">

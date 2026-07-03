@@ -1,7 +1,7 @@
 "use client";
 
 import { ROUTES } from "./taskNotifyConfig";
-import { notifyIconUrl, stripHtml } from "./taskNotifyHelpers";
+import { notifyIconUrl, stripHtml, formatPushTitle, resolvePushAppBrand } from "./taskNotifyHelpers";
 import { markOneInboxRead } from "./taskInboxActions";
 
 export function getTaskNotifyPermission() {
@@ -17,21 +17,24 @@ export async function requestTaskNotifyPermission() {
 }
 
 function buildOptions(payload = {}) {
-  const title = stripHtml(payload.title) || "Task";
+  const appType = payload.app_type || "task";
+  const brand = resolvePushAppBrand(appType);
+  const title = formatPushTitle(appType, stripHtml(payload.title) || brand.label);
   const body = stripHtml(payload.body);
   const url = payload.url || ROUTES.TASK_LIST;
-  const tag = payload.inbox_id ? `inbox-${payload.inbox_id}` : `task-${payload.task_id || Date.now()}`;
+  const tag = payload.inbox_id ? `inbox-${payload.inbox_id}` : `${appType}-${payload.task_id || Date.now()}`;
+  const icon = notifyIconUrl(appType);
 
   return {
     title,
     url,
     options: {
       body,
-      icon: notifyIconUrl(),
-      badge: notifyIconUrl(),
+      icon,
+      badge: icon,
       tag,
       renotify: true,
-      data: { url, inbox_id: payload.inbox_id ?? "" },
+      data: { url, inbox_id: payload.inbox_id ?? "", app_type: appType, app_label: brand.label },
     },
   };
 }

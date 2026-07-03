@@ -289,6 +289,8 @@ export default function ErpStockReportPage() {
                   ? "130px"
                   : key === "doc_dt"
                     ? "100px"
+                    : key === "job_card_no"
+                      ? "120px"
                     : "88px",
         },
       ]),

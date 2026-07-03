@@ -30,7 +30,7 @@ export const SCHEDULE_LIST_FILTER = {
 
 export const SCHEDULE_STATUS_FILTER_OPTIONS = [
   { value: SCHEDULE_LIST_FILTER.PENDING, label: "Pending" },
-  { value: SCHEDULE_LIST_FILTER.SCHEDULE, label: "Schedule" },
+  { value: SCHEDULE_LIST_FILTER.SCHEDULE, label: "Scheduled" },
   { value: SCHEDULE_LIST_FILTER.HOLD, label: "Hold" },
   { value: SCHEDULE_LIST_FILTER.COMPLETE, label: "Complete" },
   { value: SCHEDULE_LIST_FILTER.COMPARISON, label: "Comparison" },

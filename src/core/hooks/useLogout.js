@@ -18,6 +18,9 @@ export const useAppLogout = () => {
     /* Stop useSyncAuthSession from calling /users/me after cookie is cleared (would 401). */
     if (typeof window !== "undefined") {
       sessionStorage.setItem("imp_skip_auth_sync", "1");
+      try {
+        sessionStorage.removeItem("jfl_push_linked_user");
+      } catch {}
     }
 
     try {

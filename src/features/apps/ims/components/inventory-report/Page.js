@@ -166,6 +166,8 @@ export default function InventoryReportPage() {
           ? "130px"
           : key === "doc_dt"
             ? "100px"
+            : key === "job_card_no"
+              ? "120px"
             : key === "item_desc" || key === "customer_name" || key === "location_details"
               ? "220px"
               : key === "item_code"

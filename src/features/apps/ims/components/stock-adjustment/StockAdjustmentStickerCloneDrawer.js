@@ -227,7 +227,7 @@ function MinusBreakdownTable({
   );
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0">
+    <div className="flex flex-col flex-1 min-h-0 h-0 overflow-hidden w-full min-w-0">
       <div className="shrink-0 px-3 py-2 lg:px-4 bg-rose-50 border-b border-rose-100 flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[9px] font-black uppercase text-rose-700 tracking-wide">
@@ -271,15 +271,14 @@ function MinusBreakdownTable({
           ) : null}
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-0 lg:p-1">
+      <div className="flex-1 h-0 min-h-0 overflow-auto overscroll-contain p-0 lg:p-1 [-webkit-overflow-scrolling:touch]">
         {!displayBoxes?.length ? (
           <div className="bg-white border border-slate-200 px-3 py-8 text-center text-slate-400 text-[10px] font-bold uppercase">
             No boxes
           </div>
         ) : (
-          <div className="bg-white border border-slate-200 overflow-hidden w-full max-w-full min-w-0">
-            <div className="overflow-x-auto overscroll-x-contain touch-pan-x max-w-full [-webkit-overflow-scrolling:touch]">
-              <table className="w-full min-w-[640px] sm:min-w-[700px] lg:min-w-[820px] text-left border-separate border-spacing-0">
+          <div className="bg-white border border-slate-200 w-full max-w-full min-w-0">
+            <table className="w-full min-w-[640px] sm:min-w-[700px] lg:min-w-[820px] text-left border-separate border-spacing-0">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th
@@ -417,7 +416,6 @@ function MinusBreakdownTable({
                   })}
                 </tbody>
               </table>
-            </div>
           </div>
         )}
       </div>
@@ -443,7 +441,7 @@ function AddBreakdownTable({
     ? rows.filter((r) => r.box_uid != null && removeSet.has(String(r.box_uid))).length
     : 0;
   return (
-    <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0">
+    <div className="flex flex-col flex-1 min-h-0 h-0 overflow-hidden w-full min-w-0">
       <div className="shrink-0 px-3 py-2 lg:px-4 bg-emerald-50 border-b border-emerald-100 flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[9px] font-black uppercase text-emerald-800 tracking-wide">
@@ -477,7 +475,7 @@ function AddBreakdownTable({
           ) : null}
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-0 lg:p-1">
+      <div className="flex-1 h-0 min-h-0 overflow-auto overscroll-contain p-0 lg:p-1 [-webkit-overflow-scrolling:touch]">
         {!n ? (
           <div className="bg-white border border-slate-200 px-3 py-8 text-center">
             <div className="flex flex-col items-center gap-1.5 text-slate-400">
@@ -490,9 +488,8 @@ function AddBreakdownTable({
             </div>
           </div>
         ) : (
-          <div className="bg-white border border-slate-200 overflow-hidden w-full max-w-full min-w-0">
-            <div className="overflow-x-auto overscroll-x-contain touch-pan-x max-w-full [-webkit-overflow-scrolling:touch]">
-              <table className="w-full min-w-[520px] sm:min-w-[580px] lg:min-w-[680px] text-left border-separate border-spacing-0">
+          <div className="bg-white border border-slate-200 w-full max-w-full min-w-0">
+            <table className="w-full min-w-[520px] sm:min-w-[580px] lg:min-w-[680px] text-left border-separate border-spacing-0">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th
@@ -626,7 +623,6 @@ function AddBreakdownTable({
                   })}
                 </tbody>
               </table>
-            </div>
           </div>
         )}
       </div>
@@ -2033,7 +2029,7 @@ export default function StockAdjustmentStickerCloneDrawer({
   );
 
   const breakdownTableBlock = (
-    <div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden bg-white">
+    <div className="flex flex-col flex-1 min-h-0 h-0 min-w-0 overflow-hidden bg-white">
       <div className="shrink-0 px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 lg:gap-2 min-w-0 flex-1">
           <Layers className="w-4 h-4 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-600" aria-hidden />
@@ -2052,7 +2048,7 @@ export default function StockAdjustmentStickerCloneDrawer({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="flex-1 h-0 min-h-0 flex flex-col overflow-hidden">
         {gateEntryType === "add" ? (
           <AddBreakdownTable
             rows={addTableRows}
@@ -2083,9 +2079,9 @@ export default function StockAdjustmentStickerCloneDrawer({
   );
 
   const breakdownPanel = (
-    <>
+    <div className="flex flex-1 min-h-0 h-0 flex flex-col overflow-hidden w-full min-w-0">
       {/* Mobile / tablet: Details + Boxes tabs */}
-      <div className="flex flex-1 flex-col min-h-0 min-w-0 w-full overflow-hidden lg:hidden bg-slate-100/80">
+      <div className="flex flex-1 flex-col min-h-0 h-0 min-w-0 w-full overflow-hidden lg:hidden bg-slate-100/80">
         <div
           role="tablist"
           aria-label="Stock details and breakdown"
@@ -2111,9 +2107,9 @@ export default function StockAdjustmentStickerCloneDrawer({
             </button>
           ))}
         </div>
-        <div className="flex-1 min-h-0 min-w-0 w-full overflow-hidden flex flex-col bg-white border-t border-slate-200">
+        <div className="flex-1 h-0 min-h-0 min-w-0 overflow-hidden flex flex-col mx-2 mb-2 mt-1.5 bg-white border border-slate-200 rounded-lg">
           {mobileBreakdownTab === "details" ? (
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-50 p-2">
+            <div className="flex-1 h-0 min-h-0 overflow-y-auto overscroll-contain bg-slate-50 p-2">
               <StockAdjustmentStickerDetailCards
                 selectedRow={selectedRowLike}
                 packing={packingLike}
@@ -2134,13 +2130,13 @@ export default function StockAdjustmentStickerCloneDrawer({
               />
             </div>
           ) : (
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">{breakdownTableBlock}</div>
+            <div className="flex-1 h-0 min-h-0 min-w-0 overflow-hidden flex flex-col">{breakdownTableBlock}</div>
           )}
         </div>
       </div>
 
       {/* Desktop: details sidebar + breakdown table */}
-      <div className="hidden lg:flex lg:flex-row flex-1 min-h-0 w-full min-w-0 overflow-hidden bg-slate-50">
+      <div className="hidden lg:flex lg:flex-row flex-1 min-h-0 h-0 w-full min-w-0 overflow-hidden bg-slate-50">
         <div className="shrink-0 lg:w-80 xl:w-96 border-r border-slate-200 bg-slate-50 overflow-y-auto overflow-x-hidden">
           <StockAdjustmentStickerDetailCards
             selectedRow={selectedRowLike}
@@ -2161,9 +2157,9 @@ export default function StockAdjustmentStickerCloneDrawer({
             categoryError={errors.category || ""}
           />
         </div>
-        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">{breakdownTableBlock}</div>
+        <div className="flex-1 flex flex-col min-h-0 h-0 min-w-0 overflow-hidden">{breakdownTableBlock}</div>
       </div>
-    </>
+    </div>
   );
 
   const drawerTitle = isView
@@ -2208,7 +2204,7 @@ export default function StockAdjustmentStickerCloneDrawer({
             }
           />
         ) : (
-          <>
+          <div className="flex flex-1 min-h-0 h-0 flex-col overflow-hidden w-full min-w-0">
         {topToolbar}
 
         {!gatePassed ? (
@@ -2226,14 +2222,14 @@ export default function StockAdjustmentStickerCloneDrawer({
             </p>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col min-h-0 w-full max-w-full min-w-0 overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 h-0 w-full max-w-full min-w-0 overflow-hidden">
             <div className="shrink-0 w-full min-w-0">{inputsTopRow}</div>
-            <div className="flex min-h-0 flex-1 flex-col w-full min-w-0 overflow-hidden border-t border-slate-200/80 bg-slate-50">
+            <div className="flex flex-1 min-h-0 h-0 flex-col w-full min-w-0 overflow-hidden border-t border-slate-200/80 bg-slate-50">
               {breakdownPanel}
             </div>
           </div>
         )}
-          </>
+          </div>
         )}
       </div>
     </Drawer>

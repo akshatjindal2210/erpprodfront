@@ -4,6 +4,7 @@ import ReduxProvider from "@/core/components/providers/ReduxProvider";
 import AppToastContainer from "@/core/components/common/AppToastContainer";
 import SocketProvider from "@/core/components/providers/SocketProvider";
 import PwaRegister from "@/features/shared/pwa/components/PwaRegister";
+import WebPushRegistrar from "@/features/shared/pwa/components/WebPushRegistrar";
 import TaskNotifyEnableBanner from "@/features/apps/task/pwa/TaskNotifyEnableBanner";
 import PwaAutoOpenHandler from "@/features/shared/pwa/components/PwaAutoOpenHandler";
 import PwaLaunchQueueHandler from "@/features/shared/pwa/components/PwaLaunchQueueHandler";
@@ -48,6 +49,7 @@ export default function RootLayout({ children }) {
             {children}
           </SocketProvider>
           <PwaRegister />
+          <WebPushRegistrar />
           <PwaOrientationLock />
           <TaskNotifyEnableBanner />
           <PwaLaunchQueueHandler />

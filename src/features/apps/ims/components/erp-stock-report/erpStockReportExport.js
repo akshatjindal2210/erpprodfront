@@ -4,6 +4,7 @@ import { formatDocDate } from "@/core/utils/utilHelper";
 export const ERP_STOCK_REPORT_TABLE_COLUMNS = [
   { label: "Packing Entry", key: "packing_number", type: "text" },
   { label: "Doc Date", key: "doc_dt", type: "date" },
+  { label: "Job Card", key: "job_card_no", type: "text" },
   { label: "Item Code", key: "item_code", type: "text" },
   { label: "Item Details", key: "item_desc", type: "text" },
   { label: "DB Stock", key: "db_stock", type: "number", tone: "db" },

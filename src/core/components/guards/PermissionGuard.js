@@ -11,12 +11,20 @@ import { ROUTES } from "@/config/routes";
 import { useAppLogout } from "@/core/hooks/useLogout";
 import { THEME_CONFIG } from "@/config/theme";
 
+const normalizePath = (value) => {
+  const path = String(value || "").trim();
+  if (!path) return "/";
+  if (path === "/") return path;
+  return path.replace(/\/+$/, "");
+};
+
 export default function PermissionGuard({ children }) {
   const pathname = usePathname();
   const router = useRouter();
   const { handleLogout } = useAppLogout();
   const canAccess = useCanAccess();
   const role = useSelector(selectRole);
+  const currentPath = useMemo(() => normalizePath(pathname), [pathname]);
 
   const canSeeNavItem = useCallback((item) => {
     if (item.roles?.length) {
@@ -34,8 +42,9 @@ export default function PermissionGuard({ children }) {
     const list = [];
     const seen = new Set();
     const add = (entry) => {
-      if (!entry?.href || seen.has(entry.href)) return;
-      seen.add(entry.href);
+      const href = normalizePath(entry?.href);
+      if (!entry?.href || seen.has(href)) return;
+      seen.add(href);
       list.push(entry);
     };
 
@@ -56,7 +65,7 @@ export default function PermissionGuard({ children }) {
     collectFromRegistry(NAV_REGISTRY);
     collectFromRegistry(SETTINGS_NAV_REGISTRY);
     return list;
-  }, [hasPermissionOnly]);
+  }, [hasPermissionOnly, canSeeNavItem]);
 
   const { authorized, noAccessAtAll } = useMemo(() => {
     if (!NAV_REGISTRY || !Array.isArray(NAV_REGISTRY)) {
@@ -69,16 +78,19 @@ export default function PermissionGuard({ children }) {
 
     let currentModule = null;
     let requiredRoles = null;
+    let matchedRoute = false;
     const resolveModule = (registry) => {
       registry.forEach((item) => {
-        if (item.href === pathname) {
+        if (normalizePath(item.href) === currentPath) {
           currentModule = item.module;
           requiredRoles = item.roles;
+          matchedRoute = true;
         }
         item.subItems?.forEach((sub) => {
-          if (sub.href === pathname) {
+          if (normalizePath(sub.href) === currentPath) {
             currentModule = sub.module;
             requiredRoles = sub.roles;
+            matchedRoute = true;
           }
         });
       });
@@ -86,7 +98,7 @@ export default function PermissionGuard({ children }) {
     resolveModule(NAV_REGISTRY);
     resolveModule(SETTINGS_NAV_REGISTRY);
 
-    if (pathname === "/") {
+    if (currentPath === "/") {
       return { authorized: false, noAccessAtAll: false };
     }
 
@@ -102,16 +114,24 @@ export default function PermissionGuard({ children }) {
       }
     }
 
+    // Route exists in nav registry and has no module gate.
+    if (matchedRoute) {
+      return { authorized: true, noAccessAtAll: false };
+    }
+
     // Route not in nav registry — only app dashboard home is open without a module gate.
     const isOpenDashboard =
-      pathname === ROUTES.DASHBOARD ||
-      pathname === "/ims/dashboard" ||
-      pathname === "/ims/dashboard/builder" ||
-      pathname === "/task/dashboard" ||
-      pathname === "/settings" ||
-      pathname === ROUTES.DASHBOARD_BUILDER;
+      currentPath === normalizePath(ROUTES.DASHBOARD) ||
+      currentPath === "/ims/dashboard" ||
+      currentPath === "/ims/dashboard/builder" ||
+      currentPath === "/task/dashboard" ||
+      currentPath === "/settings" ||
+      currentPath === normalizePath(ROUTES.SETTINGS_DASHBOARD) ||
+      currentPath === normalizePath(ROUTES.SETTINGS_DASHBOARD_BUILDER) ||
+      currentPath === normalizePath(ROUTES.SETTINGS_NOTIFICATIONS) ||
+      currentPath === normalizePath(ROUTES.DASHBOARD_BUILDER);
     return { authorized: isOpenDashboard, noAccessAtAll: false };
-  }, [pathname, hasPermissionOnly, allowedModules]);
+  }, [currentPath, hasPermissionOnly, allowedModules, role]);
 
   useEffect(() => {
     if (pathname === "/" && allowedModules.length > 0) {

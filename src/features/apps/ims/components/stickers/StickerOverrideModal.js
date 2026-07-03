@@ -16,6 +16,8 @@ import {
   SCAN_SNACK_MSG,
   getBoxNoUidPrefix,
   notifyDecodeSuppressedScan,
+  markRecentScanSuccess,
+  shouldSilenceScanDuplicate,
   parseStandardBoxNoUid,
   useScanSnackbarActions,
 } from "@/core/utils/global";
@@ -133,6 +135,7 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
   const lastScanRef = useRef({ key: "", at: 0 });
   const onScanByCodeRef = useRef(async () => {});
   const inFlightScanRef = useRef(new Set());
+  const recentSuccessRef = useRef(new Map());
   const scanToastRef = useRef({});
   const scanInputRef = useRef(null);
   const sopAckRef = useRef(null);
@@ -306,13 +309,14 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
       )
     ) {
       setScanValue("");
-      showScanToast("error", `duplicate-sticker-${code.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1400);
+      if (!shouldSilenceScanDuplicate(recentSuccessRef, code)) {
+        showScanToast("error", `duplicate-sticker-${code.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1400);
+      }
       return;
     }
 
     const lockKey = `${source}:${code.toLowerCase()}`;
     if (source === "scanner" && inFlightScanRef.current.has(lockKey)) {
-      showScanToast("error", `scan-in-flight-${lockKey}`, SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1200);
       return;
     }
     if (source === "scanner") inFlightScanRef.current.add(lockKey);
@@ -366,10 +370,13 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
         return [...prev, found];
       });
       if (wasDuplicate) {
-        showScanToast("error", `duplicate-sticker-${code.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1400);
+        if (!shouldSilenceScanDuplicate(recentSuccessRef, found.box_no_uid || code)) {
+          showScanToast("error", `duplicate-sticker-${code.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(code), 1400);
+        }
         return;
       }
       const addedCode = found.box_no_uid || code;
+      markRecentScanSuccess(recentSuccessRef, addedCode);
       if (source === "scanner") {
         showScanSuccess(
           `scan-added-${String(addedCode).toLowerCase()}`,
@@ -398,15 +405,8 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
   }, []);
 
   const handleLaserScanRejected = useCallback(
-    ({ reason, code }) => {
-      if (reason === "duplicate") {
-        showScanToast(
-          "error",
-          `laser-dup-${String(code ?? "").toLowerCase()}`,
-          SCAN_SNACK_MSG.BOX_DUPLICATE(code),
-          1200
-        );
-      } else if (reason === "empty") {
+    ({ reason }) => {
+      if (reason === "empty") {
         showScanToast("error", "laser-empty-scan", SCAN_SNACK_MSG.REJECTED, 1800);
       }
     },
@@ -432,12 +432,6 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
     const now = Date.now();
     const scanKey = `box:${rawBox}`;
     if (scanKey === lastScanRef.current.key && now - lastScanRef.current.at < 2000) {
-      showScanToast(
-        "error",
-        `cam-rapid-dup-${rawBox.toLowerCase()}`,
-        SCAN_SNACK_MSG.BOX_DUPLICATE(rawBox),
-        1200
-      );
       return;
     }
     lastScanRef.current = { key: scanKey, at: now };
@@ -445,12 +439,9 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
     void onScanByCodeRef.current(decodedText, "scanner");
   }
 
-  const handleDecodeSuppressed = useCallback(
-    (text) => {
-      notifyDecodeSuppressedScan(showScanToast, text, "sticker-override-cooldown");
-    },
-    [showScanToast]
-  );
+  const handleDecodeSuppressed = useCallback(() => {
+    notifyDecodeSuppressedScan();
+  }, []);
 
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,

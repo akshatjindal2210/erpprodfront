@@ -1,94 +1,217 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { usePathname } from "next/navigation";
 import { useSelector } from "react-redux";
-import { Bell, X, AlertTriangle } from "lucide-react";
-import { selectUser } from "@/core/store/slices/authSlice";
+import { Bell, AlertTriangle, Smartphone, Loader2 } from "lucide-react";
+import { selectHasAppAccess, selectUser } from "@/core/store/slices/authSlice";
 import { getTaskNotifyPermission, requestTaskNotifyPermission } from "@/features/apps/task/pwa/taskPushNotify";
+import {
+  getIosPushInstallHint,
+  isWebPushSupported,
+  clearPushLinkSessionCache,
+  linkPushSubscriptionToUser,
+  subscribeToWebPush,
+} from "@/features/shared/pwa/webPushSubscribe";
 
-const DISMISS_KEY = "task_notify_banner_dismiss";
+function readNotifyPermission() {
+  return getTaskNotifyPermission();
+}
+
+function shouldShowNotifyGate(pathname) {
+  if (!pathname) return false;
+  if (pathname === "/login" || pathname.startsWith("/login/")) return false;
+  return pathname === "/home" || pathname.startsWith("/home/") || pathname === "/task" || pathname.startsWith("/task/");
+}
+
+function BlockOverlay({ icon: Icon, iconClass, title, children, actions }) {
+  return (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+      <div
+        className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 text-center"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="notify-gate-title"
+      >
+        {Icon && (
+          <div className={`mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full ${iconClass}`}>
+            <Icon className="h-7 w-7" />
+          </div>
+        )}
+        <h2 id="notify-gate-title" className="text-lg font-bold text-slate-900">
+          {title}
+        </h2>
+        <div className="mt-2 text-sm text-slate-600 leading-relaxed">{children}</div>
+        {actions && <div className="mt-6 flex flex-col gap-2">{actions}</div>}
+      </div>
+    </div>
+  );
+}
 
 export default function TaskNotifyEnableBanner() {
+  const pathname = usePathname();
   const user = useSelector(selectUser);
+  const hasTaskAccess = useSelector(selectHasAppAccess("task"));
+  const onNotifyRoute = shouldShowNotifyGate(pathname);
+  const canGate = !!user?.id && hasTaskAccess && onNotifyRoute;
+
   const [permission, setPermission] = useState("default");
-  const [dismissed, setDismissed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [iosHint, setIosHint] = useState(null);
 
   const secure = typeof window === "undefined" || window.isSecureContext;
+  const pushSupported = isWebPushSupported();
+  const iosInstallHint = iosHint || getIosPushInstallHint();
+
+  const refreshPermission = useCallback(() => {
+    setPermission(readNotifyPermission());
+    setIosHint(getIosPushInstallHint());
+  }, []);
 
   useEffect(() => {
-    setPermission(getTaskNotifyPermission());
-    try {
-      setDismissed(sessionStorage.getItem(DISMISS_KEY) === "1");
-    } catch {
-      setDismissed(false);
-    }
-  }, [user?.id]);
+    refreshPermission();
+  }, [refreshPermission]);
+
+  useEffect(() => {
+    if (!canGate) return undefined;
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshPermission();
+    };
+
+    window.addEventListener("focus", refreshPermission);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", refreshPermission);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [canGate, refreshPermission]);
+
+  const isBlocked = canGate && permission !== "granted";
+
+  useEffect(() => {
+    if (!isBlocked) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isBlocked]);
 
   const enable = useCallback(async () => {
     setBusy(true);
     try {
-      const result = await requestTaskNotifyPermission();
-      setPermission(result);
+      const result = await subscribeToWebPush();
+      if (result.ok) {
+        setPermission("granted");
+        setIosHint(null);
+        if (user?.id) {
+          clearPushLinkSessionCache();
+          void linkPushSubscriptionToUser({ userId: user.id }).catch(() => {});
+        }
+        return;
+      }
+      if (result.error === "ios_install_required") {
+        setIosHint(result.message);
+        return;
+      }
+      const perm = await requestTaskNotifyPermission();
+      setPermission(perm);
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [user?.id]);
 
-  if (!user?.id) return null;
+  if (!canGate) return null;
+  if (permission === "granted") return null;
 
   if (!secure) {
     return (
-      <div className="fixed bottom-4 left-4 right-4 z-[9998] mx-auto max-w-lg rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 shadow-lg text-sm text-rose-900 flex gap-2">
-        <AlertTriangle className="w-5 h-5 shrink-0" />
-        <div>
-          <p className="font-semibold">HTTPS required</p>
-          <p className="text-xs mt-1">Windows and phone alerts need HTTPS or localhost.</p>
-        </div>
-      </div>
+      <BlockOverlay
+        icon={AlertTriangle}
+        iconClass="bg-rose-100 text-rose-600"
+        title="HTTPS required"
+      >
+        <p>Task alerts need a secure connection (HTTPS or localhost). You cannot continue until this is fixed.</p>
+      </BlockOverlay>
     );
   }
 
-  if (permission === "granted" || permission === "unsupported") return null;
-  if (dismissed) return null;
+  if (iosInstallHint) {
+    return (
+      <BlockOverlay
+        icon={Smartphone}
+        iconClass="bg-amber-100 text-amber-700"
+        title="Install app for iPhone alerts"
+      >
+        <p>{iosInstallHint}</p>
+        <p className="mt-2 text-xs text-slate-500">After installing from Home Screen, open the app and tap Allow.</p>
+      </BlockOverlay>
+    );
+  }
+
+  if (!pushSupported || permission === "unsupported") {
+    return (
+      <BlockOverlay
+        icon={AlertTriangle}
+        iconClass="bg-slate-100 text-slate-600"
+        title="Push not supported"
+      >
+        <p>Use Chrome, Edge, or Firefox on desktop, or install the PWA on your phone to receive task alerts.</p>
+      </BlockOverlay>
+    );
+  }
 
   if (permission === "denied") {
     return (
-      <div className="fixed bottom-4 left-4 right-4 z-[9998] mx-auto max-w-lg rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg text-sm text-amber-900">
-        <p className="font-semibold">Notifications blocked</p>
-        <p className="text-xs mt-1">Open browser settings → Notifications → Allow, then reload.</p>
-      </div>
+      <BlockOverlay
+        icon={AlertTriangle}
+        iconClass="bg-amber-100 text-amber-700"
+        title="Notifications blocked"
+        actions={
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="w-full py-2.5 text-sm font-bold uppercase rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
+          >
+            I allowed in browser settings — Reload
+          </button>
+        }
+      >
+        <p>
+          Open browser settings → Site settings → Notifications → Allow for this site, then reload the page.
+        </p>
+      </BlockOverlay>
     );
   }
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-[9998] mx-auto max-w-lg rounded-lg border border-indigo-200 bg-white px-4 py-3 shadow-lg flex items-center gap-3">
-      <Bell className="w-5 h-5 text-indigo-600 shrink-0" />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-slate-800">Enable task alerts</p>
-        <p className="text-xs text-slate-500">
-          You will get a notification on Windows or your phone when a task is assigned to you.
-        </p>
-      </div>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={enable}
-        className="shrink-0 px-3 py-1.5 text-xs font-bold uppercase bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
-      >
-        {busy ? "..." : "Allow"}
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          setDismissed(true);
-          try { sessionStorage.setItem(DISMISS_KEY, "1"); } catch {}
-        }}
-        className="shrink-0 p-1 text-slate-400 hover:text-slate-600"
-        aria-label="Dismiss"
-      >
-        <X className="w-4 h-4" />
-      </button>
-    </div>
+    <BlockOverlay
+      icon={Bell}
+      iconClass="bg-indigo-100 text-indigo-600"
+      title="Allow notifications to continue"
+      actions={
+        <button
+          type="button"
+          disabled={busy}
+          onClick={enable}
+          className="w-full py-2.5 text-sm font-bold uppercase rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {busy ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Please wait…
+            </>
+          ) : (
+            "Allow notifications"
+          )}
+        </button>
+      }
+    >
+      <p>
+        Task updates are sent to this device even when you are logged out or the app is closed.
+        You must allow notifications before using the app.
+      </p>
+    </BlockOverlay>
   );
 }

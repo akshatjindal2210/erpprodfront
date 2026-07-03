@@ -1,21 +1,47 @@
 import React from "react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
 import { AlertCircle } from "lucide-react";
 
-const WidgetRenderer = ({ widget }) => {
+const resolveKpiValueFontPx = (style = {}, displayVal = "", readOnly = false) => {
+  const configured = Number(style.fontSize);
+  const textLen = String(displayVal || "").length;
+  let base = Number.isFinite(configured) && configured >= 14 ? configured : (readOnly ? 28 : 26);
+  if (textLen > 14) base = Math.min(base, 14);
+  else if (textLen > 10) base = Math.min(base, 20);
+  else if (textLen > 6 && base > 32) base = 32;
+  return base;
+};
+
+const resolveKpiLabelFontPx = (style = {}) => {
+  const configured = Number(style.kpiLabelFontSize);
+  if (Number.isFinite(configured) && configured >= 8) return configured;
+  const fallback = Number(style.fontSize);
+  if (Number.isFinite(fallback) && fallback >= 8 && fallback <= 12) return fallback;
+  return 10;
+};
+
+const formatDisplayValue = (value) => {
+  if (value === null || value === undefined) return "-";
+  if (typeof value === "number") return Number.isFinite(value) ? value.toLocaleString() : "-";
+  if (typeof value === "string" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    try {
+      return JSON.stringify(value);
+    } catch (_error) {
+      return String(value);
+    }
+  }
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch (_error) {
+      return String(value);
+    }
+  }
+  return String(value);
+};
+
+const WidgetRenderer = ({ widget, readOnly = false }) => {
   const data = widget.previewData || widget.data || [];
   const error = widget.error || widget.previewError || null;
 
@@ -33,12 +59,20 @@ const WidgetRenderer = ({ widget }) => {
       : style.emptyTextPosition === "bottom"
         ? "justify-end pb-4"
         : "justify-center";
+  const contentPadding = Number.isFinite(Number(style.padding)) ? Math.max(0, Number(style.padding)) : 8;
+  const contentMargin = Number.isFinite(Number(style.margin)) ? Math.max(0, Number(style.margin)) : 0;
+  const headingFontPx = Number.isFinite(Number(style.fontSize)) && Number(style.fontSize) >= 12
+    ? Number(style.fontSize)
+    : (readOnly ? 18 : 16);
 
   const renderContent = () => {
     if (type === "heading") {
       return (
-        <div className="flex h-full items-center px-2.5 border-b border-slate-200">
-          <h2 className="text-base font-extrabold tracking-tight text-slate-800" style={{ color: style.color || "#0f172a" }}>
+        <div className="flex h-full items-center px-1 border-b border-slate-200">
+          <h2
+            className="font-extrabold tracking-tight text-slate-800 leading-tight"
+            style={{ color: style.color || "#0f172a", fontSize: `${headingFontPx}px` }}
+          >
             {title || widget.description || "Dashboard Heading"}
           </h2>
         </div>
@@ -68,7 +102,7 @@ const WidgetRenderer = ({ widget }) => {
                       {child.title || "Widget"}
                     </p>
                     <p className="text-sm font-bold text-blue-600 mt-1 truncate">
-                      {typeof val === "number" ? val.toLocaleString() : val}
+                      {formatDisplayValue(val)}
                     </p>
                   </div>
                 );
@@ -93,7 +127,9 @@ const WidgetRenderer = ({ widget }) => {
       );
     }
 
-    if (!widget.query) {
+    const hasQuery = String(widget.query || "").trim().length > 0;
+
+    if (!hasQuery && data.length === 0) {
       return (
         <div className={`flex h-full ${alignClass} ${emptyPosClass} text-slate-400 text-[10px] uppercase tracking-widest font-semibold`}>
           {widget.emptyText || "Click edit and add query"}
@@ -160,7 +196,6 @@ const WidgetRenderer = ({ widget }) => {
             <Pie data={data} dataKey={yKey} nameKey={xKey} outerRadius={70} label>
               {data.map((entry, index) => (
                 <Cell
-                  // eslint-disable-next-line react/no-array-index-key
                   key={`slice-${index}`}
                   fill={index % 2 === 0 ? style.color || "#3b82f6" : "#93c5fd"}
                 />
@@ -173,12 +208,12 @@ const WidgetRenderer = ({ widget }) => {
 
     if (type === "table") {
       return (
-        <div className="overflow-auto h-full custom-scrollbar">
+        <div className="overflow-auto h-full w-full min-w-0 custom-scrollbar -mx-1 px-1 sm:mx-0 sm:px-0">
           <table className="min-w-full divide-y divide-slate-100">
             <thead className="bg-slate-50 sticky top-0 z-10">
               <tr>
                 {keys.map((col) => (
-                  <th key={col} className="px-3 py-2 text-left text-[9px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-200">
+                  <th key={col} className={`${readOnly ? "px-2 sm:px-3" : "px-3"} py-1.5 sm:py-2 text-left text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-200 whitespace-nowrap`}>
                     {col}
                   </th>
                 ))}
@@ -188,8 +223,8 @@ const WidgetRenderer = ({ widget }) => {
               {data.map((row, i) => (
                 <tr key={i} className="hover:bg-slate-50 transition-colors">
                   {keys.map((col) => (
-                    <td key={col} className="px-3 py-1.5 whitespace-nowrap text-[10px] text-slate-600 font-medium">
-                      {row[col]}
+                    <td key={col} className={`${readOnly ? "px-2 sm:px-3" : "px-3"} py-1 sm:py-1.5 whitespace-nowrap text-[9px] sm:text-[10px] text-slate-600 font-medium`}>
+                      {formatDisplayValue(row[col])}
                     </td>
                   ))}
                 </tr>
@@ -204,13 +239,37 @@ const WidgetRenderer = ({ widget }) => {
       const val = data[0] ? Object.values(data[0])[0] : 0;
       const label = title || widget.description || "";
       const isTop = (style.kpiLabelPosition || "bottom") === "top";
+      const displayVal = formatDisplayValue(val);
+      const valueFontPx = resolveKpiValueFontPx(style, displayVal, readOnly);
+      const labelFontPx = resolveKpiLabelFontPx(style);
+      const labelStyle = {
+        fontSize: `${labelFontPx}px`,
+        lineHeight: 1.25,
+      };
       return (
-        <div className={`flex flex-col justify-center h-full ${alignClass}`}>
-          {label && isTop && <div className="text-slate-400 text-[9px] font-bold uppercase tracking-[0.2em] mb-1">{label}</div>}
-          <div className="text-3xl font-black tracking-tighter" style={{ color: style.color }}>
-            {typeof val === 'number' ? val.toLocaleString() : val}
+        <div className={`flex flex-col justify-center h-full min-w-0 gap-0.5 ${alignClass}`}>
+          {label && isTop && (
+            <div
+              className="text-slate-500 font-semibold px-0.5 break-words leading-tight"
+              style={labelStyle}
+            >
+              {label}
+            </div>
+          )}
+          <div
+            className="font-black tracking-tight break-words leading-none max-w-full px-0.5"
+            style={{ color: style.color, fontSize: `${valueFontPx}px` }}
+          >
+            {displayVal}
           </div>
-          {label && !isTop && <div className="text-slate-400 text-[9px] font-bold uppercase tracking-[0.2em] mt-1">{label}</div>}
+          {label && !isTop && (
+            <div
+              className="text-slate-500 font-semibold px-0.5 break-words leading-tight mt-0.5"
+              style={labelStyle}
+            >
+              {label}
+            </div>
+          )}
         </div>
       );
     }
@@ -224,14 +283,22 @@ const WidgetRenderer = ({ widget }) => {
       style={{
         backgroundColor: isHeading ? "transparent" : style.bg,
         borderRadius: style.borderRadius ? `${style.borderRadius}px` : "6px",
+        fontFamily: style.fontFamily || "inherit",
       }}
     >
       {title && type !== 'kpi' && type !== "heading" && type !== "section" && (
-        <div className="px-4 py-2 border-b border-slate-100 font-bold text-[10px] uppercase tracking-widest text-slate-500 flex justify-between items-center bg-slate-50/50">
+        <div
+          className={`px-4 py-2 border-b border-slate-100 font-bold ${readOnly ? "text-[11px] tracking-wide" : "text-[10px] uppercase tracking-widest"} text-slate-500 flex justify-between items-center bg-slate-50/50`}
+        >
           <span style={{ fontSize: style.fontSize ? `${style.fontSize}px` : "10px" }}>{title}</span>
         </div>
       )}
-      <div className="flex-1 p-3 overflow-hidden">{renderContent()}</div>
+      <div
+        className="flex-1 overflow-hidden"
+        style={{ padding: `${contentPadding}px`, margin: `${contentMargin}px` }}
+      >
+        {renderContent()}
+      </div>
     </div>
   );
 };

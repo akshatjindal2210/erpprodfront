@@ -59,8 +59,10 @@ const DISPLAY_CHUNK = 100;
 export default function AuditPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("audit", "view"), [canAccess]);
+  const addAccess = useMemo(() => canAccess("audit", "add"), [canAccess]);
   const authorizeAccess = useMemo(() => canAccess("audit", "authorize"), [canAccess]);
   const editAccess = useMemo(() => canAccess("audit", "edit"), [canAccess]);
+  const deleteAccess = useMemo(() => canAccess("audit", "delete"), [canAccess]);
   const currentUser = useSelector(selectUser);
   const currentRole = useSelector(selectRole);
 
@@ -68,10 +70,17 @@ export default function AuditPage() {
     return currentRole?.toLowerCase() === "super_admin";
   }, [currentRole]);
 
+  /** Field worker: scan/start only — no master tab, comparison, or manage actions. */
+  const isAuditScannerOnly = useMemo(() => {
+    if (isSuperAdmin) return false;
+    if (!addAccess?.allowed) return false;
+    return !editAccess?.allowed && !authorizeAccess?.allowed && !deleteAccess?.allowed;
+  }, [isSuperAdmin, addAccess, editAccess, authorizeAccess, deleteAccess]);
+
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
   const [pageTab, setPageTab] = useState(PAGE_TABS.LOCATION);
-  const isLocationView = pageTab === PAGE_TABS.LOCATION;
+  const isLocationView = isAuditScannerOnly || pageTab === PAGE_TABS.LOCATION;
 
   const [params, setParams] = useState({
     pageSize: LIST_PAGE_SIZE,
@@ -221,26 +230,6 @@ export default function AuditPage() {
 
   const auditById = useMemo(() => indexAuditsById(allRows), [allRows]);
 
-  const advanceToNextExecutableLocation = useCallback(
-    async (completedRowId = null) => {
-      const data = await fetchAudits();
-      const rows = filterLocationRowsWithSearch(flattenAuditLocations(data, flattenContext));
-      const nextRow = findNextExecutableLocationRow(rows, locationExecutionContext, {
-        excludeRowId: completedRowId,
-      });
-      if (nextRow) {
-        await openAuditExecution(nextRow);
-        return true;
-      }
-      setSelected(null);
-      setExecutionOpen(false);
-      setExecutionAudit(null);
-      setExecutionLocationRow(null);
-      return false;
-    },
-    [fetchAudits, flattenContext, filterLocationRowsWithSearch, locationExecutionContext, openAuditExecution]
-  );
-
   const handleReopenLocation = async () => {
     if (!selectedLocationRow) return;
     const label = selectedLocationRow.location_no || "location";
@@ -264,6 +253,12 @@ export default function AuditPage() {
       setReopening(false);
     }
   };
+
+  useEffect(() => {
+    if (isAuditScannerOnly && pageTab !== PAGE_TABS.LOCATION) {
+      setPageTab(PAGE_TABS.LOCATION);
+    }
+  }, [isAuditScannerOnly, pageTab]);
 
   useEffect(() => {
     fetchAudits();
@@ -358,19 +353,7 @@ export default function AuditPage() {
 
   const extraFilters = useMemo(() => {
     if (isLocationView) {
-      return [
-        {
-          label: "Audit ID",
-          key: "locationAudit",
-          value: params.locationAuditFilter,
-          options: locationAuditFilterOptions,
-        },
-        {
-          label: "User",
-          key: "locationUser",
-          value: params.locationUserFilter,
-          options: locationUserFilterOptions,
-        },
+      const filters = [
         {
           label: "Status",
           key: "locationStatus",
@@ -383,6 +366,23 @@ export default function AuditPage() {
           ],
         },
       ];
+      if (!isAuditScannerOnly) {
+        filters.unshift(
+          {
+            label: "Audit ID",
+            key: "locationAudit",
+            value: params.locationAuditFilter,
+            options: locationAuditFilterOptions,
+          },
+          {
+            label: "User",
+            key: "locationUser",
+            value: params.locationUserFilter,
+            options: locationUserFilterOptions,
+          }
+        );
+      }
+      return filters;
     }
 
     return [
@@ -406,6 +406,7 @@ export default function AuditPage() {
     params.locationStatusFilter,
     locationAuditFilterOptions,
     locationUserFilterOptions,
+    isAuditScannerOnly,
   ]);
 
   const selectedAuditId = useMemo(() => {
@@ -464,11 +465,17 @@ export default function AuditPage() {
       setDeleteItem(row);
     }, []),
     canDeleteSelection: useCallback(() => !!selectedAuditId, [selectedAuditId]),
+    canOpenNew: useCallback(() => !isAuditScannerOnly, [isAuditScannerOnly]),
   });
 
   const LOCATION_HEADERS = useMemo(
-    () => buildAuditLocationHeaders({ canViewAudit, openLocationComparison }),
-    [canViewAudit, openLocationComparison]
+    () =>
+      buildAuditLocationHeaders({
+        canViewAudit: isAuditScannerOnly ? false : canViewAudit,
+        openLocationComparison: isAuditScannerOnly ? () => {} : openLocationComparison,
+        scannerOnly: isAuditScannerOnly,
+      }),
+    [canViewAudit, openLocationComparison, isAuditScannerOnly]
   );
 
   const tableHeaders = isLocationView ? LOCATION_HEADERS : AUDIT_MASTER_HEADERS;
@@ -539,17 +546,21 @@ export default function AuditPage() {
         <ListPageToolbar>
           <ListPageToolbarLayout
             tabs={
-              <ImsSegmentedTabs
-                active={pageTab}
-                onChange={handleTabChange}
-                tabs={[
-                  { id: PAGE_TABS.LOCATION, label: "Location Wise", icon: MapPin },
-                  { id: PAGE_TABS.MASTER, label: "Master Wise", icon: ClipboardList },
-                ]}
-              />
+              isAuditScannerOnly ? null : (
+                <ImsSegmentedTabs
+                  active={pageTab}
+                  onChange={handleTabChange}
+                  tabs={[
+                    { id: PAGE_TABS.LOCATION, label: "Location Wise", icon: MapPin },
+                    { id: PAGE_TABS.MASTER, label: "Master Wise", icon: ClipboardList },
+                  ]}
+                />
+              )
             }
             actions={
               <>
+              {!isAuditScannerOnly && (
+                <>
               <ActionButton module="audit" action="authorize" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
               <ActionButton 
                 module="audit" 
@@ -571,6 +582,8 @@ export default function AuditPage() {
                 onClick={openEditModal} 
                 className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none" 
               />
+                </>
+              )}
               
               <ActionButton 
                 module="audit" 
@@ -589,7 +602,7 @@ export default function AuditPage() {
                 className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none bg-indigo-600 hover:bg-indigo-700" 
               />
 
-              {isLocationView && canReopenLocation && (
+              {!isAuditScannerOnly && isLocationView && canReopenLocation && (
                 <button
                   type="button"
                   disabled={!selected || reopening}
@@ -601,7 +614,7 @@ export default function AuditPage() {
                 </button>
               )}
 
-              {isLocationView && canReassignLocation && (
+              {!isAuditScannerOnly && isLocationView && canReassignLocation && (
                 <button
                   type="button"
                   disabled={!selected}
@@ -613,6 +626,7 @@ export default function AuditPage() {
                 </button>
               )}
 
+              {!isAuditScannerOnly && (
               <ActionButton
                 module="audit"
                 action="view"
@@ -635,7 +649,9 @@ export default function AuditPage() {
                 }}
                 className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-indigo-600 shadow-none"
               />
+              )}
 
+              {!isAuditScannerOnly && (
               <ActionButton 
                 module="audit" 
                 action="delete" 
@@ -646,6 +662,7 @@ export default function AuditPage() {
                 onClick={() => setDeleteItem(selectedRecord)} 
                 className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" 
               />
+              )}
               
               <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
               
@@ -653,6 +670,7 @@ export default function AuditPage() {
               </>
             }
             viewToggle={
+              isAuditScannerOnly ? null : (
               <ListPageExportToggle
                 viewMode={viewMode}
                 setMode={handleViewMode}
@@ -660,6 +678,7 @@ export default function AuditPage() {
                 disabled={loading || exportDisabled}
                 onExport={handleExport}
               />
+              )
             }
           />
 
@@ -721,9 +740,9 @@ export default function AuditPage() {
                 isLocationView
                   ? {
                       titleKey: "location_no",
-                      badgeIndices: [6],
-                      detailIndices: [1, 2, 3, 4, 7],
-                      footerKey: "created_at",
+                      badgeIndices: isAuditScannerOnly ? [3] : [6],
+                      detailIndices: isAuditScannerOnly ? [1, 2, 4] : [1, 2, 3, 4, 7],
+                      footerKey: isAuditScannerOnly ? undefined : "created_at",
                       className: "rounded-none border border-slate-200 shadow-none",
                     }
                   : {
@@ -756,20 +775,11 @@ export default function AuditPage() {
             setExecutionAudit(null);
             setExecutionLocationRow(null);
           }} 
-          onSuccess={async (keepOpen) => { 
-            if (keepOpen && executionLocationRow?.audit_id) {
-              await fetchAudits();
-              await loadExecutionAudit(executionLocationRow.audit_id);
-              return;
-            }
-            const completedRowId = executionLocationRow?.row_id ?? null;
+          onSuccess={async () => {
             setExecutionOpen(false);
             setExecutionAudit(null);
             setExecutionLocationRow(null);
-            const advanced = await advanceToNextExecutableLocation(completedRowId);
-            if (!advanced) {
-              toast.info("No more locations to start for today");
-            }
+            await fetchAudits();
           }} 
           auditData={executionAudit}
           fixedLocationId={executionLocationRow.location_id}

@@ -22,6 +22,8 @@ import {
   SCAN_SNACK_MSG,
   FLOW_SCAN_CAMERA_INSECURE_MSG,
   notifyDecodeSuppressedScan,
+  markRecentScanSuccess,
+  shouldSilenceScanDuplicate,
   useScanSnackbarActions,
 } from "@/core/utils/global";
 import { prepareQrScanSession, unlockScanAudio }   from "@/features/apps/ims/helpers/scanFeedback";
@@ -230,6 +232,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
   const tryAddBoxRef = useRef(async () => {});
   const lastScanRef = useRef({ key: "", at: 0, mode: "" });
   const inFlightScanRef = useRef(new Set());
+  const recentSuccessRef = useRef(new Map());
   const scanToastRef = useRef({});
   const sopAckRef = useRef(null);
   const scanBatchRef = useRef(null);
@@ -512,12 +515,14 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         });
         if (existsSame) {
           removePendingBoxById(li, item.id);
-          showScanToast(
-            "error",
-            `batch-dup-${item.id}`,
-            SCAN_SNACK_MSG.BOX_DUPLICATE(canonical),
-            2200
-          );
+          if (!shouldSilenceScanDuplicate(recentSuccessRef, canonical)) {
+            showScanToast(
+              "error",
+              `batch-dup-${item.id}`,
+              SCAN_SNACK_MSG.BOX_DUPLICATE(canonical),
+              2200
+            );
+          }
           continue;
         }
 
@@ -802,15 +807,8 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
   );
 
   const handleLaserScanRejected = useCallback(
-    ({ reason, code }) => {
-      if (reason === "duplicate") {
-        showScanToast(
-          "error",
-          `laser-dup-${String(code ?? "").toLowerCase()}`,
-          SCAN_SNACK_MSG.BOX_DUPLICATE(code),
-          1200
-        );
-      } else if (reason === "empty") {
+    ({ reason }) => {
+      if (reason === "empty") {
         showScanToast("error", "laser-empty-scan", SCAN_SNACK_MSG.REJECTED, 1800);
       }
     },
@@ -846,7 +844,6 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
 
     const scanLockKey = `${li}:${candidate.toLowerCase()}`;
     if (source === "scanner" && inFlightScanRef.current.has(scanLockKey)) {
-      showScanToast("error", `scan-in-flight-${scanLockKey}`, SCAN_SNACK_MSG.BOX_DUPLICATE(candidate), 1200);
       return;
     }
     if (source === "scanner") {
@@ -862,12 +859,14 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         boxEntryMatchesCode(normalizeInwardBoxEntry(b), candidate)
       );
       if (duplicateInSame) {
-        showScanToast(
-          "error",
-          `${li}:${candidate.toLowerCase()}`,
-          SCAN_SNACK_MSG.BOX_DUPLICATE(candidate),
-          1200
-        );
+        if (!shouldSilenceScanDuplicate(recentSuccessRef, candidate)) {
+          showScanToast(
+            "error",
+            `${li}:${candidate.toLowerCase()}`,
+            SCAN_SNACK_MSG.BOX_DUPLICATE(candidate),
+            1200
+          );
+        }
         return;
       }
 
@@ -924,9 +923,13 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
       });
 
       if (!didAdd) {
-        showScanToast("error", `dup-race-${li}:${candidate.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(candidate), 2300);
+        if (!shouldSilenceScanDuplicate(recentSuccessRef, candidate)) {
+          showScanToast("error", `dup-race-${li}:${candidate.toLowerCase()}`, SCAN_SNACK_MSG.BOX_DUPLICATE(candidate), 2300);
+        }
         return;
       }
+
+      markRecentScanSuccess(recentSuccessRef, candidate);
 
       flushSync(() => {
         setLocHasError((prev) => prev.map((e, i) => (i === li ? false : e)));
@@ -1113,12 +1116,6 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         lastScanRef.current.mode === "location" &&
         now - lastScanRef.current.at < 2000
       ) {
-        showScanToast(
-          "error",
-          `cam-loc-dup-${(locationId || "").toLowerCase()}`,
-          MSG.LOCATION_ALREADY_SCANNING(locationId || "this location"),
-          1200
-        );
         return;
       }
       lastScanRef.current = { key: scanKey, at: now, mode: "location" };
@@ -1139,14 +1136,6 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
       lastScanRef.current.mode === "box" &&
       now - lastScanRef.current.at < 2000
     ) {
-      if (rawBoxCode) {
-        showScanToast(
-          "error",
-          `cam-rapid-dup-${rawBoxCode.toLowerCase()}`,
-          SCAN_SNACK_MSG.BOX_DUPLICATE(rawBoxCode),
-          1200
-        );
-      }
       return;
     }
     lastScanRef.current = { key: scanKey, at: now, mode: "box" };
@@ -1177,45 +1166,23 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
       return e && boxEntryMatchesCode(e, rawBoxCode);
     });
     if (alreadyInCurrentLocation) {
-      showScanToast(
-        "error",
-        `cam-dup-${locIdx}:${rawBoxCode.toLowerCase()}`,
-        SCAN_SNACK_MSG.BOX_DUPLICATE(rawBoxCode),
-        1200
-      );
+      if (!shouldSilenceScanDuplicate(recentSuccessRef, rawBoxCode)) {
+        showScanToast(
+          "error",
+          `cam-dup-${locIdx}:${rawBoxCode.toLowerCase()}`,
+          SCAN_SNACK_MSG.BOX_DUPLICATE(rawBoxCode),
+          1200
+        );
+      }
       return;
     }
 
     tryAddBoxRef.current(locIdx, decodedText, "scanner");
   }
 
-  const handleDecodeSuppressed = useCallback(
-    (text) => {
-      const locIdx = scanLocIdxRef.current;
-      if (locIdx === null) {
-        const locationId = extractLocationNo(text) || String(text || "").trim();
-        showScanToast(
-          "error",
-          `cam-loc-cooldown-${locationId.toLowerCase()}`,
-          MSG.LOCATION_ALREADY_SCANNING(locationId || "this location"),
-          1200
-        );
-        return;
-      }
-      const rawBox = extractBoxCode(text) || String(text || "").trim();
-      if (rawBox) {
-        showScanToast(
-          "error",
-          `cam-cooldown-${rawBox.toLowerCase()}`,
-          SCAN_SNACK_MSG.BOX_DUPLICATE(rawBox),
-          1200
-        );
-      } else {
-        notifyDecodeSuppressedScan(showScanToast, text, "inward-cooldown");
-      }
-    },
-    [showScanToast]
-  );
+  const handleDecodeSuppressed = useCallback(() => {
+    notifyDecodeSuppressedScan();
+  }, []);
 
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,

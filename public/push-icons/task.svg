@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192" fill="none">
+  <defs>
+    <linearGradient id="taskGrad" x1="48" y1="32" x2="144" y2="160" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#6D28D9"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="52" fill="url(#taskGrad)"/>
+  <g transform="translate(96 96) scale(3.65) translate(-12 -12)" fill="none" stroke="white" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 5h8"/>
+    <path d="M13 12h8"/>
+    <path d="M13 19h8"/>
+    <path d="m3 17 2 2 4-4"/>
+    <rect x="3" y="4" width="6" height="6" rx="1"/>
+  </g>
+</svg>

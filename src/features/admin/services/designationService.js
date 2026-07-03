@@ -7,6 +7,14 @@ export const designationService = {
   create: (data) => api(ENDPOINTS.DESIGNATIONS.CREATE, { method: "POST", body: data }),
   update: (id, data) => api(ENDPOINTS.DESIGNATIONS.UPDATE, { method: "POST", body: { id, ...data } }),
   delete: (id) => api(ENDPOINTS.DESIGNATIONS.DELETE, { method: "POST", body: { id } }),
-  getViews: (body = {}) => api(ENDPOINTS.DESIGNATIONS.HELPER, { method: "POST", body }),
+  getViews: (body = {}) =>
+    api(ENDPOINTS.DESIGNATIONS.HELPER, {
+      method: "POST",
+      body: {
+        permission_module: "designations",
+        permission_action: "view",
+        ...body,
+      },
+    }),
 };
 
