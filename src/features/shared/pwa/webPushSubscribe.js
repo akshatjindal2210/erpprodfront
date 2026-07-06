@@ -3,7 +3,6 @@
 import { api } from "@/core/api/apiClient";
 import { CORE_ENDPOINTS } from "@/core/api/endpoints";
 import { API_BASE_URL, BACKEND_URL } from "@/core/utils/lib";
-import { getCompanyPublicIp } from "@/core/utils/companyNetwork";
 import { isIosDevice, isPwaStandalone } from "@/core/utils/pwa";
 
 const DEVICE_ID_KEY = "jfl_push_device_id";
@@ -179,7 +178,8 @@ export function syncPushApiBaseToServiceWorker() {
   const companyBackendUrl = String(
     process.env.NEXT_PUBLIC_BACKEND_URL_INSIDE || BACKEND_URL || ""
   ).replace(/\/$/, "");
-  const companyPublicIp = getCompanyPublicIp();
+  const internalFrontendHost = String(process.env.NEXT_PUBLIC_BACKEND_URL_DOMAIN || "").trim();
+  const externalFrontendHost = String(process.env.NEXT_PUBLIC_BACKEND_URL2_DOMAIN || "").trim();
   const outsideBase = process.env.NEXT_PUBLIC_BACKEND_URL_OUTSIDE
     ? `${String(process.env.NEXT_PUBLIC_BACKEND_URL_OUTSIDE).replace(/\/$/, "")}/api`
     : "";
@@ -191,7 +191,7 @@ export function syncPushApiBaseToServiceWorker() {
   );
   if (!apiBase && !deliveryApiBases.length) return;
 
-  const syncKey = `${deliveryApiBases.join("|")}|${companyBackendUrl}|${companyPublicIp}`;
+  const syncKey = `${deliveryApiBases.join("|")}|${companyBackendUrl}|${internalFrontendHost}|${externalFrontendHost}`;
   try {
     if (sessionStorage.getItem(PUSH_API_BASE_KEY) === syncKey) return;
   } catch {}
@@ -203,7 +203,8 @@ export function syncPushApiBaseToServiceWorker() {
           type: "SET_API_BASE",
           apiBase: apiBase || deliveryApiBases[0],
           companyBackendUrl,
-          companyPublicIp,
+          internalFrontendHost,
+          externalFrontendHost,
           deliveryApiBases,
         });
       });

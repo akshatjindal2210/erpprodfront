@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#f8fafc" />
-  <title>Connect to company network — JFL ERP</title>
+  <title>Connect to office network — JFL ERP</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -66,9 +66,12 @@
 <body>
   <div class="card">
     <div class="icon" aria-hidden="true">📶</div>
-    <h1>Connect to company Wi-Fi</h1>
-    <p>Please connect to company Wi-Fi or VPN to open JFL ERP.</p>
-    <p class="hint">Notification was delivered. Read/open is recorded only after you connect to company network.</p>
+    <h1>Connect to office network</h1>
+    <p>Please connect to the office network to open the internal app.</p>
+    <p class="hint" id="external-hint" hidden>
+      For remote access, use the external portal link sent to you by email (Cloudflare sign-in).
+    </p>
+    <p class="hint">The notification was delivered. Read/open is recorded when the app opens successfully.</p>
     <button type="button" class="retry" id="retry">Try again</button>
     <p class="status" id="status" hidden>Checking connection…</p>
   </div>
@@ -77,7 +80,7 @@
       var params = new URLSearchParams(window.location.search);
       var returnUrl = params.get("return") || "/";
       var backend = (params.get("backend") || "").replace(/\/$/, "");
-      var companyIp = (params.get("company_ip") || "").trim();
+      var externalHost = (params.get("external_host") || "").trim();
       var trackingId = (params.get("tracking_id") || "").trim();
       var apiBases = (params.get("api_bases") || params.get("api_base") || "")
         .split(",")
@@ -85,6 +88,13 @@
         .filter(Boolean);
       var statusEl = document.getElementById("status");
       var retryBtn = document.getElementById("retry");
+      var externalHint = document.getElementById("external-hint");
+
+      if (externalHost) {
+        externalHint.hidden = false;
+        externalHint.textContent =
+          "For remote access, open https://" + externalHost + " (Cloudflare sign-in required).";
+      }
 
       function pingBackend() {
         if (!backend) return Promise.resolve(false);
@@ -103,77 +113,46 @@
         });
       }
 
-      function checkCompanyIp() {
-        if (!companyIp) return Promise.resolve(true);
-        var controller = new AbortController();
-        var timer = setTimeout(function () { controller.abort(); }, 4000);
-        return fetch("https://api.ipify.org?format=json", {
-          cache: "no-store",
-          signal: controller.signal,
-        }).then(function (res) {
-          clearTimeout(timer);
-          if (!res.ok) return true;
-          return res.json().then(function (data) {
-            return String(data && data.ip || "").trim() === companyIp;
-          });
-        }).catch(function () {
-          clearTimeout(timer);
-          return true;
-        });
-      }
-
-      function markReadOnCompanyNetwork() {
+      function markReadOnOfficeNetwork() {
         if (!trackingId || !apiBases.length) return Promise.resolve(false);
 
-        return fetch("https://api.ipify.org?format=json", { cache: "no-store" })
-          .then(function (res) { return res.ok ? res.json() : {}; })
-          .catch(function () { return {}; })
-          .then(function (ipData) {
-            var clientIp = String(ipData && ipData.ip || "").trim();
-            var body = {
-              tracking_id: trackingId,
-              company_network_verified: true,
-            };
-            if (clientIp) body.client_ip = clientIp;
-            if (clientIp && companyIp) body.on_company_network = clientIp === companyIp;
+        var body = {
+          tracking_id: trackingId,
+          company_network_verified: true,
+          on_internal_domain: true,
+          on_company_network: true,
+        };
 
-            var attempt = function (index) {
-              if (index >= apiBases.length) return Promise.resolve(false);
-              return fetch(apiBases[index] + "/core/push/delivery/read", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-              }).then(function (res) {
-                if (res.ok) return true;
-                return attempt(index + 1);
-              }).catch(function () {
-                return attempt(index + 1);
-              });
-            };
-
-            return attempt(0);
+        var attempt = function (index) {
+          if (index >= apiBases.length) return Promise.resolve(false);
+          return fetch(apiBases[index] + "/core/push/delivery/read", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          }).then(function (res) {
+            if (res.ok) return true;
+            return attempt(index + 1);
+          }).catch(function () {
+            return attempt(index + 1);
           });
-      }
+        };
 
-      function canOpenOnCompanyNetwork(pingOk, ipOk) {
-        if (pingOk) return true;
-        if (!companyIp) return false;
-        return ipOk;
+        return attempt(0);
       }
 
       function tryConnect() {
         statusEl.hidden = false;
         statusEl.textContent = "Checking connection…";
         retryBtn.disabled = true;
-        Promise.all([pingBackend(), checkCompanyIp()]).then(function (results) {
-          if (canOpenOnCompanyNetwork(results[0], results[1])) {
+        pingBackend().then(function (pingOk) {
+          if (pingOk) {
             statusEl.textContent = "Connected — opening app…";
-            return markReadOnCompanyNetwork().finally(function () {
+            return markReadOnOfficeNetwork().finally(function () {
               window.location.replace(returnUrl);
             });
           }
           retryBtn.disabled = false;
-          statusEl.textContent = "Still offline — connect to company Wi-Fi and try again.";
+          statusEl.textContent = "Still offline — connect to office network and try again.";
         });
       }
 

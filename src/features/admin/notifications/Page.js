@@ -84,8 +84,8 @@ function LogStatusBadge({ status }) {
 }
 
 function logReceivedNetworkLabel(log) {
-  if (log.received_on_company_network === true) return "Company";
-  if (log.received_on_company_network === false) return "Other net";
+  if (log.received_on_company_network === true) return "Internal";
+  if (log.received_on_company_network === false) return "External";
   if (log.received_client_ip) return log.received_client_ip;
   return "-";
 }

@@ -108,16 +108,16 @@ function DeliveryTimeline({ steps }) {
 
 function pushDeliverySummary(log) {
   if (log.status === "failed") return "Push failed — not delivered.";
-  if (log.status === "read") return "User opened PWA on company network.";
+  if (log.status === "read") return "User opened the PWA from an authorized portal.";
   if (log.status === "received" || log.received_at) {
-    return "On user phone (any network). Read time records only after company network + PWA open.";
+    return "Delivered to the device (any network). Read is logged when the user opens the app from internal or external portal.";
   }
   return "Sent from server — waiting to reach user device (any network, up to 7 days).";
 }
 
 function receivedNetworkLabel(log) {
-  if (log.received_on_company_network === true) return "Company network";
-  if (log.received_on_company_network === false) return "Other network (mobile data / home Wi-Fi)";
+  if (log.received_on_company_network === true) return "Internal portal (office)";
+  if (log.received_on_company_network === false) return "External portal (remote)";
   if (log.received_client_ip) return `IP ${log.received_client_ip}`;
   return null;
 }
@@ -148,9 +148,9 @@ function buildTimelineSteps(log, isPush, isFailed) {
         state: log.read_at ? "done" : "pending",
         time: log.read_at,
         hint: log.read_at
-          ? "Opened on company network"
+          ? (log.received_on_company_network === false ? "Opened on external portal" : "Opened on internal portal")
           : log.received_at
-            ? "Tap OK — read logs only on company network"
+            ? "Tap to open — internal portal needs office network; external portal works remotely"
             : "Waiting for delivery first",
       });
     }

@@ -1,4 +1,4 @@
-const CACHE_NAME = "jfl-erp-static-v24";
+const CACHE_NAME = "jfl-erp-static-v25";
 const DELIVERY_RETRY_MS = [0, 1500, 4000, 10000, 25000];
 const API_BASE_CACHE = "jfl-push-api-base-v1";
 const PENDING_DELIVERY_CACHE = "jfl-pending-push-delivery-v1";
@@ -16,7 +16,8 @@ const STATIC_ASSETS = [
 
 let cachedApiBase = null;
 let cachedCompanyBackendUrl = null;
-let cachedCompanyPublicIp = null;
+let cachedInternalFrontendHost = null;
+let cachedExternalFrontendHost = null;
 let cachedDeliveryApiBases = [];
 
 async function loadApiConfig() {
@@ -24,7 +25,8 @@ async function loadApiConfig() {
     return {
       apiBase: cachedApiBase,
       companyBackendUrl: cachedCompanyBackendUrl,
-      companyPublicIp: cachedCompanyPublicIp,
+      internalFrontendHost: cachedInternalFrontendHost,
+      externalFrontendHost: cachedExternalFrontendHost,
       deliveryApiBases: cachedDeliveryApiBases,
     };
   }
@@ -35,7 +37,8 @@ async function loadApiConfig() {
       const cfg = await res.json();
       cachedApiBase = String(cfg.apiBase || "").trim() || null;
       cachedCompanyBackendUrl = String(cfg.companyBackendUrl || "").trim() || null;
-      cachedCompanyPublicIp = String(cfg.companyPublicIp || "").trim() || null;
+      cachedInternalFrontendHost = String(cfg.internalFrontendHost || "").trim() || null;
+      cachedExternalFrontendHost = String(cfg.externalFrontendHost || "").trim() || null;
       cachedDeliveryApiBases = Array.isArray(cfg.deliveryApiBases)
         ? cfg.deliveryApiBases.map((v) => String(v || "").trim()).filter(Boolean)
         : [];
@@ -51,15 +54,17 @@ async function loadApiConfig() {
   return {
     apiBase: cachedApiBase,
     companyBackendUrl: cachedCompanyBackendUrl,
-    companyPublicIp: cachedCompanyPublicIp,
+    internalFrontendHost: cachedInternalFrontendHost,
+    externalFrontendHost: cachedExternalFrontendHost,
     deliveryApiBases: cachedDeliveryApiBases,
   };
 }
 
-async function saveApiConfig({ apiBase, companyBackendUrl, companyPublicIp, deliveryApiBases } = {}) {
+async function saveApiConfig({ apiBase, companyBackendUrl, internalFrontendHost, externalFrontendHost, deliveryApiBases } = {}) {
   if (apiBase) cachedApiBase = String(apiBase).replace(/\/$/, "");
   if (companyBackendUrl) cachedCompanyBackendUrl = String(companyBackendUrl).replace(/\/$/, "");
-  if (companyPublicIp !== undefined) cachedCompanyPublicIp = String(companyPublicIp || "").trim();
+  if (internalFrontendHost !== undefined) cachedInternalFrontendHost = String(internalFrontendHost || "").trim();
+  if (externalFrontendHost !== undefined) cachedExternalFrontendHost = String(externalFrontendHost || "").trim();
   if (Array.isArray(deliveryApiBases)) {
     const merged = [...cachedDeliveryApiBases];
     deliveryApiBases.forEach((value) => {
@@ -77,7 +82,8 @@ async function saveApiConfig({ apiBase, companyBackendUrl, companyPublicIp, deli
         JSON.stringify({
           apiBase: cachedApiBase || "",
           companyBackendUrl: cachedCompanyBackendUrl || "",
-          companyPublicIp: cachedCompanyPublicIp || "",
+          internalFrontendHost: cachedInternalFrontendHost || "",
+          externalFrontendHost: cachedExternalFrontendHost || "",
           deliveryApiBases: cachedDeliveryApiBases,
         })
       )
@@ -90,18 +96,20 @@ async function saveApiConfig({ apiBase, companyBackendUrl, companyPublicIp, deli
 function mergePushMeta(meta = {}) {
   const apiBase = String(meta.api_base || cachedApiBase || "").replace(/\/$/, "");
   const companyBackendUrl = String(meta.company_backend_url || cachedCompanyBackendUrl || "").replace(/\/$/, "");
-  const companyPublicIp = String(meta.company_public_ip || cachedCompanyPublicIp || "").trim();
+  const internalFrontendHost = String(meta.internal_frontend_host || cachedInternalFrontendHost || "").trim();
+  const externalFrontendHost = String(meta.external_frontend_host || cachedExternalFrontendHost || "").trim();
   const deliveryApiBases = collectDeliveryApiBases(meta);
-  return { apiBase, companyBackendUrl, companyPublicIp, deliveryApiBases };
+  return { apiBase, companyBackendUrl, internalFrontendHost, externalFrontendHost, deliveryApiBases };
 }
 
 async function ensureApiConfig(fromMeta = {}) {
   const merged = mergePushMeta(fromMeta);
-  if (merged.apiBase || merged.companyBackendUrl || merged.companyPublicIp || merged.deliveryApiBases.length) {
+  if (merged.apiBase || merged.companyBackendUrl || merged.internalFrontendHost || merged.externalFrontendHost || merged.deliveryApiBases.length) {
     await saveApiConfig({
       apiBase: merged.apiBase,
       companyBackendUrl: merged.companyBackendUrl,
-      companyPublicIp: merged.companyPublicIp,
+      internalFrontendHost: merged.internalFrontendHost,
+      externalFrontendHost: merged.externalFrontendHost,
       deliveryApiBases: merged.deliveryApiBases,
     });
   } else {
@@ -138,36 +146,36 @@ function collectDeliveryApiBases(meta = {}) {
   return bases;
 }
 
-async function resolveClientPublicIp(timeoutMs = 4000) {
-  try {
-    const res = await fetch("https://api.ipify.org?format=json", {
-      cache: "no-store",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!res.ok) return "";
-    const data = await res.json();
-    return String(data?.ip || "").trim();
-  } catch {
-    return "";
-  }
+function matchesHost(hostname, pattern) {
+  const p = String(pattern || "").trim().toLowerCase();
+  if (!p) return false;
+  return String(hostname || "").trim().toLowerCase().includes(p);
 }
 
-async function buildDeliveryBody(tracking_id, meta = {}, options = {}, resolveIp = false) {
-  const body = { tracking_id };
-  if (options.companyNetworkVerified) body.company_network_verified = true;
-  if (!resolveIp) return body;
+function isExternalFrontendHost(hostname, cfg = {}) {
+  return matchesHost(hostname, cfg.externalFrontendHost);
+}
 
-  const client_ip = await resolveClientPublicIp(2500);
-  const companyIp = String(meta.company_public_ip || cachedCompanyPublicIp || "").trim();
-  if (client_ip) body.client_ip = client_ip;
-  if (client_ip && companyIp) body.on_company_network = client_ip === companyIp;
+function isInternalFrontendHost(hostname, cfg = {}) {
+  return matchesHost(hostname, cfg.internalFrontendHost);
+}
+
+async function buildDeliveryBody(tracking_id, meta = {}, options = {}) {
+  const body = { tracking_id };
+  if (options.companyNetworkVerified) {
+    body.company_network_verified = true;
+    const host = self.location.hostname;
+    const onInternal = isInternalFrontendHost(host, meta);
+    body.on_internal_domain = onInternal;
+    body.on_company_network = onInternal;
+  }
   return body;
 }
 
-async function tryPostDeliveryOnce(path, meta, options, resolveIp) {
+async function tryPostDeliveryOnce(path, meta, options) {
   const bases = collectDeliveryApiBases(meta);
   if (!bases.length) return false;
-  const body = await buildDeliveryBody(meta.tracking_id || options.tracking_id, meta, options, resolveIp);
+  const body = await buildDeliveryBody(meta.tracking_id || options.tracking_id, meta, options);
   const tracking_id = body.tracking_id;
   if (!tracking_id) return false;
 
@@ -186,14 +194,12 @@ async function postDeliveryStatus(path, tracking_id, meta = {}, options = {}) {
 
   const payloadMeta = { ...meta, tracking_id };
   await ensureApiConfig(payloadMeta);
-  const resolveIpOnFirstTry = path === "received";
 
   for (let i = 0; i < DELIVERY_RETRY_MS.length; i += 1) {
     if (DELIVERY_RETRY_MS[i] > 0) {
       await new Promise((resolve) => setTimeout(resolve, DELIVERY_RETRY_MS[i]));
     }
-    const resolveIp = resolveIpOnFirstTry || i > 0;
-    if (await tryPostDeliveryOnce(path, payloadMeta, options, resolveIp)) {
+    if (await tryPostDeliveryOnce(path, payloadMeta, options)) {
       return true;
     }
   }
@@ -280,23 +286,12 @@ async function pingCompanyBackend(backendUrl, timeoutMs = 4000) {
   }
 }
 
-async function isOnCompanyPublicIp(companyPublicIp, timeoutMs = 4000) {
-  const expected = String(companyPublicIp || "").trim();
-  if (!expected) return true;
-  try {
-    const res = await fetch("https://api.ipify.org?format=json", {
-      cache: "no-store",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!res.ok) return true;
-    const data = await res.json();
-    return String(data?.ip || "").trim() === expected;
-  } catch {
-    return true;
-  }
-}
+async function canOpenAppFromOrigin(cfg = {}) {
+  const host = self.location.hostname;
 
-async function isCompanyNetworkReachable(cfg = {}) {
+  // External portal (Cloudflare OTP) — open from any network.
+  if (isExternalFrontendHost(host, cfg)) return true;
+
   const backendCandidates = [
     cfg.companyBackendUrl,
     cfg.apiBase?.replace(/\/api\/?$/, ""),
@@ -309,11 +304,7 @@ async function isCompanyNetworkReachable(cfg = {}) {
     if (await pingCompanyBackend(base)) return true;
   }
 
-  const companyIp = String(cfg.companyPublicIp || "").trim();
-  if (!companyIp) return false;
-
-  // Backend unreachable — only block when clearly off company public IP (same as PWA gate).
-  return isOnCompanyPublicIp(companyIp);
+  return false;
 }
 
 function offlineReminderUrl(targetUrl, cfg = {}, trackingId = "") {
@@ -322,7 +313,7 @@ function offlineReminderUrl(targetUrl, cfg = {}, trackingId = "") {
   if (trackingId) params.set("tracking_id", String(trackingId));
   if (cfg.companyBackendUrl) params.set("backend", cfg.companyBackendUrl);
   else if (cfg.apiBase) params.set("backend", cfg.apiBase.replace(/\/api\/?$/, ""));
-  if (cfg.companyPublicIp) params.set("company_ip", cfg.companyPublicIp);
+  if (cfg.externalFrontendHost) params.set("external_host", cfg.externalFrontendHost);
   if (cfg.deliveryApiBases?.length) params.set("api_bases", cfg.deliveryApiBases.join(","));
   else if (cfg.apiBase) params.set("api_base", cfg.apiBase);
   return `/offline-vpn-reminder.html?${params.toString()}`;
@@ -408,7 +399,8 @@ self.addEventListener("message", (event) => {
       saveApiConfig({
         apiBase: data.apiBase,
         companyBackendUrl: data.companyBackendUrl,
-        companyPublicIp: data.companyPublicIp,
+        internalFrontendHost: data.internalFrontendHost,
+        externalFrontendHost: data.externalFrontendHost,
         deliveryApiBases: data.deliveryApiBases,
       }).then(() => flushPendingDeliveries())
     );
@@ -467,7 +459,8 @@ self.addEventListener("push", (event) => {
     api_base: meta.api_base || "",
     delivery_api_bases: Array.isArray(meta.delivery_api_bases) ? meta.delivery_api_bases : [],
     company_backend_url: meta.company_backend_url || "",
-    company_public_ip: meta.company_public_ip || "",
+    internal_frontend_host: meta.internal_frontend_host || "",
+    external_frontend_host: meta.external_frontend_host || "",
   };
 
   // Show notification immediately — app open/closed dono mein kaam kare.
@@ -515,22 +508,22 @@ self.addEventListener("notificationclick", (event) => {
     ensureApiConfig(data)
       .then(() => mergePushMeta(data))
       .then(async (cfg) => {
-        const onCompanyNetwork = await isCompanyNetworkReachable(cfg);
+        const canOpen = await canOpenAppFromOrigin(cfg);
         const meta = { ...data, ...cfg };
 
-        if (onCompanyNetwork && trackingId) {
+        if (canOpen && trackingId) {
           await postDeliveryStatus("read", trackingId, meta, { companyNetworkVerified: true });
         }
 
-        const openUrl = onCompanyNetwork
+        const openUrl = canOpen
           ? targetUrl
           : offlineReminderUrl(targetUrl, cfg, trackingId);
 
         const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
         const msg =
-          onCompanyNetwork && inboxId
+          canOpen && inboxId
             ? { type: "INBOX_READ", inbox_id: inboxId, tracking_id: trackingId }
-            : onCompanyNetwork && trackingId
+            : canOpen && trackingId
               ? { type: "PUSH_READ", tracking_id: trackingId }
               : null;
 
