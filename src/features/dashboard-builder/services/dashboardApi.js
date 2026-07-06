@@ -50,10 +50,23 @@ export const unpublishWidget = async (id) => {
   });
 };
 
-export const previewWidget = async (query, { dbSource = "ims_postgresql", filters = {}, erpFilter = {} } = {}) => {
+export const previewWidget = async (query, { dbSource = "ims_postgresql", filters = {} } = {}) => {
+  if (String(dbSource).toLowerCase() === "erp_mssql") {
+    const body = {
+      requestedData: "erp_mssql",
+      filter: query,
+    };
+    if (filters && typeof filters === "object" && Object.keys(filters).length) {
+      body.runtime_filters = filters;
+    }
+    return api(`${BASE_PATH}/widgets/preview`, {
+      method: "POST",
+      body,
+    });
+  }
   return api(`${BASE_PATH}/widgets/preview`, {
     method: "POST",
-    body: { query, db_source: dbSource, filters, erp_filter: erpFilter },
+    body: { query, db_source: dbSource, filters },
   });
 };
 
@@ -71,7 +84,26 @@ export const getDashboardStatus = async (appKey = "ims", dashboardKey = "default
   });
 };
 
-export const saveDashboardDraft = async ({ appKey = "ims", pageKey = "default", dashboardKey = "default", dashboardName = "Default", scope = "global", targetUserIds = [], dashboardJson = {} } = {}) => {
+export const getUserDashboards = async (appKey = "ims") => {
+  return api(`${BASE_PATH}/dashboard/user-dashboards`, {
+    method: "POST",
+    body: { app_key: appKey },
+  });
+};
+
+export const renameDashboardConfig = async ({ appKey = "ims", pageKey = "default", dashboardKey, dashboardName } = {}) => {
+  return api(`${BASE_PATH}/configs/rename`, {
+    method: "POST",
+    body: {
+      app_key: appKey,
+      page_key: pageKey,
+      dashboard_key: dashboardKey,
+      dashboard_name: dashboardName,
+    },
+  });
+};
+
+export const saveDashboardDraft = async ({ appKey = "ims", pageKey = "default", dashboardKey = "default", dashboardName = "Default", scope = "global", targetUserIds = [], defaultForUserIds = [], dashboardJson = {} } = {}) => {
   return api(`${BASE_PATH}/configs/save-draft`, {
     method: "POST",
     body: {
@@ -81,12 +113,13 @@ export const saveDashboardDraft = async ({ appKey = "ims", pageKey = "default", 
       dashboard_name: dashboardName,
       scope,
       target_user_ids: targetUserIds,
+      default_for_user_ids: defaultForUserIds,
       dashboard_json: dashboardJson,
     },
   });
 };
 
-export const publishDashboardConfig = async ({ appKey = "ims", pageKey = "default", dashboardKey = "default", dashboardName = "Default", scope = "global", targetUserIds = [], dashboardJson = {}, pageModule = null } = {}) => {
+export const publishDashboardConfig = async ({ appKey = "ims", pageKey = "default", dashboardKey = "default", dashboardName = "Default", scope = "global", targetUserIds = [], defaultForUserIds = [], dashboardJson = {}, pageModule = null } = {}) => {
   return api(`${BASE_PATH}/configs/publish`, {
     method: "POST",
     body: {
@@ -96,6 +129,7 @@ export const publishDashboardConfig = async ({ appKey = "ims", pageKey = "defaul
       dashboard_name: dashboardName,
       scope,
       target_user_ids: targetUserIds,
+      default_for_user_ids: defaultForUserIds,
       page_module: pageModule,
       dashboard_json: dashboardJson,
     },
@@ -124,7 +158,7 @@ export const deleteDashboardConfig = async ({ appKey = "ims", pageKey = "default
   });
 };
 
-export const cloneDashboardToUsers = async ({ appKey = "ims", pageKey = "default", sourceDashboardKey = "default", dashboardKey = "clone", dashboardName = "Clone", userIds = [], cloneForAll = false, dashboardJson = null } = {}) => {
+export const cloneDashboardToUsers = async ({ appKey = "ims", pageKey = "default", sourceDashboardKey = "default", dashboardKey = "clone", dashboardName = "Clone", userIds = [], cloneForAll = false, setAsDefaultForUsers = false, dashboardJson = null } = {}) => {
   return api(`${BASE_PATH}/configs/clone-users`, {
     method: "POST",
     body: {
@@ -135,6 +169,7 @@ export const cloneDashboardToUsers = async ({ appKey = "ims", pageKey = "default
       dashboard_name: dashboardName,
       user_ids: userIds,
       clone_for_all: cloneForAll,
+      set_as_default_for_users: setAsDefaultForUsers,
       ...(dashboardJson ? { dashboard_json: dashboardJson } : {}),
     },
   });

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { getTables } from "../services/dashboardApi";
 import { Database, Palette, Code, Trash2, Info, Eye, Save, X, ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
+import { DASHBOARD_WIDGET_QUERY_PLACEHOLDER } from "../utils/widgetQuery.js";
 
 const BLOCKED_SQL = /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke)\b/i;
 const REQUIRES_SQL = new Set(["kpi", "table", "graph"]);
@@ -26,18 +27,35 @@ const PropertyPanel = ({
   onDelete,
   onClose,
   onPixelSizeChange,
+  onAddChildWidget,
+  onMoveWidgetIntoContainer,
+  movableWidgets = [],
+  isPhoneBuilderMode = false,
   appKey = "ims",
   pageOptions = [],
   dbSourceOptions = [],
   widthPx = 0,
   heightPx = 0,
+  minWidthPx,
+  minHeightPx,
   busy = false,
+  hideHeader = false,
 }) => {
   const [tables, setTables] = useState([]);
   const [activeTab, setActiveTab] = useState("data");
   const [validationError, setValidationError] = useState("");
   const [tablesCollapsed, setTablesCollapsed] = useState(true);
   const [copiedTable, setCopiedTable] = useState("");
+  const resolvedMinWidthPx = minWidthPx ?? (isPhoneBuilderMode ? 24 : 80);
+  const resolvedMinHeightPx = minHeightPx ?? resolvedMinWidthPx;
+  const inputMinPx = Math.max(16, Math.min(resolvedMinWidthPx, resolvedMinHeightPx, 40));
+  const [draftWidthPx, setDraftWidthPx] = useState(widthPx);
+  const [draftHeightPx, setDraftHeightPx] = useState(heightPx);
+
+  useEffect(() => {
+    setDraftWidthPx(widthPx);
+    setDraftHeightPx(heightPx);
+  }, [selectedWidget?.id, widthPx, heightPx]);
 
   useEffect(() => {
     if (String(selectedWidget?.dataSource || "ims_postgresql") === "erp_mssql") {
@@ -93,8 +111,8 @@ const PropertyPanel = ({
   };
 
   const handlePreview = () => {
-    const parsedWidth = Math.max(80, Number(widthPx) || 80);
-    const parsedHeight = Math.max(80, Number(heightPx) || 80);
+    const parsedWidth = Math.max(resolvedMinWidthPx, Number(widthPx) || resolvedMinWidthPx);
+    const parsedHeight = Math.max(resolvedMinHeightPx, Number(heightPx) || resolvedMinHeightPx);
     onPixelSizeChange?.({
       widthPx: parsedWidth,
       heightPx: parsedHeight,
@@ -116,8 +134,8 @@ const PropertyPanel = ({
   };
 
   const handleSave = () => {
-    const parsedWidth = Math.max(80, Number(widthPx) || 80);
-    const parsedHeight = Math.max(80, Number(heightPx) || 80);
+    const parsedWidth = Math.max(resolvedMinWidthPx, Number(widthPx) || resolvedMinWidthPx);
+    const parsedHeight = Math.max(resolvedMinHeightPx, Number(heightPx) || resolvedMinHeightPx);
     onPixelSizeChange?.({
       widthPx: parsedWidth,
       heightPx: parsedHeight,
@@ -158,6 +176,7 @@ const PropertyPanel = ({
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
+      {!hideHeader && (
       <div className="px-3 py-2.5 border-b border-slate-100 flex items-center justify-between bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
         <h3 className="font-bold text-xs uppercase tracking-widest text-slate-800">Widget Builder</h3>
         <div className="flex items-center gap-2">
@@ -187,18 +206,39 @@ const PropertyPanel = ({
           </button>
         </div>
       </div>
+      )}
+
+      {hideHeader && (
+        <div className="px-3 py-2 border-b border-slate-100 flex gap-1 bg-slate-50 shrink-0">
+          <button
+            type="button"
+            onClick={() => setActiveTab("data")}
+            className={`flex-1 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest ${activeTab === "data" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"}`}
+          >
+            Data
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("style")}
+            className={`flex-1 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest ${activeTab === "style" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"}`}
+          >
+            Style
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3.5 bg-slate-50/30">
         {activeTab === "data" ? (
           <>
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Widget Type</p>
-              <div className="grid grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-5 gap-1.5">
                 {[
                   { key: "kpi", label: "KPI" },
                   { key: "table", label: "Table" },
                   { key: "graph", label: "Graph" },
-                  { key: "heading", label: "Heading" },
+                  { key: "heading", label: "Head" },
+                  { key: "container", label: "Box" },
                 ].map((t) => (
                   <button
                     type="button"
@@ -218,6 +258,10 @@ const PropertyPanel = ({
                       }
                       if (t.key === "heading") {
                         applyWidgetPatch({ rawType: "heading", type: "heading", query: "" });
+                        return;
+                      }
+                      if (t.key === "container") {
+                        applyWidgetPatch({ rawType: "container", type: "container", query: "", containerPreset: "full" });
                         return;
                       }
                       applyWidgetPatch({ rawType: "table", type: "table" });
@@ -254,9 +298,6 @@ const PropertyPanel = ({
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-[9px] text-slate-400 leading-relaxed">
-                  Widget shows on the user&apos;s dashboard only if they have permission for this page.
-                </p>
               </div>
             </div>
 
@@ -299,10 +340,102 @@ const PropertyPanel = ({
               </div>
             )}
 
+            {selectedWidget.rawType === "container" && (
+              <div className="space-y-3">
+                <p className="text-[10px] text-slate-500 leading-relaxed bg-slate-50 border border-slate-200 rounded-md px-2.5 py-2">
+                  Drag any canvas widget onto this container to group it inside. Title is optional — leave blank for no header.
+                </p>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Container Width</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { key: "full", label: "Full" },
+                      { key: "half", label: "Half" },
+                    ].map((preset) => (
+                      <button
+                        type="button"
+                        key={preset.key}
+                        onClick={() => applyWidgetPatch({ containerPreset: preset.key })}
+                        className={`px-2 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest border ${
+                          (selectedWidget.containerPreset || "full") === preset.key
+                            ? "bg-blue-600 border-blue-600 text-white"
+                            : "bg-white border-slate-200 text-slate-500"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+                    {isPhoneBuilderMode ? "Add New (Phone Layout)" : "Add New Widget Inside"}
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {["kpi", "table", "graph", "heading"].map((childType) => (
+                      <button
+                        type="button"
+                        key={`child-${childType}`}
+                        onClick={() => onAddChildWidget?.(selectedWidget.id, childType)}
+                        className="px-2 py-1.5 rounded-md text-[9px] font-bold uppercase tracking-widest bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-700 border border-slate-200"
+                      >
+                        + {childType}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {movableWidgets.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+                      Move Existing Widget Here
+                    </p>
+                    <div className="space-y-1 max-h-36 overflow-y-auto custom-scrollbar">
+                      {movableWidgets.map((widget) => (
+                        <button
+                          type="button"
+                          key={`move-${widget.id}`}
+                          onClick={() => onMoveWidgetIntoContainer?.(selectedWidget.id, widget.id)}
+                          className="w-full text-left px-2 py-1.5 rounded-md text-[10px] font-semibold border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 truncate"
+                          title={widget.title || widget.rawType}
+                        >
+                          → {widget.title?.trim() || widget.rawType || "Widget"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+                    Phone Inner Spacing (px)
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { key: "mobilePaddingLeft", label: "Left" },
+                      { key: "mobilePaddingRight", label: "Right" },
+                      { key: "mobilePaddingTop", label: "Top" },
+                      { key: "mobilePaddingBottom", label: "Bottom" },
+                    ].map((field) => (
+                      <div key={field.key}>
+                        <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">{field.label}</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={80}
+                          className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+                          value={selectedWidget[field.key] ?? selectedWidget.style?.[field.key] ?? 8}
+                          onChange={(e) => handleChange(field.key, Math.max(0, Number(e.target.value) || 0))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {REQUIRES_SQL.has(selectedWidget.rawType) && <div className="space-y-4">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                  {isMssqlSource ? "Internal API Payload" : "SQL Query"}
+                  {isMssqlSource ? "ERP SELECT Query" : "SQL Query"}
                 </label>
                 <div className="relative">
                   <Code size={14} className="absolute top-2.5 left-3 text-slate-400" />
@@ -310,8 +443,8 @@ const PropertyPanel = ({
                   className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-3 py-2.5 pl-9 text-[10px] font-mono text-blue-100 min-h-[120px] shadow-inner custom-scrollbar"
                     placeholder={
                       isMssqlSource
-                        ? `{"requestedData":"pack","filter":"dailyprod.docdt >= '2Apr2010' and dailyprod.docdt <= '6Apr2026'"}`
-                        : "SELECT ... FROM ... WHERE created_at BETWEEN {{fromDate}} AND {{toDate}} AND user_id = {{userId}}"
+                        ? "SELECT col1, col2 FROM dailyprod WHERE dailyprod.docdt >= {{fromDate}} AND dailyprod.docdt <= {{toDate}}"
+                        : DASHBOARD_WIDGET_QUERY_PLACEHOLDER
                     }
                     value={selectedWidget.query || ""}
                     onChange={(e) => {
@@ -320,13 +453,6 @@ const PropertyPanel = ({
                     }}
                   />
                 </div>
-                {!isMssqlSource ? (
-                  <p className="mt-1 text-[9px] text-slate-400">
-                    Runtime filters supported: <span className="font-mono">{`{{fromDate}}`}</span>, <span className="font-mono">{`{{toDate}}`}</span>, <span className="font-mono">{`{{userId}}`}</span>
-                  </p>
-                ) : (
-                  <p className="mt-1 text-[9px] text-slate-400">MSSQL mode: JSON payload bhejega (requestedData + filter) backend internal API par.</p>
-                )}
                 {!!validationError && <p className="mt-1 text-[10px] text-rose-500 font-semibold">{validationError}</p>}
               </div>
 
@@ -369,60 +495,66 @@ const PropertyPanel = ({
                   <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-widest mb-1">Width</p>
                   <input
                     type="number"
-                    min={80}
+                    min={inputMinPx}
                     max={3000}
                     className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
-                    value={Math.max(80, Number(widthPx) || 80)}
+                    value={draftWidthPx}
                     onChange={(e) => {
                       const parsed = Number(e.target.value);
-                      if (Number.isFinite(parsed)) {
+                      setDraftWidthPx(e.target.value);
+                      if (Number.isFinite(parsed) && parsed >= resolvedMinWidthPx) {
                         onPixelSizeChange?.({
-                          widthPx: Math.max(80, parsed),
+                          widthPx: parsed,
                         });
                       }
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
-                        onPixelSizeChange?.({
-                          widthPx: Math.max(80, Number(widthPx) || 80),
-                        });
+                        const parsed = Number(draftWidthPx);
+                        const next = Number.isFinite(parsed) ? Math.max(resolvedMinWidthPx, parsed) : Math.max(resolvedMinWidthPx, Number(widthPx) || resolvedMinWidthPx);
+                        setDraftWidthPx(next);
+                        onPixelSizeChange?.({ widthPx: next });
                       }
                     }}
-                    onBlur={() =>
-                      onPixelSizeChange?.({
-                        widthPx: Math.max(80, Number(widthPx) || 80),
-                      })
-                    }
+                    onBlur={() => {
+                      const parsed = Number(draftWidthPx);
+                      const next = Number.isFinite(parsed) ? Math.max(resolvedMinWidthPx, parsed) : Math.max(resolvedMinWidthPx, Number(widthPx) || resolvedMinWidthPx);
+                      setDraftWidthPx(next);
+                      onPixelSizeChange?.({ widthPx: next });
+                    }}
                   />
                 </div>
                 <div>
                   <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-widest mb-1">Height</p>
                   <input
                     type="number"
-                    min={80}
+                    min={inputMinPx}
                     max={3000}
                     className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
-                    value={Math.max(80, Number(heightPx) || 80)}
+                    value={draftHeightPx}
                     onChange={(e) => {
                       const parsed = Number(e.target.value);
-                      if (Number.isFinite(parsed)) {
+                      setDraftHeightPx(e.target.value);
+                      if (Number.isFinite(parsed) && parsed >= resolvedMinHeightPx) {
                         onPixelSizeChange?.({
-                          heightPx: Math.max(80, parsed),
+                          heightPx: parsed,
                         });
                       }
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
-                        onPixelSizeChange?.({
-                          heightPx: Math.max(80, Number(heightPx) || 80),
-                        });
+                        const parsed = Number(draftHeightPx);
+                        const next = Number.isFinite(parsed) ? Math.max(resolvedMinHeightPx, parsed) : Math.max(resolvedMinHeightPx, Number(heightPx) || resolvedMinHeightPx);
+                        setDraftHeightPx(next);
+                        onPixelSizeChange?.({ heightPx: next });
                       }
                     }}
-                    onBlur={() =>
-                      onPixelSizeChange?.({
-                        heightPx: Math.max(80, Number(heightPx) || 80),
-                      })
-                    }
+                    onBlur={() => {
+                      const parsed = Number(draftHeightPx);
+                      const next = Number.isFinite(parsed) ? Math.max(resolvedMinHeightPx, parsed) : Math.max(resolvedMinHeightPx, Number(heightPx) || resolvedMinHeightPx);
+                      setDraftHeightPx(next);
+                      onPixelSizeChange?.({ heightPx: next });
+                    }}
                   />
                 </div>
               </div>
@@ -445,10 +577,12 @@ const PropertyPanel = ({
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Accent Color</label>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
+                  {selectedWidget.rawType === "kpi" ? "Value Color" : "Text / Accent Color"}
+                </label>
                 <input
                   type="color"
-                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-md"
+                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
                   value={selectedWidget.style?.color || "#3b82f6"}
                   onChange={(e) => handleChange("style.color", e.target.value)}
                 />
@@ -457,11 +591,23 @@ const PropertyPanel = ({
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Background</label>
                 <input
                   type="color"
-                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-md"
+                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
                   value={selectedWidget.style?.bg || "#ffffff"}
                   onChange={(e) => handleChange("style.bg", e.target.value)}
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Border Radius (px)</label>
+              <input
+                type="number"
+                min={0}
+                max={40}
+                className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                value={selectedWidget.style?.borderRadius ?? 6}
+                onChange={(e) => handleChange("style.borderRadius", Math.max(0, Number(e.target.value) || 0))}
+              />
             </div>
 
             <div>
@@ -535,7 +681,7 @@ const PropertyPanel = ({
                 <input
                   type="number"
                   min={0}
-                  max={60}
+                  max={120}
                   className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
                   value={selectedWidget.style?.padding ?? (selectedWidget.rawType === "kpi" ? 6 : 8)}
                   onChange={(e) => handleChange("style.padding", Math.max(0, Number(e.target.value) || 0))}
@@ -546,13 +692,48 @@ const PropertyPanel = ({
                 <input
                   type="number"
                   min={0}
-                  max={40}
+                  max={80}
                   className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
                   value={selectedWidget.style?.margin ?? 0}
                   onChange={(e) => handleChange("style.margin", Math.max(0, Number(e.target.value) || 0))}
                 />
               </div>
             </div>
+
+            {!["container"].includes(selectedWidget.rawType) && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Empty Placeholder Text</label>
+                <input
+                  type="text"
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                  value={selectedWidget.emptyText || ""}
+                  onChange={(e) => handleChange("emptyText", e.target.value)}
+                  placeholder="Blank space text (optional)"
+                />
+              </div>
+            )}
+
+            {!["container", "kpi"].includes(selectedWidget.rawType) && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Empty Text Position</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {["top", "center", "bottom"].map((pos) => (
+                    <button
+                      type="button"
+                      key={pos}
+                      onClick={() => handleChange("style.emptyTextPosition", pos)}
+                      className={`px-2 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest border ${
+                        (selectedWidget.style?.emptyTextPosition || "center") === pos
+                          ? "bg-blue-600 border-blue-600 text-white"
+                          : "bg-white border-slate-200 text-slate-500"
+                      }`}
+                    >
+                      {pos}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {selectedWidget.rawType === "kpi" && (
               <div>

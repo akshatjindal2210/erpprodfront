@@ -79,7 +79,6 @@ function DeliveryTimeline({ steps }) {
     <div className="border border-slate-100 bg-slate-50/40">
       {steps.map((step, index) => {
         const status = timelineStatusText(step.state);
-        const detail = step.time || step.hint || "—";
         const isLast = index === steps.length - 1;
 
         return (
@@ -97,7 +96,7 @@ function DeliveryTimeline({ steps }) {
                 <span className={`text-[9px] font-bold uppercase shrink-0 ${status.className}`}>{status.label}</span>
               </div>
               <p className={`text-[10px] leading-tight mt-0.5 ${step.time ? "text-slate-700 font-medium" : "text-slate-400 italic"}`}>
-                {detail}
+                {step.time && step.hint && step.hint !== step.time ? `${step.time} · ${step.hint}` : step.time || step.hint || "—"}
               </p>
             </div>
           </div>
@@ -109,13 +108,23 @@ function DeliveryTimeline({ steps }) {
 
 function pushDeliverySummary(log) {
   if (log.status === "failed") return "Push failed — not delivered.";
-  if (log.status === "read") return "Opened / read by user.";
-  if (log.status === "received" || log.received_at) return "On device — not read yet.";
-  return "Sent — waiting for device (offline OK, up to 7 days).";
+  if (log.status === "read") return "User opened PWA on company network.";
+  if (log.status === "received" || log.received_at) {
+    return "On user phone (any network). Read time records only after company network + PWA open.";
+  }
+  return "Sent from server — waiting to reach user device (any network, up to 7 days).";
+}
+
+function receivedNetworkLabel(log) {
+  if (log.received_on_company_network === true) return "Company network";
+  if (log.received_on_company_network === false) return "Other network (mobile data / home Wi-Fi)";
+  if (log.received_client_ip) return `IP ${log.received_client_ip}`;
+  return null;
 }
 
 function buildTimelineSteps(log, isPush, isFailed) {
   const steps = [{ key: "sent", label: "Sent from server", state: log.sent_at ? "done" : "pending", time: log.sent_at }];
+  const networkLabel = receivedNetworkLabel(log);
 
   if (isPush) {
     if (isFailed) {
@@ -129,14 +138,20 @@ function buildTimelineSteps(log, isPush, isFailed) {
         label: "Received on device",
         state: log.received_at ? "done" : "pending",
         time: log.received_at,
-        hint: log.received_at ? undefined : "Waiting for device",
+        hint: log.received_at
+          ? (networkLabel ? `${networkLabel} · any network OK` : "Shown on phone · any network")
+          : "Waiting — any network",
       });
       steps.push({
         key: "read",
-        label: "Read by user",
+        label: "Read (PWA opened)",
         state: log.read_at ? "done" : "pending",
         time: log.read_at,
-        hint: log.read_at ? undefined : log.received_at ? "Not read yet" : "Waiting for delivery",
+        hint: log.read_at
+          ? "Opened on company network"
+          : log.received_at
+            ? "Tap OK — read logs only on company network"
+            : "Waiting for delivery first",
       });
     }
   }
@@ -157,6 +172,7 @@ export default function NotificationLogViewModal({ log, onClose, statusLabel }) 
   const isPush = log.log_source === "push";
   const isFailed = log.status === "failed";
   const timelineSteps = buildTimelineSteps(log, isPush, isFailed);
+  const networkLabel = receivedNetworkLabel(log);
   const userDisplay = log.user_name
     ? `${log.user_name}${log.user_id ? ` (#${log.user_id})` : ""}`
     : null;
@@ -222,6 +238,12 @@ export default function NotificationLogViewModal({ log, onClose, statusLabel }) 
                 <DetailRow label="User" value={userDisplay} />
                 <DetailRow label="To" value={log.recipient} />
                 {isPush && <DetailRow label="Device" value={log.device_name || log.device_id} />}
+                {isPush && log.received_at && (
+                  <DetailRow label="Received" value={`${log.received_at}${networkLabel ? ` · ${networkLabel}` : ""}`} />
+                )}
+                {isPush && log.received_client_ip && (
+                  <DetailRow label="Recv IP" value={log.received_client_ip} mono />
+                )}
                 {isPush && log.device_id && log.device_name && (
                   <DetailRow label="Dev ID" value={log.device_id} mono fullWidth />
                 )}

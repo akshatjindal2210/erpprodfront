@@ -2,7 +2,8 @@
 
 import { api } from "@/core/api/apiClient";
 import { CORE_ENDPOINTS } from "@/core/api/endpoints";
-import { API_BASE_URL } from "@/core/utils/lib";
+import { API_BASE_URL, BACKEND_URL } from "@/core/utils/lib";
+import { getCompanyPublicIp } from "@/core/utils/companyNetwork";
 import { isIosDevice, isPwaStandalone } from "@/core/utils/pwa";
 
 const DEVICE_ID_KEY = "jfl_push_device_id";
@@ -175,20 +176,51 @@ export function clearPushLinkSessionCache() {
 export function syncPushApiBaseToServiceWorker() {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   const apiBase = String(API_BASE_URL || "").replace(/\/$/, "");
-  if (!apiBase) return;
+  const companyBackendUrl = String(
+    process.env.NEXT_PUBLIC_BACKEND_URL_INSIDE || BACKEND_URL || ""
+  ).replace(/\/$/, "");
+  const companyPublicIp = getCompanyPublicIp();
+  const outsideBase = process.env.NEXT_PUBLIC_BACKEND_URL_OUTSIDE
+    ? `${String(process.env.NEXT_PUBLIC_BACKEND_URL_OUTSIDE).replace(/\/$/, "")}/api`
+    : "";
+  const insideBase = process.env.NEXT_PUBLIC_BACKEND_URL_INSIDE
+    ? `${String(process.env.NEXT_PUBLIC_BACKEND_URL_INSIDE).replace(/\/$/, "")}/api`
+    : "";
+  const deliveryApiBases = [outsideBase, apiBase, insideBase].filter(
+    (value, index, arr) => value && arr.indexOf(value) === index
+  );
+  if (!apiBase && !deliveryApiBases.length) return;
 
+  const syncKey = `${deliveryApiBases.join("|")}|${companyBackendUrl}|${companyPublicIp}`;
   try {
-    if (sessionStorage.getItem(PUSH_API_BASE_KEY) === apiBase) return;
+    if (sessionStorage.getItem(PUSH_API_BASE_KEY) === syncKey) return;
   } catch {}
 
   navigator.serviceWorker.ready
     .then((reg) => {
       [reg.active, reg.waiting, reg.installing].filter(Boolean).forEach((worker) => {
-        worker.postMessage({ type: "SET_API_BASE", apiBase });
+        worker.postMessage({
+          type: "SET_API_BASE",
+          apiBase: apiBase || deliveryApiBases[0],
+          companyBackendUrl,
+          companyPublicIp,
+          deliveryApiBases,
+        });
       });
       try {
-        sessionStorage.setItem(PUSH_API_BASE_KEY, apiBase);
+        sessionStorage.setItem(PUSH_API_BASE_KEY, syncKey);
       } catch {}
+    })
+    .catch(() => {});
+}
+
+export function flushPushDeliveryQueue() {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.ready
+    .then((reg) => {
+      [reg.active, reg.waiting, reg.installing].filter(Boolean).forEach((worker) => {
+        worker.postMessage({ type: "FLUSH_DELIVERY_QUEUE" });
+      });
     })
     .catch(() => {});
 }

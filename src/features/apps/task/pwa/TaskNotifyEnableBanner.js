@@ -6,13 +6,9 @@ import { useSelector } from "react-redux";
 import { Bell, AlertTriangle, Smartphone, Loader2 } from "lucide-react";
 import { selectHasAppAccess, selectUser } from "@/core/store/slices/authSlice";
 import { getTaskNotifyPermission, requestTaskNotifyPermission } from "@/features/apps/task/pwa/taskPushNotify";
-import {
-  getIosPushInstallHint,
-  isWebPushSupported,
-  clearPushLinkSessionCache,
-  linkPushSubscriptionToUser,
-  subscribeToWebPush,
-} from "@/features/shared/pwa/webPushSubscribe";
+import { getIosPushInstallHint, isWebPushSupported, clearPushLinkSessionCache, linkPushSubscriptionToUser, subscribeToWebPush } from "@/features/shared/pwa/webPushSubscribe";
+
+import { isPwaStandalone } from "@/core/utils/pwa";
 
 function readNotifyPermission() {
   return getTaskNotifyPermission();
@@ -21,7 +17,7 @@ function readNotifyPermission() {
 function shouldShowNotifyGate(pathname) {
   if (!pathname) return false;
   if (pathname === "/login" || pathname.startsWith("/login/")) return false;
-  return pathname === "/home" || pathname.startsWith("/home/") || pathname === "/task" || pathname.startsWith("/task/");
+  return true;
 }
 
 function BlockOverlay({ icon: Icon, iconClass, title, children, actions }) {
@@ -58,6 +54,7 @@ export default function TaskNotifyEnableBanner() {
   const [permission, setPermission] = useState("default");
   const [busy, setBusy] = useState(false);
   const [iosHint, setIosHint] = useState(null);
+  const [declinedAttempt, setDeclinedAttempt] = useState(false);
 
   const secure = typeof window === "undefined" || window.isSecureContext;
   const pushSupported = isWebPushSupported();
@@ -105,6 +102,7 @@ export default function TaskNotifyEnableBanner() {
       if (result.ok) {
         setPermission("granted");
         setIosHint(null);
+        setDeclinedAttempt(false);
         if (user?.id) {
           clearPushLinkSessionCache();
           void linkPushSubscriptionToUser({ userId: user.id }).catch(() => {});
@@ -115,8 +113,14 @@ export default function TaskNotifyEnableBanner() {
         setIosHint(result.message);
         return;
       }
+      if (result.error === "denied" || result.error === "default") {
+        setPermission(result.error);
+        if (result.error === "default") setDeclinedAttempt(true);
+        return;
+      }
       const perm = await requestTaskNotifyPermission();
       setPermission(perm);
+      if (perm !== "granted") setDeclinedAttempt(true);
     } finally {
       setBusy(false);
     }
@@ -167,7 +171,7 @@ export default function TaskNotifyEnableBanner() {
       <BlockOverlay
         icon={AlertTriangle}
         iconClass="bg-amber-100 text-amber-700"
-        title="Notifications blocked"
+        title="You did not allow notifications"
         actions={
           <button
             type="button"
@@ -179,7 +183,10 @@ export default function TaskNotifyEnableBanner() {
         }
       >
         <p>
-          Open browser settings → Site settings → Notifications → Allow for this site, then reload the page.
+          Aapne notifications allow nahi kiye. App use karne ke liye allow karna zaroori hai.
+        </p>
+        <p className="mt-2 text-xs text-slate-500">
+          Browser settings → Site settings → Notifications → Allow for this site, phir Reload karein.
         </p>
       </BlockOverlay>
     );
@@ -209,8 +216,14 @@ export default function TaskNotifyEnableBanner() {
       }
     >
       <p>
-        Task updates are sent to this device even when you are logged out or the app is closed.
-        You must allow notifications before using the app.
+        {declinedAttempt
+          ? "Aapne abhi notifications allow nahi kiye. Browser popup mein Allow dabana zaroori hai — bina iske app use nahi ho sakti."
+          : isPwaStandalone()
+            ? "Naye device par alerts ke liye notifications allow karna zaroori hai. Allow ke bina app use nahi ho sakti."
+            : "Task updates is device par bheje jayenge — app band ho ya logout ho tab bhi. Allow karna zaroori hai."}
+      </p>
+      <p className="mt-2 text-xs text-slate-500">
+        Browser popup mein &quot;Allow&quot; dabayein. Agar Block kiya to yahi screen dubara dikhegi.
       </p>
     </BlockOverlay>
   );

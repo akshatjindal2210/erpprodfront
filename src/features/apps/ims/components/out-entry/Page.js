@@ -36,6 +36,31 @@ const PAGE_TABS = {
   PENDING_FORWARDING: "pending_forwarding",
 };
 
+function pendingForwardingStoreOutStatus(row) {
+  const outEntryRow = {
+    approved: row?.out_entry_approved,
+    scan_complete: row?.out_entry_scan_complete,
+    boxes_scanned: row?.out_entry_boxes_scanned,
+    boxes_required: row?.out_entry_boxes_required,
+  };
+
+  if (!row?.out_entry_uid) {
+    return { text: "READY", className: "bg-indigo-50 text-indigo-600 border-indigo-100", progress: null };
+  }
+  if (isOutEntryScanDraft(outEntryRow)) {
+    return {
+      text: "DRAFT",
+      className: "bg-amber-50 text-amber-700 border-amber-200",
+      progress: outEntryScanProgressLabel(outEntryRow),
+    };
+  }
+  return {
+    text: "PENDING",
+    className: "bg-slate-50 text-slate-600 border-slate-200",
+    progress: outEntryScanProgressLabel(outEntryRow),
+  };
+}
+
 export default function OutEntryPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("out_entry", "view"), [canAccess]);
@@ -98,7 +123,6 @@ export default function OutEntryPage() {
         const body = await outEntryService.getAll({
           page,
           limit,
-          ...(appliedSearch && { search: appliedSearch }),
           filters: {
             ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
             ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
@@ -115,7 +139,7 @@ export default function OutEntryPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.fromDate, params.toDate, params.status, appliedSearch]);
+  }, [params.pageSize, params.fromDate, params.toDate, params.status]);
 
   const fetchForwardingNotes = useCallback(async () => {
     setLoading(true);
@@ -127,7 +151,7 @@ export default function OutEntryPage() {
           ...(appliedSearch && { search: appliedSearch }),
           filters: {
             approved: true,
-            out_entry_complete: false,
+            out_entry_approved: false,
           },
         });
         return { data: body.data ?? [], total: body.total ?? 0 };
@@ -189,8 +213,10 @@ export default function OutEntryPage() {
   }, [loading, items.length, totalItems]);
 
   const handleFilterApply = (data) => {
-    applySearchFromInput();
-    if (!isStoreOut) return;
+    if (!isStoreOut) {
+      applySearchFromInput();
+      return;
+    }
     const nextStatus = data.approvedStatus || params.status;
     const nextType = data.entryType || params.entryType;
     setParams((prev) => ({
@@ -497,11 +523,19 @@ export default function OutEntryPage() {
     ["Customer", "acc_name", (v) => <span className="text-[10px] font-medium text-slate-500 uppercase italic whitespace-normal break-words leading-snug block" title={v}>{v || "—"}</span>, { width: "250px", wrap: true }],
     ["Total Qty", "total_items", (v) => <span className="font-black text-slate-700 text-[11px]">{v}</span>, { width: "120px" }],
     ["Timestamp", "timestamp", (v) => <span className="text-[10px] text-slate-500">{formatDateTime(v)}</span>, { width : "150px" }],
-    ["Status", "approved", (v) => (
-      <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
-        {v ? "● AUTHORIZED" : "○ PENDING"}
-      </span>
-    ), { width: "120px" }],
+    ["Status", "out_entry_uid", (_v, row) => {
+      const st = pendingForwardingStoreOutStatus(row);
+      return (
+        <div className="flex flex-col gap-0.5 min-w-[100px]">
+          <span className={`px-2 py-0.5 text-[9px] font-black uppercase border w-fit ${st.className}`}>
+            {st.text}
+          </span>
+          {st.progress ? (
+            <span className="text-[8px] font-bold text-slate-500 tabular-nums">{st.progress}</span>
+          ) : null}
+        </div>
+      );
+    }, { width: "120px" }],
     /*
     [
       "Out Entry Status",
@@ -696,18 +730,10 @@ export default function OutEntryPage() {
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             onSearchEnter={() => {
-              if (isStoreOut) {
-                handleFilterApply({
-                  fromDate: params.fromDate,
-                  toDate: params.toDate,
-                  approvedStatus: params.status,
-                  entryType: params.entryType,
-                });
-              } else {
-                applySearchFromInput();
-              }
+              if (isStoreOut) return;
+              applySearchFromInput();
             }}
-            searchPlaceholder={isStoreOut ? "Search FUID or UID..." : "Search FUID, Customer, PO..."}
+            searchPlaceholder={isStoreOut ? "Search item, packing, FUID, UID..." : "Search FUID, Customer, PO..."}
             searchLabel="Quick Search"
             minDate={isStoreOut ? dateFilterDefaults.minDate : undefined}
             maxDate={isStoreOut ? dateFilterDefaults.maxDate : undefined}
@@ -787,6 +813,7 @@ export default function OutEntryPage() {
         onClose={() => {
           setModalOpen(false);
           setEditItem(null);
+          handleRefresh();
         }}
         onSuccess={() => {
           handleRefresh();

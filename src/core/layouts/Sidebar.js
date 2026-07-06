@@ -80,10 +80,6 @@ export default function Sidebar({
   const [dynamicShortcuts, setDynamicShortcuts] = useState([]);
 
   useEffect(() => {
-    const isSuperAdmin = role?.toLowerCase() === 'super_admin' || role?.toLowerCase() === 'super admin';
-    const hasAppConfigAccess = isSuperAdmin || permissions?.some(p => p.module_name === 'app_configuration' && p.can_view);
-    if (!hasAppConfigAccess) return;
-
     const fetchShortcuts = async () => {
       try {
         const res = await appConfigService.list("shortcut");

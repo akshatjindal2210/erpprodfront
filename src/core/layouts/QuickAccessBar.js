@@ -16,8 +16,30 @@ import { isPwaStandalone, getListHotkeyParts } from "@/core/utils/pwa";
 import { APP_VERSION } from "@/config/appVersion";
 import { api } from "@/core/api/apiClient";
 import { CORE_ENDPOINTS } from "@/core/api/endpoints";
-import { getDashboardStatus } from "@/features/dashboard-builder/services/dashboardApi";
+import { getDashboardStatus, getUserDashboards } from "@/features/dashboard-builder/services/dashboardApi";
 import { canFilterDashboardByUser } from "@/features/dashboard-builder/utils/dashboardFilterAccess";
+
+const DASHBOARD_AUTO_REFRESH_MS = 60 * 1000;
+const DASHBOARD_SYNC_TICK_MS = 30 * 1000;
+const DASHBOARD_SYNC_EVENT = "erp-dashboard-sync";
+const DASHBOARD_SYNC_START_EVENT = "erp-dashboard-sync-start";
+const DASHBOARD_SYNC_ERROR_EVENT = "erp-dashboard-sync-error";
+
+function formatDashboardSyncTime(syncedAt) {
+  const at = dayjs(Number(syncedAt));
+  if (!Number.isFinite(Number(syncedAt)) || !at.isValid()) return "—";
+  const diffSec = dayjs().diff(at, "second");
+  if (diffSec < 15) return "Just now";
+  if (diffSec < 60) return `${diffSec}s ago`;
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  return at.format("h:mm A");
+}
+
+function formatDashboardSyncTitle(syncedAt) {
+  const at = dayjs(Number(syncedAt));
+  if (!Number.isFinite(Number(syncedAt)) || !at.isValid()) return "Dashboard not synced yet";
+  return `Last synced: ${at.format("DD MMM YYYY, h:mm:ss A")}`;
+}
 
 const kbdClass = "px-1.5 py-0.5 bg-white border border-slate-300 rounded text-[9px] font-black shadow-sm text-slate-900 leading-none";
 
@@ -73,6 +95,10 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   const [isPwa, setIsPwa] = useState(false);
   const [dashboardUsers, setDashboardUsers] = useState([]);
   const [dashboardActive, setDashboardActive] = useState(null);
+  const [userDashboards, setUserDashboards] = useState(null);
+  const [lastSyncAt, setLastSyncAt] = useState(null);
+  const [isDashboardSyncing, setIsDashboardSyncing] = useState(false);
+  const [syncTick, setSyncTick] = useState(0);
 
   const isDashboardRoute =
     pathname === "/ims/dashboard" ||
@@ -91,6 +117,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   const dashboardFromDate = String(searchParams?.get("df_from") || "");
   const dashboardToDate = String(searchParams?.get("df_to") || "");
   const dashboardUserId = String(searchParams?.get("df_user") || "");
+  const dashboardSelectedKey = String(searchParams?.get("df_dash") || "").trim().toLowerCase();
   const dashboardDefaultsAppliedRef = useRef(false);
   const today = dayjs().format("YYYY-MM-DD");
   const { from: activeFromDate, to: activeToDate } = useMemo(
@@ -116,15 +143,77 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
     updateDashboardFilterQuery({}, true);
   }, [updateDashboardFilterQuery]);
 
+  const showDashboardFilters = isDashboardRoute && dashboardActive === true;
+  const lastSyncLabel = useMemo(
+    () => formatDashboardSyncTime(lastSyncAt),
+    [lastSyncAt, syncTick],
+  );
+  const lastSyncTitle = useMemo(
+    () => formatDashboardSyncTitle(lastSyncAt),
+    [lastSyncAt],
+  );
+
+  useEffect(() => {
+    if (!showDashboardFilters || !dashboardAppKey) {
+      setLastSyncAt(null);
+      setIsDashboardSyncing(false);
+      return undefined;
+    }
+
+    const matchesApp = (detail) => !detail?.appKey || detail.appKey === dashboardAppKey;
+
+    const onSyncStart = (event) => {
+      if (!matchesApp(event?.detail)) return;
+      setIsDashboardSyncing(true);
+    };
+    const onSyncComplete = (event) => {
+      if (!matchesApp(event?.detail)) return;
+      setIsDashboardSyncing(false);
+      setLastSyncAt(Number(event?.detail?.syncedAt) || Date.now());
+    };
+    const onSyncError = (event) => {
+      if (!matchesApp(event?.detail)) return;
+      setIsDashboardSyncing(false);
+    };
+
+    window.addEventListener(DASHBOARD_SYNC_START_EVENT, onSyncStart);
+    window.addEventListener(DASHBOARD_SYNC_EVENT, onSyncComplete);
+    window.addEventListener(DASHBOARD_SYNC_ERROR_EVENT, onSyncError);
+    return () => {
+      window.removeEventListener(DASHBOARD_SYNC_START_EVENT, onSyncStart);
+      window.removeEventListener(DASHBOARD_SYNC_EVENT, onSyncComplete);
+      window.removeEventListener(DASHBOARD_SYNC_ERROR_EVENT, onSyncError);
+    };
+  }, [showDashboardFilters, dashboardAppKey]);
+
+  useEffect(() => {
+    if (!showDashboardFilters) return undefined;
+    const id = window.setInterval(() => setSyncTick((tick) => tick + 1), DASHBOARD_SYNC_TICK_MS);
+    return () => window.clearInterval(id);
+  }, [showDashboardFilters]);
+
+  useEffect(() => {
+    if (!showDashboardFilters || dashboardActive !== true) return undefined;
+    const id = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      refreshDashboardFilters();
+    }, DASHBOARD_AUTO_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [showDashboardFilters, dashboardActive, refreshDashboardFilters]);
+
   useEffect(() => {
     if (!dashboardAppKey) {
       setDashboardActive(null);
+      setUserDashboards(null);
       return undefined;
     }
     let cancelled = false;
     const loadDashboardStatus = async () => {
       try {
-        const response = await getDashboardStatus(dashboardAppKey);
+        const response = await getDashboardStatus(
+          dashboardAppKey,
+          dashboardSelectedKey || "default",
+        );
         if (!cancelled) {
           setDashboardActive(response?.data?.active === true);
         }
@@ -136,7 +225,29 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
     return () => {
       cancelled = true;
     };
-  }, [dashboardAppKey, pathname]);
+  }, [dashboardAppKey, pathname, dashboardSelectedKey]);
+
+  useEffect(() => {
+    if (!dashboardAppKey || dashboardActive !== true) {
+      setUserDashboards(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const loadUserDashboards = async () => {
+      try {
+        const response = await getUserDashboards(dashboardAppKey);
+        if (!cancelled) {
+          setUserDashboards(response?.data || null);
+        }
+      } catch (_error) {
+        if (!cancelled) setUserDashboards(null);
+      }
+    };
+    loadUserDashboards();
+    return () => {
+      cancelled = true;
+    };
+  }, [dashboardAppKey, dashboardActive, pathname]);
 
   const applyDashboardFromDate = useCallback(
     (ymd) => {
@@ -189,10 +300,10 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   const shortcutRows = useMemo(() => {
     if (isPwa) {
       return [
-        { id: "listNew", label: "New Form (list)", parts: ["CTRL", "A"] },
+        { id: "listNew", label: "New Form (list)", parts: ["CTRL", "N"] },
         { id: "listEdit", label: "Edit Selected (list)", parts: ["CTRL", "E"] },
         { id: "listDelete", label: "Delete Selected (list)", parts: ["CTRL", "D"] },
-        { id: "authorize", label: "Authorize Selected", parts: ["CTRL", "ALT", "A"] },
+        { id: "authorize", label: "Authorize Selected", parts: ["CTRL", "A"] },
         { id: "save", label: "Save / Submit", parts: ["CTRL", "S"] },
         { id: "closeOverlay", label: "Close Modal / Form", parts: ["ESC"] },
         { id: "copyRow", label: "Copy Row Data", parts: ["CTRL", "C"] },
@@ -313,7 +424,45 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
     setExpandedDesc(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const showDashboardFilters = isDashboardRoute && dashboardActive === true;
+  const dashboardList = useMemo(
+    () => (Array.isArray(userDashboards?.dashboards) ? userDashboards.dashboards : []),
+    [userDashboards],
+  );
+  const dashboardDefaultKey = String(userDashboards?.default_key || "default").toLowerCase();
+  const dashboardActiveKey = dashboardSelectedKey || dashboardDefaultKey;
+  const showDashboardSwitcher = showDashboardFilters && (
+    dashboardList.length > 1 || (canFilterByUser && dashboardList.length > 0)
+  );
+
+  const applyDashboardSelection = useCallback(
+    (nextKey = "") => {
+      const normalized = String(nextKey || "").trim().toLowerCase();
+      if (!normalized) return;
+      if (normalized === dashboardDefaultKey) {
+        updateDashboardFilterQuery({ df_dash: "" }, true);
+        return;
+      }
+      updateDashboardFilterQuery({ df_dash: normalized }, true);
+    },
+    [dashboardDefaultKey, updateDashboardFilterQuery],
+  );
+
+  useEffect(() => {
+    if (!isDashboardRoute || dashboardActive !== true || !dashboardList.length) return;
+    const allowed = new Set(
+      dashboardList.map((item) => String(item.dashboard_key || "").toLowerCase()),
+    );
+    const selected = String(dashboardSelectedKey || "").trim().toLowerCase();
+    if (selected && !allowed.has(selected)) {
+      updateDashboardFilterQuery({ df_dash: "" }, true);
+    }
+  }, [
+    isDashboardRoute,
+    dashboardActive,
+    dashboardList,
+    dashboardSelectedKey,
+    updateDashboardFilterQuery,
+  ]);
 
   if (hideQuickLinks && !showDashboardFilters) {
     return (
@@ -352,6 +501,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
           <div className="flex flex-col gap-1 w-full sm:flex-row sm:items-center sm:shrink-0 sm:justify-end sm:flex-1 sm:min-w-0 sm:gap-1.5">
             {showDashboardFilters && (
               <div
+                data-dashboard-qab=""
                 className={`dashboard-qab-filters flex w-full sm:w-auto sm:shrink-0 gap-1.5 ${
                   canFilterByUser
                     ? "flex-col sm:flex-row sm:items-center sm:rounded-md sm:border sm:border-slate-700/70 sm:bg-slate-900/40 sm:px-1.5 sm:py-1"
@@ -388,14 +538,30 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
                   className={
                     canFilterByUser
                       ? "flex items-center gap-1 w-full sm:w-auto"
-                      : "flex items-center shrink-0"
+                      : "flex items-center shrink-0 gap-1"
                   }
                 >
+                  {showDashboardSwitcher ? (
+                    <select
+                      value={dashboardActiveKey}
+                      onChange={(e) => applyDashboardSelection(e.target.value)}
+                      aria-label="Dashboard"
+                      className="dashboard-qab-dash h-7 sm:h-6 min-w-0 flex-1 sm:flex-none rounded border border-slate-700/80 sm:border-slate-700 bg-slate-950/40 sm:bg-slate-950/60 px-1.5 text-[10px] font-bold uppercase tracking-tight text-slate-300 sm:text-slate-200 outline-none focus:border-blue-500"
+                    >
+                      {dashboardList.map((option) => (
+                        <option key={option.dashboard_key} value={option.dashboard_key}>
+                          {option.dashboard_name}
+                          {option.is_default ? " (Default)" : ""}
+                          {/* {option.scope === "users" ? " (Clone)" : ""} */}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
                   {canFilterByUser ? (
                     <select
                       value={dashboardUserId}
                       onChange={(e) => updateDashboardFilterQuery({ df_user: e.target.value }, true)}
-                      className="dashboard-qab-user h-7 sm:h-6 min-w-0 flex-1 sm:flex-none rounded border border-slate-700/80 sm:border-slate-700 bg-slate-950/40 sm:bg-slate-950/60 px-1.5 text-[10px] font-medium text-slate-300 sm:text-slate-200 outline-none focus:border-blue-500"
+                      className="dashboard-qab-user h-7 sm:h-6 min-w-0 flex-1 sm:flex-none rounded border border-slate-700/80 sm:border-slate-700 bg-slate-950/40 sm:bg-slate-950/60 px-1.5 text-[10px] font-bold uppercase tracking-tight text-slate-300 sm:text-slate-200 outline-none focus:border-blue-500"
                     >
                       <option value="">All Users</option>
                       {dashboardUsers.map((option) => (
@@ -405,13 +571,25 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
                       ))}
                     </select>
                   ) : null}
+                  <span
+                    className="dashboard-qab-sync hidden md:inline text-[9px] font-semibold text-slate-400 whitespace-nowrap"
+                    title={lastSyncTitle}
+                  >
+                    Sync: {lastSyncLabel}
+                  </span>
+                  <span
+                    className="dashboard-qab-sync-mobile md:hidden text-[8px] font-semibold text-slate-400 whitespace-nowrap max-w-[64px] truncate"
+                    title={lastSyncTitle}
+                  >
+                    {lastSyncLabel}
+                  </span>
                   <button
                     type="button"
                     onClick={refreshDashboardFilters}
-                    title="Refresh dashboard"
+                    title={isDashboardSyncing ? "Refreshing dashboard..." : lastSyncTitle}
                     className="dashboard-qab-refresh h-7 w-7 sm:h-6 sm:w-auto sm:px-2 shrink-0 rounded border border-blue-500/30 sm:border-blue-500/40 bg-blue-500/10 text-[10px] font-bold uppercase tracking-tight text-blue-300 hover:bg-blue-500/20 inline-flex items-center justify-center gap-0.5 whitespace-nowrap"
                   >
-                    <RefreshCw size={12} className="shrink-0" />
+                    <RefreshCw size={12} className={`shrink-0 ${isDashboardSyncing ? "animate-spin" : ""}`} />
                     <span className="hidden sm:inline">Refresh</span>
                   </button>
                   {currentModule && !hideQuickLinks && (
@@ -563,6 +741,11 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
           width: 14px;
           height: 14px;
         }
+        [data-dashboard-qab] input,
+        [data-dashboard-qab] select {
+          font-family: inherit;
+          -webkit-text-size-adjust: 100%;
+        }
         .dashboard-qab-date > div {
           gap: 0 !important;
         }
@@ -582,11 +765,12 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
           border: 1px solid rgba(255, 255, 255, 0.12);
           background: rgba(0, 0, 0, 0.25);
           padding: 0 26px 0 8px !important;
-          font-size: 10px;
-          font-weight: 600;
-          letter-spacing: 0;
           color: rgb(226 232 240);
           outline: none;
+        }
+        [data-dashboard-qab] .dashboard-qab-dash,
+        [data-dashboard-qab] .dashboard-qab-user {
+          letter-spacing: -0.025em;
         }
         .dashboard-qab-date button {
           width: 22px !important;
@@ -606,13 +790,20 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
             width: 112px;
             min-width: 112px;
             padding: 0 28px 0 6px !important;
-            font-weight: 500;
+            border: 1px solid rgb(51 65 85);
+            background: rgba(2, 6, 23, 0.6);
+          }
+          [data-dashboard-qab] input {
             border: 1px solid rgb(51 65 85);
             background: rgba(2, 6, 23, 0.6);
           }
           .dashboard-qab-user {
             width: 130px;
             min-width: 130px;
+          }
+          .dashboard-qab-dash {
+            width: 148px;
+            min-width: 148px;
           }
           .dashboard-qab-date button {
             width: 28px !important;

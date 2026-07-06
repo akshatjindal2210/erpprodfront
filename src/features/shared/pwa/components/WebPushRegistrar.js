@@ -3,15 +3,37 @@
 import { useEffect } from "react";
 import { useSelector } from "react-redux";
 import { selectUser } from "@/core/store/slices/authSlice";
-import { linkPushSubscriptionToUser, syncPushApiBaseToServiceWorker, syncPushSubscriptionIfGranted } from "../webPushSubscribe";
+import {
+  flushPushDeliveryQueue,
+  linkPushSubscriptionToUser,
+  syncPushApiBaseToServiceWorker,
+  syncPushSubscriptionIfGranted,
+} from "../webPushSubscribe";
 
 /** Registers/syncs Web Push on app load and links device subscription after login. */
 export default function WebPushRegistrar() {
   const user = useSelector(selectUser);
 
   useEffect(() => {
-    syncPushApiBaseToServiceWorker();
-    void syncPushSubscriptionIfGranted().catch(() => {});
+    const syncAll = () => {
+      syncPushApiBaseToServiceWorker();
+      void syncPushSubscriptionIfGranted().catch(() => {});
+      flushPushDeliveryQueue();
+    };
+
+    syncAll();
+
+    const onOnline = () => syncAll();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") syncAll();
+    };
+
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   useEffect(() => {

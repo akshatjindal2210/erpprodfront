@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f8fafc" />
+  <title>Connect to company network — JFL ERP</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f8fafc;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: 24px;
+      color: #1e293b;
+    }
+    .card {
+      width: 100%;
+      max-width: 28rem;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      padding: 2rem;
+      text-align: center;
+      box-shadow: 0 1px 2px rgba(0,0,0,.05);
+    }
+    .icon {
+      width: 3.5rem;
+      height: 3.5rem;
+      margin: 0 auto 1rem;
+      border-radius: 9999px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.75rem;
+    }
+    h1 {
+      font-size: 0.875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #1e293b;
+    }
+    p { margin-top: 0.75rem; font-size: 0.875rem; color: #475569; line-height: 1.6; }
+    .hint { margin-top: 0.5rem; font-size: 0.6875rem; color: #94a3b8; line-height: 1.5; }
+    .retry {
+      margin-top: 1.5rem;
+      padding: 0.625rem 1.25rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+    }
+    .retry:active { opacity: 0.9; }
+    .status { margin-top: 1rem; font-size: 0.6875rem; color: #6366f1; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon" aria-hidden="true">📶</div>
+    <h1>Connect to company Wi-Fi</h1>
+    <p>Please connect to company Wi-Fi or VPN to open JFL ERP.</p>
+    <p class="hint">Notification was delivered. Read/open is recorded only after you connect to company network.</p>
+    <button type="button" class="retry" id="retry">Try again</button>
+    <p class="status" id="status" hidden>Checking connection…</p>
+  </div>
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var returnUrl = params.get("return") || "/";
+      var backend = (params.get("backend") || "").replace(/\/$/, "");
+      var companyIp = (params.get("company_ip") || "").trim();
+      var trackingId = (params.get("tracking_id") || "").trim();
+      var apiBases = (params.get("api_bases") || params.get("api_base") || "")
+        .split(",")
+        .map(function (v) { return String(v || "").trim().replace(/\/$/, ""); })
+        .filter(Boolean);
+      var statusEl = document.getElementById("status");
+      var retryBtn = document.getElementById("retry");
+
+      function pingBackend() {
+        if (!backend) return Promise.resolve(false);
+        var controller = new AbortController();
+        var timer = setTimeout(function () { controller.abort(); }, 4000);
+        return fetch(backend + "/api/version", {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        }).then(function () {
+          clearTimeout(timer);
+          return true;
+        }).catch(function () {
+          clearTimeout(timer);
+          return false;
+        });
+      }
+
+      function checkCompanyIp() {
+        if (!companyIp) return Promise.resolve(true);
+        var controller = new AbortController();
+        var timer = setTimeout(function () { controller.abort(); }, 4000);
+        return fetch("https://api.ipify.org?format=json", {
+          cache: "no-store",
+          signal: controller.signal,
+        }).then(function (res) {
+          clearTimeout(timer);
+          if (!res.ok) return true;
+          return res.json().then(function (data) {
+            return String(data && data.ip || "").trim() === companyIp;
+          });
+        }).catch(function () {
+          clearTimeout(timer);
+          return true;
+        });
+      }
+
+      function markReadOnCompanyNetwork() {
+        if (!trackingId || !apiBases.length) return Promise.resolve(false);
+
+        return fetch("https://api.ipify.org?format=json", { cache: "no-store" })
+          .then(function (res) { return res.ok ? res.json() : {}; })
+          .catch(function () { return {}; })
+          .then(function (ipData) {
+            var clientIp = String(ipData && ipData.ip || "").trim();
+            var body = {
+              tracking_id: trackingId,
+              company_network_verified: true,
+            };
+            if (clientIp) body.client_ip = clientIp;
+            if (clientIp && companyIp) body.on_company_network = clientIp === companyIp;
+
+            var attempt = function (index) {
+              if (index >= apiBases.length) return Promise.resolve(false);
+              return fetch(apiBases[index] + "/core/push/delivery/read", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              }).then(function (res) {
+                if (res.ok) return true;
+                return attempt(index + 1);
+              }).catch(function () {
+                return attempt(index + 1);
+              });
+            };
+
+            return attempt(0);
+          });
+      }
+
+      function canOpenOnCompanyNetwork(pingOk, ipOk) {
+        if (pingOk) return true;
+        if (!companyIp) return false;
+        return ipOk;
+      }
+
+      function tryConnect() {
+        statusEl.hidden = false;
+        statusEl.textContent = "Checking connection…";
+        retryBtn.disabled = true;
+        Promise.all([pingBackend(), checkCompanyIp()]).then(function (results) {
+          if (canOpenOnCompanyNetwork(results[0], results[1])) {
+            statusEl.textContent = "Connected — opening app…";
+            return markReadOnCompanyNetwork().finally(function () {
+              window.location.replace(returnUrl);
+            });
+          }
+          retryBtn.disabled = false;
+          statusEl.textContent = "Still offline — connect to company Wi-Fi and try again.";
+        });
+      }
+
+      retryBtn.addEventListener("click", tryConnect);
+    })();
+  </script>
+</body>
+</html>
