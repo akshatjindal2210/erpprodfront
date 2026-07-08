@@ -265,9 +265,11 @@ export default function StockAdjustmentStickerDetailCards({
             </div>
             <div className="bg-white border border-orange-100 rounded p-1.5 lg:p-3 text-center">
               <p className="text-base font-black text-orange-600 leading-none">
-                {(p.loose_box_qty ?? 0) > 0 ? 1 : 0}
+                {p.loose_box_qty ?? 0}
               </p>
-              <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Loose Box</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">
+                Loose Box{(p.loose_box_qty ?? 0) === 1 ? "" : "es"}
+              </p>
             </div>
           </div>
         </div>

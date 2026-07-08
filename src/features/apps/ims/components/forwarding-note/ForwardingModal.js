@@ -25,6 +25,7 @@ const INITIAL_FORM = {
   acc_code:            "",
   packing_category_id: "",
   po_number:           "",
+  schno:               "",
   transporter_sel_id:  "",
   transporter_name:    "",
   transporter_id:      "",
@@ -199,7 +200,7 @@ const reorderBoxesForSelection = (boxes = [], loosePriority = false) => {
   });
 };
 
-export default function ForwardingModal({ open, onClose, onSuccess, editData, mode = "add" }) {
+export default function ForwardingModal({ open, onClose, onSuccess, editData, mode = "add", dispatchPrefill = null }) {
   const [saving, setSaving]           = useState(false);
   const [formReady, setFormReady]     = useState(false);
   const [form, setForm]               = useState(INITIAL_FORM);
@@ -218,6 +219,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
   
   const isEdit = mode === "edit";
   const isApprove = mode === "approve";
+  const isFromSchedule = mode === "add" && Boolean(dispatchPrefill);
   const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
 
   const showApproval = canAuthorize && (mode === "add" || mode === "approve");
@@ -310,6 +312,92 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
   }, [form.items.length, inHandItemCatalog, buildInHandItemFetchService]);
 
   // ── Bootstrap (show loader until form is hydrated — no blank fields) ───────
+  const hydrateFromDispatchPlan = useCallback(async (row) => {
+    const accCode = row?.acc_code;
+    const itemDcode = row?.itemdcode;
+    const dispatchQty = Number(row?.totalqty ?? row?.total_qty ?? 0);
+
+    let categoryOptions = [];
+    let packingCategoryId = "";
+    if (accCode) {
+      try {
+        const catRes = await forwardingNoteService.getCustomerCategory({ acc_code: Number(accCode) });
+        categoryOptions = Array.isArray(catRes?.data?.options) ? catRes.data.options : [];
+        const defaultId = catRes?.data?.packing_category_id;
+        packingCategoryId =
+          defaultId != null && defaultId !== ""
+            ? String(defaultId)
+            : categoryOptions[0]?.id != null
+              ? String(categoryOptions[0].id)
+              : "";
+      } catch {
+        categoryOptions = [];
+      }
+    }
+    setCategoryOpts(categoryOptions);
+
+    let itemRow = {
+      ...INITIAL_ITEM_ROW,
+      item_dcode: itemDcode ? String(itemDcode) : "",
+      item_code: row?.item_code || "",
+      itemdesc: row?.itemdesc || "",
+      fetching: Boolean(itemDcode && packingCategoryId),
+    };
+
+    if (itemDcode && packingCategoryId) {
+      try {
+        const body = {
+          item_dcode: itemDcode,
+          packing_category_id: Number(packingCategoryId),
+        };
+        const [stockRes, erpRes] = await Promise.all([
+          forwardingNoteService.getAvailableBoxes(body),
+          forwardingNoteService.getErpStock(body),
+        ]);
+        const erp_qty = erpRes?.success !== false ? Number(erpRes?.total) || 0 : 0;
+        const erp_by_packing =
+          erpRes?.by_packing && typeof erpRes.by_packing === "object" ? erpRes.by_packing : {};
+        const fifoBoxes = stockRes?.success
+          ? sortBoxesForFifo(enrichForwardingBoxesWithPackingStd(stockRes.data || []))
+          : [];
+        const fg_qty = sumQty(fifoBoxes);
+        const ordered = reorderBoxesForSelection(fifoBoxes, false);
+        const selected_boxes = dispatchQty > 0 ? selectBoxesByQty(ordered, dispatchQty) : [];
+        const roundedQty = sumQty(selected_boxes);
+        if (fifoBoxes.length === 0) {
+          toast.info("No in-hand stock for this item in the selected category.");
+        }
+
+        itemRow = {
+          ...itemRow,
+          available_boxes: fifoBoxes,
+          selected_boxes,
+          loose_priority: false,
+          fg_qty,
+          erp_qty,
+          erp_by_packing,
+          dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
+          dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
+          fetching: false,
+          boxes_edited: true,
+        };
+      } catch {
+        itemRow = { ...itemRow, fetching: false };
+      }
+    }
+
+    const categoryKey = packingCategoryId || "";
+    prevCategoryRef.current = categoryKey;
+
+    return {
+      ...INITIAL_FORM,
+      acc_code: accCode != null && accCode !== "" ? String(accCode) : "",
+      packing_category_id: packingCategoryId,
+      schno: row?.schno != null && row?.schno !== "" ? String(row.schno).trim() : "",
+      items: [itemRow],
+    };
+  }, []);
+
   useEffect(() => {
     if (!open) {
       setFormReady(false);
@@ -326,6 +414,23 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     const hydrate = async () => {
       const fuid = parseInt(String(editData?.fuid ?? "").trim(), 10);
       const needsFetch = Boolean(fuid > 0 && (isEdit || isApprove));
+
+      if (!needsFetch && isFromSchedule && dispatchPrefill) {
+        try {
+          const hydrated = await hydrateFromDispatchPlan(dispatchPrefill);
+          if (!cancelled) {
+            setForm(hydrated);
+            setFormReady(true);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            toast.error(err?.message || "Failed to load schedule item for forwarding note.");
+            setForm({ ...INITIAL_FORM, items: [{ ...INITIAL_ITEM_ROW }] });
+            setFormReady(true);
+          }
+        }
+        return;
+      }
 
       if (!needsFetch) {
         if (!cancelled) {
@@ -434,6 +539,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
               ? String(resolvedCategoryId)
               : "",
           po_number: fullData.po_number || "",
+          schno: fullData.schno != null && fullData.schno !== "" ? String(fullData.schno).trim() : "",
           transporter_sel_id: "",
           transporter_name: fullData.transporter_name || "",
           transporter_id: fullData.transporter_id || "",
@@ -458,7 +564,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     return () => {
       cancelled = true;
     };
-  }, [open, editData?.fuid, isEdit, isApprove]);
+  }, [open, editData?.fuid, isEdit, isApprove, isFromSchedule, dispatchPrefill, hydrateFromDispatchPlan]);
 
   // ── Form helpers ───────────────────────────────────────────────────────────
   const handleInputChange = (k, value) => {
@@ -828,6 +934,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
         ...formRest,
         acc_code: parseInt(form.acc_code) || null,
         packing_category_id: form.packing_category_id ? parseInt(form.packing_category_id, 10) : null,
+        schno: form.schno?.trim() || null,
         cartage: parseFloat(form.cartage) || 0,
         customer_qty: parseInt(form.customer_qty) || 0,
         approved: finalApproved,
@@ -885,12 +992,14 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
   const hydrateHint = isEdit || isApprove
     ? "Fetching note, items, and available stock."
-    : "Setting up a new forwarding note.";
+    : isFromSchedule
+      ? "Loading customer, item, and stock from schedule plan."
+      : "Setting up a new forwarding note.";
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const confirmedTotal = form.items.reduce((s, i) => s + itemStdQty(i), 0);
   const customerQty    = parseInt(form.customer_qty) || 0;
-  const isQtyExceeded  = customerQty > 0 && confirmedTotal > customerQty;
+  const isQtyExceeded  = !isFromSchedule && customerQty > 0 && confirmedTotal > customerQty;
 
   // ── Footer ─────────────────────────────────────────────────────────────────
   const footer = (
@@ -956,7 +1065,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
         handleSave(isApprove ? true : undefined);
       }}
       title={isApprove ? "Approve Note" : isEdit ? "Edit Note" : "New Forwarding Note"}
-      description="Create note for dispatch"
+      description={isFromSchedule ? `From schedule ${form.schno || "—"}` : "Create note for dispatch"}
       footer={footer}
       maxWidth="max-w-4xl"
     >
@@ -965,6 +1074,15 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
           <FormPanelLoader label={hydrateLabel} hint={hydrateHint} minHeight="min-h-[280px]" />
         ) : (
         <>
+        {isFromSchedule && (
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-indigo-50 border border-indigo-200">
+            <AlertCircle size={16} className="text-indigo-500 mt-0.5 shrink-0" />
+            <p className="text-[11px] text-indigo-700 font-medium leading-normal">
+              Pre-filled from today&apos;s dispatch plan. Customer, category, and item are locked — change <span className="font-bold text-indigo-900 uppercase">Dispatch Qty</span> as needed, then fill PO and save.
+            </p>
+          </div>
+        )}
+
         {isEdit && editData?.approved && (
           <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
             <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
@@ -976,13 +1094,26 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
         {/* ── Header fields ── */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-1">
-          <div className="md:col-span-2 space-y-1 relative" data-field="acc_code">
+          {isFromSchedule ? (
+            <div className="space-y-1">
+              <label className={FORM_LABEL_CLASS}>Sch No</label>
+              <input
+                value={form.schno || "—"}
+                disabled
+                tabIndex={-1}
+                className={`${OK_INPUT} rounded-lg border-slate-200 font-mono font-bold disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed`}
+              />
+            </div>
+          ) : null}
+
+          <div className={`space-y-1 relative ${isFromSchedule ? "md:col-span-1 pointer-events-none" : "md:col-span-2"}`} data-field="acc_code">
             <SearchableSelect 
               label="Customer / Account"
               required
               value={form.acc_code}
               onChange={handleAccCodeChange}
               error={errors.acc_code || ""}
+              disabled={isFromSchedule}
               fetchService={(params) => masterService.getLedgersViews({ 
                 ...params, 
                 permission_module: "forwarding_note_master", 
@@ -998,13 +1129,13 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
           </div>
 
           {/* {form.acc_code ? ( */}
-            <div className="md:col-span-1 space-y-1">
+            <div className={`md:col-span-1 space-y-1 ${isFromSchedule ? "pointer-events-none" : ""}`}>
               <label className={FORM_LABEL_CLASS}>Category</label>
               <select
                 value={String(form.packing_category_id ?? "")}
                 onChange={(e) => handleCategoryChange(e.target.value)}
-                disabled={!form.acc_code || categoryLoading}
-                className={`${OK_INPUT} rounded-lg border-slate-200 disabled:bg-slate-50 disabled:text-slate-400`}
+                disabled={isFromSchedule || !form.acc_code || categoryLoading}
+                className={`${OK_INPUT} rounded-lg border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed`}
               >
                 {!form.acc_code ? (
                   <option value="">Select customer first</option>
@@ -1182,7 +1313,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                   <h3 className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Item Breakdown</h3>
               </div>
               <div className="flex items-center gap-2">
-                  {customerQty > 0 && (
+                  {customerQty > 0 && !isFromSchedule && (
                       <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[10px] font-bold ${
                           isQtyExceeded
                           ? "bg-rose-50 border-rose-200 text-rose-600"
@@ -1213,7 +1344,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                       />
                       Loose Priority
                     </label>
-                    {form.items.length > 1 && (
+                    {form.items.length > 1 && !isFromSchedule && (
                       <button
                         onClick={() => removeRow(idx)}
                         className="p-1 text-rose-400 hover:bg-rose-50 rounded-md transition-colors"
@@ -1226,7 +1357,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-12 gap-2 items-end">
                   {/* Search Item */}
-                  <div className="col-span-2 sm:col-span-4 lg:col-span-3 text-[11px] min-w-0">
+                  <div className={`col-span-2 sm:col-span-4 lg:col-span-3 text-[11px] min-w-0 ${isFromSchedule ? "pointer-events-none" : ""}`}>
                     <SearchableSelect
                       label="Search Item"
                       value={item.item_dcode}
@@ -1236,7 +1367,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                       dataKey="id"
                       labelKey="item_code"
                       subLabelKey="itemdesc"
-                      disabled={!form.acc_code || categoryLoading || !form.packing_category_id}
+                      disabled={isFromSchedule || !form.acc_code || categoryLoading || !form.packing_category_id}
                       emptyMessage={
                         !form.acc_code
                           ? "Select customer first"
@@ -1432,6 +1563,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
               </div>
             ))}
           </div>
+          {!isFromSchedule ? (
           <div className="pt-1 flex justify-end">
             <button
               onClick={addRow}
@@ -1440,6 +1572,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
               <Plus size={12} /> Add Row
             </button>
           </div>
+          ) : null}
         </div>
 
         {/* ── Remarks (full row, same as other modals) ── */}

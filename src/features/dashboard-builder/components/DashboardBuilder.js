@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import dayjs from "dayjs";
-import GridLayout, { Responsive } from "react-grid-layout";
+import { Responsive, useContainerWidth } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { Copy, CloudOff, GripVertical, Layout, Monitor, Pencil, Plus, Redo2, Smartphone, Trash2, Undo2, UploadCloud, X } from "lucide-react";
@@ -12,7 +12,7 @@ import { api } from "@/core/api/apiClient";
 import { CORE_ENDPOINTS } from "@/core/api/endpoints";
 import WidgetRenderer from "./WidgetRenderer";
 import WidgetBuilderPanel from "./WidgetBuilderPanel";
-import { buildCanvasWidgetsWithContainers, buildPhoneCanvasWidgets, applyDesktopContainerLayout, hasCustomMobileNestedLayout, hasCustomPhoneLayout, hasCustomTopLevelMobileLayout, hydrateContainerNestedLayouts, nestedLayoutToGridHeight, normalizeContainerLayoutItem, phoneContainerAutoGridHeight, repackLayoutItems, resolveContainerGridHeight, resolveContainerPreset, resolvePhoneTopLevelLayout, stackLayoutForPhone, stackNestedLayoutForPhone, syncAllContainerHeights } from "../utils/dashboardLayoutEngine";
+import { applyMainLayoutPixelsToItem, applyNestedLayoutPixelsToItem, buildCanvasWidgetsWithContainers, buildPhoneCanvasWidgets, applyDesktopContainerLayout, buildNestedLayoutFromChildren, compactLiveLayoutForDisplay, containerAutoGridHeight, hasCustomMobileNestedLayout, hasCustomPhoneLayout, hasCustomTopLevelMobileLayout, hasManualWidgetLayout, hydrateContainerNestedLayouts, inferContainerPresetFromLayout, isContainerLayoutLocked, isWidgetLayoutLocked, mainGridLayoutToPixels, mainLayoutItemPixelStyle, mergeNestedItemFromChild, nestedLayoutItemPixelStyle, nestedLayoutToGridHeight, normalizeContainerLayoutItem, phoneContainerAutoGridHeight, placeNextNestedLayoutItem, readWidgetLayoutPixels, repackLayoutItems, resolveContainerDisplayHeight, resolveContainerGridHeight, resolveContainerPreset, resolveLiveContainerDisplayHeight, resolvePhoneTopLevelLayout, resolvePublishedDesktopLayout, resolvePublishedNestedLayout, resolvePublishedPhoneLayout, resolvePublishedPhoneNestedLayout, sanitizeNestedLayoutItems, shouldPreserveSavedLayout, stackLayoutForPhone, stackNestedLayoutForPhone, syncAllContainerHeights, syncNestedChildLayoutsFromContainers } from "../utils/dashboardLayoutEngine";
 import DashboardAudienceUserSelect from "./DashboardAudienceUserSelect";
 import DashboardHome from "@/features/shared/dashboard/components/DashboardHome";
 import { cloneDashboardToUsers, createWidget, deleteDashboardConfig, deleteWidget, getDashboardWidgets, listDashboardConfigs, listWidgets, previewWidget, publishDashboardConfig, renameDashboardConfig, saveDashboardDraft, unpublishDashboardConfig, updateWidget as updateWidgetApi } from "../services/dashboardApi";
@@ -41,26 +41,74 @@ const resolveApiType = (widget) => {
 };
 const isTopLevelCanvasWidget = (widget = {}) => !widget.containerId && !widget.sectionId;
 
+/** Live nested layouts from builder grid (sync ref — survives publish before React re-render). */
+const liveContainerNestedLayoutsRef = { map: new Map() };
+
 const getContainerNestedSource = (container, allWidgets = []) => {
   if (!container) return [];
   const containerId = String(container.id);
   const children = allWidgets.filter(
     (child) => String(child.containerId || child.sectionId) === containerId,
   );
-  let nested = Array.isArray(container.nestedLayout) ? [...container.nestedLayout] : [];
+  const liveNested = liveContainerNestedLayoutsRef.map.get(containerId);
+  const usedLive = Array.isArray(liveNested) && liveNested.length > 0;
+  let nested = usedLive
+    ? liveNested.map((item) => ({ ...item }))
+    : Array.isArray(container.nestedLayout)
+      ? [...container.nestedLayout]
+      : [];
   children.forEach((child, idx) => {
     const childId = String(child.id);
-    if (!nested.some((item) => String(item.i) === childId)) {
+    const existingIdx = nested.findIndex((item) => String(item.i) === childId);
+    const childLayout = child.layout && typeof child.layout === "object" ? child.layout : null;
+    if (existingIdx === -1) {
       nested.push(
         normalizeLayoutItem(
-          child.layout || buildInitialNestedLayoutForType(child.rawType, idx, child.id),
+          mergeNestedItemFromChild(
+            child,
+            childLayout || buildInitialNestedLayoutForType(child.rawType, idx, child.id),
+          ),
           idx,
           child.id,
         ),
       );
+      return;
     }
+    // Live builder grid coords are authoritative for publish — do not overwrite with stale child.layout.
+    if (usedLive) {
+      nested[existingIdx] = normalizeLayoutItem(
+        { i: childId, ...nested[existingIdx] },
+        existingIdx,
+        child.id,
+      );
+      return;
+    }
+    const saved = nested[existingIdx];
+    const preferChildSize = Boolean(
+      childLayout
+      && (child.layoutLocked === true || hasManualWidgetLayout(child)),
+    );
+    if (preferChildSize && childLayout) {
+      nested[existingIdx] = normalizeLayoutItem(
+        {
+          i: childId,
+          x: Number.isFinite(Number(childLayout.x)) ? Number(childLayout.x) : Number(saved.x) || 0,
+          y: Number.isFinite(Number(childLayout.y)) ? Number(childLayout.y) : Number(saved.y) || 0,
+          w: Number.isFinite(Number(childLayout.w)) ? Math.max(1, Number(childLayout.w)) : Math.max(1, Number(saved.w) || 1),
+          h: Number.isFinite(Number(childLayout.h)) ? Math.max(1, Number(childLayout.h)) : Math.max(1, Number(saved.h) || 1),
+        },
+        existingIdx,
+        child.id,
+      );
+      return;
+    }
+    nested[existingIdx] = normalizeLayoutItem(
+      mergeNestedItemFromChild(child, { i: childId, ...saved }),
+      existingIdx,
+      child.id,
+    );
   });
-  return nested;
+  return sanitizeNestedLayoutItems(nested);
 };
 
 const getContainerNestedMobileSource = (container, allWidgets = []) => {
@@ -70,22 +118,41 @@ const getContainerNestedMobileSource = (container, allWidgets = []) => {
     (child) => String(child.containerId || child.sectionId) === containerId,
   );
   const desktopNested = getContainerNestedSource(container, allWidgets);
-  let nested = hasCustomMobileNestedLayout(desktopNested, container.mobileNestedLayout || [])
-    ? [...(container.mobileNestedLayout || [])]
-    : stackNestedLayoutForPhone(desktopNested);
+  const savedMobile = Array.isArray(container.mobileNestedLayout) ? container.mobileNestedLayout : [];
+  // Phone builder coords win as-is — never re-stack when mobile nested already exists,
+  // even if it matches laptop (intentional same grid on both devices).
+  let nested = savedMobile.length
+    ? [...savedMobile]
+    : desktopNested.map((item) => ({ ...item }));
   children.forEach((child, idx) => {
     const childId = String(child.id);
-    if (!nested.some((item) => String(item.i) === childId)) {
+    const existingIdx = nested.findIndex((item) => String(item.i) === childId);
+    if (existingIdx === -1) {
       nested.push(
         normalizeLayoutItem(
-          child.mobileLayout || child.layout || buildInitialNestedLayoutForType(child.rawType, idx, child.id),
+          mergeNestedItemFromChild(
+            child,
+            child.mobileLayout || child.layout || buildInitialNestedLayoutForType(child.rawType, idx, child.id),
+          ),
           idx,
           child.id,
         ),
       );
+      return;
     }
+    nested[existingIdx] = normalizeLayoutItem(
+      {
+        i: childId,
+        x: nested[existingIdx].x,
+        y: nested[existingIdx].y,
+        w: nested[existingIdx].w,
+        h: nested[existingIdx].h,
+      },
+      existingIdx,
+      child.id,
+    );
   });
-  return nested;
+  return sanitizeNestedLayoutItems(nested);
 };
 
 const findContainerDropTarget = (draggedLayout, nextLayout, containers = []) => {
@@ -130,7 +197,7 @@ function defaultWidgetStyle(rawType = "table") {
     return { ...shared, fontSize: 26, kpiLabelFontSize: 10, padding: 6 };
   }
   if (rawType === "heading") {
-    return { ...shared, color: "#0f172a", fontSize: 16, padding: 2 };
+    return { ...shared, color: "#0f172a", fontSize: 18, padding: 0, bg: "transparent", borderRadius: 0 };
   }
   if (rawType === "container") {
     return { ...shared, bg: "#f1f5f9", color: "#334155", fontSize: 12, padding: 12, borderRadius: 10 };
@@ -138,10 +205,23 @@ function defaultWidgetStyle(rawType = "table") {
   return { ...shared, fontSize: 10, padding: 8 };
 }
 
+function mergeSpacingSide(cfg = {}, defaults = {}, uniformKey) {
+  const uniform = cfg[uniformKey] ?? defaults[uniformKey];
+  const snake = (side) => `${uniformKey}_${side.toLowerCase()}`;
+  const camel = (side) => `${uniformKey}${side}`;
+  const read = (side) => cfg[snake(side)] ?? cfg[camel(side)] ?? uniform;
+  return {
+    [camel("Top")]: read("Top"),
+    [camel("Right")]: read("Right"),
+    [camel("Bottom")]: read("Bottom"),
+    [camel("Left")]: read("Left"),
+  };
+}
+
 function mergeWidgetStyle(rawType, chartConfig = {}) {
   const defaults = defaultWidgetStyle(rawType);
   const cfg = chartConfig && typeof chartConfig === "object" ? chartConfig : {};
-  return {
+  const merged = {
     ...defaults,
     color: cfg.color ?? defaults.color,
     bg: cfg.bg ?? defaults.bg,
@@ -151,9 +231,47 @@ function mergeWidgetStyle(rawType, chartConfig = {}) {
     fontFamily: cfg.fontFamily ?? defaults.fontFamily,
     padding: cfg.padding ?? defaults.padding,
     margin: cfg.margin ?? defaults.margin,
+    ...mergeSpacingSide(cfg, defaults, "padding"),
+    ...mergeSpacingSide(cfg, defaults, "margin"),
     emptyTextPosition: cfg.emptyTextPosition ?? defaults.emptyTextPosition,
     kpiLabelPosition: cfg.kpiLabelPosition ?? defaults.kpiLabelPosition,
     kpiLabelFontSize: cfg.kpiLabelFontSize ?? defaults.kpiLabelFontSize,
+    layoutWidthPx: Number.isFinite(Number(cfg.layout_width_px ?? cfg.layoutWidthPx))
+      ? Math.round(Number(cfg.layout_width_px ?? cfg.layoutWidthPx))
+      : undefined,
+    layoutHeightPx: Number.isFinite(Number(cfg.layout_height_px ?? cfg.layoutHeightPx))
+      ? Math.round(Number(cfg.layout_height_px ?? cfg.layoutHeightPx))
+      : undefined,
+  };
+  if (rawType === "heading" && (!cfg.bg || cfg.bg === "#ffffff" || cfg.bg === "#fff")) {
+    merged.bg = "transparent";
+    merged.padding = cfg.padding ?? 0;
+    merged.borderRadius = 0;
+  }
+  return merged;
+}
+
+function spacingConfigFromWidgetStyle(widget = {}, defaults = {}) {
+  const style = widget.style || {};
+  const uniformPad = style.padding ?? defaults.padding ?? 8;
+  const uniformMar = style.margin ?? defaults.margin ?? 0;
+  const read = (kind, side, uniform) => {
+    const key = `${kind}${side}`;
+    const snake = `${kind}_${side.toLowerCase()}`;
+    const val = style[key] ?? style[snake];
+    return Number.isFinite(Number(val)) ? Math.max(0, Number(val)) : uniform;
+  };
+  return {
+    padding: uniformPad,
+    margin: uniformMar,
+    padding_top: read("padding", "Top", uniformPad),
+    padding_right: read("padding", "Right", uniformPad),
+    padding_bottom: read("padding", "Bottom", uniformPad),
+    padding_left: read("padding", "Left", uniformPad),
+    margin_top: read("margin", "Top", uniformMar),
+    margin_right: read("margin", "Right", uniformMar),
+    margin_bottom: read("margin", "Bottom", uniformMar),
+    margin_left: read("margin", "Left", uniformMar),
   };
 }
 
@@ -167,14 +285,14 @@ function chartConfigFromWidgetStyle(widget = {}) {
     fontSize: widget.style?.fontSize,
     borderRadius: widget.style?.borderRadius,
     fontFamily: widget.style?.fontFamily || "inherit",
-    padding: widget.style?.padding ?? defaults.padding,
-    margin: widget.style?.margin ?? defaults.margin,
+    ...spacingConfigFromWidgetStyle(widget, defaults),
     data_source: widget.dataSource || "ims_postgresql",
     erp_filter: widget.erpFilter && typeof widget.erpFilter === "object" ? widget.erpFilter : {},
     section_id: widget.containerId || widget.sectionId || null,
     container_preset: widget.containerPreset || "full",
-    nested_layout: Array.isArray(widget.nestedLayout) ? widget.nestedLayout : [],
-    mobile_nested_layout: Array.isArray(widget.mobileNestedLayout) ? widget.mobileNestedLayout : [],
+    layout_locked: widget.layoutLocked === true || hasManualWidgetLayout(widget),
+    nested_layout: sanitizeNestedLayoutItems(widget.nestedLayout || []),
+    mobile_nested_layout: sanitizeNestedLayoutItems(widget.mobileNestedLayout || []),
     mobile_padding_left: widget.mobilePaddingLeft ?? widget.style?.mobilePaddingLeft ?? 8,
     mobile_padding_right: widget.mobilePaddingRight ?? widget.style?.mobilePaddingRight ?? 8,
     mobile_padding_top: widget.mobilePaddingTop ?? widget.style?.mobilePaddingTop ?? 8,
@@ -183,6 +301,12 @@ function chartConfigFromWidgetStyle(widget = {}) {
     emptyTextPosition: widget.style?.emptyTextPosition || "center",
     kpiLabelPosition: widget.style?.kpiLabelPosition || "bottom",
     kpiLabelFontSize: widget.style?.kpiLabelFontSize ?? defaults.kpiLabelFontSize,
+    layout_width_px: Number.isFinite(Number(widget.style?.layoutWidthPx))
+      ? Math.round(Number(widget.style.layoutWidthPx))
+      : undefined,
+    layout_height_px: Number.isFinite(Number(widget.style?.layoutHeightPx))
+      ? Math.round(Number(widget.style.layoutHeightPx))
+      : undefined,
     emptyText: widget.emptyText || "Click edit and add query",
   };
 }
@@ -259,36 +383,48 @@ const compactLayoutForStorage = (rawLayout = {}, widgetId = "") => ({
   h: Math.max(1, Number.isFinite(Number(rawLayout.h)) ? Number(rawLayout.h) : 1),
 });
 
-const normalizeWidgetForDashboardJson = (widget = {}, resolvedLayout = {}) => ({
-  id: widget.id,
-  rawType: widget.rawType || "table",
-  type: widget.type || "table",
-  title: widget.title || "",
-  description: widget.description || "",
-  query: widget.query || "",
-  dataSource: widget.dataSource || "ims_postgresql",
-  erpFilter: widget.erpFilter && typeof widget.erpFilter === "object" ? widget.erpFilter : {},
-  emptyText: widget.emptyText || "Click edit and add query",
-  sectionId: widget.containerId || widget.sectionId || null,
-  containerId: widget.containerId || widget.sectionId || null,
-  containerPreset: resolveContainerPreset(widget, resolvedLayout),
-  nestedLayout: Array.isArray(widget.nestedLayout) ? widget.nestedLayout : [],
-  mobileNestedLayout: Array.isArray(widget.mobileNestedLayout) ? widget.mobileNestedLayout : [],
-  mobilePaddingLeft: widget.mobilePaddingLeft ?? 8,
-  mobilePaddingRight: widget.mobilePaddingRight ?? 8,
-  mobilePaddingTop: widget.mobilePaddingTop ?? 8,
-  mobilePaddingBottom: widget.mobilePaddingBottom ?? 8,
-  style: widget.style && typeof widget.style === "object" ? widget.style : {},
-  layout: compactLayoutForStorage(resolvedLayout, widget.id),
-  mobileLayout: compactLayoutForStorage(
-    widget.mobileLayout || resolvedLayout,
-    widget.id,
-  ),
-  deviceTarget: normalizeWidgetDeviceTarget(widget.deviceTarget),
-  isActive: widget.is_active !== false,
-  targetPageKey: widget.targetPageKey || "dashboard",
-  targetPageModule: widget.targetPageModule || null,
-});
+const normalizeWidgetForDashboardJson = (widget = {}, resolvedLayout = {}, { persistManualLayout = false, persistNestedPixelLayout = false, lockNestedLayout = false } = {}) => {
+  const rawStyle = widget.style && typeof widget.style === "object" ? widget.style : {};
+  // Never persist layoutWidthPx — it is canvas-width dependent and corrupts grid `w` on reload.
+  const { layoutWidthPx: _dropWidthPx, layoutHeightPx, ...portableStyle } = rawStyle;
+  let style = portableStyle;
+  if (persistManualLayout || persistNestedPixelLayout) {
+    style = { ...portableStyle };
+    if (layoutHeightPx != null) style.layoutHeightPx = layoutHeightPx;
+  }
+
+  return {
+    id: widget.id,
+    rawType: widget.rawType || "table",
+    type: widget.type || "table",
+    title: widget.title || "",
+    description: widget.description || "",
+    query: widget.query || "",
+    dataSource: widget.dataSource || "ims_postgresql",
+    erpFilter: widget.erpFilter && typeof widget.erpFilter === "object" ? widget.erpFilter : {},
+    emptyText: widget.emptyText || "Click edit and add query",
+    sectionId: widget.containerId || widget.sectionId || null,
+    containerId: widget.containerId || widget.sectionId || null,
+    containerPreset: resolveContainerPreset(widget, resolvedLayout),
+    layoutLocked: lockNestedLayout || (persistManualLayout && widget.layoutLocked === true),
+    nestedLayout: Array.isArray(widget.nestedLayout) ? widget.nestedLayout : [],
+    mobileNestedLayout: Array.isArray(widget.mobileNestedLayout) ? widget.mobileNestedLayout : [],
+    mobilePaddingLeft: widget.mobilePaddingLeft ?? 8,
+    mobilePaddingRight: widget.mobilePaddingRight ?? 8,
+    mobilePaddingTop: widget.mobilePaddingTop ?? 8,
+    mobilePaddingBottom: widget.mobilePaddingBottom ?? 8,
+    style,
+    layout: compactLayoutForStorage(resolvedLayout, widget.id),
+    mobileLayout: compactLayoutForStorage(
+      widget.mobileLayout || resolvedLayout,
+      widget.id,
+    ),
+    deviceTarget: normalizeWidgetDeviceTarget(widget.deviceTarget),
+    isActive: widget.is_active !== false,
+    targetPageKey: widget.targetPageKey || "dashboard",
+    targetPageModule: widget.targetPageModule || null,
+  };
+};
 const GRID_COLS = 12;
 const GRID_ROW_HEIGHT = 64;
 const GRID_GAP_X = 12;
@@ -518,6 +654,11 @@ const buildDefaultLayout = (idx = 0) => ({
   h: 2,
 });
 
+const containerCellHeightClass = (widget = {}) => {
+  if (widget.rawType !== "container") return "h-full";
+  return "h-auto";
+};
+
 const buildInitialLayoutForType = (rawType, idx, id, containerPreset = "full") => {
   const base = normalizeLayoutItem({}, idx, id);
   if (rawType === "kpi") {
@@ -534,7 +675,7 @@ const buildInitialLayoutForType = (rawType, idx, id, containerPreset = "full") =
   }
   if (rawType === "container") {
     const containerLayout = normalizeContainerLayoutItem({ containerPreset }, { w: containerPreset === "half" ? 6 : 12 });
-    return normalizeLayoutItem({ ...base, x: containerLayout.x, w: containerLayout.w, h: 5 }, idx, id);
+    return normalizeLayoutItem({ ...base, x: containerLayout.x, w: containerLayout.w, h: 3 }, idx, id);
   }
   return base;
 };
@@ -545,7 +686,7 @@ const buildInitialNestedLayoutForType = (rawType, idx, id) => {
   if (rawType === "table") return normalizeLayoutItem({ ...base, w: 12, h: 3 }, idx, id);
   if (rawType === "graph") return normalizeLayoutItem({ ...base, w: 12, h: 3 }, idx, id);
   if (rawType === "heading") return normalizeLayoutItem({ ...base, w: 12, h: 1 }, idx, id);
-  return normalizeLayoutItem({ ...base, w: 4, h: 2 }, idx, id);
+  return normalizeLayoutItem({ ...base, w: 6, h: 2 }, idx, id);
 };
 
 const normalizeLayoutItem = (rawLayout = {}, idx = 0, id = "", { lock = false } = {}) => {
@@ -586,6 +727,7 @@ export default function DashboardBuilder({
   const canFilterByUser = useMemo(() => canFilterDashboardByUser(role, user), [role, user]);
   const searchParams = useSearchParams();
   const canvasContainerRef = useRef(null);
+  const liveGridMeasure = useContainerWidth({ initialWidth: 0 });
   const cloneButtonRef = useRef(null);
   const savedFingerprintRef = useRef("");
   const pendingActionRef = useRef(null);
@@ -611,9 +753,11 @@ export default function DashboardBuilder({
   const [containerWidth, setContainerWidth] = useState(0);
   const layoutRef = useRef([]);
   const mobileLayoutRef = useRef([]);
+  const layoutBlueprintRef = useRef({ desktop: [], mobile: [] });
   const manualSizedWidgetIdsRef = useRef(new Set());
   const draggingWidgetRef = useRef(null);
   const [draggingWidgetId, setDraggingWidgetId] = useState(null);
+  const [builderInteractionLayout, setBuilderInteractionLayout] = useState(null);
   const [isPhoneView, setIsPhoneView] = useState(false);
   const isPhoneBuilderMode = !readOnly && builderDeviceMode === BUILDER_DEVICE_MOBILE;
   const isPhonePreviewFrame = isPhoneBuilderMode;
@@ -921,7 +1065,7 @@ export default function DashboardBuilder({
   }, [readOnly, selectedWidgetId, busy, widgets.length, isPhoneView]);
 
   useLayoutEffect(() => {
-    if (!readOnly || isPhoneView || busy) return undefined;
+    if (busy) return undefined;
     const node = canvasContainerRef.current;
     if (!node) return undefined;
     const measure = () => {
@@ -929,11 +1073,12 @@ export default function DashboardBuilder({
       if (width >= 200) {
         setContainerWidth((prev) => (Math.abs(prev - width) <= 1 ? prev : width));
       }
+      liveGridMeasure.measureWidth();
     };
     measure();
     const raf = window.requestAnimationFrame(measure);
     return () => window.cancelAnimationFrame(raf);
-  }, [readOnly, isPhoneView, busy, widgets.length]);
+  }, [readOnly, isPhoneView, busy, widgets.length, liveGridMeasure.measureWidth]);
 
   useEffect(() => {
     if (!readOnly || typeof window === "undefined") return undefined;
@@ -969,6 +1114,9 @@ export default function DashboardBuilder({
             ? chartConfig.chart_type || "bar"
             : typeToDisplayType[row.type] || "table",
       query: row.query || "",
+      ...(row.has_query !== undefined ? { has_query: row.has_query } : {}),
+      ...(Array.isArray(row.data) ? { data: row.data } : {}),
+      ...(row.error != null ? { error: row.error } : {}),
       erpFilter: row?.chart_config?.erp_filter || {},
       previewData: null,
       previewError: null,
@@ -983,6 +1131,7 @@ export default function DashboardBuilder({
         { containerPreset: chartConfig.container_preset },
         row.layout && typeof row.layout === "object" ? row.layout : {},
       ),
+      layoutLocked: chartConfig.layout_locked === true,
       nestedLayout: Array.isArray(chartConfig.nested_layout) ? chartConfig.nested_layout : [],
       mobileNestedLayout: Array.isArray(chartConfig.mobile_nested_layout) ? chartConfig.mobile_nested_layout : [],
       mobilePaddingLeft: chartConfig.mobile_padding_left ?? 8,
@@ -1026,6 +1175,14 @@ export default function DashboardBuilder({
         ? await getDashboardWidgets(resolvedAppKey, apiPageKey, filters, resolvedDashboardKey)
         : await listWidgets(resolvedAppKey, apiPageKey, resolvedDashboardKey);
       const rows = res?.data || [];
+      if (readOnly) {
+        layoutBlueprintRef.current = {
+          desktop: Array.isArray(res?.layout_blueprint?.desktop) ? res.layout_blueprint.desktop : [],
+          mobile: Array.isArray(res?.layout_blueprint?.mobile) ? res.layout_blueprint.mobile : [],
+        };
+      } else {
+        layoutBlueprintRef.current = { desktop: [], mobile: [] };
+      }
       let mapped = rows.map((row, idx) => mapWidgetRow(row, idx));
 
       // Builder should reopen with live data, not blank "No Data Found" cards.
@@ -1057,6 +1214,23 @@ export default function DashboardBuilder({
           };
         });
       }
+      mapped = mapped.map((widget) => {
+        const isNestedChild = Boolean(widget.containerId || widget.sectionId);
+        const isContainer = widget.rawType === "container" && !isNestedChild;
+        const { layoutWidthPx: _dropW, layoutHeightPx, ...portableStyle } = widget.style || {};
+        const nextStyle = { ...portableStyle };
+        // Nested widgets: ignore stale layoutHeightPx — size comes from parent nested_layout.
+        if (isContainer && layoutHeightPx != null) {
+          nextStyle.layoutHeightPx = layoutHeightPx;
+        } else if (!isNestedChild && !isContainer && (widget.layoutLocked === true) && layoutHeightPx != null) {
+          nextStyle.layoutHeightPx = layoutHeightPx;
+        }
+        return {
+          ...widget,
+          layoutLocked: widget.layoutLocked === true || isNestedChild || isContainer,
+          style: nextStyle,
+        };
+      });
       if (readOnly) {
         mapped = mapped.map((widget) => ({
           ...widget,
@@ -1064,48 +1238,101 @@ export default function DashboardBuilder({
           previewError: widget.error ?? widget.previewError ?? null,
         }));
       }
-      setWidgets(mapped);
-      const hydrated = hydrateContainerNestedLayouts(mapped);
+      mapped.forEach((widget) => {
+        if (widget.rawType === "container") {
+          if (widget.layoutLocked === true || hasManualWidgetLayout(widget)) {
+            manualSizedWidgetIdsRef.current.add(String(widget.id));
+          } else {
+            manualSizedWidgetIdsRef.current.delete(String(widget.id));
+          }
+          return;
+        }
+        if (widget.layoutLocked === true) {
+          manualSizedWidgetIdsRef.current.add(String(widget.id));
+        }
+      });
+      let hydrated = hydrateContainerNestedLayouts(mapped);
+      hydrated = syncNestedChildLayoutsFromContainers(hydrated);
+      hydrated
+        .filter((widget) => widget.rawType === "container")
+        .forEach((container) => {
+          const nested = Array.isArray(container.nestedLayout) ? container.nestedLayout : [];
+          if (nested.length) {
+            liveContainerNestedLayoutsRef.map.set(String(container.id), nested);
+          }
+        });
       const topLevel = hydrated.filter((widget) => isTopLevelCanvasWidget(widget));
-      const nextLayout = topLevel.map((w, idx) => {
-        const source = w.layout || {};
-        if (w.rawType === "container") {
-          const nested = w.nestedLayout || [];
-          const hasHeader = Boolean(String(w.title || "").trim() || String(w.description || "").trim());
-          const autoH = nestedLayoutToGridHeight(nested, {
-            minRows: 1,
-            headerRows: hasHeader ? 1 : 0,
-            bufferRows: 0,
-            paddingPx: (Number(w.style?.padding) || 12) * 2,
-          });
-          const containerLayout = applyDesktopContainerLayout(w, source);
-          return normalizeLayoutItem(
-            {
-              ...source,
-              x: containerLayout.x,
-              w: containerLayout.w,
-              h: Math.max(1, Number(source.h) || autoH),
-            },
-            idx,
-            w.id,
-          );
-        }
-        return normalizeLayoutItem(source, idx, w.id);
+      let nextLayout;
+      let nextMobileLayout;
+      if (readOnly) {
+        const rawLayout = topLevel.map((w) => {
+          const source = w.layout || {};
+          return { ...source, i: String(w.id) };
+        });
+        nextLayout = clampLayoutInBounds(
+          resolvePublishedDesktopLayout(
+            hydrated,
+            rawLayout,
+            GRID_COLS,
+            layoutBlueprintRef.current?.desktop,
+          ).map((item, idx) =>
+            normalizeLayoutItem(item, idx, item.i, { lock: true }),
+          ),
+          GRID_COLS,
+        );
+        nextMobileLayout = topLevel.map((w, idx) => {
+          const source = w.mobileLayout && Object.keys(w.mobileLayout).length
+            ? w.mobileLayout
+            : (w.layout || {});
+          const [clamped] = clampLayoutInBounds([{ ...source, i: String(w.id) }], GRID_COLS);
+          return normalizeLayoutItem(clamped, idx, w.id, { lock: true });
+        });
+      } else {
+        const rawLayout = topLevel.map((w, idx) => {
+          const source = w.layout || {};
+          if (w.rawType === "container") {
+            const containerLayout = applyDesktopContainerLayout(w, source);
+            const preserve = shouldPreserveSavedLayout(w);
+            const withHeight = preserve
+              ? applyMainLayoutPixelsToItem({ ...source, ...containerLayout }, w)
+              : {
+                ...source,
+                ...containerLayout,
+                h: containerAutoGridHeight(w, buildNestedLayoutFromChildren(w, hydrated), { allWidgets: hydrated }),
+              };
+            return normalizeLayoutItem(
+              {
+                ...withHeight,
+                x: containerLayout.x,
+                w: containerLayout.w,
+                layoutLocked: preserve,
+              },
+              idx,
+              w.id,
+            );
+          }
+          return normalizeLayoutItem(source, idx, w.id);
+        });
+        nextLayout = compactLiveLayoutForDisplay(topLevel, rawLayout, hydrated);
+        nextMobileLayout = topLevel.map((w, idx) => {
+          const source = w.mobileLayout && Object.keys(w.mobileLayout).length
+            ? w.mobileLayout
+            : (w.layout || {});
+          const [clamped] = clampLayoutInBounds([{ ...source, i: String(w.id) }], GRID_COLS);
+          return normalizeLayoutItem(clamped, idx, w.id);
+        });
+      }
+      const hydratedWithLayout = hydrated.map((widget) => {
+        if (!isTopLevelCanvasWidget(widget)) return widget;
+        const matched = nextLayout.find((entry) => String(entry.i) === String(widget.id));
+        const matchedMobile = nextMobileLayout.find((entry) => String(entry.i) === String(widget.id));
+        return {
+          ...widget,
+          ...(matched ? { layout: matched } : {}),
+          ...(matchedMobile ? { mobileLayout: matchedMobile } : {}),
+        };
       });
-      const nextMobileLayout = topLevel.map((w, idx) => {
-        const source = w.mobileLayout || w.layout || {};
-        if (w.rawType === "container") {
-          const autoH = phoneContainerAutoGridHeight(w);
-          const savedH = Math.max(1, Number(source.h) || autoH);
-          return normalizeLayoutItem(
-            { ...source, x: 0, w: 12, h: savedH },
-            idx,
-            w.id,
-          );
-        }
-        return normalizeLayoutItem({ ...source, x: 0, w: 12 }, idx, w.id);
-      });
-      setWidgets(hydrated);
+      setWidgets(hydratedWithLayout);
       layoutRef.current = nextLayout;
       mobileLayoutRef.current = nextMobileLayout;
       setLayout(nextLayout);
@@ -1143,17 +1370,48 @@ export default function DashboardBuilder({
     [widgets],
   );
 
+  /** Published: top-level widgets the viewer can see (containers need at least one permitted child). */
+  const publishedVisibleWidgets = useMemo(() => {
+    if (!readOnly) return visibleWidgets;
+    return visibleWidgets.filter((widget) => {
+      if (widget.rawType !== "container") return true;
+      return widgets.some(
+        (child) => String(child.containerId || child.sectionId) === String(widget.id),
+      );
+    });
+  }, [readOnly, visibleWidgets, widgets]);
+
   const canvasWidgets = useMemo(() => {
-    const hydrated = hydrateContainerNestedLayouts(widgets);
+    const pool = readOnly ? widgets : hydrateContainerNestedLayouts(widgets);
+    const usePhoneNested = isPhoneBuilderMode || (readOnly && isPhoneView);
+    const withNested = readOnly || isPhoneBuilderMode
+      ? pool.map((widget) => {
+        if (widget.rawType !== "container") return widget;
+        const nestedLayout = usePhoneNested
+          ? resolvePublishedPhoneNestedLayout(widget, pool)
+          : resolvePublishedNestedLayout(widget, pool);
+        const sectionChildren = pool.filter(
+          (child) => String(child.containerId || child.sectionId) === String(widget.id),
+        );
+        return { ...widget, nestedLayout, sectionChildren };
+      })
+      : pool;
+    // Published (laptop + phone): hide containers whose nested widgets were all permission-filtered out.
+    const forCanvas = readOnly
+      ? withNested.filter((widget) => {
+        if (widget.rawType !== "container") return true;
+        return (widget.sectionChildren || []).length > 0;
+      })
+      : withNested;
     if (readOnly && isPhoneView) {
-      return buildPhoneCanvasWidgets(hydrated);
+      return buildPhoneCanvasWidgets(forCanvas);
     }
     if (readOnly) {
-      return buildCanvasWidgetsWithContainers(hydrated);
+      return buildCanvasWidgetsWithContainers(forCanvas);
     }
-    const built = buildCanvasWidgetsWithContainers(hydrated);
+    const built = buildCanvasWidgetsWithContainers(withNested);
     if (!isPhoneBuilderMode) return built;
-    return buildPhoneCanvasWidgets(hydrated);
+    return buildPhoneCanvasWidgets(withNested);
   }, [widgets, readOnly, isPhoneBuilderMode, isPhoneView]);
 
   const movableWidgetsForContainer = useMemo(() => {
@@ -1184,17 +1442,48 @@ export default function DashboardBuilder({
   const builderCanvasLayout = isPhoneBuilderMode ? mobileLayout : layout;
 
   const visibleLayout = useMemo(() => {
-    const ids = new Set(visibleWidgets.map((w) => String(w.id)));
+    const layoutWidgets = readOnly ? publishedVisibleWidgets : visibleWidgets;
+    const ids = new Set(layoutWidgets.map((w) => String(w.id)));
     const source = builderCanvasLayout.filter((l) => ids.has(String(l.i)));
     if (isPhoneBuilderMode) return source;
-    return source.map((item) => {
+    if (readOnly && !isPhoneView) {
+      return clampLayoutInBounds(
+        resolvePublishedDesktopLayout(
+          publishedVisibleWidgets,
+          source,
+          GRID_COLS,
+          layoutBlueprintRef.current?.desktop,
+        ),
+        GRID_COLS,
+      );
+    }
+    const resolved = source.map((item) => {
       const widget = widgets.find((entry) => String(entry.id) === String(item.i));
       if (widget?.rawType === "container") {
-        return applyDesktopContainerLayout(widget, item);
+        const containerLayout = applyDesktopContainerLayout(widget, item);
+        if (shouldPreserveSavedLayout(widget)) {
+          const withHeight = applyMainLayoutPixelsToItem(
+            { ...item, ...containerLayout },
+            widget,
+          );
+          return {
+            ...withHeight,
+            x: containerLayout.x,
+            w: containerLayout.w,
+            resizeHandles: ["e", "w", "se", "sw"],
+          };
+        }
+        const nested = buildNestedLayoutFromChildren(widget, widgets);
+        return {
+          ...containerLayout,
+          h: containerAutoGridHeight(widget, nested, { allWidgets: widgets }),
+          resizeHandles: ["e", "w", "se", "sw"],
+        };
       }
       return item;
     });
-  }, [builderCanvasLayout, visibleWidgets, isPhoneBuilderMode, widgets]);
+    return compactLiveLayoutForDisplay(visibleWidgets, resolved, widgets);
+  }, [builderCanvasLayout, visibleWidgets, publishedVisibleWidgets, isPhoneBuilderMode, readOnly, isPhoneView, widgets]);
 
   const selectedDashboardOption = dashboardOptions.find((option) => option.value === selectedDashboardKey) || null;
   const selectedDashboardLabel = selectedDashboardOption?.label || "Default";
@@ -1249,41 +1538,53 @@ export default function DashboardBuilder({
     return normalized;
   }, [visibleLayout, readOnly, isCanvasLocked]);
 
-  const readOnlyDesktopLayout = useMemo(() => {
-    if (!readOnly) return [];
-    const hydrated = hydrateContainerNestedLayouts(widgets);
-    const ids = new Set(visibleWidgets.map((w) => String(w.id)));
-    const liveLayout = layoutRef.current?.length ? layoutRef.current : layout;
-    return clampLayoutInBounds(
-      liveLayout.filter((item) => ids.has(String(item.i))),
-      GRID_COLS,
-    ).map((item, idx) => {
-      const widget = hydrated.find((entry) => String(entry.id) === String(item.i));
-      if (widget?.rawType === "container") {
-        const resolved = applyDesktopContainerLayout(widget, item);
-        return normalizeLayoutItem(resolved, idx, item.i, { lock: true });
-      }
-      return normalizeLayoutItem(item, idx, item.i, { lock: true });
+  const builderLayoutForGrid = useMemo(() => {
+    if (!builderInteractionLayout?.length) return renderedLayout;
+    const patchById = new Map(builderInteractionLayout.map((item) => [String(item.i), item]));
+    return renderedLayout.map((item, idx) => {
+      const patch = patchById.get(String(item.i));
+      return patch ? normalizeLayoutItem(patch, idx, item.i) : item;
     });
-  }, [readOnly, widgets, layout, mobileLayout, visibleWidgets]);
+  }, [renderedLayout, builderInteractionLayout]);
 
   const readOnlyPhoneLayout = useMemo(() => {
     if (!readOnly) return [];
-    const ids = new Set(visibleWidgets.map((w) => String(w.id)));
+    const ids = new Set(publishedVisibleWidgets.map((w) => String(w.id)));
     const liveMobile = mobileLayoutRef.current?.length ? mobileLayoutRef.current : mobileLayout;
+    const mobileSource = publishedVisibleWidgets.map((widget) => {
+      const fromGrid = liveMobile.find((item) => String(item.i) === String(widget.id));
+      const fromWidget = widget.mobileLayout && typeof widget.mobileLayout === "object"
+        ? widget.mobileLayout
+        : null;
+      // Never fall back to laptop layout for phone published view.
+      const base = fromGrid || fromWidget || { i: String(widget.id), x: 0, y: 0, w: GRID_COLS, h: 2 };
+      return {
+        i: String(widget.id),
+        x: base.x,
+        y: base.y,
+        w: base.w,
+        h: base.h,
+      };
+    });
+    const resolved = resolvePublishedPhoneLayout(
+      publishedVisibleWidgets,
+      mobileSource,
+      GRID_COLS,
+      layoutBlueprintRef.current?.mobile,
+    );
     return clampLayoutInBounds(
-      liveMobile.filter((item) => ids.has(String(item.i))),
+      resolved.filter((item) => ids.has(String(item.i))),
       GRID_COLS,
     ).map((item, idx) => normalizeLayoutItem(item, idx, item.i, { lock: true }));
-  }, [readOnly, widgets, layout, mobileLayout, visibleWidgets]);
+  }, [readOnly, mobileLayout, publishedVisibleWidgets]);
 
   const activeReadOnlyLayout = useMemo(() => {
     if (!readOnly) return [];
-    return isPhoneView ? readOnlyPhoneLayout : readOnlyDesktopLayout;
-  }, [readOnly, isPhoneView, readOnlyPhoneLayout, readOnlyDesktopLayout]);
+    return isPhoneView ? readOnlyPhoneLayout : renderedLayout;
+  }, [readOnly, isPhoneView, readOnlyPhoneLayout, renderedLayout]);
 
   const renderedLayouts = useMemo(() => {
-    const locked = renderedLayout.map((item, idx) =>
+    const locked = builderLayoutForGrid.map((item, idx) =>
       normalizeLayoutItem(item, idx, item.i || item.id, { lock: readOnly }),
     );
     if (readOnly) {
@@ -1293,13 +1594,42 @@ export default function DashboardBuilder({
       return { lg: locked.map((item, idx) => normalizeLayoutItem(item, idx, item.i || item.id, {})) };
     }
     return { lg: locked.map((item, idx) => normalizeLayoutItem(item, idx, item.i || item.id, {})) };
-  }, [renderedLayout, readOnly, widgets, layout, mobileLayout, isPhoneBuilderMode, activeReadOnlyLayout]);
+  }, [builderLayoutForGrid, readOnly, widgets, layout, mobileLayout, isPhoneBuilderMode, activeReadOnlyLayout]);
 
   const activeBreakpoints = readOnly ? { lg: 0 } : BUILDER_BREAKPOINTS;
   const activeColsMap = readOnly ? { lg: GRID_COLS } : BUILDER_COLS_MAP;
 
   useEffect(() => {
-    if (readOnly || busy) return;
+    if (readOnly || busy || isPhoneBuilderMode || builderInteractionLayout?.length) return;
+    const source = layoutRef.current?.length ? layoutRef.current : layout;
+    let changed = false;
+    const next = source.map((item, idx) => {
+      const widget = widgets.find((entry) => String(entry.id) === String(item.i));
+      if (widget?.rawType !== "container") return item;
+      const containerLayout = applyDesktopContainerLayout(widget, item);
+      // Locked / manual containers keep the designer's height (including empty space).
+      if (shouldPreserveSavedLayout(widget) || manualSizedWidgetIdsRef.current.has(String(widget.id))) {
+        return item;
+      }
+      const targetH = resolveLiveContainerDisplayHeight(widget, { ...item, ...containerLayout }, widgets);
+      if (Number(item.h) === Number(targetH)) return item;
+      changed = true;
+      return normalizeLayoutItem({ ...item, ...containerLayout, h: targetH }, idx, item.i);
+    });
+    if (!changed) return;
+    layoutRef.current = next;
+    setLayout(next);
+    setWidgets((prev) =>
+      prev.map((widget) => {
+        if (widget.rawType !== "container") return widget;
+        const matched = next.find((entry) => String(entry.i) === String(widget.id));
+        return matched ? { ...widget, layout: matched } : widget;
+      }),
+    );
+  }, [widgets, readOnly, busy, isPhoneBuilderMode, layout, builderInteractionLayout]);
+
+  useEffect(() => {
+    if (readOnly || busy || !isPhoneBuilderMode) return;
     const synced = syncAllContainerHeights(
       widgets,
       layoutRef.current?.length ? layoutRef.current : layout,
@@ -1469,15 +1799,13 @@ export default function DashboardBuilder({
   // Panel is a flex sibling so containerWidth already excludes it.
   // Grid w/h are proportional (out of 12 cols) so layouts look consistent.
   const measuredCanvasWidth = Math.max(0, containerWidth || 0);
-  const isReadOnlyDesktop = readOnly && !isPhoneView;
   const canvasWidth = useMemo(() => {
     if (isPhonePreviewFrame) return PHONE_BUILDER_WIDTH;
-    if (isReadOnlyDesktop) {
-      return measuredCanvasWidth >= 200 ? measuredCanvasWidth : 0;
-    }
+    const liveWidth = liveGridMeasure.mounted ? liveGridMeasure.width : 0;
+    if (liveWidth >= 200) return liveWidth;
     if (measuredCanvasWidth >= 200) return measuredCanvasWidth;
     return Math.max(320, measuredCanvasWidth);
-  }, [measuredCanvasWidth, isPhonePreviewFrame, isReadOnlyDesktop]);
+  }, [measuredCanvasWidth, isPhonePreviewFrame, liveGridMeasure.mounted, liveGridMeasure.width]);
   const gridReady = canvasWidth >= 200;
 
   const colWidth = Math.max(20, (Math.max(0, canvasWidth - GRID_GAP_X * (GRID_COLS - 1))) / GRID_COLS);
@@ -1488,14 +1816,19 @@ export default function DashboardBuilder({
   const activeGapY = selectedWidget?.containerId ? 8 : GRID_GAP_Y;
   const minLayoutWidthPx = Math.max(16, Math.round(activeColWidth));
   const minLayoutHeightPx = Math.max(16, Math.round(activeRowHeight));
-  const widthPx = selectedLayout
-    ? Math.round((selectedLayout.w || 1) * activeColWidth + Math.max(0, (selectedLayout.w || 1) - 1) * activeGapX)
-    : 0;
-  const heightPx = selectedLayout
-    ? Math.round(
-        (selectedLayout.h || 1) * activeRowHeight + Math.max(0, (selectedLayout.h || 1) - 1) * activeGapY,
-      )
-    : 0;
+  const storedLayoutPixels = selectedWidget ? readWidgetLayoutPixels(selectedWidget) : { widthPx: null, heightPx: null };
+  const widthPx = storedLayoutPixels.widthPx != null
+    ? storedLayoutPixels.widthPx
+    : selectedLayout
+      ? Math.round((selectedLayout.w || 1) * activeColWidth + Math.max(0, (selectedLayout.w || 1) - 1) * activeGapX)
+      : 0;
+  const heightPx = storedLayoutPixels.heightPx != null
+    ? storedLayoutPixels.heightPx
+    : selectedLayout
+      ? Math.round(
+          (selectedLayout.h || 1) * activeRowHeight + Math.max(0, (selectedLayout.h || 1) - 1) * activeGapY,
+        )
+      : 0;
 
   const clamp = (num, min, max) => Math.min(max, Math.max(min, num));
   const pixelToGridW = (px) =>
@@ -1522,6 +1855,14 @@ export default function DashboardBuilder({
       : normalizeLayoutItem({}, 0, selectedWidget.id);
     const nextW = nextWidthPx != null ? pixelToGridW(nextWidthPx) : current.w;
     const nextH = nextHeightPx != null ? pixelToGridH(nextHeightPx) : current.h;
+    const layoutStylePatch = {
+      ...(nextWidthPx != null && Number.isFinite(Number(nextWidthPx))
+        ? { layoutWidthPx: Math.round(Number(nextWidthPx)) }
+        : {}),
+      ...(nextHeightPx != null && Number.isFinite(Number(nextHeightPx))
+        ? { layoutHeightPx: Math.round(Number(nextHeightPx)) }
+        : {}),
+    };
     const next = normalizeLayoutItem(
       {
         ...current,
@@ -1564,6 +1905,11 @@ export default function DashboardBuilder({
               ...widget,
               layout: isPhoneBuilderMode ? widget.layout : next,
               mobileLayout: isPhoneBuilderMode ? next : widget.mobileLayout,
+              layoutLocked: true,
+              style: {
+                ...(widget.style || {}),
+                ...layoutStylePatch,
+              },
             };
           }
           if (String(widget.id) === parentId) {
@@ -1583,28 +1929,29 @@ export default function DashboardBuilder({
           return widget;
         }),
       );
-      syncContainerMainLayout(
-        parentId,
-        isPhoneBuilderMode ? undefined : nextNested,
-        isPhoneBuilderMode ? nextMobileNested : undefined,
-      );
+      if (!isPhoneBuilderMode) {
+        syncContainerMainLayout(parentId, nextNested, nextMobileNested);
+      } else if (nextMobileNested) {
+        syncContainerMainLayout(parentId, nextNested, nextMobileNested);
+      }
       return;
     }
 
     if (selectedWidget.rawType === "container") {
       manualSizedWidgetIdsRef.current.add(String(selectedWidget.id));
       const inferredPreset = nextW <= 6 ? "half" : "full";
+      const clampedW = Math.min(GRID_COLS, Math.max(1, nextW));
       const containerLayout = isPhoneBuilderMode
-        ? { x: 0, w: Math.min(12, Math.max(1, nextW)) }
+        ? { x: 0, w: clampedW }
         : normalizeContainerLayoutItem(
           { ...selectedWidget, containerPreset: inferredPreset },
-          { ...next, w: inferredPreset === "half" ? 6 : 12 },
+          { ...next, w: clampedW },
         );
       const resolved = normalizeLayoutItem(
         {
           ...next,
           x: isPhoneBuilderMode ? 0 : containerLayout.x,
-          w: isPhoneBuilderMode ? Math.min(12, Math.max(1, nextW)) : containerLayout.w,
+          w: isPhoneBuilderMode ? clampedW : containerLayout.w,
           h: nextH,
         },
         0,
@@ -1617,8 +1964,13 @@ export default function DashboardBuilder({
             ? {
               ...w,
               containerPreset: inferredPreset,
+              layoutLocked: true,
               layout: isPhoneBuilderMode ? w.layout : resolved,
               mobileLayout: isPhoneBuilderMode ? resolved : w.mobileLayout,
+              style: {
+                ...(w.style || {}),
+                ...layoutStylePatch,
+              },
             }
             : w,
         ),
@@ -1631,7 +1983,14 @@ export default function DashboardBuilder({
       setWidgets((prev) =>
         prev.map((w) =>
           String(w.id) === String(selectedWidget.id)
-            ? { ...w, mobileLayout: next }
+            ? {
+              ...w,
+              mobileLayout: next,
+              style: {
+                ...(w.style || {}),
+                ...layoutStylePatch,
+              },
+            }
             : w,
         ),
       );
@@ -1642,7 +2001,15 @@ export default function DashboardBuilder({
     setWidgets((prev) =>
       prev.map((w) =>
         String(w.id) === String(selectedWidget.id)
-          ? { ...w, layout: next }
+          ? {
+            ...w,
+            layout: next,
+            layoutLocked: true,
+            style: {
+              ...(w.style || {}),
+              ...layoutStylePatch,
+            },
+          }
           : w,
       ),
     );
@@ -1787,44 +2154,50 @@ export default function DashboardBuilder({
   };
 
   const syncContainerMainLayout = (containerId, nestedLayoutOverride = null, mobileNestedOverride = null) => {
-    if (manualSizedWidgetIdsRef.current.has(String(containerId))) return;
     const container = widgets.find((widget) => String(widget.id) === String(containerId));
     if (!container) return;
     const nested = nestedLayoutOverride || container.nestedLayout || [];
     const mobileNested = mobileNestedOverride || container.mobileNestedLayout || nested;
-    const autoH = nestedLayoutToGridHeight(nested);
-    const autoMobileH = nestedLayoutToGridHeight(mobileNested, {
-      minRows: 2,
-      headerRows: 0,
-      bufferRows: 0,
-      paddingPx: 24,
-    });
+    const autoH = containerAutoGridHeight(container, nested, { allWidgets: widgets });
+    const autoMobileH = containerAutoGridHeight(
+      { ...container, nestedLayout: mobileNested },
+      mobileNested,
+      { allWidgets: widgets },
+    );
+    const preserve = shouldPreserveSavedLayout(container)
+      || manualSizedWidgetIdsRef.current.has(String(containerId));
     if (!isPhoneBuilderMode) {
       setLayout((prev) => {
-        const next = prev.map((item, idx) =>
-          String(item.i) === String(containerId)
-            ? normalizeLayoutItem(
-                { ...item, h: resolveContainerGridHeight(autoH, item.h) },
-                idx,
-                containerId,
-              )
-            : item,
-        );
+        const next = prev.map((item, idx) => {
+          if (String(item.i) !== String(containerId)) return item;
+          const containerLayout = applyDesktopContainerLayout(container, item);
+          const currentH = Math.max(1, Number(item.h) || 1);
+          const nextH = preserve
+            ? Math.max(currentH, autoH)
+            : Math.max(1, autoH);
+          return normalizeLayoutItem(
+            { ...item, ...containerLayout, h: nextH },
+            idx,
+            containerId,
+          );
+        });
         layoutRef.current = next;
         return next;
       });
       return;
     }
+    if (mobileNestedOverride == null && nestedLayoutOverride == null) return;
     setMobileLayout((prev) => {
       const next = prev.map((item, idx) => {
         if (String(item.i) !== String(containerId)) return item;
-        const resolvedH = mobileNestedOverride
-          ? Math.max(Number(item.h) || 1, autoMobileH)
-          : Math.max(1, Number(item.h) || 1);
+        const currentH = Math.max(1, Number(item.h) || 1);
+        const nextH = preserve
+          ? Math.max(currentH, autoMobileH)
+          : Math.max(1, autoMobileH);
         return normalizeLayoutItem(
           {
             ...item,
-            h: resolvedH,
+            h: nextH,
           },
           idx,
           containerId,
@@ -1901,22 +2274,23 @@ export default function DashboardBuilder({
 
       const nestedSource = getContainerNestedSource(container, prev);
       const mobileNestedSource = getContainerNestedMobileSource(container, prev);
-      const maxY = nestedSource.reduce(
-        (acc, item) => Math.max(acc, (Number(item.y) || 0) + (Number(item.h) || 1)),
-        0,
-      );
       const nestedItem = normalizeLayoutItem(
-        buildInitialNestedLayoutForType(rawType, nestedSource.length, id),
+        placeNextNestedLayoutItem(
+          nestedSource,
+          buildInitialNestedLayoutForType(rawType, nestedSource.length, id),
+        ),
         nestedSource.length,
         id,
       );
-      nestedItem.y = maxY;
       const mobileNestedItem = normalizeLayoutItem(
-        { ...nestedItem, w: Math.min(12, Number(nestedItem.w) || 12) },
+        placeNextNestedLayoutItem(
+          mobileNestedSource,
+          { ...nestedItem, w: Math.min(12, Number(nestedItem.w) || 12) },
+          12,
+        ),
         mobileNestedSource.length,
         id,
       );
-      mobileNestedItem.y = maxY;
 
       const nextNested = [...nestedSource, nestedItem];
       const nextMobileNested = [...mobileNestedSource, mobileNestedItem];
@@ -2151,11 +2525,15 @@ export default function DashboardBuilder({
     }
   };
 
-  const handleNestedLayoutChange = (containerId, nextLayout, isMobile = false) => {
+  const handleNestedLayoutChange = (containerId, nextLayout, isMobile = false, options = {}) => {
     if (isCanvasLocked) return;
     captureHistoryBeforeChange();
-    manualSizedWidgetIdsRef.current.delete(String(containerId));
+    const container = widgets.find((widget) => String(widget.id) === String(containerId));
+    if (!isContainerLayoutLocked(container)) {
+      manualSizedWidgetIdsRef.current.delete(String(containerId));
+    }
     const normalized = (nextLayout || []).map((item, idx) => normalizeLayoutItem(item, idx, item.i));
+    liveContainerNestedLayoutsRef.map.set(String(containerId), normalized);
     setWidgets((prev) =>
       prev.map((widget) => {
         if (String(widget.id) !== String(containerId)) return widget;
@@ -2168,24 +2546,42 @@ export default function DashboardBuilder({
       prev.map((widget) => {
         if (String(widget.containerId) !== String(containerId)) return widget;
         const matched = normalized.find((item) => String(item.i) === String(widget.id));
-        return matched
-          ? (isMobile
-            ? { ...widget, mobileLayout: matched }
-            : { ...widget, layout: matched })
-          : widget;
+        if (!matched) return widget;
+        // Keep latest nested size on the child so publish stores the same width/height.
+        const { layoutWidthPx: _dropW, layoutHeightPx: _dropH, ...restStyle } = widget.style || {};
+        return {
+          ...widget,
+          ...(isMobile ? { mobileLayout: matched } : { layout: matched }),
+          layoutLocked: true,
+          style: restStyle,
+        };
       }),
     );
-    if (isMobile) {
-      const container = widgets.find((widget) => String(widget.id) === String(containerId));
-      syncContainerMainLayout(containerId, container?.nestedLayout || [], normalized);
-    } else {
-      syncContainerMainLayout(containerId, normalized, undefined);
+    const containerWidget = widgets.find((widget) => String(widget.id) === String(containerId));
+    if (!isContainerLayoutLocked(containerWidget)) {
+      queueMicrotask(() => {
+        syncContainerMainLayout(
+          containerId,
+          isMobile ? undefined : normalized,
+          isMobile ? normalized : undefined,
+        );
+      });
     }
   };
 
-  const syncLayoutFromCanvas = (sourceLayout = []) => {
+  const syncLayoutFromCanvas = (sourceLayout = [], options = {}) => {
+    const { lockResizedContainerId = null } = options;
     if (isCanvasLocked) return;
-    const normalizedNext = sourceLayout.map((l, idx) => normalizeLayoutItem(l, idx, l.i));
+    const normalizedNext = (sourceLayout || []).map((l, idx) => {
+      if (!isPhoneBuilderMode) {
+        const widget = widgets.find((entry) => String(entry.id) === String(l.i));
+        if (widget?.rawType === "container") {
+          const [clamped] = clampLayoutInBounds([l], GRID_COLS);
+          return normalizeLayoutItem(clamped, idx, l.i);
+        }
+      }
+      return normalizeLayoutItem(l, idx, l.i);
+    });
     if (isPhoneBuilderMode) {
       mobileLayoutRef.current = normalizedNext;
       setMobileLayout(normalizedNext);
@@ -2202,8 +2598,44 @@ export default function DashboardBuilder({
     setWidgets((prev) =>
       prev.map((w) => {
         const matched = normalizedNext.find((l) => String(l.i) === String(w.id));
-        return matched ? { ...w, layout: matched } : w;
+        if (!matched) return w;
+        if (w.rawType === "container") {
+          const inferredPreset = inferContainerPresetFromLayout(matched);
+          const preserve = shouldPreserveSavedLayout(w)
+            || manualSizedWidgetIdsRef.current.has(String(w.id))
+            || (lockResizedContainerId && String(w.id) === String(lockResizedContainerId));
+          const nextH = preserve
+            ? Math.max(1, Number(matched.h) || 1)
+            : resolveLiveContainerDisplayHeight(w, matched, prev);
+          const heightPx = mainGridLayoutToPixels({ ...matched, h: nextH }).heightPx;
+          const { layoutWidthPx: _dropW, ...restStyle } = w.style || {};
+          return {
+            ...w,
+            layout: { ...matched, h: nextH },
+            containerPreset: inferredPreset,
+            layoutLocked: preserve,
+            style: {
+              ...restStyle,
+              ...(preserve ? { layoutHeightPx: heightPx } : restStyle),
+            },
+          };
+        }
+        if (lockResizedContainerId && String(w.id) === String(lockResizedContainerId)) {
+          return {
+            ...w,
+            layout: matched,
+            layoutLocked: true,
+          };
+        }
+        return { ...w, layout: matched };
       }),
+    );
+  };
+
+  const handleBuilderLayoutChange = (currentLayout) => {
+    if (isCanvasLocked || isPhoneBuilderMode) return;
+    setBuilderInteractionLayout(
+      (currentLayout || []).map((item, idx) => normalizeLayoutItem(item, idx, item.i)),
     );
   };
 
@@ -2218,6 +2650,7 @@ export default function DashboardBuilder({
     const draggedId = draggingWidgetRef.current;
     draggingWidgetRef.current = null;
     setDraggingWidgetId(null);
+    setBuilderInteractionLayout(null);
 
     const normalizedNext = (nextLayout || []).map((l, idx) => normalizeLayoutItem(l, idx, l.i));
     if (!draggedId || isPhoneBuilderMode) {
@@ -2257,12 +2690,42 @@ export default function DashboardBuilder({
     syncLayoutFromCanvas(normalizedNext);
   };
 
-  const handleResizeStop = (nextLayout) => {
+  const handleResizeStop = (nextLayout, _oldItem, newItem) => {
     captureHistoryBeforeChange();
-    (nextLayout || []).forEach((item) => {
-      if (item?.i) manualSizedWidgetIdsRef.current.add(String(item.i));
-    });
-    syncLayoutFromCanvas(nextLayout || []);
+    const resizedId = newItem?.i ? String(newItem.i) : null;
+    setBuilderInteractionLayout(null);
+
+    let patchedLayout = nextLayout || [];
+    const resizedWidget = resizedId
+      ? widgets.find((entry) => String(entry.id) === resizedId)
+      : null;
+
+    if (resizedWidget?.rawType === "container" && resizedId) {
+      // Keep the height the user just dragged — do not snap back to auto-fit content.
+      manualSizedWidgetIdsRef.current.add(resizedId);
+      const resizedItem = patchedLayout.find((item) => String(item.i) === resizedId);
+      const heightPx = resizedItem
+        ? mainGridLayoutToPixels(resizedItem).heightPx
+        : null;
+      setWidgets((prev) =>
+        prev.map((widget) => {
+          if (String(widget.id) !== resizedId) return widget;
+          const { layoutWidthPx: _dropW, ...restStyle } = widget.style || {};
+          return {
+            ...widget,
+            layoutLocked: true,
+            style: {
+              ...restStyle,
+              ...(heightPx != null ? { layoutHeightPx: heightPx } : {}),
+            },
+          };
+        }),
+      );
+    } else if (resizedId) {
+      manualSizedWidgetIdsRef.current.add(resizedId);
+    }
+
+    syncLayoutFromCanvas(patchedLayout, { lockResizedContainerId: resizedId });
   };
 
   const updateWidgetLocal = (updatedWidget) => {
@@ -2284,11 +2747,13 @@ export default function DashboardBuilder({
     }
     markHistoryGroupedEdit();
     setWidgets((prev) => prev.map((w) => (String(w.id) === String(updatedWidget.id) ? updatedWidget : w)));
-    if (updatedWidget.rawType === "container" && updatedWidget.containerPreset) {
+    if (updatedWidget.rawType === "container" && updatedWidget.containerPreset && !updatedWidget.layoutLocked) {
+      manualSizedWidgetIdsRef.current.add(String(updatedWidget.id));
+      const presetW = updatedWidget.containerPreset === "half" ? 6 : 12;
       setLayout((prev) => {
         const next = prev.map((l, idx) => {
           if (String(l.i) !== String(updatedWidget.id)) return l;
-          const containerLayout = applyDesktopContainerLayout(updatedWidget, l);
+          const containerLayout = applyDesktopContainerLayout(updatedWidget, { ...l, w: presetW });
           return normalizeLayoutItem(
             { ...l, x: containerLayout.x, w: containerLayout.w },
             idx,
@@ -2359,17 +2824,38 @@ export default function DashboardBuilder({
   };
 
   const handleSaveWidget = async (widget, options = {}) => {
+    const widgetForSave = {
+      ...widget,
+      layoutLocked: widget.layoutLocked === true
+        || options?.widthPx != null
+        || options?.heightPx != null,
+      style: {
+        ...(widget.style || {}),
+        ...(options?.widthPx != null && Number.isFinite(Number(options.widthPx))
+          ? { layoutWidthPx: Math.round(Number(options.widthPx)) }
+          : {}),
+        ...(options?.heightPx != null && Number.isFinite(Number(options.heightPx))
+          ? { layoutHeightPx: Math.round(Number(options.heightPx)) }
+          : {}),
+      },
+    };
     const liveDesktopLayout = layoutRef.current?.length ? layoutRef.current : layout;
     const liveMobileLayout = mobileLayoutRef.current?.length ? mobileLayoutRef.current : mobileLayout;
-    const desktopSource = widget.containerId
-      ? (widget.layout && typeof widget.layout === "object" ? widget.layout : normalizeLayoutItem({}, 0, widget.id))
-      : (liveDesktopLayout.find((l) => String(l.i) === String(widget.id))
-        || widget.layout
-        || normalizeLayoutItem({}, 0, widget.id));
-    const mobileSource = widget.containerId
-      ? (widget.mobileLayout && typeof widget.mobileLayout === "object" ? widget.mobileLayout : desktopSource)
-      : (liveMobileLayout.find((l) => String(l.i) === String(widget.id))
-        || widget.mobileLayout
+    let desktopSource = widgetForSave.containerId
+      ? (widgetForSave.layout && typeof widgetForSave.layout === "object" ? widgetForSave.layout : normalizeLayoutItem({}, 0, widgetForSave.id))
+      : (liveDesktopLayout.find((l) => String(l.i) === String(widgetForSave.id))
+        || widgetForSave.layout
+        || normalizeLayoutItem({}, 0, widgetForSave.id));
+    if (widgetForSave.rawType === "container" && !widgetForSave.containerId && !isPhoneBuilderMode) {
+      desktopSource = {
+        ...desktopSource,
+        h: resolveContainerDisplayHeight(widgetForSave, desktopSource, widgets),
+      };
+    }
+    const mobileSource = widgetForSave.containerId
+      ? (widgetForSave.mobileLayout && typeof widgetForSave.mobileLayout === "object" ? widgetForSave.mobileLayout : desktopSource)
+      : (liveMobileLayout.find((l) => String(l.i) === String(widgetForSave.id))
+        || widgetForSave.mobileLayout
         || desktopSource);
 
     const buildResolvedLayout = (sourceLayout, applySizeOptions = false) => {
@@ -2380,25 +2866,25 @@ export default function DashboardBuilder({
           h: applySizeOptions && options?.heightPx != null ? pixelToGridH(options.heightPx) : sourceLayout.h,
         },
         0,
-        widget.id,
+        widgetForSave.id,
       );
-      return normalizeLayoutItem(enforceLayoutByType(widget.rawType, withPixelSize), 0, widget.id);
+      return normalizeLayoutItem(enforceLayoutByType(widgetForSave.rawType, withPixelSize), 0, widgetForSave.id);
     };
 
     const resolvedDesktopLayout = buildResolvedLayout(desktopSource, !isPhoneBuilderMode);
     const resolvedMobileLayout = buildResolvedLayout(mobileSource, isPhoneBuilderMode);
     const payload = {
-      title: widget.title,
-      description: widget.description || "",
-      type: resolveApiType(widget),
-      query: requiresDataQuery(widget.rawType) ? widget.query || "" : "",
-      audience_scope: widget.audienceScope || "global",
-      target_user_ids: Array.isArray(widget.targetUserIds) ? widget.targetUserIds : [],
-      chart_config: chartConfigFromWidgetStyle(widget),
+      title: widgetForSave.title,
+      description: widgetForSave.description || "",
+      type: resolveApiType(widgetForSave),
+      query: requiresDataQuery(widgetForSave.rawType) ? widgetForSave.query || "" : "",
+      audience_scope: widgetForSave.audienceScope || "global",
+      target_user_ids: Array.isArray(widgetForSave.targetUserIds) ? widgetForSave.targetUserIds : [],
+      chart_config: chartConfigFromWidgetStyle(widgetForSave),
       app_key: targetAppKey,
       page_key: DASHBOARD_STORAGE_PAGE_KEY,
-      target_page_key: widget.targetPageKey || "dashboard",
-      target_page_module: widget.targetPageModule || null,
+      target_page_key: widgetForSave.targetPageKey || "dashboard",
+      target_page_module: widgetForSave.targetPageModule || null,
       dashboard_key: selectedDashboardKey,
       dashboard_name: selectedDashboardLabel,
       dashboard_scope: dashboardScopeForSave,
@@ -2406,11 +2892,11 @@ export default function DashboardBuilder({
       layout: resolvedDesktopLayout,
       mobile_layout: resolvedMobileLayout,
       device_target: "both",
-      is_active: widget.is_active !== false,
+      is_active: widgetForSave.is_active !== false,
       is_published: false,
     };
-    if (widget.containerId) {
-      payload.section_id = widget.containerId;
+    if (widgetForSave.containerId) {
+      payload.section_id = widgetForSave.containerId;
     }
 
     try {
@@ -2457,12 +2943,65 @@ export default function DashboardBuilder({
       const saved = res?.data;
       if (!saved) return;
 
+      if (widget.containerId) {
+        const parentId = String(widget.containerId);
+        const parent = widgets.find((entry) => String(entry.id) === parentId);
+        const childId = String(saved.id);
+        if (parent && !String(parent.id).startsWith("tmp_")) {
+          const patchNestedList = (items = []) =>
+            items.map((item, idx) =>
+              String(item.i) === String(widget.id) || String(item.i) === childId
+                ? normalizeLayoutItem({ ...item, ...resolvedDesktopLayout, i: childId }, idx, childId)
+                : item,
+            );
+          const nextNested = patchNestedList(parent.nestedLayout || []);
+          const nextMobileNested = patchNestedList(
+            Array.isArray(parent.mobileNestedLayout) && parent.mobileNestedLayout.length
+              ? parent.mobileNestedLayout
+              : nextNested,
+          );
+          try {
+            await updateWidgetApi(parent.id, {
+              title: parent.title || "",
+              description: parent.description || "",
+              type: "section",
+              query: "",
+              audience_scope: parent.audienceScope || "global",
+              target_user_ids: Array.isArray(parent.targetUserIds) ? parent.targetUserIds : [],
+              chart_config: {
+                ...chartConfigFromWidgetStyle({
+                  ...parent,
+                  nestedLayout: nextNested,
+                  mobileNestedLayout: nextMobileNested,
+                }),
+              },
+              app_key: targetAppKey,
+              page_key: DASHBOARD_STORAGE_PAGE_KEY,
+              target_page_key: parent.targetPageKey || "dashboard",
+              target_page_module: parent.targetPageModule || null,
+              dashboard_key: selectedDashboardKey,
+              layout: parent.layout,
+              mobile_layout: parent.mobileLayout || parent.layout,
+              device_target: "both",
+              is_active: parent.is_active !== false,
+              is_published: false,
+            });
+          } catch (_parentSyncError) {
+            // Parent nested_layout will still sync on Save Draft / Publish.
+          }
+        }
+      }
+
       const remapNestedItems = (items = []) =>
-        items.map((item, idx) =>
-          String(item.i) === String(widget.id)
-            ? normalizeLayoutItem({ ...item, i: String(saved.id) }, idx, saved.id)
-            : item,
-        );
+        items.map((item, idx) => {
+          const isMatch = String(item.i) === String(widget.id) || String(item.i) === String(saved.id);
+          if (!isMatch) return item;
+          return normalizeLayoutItem(
+            { ...item, ...resolvedDesktopLayout, i: String(saved.id) },
+            idx,
+            saved.id,
+          );
+        });
 
       setWidgets((prev) =>
         prev.map((w) => {
@@ -2494,15 +3033,19 @@ export default function DashboardBuilder({
               targetUserIds: Array.isArray(saved?.target_user_ids) ? saved.target_user_ids : [],
               sectionId: saved?.chart_config?.section_id ?? w.containerId ?? null,
               containerId: saved?.chart_config?.section_id ?? w.containerId ?? null,
-              targetPageKey: saved?.target_page_key || widget.targetPageKey || "dashboard",
-              targetPageModule: saved?.target_page_module || widget.targetPageModule || null,
-              deviceTarget: normalizeWidgetDeviceTarget(saved?.device_target || widget.deviceTarget),
+              layoutLocked: widgetForSave.layoutLocked === true || saved?.chart_config?.layout_locked === true,
+              targetPageKey: saved?.target_page_key || widgetForSave.targetPageKey || "dashboard",
+              targetPageModule: saved?.target_page_module || widgetForSave.targetPageModule || null,
+              deviceTarget: normalizeWidgetDeviceTarget(saved?.device_target || widgetForSave.deviceTarget),
               layout: resolvedDesktopLayout,
               mobileLayout: resolvedMobileLayout,
-              style: mergeWidgetStyle(
-                saved.type === "count" || saved.type === "sum" ? "kpi" : saved.type === "section" ? "container" : saved.type,
-                saved?.chart_config,
-              ),
+              style: {
+                ...mergeWidgetStyle(
+                  saved.type === "count" || saved.type === "sum" ? "kpi" : saved.type === "section" ? "container" : saved.type,
+                  saved?.chart_config,
+                ),
+                ...(widgetForSave.style || {}),
+              },
             };
           }
           return w;
@@ -2567,6 +3110,17 @@ export default function DashboardBuilder({
     });
     setSelectedWidgetId(null);
 
+    if (widget.containerId && widget.rawType !== "container") {
+      const parentId = String(widget.containerId);
+      const parent = widgets.find((entry) => String(entry.id) === parentId);
+      if (parent && !isContainerLayoutLocked(parent)) {
+        const nextNested = (parent.nestedLayout || []).filter(
+          (item) => !removedIds.has(String(item.i)),
+        );
+        queueMicrotask(() => syncContainerMainLayout(parentId, nextNested, undefined));
+      }
+    }
+
     try {
       const deleteOne = async (entry) => {
         if (String(entry.id).startsWith("tmp_")) return;
@@ -2591,31 +3145,53 @@ export default function DashboardBuilder({
   };
 
   const buildDashboardJsonPayload = () => {
+    const sourceWidgets = widgetsRef.current?.length ? widgetsRef.current : widgets;
     const syncedWidgets = hydrateContainerNestedLayouts(
-      widgets.map((widget) => {
+      sourceWidgets.map((widget) => {
         if (widget.rawType !== "container") return widget;
+        const nestedLayout = getContainerNestedSource(widget, sourceWidgets);
+        liveContainerNestedLayoutsRef.map.set(String(widget.id), nestedLayout);
         return {
           ...widget,
-          nestedLayout: getContainerNestedSource(widget, widgets),
-          mobileNestedLayout: getContainerNestedMobileSource(widget, widgets),
+          nestedLayout,
+          mobileNestedLayout: getContainerNestedMobileSource(widget, sourceWidgets),
         };
       }),
     );
     const liveLayout = layoutRef.current?.length ? layoutRef.current : layout;
     const liveMobile = mobileLayoutRef.current?.length ? mobileLayoutRef.current : mobileLayout;
+    const topLevelIds = new Set(
+      syncedWidgets.filter((widget) => isTopLevelCanvasWidget(widget)).map((widget) => String(widget.id)),
+    );
+    // Publish: keep builder grid coords as-is (no auto-height / repack) for pixel-perfect parity.
     const publishLayout = clampLayoutInBounds(
-      liveLayout.map((item, idx) => ({
-        ...(item || {}),
-        i: String(item?.i || item?.id || `layout_${idx}`),
-      })),
+      liveLayout
+        .filter((item) => topLevelIds.has(String(item?.i || item?.id)))
+        .map((item, idx) => {
+          const widget = syncedWidgets.find((entry) => String(entry.id) === String(item.i));
+          if (widget?.rawType === "container") {
+            const containerLayout = applyDesktopContainerLayout(widget, item);
+            return normalizeLayoutItem(
+              {
+                ...item,
+                i: String(item.i),
+                x: containerLayout.x,
+                w: containerLayout.w,
+                y: Math.max(0, Number(item.y) || 0),
+                h: Math.max(1, Number(item.h) || 1),
+              },
+              idx,
+              item.i,
+            );
+          }
+          return normalizeLayoutItem(
+            { ...(item || {}), i: String(item?.i || item?.id || `layout_${idx}`) },
+            idx,
+            item?.i || item?.id,
+          );
+        }),
       GRID_COLS,
-    ).map((item, idx) => {
-      const widget = syncedWidgets.find((entry) => String(entry.id) === String(item.i));
-      const resolved = widget?.rawType === "container"
-        ? applyDesktopContainerLayout(widget, item)
-        : item;
-      return normalizeLayoutItem(resolved, idx, item.i);
-    });
+    );
     const publishMobileLayout = clampLayoutInBounds(
       liveMobile.map((item, idx) => ({
         ...(item || {}),
@@ -2624,23 +3200,68 @@ export default function DashboardBuilder({
       GRID_COLS,
     ).map((item, idx) => normalizeLayoutItem(item, idx, item.i));
     const widgetsForJson = syncedWidgets.map((widget) => {
-      if (widget.rawType !== "container") return widget;
-      return {
+      const isManual = manualSizedWidgetIdsRef.current.has(String(widget.id)) && widget.layoutLocked === true;
+      const isNestedChild = Boolean(widget.containerId || widget.sectionId);
+      const isContainer = widget.rawType === "container" && !isNestedChild;
+      if (isManual) {
+        if (isContainer) {
+          const layoutItem = publishLayout.find((entry) => String(entry.i) === String(widget.id)) || widget.layout || {};
+          const pixelStyle = mainLayoutItemPixelStyle(layoutItem);
+          const { layoutWidthPx: _dropW, ...restStyle } = widget.style || {};
+          return {
+            ...widget,
+            nestedLayout: getContainerNestedSource(widget, syncedWidgets),
+            mobileNestedLayout: getContainerNestedMobileSource(widget, syncedWidgets),
+            layoutLocked: true,
+            style: {
+              ...restStyle,
+              layoutHeightPx: pixelStyle.heightPx,
+            },
+          };
+        }
+        return widget;
+      }
+      const { layoutWidthPx: _dropW, layoutHeightPx, ...portableStyle } = widget.style || {};
+      const nextStyle = { ...portableStyle };
+      // Nested widget size lives in parent nested_layout grid coords only.
+      if (isContainer) {
+        const layoutItem = publishLayout.find((entry) => String(entry.i) === String(widget.id)) || widget.layout || {};
+        const pixelStyle = mainLayoutItemPixelStyle(layoutItem);
+        nextStyle.layoutHeightPx = pixelStyle.heightPx;
+      } else if (!isNestedChild && layoutHeightPx != null) {
+        nextStyle.layoutHeightPx = layoutHeightPx;
+      }
+      const nextWidget = {
         ...widget,
-        nestedLayout: getContainerNestedSource(widget, syncedWidgets),
-        mobileNestedLayout: getContainerNestedMobileSource(widget, syncedWidgets),
+        layoutLocked: isNestedChild || isContainer ? true : false,
+        style: nextStyle,
+        ...(isContainer
+          ? {
+            nestedLayout: getContainerNestedSource(widget, syncedWidgets),
+            mobileNestedLayout: getContainerNestedMobileSource(widget, syncedWidgets),
+          }
+          : {}),
       };
+      return nextWidget;
     });
     const dashboardWidgets = widgetsForJson.map((widget) => {
       const isNestedChild = Boolean(widget.containerId);
+      const isContainer = widget.rawType === "container" && !isNestedChild;
       const parentContainer = isNestedChild
         ? syncedWidgets.find((entry) => String(entry.id) === String(widget.containerId))
         : null;
       const nestedMobileItem = isNestedChild
         ? (parentContainer?.mobileNestedLayout || []).find((item) => String(item.i) === String(widget.id))
         : null;
+      const nestedDesktopItem = isNestedChild
+        ? mergeNestedItemFromChild(
+          widget,
+          (parentContainer?.nestedLayout || []).find((item) => String(item.i) === String(widget.id)) || {},
+        )
+        : null;
       const currentLayout = isNestedChild
-        ? (widget.layout && typeof widget.layout === "object" ? widget.layout : normalizeLayoutItem({}, 0, widget.id))
+        ? (nestedDesktopItem
+          || (widget.layout && typeof widget.layout === "object" ? widget.layout : normalizeLayoutItem({}, 0, widget.id)))
         : (publishLayout.find((l) => String(l.i) === String(widget.id)) || widget.layout || normalizeLayoutItem({}, 0, widget.id));
       let currentMobileLayout = isNestedChild
         ? nestedMobileItem
@@ -2649,11 +3270,12 @@ export default function DashboardBuilder({
         if (widget.mobileLayout && typeof widget.mobileLayout === "object") {
           currentMobileLayout = widget.mobileLayout;
         } else {
+          // Keep phone nested coords = saved desktop nested (no forced full-width stack).
           const nestedDesktopItem = (parentContainer?.nestedLayout || []).find(
             (item) => String(item.i) === String(widget.id),
           );
           currentMobileLayout = nestedDesktopItem
-            ? normalizeLayoutItem({ ...nestedDesktopItem, x: 0, w: 12 }, 0, widget.id)
+            ? normalizeLayoutItem({ ...nestedDesktopItem }, 0, widget.id)
             : currentLayout;
         }
       } else if (!isNestedChild && !currentMobileLayout) {
@@ -2669,8 +3291,27 @@ export default function DashboardBuilder({
         0,
         widget.id,
       );
+      const { layoutWidthPx: _dropNestedW, layoutHeightPx: _dropNestedH, ...nestedBaseStyle } = widget.style || {};
+      let widgetForJson = { ...widget, style: nestedBaseStyle };
+      if (isContainer) {
+        const pixelStyle = mainLayoutItemPixelStyle(resolvedLayout);
+        const { layoutWidthPx: _dropCw, ...containerStyle } = widgetForJson.style || {};
+        widgetForJson = {
+          ...widgetForJson,
+          layoutLocked: true,
+          style: {
+            ...containerStyle,
+            layoutHeightPx: pixelStyle.heightPx,
+          },
+        };
+      }
       return {
-        ...normalizeWidgetForDashboardJson(widget, resolvedLayout),
+        ...normalizeWidgetForDashboardJson(widgetForJson, resolvedLayout, {
+          persistManualLayout: isContainer
+            || (manualSizedWidgetIdsRef.current.has(String(widget.id)) && widget.layoutLocked === true),
+          persistNestedPixelLayout: false,
+          lockNestedLayout: isNestedChild || isContainer,
+        }),
         mobileLayout: compactLayoutForStorage(resolvedMobileLayout, widget.id),
         deviceTarget: normalizeWidgetDeviceTarget(widget.deviceTarget),
       };
@@ -2703,10 +3344,11 @@ export default function DashboardBuilder({
           if (Array.isArray(widget.mobileNestedLayout) && widget.mobileNestedLayout.length) {
             return widget;
           }
+          // Seed phone nested from current desktop nested (same grid) — user can rearrange in phone mode.
           const nestedSource = getContainerNestedSource(widget, prev);
           return {
             ...widget,
-            mobileNestedLayout: stackNestedLayoutForPhone(nestedSource),
+            mobileNestedLayout: sanitizeNestedLayoutItems(nestedSource.map((item) => ({ ...item }))),
           };
         }),
       );
@@ -3329,7 +3971,13 @@ export default function DashboardBuilder({
   };
 
   return (
-    <div className={`relative flex flex-row ${embedMode ? "min-h-0" : "flex-1 h-full min-h-0 w-full"} ${readOnly && !isPhoneView ? "md:-m-2 md:w-[calc(100%+1rem)]" : ""} bg-[#f8fafc] overflow-hidden font-sans`}>
+    <div className={`relative flex flex-row ${
+      embedMode
+        ? "min-h-0"
+        : readOnly
+          ? "w-full min-h-0"
+          : "flex-1 h-full min-h-0 w-full overflow-hidden"
+    } bg-[#f8fafc] font-sans`}>
       {!readOnly && builderNotice ? (
         <div
           className={`fixed left-1/2 top-4 z-[130] w-[min(92vw,420px)] -translate-x-1/2 rounded-lg border px-4 py-3 shadow-lg ${
@@ -3344,7 +3992,13 @@ export default function DashboardBuilder({
         </div>
       ) : null}
       {/* ── MAIN: header + canvas ── */}
-      <div className={`${embedMode ? "w-full" : "flex-1"} flex flex-col overflow-hidden min-w-0`}>
+      <div className={`${
+        embedMode
+          ? "w-full"
+          : readOnly
+            ? "w-full flex flex-col min-w-0 overflow-visible"
+            : "flex-1 flex flex-col overflow-hidden min-w-0"
+      }`}>
         {!readOnly && (
           <div className="h-11 bg-white border-b border-slate-200 shrink-0 z-20 shadow-sm flex min-w-0">
             {isPhoneBuilderMode && (
@@ -3728,11 +4382,17 @@ export default function DashboardBuilder({
         {/* Canvas — fills available width, measured by containerRef */}
         <div
           ref={canvasContainerRef}
-          className={`relative z-0 ${embedMode ? "max-h-[480px]" : "flex-1"} overflow-y-auto overflow-x-hidden custom-scrollbar ${
+          className={`relative z-0 ${
+            embedMode
+              ? "max-h-[480px] overflow-y-auto overflow-x-hidden custom-scrollbar"
+              : readOnly
+                ? "w-full overflow-visible"
+                : "flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar"
+          } ${
             readOnly
               ? isPhoneView
-                ? "bg-transparent px-0 py-1"
-                : "bg-[#f8fafc] p-0"
+                ? "bg-transparent px-2 py-1"
+                : "bg-[#f8fafc] px-1 sm:px-2 md:px-3 py-1.5 sm:py-2 md:py-3"
               : "bg-[#f8fafc] bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:18px_18px] px-1 sm:px-2 md:px-3 py-1.5 sm:py-2 md:py-3 "
           }`}
         >
@@ -3746,86 +4406,57 @@ export default function DashboardBuilder({
             }}
           >
             {gridReady ? (
-            <div className={isPhonePreviewFrame ? "w-[390px] max-w-full rounded-[24px] border-4 border-slate-800 bg-white shadow-xl" : "w-full"}>
-            {readOnly ? (
-            <GridLayout
-              key={`dashboard-live-${isPhoneView ? "phone" : "desktop"}-${canvasWidth}`}
-              className={`layout dashboard-view-grid${isPhoneView ? " dashboard-live-phone" : " dashboard-live-desktop"}`}
-              width={canvasWidth}
-              layout={activeReadOnlyLayout}
-              cols={GRID_COLS}
-              rowHeight={GRID_ROW_HEIGHT}
-              compactType={null}
-              preventCollision={false}
-              isDraggable={false}
-              isResizable={false}
-              margin={[GRID_GAP_X, GRID_GAP_Y]}
-              containerPadding={[0, 0]}
+            <div
+              ref={liveGridMeasure.containerRef}
+              className={isPhonePreviewFrame ? "w-[390px] max-w-full rounded-[24px] border-4 border-slate-800 bg-white shadow-xl" : "w-full"}
             >
-              {canvasWidgets.map((widget) => (
-                <div
-                  key={String(widget.id)}
-                  className={`group relative h-full w-full max-w-full ${widget.rawType === "container" ? "container-widget-cell " : ""}`}
-                >
-                  <WidgetRenderer
-                    widget={widget}
-                    readOnly={readOnly}
-                    isPhoneMode={isPhoneLayoutMode}
-                    isDropTarget={false}
-                    selectedWidgetId={selectedWidgetId}
-                    onNestedLayoutChange={handleNestedLayoutChange}
-                    onSelectWidget={() => {}}
-                    onDeleteWidget={handleDeleteWidget}
-                    onAddChildWidget={addWidgetInContainer}
-                    onCloneChildWidget={cloneWidgetInContainer}
-                    onCloneWidget={handleCloneWidget}
-                  />
-                </div>
-              ))}
-            </GridLayout>
-            ) : (
             <Responsive
-              key={`builder-grid-${builderDeviceMode}`}
-              className="layout dashboard-builder-grid"
+              key={readOnly ? `readonly-grid-${isPhoneView ? "phone" : "desktop"}` : `builder-grid-${builderDeviceMode}`}
+              className={`layout dashboard-builder-grid${
+                readOnly
+                  ? (isPhoneView ? " dashboard-view-grid dashboard-live-phone" : " dashboard-view-grid dashboard-live-desktop")
+                  : (isPhoneBuilderMode ? " dashboard-live-phone" : "")
+              }`}
               width={canvasWidth}
               layouts={renderedLayouts}
               breakpoints={activeBreakpoints}
               cols={activeColsMap}
               rowHeight={GRID_ROW_HEIGHT}
-              onDragStart={!isCanvasLocked ? handleDragStart : undefined}
-              onDragStop={!isCanvasLocked ? handleDragStop : undefined}
-              onResizeStop={!isCanvasLocked ? handleResizeStop : undefined}
+              onDragStart={!isCanvasLocked && !readOnly ? handleDragStart : undefined}
+              onDragStop={!isCanvasLocked && !readOnly ? handleDragStop : undefined}
+              onLayoutChange={!isCanvasLocked && !readOnly ? handleBuilderLayoutChange : undefined}
+              onResizeStop={!isCanvasLocked && !readOnly ? handleResizeStop : undefined}
               compactType={null}
               preventCollision={false}
-              draggableHandle={isCanvasLocked ? undefined : ".canvas-drag-handle"}
-              isDraggable={!isCanvasLocked}
-              isResizable={!isCanvasLocked}
-              resizeHandles={!isCanvasLocked ? ["s", "w", "e", "n", "sw", "nw", "se", "ne"] : []}
+              draggableHandle={isCanvasLocked || readOnly ? undefined : ".canvas-drag-handle"}
+              isDraggable={!isCanvasLocked && !readOnly}
+              isResizable={!isCanvasLocked && !readOnly}
+              resizeHandles={!isCanvasLocked && !readOnly ? ["s", "w", "e", "n", "sw", "nw", "se", "ne"] : []}
               margin={[GRID_GAP_X, GRID_GAP_Y]}
               containerPadding={[0, 0]}
             >
               {canvasWidgets.map((widget) => (
                 <div
                   key={String(widget.id)}
-                  className={`group relative h-full w-full max-w-full transition-all duration-150 ${widget.rawType === "container" ? "container-widget-cell " : ""}${dropTargetContainerIds.has(String(widget.id)) ? "ring-2 ring-blue-400 ring-dashed " : ""}${String(selectedWidgetId) === String(widget.id) ? "z-20" : "z-10"}`}
-                  onMouseDown={(e) => {
+                  className={`${readOnly ? "" : "group"} relative ${containerCellHeightClass(widget)} w-full max-w-full transition-all duration-150 ${widget.rawType === "container" ? "container-widget-cell " : ""}${widget.rawType === "heading" ? "heading-widget-cell " : ""}${dropTargetContainerIds.has(String(widget.id)) ? "ring-2 ring-blue-400 ring-dashed " : ""}${String(selectedWidgetId) === String(widget.id) ? "z-20" : "z-10"}`}
+                  onMouseDown={readOnly ? undefined : (e) => {
                     if (isCanvasLocked || showClonePanel) return;
                     if (e.target.closest(".canvas-drag-handle, .widget-action-bar, button, a, input, select, textarea, .react-resizable-handle")) return;
                     e.stopPropagation();
                     setSelectedWidgetId(widget.id);
                     setPropertyPanelOpen(true);
                   }}
-                  onClick={(e) => {
+                  onClick={readOnly ? undefined : (e) => {
                     if (isCanvasLocked || showClonePanel) return;
                     e.stopPropagation();
                     setSelectedWidgetId(widget.id);
                     setPropertyPanelOpen(true);
                   }}
                 >
-                  {!isCanvasLocked && widget.rawType !== "container" && String(selectedWidgetId) === String(widget.id) && (
+                  {!isCanvasLocked && !readOnly && widget.rawType !== "container" && String(selectedWidgetId) === String(widget.id) && (
                     <div className="absolute -inset-2 border-2 border-blue-500 rounded-[12px] pointer-events-none z-0" />
                   )}
-                  {!isCanvasLocked && widget.rawType !== "container" && String(selectedWidgetId) === String(widget.id) && (
+                  {!isCanvasLocked && !readOnly && widget.rawType !== "container" && String(selectedWidgetId) === String(widget.id) && (
                     <div className="absolute top-2 right-2 z-40 flex items-center gap-1 bg-white border border-slate-200 rounded-md shadow-sm p-1">
                       <button
                         type="button"
@@ -3853,7 +4484,7 @@ export default function DashboardBuilder({
                       </button>
                     </div>
                   )}
-                  {!isCanvasLocked && widget.rawType !== "container" && (
+                  {!isCanvasLocked && !readOnly && widget.rawType !== "container" && (
                     <div className="canvas-drag-handle absolute top-1 left-1 z-40 h-5 w-5 grid place-items-center cursor-move opacity-0 group-hover:opacity-100 bg-white shadow border border-slate-200 rounded transition-all">
                       <GripVertical size={11} className="text-slate-400 pointer-events-none" />
                     </div>
@@ -3861,23 +4492,23 @@ export default function DashboardBuilder({
                   <WidgetRenderer
                     widget={widget}
                     readOnly={readOnly}
+                    designParity={readOnly}
                     isPhoneMode={isPhoneLayoutMode}
-                    isDropTarget={dropTargetContainerIds.has(String(widget.id))}
-                    selectedWidgetId={selectedWidgetId}
-                    onNestedLayoutChange={handleNestedLayoutChange}
-                    onSelectWidget={(childId) => {
+                    isDropTarget={!readOnly && dropTargetContainerIds.has(String(widget.id))}
+                    selectedWidgetId={readOnly ? null : selectedWidgetId}
+                    onNestedLayoutChange={readOnly ? () => {} : handleNestedLayoutChange}
+                    onSelectWidget={readOnly ? () => {} : (childId) => {
                       setSelectedWidgetId(childId);
                       setPropertyPanelOpen(true);
                     }}
-                    onDeleteWidget={handleDeleteWidget}
-                    onAddChildWidget={addWidgetInContainer}
-                    onCloneChildWidget={cloneWidgetInContainer}
-                    onCloneWidget={handleCloneWidget}
+                    onDeleteWidget={readOnly ? () => {} : handleDeleteWidget}
+                    onAddChildWidget={readOnly ? () => {} : addWidgetInContainer}
+                    onCloneChildWidget={readOnly ? () => {} : cloneWidgetInContainer}
+                    onCloneWidget={readOnly ? () => {} : handleCloneWidget}
                   />
                 </div>
               ))}
             </Responsive>
-            )}
             </div>
             ) : (
               <div className="w-full min-h-[240px]" aria-hidden />
@@ -4099,13 +4730,42 @@ export default function DashboardBuilder({
         .dashboard-builder-grid .react-grid-item {
           overflow: visible !important;
         }
+        .dashboard-builder-grid .react-grid-item:has(> .container-widget-cell) {
+          overflow: visible !important;
+          display: flex !important;
+          min-height: 0 !important;
+          height: auto !important;
+        }
+        .dashboard-builder-grid .react-grid-item:has(> .container-widget-cell) > .container-widget-cell {
+          width: 100% !important;
+          max-width: 100% !important;
+          height: auto !important;
+          align-self: flex-start !important;
+          overflow-x: hidden;
+        }
         .dashboard-builder-grid .react-grid-item.container-widget-cell {
           overflow: visible !important;
+          display: flex !important;
+          min-height: 0 !important;
         }
         .dashboard-builder-grid .react-grid-item.container-widget-cell > div {
           width: 100% !important;
           max-width: 100% !important;
           overflow-x: hidden;
+        }
+        .dashboard-builder-grid .react-grid-item.container-widget-cell > div.h-auto {
+          height: auto !important;
+          align-self: flex-start !important;
+        }
+        .dashboard-builder-grid .react-grid-item.heading-widget-cell > div,
+        .dashboard-view-grid .react-grid-item.heading-widget-cell > div,
+        .container-nested-grid .react-grid-item.heading-widget-cell > div {
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+        }
+        .container-nested-grid .react-grid-item.heading-widget-cell {
+          min-height: 0 !important;
         }
         .dashboard-builder-grid .react-grid-item > .react-resizable-handle {
           opacity: 0;
@@ -4138,6 +4798,140 @@ export default function DashboardBuilder({
           width: 14px !important;
           height: 14px !important;
           cursor: ne-resize !important;
+        }
+        .container-nested-grid .react-grid-item {
+          min-height: 0 !important;
+          overflow: visible !important;
+        }
+        .container-nested-interaction-layer {
+          position: absolute !important;
+          top: 0 !important;
+          left: 0 !important;
+          width: 100% !important;
+          pointer-events: none !important;
+          z-index: 20 !important;
+        }
+        .container-nested-interaction-layer .react-grid-item {
+          pointer-events: auto !important;
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+        }
+        .container-nested-interaction-layer .react-grid-item > div {
+          background: transparent !important;
+        }
+        .container-live-css-grid {
+          position: relative;
+          z-index: 1;
+        }
+        .container-nested-grid .react-grid-item:hover,
+        .container-nested-grid .react-grid-item.resizing,
+        .container-nested-grid .react-grid-item.react-draggable-dragging,
+        .container-nested-grid .react-grid-item:has(.ring-blue-400) {
+          z-index: 45 !important;
+        }
+        .container-nested-grid .react-grid-item > div:not(.nested-drag-handle):not(.widget-action-bar) {
+          min-height: 0 !important;
+          height: 100% !important;
+          overflow: visible !important;
+        }
+        .container-nested-grid .react-grid-item:has(.nested-explicit-height) {
+          height: auto !important;
+          min-height: 0 !important;
+          align-self: flex-start !important;
+        }
+        .container-nested-grid .nested-explicit-height {
+          height: 100% !important;
+          max-height: 100% !important;
+          min-height: unset !important;
+        }
+        .container-nested-grid.read-only-nested .react-grid-item > div.nested-explicit-height {
+          min-height: unset !important;
+          height: 100% !important;
+        }
+        .container-nested-grid .nested-drag-handle {
+          position: absolute !important;
+          top: 4px !important;
+          left: 4px !important;
+          width: 20px !important;
+          height: 20px !important;
+          min-width: 20px !important;
+          max-width: 20px !important;
+          min-height: 20px !important;
+          max-height: 20px !important;
+          flex: none !important;
+          cursor: grab !important;
+        }
+        .container-nested-grid .react-grid-item.react-draggable-dragging .nested-drag-handle {
+          cursor: grabbing !important;
+        }
+        .container-nested-grid .widget-action-bar {
+          display: flex !important;
+          flex-direction: row !important;
+          flex-wrap: nowrap !important;
+          align-items: center !important;
+          position: absolute !important;
+          width: auto !important;
+          height: auto !important;
+          max-height: 1.5rem !important;
+        }
+        .container-nested-grid .react-resizable-handle-w,
+        .container-nested-grid .react-resizable-handle-n,
+        .container-nested-grid .react-resizable-handle-sw,
+        .container-nested-grid .react-resizable-handle-nw,
+        .container-nested-grid .react-resizable-handle-ne {
+          display: none !important;
+        }
+        .container-nested-grid .react-resizable-handle-w {
+          display: block !important;
+          left: 2px !important;
+          top: 50% !important;
+          margin-top: -6px !important;
+          width: 8px !important;
+          height: 12px !important;
+          cursor: w-resize !important;
+        }
+        .container-nested-grid .react-resizable-handle-e {
+          right: 2px !important;
+          top: 50% !important;
+          margin-top: -6px !important;
+          width: 8px !important;
+          height: 12px !important;
+          cursor: e-resize !important;
+        }
+        .container-nested-grid .react-grid-item > .react-resizable-handle {
+          opacity: 0;
+          transition: opacity 0.15s ease;
+          z-index: 60;
+          background: rgba(59, 130, 246, 0.45);
+          border-radius: 2px;
+        }
+        .container-nested-grid .react-grid-item:hover > .react-resizable-handle,
+        .container-nested-grid .react-grid-item.resizing > .react-resizable-handle {
+          opacity: 1;
+        }
+        .container-nested-grid .react-resizable-handle-se {
+          right: 2px !important;
+          bottom: 2px !important;
+          width: 12px !important;
+          height: 12px !important;
+          cursor: se-resize !important;
+        }
+        .container-nested-grid .react-resizable-handle-e,
+        .container-nested-grid .react-resizable-handle-w,
+        .container-nested-grid .react-resizable-handle-s,
+        .container-nested-grid .react-resizable-handle-n {
+          opacity: 0;
+        }
+        .container-nested-grid .react-grid-item:hover > .react-resizable-handle-e,
+        .container-nested-grid .react-grid-item:hover > .react-resizable-handle-w,
+        .container-nested-grid .react-grid-item:hover > .react-resizable-handle-s,
+        .container-nested-grid .react-grid-item:hover > .react-resizable-handle-n,
+        .container-nested-grid .react-grid-item.resizing > .react-resizable-handle-e,
+        .container-nested-grid .react-grid-item.resizing > .react-resizable-handle-w,
+        .container-nested-grid .react-grid-item.resizing > .react-resizable-handle-s,
+        .container-nested-grid .react-grid-item.resizing > .react-resizable-handle-n {
+          opacity: 1;
         }
         .dashboard-builder-grid .react-resizable-handle-nw {
           left: 0 !important;
@@ -4180,20 +4974,115 @@ export default function DashboardBuilder({
           display: none !important;
           pointer-events: none !important;
         }
-        .dashboard-view-grid {
-          width: 100% !important;
+        .dashboard-live-css-grid .dashboard-live-cell > div {
+          width: 100%;
+          height: 100%;
+          min-height: 0;
+        }
+        .dashboard-live-css-grid .dashboard-live-container-cell {
+          height: auto !important;
+          align-self: start !important;
+        }
+        .dashboard-live-css-grid .dashboard-live-container-cell > div {
+          height: auto !important;
+          overflow: visible !important;
+        }
+        .container-live-css-grid > div {
+          align-self: start;
+        }
+        .container-live-css-grid > div > div {
+          width: 100%;
+          height: 100%;
+          min-height: 100%;
+        }
+        .dashboard-live-css-grid .container-nested-grid {
+          position: relative;
+          z-index: 1;
+        }
+        .dashboard-live-css-grid .container-nested-grid .react-grid-item {
+          overflow: visible !important;
+        }
+        .dashboard-live-css-grid .container-nested-grid .react-grid-item > div:not(.nested-drag-handle):not(.widget-action-bar) {
+          height: 100% !important;
+          overflow: visible !important;
+        }
+        .dashboard-live-css-grid .container-nested-grid .react-resizable-handle {
+          display: none !important;
         }
         .dashboard-live-desktop.react-grid-layout,
         .dashboard-view-grid.dashboard-live-desktop .react-grid-layout {
-          width: 100% !important;
           margin: 0 !important;
         }
-        .dashboard-view-grid .react-grid-layout {
+        /* Phone published CSS — independent from laptop (.dashboard-live-desktop) */
+        .dashboard-view-grid.dashboard-live-phone .react-grid-layout {
+          margin: 0 !important;
+        }
+        .dashboard-view-grid.dashboard-live-phone .react-grid-item {
+          cursor: default !important;
+          display: flex !important;
+          flex-direction: column !important;
+          min-height: 0 !important;
+          overflow: visible !important;
+        }
+        .dashboard-view-grid.dashboard-live-phone .react-grid-item:has(> .container-widget-cell) {
+          overflow: visible !important;
+          align-items: stretch !important;
+        }
+        .dashboard-view-grid.dashboard-live-phone .react-grid-item:has(> .container-widget-cell) > .container-widget-cell {
           width: 100% !important;
+          max-width: 100% !important;
+          height: 100% !important;
+          min-height: 100% !important;
+          align-self: stretch !important;
+          overflow: visible !important;
+        }
+        .dashboard-view-grid.dashboard-live-phone .react-grid-item.container-widget-cell {
+          overflow: visible !important;
+        }
+        .dashboard-view-grid.dashboard-live-phone .react-grid-item.container-widget-cell > div {
+          width: 100% !important;
+          max-width: 100% !important;
+          height: 100% !important;
+          min-height: 0 !important;
+          overflow: visible !important;
+        }
+        .dashboard-view-grid.dashboard-live-phone .container-nested-grid,
+        .dashboard-view-grid.dashboard-live-phone .container-nested-grid .react-grid-layout {
+          overflow: visible !important;
+          width: 100% !important;
+        }
+        .dashboard-view-grid.dashboard-live-phone .container-nested-grid .react-grid-item {
+          overflow: visible !important;
+        }
+        .dashboard-view-grid.dashboard-live-phone .container-nested-grid .react-grid-item > div:not(.nested-drag-handle):not(.widget-action-bar) {
+          width: 100% !important;
+          height: 100% !important;
+          min-height: 0 !important;
+          overflow: visible !important;
+        }
+        .dashboard-view-grid.dashboard-live-phone .react-grid-item:not(.container-widget-cell) > div {
+          width: 100%;
+          height: 100%;
+        }
+        .dashboard-live-phone.dashboard-builder-grid .container-nested-grid .react-grid-item > div:not(.nested-drag-handle):not(.widget-action-bar) {
+          width: 100% !important;
+          height: 100% !important;
+          overflow: visible !important;
         }
         .dashboard-view-grid .react-grid-item {
           cursor: default !important;
           display: flex !important;
+        }
+        .dashboard-view-grid .react-grid-item:has(> .container-widget-cell) {
+          overflow: visible !important;
+        }
+        .dashboard-view-grid .react-grid-item:has(> .container-widget-cell) > .container-widget-cell {
+          width: 100% !important;
+          max-width: 100% !important;
+          height: auto !important;
+          min-height: 100% !important;
+          align-self: flex-start !important;
+          overflow: visible !important;
         }
         .dashboard-view-grid .react-grid-item.container-widget-cell {
           overflow: visible !important;
@@ -4201,9 +5090,38 @@ export default function DashboardBuilder({
         .dashboard-view-grid .react-grid-item.container-widget-cell > div {
           width: 100% !important;
           max-width: 100% !important;
-          overflow-x: hidden;
+          min-height: 0 !important;
+          overflow: visible !important;
         }
-        .dashboard-view-grid .react-grid-item > div {
+        .dashboard-view-grid .container-nested-grid,
+        .dashboard-view-grid .container-nested-grid .react-grid-layout,
+        .dashboard-view-grid .container-nested-css-grid {
+          overflow: visible !important;
+        }
+        .dashboard-view-grid .container-nested-grid .react-grid-item {
+          overflow: visible !important;
+          z-index: 2 !important;
+        }
+        .dashboard-view-grid .container-nested-grid .react-grid-item > div {
+          overflow: visible !important;
+        }
+        .dashboard-view-grid .container-nested-grid .nested-kpi-value {
+          overflow: visible !important;
+          position: relative;
+          z-index: 3;
+        }
+        .dashboard-view-grid .container-nested-css-grid > div {
+          min-height: 100%;
+        }
+        .dashboard-view-grid .react-grid-item.container-widget-cell > div.h-full {
+          height: 100% !important;
+          align-self: stretch !important;
+        }
+        .dashboard-view-grid .react-grid-item.container-widget-cell > div.h-auto {
+          height: auto !important;
+          align-self: flex-start !important;
+        }
+        .dashboard-view-grid .react-grid-item:not(.container-widget-cell) > div {
           width: 100%;
           height: 100%;
         }

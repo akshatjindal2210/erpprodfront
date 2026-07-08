@@ -102,7 +102,11 @@ export default function StockAdjustmentApproveDrawer({ open, onClose, onSuccess,
     if (!sopAckRef.current?.assertAcknowledged()) return;
     setLoading(true);
     try {
-      await stockAdjustmentService.update(detail.adjustment_id, { approved: true });
+      const payload = { approved: true };
+      if (detail?.entry_type === "add") {
+        payload.all_boxes_loose = false;
+      }
+      await stockAdjustmentService.update(detail.adjustment_id, payload);
       toast.success("Adjustment approved");
       onSuccess?.();
       onClose?.();

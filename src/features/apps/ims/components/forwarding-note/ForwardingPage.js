@@ -193,6 +193,7 @@ export default function ForwardingPage() {
   const [selectedId, setSelectedId] = useState(null); 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("add"); 
+  const [dispatchPrefill, setDispatchPrefill] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [billPrinting, setBillPrinting] = useState(false);
   const [billDraftNos, setBillDraftNos] = useState([]);
@@ -320,6 +321,32 @@ export default function ForwardingPage() {
     setModalOpen(true);
   }, []);
 
+  const openDispatchPlanNew = useCallback(() => {
+    if (!dispatchSelected) {
+      toast.info("Select a schedule row first, then click New.");
+      return;
+    }
+    setDispatchPrefill(dispatchSelected);
+    setModalMode("add");
+    setModalOpen(true);
+  }, [dispatchSelected]);
+
+  const closeModal = useCallback(() => {
+    setModalOpen(false);
+    setDispatchPrefill(null);
+    setSelectedId(null);
+  }, []);
+
+  const handleModalSuccess = useCallback(() => {
+    if (dispatchPrefill) {
+      dispatchPlanRef.current?.refresh();
+      setDispatchSelected(null);
+      setDispatchPrefill(null);
+    }
+    fetchData();
+    setSelectedId(null);
+  }, [dispatchPrefill, fetchData]);
+
   const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
 
   const handlePrintBill = useCallback(async () => {
@@ -343,7 +370,10 @@ export default function ForwardingPage() {
     modalOpen: modalOpen || isDeleting,
     selectedId: selectedId,
     getSelectedRow,
-    openAdd: useCallback(() => openModal("add"), [openModal]),
+    openAdd: useCallback(() => {
+      setDispatchPrefill(null);
+      openModal("add");
+    }, [openModal]),
     openEdit: useCallback(() => {
       if (reportType !== "summary") return;
       openModal("edit");
@@ -599,7 +629,7 @@ export default function ForwardingPage() {
             actions={
               outerTab === "dispatch_plan" ? (
                 <>
-                  <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" /> 
+                  <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openDispatchPlanNew} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" /> 
                   {canAccess("schedule_planning", "add").allowed && dispatchSelected && (
                     <>
                       {Number(dispatchSelected?.is_planned) === 6 ? (
@@ -903,10 +933,11 @@ export default function ForwardingPage() {
       {modalOpen && (
         <ForwardingModal 
             open={modalOpen} 
-            onClose={() => { setModalOpen(false); setSelectedId(null); }} 
-            onSuccess={() => { fetchData(); setSelectedId(null); }} 
+            onClose={closeModal} 
+            onSuccess={handleModalSuccess} 
             editData={modalMode === "add" ? null : modalRecord} 
-            mode={modalMode} 
+            mode={modalMode}
+            dispatchPrefill={dispatchPrefill}
         />
       )}
       

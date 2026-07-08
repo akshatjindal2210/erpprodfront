@@ -198,12 +198,17 @@ User enters 250 qty
 
 ## 8. Open box vs loose box
 
-File: `backend/src/apps/ims/utils/box/boxLooseKind.js`
+File: `backend/src/apps/ims/utils/box/boxLooseKind.js`  
+Frontend mirror: `frontend/src/core/utils/utilHelper.js` → `isForwardingLooseBox()`
 
-| Type | Identification |
-|------|----------------|
-| **Open / Full box** | Quantity equals packing standard qty (e.g. 100) |
-| **Loose box** | `is_loose = true` OR quantity differs from standard |
+| Type | Identification (priority order) |
+|------|----------------------------------|
+| **Loose box** | 1. `is_loose = true` on `ims_box_table` (set at sticker generate) |
+| | 2. Sticker snapshot: box index in UID **>** `full_boxes_count` on `ims_dailyprod` (only when snapshot is set — `null` skips; legacy packings safe) |
+| | 3. Quantity **≠** packing standard qty (`qty_per_box` from dailyprod or inferred from full boxes) |
+| **Open / Full box** | None of the above — typically qty equals standard and box index ≤ `full_boxes_count` |
+
+**Why sticker snapshot matters:** A lone **loose** sticker can have the same qty as packing standard (e.g. 206 = 206). Old logic compared qty vs standard only — so it showed **OPEN BOX** in the FN breakdown even though Sticker Control showed **LOOSE**. The sticker snapshot check fixes the label without changing FIFO.
 
 Reservation is tracked separately:
 
@@ -211,6 +216,10 @@ Reservation is tracked separately:
 - `loose_box_qty` = quantity from loose boxes
 
 Validation checks each independently — open reservation must match open stock; loose reservation must match loose stock.
+
+**Available-boxes API** also returns `qty_per_box`, `full_boxes_count`, `loose_box_qty` from `ims_dailyprod` (joined per packing) for correct classification on the frontend.
+
+**Backfill safety:** Startup `backfillBoxIsLooseFromPackingMode` only **upgrades** `is_loose` to `true` when qty ≠ inferred standard — it no longer downgrades `is_loose` from `true` to `false` (which could wrongly turn a loose sticker into a full box).
 
 ---
 
@@ -354,7 +363,3 @@ Table definitions:
 5. **On edit, exclude_fuid** — own note's reservation returns to available pool
 6. **Out entry complete** — reservation is released and stock is out
 7. **Concurrent save** — advisory lock on the same item prevents double booking
-
----
-
-**Last updated: 04 July 2026**

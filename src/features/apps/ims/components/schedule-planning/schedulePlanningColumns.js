@@ -266,7 +266,7 @@ function collectSearchParts(values) {
 
 export function scheduleItemSearchParts(row) {
   return collectSearchParts([
-    row.schno, row.acc_name, row.acc_code, row.item_code, row.itemdesc, row.itemdcode,
+    row.schno, row.acc_name, row.acc_code, row.item_code, row.custitemcode, row.itemdesc, row.itemdcode,
     schMonthLabel(row.schmonth), schMonthShortLabel(row.schmonth), row.schmonth,
     formatSchHeaderDateForSearch(row.schdt), row.schdt,
     row.status_label, row.status, row.action_reason,
@@ -534,6 +534,9 @@ export function buildScheduleItemWiseComparisonHeaders({ onDrillToItems } = {}) 
     ["Date", "schdt", (_v, row) => renderScheduleCompareCell(row, "schdt", { date: true }), { width: "140px", wrap: true }],
     ["Custommer", "acc_name", renderScheduleImsParty, { width: "200px", wrap: true }],
     ["Item", "item_code", (_v, row) => renderScheduleCompareCell(row, "item_code"), { width: "140px", wrap: true }],
+    ["Cust. Item Code", "custitemcode", (_v, row) => (
+      <span className="font-bold text-slate-900 text-[10px] uppercase">{row.custitemcode || "—"}</span>
+    ), { width: "140px", wrap: true, copyValue: (row) => row.custitemcode || "—" }],
     ["Description", "itemdesc", (_v, row) => renderScheduleCompareCell(row, "itemdesc"), { width: "200px", wrap: true }],
     ["Qty", "totalqty", (_v, row) => renderScheduleCompareCell(row, "totalqty", { qty: true }), { width: "140px", wrap: true }],
     ["Mismatch", "has_comparison_mismatch", renderScheduleMismatchSummary, { width: "120px", wrap: true }],
@@ -621,6 +624,7 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
     ), { width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" }],
     // ["Month", "schmonth", (_v, row) => <span className="text-[10px] text-slate-600 font-medium">{schMonthLabel(row.schmonth)}</span>, { width: "100px" }],
     ["Item Code", "item_code", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "160px" }],
+    ["Cust. Item Code", "custitemcode", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "140px", copyValue: (row) => row.custitemcode || "—" }],
     ["Description", "itemdesc", (v) => <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{v || "—"}</span>, { width: "220px", wrap: true }],
     ["Total Qty", "totalqty", (v, row) => (
       <span className="font-black text-slate-700 text-[11px] tabular-nums">{Number(v ?? row.total_qty ?? 0).toLocaleString()}</span>

@@ -235,6 +235,12 @@ export function isAddBoxRemovedFromInventory(box, addAdjustmentId) {
 export async function loadAddBoxesForAdjustmentView(row) {
   const adjId = Number(row?.adjustment_id);
   const pn = String(row?.packing_number ?? "").trim();
+
+  // Pending add — boxes are not in inventory yet; skip sa-add / list / get-by-id calls.
+  if (String(row?.entry_type ?? "").trim() === "add" && !row?.approved) {
+    return [];
+  }
+
   if (!Number.isFinite(adjId) || adjId < 1 || !pn) {
     return loadSaAddBoxesForAdjustment(row);
   }
@@ -244,7 +250,7 @@ export async function loadAddBoxesForAdjustmentView(row) {
   let merged = dedupeBoxesByUid([...bySticker, ...bySaId]);
 
   const removedUids = parseRemovedBoxUids(row);
-  if (removedUids.length) {
+  if (removedUids.length && row?.approved) {
     const extra = await loadBoxesByUids(removedUids);
     merged = dedupeBoxesByUid([...merged, ...extra.filter((b) => !b.is_deleted)]);
   }
@@ -301,7 +307,7 @@ export function buildViewAddRowsFromAdjustment(row, dbBoxes, packingNo) {
             ? perBox
             : Math.abs(parseInt(String(row?.qty ?? ""), 10) || 0) / n || row?.qty,
       unit: db?.unit || unit,
-      is_loose: !!db?.is_loose,
+      is_loose: db?.box_uid != null ? !!db.is_loose : false,
       is_saved: !!db?.box_uid,
       is_removed: removed,
     });
@@ -362,6 +368,7 @@ async function loadBoxesByUids(uids) {
     unique.map(async (uid) => {
       try {
         const res = await boxService.getById(uid);
+        if (res?.success === false) return null;
         return res?.data ?? res ?? null;
       } catch {
         return null;

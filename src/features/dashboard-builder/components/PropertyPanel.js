@@ -266,7 +266,7 @@ const PropertyPanel = ({
                       }
                       applyWidgetPatch({ rawType: "table", type: "table" });
                     }}
-                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all border ${
+                    className={`px-1 py-1 rounded-md text-[8px] font-bold uppercase tracking-widest transition-all border ${
                       selectedWidget.rawType === t.key
                         ? "bg-blue-600 border-blue-600 text-white shadow-md"
                         : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
@@ -342,11 +342,8 @@ const PropertyPanel = ({
 
             {selectedWidget.rawType === "container" && (
               <div className="space-y-3">
-                <p className="text-[10px] text-slate-500 leading-relaxed bg-slate-50 border border-slate-200 rounded-md px-2.5 py-2">
-                  Drag any canvas widget onto this container to group it inside. Title is optional — leave blank for no header.
-                </p>
                 <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Container Width</p>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Quick Width</p>
                   <div className="grid grid-cols-2 gap-2">
                     {[
                       { key: "full", label: "Full" },
@@ -675,28 +672,56 @@ const PropertyPanel = ({
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Padding (px)</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={120}
-                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
-                  value={selectedWidget.style?.padding ?? (selectedWidget.rawType === "kpi" ? 6 : 8)}
-                  onChange={(e) => handleChange("style.padding", Math.max(0, Number(e.target.value) || 0))}
-                />
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Padding (px)</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: "paddingTop", label: "Top" },
+                    { key: "paddingBottom", label: "Bottom" },
+                    { key: "paddingLeft", label: "Left" },
+                    { key: "paddingRight", label: "Right" },
+                  ].map((field) => (
+                    <div key={field.key}>
+                      <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">{field.label}</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={120}
+                        className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+                        value={
+                          selectedWidget.style?.[field.key]
+                          ?? selectedWidget.style?.padding
+                          ?? (selectedWidget.rawType === "kpi" ? 6 : selectedWidget.rawType === "heading" ? 0 : 8)
+                        }
+                        onChange={(e) => handleChange(`style.${field.key}`, Math.max(0, Number(e.target.value) || 0))}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Margin (px)</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={80}
-                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
-                  value={selectedWidget.style?.margin ?? 0}
-                  onChange={(e) => handleChange("style.margin", Math.max(0, Number(e.target.value) || 0))}
-                />
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Margin (px)</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: "marginTop", label: "Top" },
+                    { key: "marginBottom", label: "Bottom" },
+                    { key: "marginLeft", label: "Left" },
+                    { key: "marginRight", label: "Right" },
+                  ].map((field) => (
+                    <div key={field.key}>
+                      <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">{field.label}</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={80}
+                        className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+                        value={selectedWidget.style?.[field.key] ?? selectedWidget.style?.margin ?? 0}
+                        onChange={(e) => handleChange(`style.${field.key}`, Math.max(0, Number(e.target.value) || 0))}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 

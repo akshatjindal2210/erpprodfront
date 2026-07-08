@@ -1,4 +1,5 @@
 import dayjs from "dayjs";
+import { getBoxNoUidPrefix, parseStandardBoxNoUid } from "@/core/utils/global";
 
 function parseSafeDate(d) {
   if (d == null || String(d).trim() === "") return null;
@@ -150,11 +151,30 @@ export const maskTaskId = (id) => {
 };
 
 /** Keep in sync with `backend/src/apps/ims/utils/box/boxLooseKind.js`. */
+function isBoxLooseFlagged(box) {
+  const v = box?.is_loose;
+  return v === true || v === 1 || v === "true" || v === "t";
+}
+
+function isLooseStickerIndex(box) {
+  const raw = box?.full_boxes_count;
+  if (raw == null || raw === "") return false;
+  const fullCount = Number(raw);
+  if (!Number.isFinite(fullCount) || fullCount < 0) return false;
+  const parsed = parseStandardBoxNoUid(box?.box_no_uid, getBoxNoUidPrefix());
+  if (!parsed?.boxIndex) return false;
+  return parsed.boxIndex > fullCount;
+}
+
 export function inferForwardingPackingStandardQty(boxes = []) {
+  for (const box of boxes || []) {
+    const dpStd = Math.round(Number(box?.qty_per_box) || 0);
+    if (dpStd > 0) return dpStd;
+  }
+
   const counts = new Map();
   for (const box of boxes || []) {
-    const flaggedLoose = box?.is_loose === true || box?.is_loose === 1 || box?.is_loose === "true" || box?.is_loose === "t";
-    if (flaggedLoose) continue;
+    if (isBoxLooseFlagged(box) || isLooseStickerIndex(box)) continue;
     const qty = Math.round(Number(box?.qty) || 0);
     if (qty > 0) counts.set(qty, (counts.get(qty) || 0) + 1);
   }
@@ -175,17 +195,17 @@ export function inferForwardingPackingStandardQty(boxes = []) {
   return bestQty > 0 ? bestQty : 0;
 }
 
-/** Full/open vs loose — `is_loose` flag, else qty vs packing standard (full box qty). */
+/** Full/open vs loose — `is_loose` flag, sticker index, else qty vs packing standard. */
 export function isForwardingLooseBox(box, packingStandardQty = null) {
-  const v = box?.is_loose;
-  if (v === true || v === 1 || v === "true" || v === "t") return true;
+  if (isBoxLooseFlagged(box)) return true;
+  if (isLooseStickerIndex(box)) return true;
 
   const qty = Math.round(Number(box?.qty) || 0);
   const std = Math.round(
     Number(
       packingStandardQty != null
         ? packingStandardQty
-        : box?._packing_std_qty ?? box?.standard_qty_per_box ?? 0
+        : box?._packing_std_qty ?? box?.qty_per_box ?? box?.standard_qty_per_box ?? 0
     ) || 0
   );
   if (std > 0 && qty > 0 && qty !== std) return true;

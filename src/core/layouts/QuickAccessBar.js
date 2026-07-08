@@ -19,25 +19,34 @@ import { CORE_ENDPOINTS } from "@/core/api/endpoints";
 import { getDashboardStatus, getUserDashboards } from "@/features/dashboard-builder/services/dashboardApi";
 import { canFilterDashboardByUser } from "@/features/dashboard-builder/utils/dashboardFilterAccess";
 
-const DASHBOARD_AUTO_REFRESH_MS = 60 * 1000;
+// const DASHBOARD_AUTO_REFRESH_MS = 60 * 1000; // used when auto-refresh is re-enabled below
 const DASHBOARD_SYNC_TICK_MS = 30 * 1000;
 const DASHBOARD_SYNC_EVENT = "erp-dashboard-sync";
 const DASHBOARD_SYNC_START_EVENT = "erp-dashboard-sync-start";
 const DASHBOARD_SYNC_ERROR_EVENT = "erp-dashboard-sync-error";
 
 function formatDashboardSyncTime(syncedAt) {
-  const at = dayjs(Number(syncedAt));
-  if (!Number.isFinite(Number(syncedAt)) || !at.isValid()) return "—";
+  // null/undefined must not become Number(null)===0 (Unix epoch → "5:30 AM" in IST).
+  if (syncedAt == null || syncedAt === "") return "—";
+  const ts = Number(syncedAt);
+  if (!Number.isFinite(ts) || ts <= 0) return "—";
+  const at = dayjs(ts);
+  if (!at.isValid()) return "—";
   const diffSec = dayjs().diff(at, "second");
+  if (diffSec < 0) return "Just now";
   if (diffSec < 15) return "Just now";
   if (diffSec < 60) return `${diffSec}s ago`;
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  return at.format("h:mm A");
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  return `${Math.floor(diffSec / 86400)}d ago`;
 }
 
 function formatDashboardSyncTitle(syncedAt) {
-  const at = dayjs(Number(syncedAt));
-  if (!Number.isFinite(Number(syncedAt)) || !at.isValid()) return "Dashboard not synced yet";
+  if (syncedAt == null || syncedAt === "") return "Dashboard not synced yet";
+  const ts = Number(syncedAt);
+  if (!Number.isFinite(ts) || ts <= 0) return "Dashboard not synced yet";
+  const at = dayjs(ts);
+  if (!at.isValid()) return "Dashboard not synced yet";
   return `Last synced: ${at.format("DD MMM YYYY, h:mm:ss A")}`;
 }
 
@@ -192,14 +201,16 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
     return () => window.clearInterval(id);
   }, [showDashboardFilters]);
 
-  useEffect(() => {
-    if (!showDashboardFilters || dashboardActive !== true) return undefined;
-    const id = window.setInterval(() => {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      refreshDashboardFilters();
-    }, DASHBOARD_AUTO_REFRESH_MS);
-    return () => window.clearInterval(id);
-  }, [showDashboardFilters, dashboardActive, refreshDashboardFilters]);
+  // Auto-refresh disabled for now — sync only on page open + manual refresh button.
+  // Re-enable later when needed.
+  // useEffect(() => {
+  //   if (!showDashboardFilters || dashboardActive !== true) return undefined;
+  //   const id = window.setInterval(() => {
+  //     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+  //     refreshDashboardFilters();
+  //   }, DASHBOARD_AUTO_REFRESH_MS);
+  //   return () => window.clearInterval(id);
+  // }, [showDashboardFilters, dashboardActive, refreshDashboardFilters]);
 
   useEffect(() => {
     if (!dashboardAppKey) {

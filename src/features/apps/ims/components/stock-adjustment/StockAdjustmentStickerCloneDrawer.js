@@ -21,7 +21,7 @@ import { getCurrentIndianFinancialYearStartYear, rowInIndianFinancialYear } from
 import { boxRowCustomerLabel, groupSelectedMinusBoxesByCustomer, parseMinusCustomerLinesFromRow, resolveMinusAccCodeFromSelection } from "@/features/apps/ims/utils/minusCustomerBreakdown";
 
 const FIELD_ORDER = ["addNumBoxes", "addExtraBoxes", "addPerBoxQty", "category", "minusBoxes"];
-import { formatStockAdjustmentBoxNoUid, isLooseBoxComparedToStandard, parseOptionalStandardQtyPerBox, parseStockAdjustmentBoxIndex, resolveDefaultStockAdjustmentCategoryId } from "@/features/apps/ims/utils/stockAdjustmentPacking";
+import { formatStockAdjustmentBoxNoUid, parseOptionalStandardQtyPerBox, parseStockAdjustmentBoxIndex, resolveDefaultStockAdjustmentCategoryId, resolveStockAdjustmentPackingNo, summarizeAddBoxBreakup, buildStockAdjustmentAddPreviewRows } from "@/features/apps/ims/utils/stockAdjustmentPacking";
 import { categoryService } from "@/features/apps/ims/services/category";
 import { hydrateStockAdjustmentStickerView } from "./hydrateStockAdjustmentStickerView";
 import {
@@ -227,7 +227,7 @@ function MinusBreakdownTable({
   );
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 h-0 overflow-hidden w-full min-w-0">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0">
       <div className="shrink-0 px-3 py-2 lg:px-4 bg-rose-50 border-b border-rose-100 flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[9px] font-black uppercase text-rose-700 tracking-wide">
@@ -271,7 +271,7 @@ function MinusBreakdownTable({
           ) : null}
         </div>
       </div>
-      <div className="flex-1 h-0 min-h-0 overflow-auto overscroll-contain p-0 lg:p-1 [-webkit-overflow-scrolling:touch]">
+      <div className="flex-1 min-h-0 overflow-auto overscroll-contain p-0 lg:p-1 [-webkit-overflow-scrolling:touch]">
         {!displayBoxes?.length ? (
           <div className="bg-white border border-slate-200 px-3 py-8 text-center text-slate-400 text-[10px] font-bold uppercase">
             No boxes
@@ -433,6 +433,10 @@ function AddBreakdownTable({
   allowRemove = true,
   removeUids,
   onToggleRemove,
+  showBulkKindDropdown = false,
+  bulkBoxKind = "full",
+  onBulkBoxKindChange,
+  viewMode = false,
 }) {
   const n = rows?.length ?? 0;
   const removeSet = removeUids instanceof Set ? removeUids : new Set();
@@ -441,15 +445,17 @@ function AddBreakdownTable({
     ? rows.filter((r) => r.box_uid != null && removeSet.has(String(r.box_uid))).length
     : 0;
   return (
-    <div className="flex flex-col flex-1 min-h-0 h-0 overflow-hidden w-full min-w-0">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0">
       <div className="shrink-0 px-3 py-2 lg:px-4 bg-emerald-50 border-b border-emerald-100 flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[9px] font-black uppercase text-emerald-800 tracking-wide">
             {editMode
               ? "Saved boxes — select Remove to delete from the database"
-              : savedView
-                ? "Saved boxes (add)"
-                : "New boxes (after stickers)"}
+              : viewMode
+                ? "Stickers"
+                : savedView
+                  ? "Saved boxes (add)"
+                  : "Box breakup — set Full or Loose for all boxes"}
           </p>
           <p className="text-[11px] font-bold text-emerald-900">
             <span className="tabular-nums">{n}</span> row{n === 1 ? "" : "s"}
@@ -462,7 +468,12 @@ function AddBreakdownTable({
             <span className="mx-2 text-emerald-200">|</span>
             Total <span className="font-black tabular-nums">+{Number(totalQty || 0).toLocaleString()}</span> PCS
           </p>
-          {!savedView && !editMode ? (
+          {!savedView && !editMode && n > 0 ? (
+            <p className="text-[8px] font-semibold text-emerald-700/90 mt-1 max-w-xl">
+              Use <span className="font-bold">All boxes</span> dropdown — applies to every box in this entry.
+            </p>
+          ) : null}
+          {!savedView && !editMode && !n ? (
             <p className="text-[8px] font-semibold text-emerald-700/90 mt-1 max-w-xl">
               Preview IDs use <span className="font-mono">SA?</span>; after save they become <span className="font-mono">SA</span> plus the new adjustment id (e.g.{" "}
               <span className="font-mono">32158_SA12_10_1</span>).
@@ -474,8 +485,24 @@ function AddBreakdownTable({
             </p>
           ) : null}
         </div>
+        {showBulkKindDropdown && n > 0 ? (
+          <div className="flex flex-col items-end gap-0.5 shrink-0">
+            <label htmlFor="sa-bulk-box-kind" className="text-[8px] font-bold uppercase text-emerald-700">
+              All boxes
+            </label>
+            <select
+              id="sa-bulk-box-kind"
+              value={bulkBoxKind === "loose" ? "loose" : "full"}
+              onChange={(e) => onBulkBoxKindChange?.(e.target.value)}
+              className="h-8 min-w-[7.5rem] rounded-lg border border-emerald-200 bg-white px-2 text-[10px] font-bold uppercase text-slate-800 shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            >
+              <option value="full">All Full</option>
+              <option value="loose">All Loose</option>
+            </select>
+          </div>
+        ) : null}
       </div>
-      <div className="flex-1 h-0 min-h-0 overflow-auto overscroll-contain p-0 lg:p-1 [-webkit-overflow-scrolling:touch]">
+      <div className="flex-1 min-h-0 overflow-auto overscroll-contain p-0 lg:p-1 [-webkit-overflow-scrolling:touch]">
         {!n ? (
           <div className="bg-white border border-slate-200 px-3 py-8 text-center">
             <div className="flex flex-col items-center gap-1.5 text-slate-400">
@@ -611,11 +638,17 @@ function AddBreakdownTable({
                             ? "Will remove"
                             : row.is_removed
                               ? "Removed"
-                              : row.is_new
-                                ? "To create"
-                                : savedView || row.is_saved
-                                  ? "Saved"
-                                  : "To create"}
+                              : row.box_uid != null
+                                ? viewMode
+                                  ? "Generated"
+                                  : "Saved"
+                                : viewMode
+                                  ? "Pending"
+                                  : row.is_new
+                                    ? "To create"
+                                    : savedView || row.is_saved
+                                      ? "Saved"
+                                      : "To create"}
                         </span>
                       </td>
                     </tr>
@@ -662,6 +695,7 @@ export default function StockAdjustmentStickerCloneDrawer({
 
   const [addNumBoxes, setAddNumBoxes] = useState("");
   const [addPerBoxQty, setAddPerBoxQty] = useState("");
+  const [addAllBoxesLoose, setAddAllBoxesLoose] = useState(false);
   const [savedAddBoxRows, setSavedAddBoxRows] = useState([]);
   const [addRemoveUids, setAddRemoveUids] = useState(() => new Set());
   const [addExtraBoxes, setAddExtraBoxes] = useState("0");
@@ -739,6 +773,7 @@ export default function StockAdjustmentStickerCloneDrawer({
       setGatePassed(false);
       setAddNumBoxes("");
       setAddPerBoxQty("");
+      setAddAllBoxesLoose(false);
       setSavedAddBoxRows([]);
       setAddRemoveUids(new Set());
       setAddExtraBoxes("0");
@@ -800,6 +835,17 @@ export default function StockAdjustmentStickerCloneDrawer({
           });
           setAddNumBoxes(hydrated.addNumBoxes);
           setAddPerBoxQty(hydrated.addPerBoxQty);
+          if (hydrated.gateEntryType === "add") {
+            const savedRows = (hydrated.viewAddRows || []).filter((r) => r.box_uid != null);
+            if (savedRows.length > 0) {
+              const looseN = savedRows.filter((r) => r.is_loose).length;
+              setAddAllBoxesLoose(looseN > 0 && looseN === savedRows.length);
+            } else {
+              setAddAllBoxesLoose(false);
+            }
+          } else {
+            setAddAllBoxesLoose(false);
+          }
           setMinusSelectedUids(normalizeMinusSelectedUidSet(hydrated.minusSelectedUids));
           setViewAddRows(hydrated.viewAddRows);
           setSavedAddBoxRows(hydrated.savedAddBoxRows ?? hydrated.viewAddRows ?? []);
@@ -809,7 +855,9 @@ export default function StockAdjustmentStickerCloneDrawer({
           setItemMeta(hydrated.itemMeta);
           setSavedRow(hydrated.row);
           setGatePassed(true);
-          setMobileBreakdownTab("details");
+          setMobileBreakdownTab(
+            hydrated.gateEntryType === "add" ? "boxes" : "details"
+          );
           if (hydrated.gateEntryType === "add") {
             await loadCategoriesForItem(hydrated.row?.category_id);
           }
@@ -868,6 +916,12 @@ export default function StockAdjustmentStickerCloneDrawer({
           ? resolveMinusAccCode(form, packingPreview, minusSelectedUids)
           : form.acc_code;
       if (approveAccCode) payload.acc_code = approveAccCode;
+      if (form.acc_name != null && String(form.acc_name).trim() !== "") {
+        payload.acc_name = String(form.acc_name).trim();
+      }
+      if (gateEntryType === "add") {
+        payload.all_boxes_loose = addAllBoxesLoose;
+      }
       
       await stockAdjustmentService.update(adjId, payload);
       toast.success(
@@ -958,6 +1012,23 @@ export default function StockAdjustmentStickerCloneDrawer({
     return Number.isFinite(p) && p >= 1 ? p : 0;
   }, [addPerBoxQty]);
 
+  const saPackingNo = useMemo(
+    () => resolveStockAdjustmentPackingNo(gatePackingNo, packingPreview, savedRow ?? editData),
+    [gatePackingNo, packingPreview, savedRow, editData]
+  );
+
+  const setAddBulkBoxKind = useCallback((kind) => {
+    setAddAllBoxesLoose(String(kind).toLowerCase() === "loose");
+  }, []);
+
+  useEffect(() => {
+    if (gateEntryType !== "add" || structureLocked) return;
+    const n = parseInt(String(addNumBoxes).trim(), 10);
+    if (Number.isFinite(n) && n >= 1 && addPerBoxInt >= 1) {
+      setMobileBreakdownTab("boxes");
+    }
+  }, [gateEntryType, structureLocked, addNumBoxes, addPerBoxInt]);
+
   const packingLike = useMemo(() => {
     const pd = packingPreview?.stickerRow?.packing_details;
     if (pd != null && pd.qty_per_box != null && pd.qty_per_box !== "") {
@@ -967,49 +1038,29 @@ export default function StockAdjustmentStickerCloneDrawer({
         loose_box_qty: Number(pd.loose_box_qty) || 0,
       };
     }
-    if (gateEntryType === "add" && addPerBoxInt >= 1) {
-      const n = parseInt(String(addNumBoxes).trim(), 10);
-      if (Number.isFinite(n) && n >= 1) {
-        return { qty_per_box: addPerBoxInt, full_boxes_count: n, loose_box_qty: 0 };
-      }
-    }
     if (gateEntryType === "minus" && packingPreview?.boxes?.length) {
       const boxes = packingPreview.boxes;
       const full = boxes.filter((b) => !b.is_loose).length;
-      const loose = boxes.some((b) => b.is_loose) ? 1 : 0;
+      const loose = boxes.filter((b) => b.is_loose).length;
       const q0 = boxes[0]?.qty;
       const qpb = q0 != null ? Number(q0) : 0;
-      return { qty_per_box: qpb, full_boxes_count: full, loose_box_qty: loose ? 1 : 0 };
+      return { qty_per_box: qpb, full_boxes_count: full, loose_box_qty: loose };
     }
     return { qty_per_box: 0, full_boxes_count: 0, loose_box_qty: 0 };
-  }, [packingPreview, gateEntryType, addPerBoxInt, addNumBoxes]);
+  }, [packingPreview, gateEntryType]);
 
   const addBreakdownRows = useMemo(() => {
-    const n = parseInt(String(addNumBoxes ?? "").trim(), 10);
-    const p = parseInt(String(addPerBoxQty ?? "").trim(), 10);
-    const pn =
-      String(gatePackingNo ?? "").trim() ||
-      String(packingPreview?.boxes?.[0]?.packing_number ?? packingPreview?.dailyprod?.doc_no ?? "").trim();
-    if (!Number.isFinite(n) || n < 1 || !Number.isFinite(p) || p < 1 || !pn) return [];
-    const unit = "PCS";
-    const stdNum = parseOptionalStandardQtyPerBox(packingPreview?.standard_qty_per_box);
-    const isLoose = isLooseBoxComparedToStandard(p, stdNum);
     const saToken =
       isEdit && editData?.adjustment_id ? editData.adjustment_id : "?";
-    return Array.from({ length: n }, (_, i) => {
-      const boxNo = i + 1;
-      const box_no_uid = formatStockAdjustmentBoxNoUid(pn, saToken, n, boxNo, getBoxNoUidPrefix());
-      return {
-        box_no: boxNo,
-        box_no_uid,
-        package_no: pn,
-        total_boxes: n,
-        qty: p,
-        unit,
-        is_loose: isLoose,
-      };
+    return buildStockAdjustmentAddPreviewRows({
+      boxCount: addNumBoxes,
+      perBoxQty: addPerBoxQty,
+      packingNo: saPackingNo,
+      saToken,
+      defaultIsLoose: addAllBoxesLoose,
+      boxNoUidPrefix: getBoxNoUidPrefix(),
     });
-  }, [addNumBoxes, addPerBoxQty, gatePackingNo, packingPreview, isEdit, editData?.adjustment_id]);
+  }, [addNumBoxes, addPerBoxQty, saPackingNo, isEdit, editData?.adjustment_id, addAllBoxesLoose]);
 
   const toggleAddRemove = useCallback(
     (boxUid) => {
@@ -1031,19 +1082,21 @@ export default function StockAdjustmentStickerCloneDrawer({
   const addEditBreakdownRows = useMemo(() => {
     if (!isAddEditRebuild) return [];
     const pb = addPerBoxInt;
-    const pn =
-      String(gatePackingNo ?? "").trim() ||
-      String(packingPreview?.boxes?.[0]?.packing_number ?? packingPreview?.dailyprod?.doc_no ?? "").trim();
-    const extra = parseInt(String(addExtraBoxes ?? "").trim(), 10) || 0;
-    if (!pn || !Number.isFinite(pb) || pb < 1) return [];
-
-    const stdNum = parseOptionalStandardQtyPerBox(packingPreview?.standard_qty_per_box);
-    const isLoose = isLooseBoxComparedToStandard(pb, stdNum);
-    const adjId = editData?.adjustment_id;
     const kept = savedAddBoxRows.filter(
       (r) => r.box_uid != null && !addRemoveUids.has(String(r.box_uid))
     );
+    const pn =
+      saPackingNo ||
+      String(gatePackingNo ?? "").trim() ||
+      String(savedRow?.packing_number ?? editData?.packing_number ?? "").trim() ||
+      String(kept[0]?.package_no ?? "").trim();
+    const extra = parseInt(String(addExtraBoxes ?? "").trim(), 10) || 0;
+    if (!kept.length && extra < 1) return [];
+
+    const adjId = editData?.adjustment_id;
     const rows = kept.map((r) => ({ ...r, is_saved: true }));
+    if (!Number.isFinite(pb) || pb < 1 || !pn) return rows;
+
     const maxIdx = kept.reduce((m, r) => Math.max(m, parseStockAdjustmentBoxIndex(r.box_no_uid)), 0);
     const totalAfter = kept.length + extra;
 
@@ -1056,7 +1109,7 @@ export default function StockAdjustmentStickerCloneDrawer({
         total_boxes: totalAfter,
         qty: pb,
         unit: "PCS",
-        is_loose: isLoose,
+        is_loose: addAllBoxesLoose,
         is_new: true,
       });
     }
@@ -1067,9 +1120,13 @@ export default function StockAdjustmentStickerCloneDrawer({
     addRemoveUids,
     addExtraBoxes,
     addPerBoxInt,
+    saPackingNo,
     gatePackingNo,
+    savedRow,
+    editData,
     packingPreview,
     editData?.adjustment_id,
+    addAllBoxesLoose,
   ]);
 
   const editAddTotalQty = useMemo(() => {
@@ -1086,42 +1143,165 @@ export default function StockAdjustmentStickerCloneDrawer({
     return sum;
   }, [isAddEditRebuild, savedAddBoxRows, addRemoveUids, addExtraBoxes, addPerBoxInt]);
 
+  const savedAddBoxCount = parseInt(
+    String(savedRow?.box_count_impact ?? editData?.box_count_impact ?? ""),
+    10
+  );
+  const savedAddPerBox = parseInt(String(savedRow?.per_box_qty ?? editData?.per_box_qty ?? ""), 10);
+  const currentAddBoxCount = parseInt(String(addNumBoxes).trim(), 10);
+  const addCountsMatchSaved =
+    Number.isFinite(savedAddBoxCount) &&
+    savedAddBoxCount === currentAddBoxCount &&
+    Number.isFinite(savedAddPerBox) &&
+    savedAddPerBox === addPerBoxInt;
+
   const isAddEditPending =
     isAddEdit &&
     !isAddEditRebuild &&
+    addCountsMatchSaved &&
     viewAddRows.length > 0 &&
-    viewAddRows.length === (parseInt(String(addNumBoxes).trim(), 10) || 0);
+    viewAddRows.length === currentAddBoxCount;
+
+  const fallbackViewAddRows = useMemo(() => {
+    if (gateEntryType !== "add" || viewAddRows.length > 0) return [];
+    const row = savedRow ?? editData;
+    const n = parseInt(String(row?.box_count_impact ?? addNumBoxes ?? ""), 10);
+    const p = parseInt(String(row?.per_box_qty ?? addPerBoxQty ?? ""), 10);
+    if (!Number.isFinite(n) || n < 1 || !Number.isFinite(p) || p < 1) return [];
+    const adjId = row?.adjustment_id;
+    const approved = !!(row?.approved ?? savedRow?.approved);
+    return buildStockAdjustmentAddPreviewRows({
+      boxCount: n,
+      perBoxQty: p,
+      packingNo: saPackingNo,
+      saToken: adjId ?? "?",
+      defaultIsLoose: addAllBoxesLoose,
+      boxNoUidPrefix: getBoxNoUidPrefix(),
+    }).map((r) => ({
+      ...r,
+      is_saved: approved,
+    }));
+  }, [
+    gateEntryType,
+    viewAddRows.length,
+    savedRow,
+    editData,
+    addNumBoxes,
+    addPerBoxQty,
+    saPackingNo,
+    addAllBoxesLoose,
+  ]);
+
+  const previewFromFormFields = useMemo(() => {
+    if (gateEntryType !== "add") return [];
+    const n = parseInt(String(addNumBoxes).trim(), 10);
+    const p = parseInt(String(addPerBoxQty).trim(), 10);
+    if (!Number.isFinite(n) || n < 1 || !Number.isFinite(p) || p < 1) return [];
+    const row = savedRow ?? editData;
+    const adjId = row?.adjustment_id;
+    const approved = !!(row?.approved ?? savedRow?.approved);
+    return buildStockAdjustmentAddPreviewRows({
+      boxCount: n,
+      perBoxQty: p,
+      packingNo:
+        saPackingNo ||
+        String(gatePackingNo ?? "").trim() ||
+        String(row?.packing_number ?? "").trim(),
+      saToken: adjId ?? "?",
+      defaultIsLoose: addAllBoxesLoose,
+      boxNoUidPrefix: getBoxNoUidPrefix(),
+    }).map((r) => ({
+      ...r,
+      is_saved: approved || !!adjId,
+    }));
+  }, [
+    gateEntryType,
+    addNumBoxes,
+    addPerBoxQty,
+    savedRow,
+    editData,
+    saPackingNo,
+    gatePackingNo,
+    addAllBoxesLoose,
+  ]);
+
+  const savedAddBoxTableRows = useMemo(
+    () => (savedAddBoxRows || []).map((r) => ({ ...r, is_saved: true })),
+    [savedAddBoxRows]
+  );
+
+  const lockedAddRows = useMemo(() => {
+    if (viewAddRows.length > 0) return viewAddRows;
+    if (fallbackViewAddRows.length > 0) return fallbackViewAddRows;
+    if (savedAddBoxTableRows.length > 0) return savedAddBoxTableRows;
+    return previewFromFormFields;
+  }, [viewAddRows, fallbackViewAddRows, savedAddBoxTableRows, previewFromFormFields]);
 
   const addTableRows = useMemo(() => {
     if (gateEntryType !== "add") return [];
-    if (structureLocked) return viewAddRows;
-    if (isAddEditRebuild) return addEditBreakdownRows;
+    if (structureLocked) return lockedAddRows;
+    if (isAddEditRebuild) {
+      if (addEditBreakdownRows.length > 0) return addEditBreakdownRows;
+      if (viewAddRows.length > 0) return viewAddRows;
+      if (savedAddBoxTableRows.length > 0) return savedAddBoxTableRows;
+      return previewFromFormFields;
+    }
     if (isAddEditPending) return viewAddRows;
-    return addBreakdownRows;
+    if (addBreakdownRows.length > 0) return addBreakdownRows;
+    if (viewAddRows.length > 0) return viewAddRows;
+    if (lockedAddRows.length > 0) return lockedAddRows;
+    return previewFromFormFields;
   }, [
     gateEntryType,
     structureLocked,
+    lockedAddRows,
     viewAddRows,
     isAddEditRebuild,
     addEditBreakdownRows,
+    savedAddBoxTableRows,
     isAddEditPending,
     addBreakdownRows,
+    previewFromFormFields,
   ]);
 
   const addTableTotalQty = useMemo(() => {
     const sumRows = (rows) => (rows || []).reduce((s, r) => s + (parseInt(r.qty, 10) || 0), 0);
-    if (structureLocked) return sumRows(viewAddRows);
-    if (isAddEditRebuild) return editAddTotalQty;
+    if (structureLocked) return sumRows(lockedAddRows);
+    if (isAddEditRebuild) {
+      if (addEditBreakdownRows.length > 0) return editAddTotalQty;
+      return sumRows(viewAddRows) || sumRows(savedAddBoxTableRows);
+    }
     if (isAddEditPending) return sumRows(viewAddRows);
-    return addTotalQty;
+    if (addBreakdownRows.length > 0) return addTotalQty;
+    return sumRows(lockedAddRows) || addTotalQty;
   }, [
     structureLocked,
+    lockedAddRows,
     viewAddRows,
     isAddEditRebuild,
+    addEditBreakdownRows.length,
     editAddTotalQty,
+    savedAddBoxTableRows,
     isAddEditPending,
+    addBreakdownRows.length,
     addTotalQty,
   ]);
+
+  const packingLikeForCards = useMemo(() => {
+    if (gateEntryType === "add" && addTableRows.length > 0) {
+      return summarizeAddBoxBreakup(addTableRows, addPerBoxInt || addTableRows[0]?.qty);
+    }
+    if (gateEntryType === "add" && addPerBoxInt >= 1) {
+      const n = parseInt(String(addNumBoxes).trim(), 10);
+      if (Number.isFinite(n) && n >= 1) {
+        return summarizeAddBoxBreakup(
+          Array.from({ length: n }, () => ({ is_loose: addAllBoxesLoose })),
+          addPerBoxInt
+        );
+      }
+    }
+    return packingLike;
+  }, [gateEntryType, addTableRows, addPerBoxInt, addNumBoxes, addAllBoxesLoose, packingLike]);
 
   const minusImpactQty = useMemo(() => {
     if (!packingPreview?.boxes?.length) return 0;
@@ -1443,6 +1623,9 @@ export default function StockAdjustmentStickerCloneDrawer({
           const pb = parseInt(String(addPerBoxQty).trim(), 10);
           payload.per_box_qty = pb;
           payload.acc_code = form.acc_code;
+          if (form.acc_name != null && String(form.acc_name).trim() !== "") {
+            payload.acc_name = String(form.acc_name).trim();
+          }
           payload.category_id = Number(selectedCategoryId);
           if (isAddEditRebuild) {
             payload.add_extra_boxes = parseInt(String(addExtraBoxes).trim(), 10) || 0;
@@ -1477,14 +1660,18 @@ export default function StockAdjustmentStickerCloneDrawer({
         const pb = parseInt(String(addPerBoxQty).trim(), 10);
         await stockAdjustmentService.create({
           entry_type: "add",
-          packing_number: gatePackingNo.trim(),
+          packing_number: saPackingNo || gatePackingNo.trim(),
           financial_year: gateFinancialYear.trim(),
           per_box_qty: pb,
           box_count_impact: nb,
           no_of_boxes: nb,
+          ...(showApproval && form.approved === true ? { all_boxes_loose: addAllBoxesLoose } : {}),
           unit: "PCS",
           remarks: remarksForApi,
           acc_code: form.acc_code,
+          ...(form.acc_name != null && String(form.acc_name).trim() !== ""
+            ? { acc_name: String(form.acc_name).trim() }
+            : {}),
           category_id: Number(selectedCategoryId),
           approved: showApproval && form.approved === true,
         });
@@ -2029,12 +2216,14 @@ export default function StockAdjustmentStickerCloneDrawer({
   );
 
   const breakdownTableBlock = (
-    <div className="flex flex-col flex-1 min-h-0 h-0 min-w-0 overflow-hidden bg-white">
+    <div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden bg-white">
       <div className="shrink-0 px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 lg:gap-2 min-w-0 flex-1">
           <Layers className="w-4 h-4 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-600" aria-hidden />
           <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-tight text-slate-800 truncate">
-            Breakdown
+            {(structureLocked || isAddEditRebuild) && gateEntryType === "add"
+              ? "Stickers"
+              : "Breakdown"}
           </span>
         </div>
         <div className="flex items-baseline gap-2 shrink-0 pr-1">
@@ -2048,17 +2237,21 @@ export default function StockAdjustmentStickerCloneDrawer({
         </div>
       </div>
 
-      <div className="flex-1 h-0 min-h-0 flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {gateEntryType === "add" ? (
           <AddBreakdownTable
             rows={addTableRows}
             perBoxQty={addPerBoxInt}
             totalQty={addTableTotalQty}
             savedView={(structureLocked && !isAddEditRebuild) || isAddEditPending}
+            viewMode={structureLocked || (isAddEditRebuild && editingWasApproved)}
             editMode={isAddEditRebuild}
             allowRemove={canRemoveStickerBoxes}
             removeUids={addRemoveUids}
             onToggleRemove={toggleAddRemove}
+            showBulkKindDropdown={gateEntryType === "add" && !isView && !isEdit && (!structureLocked || isApprove)}
+            bulkBoxKind={addAllBoxesLoose ? "loose" : "full"}
+            onBulkBoxKindChange={setAddBulkBoxKind}
           />
         ) : (
           <MinusBreakdownTable
@@ -2079,9 +2272,9 @@ export default function StockAdjustmentStickerCloneDrawer({
   );
 
   const breakdownPanel = (
-    <div className="flex flex-1 min-h-0 h-0 flex flex-col overflow-hidden w-full min-w-0">
+    <div className="flex flex-1 min-h-0 flex flex-col overflow-hidden w-full min-w-0 min-h-[min(48dvh,380px)]">
       {/* Mobile / tablet: Details + Boxes tabs */}
-      <div className="flex flex-1 flex-col min-h-0 h-0 min-w-0 w-full overflow-hidden lg:hidden bg-slate-100/80">
+      <div className="flex flex-1 flex-col min-h-0 min-w-0 w-full overflow-hidden lg:hidden bg-slate-100/80 min-h-[min(52dvh,420px)]">
         <div
           role="tablist"
           aria-label="Stock details and breakdown"
@@ -2107,14 +2300,14 @@ export default function StockAdjustmentStickerCloneDrawer({
             </button>
           ))}
         </div>
-        <div className="flex-1 h-0 min-h-0 min-w-0 overflow-hidden flex flex-col mx-2 mb-2 mt-1.5 bg-white border border-slate-200 rounded-lg">
+        <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col mx-2 mb-2 mt-1.5 bg-white border border-slate-200 rounded-lg">
           {mobileBreakdownTab === "details" ? (
-            <div className="flex-1 h-0 min-h-0 overflow-y-auto overscroll-contain bg-slate-50 p-2">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-50 p-2">
               <StockAdjustmentStickerDetailCards
                 selectedRow={selectedRowLike}
-                packing={packingLike}
+                packing={packingLikeForCards}
                 onCustomerChange={handleCustomerChange}
-                customerSelectDisabled={structureLocked}
+                customerSelectDisabled={isView || isApprove}
                 customerChanging={customerChanging}
                 hideCustomerSection={isMinusFlow && !readOnly}
                 minusViewMode={minusViewMode}
@@ -2125,24 +2318,24 @@ export default function StockAdjustmentStickerCloneDrawer({
                   setSelectedCategoryId(id);
                   if (errors.category) setErrors((prev) => ({ ...prev, category: "" }));
                 }}
-                categorySelectDisabled={structureLocked || gateEntryType !== "add"}
+                categorySelectDisabled={isView || isApprove || gateEntryType !== "add"}
                 categoryError={errors.category || ""}
               />
             </div>
           ) : (
-            <div className="flex-1 h-0 min-h-0 min-w-0 overflow-hidden flex flex-col">{breakdownTableBlock}</div>
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">{breakdownTableBlock}</div>
           )}
         </div>
       </div>
 
       {/* Desktop: details sidebar + breakdown table */}
-      <div className="hidden lg:flex lg:flex-row flex-1 min-h-0 h-0 w-full min-w-0 overflow-hidden bg-slate-50">
+      <div className="hidden lg:flex lg:flex-row flex-1 min-h-0 w-full min-w-0 overflow-hidden bg-slate-50">
         <div className="shrink-0 lg:w-80 xl:w-96 border-r border-slate-200 bg-slate-50 overflow-y-auto overflow-x-hidden">
           <StockAdjustmentStickerDetailCards
             selectedRow={selectedRowLike}
-            packing={packingLike}
+            packing={packingLikeForCards}
             onCustomerChange={handleCustomerChange}
-            customerSelectDisabled={structureLocked}
+            customerSelectDisabled={isView || isApprove}
             customerChanging={customerChanging}
             hideCustomerSection={isMinusFlow && !readOnly}
             minusViewMode={minusViewMode}
@@ -2153,11 +2346,11 @@ export default function StockAdjustmentStickerCloneDrawer({
               setSelectedCategoryId(id);
               if (errors.category) setErrors((prev) => ({ ...prev, category: "" }));
             }}
-            categorySelectDisabled={structureLocked || gateEntryType !== "add"}
+            categorySelectDisabled={isView || isApprove || gateEntryType !== "add"}
             categoryError={errors.category || ""}
           />
         </div>
-        <div className="flex-1 flex flex-col min-h-0 h-0 min-w-0 overflow-hidden">{breakdownTableBlock}</div>
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">{breakdownTableBlock}</div>
       </div>
     </div>
   );
@@ -2204,7 +2397,7 @@ export default function StockAdjustmentStickerCloneDrawer({
             }
           />
         ) : (
-          <div className="flex flex-1 min-h-0 h-0 flex-col overflow-hidden w-full min-w-0">
+          <div className="flex flex-1 min-h-0 flex-col overflow-hidden w-full min-w-0">
         {topToolbar}
 
         {!gatePassed ? (
@@ -2222,9 +2415,9 @@ export default function StockAdjustmentStickerCloneDrawer({
             </p>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col min-h-0 h-0 w-full max-w-full min-w-0 overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 w-full max-w-full min-w-0 overflow-hidden">
             <div className="shrink-0 w-full min-w-0">{inputsTopRow}</div>
-            <div className="flex flex-1 min-h-0 h-0 flex-col w-full min-w-0 overflow-hidden border-t border-slate-200/80 bg-slate-50">
+            <div className="flex flex-1 min-h-0 flex-col w-full min-w-0 overflow-hidden border-t border-slate-200/80 bg-slate-50">
               {breakdownPanel}
             </div>
           </div>

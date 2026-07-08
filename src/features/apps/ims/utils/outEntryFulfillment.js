@@ -9,8 +9,10 @@ export function itemGroupKey(row) {
   return "unknown";
 }
 
+import { isForwardingLooseBox } from "@/core/utils/utilHelper";
+
 function isLooseBox(box) {
-  return box?.is_loose === true || box?.is_loose === 1 || box?.is_loose === "true";
+  return isForwardingLooseBox(box);
 }
 
 /**

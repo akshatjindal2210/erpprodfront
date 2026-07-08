@@ -55,6 +55,7 @@ import {
 } from "@/features/apps/ims/utils/outEntryTypes";
 import { mapQcHoldSelectRow } from "@/features/apps/ims/utils/qcHoldTypes";
 import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
+import { isForwardingLooseBox } from "@/core/utils/utilHelper";
 
 const OUT_ENTRY_SCANNER_ID = "out-entry-scanner-reader";
 const FIELD_ORDER = ["fuid"];
@@ -102,6 +103,11 @@ function buildQcHoldBoxIndex(boxes = []) {
 
 function normalizeIsLoose(val) {
   return val === true || val === 1 || val === "true" || val === "1";
+}
+
+/** Forwarding-note box — same open/loose rules as forwarding modal (incl. sticker snapshot). */
+function isFnLooseBox(box) {
+  return isForwardingLooseBox(box);
 }
 
 function countQcHoldBoxKinds(boxes = []) {
@@ -816,8 +822,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     if (!hit) return;
     const pk = packingKey(hit.packing_number);
     const counts = scannedCountsByPackingRef.current.get(pk) || { standard: 0, loose: 0 };
-    const isLoose =
-      hit.box?.is_loose === true || hit.box?.is_loose === 1 || hit.box?.is_loose === "true";
+    const isLoose = isFnLooseBox(hit.box);
     if (isLoose) counts.loose = Math.max(0, counts.loose - 1);
     else counts.standard = Math.max(0, counts.standard - 1);
     scannedCountsByPackingRef.current.set(pk, counts);
@@ -1150,8 +1155,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
       const packKeyVal = packingKey(targetGroup.packing_number);
       const counts = scannedCountsByPackingRef.current.get(packKeyVal) || { standard: 0, loose: 0 };
-      const isLoose =
-        boxData.is_loose === true || boxData.is_loose === 1 || boxData.is_loose === "true";
+      const isLoose = isFnLooseBox(boxData);
       const limit = isLoose ? Number(targetGroup.loose_box) || 0 : Number(targetGroup.box) || 0;
       const alreadyScannedCount = isLoose ? counts.loose : counts.standard;
       const typeLabel = isLoose ? "loose boxes" : "standard boxes";
@@ -1317,7 +1321,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
   const scannedStats = useMemo(() => {
     return scannedInActive.reduce((acc, b) => {
-      if (b.is_loose) { acc.loose++; acc.lQty += b.qty; }
+      if (isFnLooseBox(b)) { acc.loose++; acc.lQty += b.qty; }
       else { acc.box++; acc.bQty += b.qty; }
       return acc;
     }, { box: 0, bQty: 0, loose: 0, lQty: 0 });
@@ -2204,7 +2208,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                       const isLocOpen = expandedLocations.has(locKey);
                       const locStats = (loc.boxes || []).reduce(
                         (acc, box) => {
-                          if (box.is_loose) acc.loose += 1;
+                          if (isFnLooseBox(box)) acc.loose += 1;
                           else acc.full += 1;
                           return acc;
                         },
@@ -2262,14 +2266,14 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                                         ? "bg-orange-50 text-orange-700 border-orange-200 opacity-90"
                                         : !scannable && invStatus === "outward"
                                           ? "bg-rose-50 text-rose-600 border-rose-200 opacity-90"
-                                          : box.is_loose
+                                          : isFnLooseBox(box)
                                             ? "bg-amber-50 text-amber-600 border-amber-200"
                                             : "bg-white text-slate-600 border-slate-200"
                                   }`}
                                   title={isScanned ? "Already scanned" : outEntryBoxStatusLabel(box)}
                                 >
                                   {box.box_no_uid}
-                                  {box.is_loose && <span className="text-[7px] bg-amber-200 px-1 rounded-sm">L</span>}
+                                  {isFnLooseBox(box) && <span className="text-[7px] bg-amber-200 px-1 rounded-sm">L</span>}
                                 </div>
                                 );
                               })}
@@ -2402,8 +2406,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                           {scannedInActive.map((box, bidx) => (
                             <div key={bidx} className="bg-white p-2 rounded-lg border border-emerald-100 flex items-center justify-between shadow-sm hover:border-emerald-300 transition-all group">
                               <div className="flex items-center gap-3">
-                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black ${box.is_loose ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}>
-                                  {box.is_loose ? "L" : "B"}
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black ${isFnLooseBox(box) ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}>
+                                  {isFnLooseBox(box) ? "L" : "B"}
                                 </div>
                                 <div className="flex flex-col leading-tight">
                                   <span className="text-[11px] font-mono font-black text-slate-700">{box.box_no_uid}</span>
