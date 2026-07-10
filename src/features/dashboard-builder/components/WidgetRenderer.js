@@ -1,21 +1,25 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
-import { AlertCircle, Copy, GripVertical, Pencil, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Copy, GripVertical, Pencil, Search, Trash2, X } from "lucide-react";
 import ContainerNestedGrid from "./ContainerNestedGrid";
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
-import { resolveWidgetSpacingPx, spacingPxToCss } from "../utils/dashboardLayoutEngine";
+import { hasCustomMobileNestedLayout, resolveWidgetSpacingPx, readNestedGridWidthPx, spacingPxToCss, stackNestedLayoutForPhone } from "../utils/dashboardLayoutEngine";
 
 const resolveKpiValueFontPx = (style = {}, displayVal = "", readOnly = false, nested = false) => {
   const configured = Number(style.fontSize);
   const textLen = String(displayVal || "").length;
-  // Nested published cards can be short — keep value small enough to stay visible.
   if (nested) {
-    let nestedBase = Number.isFinite(configured) && configured >= 10
-      ? Math.min(configured, 14)
-      : 14;
-    if (textLen > 10) nestedBase = Math.min(nestedBase, 11);
-    else if (textLen > 6) nestedBase = Math.min(nestedBase, 12);
-    return Math.max(10, nestedBase);
+    if (Number.isFinite(configured) && configured >= 8) {
+      let size = configured;
+      if (textLen > 14) size = Math.min(size, 16);
+      else if (textLen > 10) size = Math.min(size, 22);
+      else if (textLen > 6) size = Math.min(size, 28);
+      return Math.max(8, Math.min(size, 48));
+    }
+    let nestedBase = 14;
+    if (textLen > 10) nestedBase = 11;
+    else if (textLen > 6) nestedBase = 12;
+    return nestedBase;
   }
   let base = Number.isFinite(configured) && configured >= 14 ? configured : (readOnly ? 28 : 26);
   if (textLen > 14) base = Math.min(base, 12);
@@ -69,6 +73,249 @@ const formatDisplayValue = (value) => {
   return String(value);
 };
 
+const filterTableRows = (rows = [], columns = [], query = "") => {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return rows;
+  return rows.filter((row) =>
+    columns.some((col) => formatDisplayValue(row[col]).toLowerCase().includes(needle)),
+  );
+};
+
+const sortTableRows = (rows = [], column = "", direction = "asc") => {
+  if (!column) return rows;
+  const dir = direction === "desc" ? -1 : 1;
+  return [...rows].sort((left, right) => {
+    const a = formatDisplayValue(left[column]).toLowerCase();
+    const b = formatDisplayValue(right[column]).toLowerCase();
+    const aNum = Number(a);
+    const bNum = Number(b);
+    if (Number.isFinite(aNum) && Number.isFinite(bNum) && a !== "" && b !== "") {
+      return (aNum - bNum) * dir;
+    }
+    return a.localeCompare(b) * dir;
+  });
+};
+
+const resolveTableVisualStyle = (style = {}) => {
+  const headerColor = style.tableHeaderColor || style.color || "#64748b";
+  const bodyColor = style.tableBodyColor || style.color || "#475569";
+  const headerBg = style.tableHeaderBg || (style.bg ? `${style.bg}ee` : "#f8fafc");
+  const bodyBg = style.tableBodyBg || style.bg || "#ffffff";
+  const borderColor = style.tableBorderColor || "#e2e8f0";
+  const rowHoverBg = style.tableRowHoverBg || "#f8fafc";
+  const headerFontPx = Math.max(8, Number(style.tableHeaderFontSize) || 9);
+  const bodyFontPx = Math.max(8, Number(style.tableBodyFontSize) || Number(style.fontSize) || 10);
+  return {
+    headerColor,
+    bodyColor,
+    headerBg,
+    bodyBg,
+    borderColor,
+    rowHoverBg,
+    headerFontPx,
+    bodyFontPx,
+  };
+};
+
+const DashboardTableView = ({
+  data = [],
+  style = {},
+  nested = false,
+  isPhoneMode = false,
+  tableSearchEnabled = false,
+  tableSearchPlaceholder = "",
+  tableSearchPosition = "right",
+  tableColumnSortEnabled = false,
+}) => {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
+  const keys = Object.keys(data[0] || {});
+  const resolvedSearchPlaceholder = String(tableSearchPlaceholder || "").trim() || "Search...";
+  const showSearch = tableSearchEnabled === true;
+  const showColumnSort = tableColumnSortEnabled === true;
+  const searchAlignLeft = tableSearchPosition === "left";
+  const compact = nested || isPhoneMode;
+  const tableVisual = resolveTableVisualStyle(style);
+  const headPad = compact ? "px-2" : "px-2 sm:px-3";
+  const cellPad = compact ? "px-2" : "px-2 sm:px-3";
+  const headTextClass = compact
+    ? "text-[8px] leading-tight"
+    : "text-[8px] sm:text-[9px]";
+  const bodyTextClass = compact
+    ? "text-[9px] leading-snug"
+    : "text-[9px] sm:text-[10px]";
+
+  const displayRows = useMemo(() => {
+    const filtered = showSearch
+      ? filterTableRows(data, keys, searchQuery)
+      : data;
+    return showColumnSort
+      ? sortTableRows(filtered, sortKey, sortDir)
+      : filtered;
+  }, [data, keys, searchQuery, sortKey, sortDir, showSearch, showColumnSort]);
+
+  const toggleSort = (column) => {
+    if (!showColumnSort) return;
+    if (sortKey !== column) {
+      setSortKey(column);
+      setSortDir("asc");
+      return;
+    }
+    if (sortDir === "asc") {
+      setSortDir("desc");
+      return;
+    }
+    setSortKey(null);
+    setSortDir("asc");
+  };
+
+  const renderSortIcon = (column) => {
+    if (!showColumnSort) return null;
+    if (sortKey !== column) {
+      return <ArrowUpDown size={10} className="shrink-0 opacity-40" aria-hidden />;
+    }
+    return sortDir === "asc"
+      ? <ArrowUp size={10} className="shrink-0 text-blue-600" aria-hidden />
+      : <ArrowDown size={10} className="shrink-0 text-blue-600" aria-hidden />;
+  };
+
+  return (
+    <div
+      className="flex flex-col h-full w-full min-h-0 min-w-0"
+      style={{ backgroundColor: tableVisual.bodyBg }}
+    >
+      {showSearch && (
+        <div
+          className={`shrink-0 flex items-center gap-2 border-b px-2 py-1.5 ${
+            searchAlignLeft ? "justify-start" : "justify-end"
+          }`}
+          style={{ backgroundColor: tableVisual.headerBg, borderColor: tableVisual.borderColor }}
+        >
+          <label
+            className={`relative block shrink-0 ${
+              compact
+                ? "w-full max-w-full"
+                : nested
+                  ? "w-[min(240px,60vw)]"
+                  : "w-[min(280px,64vw)]"
+            }`}
+          >
+            <Search
+              size={compact ? 13 : 14}
+              className="pointer-events-none absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              aria-hidden
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              placeholder={resolvedSearchPlaceholder}
+              className={`w-full rounded-md border bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400/40 shadow-sm ${
+                compact ? "h-8 pl-8 pr-8 text-[11px]" : "h-9 pl-10 pr-10 text-xs"
+              }`}
+              style={{ borderColor: tableVisual.borderColor }}
+              aria-label="Search table rows"
+            />
+            {searchQuery ? (
+              <button
+                type="button"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSearchQuery("");
+                }}
+                aria-label="Clear search"
+              >
+                <X size={12} />
+              </button>
+            ) : null}
+          </label>
+        </div>
+      )}
+      <div className="flex-1 min-h-0 min-w-0 overflow-auto custom-scrollbar overscroll-x-contain">
+        <table
+          className={`w-full min-w-max border-collapse ${
+            compact ? "table-auto" : "table-fixed sm:table-auto"
+          }`}
+          style={{ borderColor: tableVisual.borderColor }}
+        >
+          <thead className="sticky top-0 z-10" style={{ backgroundColor: tableVisual.headerBg }}>
+            <tr>
+              {keys.map((col) => (
+                <th
+                  key={col}
+                  className={`${headPad} py-1.5 sm:py-2 text-left font-bold uppercase tracking-wide sm:tracking-widest border-b align-top whitespace-nowrap sm:whitespace-normal ${headTextClass}`}
+                  style={{
+                    color: tableVisual.headerColor,
+                    borderColor: tableVisual.borderColor,
+                    fontSize: `${tableVisual.headerFontPx}px`,
+                    backgroundColor: tableVisual.headerBg,
+                  }}
+                >
+                  {showColumnSort ? (
+                    <button
+                      type="button"
+                      className="inline-flex max-w-full items-center gap-1 text-left hover:opacity-80"
+                      style={{ color: tableVisual.headerColor }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSort(col);
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <span className="break-words">{col}</span>
+                      {renderSortIcon(col)}
+                    </button>
+                  ) : (
+                    <span className="break-words">{col}</span>
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {displayRows.map((row, i) => (
+              <tr
+                key={i}
+                className="transition-colors"
+                style={{ backgroundColor: tableVisual.bodyBg }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = tableVisual.rowHoverBg;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = tableVisual.bodyBg;
+                }}
+              >
+                {keys.map((col) => (
+                  <td
+                    key={col}
+                    className={`${cellPad} py-1 sm:py-1.5 break-words align-top font-medium ${bodyTextClass}`}
+                    style={{
+                      color: tableVisual.bodyColor,
+                      fontSize: `${tableVisual.bodyFontPx}px`,
+                      borderBottom: `1px solid ${tableVisual.borderColor}`,
+                    }}
+                  >
+                    {formatDisplayValue(row[col])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {searchQuery.trim() && displayRows.length === 0 ? (
+          <div className="px-3 py-4 text-center text-[10px] font-medium text-slate-400">
+            No rows match &quot;{searchQuery.trim()}&quot;
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+};
+
 const buildBoxStyle = (style = {}, { transparentBg = false, isContainer = false, compactPad = false } = {}) => {
   const defaultPad = Number.isFinite(Number(style.padding)) ? Math.max(0, Number(style.padding)) : 8;
   const padFallback = compactPad ? Math.min(defaultPad, 4) : defaultPad;
@@ -89,6 +336,27 @@ const buildBoxStyle = (style = {}, { transparentBg = false, isContainer = false,
   };
 };
 
+const resolveContainerNestedLayout = (widget, sectionChildren, isPhoneMode) => {
+  if (isPhoneMode) {
+    const desktopNested = Array.isArray(widget.nestedLayout) && widget.nestedLayout.length
+      ? widget.nestedLayout
+      : sectionChildren
+        .map((child) => child.layout || {})
+        .filter((item) => item && item.i);
+    const mobileNested = Array.isArray(widget.mobileNestedLayout) ? widget.mobileNestedLayout : [];
+    if (mobileNested.length && hasCustomMobileNestedLayout(desktopNested, mobileNested)) {
+      return mobileNested;
+    }
+    return stackNestedLayoutForPhone(desktopNested);
+  }
+  if (Array.isArray(widget.nestedLayout) && widget.nestedLayout.length) {
+    return widget.nestedLayout;
+  }
+  return sectionChildren
+    .map((child) => child.layout || {})
+    .filter((item) => item && item.i);
+};
+
 const WidgetRenderer = ({
   widget,
   readOnly = false,
@@ -102,7 +370,9 @@ const WidgetRenderer = ({
   onAddChildWidget,
   onCloneChildWidget,
   onCloneWidget,
+  onNestedGridWidthDiscover,
   isDropTarget = false,
+  isContainerResizing = false,
 }) => {
   const useBuilderVisuals = !readOnly || designParity;
   const data = widget.previewData || widget.data || [];
@@ -136,9 +406,9 @@ const WidgetRenderer = ({
             ? "justify-center text-center"
             : "justify-start text-left";
       return (
-        <div className={`flex w-full items-center py-0.5 ${headingAlign}`}>
+        <div className={`flex w-full items-start py-0 ${headingAlign}`}>
           <h2
-            className="font-extrabold tracking-tight leading-tight w-full m-0"
+            className="font-extrabold tracking-tight leading-none w-full m-0"
             style={{ color: style.color || "#0f172a", fontSize: `${headingFontPx}px` }}
           >
             {title || widget.description || "Dashboard Heading"}
@@ -149,15 +419,7 @@ const WidgetRenderer = ({
 
     if (isContainer) {
       const sectionChildren = Array.isArray(widget.sectionChildren) ? widget.sectionChildren : [];
-      const nestedLayout = isPhoneMode
-        ? (Array.isArray(widget.nestedLayout) && widget.nestedLayout.length
-          ? widget.nestedLayout
-          : (Array.isArray(widget.mobileNestedLayout) && widget.mobileNestedLayout.length
-            ? widget.mobileNestedLayout
-            : sectionChildren.map((child) => child.mobileLayout || child.layout || {}).filter((item) => item && item.i)))
-        : (Array.isArray(widget.nestedLayout) && widget.nestedLayout.length
-          ? widget.nestedLayout
-          : sectionChildren.map((child) => child.layout || {}).filter((item) => item && item.i));
+      const nestedLayout = resolveContainerNestedLayout(widget, sectionChildren, isPhoneMode);
       const mobilePadding = {
         top: widget.mobilePaddingTop ?? widget.style?.mobilePaddingTop ?? 8,
         right: widget.mobilePaddingRight ?? widget.style?.mobilePaddingRight ?? 8,
@@ -173,7 +435,7 @@ const WidgetRenderer = ({
         <div
           className={`group relative flex flex-col items-start w-full max-w-full shrink-0 ${
             readOnly ? "" : "min-h-0"
-          } h-auto overflow-visible`}
+          } h-auto ${readOnly || !isPhoneMode ? "overflow-visible" : "overflow-hidden"}`}
           style={containerShellStyle}
         >
           {!readOnly && !nested && (
@@ -236,6 +498,9 @@ const WidgetRenderer = ({
             childWidgets={sectionChildren}
             layout={nestedLayout}
             containerId={widget.id}
+            nestedGridWidthPx={isPhoneMode ? null : readNestedGridWidthPx(widget)}
+            isContainerResizing={isContainerResizing}
+            onNestedGridWidthDiscover={(widthPx, options) => onNestedGridWidthDiscover?.(widget.id, widthPx, options)}
             readOnly={readOnly}
             selectedWidgetId={selectedWidgetId}
             onLayoutChange={(nextLayout, options) => onNestedLayoutChange?.(widget.id, nextLayout, isPhoneMode, options)}
@@ -361,38 +626,16 @@ const WidgetRenderer = ({
 
     if (type === "table") {
       return (
-        <div className="overflow-auto h-full w-full min-w-0 custom-scrollbar">
-          <table className="min-w-full divide-y divide-slate-100">
-            <thead className="sticky top-0 z-10" style={{ backgroundColor: style.bg ? `${style.bg}ee` : "#f8fafc" }}>
-              <tr>
-                {keys.map((col) => (
-                  <th
-                    key={col}
-                    className={`${readOnly ? "px-2 sm:px-3" : "px-3"} py-1.5 sm:py-2 text-left text-[8px] sm:text-[9px] font-bold uppercase tracking-widest border-b border-slate-200 whitespace-nowrap`}
-                    style={{ color: style.color || "#64748b" }}
-                  >
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {data.map((row, i) => (
-                <tr key={i} className="hover:bg-black/5 transition-colors">
-                  {keys.map((col) => (
-                    <td
-                      key={col}
-                      className={`${readOnly ? "px-2 sm:px-3" : "px-3"} py-1 sm:py-1.5 whitespace-nowrap text-[9px] sm:text-[10px] font-medium`}
-                      style={{ color: style.color || "#475569" }}
-                    >
-                      {formatDisplayValue(row[col])}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DashboardTableView
+          data={data}
+          style={style}
+          nested={nested}
+          isPhoneMode={isPhoneMode}
+          tableSearchEnabled={widget.tableSearchEnabled === true}
+          tableSearchPlaceholder={widget.tableSearchPlaceholder || ""}
+          tableSearchPosition={widget.tableSearchPosition === "left" ? "left" : "right"}
+          tableColumnSortEnabled={widget.tableColumnSortEnabled === true}
+        />
       );
     }
 
@@ -404,7 +647,7 @@ const WidgetRenderer = ({
       const valueFontPx = resolveKpiValueFontPx(style, displayVal, !useBuilderVisuals, nested);
       const labelFontPx = resolveKpiLabelFontPx(style);
       const labelStyle = {
-        fontSize: `${Math.min(labelFontPx, nested ? 8 : labelFontPx)}px`,
+        fontSize: `${labelFontPx}px`,
         lineHeight: 1.05,
         color: style.color || "#64748b",
       };
@@ -412,8 +655,11 @@ const WidgetRenderer = ({
       const kpiShellClass = `flex flex-col justify-center items-stretch h-full w-full min-h-0 min-w-0 gap-0 overflow-visible ${alignClass}`;
       return (
         <div className={kpiShellClass}>
-          {label && isTop && !nested && (
-            <div className="font-semibold px-0.5 truncate leading-tight shrink-0" style={labelStyle}>
+          {label && isTop && (
+            <div
+              className={`font-semibold px-0.5 truncate leading-tight shrink-0${nested ? " text-center" : ""}`}
+              style={labelStyle}
+            >
               {label}
             </div>
           )}
@@ -429,8 +675,11 @@ const WidgetRenderer = ({
           >
             {displayVal}
           </div>
-          {label && !isTop && !nested && (
-            <div className="font-semibold px-0.5 truncate leading-tight mt-0.5 shrink-0" style={labelStyle}>
+          {label && !isTop && (
+            <div
+              className={`font-semibold px-0.5 truncate leading-tight mt-0.5 shrink-0${nested ? " text-center" : ""}`}
+              style={labelStyle}
+            >
               {label}
             </div>
           )}
@@ -451,7 +700,7 @@ const WidgetRenderer = ({
     const headingPad = resolveWidgetSpacingPx(style, "padding", 0);
     return (
       <div
-        className={`h-full w-full flex items-center border-0 shadow-none bg-transparent ${headingAlignClass}`}
+        className={`h-full w-full flex items-start border-0 shadow-none bg-transparent ${headingAlignClass}`}
         style={{
           background: "transparent",
           boxShadow: "none",
@@ -477,10 +726,11 @@ const WidgetRenderer = ({
   }
   if (nested && !isContainer) {
     // Compact padding so value fits on short published cards without changing grid height.
-    outerStyle.padding = "0px 2px";
+    outerStyle.padding = "0px";
     outerStyle.overflow = "visible";
   }
-  const showHeader = displayTitle && type !== "kpi" && widget.rawType !== "kpi" && !isHeading && !isContainer;
+  const isKpi = type === "kpi" || widget.rawType === "kpi" || widget.rawType === "count" || widget.rawType === "sum";
+  const showHeader = displayTitle && !isKpi && !isHeading && !isContainer;
 
   if (nested) {
     return (
@@ -498,7 +748,7 @@ const WidgetRenderer = ({
             <span>{displayTitle}</span>
           </div>
         )}
-        <div className="flex-1 min-h-0 w-full overflow-visible flex items-center justify-center">
+        <div className="flex-1 min-h-0 w-full overflow-visible flex items-stretch">
           {renderContent()}
         </div>
       </div>

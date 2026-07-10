@@ -326,10 +326,21 @@ export default function ForwardingPage() {
       toast.info("Select a schedule row first, then click New.");
       return;
     }
-    setDispatchPrefill(dispatchSelected);
+    const schno = String(dispatchSelected.schno ?? "").trim();
+    const qualifying = dispatchRows.filter((r) => {
+      if (String(r.schno ?? "").trim() !== schno) return false;
+      const fgStock = Number(r.fg_stock_qty ?? r.in_hand_qty ?? 0);
+      const balance = Number(r.balance_qty ?? r.totalqty ?? 0);
+      return fgStock > 0 && balance > 0;
+    });
+    if (!qualifying.length) {
+      toast.info("No items with FG stock for this schedule.");
+      return;
+    }
+    setDispatchPrefill({ anchorRow: dispatchSelected, rows: qualifying });
     setModalMode("add");
     setModalOpen(true);
-  }, [dispatchSelected]);
+  }, [dispatchSelected, dispatchRows]);
 
   const closeModal = useCallback(() => {
     setModalOpen(false);

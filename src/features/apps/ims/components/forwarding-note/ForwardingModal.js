@@ -49,6 +49,7 @@ const INITIAL_ITEM_ROW = {
   erp_by_packing:  {},
   dispatch_qty:    "", // user input
   dispatch_std:    "", // dispatch according to standard
+  source_dispatch_qty: 0,
   fetching:        false,
   boxes_edited:    false, // true once user changes box selection (prevents edit fallback)
 };
@@ -311,11 +312,78 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     return form.items.map((_, idx) => buildInHandItemFetchService(inHandItemCatalog, idx));
   }, [form.items.length, inHandItemCatalog, buildInHandItemFetchService]);
 
-  // ── Bootstrap (show loader until form is hydrated — no blank fields) ───────
-  const hydrateFromDispatchPlan = useCallback(async (row) => {
-    const accCode = row?.acc_code;
+  const buildItemRowFromDispatchRow = useCallback(async (row, packingCategoryId) => {
     const itemDcode = row?.itemdcode;
-    const dispatchQty = Number(row?.totalqty ?? row?.total_qty ?? 0);
+    const scheduleQty = Number(row?.totalqty ?? row?.total_qty ?? 0);
+    const balanceQty = Math.max(0, Number.isFinite(Number(row?.balance_qty)) ? Number(row.balance_qty) : scheduleQty);
+    const dispatchQty = balanceQty;
+
+    let itemRow = {
+      ...INITIAL_ITEM_ROW,
+      item_dcode: itemDcode ? String(itemDcode) : "",
+      item_code: row?.item_code || "",
+      itemdesc: row?.itemdesc || "",
+      source_dispatch_qty: dispatchQty,
+      fetching: Boolean(itemDcode && packingCategoryId),
+    };
+
+    if (!itemDcode || !packingCategoryId) {
+      return itemRow;
+    }
+
+    try {
+      const body = {
+        item_dcode: itemDcode,
+        packing_category_id: Number(packingCategoryId),
+      };
+      const [stockRes, erpRes] = await Promise.all([
+        forwardingNoteService.getAvailableBoxes(body),
+        forwardingNoteService.getErpStock(body),
+      ]);
+      const erp_qty = erpRes?.success !== false ? Number(erpRes?.total) || 0 : 0;
+      const erp_by_packing =
+        erpRes?.by_packing && typeof erpRes.by_packing === "object" ? erpRes.by_packing : {};
+      const fifoBoxes = stockRes?.success
+        ? sortBoxesForFifo(enrichForwardingBoxesWithPackingStd(stockRes.data || []))
+        : [];
+      const fg_qty = sumQty(fifoBoxes);
+      const ordered = reorderBoxesForSelection(fifoBoxes, false);
+      const selected_boxes = dispatchQty > 0 ? selectBoxesByQty(ordered, dispatchQty) : [];
+      const roundedQty = sumQty(selected_boxes);
+
+      return {
+        ...itemRow,
+        available_boxes: fifoBoxes,
+        selected_boxes,
+        loose_priority: false,
+        fg_qty,
+        erp_qty,
+        erp_by_packing,
+        dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
+        dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
+        fetching: false,
+        boxes_edited: true,
+      };
+    } catch {
+      return { ...itemRow, fetching: false };
+    }
+  }, []);
+
+  // ── Bootstrap (show loader until form is hydrated — no blank fields) ───────
+  const hydrateFromDispatchPlan = useCallback(async (prefill) => {
+    const rows = Array.isArray(prefill)
+      ? prefill
+      : Array.isArray(prefill?.rows)
+        ? prefill.rows
+        : prefill
+          ? [prefill]
+          : [];
+    if (!rows.length) {
+      throw new Error("No schedule items to load.");
+    }
+
+    const headerRow = prefill?.anchorRow ?? rows[0];
+    const accCode = headerRow?.acc_code;
 
     let categoryOptions = [];
     let packingCategoryId = "";
@@ -336,54 +404,9 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     }
     setCategoryOpts(categoryOptions);
 
-    let itemRow = {
-      ...INITIAL_ITEM_ROW,
-      item_dcode: itemDcode ? String(itemDcode) : "",
-      item_code: row?.item_code || "",
-      itemdesc: row?.itemdesc || "",
-      fetching: Boolean(itemDcode && packingCategoryId),
-    };
-
-    if (itemDcode && packingCategoryId) {
-      try {
-        const body = {
-          item_dcode: itemDcode,
-          packing_category_id: Number(packingCategoryId),
-        };
-        const [stockRes, erpRes] = await Promise.all([
-          forwardingNoteService.getAvailableBoxes(body),
-          forwardingNoteService.getErpStock(body),
-        ]);
-        const erp_qty = erpRes?.success !== false ? Number(erpRes?.total) || 0 : 0;
-        const erp_by_packing =
-          erpRes?.by_packing && typeof erpRes.by_packing === "object" ? erpRes.by_packing : {};
-        const fifoBoxes = stockRes?.success
-          ? sortBoxesForFifo(enrichForwardingBoxesWithPackingStd(stockRes.data || []))
-          : [];
-        const fg_qty = sumQty(fifoBoxes);
-        const ordered = reorderBoxesForSelection(fifoBoxes, false);
-        const selected_boxes = dispatchQty > 0 ? selectBoxesByQty(ordered, dispatchQty) : [];
-        const roundedQty = sumQty(selected_boxes);
-        if (fifoBoxes.length === 0) {
-          toast.info("No in-hand stock for this item in the selected category.");
-        }
-
-        itemRow = {
-          ...itemRow,
-          available_boxes: fifoBoxes,
-          selected_boxes,
-          loose_priority: false,
-          fg_qty,
-          erp_qty,
-          erp_by_packing,
-          dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
-          dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
-          fetching: false,
-          boxes_edited: true,
-        };
-      } catch {
-        itemRow = { ...itemRow, fetching: false };
-      }
+    const itemRows = await Promise.all(rows.map((row) => buildItemRowFromDispatchRow(row, packingCategoryId)));
+    if (!itemRows.some((item) => item.available_boxes.length > 0)) {
+      toast.info("No in-hand stock for these items in the selected category.");
     }
 
     const categoryKey = packingCategoryId || "";
@@ -393,10 +416,10 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       ...INITIAL_FORM,
       acc_code: accCode != null && accCode !== "" ? String(accCode) : "",
       packing_category_id: packingCategoryId,
-      schno: row?.schno != null && row?.schno !== "" ? String(row.schno).trim() : "",
-      items: [itemRow],
+      schno: headerRow?.schno != null && headerRow?.schno !== "" ? String(headerRow.schno).trim() : "",
+      items: itemRows,
     };
-  }, []);
+  }, [buildItemRowFromDispatchRow]);
 
   useEffect(() => {
     if (!open) {
@@ -723,13 +746,28 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
             fetching: false,
           };
           if (resetSelection) {
-            Object.assign(updates, {
-              selected_boxes: [],
-              loose_priority: false,
-              dispatch_qty: "",
-              boxes_edited: true,
-              original_breakdowns: [],
-            });
+            const sourceQty = Number(formItemsRef.current[idx]?.source_dispatch_qty ?? 0);
+            if (sourceQty > 0) {
+              const ordered = reorderBoxesForSelection(fifoBoxes, false);
+              const selected_boxes = selectBoxesByQty(ordered, sourceQty);
+              const roundedQty = sumQty(selected_boxes);
+              Object.assign(updates, {
+                selected_boxes,
+                loose_priority: false,
+                dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
+                dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
+                boxes_edited: true,
+                original_breakdowns: [],
+              });
+            } else {
+              Object.assign(updates, {
+                selected_boxes: [],
+                loose_priority: false,
+                dispatch_qty: "",
+                boxes_edited: true,
+                original_breakdowns: [],
+              });
+            }
           }
           updateItemRow(idx, updates);
           if (fifoBoxes.length === 0) {
@@ -1078,7 +1116,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
           <div className="flex items-start gap-2 p-3 rounded-lg bg-indigo-50 border border-indigo-200">
             <AlertCircle size={16} className="text-indigo-500 mt-0.5 shrink-0" />
             <p className="text-[11px] text-indigo-700 font-medium leading-normal">
-              Pre-filled from today&apos;s dispatch plan. Customer, category, and item are locked — change <span className="font-bold text-indigo-900 uppercase">Dispatch Qty</span> as needed, then fill PO and save.
+              Pre-filled from today&apos;s dispatch plan. Customer and items are locked — change <span className="font-bold text-indigo-900 uppercase">Category</span> or <span className="font-bold text-indigo-900 uppercase">Dispatch Qty</span> as needed, then fill PO and save.
             </p>
           </div>
         )}
@@ -1129,12 +1167,12 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
           </div>
 
           {/* {form.acc_code ? ( */}
-            <div className={`md:col-span-1 space-y-1 ${isFromSchedule ? "pointer-events-none" : ""}`}>
+            <div className="md:col-span-1 space-y-1">
               <label className={FORM_LABEL_CLASS}>Category</label>
               <select
                 value={String(form.packing_category_id ?? "")}
                 onChange={(e) => handleCategoryChange(e.target.value)}
-                disabled={isFromSchedule || !form.acc_code || categoryLoading}
+                disabled={!form.acc_code || categoryLoading}
                 className={`${OK_INPUT} rounded-lg border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed`}
               >
                 {!form.acc_code ? (
@@ -1344,7 +1382,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                       />
                       Loose Priority
                     </label>
-                    {form.items.length > 1 && !isFromSchedule && (
+                    {form.items.length > 1 && (
                       <button
                         onClick={() => removeRow(idx)}
                         className="p-1 text-rose-400 hover:bg-rose-50 rounded-md transition-colors"

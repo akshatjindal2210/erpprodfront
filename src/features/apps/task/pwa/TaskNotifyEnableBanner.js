@@ -183,10 +183,10 @@ export default function TaskNotifyEnableBanner() {
         }
       >
         <p>
-          Aapne notifications allow nahi kiye. App use karne ke liye allow karna zaroori hai.
+          You did not allow notifications. You must allow them to use the app.
         </p>
         <p className="mt-2 text-xs text-slate-500">
-          Browser settings → Site settings → Notifications → Allow for this site, phir Reload karein.
+          Browser settings → Site settings → Notifications → Allow for this site, then click Reload.
         </p>
       </BlockOverlay>
     );
@@ -217,13 +217,13 @@ export default function TaskNotifyEnableBanner() {
     >
       <p>
         {declinedAttempt
-          ? "Aapne abhi notifications allow nahi kiye. Browser popup mein Allow dabana zaroori hai — bina iske app use nahi ho sakti."
+          ? "You just declined notifications. You must click Allow in the browser popup — the app cannot be used without it."
           : isPwaStandalone()
-            ? "Naye device par alerts ke liye notifications allow karna zaroori hai. Allow ke bina app use nahi ho sakti."
-            : "Task updates is device par bheje jayenge — app band ho ya logout ho tab bhi. Allow karna zaroori hai."}
+            ? "On a new device, you must allow notifications for alerts. The app cannot be used without Allow."
+            : "Task updates will be sent to this device — even when the app is closed or you are logged out. You must allow notifications."}
       </p>
       <p className="mt-2 text-xs text-slate-500">
-        Browser popup mein &quot;Allow&quot; dabayein. Agar Block kiya to yahi screen dubara dikhegi.
+        Click Allow in the browser popup. If you click Block, this screen will appear again.
       </p>
     </BlockOverlay>
   );

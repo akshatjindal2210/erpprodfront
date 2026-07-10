@@ -68,11 +68,7 @@ export function isOutEntryForwardingNote(entryType) {
 }
 
 export function isOutEntryAutoAuthorized(entryType) {
-  return (
-    isOutEntryInventoryOut(entryType) ||
-    isOutEntryPackingArea(entryType) ||
-    isOutEntryQcArea(entryType)
-  );
+  return isOutEntryPackingArea(entryType) || isOutEntryQcArea(entryType);
 }
 
 export function isOutEntrySimpleScanMode(entryMode) {

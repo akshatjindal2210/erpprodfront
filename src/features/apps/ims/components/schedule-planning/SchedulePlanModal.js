@@ -284,7 +284,9 @@ function isUnchangedHoldRow(plan) {
   if (st !== SCHEDULE_PLAN_STATUS.HOLD || plan.status !== ROW_STATUS.HOLD) return false;
   const remark = String(plan.remark || "").trim();
   const prevRemark = String(plan.row.item_remark || "").trim();
-  return remark === prevRemark;
+  const actionDate = String(plan.actionDate || "").trim();
+  const prevDate = remarkDateToInputValue(plan.row.action_date) || "";
+  return remark === prevRemark && actionDate === prevDate;
 }
 
 export default function SchedulePlanModal({ open, onClose, schedule, mode = "plan", onSaved, itemsLoading = false }) {
@@ -405,7 +407,7 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
         return changed ? next : prev;
       });
     }
-    setItemPlans((prev) => prev.map((p) => (p.status === ROW_STATUS.PLAN ? { ...p, actionDate: date } : p)));
+    setItemPlans((prev) => prev.map((p) => (p.status === ROW_STATUS.PLAN || p.status === ROW_STATUS.HOLD ? { ...p, actionDate: date } : p)));
   }, []);
 
   const handleGlobalRejectReason = useCallback((reason) => {
@@ -434,7 +436,7 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
         return { ...plan, status, reason: plan.reason || globalRejectReason };
       }
       if (status === ROW_STATUS.HOLD) {
-        return { ...plan, status, reason: "", actionDate: "" };
+        return { ...plan, status, reason: "", actionDate: plan.actionDate || globalTargetDate };
       }
       if (status === ROW_STATUS.PENDING) {
         if (isDbRow(plan.row)) return plan;
@@ -472,7 +474,7 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
   );
 
   const setActionDate = useCallback((key, date) => {
-    setItemPlans((prev) => prev.map((p) => (p.key === key && p.status === ROW_STATUS.PLAN ? { ...p, actionDate: date } : p)));
+    setItemPlans((prev) => prev.map((p) => p.key === key && (p.status === ROW_STATUS.PLAN || p.status === ROW_STATUS.HOLD) ? { ...p, actionDate: date } : p));
     if (String(date || "").trim()) clearFieldError(key, "actionDate");
   }, [clearFieldError]);
 
@@ -485,10 +487,12 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
     setItemPlans((prev) => prev.map((p) => (p.key === key ? { ...p, remark } : p)));
   }, []);
 
-  const effectiveDate = useCallback(
-    (plan) => (plan.status === ROW_STATUS.PLAN ? String(plan.actionDate || "").trim() : ""),
-    []
-  );
+  const effectiveDate = useCallback((plan) => {
+    if (plan.status === ROW_STATUS.PLAN || plan.status === ROW_STATUS.HOLD) {
+      return String(plan.actionDate || "").trim();
+    }
+    return "";
+  }, []);
 
   const handleClose = () => {
     setItemPlans([]);
@@ -529,17 +533,20 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
     }
 
     const toPlan = itemPlans.filter((p) => p.status === ROW_STATUS.PLAN && effectiveDate(p));
-    const toHold = itemPlans.filter((p) => p.status === ROW_STATUS.HOLD && !isUnchangedHoldRow(p));
+    const toHold = itemPlans.filter((p) => p.status === ROW_STATUS.HOLD && !isUnchangedHoldRow(p) && effectiveDate(p));
     const toReject = itemPlans.filter((p) => p.status === ROW_STATUS.REJECT && !isUnchangedRejectRow(p));
 
     if (!toPlan.length && !toHold.length && !toReject.length) {
-      const planRowsMissingDate = itemPlans.filter((p) => p.status === ROW_STATUS.PLAN && !effectiveDate(p));
-      if (planRowsMissingDate.length) {
+      const rowsMissingDate = itemPlans.filter(
+        (p) =>
+          (p.status === ROW_STATUS.PLAN || (p.status === ROW_STATUS.HOLD && !isUnchangedHoldRow(p))) && !effectiveDate(p)
+      );
+      if (rowsMissingDate.length) {
         const dateErrors = {};
-        for (const plan of planRowsMissingDate) {
+        for (const plan of rowsMissingDate) {
           dateErrors[plan.key] = { actionDate: true };
         }
-        const code = planRowsMissingDate[0].row.item_code || "item";
+        const code = rowsMissingDate[0].row.item_code || "item";
         setFieldErrors(dateErrors);
         scrollToFirstFieldError(dateErrors);
         toast.error(`Enter target date for ${code}.`);
@@ -549,7 +556,7 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
       return;
     }
 
-    for (const plan of toPlan) {
+    for (const plan of [...toPlan, ...toHold]) {
       const date = effectiveDate(plan);
       const schmonth = plan.row.schmonth ?? activeSchedule?.schmonth;
       const schdt = plan.row.schdt ?? activeSchedule?.schdt;
@@ -595,7 +602,9 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
           rejected += 1;
         } else if (plan.status === ROW_STATUS.HOLD) {
           if (isUnchangedHoldRow(plan)) continue;
-          const res = await schedulePlanningService.hold({ ...base });
+          const date = effectiveDate(plan);
+          if (!date) continue;
+          const res = await schedulePlanningService.hold({ ...base, action_date: date });
           if (!res?.success) throw new Error(res?.message || "Hold failed");
           held += 1;
         } else if (plan.status === ROW_STATUS.PLAN) {
@@ -674,8 +683,8 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                 <tr>
                   <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 w-10 text-center">#</th>
                   <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 w-[100px]">Item</th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 w-[110px]">Cust. Item</th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 min-w-[140px]">Description</th>
+                  {/* <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 w-[110px]">Cust. Item</th> */}
+                  {/* <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 min-w-[140px]">Description</th> */}
                   <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 w-[70px] text-center">Qty</th>
                   <th className="px-2 py-2 text-[10px] font-bold uppercase text-emerald-700 border-b border-r border-slate-200 w-[80px] text-center">In Hand</th>
                   <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-600 border-b border-r border-slate-200 min-w-[152px] align-top">Cust. request</th>
@@ -764,11 +773,27 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                       }`}
                     >
                       <td className={`px-2 py-1.5 border-r border-slate-100 text-center align-top ${IMS_TABLE_CELL_TEXT}`}>{idx + 1}</td>
-                      <td className={`px-2 py-1.5 border-r border-slate-100 align-top uppercase ${IMS_TABLE_CELL_TEXT} text-slate-800`}>{plan.row.item_code || "—"}</td>
-                      <td className={`px-2 py-1.5 border-r border-slate-100 align-top uppercase ${IMS_TABLE_CELL_TEXT} text-slate-800`}>{plan.row.custitemcode || "—"}</td>
-                      <td className="px-2 py-1.5 border-r border-slate-100 align-top leading-snug max-w-[180px]" title={plan.row.itemdesc}>
-                        <span className={`block break-words ${IMS_TABLE_CELL_TEXT} text-slate-800`}>{plan.row.itemdesc || "—"}</span>
+                      {/* <td className={`px-2 py-1.5 border-r border-slate-100 align-top uppercase ${IMS_TABLE_CELL_TEXT} text-slate-800`}>{plan.row.item_code || "—"}</td> */}
+                      <td className="px-2 py-1.5 border-r border-slate-100 align-top max-w-[180px]">
+                        <div className="flex flex-col gap-0.5">
+                          {/* Item Code (Bold aur Uppercase) */}
+                          <span className={`block uppercase font-semibold text-slate-900 ${IMS_TABLE_CELL_TEXT}`} title={plan.row.item_code}>
+                            {plan.row.item_code || "—"}
+                          </span>
+                          
+                          {/* Item Description (Muted/Chota text taaki alag dikhe) */}
+                          <span 
+                            className={`block break-words text-xs text-slate-500 leading-snug ${IMS_TABLE_CELL_TEXT}`} 
+                            title={plan.row.itemdesc}
+                          >
+                            {plan.row.itemdesc || "—"}
+                          </span>
+                        </div>
                       </td>
+                      {/* <td className={`px-2 py-1.5 border-r border-slate-100 align-top uppercase ${IMS_TABLE_CELL_TEXT} text-slate-800`}>{plan.row.custitemcode || "—"}</td> */}
+                      {/* <td className="px-2 py-1.5 border-r border-slate-100 align-top leading-snug max-w-[180px]" title={plan.row.itemdesc}>
+                        <span className={`block break-words ${IMS_TABLE_CELL_TEXT} text-slate-800`}>{plan.row.itemdesc || "—"}</span>
+                      </td> */}
                       <td className={`px-2 py-1.5 text-center border-r border-slate-100 align-top ${IMS_TABLE_CELL_NUMBER}`}>{totalQty.toLocaleString()}</td>
                       <td className={`px-2 py-1.5 text-center border-r border-slate-100 align-top ${IMS_TABLE_CELL_NUMBER} text-emerald-800`}>{fgStock.toLocaleString()}</td>
                       <td className="px-2 py-1.5 bg-slate-50/30 border-r border-slate-100 align-top select-text">
@@ -795,8 +820,6 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                       <td className="px-1.5 py-1.5 border-r border-slate-100 align-top">
                         {isPending ? (
                           <span className={`${IMS_TABLE_CELL_TEXT} text-slate-600 px-1`}>Not required for pending</span>
-                        ) : isHold ? (
-                          <span className={`${IMS_TABLE_CELL_TEXT} text-slate-600 px-1`}>Not required for hold</span>
                         ) : isReject ? (
                           <div className="space-y-1">
                             <PickOrOtherReasonField
@@ -825,7 +848,7 @@ export default function SchedulePlanModal({ open, onClose, schedule, mode = "pla
                             />
                             {rowErr.actionDate ? (
                               <span className="block px-0.5 text-[9px] font-bold uppercase text-rose-600">
-                                Target date required
+                                {isHold ? "Hold date required" : "Target date required"}
                               </span>
                             ) : null}
                           </div>

@@ -1,4 +1,4 @@
-const NESTED_ROW_HEIGHT = 48;
+const NESTED_ROW_HEIGHT = 28;
 const NESTED_GAP = 8;
 const MAIN_ROW_HEIGHT = 64;
 const MAIN_GAP = 12;
@@ -9,7 +9,7 @@ const CONTAINER_HEADER_PX = 32;
 /** Breathing room below container before the next dashboard widget (grid row allocation only). */
 const LIVE_CONTAINER_ROW_GAP_PX = 12;
 
-export { NESTED_INNER_PAD_DESKTOP, LIVE_CONTAINER_ROW_GAP_PX };
+export { NESTED_INNER_PAD_DESKTOP, LIVE_CONTAINER_ROW_GAP_PX, NESTED_ROW_HEIGHT, NESTED_GAP };
 
 export function inferContainerPresetFromLayout(layoutItem = {}, cols = GRID_COLS) {
   const width = Math.max(1, Number(layoutItem?.w) || cols);
@@ -103,9 +103,10 @@ export function stackLayoutForPhone(widgets = [], layouts = [], cols = GRID_COLS
     const widget = widgetById.get(String(item.i));
     let h = Math.max(1, Number(item.h) || 2);
     if (widget?.rawType === "container") {
-      const nested = widget.mobileNestedLayout?.length
-        ? widget.mobileNestedLayout
-        : (widget.nestedLayout || []);
+      const nested = resolvePhoneNestedLayoutForDisplay(
+        widget.nestedLayout || [],
+        widget.mobileNestedLayout || [],
+      );
       const autoH = nestedLayoutToGridHeight(nested);
       h = resolveContainerGridHeight(autoH, item.h, { locked: isContainerLayoutLocked(widget) });
     } else if (widget?.rawType === "heading") {
@@ -127,6 +128,17 @@ export function stackLayoutForPhone(widgets = [], layouts = [], cols = GRID_COLS
     y += h;
     return next;
   });
+}
+
+/** Phone nested: use saved mobile_nested_layout only when it differs from desktop; else stack. */
+export function resolvePhoneNestedLayoutForDisplay(desktopNested = [], mobileNested = [], cols = GRID_COLS) {
+  const desktop = sanitizeNestedLayoutItems(desktopNested);
+  const mobile = sanitizeNestedLayoutItems(mobileNested);
+  if (mobile.length && hasCustomMobileNestedLayout(desktop, mobile)) {
+    return mobile;
+  }
+  if (!desktop.length) return [];
+  return stackNestedLayoutForPhone(desktop, cols);
 }
 
 export function stackNestedLayoutForPhone(nestedLayout = [], cols = GRID_COLS) {
@@ -293,9 +305,8 @@ export function buildNestedLayoutForLiveDisplay(container = {}, allWidgets = [],
   const containerId = String(container.id || "");
   const savedPhoneNested = Array.isArray(container.mobileNestedLayout) ? container.mobileNestedLayout : [];
   const savedDesktopNested = Array.isArray(container.nestedLayout) ? container.nestedLayout : [];
-  // Phone published view: prefer mobile nested, else keep desktop nested coords (never force stack).
   const savedNestedLayout = phone
-    ? (savedPhoneNested.length ? savedPhoneNested : savedDesktopNested)
+    ? resolvePhoneNestedLayoutForDisplay(savedDesktopNested, savedPhoneNested)
     : savedDesktopNested;
   if (!containerId) return sanitizeNestedLayoutItems(savedNestedLayout);
   const children = (allWidgets || []).filter(
@@ -461,68 +472,79 @@ export function resolvePublishedDesktopLayout(widgets = [], layout = [], cols = 
   return packLayoutGaps(resolved, cols, fullLayout?.length ? fullLayout : null);
 }
 
-/** Published phone: always use saved mobile_layout coords (never laptop stack fallback). */
+/** Published phone: saved mobile_layout when customized; otherwise stack from desktop. */
 export function resolvePublishedPhoneLayout(
   widgets = [],
   mobileLayout = [],
   cols = GRID_COLS,
   fullMobileLayout = null,
+  desktopLayout = null,
 ) {
   const topLevel = (widgets || []).filter((widget) => isTopLevelWidget(widget));
   const ids = setFromIds(topLevel);
   const mobileBlueprint = fullMobileLayout?.length ? fullMobileLayout : mobileLayout;
-  let source = (mobileLayout || []).filter((item) => ids.has(String(item.i)));
 
-  // Fall back to per-widget mobile_layout from hydrated widgets when grid state is empty.
-  if (!source.length) {
-    source = topLevel.map((widget) => {
-      const mobile = widget.mobileLayout && typeof widget.mobileLayout === "object"
-        ? widget.mobileLayout
-        : (widget.layout || {});
-      return {
-        i: String(widget.id),
-        x: Math.max(0, Number(mobile.x) || 0),
-        y: Math.max(0, Number(mobile.y) || 0),
-        w: Math.max(1, Math.min(cols, Number(mobile.w) || cols)),
-        h: Math.max(1, Number(mobile.h) || 1),
-      };
-    });
-  }
-
-  if (!source.length) {
-    const desktopLayout = topLevel.map((widget) => ({
+  const desktopItems = (desktopLayout?.length
+    ? desktopLayout
+    : topLevel.map((widget) => ({
       ...(widget.layout && typeof widget.layout === "object" ? widget.layout : {}),
       i: String(widget.id),
-    }));
-    const desktopItems = topLevel.map((widget) => {
-      const item = desktopLayout.find((entry) => String(entry.i) === String(widget.id));
-      return item || { i: String(widget.id), x: 0, y: 0, w: cols, h: 2 };
-    });
-    return packLayoutGaps(
-      stackLayoutForPhone(topLevel, desktopItems, cols),
-      cols,
-      mobileBlueprint?.length ? mobileBlueprint : null,
-    );
+    })))
+    .filter((item) => ids.has(String(item.i)));
+
+  let source = (mobileLayout || []).filter((item) => ids.has(String(item.i)));
+
+  if (!source.length) {
+    source = topLevel
+      .map((widget) => {
+        const mobile = widget.mobileLayout && typeof widget.mobileLayout === "object"
+          ? widget.mobileLayout
+          : null;
+        if (!mobile || !Object.keys(mobile).length) return null;
+        return {
+          i: String(widget.id),
+          x: Math.max(0, Number(mobile.x) || 0),
+          y: Math.max(0, Number(mobile.y) || 0),
+          w: Math.max(1, Math.min(cols, Number(mobile.w) || cols)),
+          h: Math.max(1, Number(mobile.h) || 1),
+        };
+      })
+      .filter(Boolean);
   }
 
-  const resolved = source.map((item) => {
+  const useStacked = !source.length || !hasCustomTopLevelMobileLayout(desktopItems, source);
+
+  let resolved;
+  if (useStacked) {
+    const stackSource = desktopItems.length ? desktopItems : source;
+    resolved = stackLayoutForPhone(topLevel, stackSource, cols);
+  } else {
+    resolved = source.map((item) => {
+      const widget = topLevel.find((entry) => String(entry.id) === String(item.i));
+      const next = {
+        ...item,
+        i: String(item.i),
+        x: Math.max(0, Math.min(Math.max(0, cols - 1), Number(item.x) || 0)),
+        y: Math.max(0, Number(item.y) || 0),
+        w: Math.max(1, Math.min(cols, Number(item.w) || cols)),
+        h: Math.max(1, Number(item.h) || 1),
+      };
+      if (widget?.rawType === "container" && shouldPreserveSavedLayout(widget)) {
+        const withHeight = applyMainLayoutPixelsToItem(next, widget);
+        return { ...withHeight, x: next.x, w: next.w, h: next.h };
+      }
+      return next;
+    });
+  }
+
+  resolved = resolved.map((item) => {
     const widget = topLevel.find((entry) => String(entry.id) === String(item.i));
-    const next = {
-      ...item,
-      i: String(item.i),
-      x: Math.max(0, Math.min(Math.max(0, cols - 1), Number(item.x) || 0)),
-      y: Math.max(0, Number(item.y) || 0),
-      w: Math.max(1, Math.min(cols, Number(item.w) || cols)),
-      h: Math.max(1, Number(item.h) || 1),
-    };
-    if (widget?.rawType === "container" && shouldPreserveSavedLayout(widget)) {
-      const withHeight = applyMainLayoutPixelsToItem(next, widget);
-      return { ...withHeight, x: next.x, w: next.w, h: next.h };
+    if (widget?.rawType === "container" && !shouldPreserveSavedLayout(widget)) {
+      return { ...item, h: fitPhoneContainerGridHeight(widget, item) };
     }
-    return next;
+    return item;
   });
 
-  // Same as laptop: always pack leftover holes after permission-hidden widgets.
   return packLayoutGaps(
     resolved,
     cols,
@@ -699,6 +721,129 @@ export function readWidgetLayoutPixels(widget = {}) {
     widthPx: Number.isFinite(widthPx) && widthPx > 0 ? Math.round(widthPx) : null,
     heightPx: Number.isFinite(heightPx) && heightPx > 0 ? Math.round(heightPx) : null,
   };
+}
+
+/** Fixed inner nested-grid canvas width — keeps child widgets from shrinking when the container shell narrows. */
+export function readNestedGridWidthPx(widget = {}) {
+  const style = widget.style && typeof widget.style === "object" ? widget.style : {};
+  const chartConfig = widget.chart_config && typeof widget.chart_config === "object" ? widget.chart_config : {};
+  const widthPx = Number(
+    style.nestedGridWidthPx
+    ?? widget.nestedGridWidthPx
+    ?? chartConfig.nested_grid_width_px
+    ?? chartConfig.nestedGridWidthPx,
+  );
+  return Number.isFinite(widthPx) && widthPx > 0 ? Math.round(widthPx) : null;
+}
+
+/** Inner nested-grid canvas width from the container shell pixel width (minus padding). */
+export function containerInnerNestedWidthFromShellPx(widget = {}, shellWidthPx = 0) {
+  const widthPx = Math.max(0, Number(shellWidthPx) || 0);
+  const pad = resolveWidgetSpacingPx(widget.style, "padding", 12);
+  const innerPad = containerNestedInnerPaddingPx(widget, { forPhone: false });
+  return Math.max(120, widthPx - pad.left - pad.right - innerPad);
+}
+
+/** Use locked nested canvas width; expand to host when container grows, scroll when it shrinks. */
+export function resolveNestedGridCanvasWidthPx(lockedWidthPx, hostWidthPx) {
+  const locked = Number.isFinite(Number(lockedWidthPx)) && Number(lockedWidthPx) > 0
+    ? Math.round(Number(lockedWidthPx))
+    : null;
+  const host = Number.isFinite(Number(hostWidthPx)) && Number(hostWidthPx) > 0
+    ? Math.round(Number(hostWidthPx))
+    : 0;
+  if (locked != null && locked > 0) {
+    return Math.max(locked, host);
+  }
+  return host;
+}
+
+export function isNarrowContainerShell(containerGridW, cols = 12) {
+  const w = Number(containerGridW);
+  if (!Number.isFinite(w) || w <= 0) return false;
+  return w < Math.max(1, Number(cols) || 12);
+}
+
+export function shouldNestedGridScrollHorizontally(lockedWidthPx, hostWidthPx, { tolerancePx = 8 } = {}) {
+  const locked = Number.isFinite(Number(lockedWidthPx)) && Number(lockedWidthPx) > 0
+    ? Math.round(Number(lockedWidthPx))
+    : null;
+  const host = Number.isFinite(Number(hostWidthPx)) && Number(hostWidthPx) > 0
+    ? Math.round(Number(hostWidthPx))
+    : 0;
+  const tolerance = Math.max(0, Number(tolerancePx) || 0);
+  return locked != null && host > 0 && locked > host + tolerance;
+}
+
+/**
+ * Keep inner canvas wide when the container shell narrows; snap to shell when it grows back
+ * (clears stale horizontal scroll after shrink → publish → restore).
+ */
+export function resolveNextNestedGridWidthPx(priorLocked, shellInnerWidth, { tolerancePx = 8 } = {}) {
+  const locked = Number.isFinite(Number(priorLocked)) && Number(priorLocked) > 0
+    ? Math.round(Number(priorLocked))
+    : null;
+  const shell = Number.isFinite(Number(shellInnerWidth)) && Number(shellInnerWidth) > 0
+    ? Math.round(Number(shellInnerWidth))
+    : null;
+  const tolerance = Math.max(0, Number(tolerancePx) || 0);
+  if (shell == null) return locked;
+  if (locked == null) return shell;
+  if (shell >= locked - tolerance) return shell;
+  return locked;
+}
+
+/** Snap saved container height pixels when the shell grew back or nested content needs more room. */
+export function resolveNextContainerLayoutHeightPx(
+  widget = {},
+  layoutItem = null,
+  {
+    colWidth = 80,
+    rowHeight = MAIN_ROW_HEIGHT,
+    gapX = MAIN_GAP,
+    gapY = MAIN_GAP,
+    tolerancePx = 8,
+    nestedLayout = null,
+    allWidgets = null,
+  } = {},
+) {
+  const { heightPx: savedHeight } = readWidgetLayoutPixels(widget);
+  const layout = layoutItem && typeof layoutItem === "object"
+    ? layoutItem
+    : (widget.layout && typeof widget.layout === "object" ? widget.layout : {});
+  const { heightPx: shellHeight } = mainGridLayoutToPixels(layout, { colWidth, rowHeight, gapX, gapY });
+  const tolerance = Math.max(0, Number(tolerancePx) || 0);
+  const nested = Array.isArray(nestedLayout) ? nestedLayout : (widget.nestedLayout || []);
+  const contentOuterPx = nested.length
+    ? computeContainerOuterPixelHeight(widget, nested, allWidgets)
+    : null;
+  const minFitHeight = Math.max(
+    shellHeight ?? 0,
+    contentOuterPx ?? 0,
+  ) || null;
+
+  if (minFitHeight == null) return savedHeight;
+  if (savedHeight == null) return minFitHeight;
+  if (minFitHeight > savedHeight + tolerance) return minFitHeight;
+  if (shellHeight != null && shellHeight >= savedHeight - tolerance) {
+    return Math.max(shellHeight, minFitHeight);
+  }
+  return savedHeight;
+}
+
+/** Derive nested inner canvas width from the container shell grid coords (desktop builder). */
+export function inferNestedGridWidthPx(
+  widget = {},
+  layoutItem = null,
+  { colWidth = 80, rowHeight = MAIN_ROW_HEIGHT, gapX = MAIN_GAP, gapY = MAIN_GAP } = {},
+) {
+  const saved = readNestedGridWidthPx(widget);
+  if (saved != null) return saved;
+  const layout = layoutItem && typeof layoutItem === "object"
+    ? layoutItem
+    : (widget.layout && typeof widget.layout === "object" ? widget.layout : {});
+  const { widthPx } = mainGridLayoutToPixels(layout, { colWidth, rowHeight, gapX, gapY });
+  return containerInnerNestedWidthFromShellPx(widget, widthPx);
 }
 
 export function hasManualWidgetLayout(widget = {}) {
@@ -969,12 +1114,6 @@ export function repairNestedLayoutItems(nestedLayout = [], children = []) {
 
   rowMap.forEach((rowItems) => {
     if (rowItems.length === 1) {
-      const item = rowItems[0];
-      const child = childById.get(String(item.i));
-      const minW = defaultNestedWidthForType(child?.rawType);
-      if (Number(item.w) < minW) {
-        item.w = Math.min(12, minW);
-      }
       return;
     }
 
@@ -1008,9 +1147,10 @@ export function containerNestedInnerPaddingPx(widget = {}, { forPhone = false } 
 }
 
 export function phoneContainerAutoGridHeight(widget = {}) {
-  const nested = widget.mobileNestedLayout?.length
-    ? widget.mobileNestedLayout
-    : stackNestedLayoutForPhone(widget.nestedLayout || []);
+  const nested = resolvePhoneNestedLayoutForDisplay(
+    widget.nestedLayout || [],
+    widget.mobileNestedLayout || [],
+  );
   const hasHeader = Boolean(String(widget.title || "").trim() || String(widget.description || "").trim());
   return nestedLayoutToGridHeight(nested, {
     minRows: 1,
@@ -1180,11 +1320,7 @@ export function syncNestedChildLayoutsFromContainers(widgets = []) {
     return {
       ...widget,
       ...(nestedItem ? { layout: { ...nestedItem } } : {}),
-      ...(mobileItem
-        ? { mobileLayout: { ...mobileItem } }
-        : nestedItem
-          ? { mobileLayout: { ...nestedItem } }
-          : {}),
+      ...(mobileItem ? { mobileLayout: { ...mobileItem } } : {}),
     };
   });
 }

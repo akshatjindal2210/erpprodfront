@@ -143,7 +143,7 @@ export function formatCurrentPlanInfo(row) {
 
 export function formatTxnTargetDates(_raw, actionType, row = null) {
   const t = String(actionType || row?.action_type || "").toLowerCase();
-  if (t === "plan" && row?.action_date) {
+  if ((t === "plan" || t === "hold") && row?.action_date) {
     return formatDocDate(row.action_date) || "—";
   }
   if (t === "reject" && row?.action_reason) {
@@ -280,6 +280,7 @@ export function scheduleItemWiseSearchParts(row) {
   return collectSearchParts([
     ...scheduleItemSearchParts(row),
     qty, qty != null ? Number(qty).toLocaleString() : null,
+    row.schedule_qty, row.dispatch_qty, row.balance_qty,
     row.fg_stock_qty, row.in_hand_qty,
     row.item_remark,
     formatScheduleRemarksForSearch(remarksRaw), remarksRaw,
@@ -626,12 +627,20 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
     ["Item Code", "item_code", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "160px" }],
     ["Cust. Item Code", "custitemcode", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "140px", copyValue: (row) => row.custitemcode || "—" }],
     ["Description", "itemdesc", (v) => <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{v || "—"}</span>, { width: "220px", wrap: true }],
-    ["Total Qty", "totalqty", (v, row) => (
-      <span className="font-black text-slate-700 text-[11px] tabular-nums">{Number(v ?? row.total_qty ?? 0).toLocaleString()}</span>
+    ["Schedule Qty", "totalqty", (v, row) => (
+      <span className="font-black text-slate-700 text-[11px] tabular-nums">
+        {Number(v ?? row.schedule_qty ?? row.total_qty ?? 0).toLocaleString()}
+      </span>
     ), { align: "center", width: "100px" }],
     ["FG Stock", "in_hand_qty", (v, row) => (
       <span className="font-black text-emerald-700 text-[11px] tabular-nums">{Number(v ?? row.fg_stock_qty ?? 0).toLocaleString()}</span>
     ), { align: "center", width: "90px" }],
+    ["Balance Qty", "balance_qty", (v, row) => (
+      <span className="font-black text-slate-700 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
+    ), { align: "center", width: "95px" }],
+    ["Dispatch Qty", "dispatch_qty", (v, row) => (
+      <span className="font-black text-slate-600 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
+    ), { align: "center", width: "95px" }],
     ["Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { width: "120px", copyValue: (row) => row.status_label || statusLabel(row.is_planned) }],
     [
       "Last Action",

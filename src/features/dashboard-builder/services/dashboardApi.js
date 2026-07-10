@@ -1,4 +1,5 @@
 import { api } from "@/core/api/apiClient";
+import { externalMssqlRequestedData, isExternalMssqlDbSource } from "../utils/dashboardDbSources.js";
 
 const BASE_PATH = "/dashboard";
 
@@ -51,9 +52,9 @@ export const unpublishWidget = async (id) => {
 };
 
 export const previewWidget = async (query, { dbSource = "ims_postgresql", filters = {} } = {}) => {
-  if (String(dbSource).toLowerCase() === "erp_mssql") {
+  if (isExternalMssqlDbSource(dbSource)) {
     const body = {
-      requestedData: "erp_mssql",
+      requestedData: externalMssqlRequestedData(dbSource),
       filter: query,
     };
     if (filters && typeof filters === "object" && Object.keys(filters).length) {

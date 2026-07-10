@@ -11,10 +11,33 @@ import { applyClientSearch, sortRowsByKey, nextSortParams } from "@/features/app
 import { formatDocDate } from "@/core/utils/utilHelper";
 import DataTable from "@/core/components/ui/DataTable";
 import DispatchRescheduleModal from "./DispatchRescheduleModal";
+import DispatchRejectModal from "./DispatchRejectModal";
 
 function getTodayLabel() {
   const now = new Date();
   return `Till ${now.getDate()} ${now.toLocaleString("default", { month: "long" })} ${now.getFullYear()}`;
+}
+
+const DISPATCH_PLAN_ROW_LEGEND = [
+  { swatch: "bg-emerald-50 border border-emerald-200 shadow-[inset_3px_0_0_0_#10b981]", label: "Stock sufficient" },
+  { swatch: "bg-amber-50 border border-amber-200 shadow-[inset_3px_0_0_0_#f59e0b]", label: "Insufficient stock" },
+  { swatch: "bg-rose-50 border border-rose-200 shadow-[inset_3px_0_0_0_#f43f5e]", label: "On hold" },
+];
+
+function DispatchPlanRowLegend() {
+  return (
+    <div className="flex items-center justify-center gap-3 flex-wrap">
+      {DISPATCH_PLAN_ROW_LEGEND.map(({ swatch, label }) => (
+        <span
+          key={label}
+          className="inline-flex items-center gap-1.5 text-[9px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap"
+        >
+          <span className={`w-3 h-3 rounded-sm shrink-0 ${swatch}`} aria-hidden />
+          {label}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 /** Custom dispatch-plan columns — only what's needed */
@@ -34,6 +57,7 @@ function buildDispatchHeaders() {
       ), 
       { width: "96px" },
     ],
+    [ "Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { width: "88px" }],
     [ "Remark", "item_remark", (v) => (
         <span className={`${IMS_TABLE_CELL_TEXT} break-words text-slate-600`}>
           {v || "—"}
@@ -61,15 +85,15 @@ function buildDispatchHeaders() {
       ),
       { width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" },
     ],
-    [ "Qty", "totalqty", (v, row) => (
+    [ "Balance Qty", "balance_qty", (v, row) => (
         <span className="font-black text-slate-700 text-[11px] tabular-nums">
-          {Number(v ?? row.total_qty ?? 0).toLocaleString()}
+          {Number(v ?? row.totalqty ?? row.total_qty ?? 0).toLocaleString()}
         </span>
       ),
-      { align: "center", width: "80px" },
+      { align: "center", width: "90px" },
     ],
     [ "FG Stock", "fg_stock_qty", (v) => (
-        <span className="font-black text-slate-700 text-[11px] tabular-nums">
+        <span className="font-black text-emerald-700 text-[11px] tabular-nums">
           {Number(v ?? 0).toLocaleString()}
         </span>
       ),
@@ -91,8 +115,9 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
   const [displayLimit, setDisplayLimit] = useState(100);
   const [rescheduleModalOpen, setRescheduleModalOpen] = useState(false);
   const [rescheduleItem, setRescheduleItem] = useState(null);
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectItem, setRejectItem] = useState(null);
   const [completing, setCompleting] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
 
   const rangeLabel = useMemo(getTodayLabel, []);
 
@@ -202,42 +227,20 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     [canAddPlan]
   );
 
-  const handleRejectRow = useCallback(
-    async (row) => {
+  const handleOpenRejectRow = useCallback(
+    (row) => {
       if (!row || !canAddPlan) return;
-      if (!row.fin_year_id) {
-        toast.error("Financial year not found for this item.");
-        return;
-      }
-      setRejecting(true);
-      try {
-        const res = await schedulePlanningService.reject({
-          fin_year_id: String(row.fin_year_id),
-          schno: row.schno,
-          itemdcode: row.itemdcode,
-          schmonth: row.schmonth,
-          schdt: row.schdt,
-          acc_code: row.acc_code,
-          acc_name: row.acc_name,
-          item_code: row.item_code,
-          itemdesc: row.itemdesc,
-          totalqty: Number(row.totalqty ?? 0),
-          action_reason: "Rejected from dispatch plan",
-          item_remark: row.item_remark ?? null,
-        });
-        if (!res?.success) throw new Error(res?.message || "Reject failed.");
-        toast.success("Item marked as reject.");
-        setSelected(null);
-        onSelectedChange?.(null);
-        void fetchData();
-      } catch (err) {
-        toast.error(err?.message || "Failed to reject item.");
-      } finally {
-        setRejecting(false);
-      }
+      setRejectItem(row);
+      setRejectModalOpen(true);
     },
-    [canAddPlan, fetchData, onSelectedChange]
+    [canAddPlan]
   );
+
+  const handleRejectSaved = useCallback(() => {
+    setSelected(null);
+    onSelectedChange?.(null);
+    void fetchData();
+  }, [fetchData, onSelectedChange]);
 
   const handleRescheduleSaved = useCallback(() => {
     setSelected(null);
@@ -252,21 +255,21 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
 
   const getRowClassName = useCallback((row) => {
     const status = Number(row.is_planned);
-    const qty = Number(row.totalqty ?? row.total_qty ?? 0);
+    const qty = Number(row.balance_qty ?? row.totalqty ?? row.total_qty ?? 0);
     const stock = Number(row.fg_stock_qty ?? 0);
 
     // Hold items should always stand out in red.
     if (status === 6) {
-      return "[&_td]:bg-rose-50/70";
+      return "[&_td]:bg-rose-50 [&_td:first-child]:shadow-[inset_3px_0_0_0_#f43f5e]";
     }
 
     // Scheduled / planned rows use stock adequacy highlighting.
     if (status === 1) {
       if (qty > 0 && stock >= qty) {
-        return "[&_td]:bg-emerald-50/60";
+        return "[&_td]:bg-emerald-50 [&_td:first-child]:shadow-[inset_3px_0_0_0_#10b981]";
       }
       if (qty > 0 && stock < qty) {
-        return "[&_td]:bg-amber-50/70";
+        return "[&_td]:bg-amber-50 [&_td:first-child]:shadow-[inset_3px_0_0_0_#f59e0b]";
       }
     }
     return "";
@@ -278,14 +281,14 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       refresh: fetchData,
       loading,
       completing,
-      rejecting,
+      rejecting: rejectModalOpen,
       completeSelected: () => {
         const row = getSelectedRow();
         if (row && Number(row.is_planned) === 1) void handleCompleteRow(row);
       },
       rejectSelected: () => {
         const row = getSelectedRow();
-        if (row) void handleRejectRow(row);
+        if (row) handleOpenRejectRow(row);
       },
       openRescheduleForSelected: () => {
         const row = getSelectedRow();
@@ -293,7 +296,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       },
       hasSelected: Boolean(selected),
     }),
-    [fetchData, loading, completing, rejecting, selected, getSelectedRow, handleCompleteRow, handleRejectRow, handleOpenRescheduleRow]
+    [fetchData, loading, completing, rejectModalOpen, selected, getSelectedRow, handleCompleteRow, handleOpenRejectRow, handleOpenRescheduleRow]
   );
 
   const headers = useMemo(() => buildDispatchHeaders(), []);
@@ -330,7 +333,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
           totalItems={filteredRows.length}
           cardConfig={{
             titleKey: "schno",
-            badgeIndices: [6],
+            badgeIndices: [7],
             detailKeys: ["acc_name", "item_code", "itemdesc", "totalqty", "action_date", "item_remark"],
             footerKey: "schdt",
           }}
@@ -338,14 +341,17 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+      <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center shrink-0 gap-2">
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest shrink-0 min-w-0 sm:w-[28%]">
           {search
             ? `${displayRows.length} of ${filteredRows.length} matching`
             : `Showing ${displayRows.length} of ${filteredRows.length} items`}
           {selected ? " · 1 selected" : ""}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex-1 flex justify-center min-w-0 px-1">
+          <DispatchPlanRowLegend />
+        </div>
+        <div className="flex items-center gap-2 shrink-0 sm:w-[28%] justify-end">
           <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
         </div>
@@ -359,6 +365,16 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
           setRescheduleItem(null);
         }}
         onSaved={handleRescheduleSaved}
+      />
+
+      <DispatchRejectModal
+        open={rejectModalOpen}
+        item={rejectItem}
+        onClose={() => {
+          setRejectModalOpen(false);
+          setRejectItem(null);
+        }}
+        onSaved={handleRejectSaved}
       />
     </>
   );

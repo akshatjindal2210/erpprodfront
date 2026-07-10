@@ -572,7 +572,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
       if (editData) {
         const isAutoEntry = isOutEntryAutoAuthorized(editData.entry_type);
-        if (isAutoEntry) {
+        const isInventoryOutEntry = isOutEntryInventoryOut(editData.entry_type);
+        if (isAutoEntry || isInventoryOutEntry) {
           const outUid = editData.out_uid ?? editData.outUid ?? editData.id;
           const entryType = isOutEntryInventoryOut(editData.entry_type)
             ? OUT_ENTRY_TYPE.INVENTORY_OUT
@@ -1327,10 +1328,12 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     }, { box: 0, bQty: 0, loose: 0, lQty: 0 });
   }, [scannedInActive]);
 
-  const isFulfillmentComplete = useMemo(
-    () => isOutEntryFulfillmentComplete(packingGroups, scannedBoxIds, linkedBoxes),
-    [packingGroups, scannedBoxIds, linkedBoxes]
-  );
+  const isFulfillmentComplete = useMemo(() => {
+    if (isSimpleScanMode || isQcAreaMode) {
+      return scannedBoxIds.size > 0;
+    }
+    return isOutEntryFulfillmentComplete(packingGroups, scannedBoxIds, linkedBoxes);
+  }, [isSimpleScanMode, isQcAreaMode, scannedBoxIds, packingGroups, linkedBoxes]);
 
   const { scanned: fulfillmentScanned, required: fulfillmentRequired } = useMemo(
     () => getOutEntryGlobalScanTotals(packingProgressList),
@@ -1367,7 +1370,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   }, [scannedBoxIds, otherBoxMap, qcHoldDetails?.boxes]);
 
   const handleSave = async (statusOverride = null) => {
-    if (!sopAckRef.current?.assertAcknowledged()) return;
+    const sopOk = !sopAckRef.current || sopAckRef.current.assertAcknowledged();
+    if (!sopOk) return;
 
     if (isAutoScanFlow) {
       await scanBatchRef.current?.flushPending();
@@ -1401,18 +1405,44 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
       setLoading(true);
       try {
+        if (isInventoryOutMode && (isEdit || isApprove)) {
+          let finalApproved = false;
+          if (statusOverride !== null) finalApproved = statusOverride;
+          else if (isApprove) finalApproved = true;
+          else if (isEdit && editData?.approved) finalApproved = false;
+
+          const res = await outEntryService.update(editData?.out_uid, {
+            entry_type: OUT_ENTRY_TYPE.INVENTORY_OUT,
+            reason: reasonValue,
+            remarks: form.remarks,
+            approved: finalApproved,
+            scanned_boxes: scannedList,
+          });
+          toast.success(
+            res?.message ||
+              (finalApproved
+                ? "Inventory out authorized."
+                : isEdit
+                  ? "Inventory out updated."
+                  : "Inventory out saved.")
+          );
+          onSuccess();
+          onClose();
+          return;
+        }
+
         const res = await outEntryService.create({
           entry_type: entryMode,
           ...(isQcAreaMode ? { qc_hold_id: Number(selectedQcHoldId) } : {}),
           reason: reasonValue,
           remarks: form.remarks,
-          approved: true,
+          approved: isInventoryOutMode ? false : true,
           scanned_boxes: scannedList,
         });
         toast.success(
           res?.message ||
             (isInventoryOutMode
-              ? "Inventory out completed."
+              ? "Inventory out submitted. Awaiting approval."
               : isQcAreaMode
                 ? "QC area out completed."
                 : "Boxes moved to packing area.")
@@ -2500,9 +2530,11 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           <div className="p-3 bg-emerald-50 rounded-lg border border-dashed border-emerald-200 flex items-center gap-2">
             <CheckCircle size={16} className="text-emerald-600" />
             <p className="text-[10px] text-emerald-700 italic">
-              {isQcAreaMode
-                ? "QC area out is auto-authorized. Scanned in-store boxes move to QC area and are logged in box transactions."
-                : "This entry will be automatically authorized on submission."}
+              {isInventoryOutMode
+                ? "Inventory out requires admin approval. Stock will update only after authorization from the Store Out list."
+                : isQcAreaMode
+                  ? "QC area out is auto-authorized. Scanned in-store boxes move to QC area and are logged in box transactions."
+                  : "This entry will be automatically authorized on submission."}
             </p>
           </div>
         ) : (
@@ -2512,7 +2544,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           </div>
         )}
 
-        {!isAutoScanFlow ? (
+        {(!isAutoScanFlow || isApprove || (isEdit && isInventoryOutMode)) ? (
           <ModuleSopAcknowledgment
             ref={sopAckRef}
             key={`${open}-${sopPermissionType}`}

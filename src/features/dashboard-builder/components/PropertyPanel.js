@@ -1,11 +1,64 @@
 import React, { useEffect, useState } from "react";
 import { getTables } from "../services/dashboardApi";
-import { Database, Palette, Code, Trash2, Info, Eye, Save, X, ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
-import { DASHBOARD_WIDGET_QUERY_PLACEHOLDER } from "../utils/widgetQuery.js";
+import { Database, Palette, Table2, Code, Trash2, Info, Eye, Save, X, ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
+import { DASHBOARD_WIDGET_QUERY_PLACEHOLDER, getDashboardQueryRuntimeFilters } from "../utils/widgetQuery.js";
+import { EXTERNAL_MSSQL_QUERY_PLACEHOLDER, isExternalMssqlDbSource } from "../utils/dashboardDbSources.js";
 
 const BLOCKED_SQL = /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke)\b/i;
 const REQUIRES_SQL = new Set(["kpi", "table", "graph"]);
 
+function SimpleToggle({ checked = false, onChange, label, hint = "" }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+      <label className="flex items-center justify-between gap-2 cursor-pointer">
+        <div className="min-w-0">
+          <span className="block text-[11px] font-semibold text-slate-700">{label}</span>
+          {hint ? <span className="block text-[9px] text-slate-400 mt-0.5">{hint}</span> : null}
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          onClick={() => onChange?.(!checked)}
+          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${checked ? "bg-blue-600" : "bg-slate-200"}`}
+        >
+          <span
+            className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${checked ? "left-[18px]" : "left-0.5"}`}
+          />
+        </button>
+      </label>
+    </div>
+  );
+}
+
+function SegmentControl({ value, options = [], onChange }) {
+  return (
+    <div className="flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
+      {options.map((opt) => (
+        <button
+          type="button"
+          key={opt.value}
+          onClick={() => onChange?.(opt.value)}
+          className={`flex-1 rounded px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-all ${
+            value === opt.value
+              ? "bg-white text-blue-600 shadow-sm"
+              : "text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PanelFieldLabel({ children, className = "" }) {
+  return (
+    <label className={`block text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1 ${className}`}>
+      {children}
+    </label>
+  );
+}
 function validateSelectOnlyFrontend(query) {
   const q = String(query || "").trim();
   if (!q) return "Query is required.";
@@ -40,17 +93,28 @@ const PropertyPanel = ({
   minHeightPx,
   busy = false,
   hideHeader = false,
+  canFilterByUser = false,
 }) => {
   const [tables, setTables] = useState([]);
   const [activeTab, setActiveTab] = useState("data");
   const [validationError, setValidationError] = useState("");
   const [tablesCollapsed, setTablesCollapsed] = useState(true);
+  const [filtersCollapsed, setFiltersCollapsed] = useState(true);
   const [copiedTable, setCopiedTable] = useState("");
+  const [copiedFilter, setCopiedFilter] = useState("");
+  const availableFilters = getDashboardQueryRuntimeFilters({ canFilterByUser });
   const resolvedMinWidthPx = minWidthPx ?? (isPhoneBuilderMode ? 24 : 80);
   const resolvedMinHeightPx = minHeightPx ?? resolvedMinWidthPx;
   const inputMinPx = Math.max(16, Math.min(resolvedMinWidthPx, resolvedMinHeightPx, 40));
   const [draftWidthPx, setDraftWidthPx] = useState(widthPx);
   const [draftHeightPx, setDraftHeightPx] = useState(heightPx);
+  const isTableWidget = selectedWidget?.rawType === "table";
+
+  useEffect(() => {
+    if (selectedWidget?.rawType !== "table") {
+      setActiveTab((tab) => (tab === "table" ? "data" : tab));
+    }
+  }, [selectedWidget?.id, selectedWidget?.rawType]);
 
   useEffect(() => {
     setDraftWidthPx(widthPx);
@@ -58,10 +122,6 @@ const PropertyPanel = ({
   }, [selectedWidget?.id, widthPx, heightPx]);
 
   useEffect(() => {
-    if (String(selectedWidget?.dataSource || "ims_postgresql") === "erp_mssql") {
-      setTables([]);
-      return;
-    }
     getTables({ appKey, dbSource: selectedWidget?.dataSource || "ims_postgresql" })
       .then((res) => setTables(res.data || []))
       .catch(() => setTables([]));
@@ -80,7 +140,7 @@ const PropertyPanel = ({
       </div>
     );
   }
-  const isMssqlSource = String(selectedWidget.dataSource || "ims_postgresql") === "erp_mssql";
+  const isExternalSqlServer = isExternalMssqlDbSource(selectedWidget.dataSource);
 
   const handleChange = (path, value) => {
     const updated = { ...selectedWidget };
@@ -122,7 +182,7 @@ const PropertyPanel = ({
       onPreview?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
     }
-    if (isMssqlSource) {
+    if (isExternalSqlServer) {
       setValidationError("");
       onPreview?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
@@ -145,7 +205,7 @@ const PropertyPanel = ({
       onSave?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
     }
-    if (isMssqlSource) {
+    if (isExternalSqlServer) {
       setValidationError("");
       onSave?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
@@ -157,7 +217,7 @@ const PropertyPanel = ({
   };
 
   const insertTableName = (tableName) => {
-    if (!REQUIRES_SQL.has(selectedWidget.rawType) || isMssqlSource) {
+    if (!REQUIRES_SQL.has(selectedWidget.rawType)) {
       setCopiedTable("");
       return;
     }
@@ -170,68 +230,85 @@ const PropertyPanel = ({
     setTimeout(() => setCopiedTable(""), 1200);
   };
 
+  const insertFilterToken = (token) => {
+    if (!REQUIRES_SQL.has(selectedWidget?.rawType)) return;
+    const currentQuery = String(selectedWidget.query || "");
+    if (currentQuery.includes(token)) return;
+    const trimmed = currentQuery.trim();
+    const nextQuery = trimmed
+      ? `${trimmed} ${token}`
+      : `SELECT * FROM your_table WHERE your_column = ${token}`;
+    handleChange("query", nextQuery);
+    setCopiedFilter(token);
+    setTimeout(() => setCopiedFilter(""), 1200);
+  };
+
+  const panelTabs = (
+    <div className="flex gap-1 bg-slate-100 p-1 rounded-lg shrink-0">
+      <button
+        type="button"
+        onClick={() => setActiveTab("data")}
+        className={`flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${
+          activeTab === "data" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
+        }`}
+      >
+        <Database size={12} />
+        Data
+      </button>
+      <button
+        type="button"
+        onClick={() => setActiveTab("style")}
+        className={`flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${
+          activeTab === "style" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
+        }`}
+      >
+        <Palette size={12} />
+        Style
+      </button>
+      {isTableWidget && (
+        <button
+          type="button"
+          onClick={() => setActiveTab("table")}
+          className={`flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${
+            activeTab === "table" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
+          }`}
+        >
+          <Table2 size={12} />
+          Table
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div
-      className="w-full bg-white h-full flex flex-col overflow-hidden"
+      className="widget-builder-panel w-full bg-white h-full flex flex-col overflow-hidden"
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
       {!hideHeader && (
-      <div className="px-3 py-2.5 border-b border-slate-100 flex items-center justify-between bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
-        <h3 className="font-bold text-xs uppercase tracking-widest text-slate-800">Widget Builder</h3>
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
-            <button
-              type="button"
-              onClick={() => setActiveTab("data")}
-              className={`p-1.5 rounded-md transition-all ${activeTab === "data" ? "bg-white shadow-sm text-blue-600" : "text-slate-400 hover:text-slate-600"}`}
-            >
-              <Database size={14} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("style")}
-              className={`p-1.5 rounded-md transition-all ${activeTab === "style" ? "bg-white shadow-sm text-blue-600" : "text-slate-400 hover:text-slate-600"}`}
-            >
-              <Palette size={14} />
-            </button>
-          </div>
-          <button
-            type="button"
-            title="Close panel"
-            onClick={() => onClose?.()}
-            className="h-7 w-7 grid place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:border-slate-300 transition-all"
-          >
-            <X size={14} />
-          </button>
-        </div>
+      <div className="px-2.5 py-2 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+        <h3 className="font-bold text-[11px] uppercase tracking-widest text-slate-800">Widget Builder</h3>
+        <button
+          type="button"
+          title="Close panel"
+          onClick={() => onClose?.()}
+          className="h-7 w-7 grid place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:text-slate-700"
+        >
+          <X size={14} />
+        </button>
       </div>
       )}
 
-      {hideHeader && (
-        <div className="px-3 py-2 border-b border-slate-100 flex gap-1 bg-slate-50 shrink-0">
-          <button
-            type="button"
-            onClick={() => setActiveTab("data")}
-            className={`flex-1 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest ${activeTab === "data" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"}`}
-          >
-            Data
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("style")}
-            className={`flex-1 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest ${activeTab === "style" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"}`}
-          >
-            Style
-          </button>
-        </div>
-      )}
+      <div className="px-2.5 pt-2 pb-1.5 border-b border-slate-100 bg-white shrink-0">
+        {panelTabs}
+      </div>
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3.5 bg-slate-50/30">
+      <div className="flex-1 overflow-y-auto custom-scrollbar px-2.5 py-2.5 space-y-2.5 bg-slate-50/30">
         {activeTab === "data" ? (
           <>
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Widget Type</p>
+            <div className="space-y-1">
+              <PanelFieldLabel>Widget Type</PanelFieldLabel>
               <div className="grid grid-cols-5 gap-1.5">
                 {[
                   { key: "kpi", label: "KPI" },
@@ -266,7 +343,7 @@ const PropertyPanel = ({
                       }
                       applyWidgetPatch({ rawType: "table", type: "table" });
                     }}
-                    className={`px-1 py-1 rounded-md text-[8px] font-bold uppercase tracking-widest transition-all border ${
+                    className={`px-1 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest transition-all border ${
                       selectedWidget.rawType === t.key
                         ? "bg-blue-600 border-blue-600 text-white shadow-md"
                         : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
@@ -278,9 +355,9 @@ const PropertyPanel = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Page Access</label>
+                <PanelFieldLabel>Page Access</PanelFieldLabel>
                 <select
                   value={selectedWidget.targetPageKey || "dashboard"}
                   onChange={(e) => {
@@ -290,7 +367,7 @@ const PropertyPanel = ({
                       targetPageModule: nextPage?.module || null,
                     });
                   }}
-                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
                 >
                   {pageOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -299,15 +376,12 @@ const PropertyPanel = ({
                   ))}
                 </select>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2">
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Database Type</label>
+                <PanelFieldLabel>Database</PanelFieldLabel>
                 <select
                   value={selectedWidget.dataSource || "ims_postgresql"}
                   onChange={(e) => applyWidgetPatch({ dataSource: e.target.value })}
-                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
                 >
                   {dbSourceOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -320,8 +394,8 @@ const PropertyPanel = ({
 
             {selectedWidget.rawType === "graph" && (
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Chart Type</label>
-                <div className="grid grid-cols-3 gap-2">
+                <PanelFieldLabel>Chart Type</PanelFieldLabel>
+                <div className="grid grid-cols-3 gap-1">
                   {["bar", "line", "pie"].map((chartType) => (
                     <button
                       type="button"
@@ -429,18 +503,16 @@ const PropertyPanel = ({
               </div>
             )}
 
-            {REQUIRES_SQL.has(selectedWidget.rawType) && <div className="space-y-4">
+            {REQUIRES_SQL.has(selectedWidget.rawType) && <div className="space-y-2">
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-                  {isMssqlSource ? "ERP SELECT Query" : "SQL Query"}
-                </label>
+                <PanelFieldLabel>{isExternalSqlServer ? "SQL Server Query" : "SQL Query"}</PanelFieldLabel>
                 <div className="relative">
-                  <Code size={14} className="absolute top-2.5 left-3 text-slate-400" />
+                  <Code size={13} className="absolute top-2.5 left-2.5 text-slate-400" />
                   <textarea
-                  className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-3 py-2.5 pl-9 text-[10px] font-mono text-blue-100 min-h-[120px] shadow-inner custom-scrollbar"
+                  className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-2.5 py-2 pl-8 text-[10px] font-mono text-blue-100 min-h-[100px] max-h-[160px] shadow-inner custom-scrollbar leading-relaxed"
                     placeholder={
-                      isMssqlSource
-                        ? "SELECT col1, col2 FROM dailyprod WHERE dailyprod.docdt >= {{fromDate}} AND dailyprod.docdt <= {{toDate}}"
+                      isExternalSqlServer
+                        ? EXTERNAL_MSSQL_QUERY_PLACEHOLDER
                         : DASHBOARD_WIDGET_QUERY_PLACEHOLDER
                     }
                     value={selectedWidget.query || ""}
@@ -450,21 +522,47 @@ const PropertyPanel = ({
                     }}
                   />
                 </div>
-                {!!validationError && <p className="mt-1 text-[10px] text-rose-500 font-semibold">{validationError}</p>}
+                {!!validationError && <p className="mt-0.5 text-[9px] text-rose-500 font-semibold">{validationError}</p>}
               </div>
 
-              {!isMssqlSource && (
-              <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
+              <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setFiltersCollapsed((prev) => !prev)}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 text-[9px] text-emerald-700 font-bold uppercase tracking-widest bg-emerald-50/90"
+                >
+                  <span>Available Filters ({availableFilters.length})</span>
+                  {filtersCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                </button>
+                {!filtersCollapsed && (
+                  <div className="flex flex-wrap gap-1 p-2 border-t border-slate-100">
+                    {availableFilters.map((filter) => {
+                      const isCopied = copiedFilter === filter.token;
+                      return (
+                        <button
+                          key={filter.token}
+                          type="button"
+                          onClick={() => insertFilterToken(filter.token)}
+                          className="px-1.5 py-0.5 bg-slate-50 rounded text-[9px] text-slate-600 font-mono border border-emerald-100 hover:border-emerald-300 hover:text-emerald-800 inline-flex items-center gap-1"
+                          title={`${filter.label} — ${filter.hint}`}
+                        >
+                          {isCopied ? <Check size={10} /> : <Copy size={10} />}
+                          {filter.token}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setTablesCollapsed((prev) => !prev)}
-                  className="w-full flex items-center justify-between text-[9px] text-blue-600 font-bold uppercase tracking-widest"
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 text-[9px] text-blue-600 font-bold uppercase tracking-widest bg-blue-50/90 border-t border-slate-100"
                 >
-                  <span>Available Tables ({tables.length}) - {appKey.toUpperCase()}</span>
+                  <span>Available Tables ({tables.length})</span>
                   {tablesCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                 </button>
                 {!tablesCollapsed && (
-                  <div className="flex flex-wrap gap-1 mt-2">
+                  <div className="flex flex-wrap gap-1 p-2 border-t border-slate-100 max-h-28 overflow-y-auto custom-scrollbar">
                     {tables.map((t) => {
                       const isCopied = copiedTable === t;
                       return (
@@ -472,10 +570,10 @@ const PropertyPanel = ({
                           key={t}
                           type="button"
                           onClick={() => insertTableName(t)}
-                          className="px-1.5 py-0.5 bg-white rounded text-[9px] text-slate-600 font-mono border border-blue-100/60 hover:border-blue-300 hover:text-blue-700 transition-all inline-flex items-center gap-1"
-                          title="Click to add table in query"
+                          className="px-1.5 py-0.5 bg-slate-50 rounded text-[9px] text-slate-600 font-mono border border-blue-100 hover:border-blue-300 hover:text-blue-700 inline-flex items-center gap-1"
+                          title="Add table to query"
                         >
-                          {isCopied ? <Check size={10} /> : <Copy size={10} />}
+                          {isCopied ? <Check size={9} /> : <Copy size={9} />}
                           {t}
                         </button>
                       );
@@ -483,18 +581,16 @@ const PropertyPanel = ({
                   </div>
                 )}
               </div>
-              )}
             </div>}
 
-            <div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-widest mb-1">Width</p>
-                  <input
-                    type="number"
-                    min={inputMinPx}
-                    max={3000}
-                    className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <PanelFieldLabel>Width</PanelFieldLabel>
+                <input
+                  type="number"
+                  min={inputMinPx}
+                  max={3000}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
                     value={draftWidthPx}
                     onChange={(e) => {
                       const parsed = Number(e.target.value);
@@ -521,13 +617,13 @@ const PropertyPanel = ({
                     }}
                   />
                 </div>
-                <div>
-                  <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-widest mb-1">Height</p>
-                  <input
-                    type="number"
-                    min={inputMinPx}
-                    max={3000}
-                    className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+              <div>
+                <PanelFieldLabel>Height</PanelFieldLabel>
+                <input
+                  type="number"
+                  min={inputMinPx}
+                  max={3000}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
                     value={draftHeightPx}
                     onChange={(e) => {
                       const parsed = Number(e.target.value);
@@ -554,25 +650,157 @@ const PropertyPanel = ({
                     }}
                   />
                 </div>
-              </div>
             </div>
 
-            <div className="space-y-4 pt-4 border-t border-slate-100">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Title</label>
-                <input
-                  type="text"
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-0 rounded-md px-3 py-2 text-xs font-bold text-slate-700 placeholder:text-slate-300"
-                  placeholder="Widget display title"
-                  value={selectedWidget.title || ""}
-                  onChange={(e) => handleChange("title", e.target.value)}
-                />
-              </div>
+            <div>
+              <PanelFieldLabel>Title</PanelFieldLabel>
+              <input
+                type="text"
+                className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 placeholder:text-slate-300"
+                placeholder="Widget display title"
+                value={selectedWidget.title || ""}
+                onChange={(e) => handleChange("title", e.target.value)}
+              />
             </div>
           </>
+        ) : activeTab === "table" ? (
+          <div className="space-y-2">
+            <SimpleToggle
+              label="Search bar"
+              hint="Show search bar above the table"
+              checked={selectedWidget.tableSearchEnabled === true}
+              onChange={(enabled) => {
+                if (!enabled) {
+                  applyWidgetPatch({
+                    tableSearchEnabled: false,
+                    tableSearchPlaceholder: "",
+                  });
+                  return;
+                }
+                applyWidgetPatch({ tableSearchEnabled: true });
+              }}
+            />
+
+            {selectedWidget.tableSearchEnabled === true && (
+              <div className="space-y-1.5 rounded border border-slate-200 bg-white p-2">
+                <div>
+                  <PanelFieldLabel>Placeholder <span className="font-normal normal-case text-slate-400">(opt)</span></PanelFieldLabel>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[10px] text-slate-700"
+                    placeholder="Search... (default)"
+                    value={selectedWidget.tableSearchPlaceholder || ""}
+                    onChange={(e) => applyWidgetPatch({ tableSearchPlaceholder: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <PanelFieldLabel>Position</PanelFieldLabel>
+                  <SegmentControl
+                    value={selectedWidget.tableSearchPosition === "left" ? "left" : "right"}
+                    options={[
+                      { value: "left", label: "Left" },
+                      { value: "right", label: "Right" },
+                    ]}
+                    onChange={(pos) => applyWidgetPatch({ tableSearchPosition: pos })}
+                  />
+                </div>
+              </div>
+            )}
+
+            <SimpleToggle
+              label="Column sort"
+              hint="Click header for ASC / DESC"
+              checked={selectedWidget.tableColumnSortEnabled === true}
+              onChange={(enabled) => applyWidgetPatch({ tableColumnSortEnabled: enabled })}
+            />
+
+            <div className="space-y-1.5 rounded border border-slate-200 bg-white p-2">
+              <PanelFieldLabel>Table colors</PanelFieldLabel>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Heading text</label>
+                  <input
+                    type="color"
+                    className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
+                    value={selectedWidget.style?.tableHeaderColor || "#64748b"}
+                    onChange={(e) => handleChange("style.tableHeaderColor", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Heading background</label>
+                  <input
+                    type="color"
+                    className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
+                    value={selectedWidget.style?.tableHeaderBg || "#f8fafc"}
+                    onChange={(e) => handleChange("style.tableHeaderBg", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Body text</label>
+                  <input
+                    type="color"
+                    className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
+                    value={selectedWidget.style?.tableBodyColor || "#475569"}
+                    onChange={(e) => handleChange("style.tableBodyColor", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Body background</label>
+                  <input
+                    type="color"
+                    className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
+                    value={selectedWidget.style?.tableBodyBg || "#ffffff"}
+                    onChange={(e) => handleChange("style.tableBodyBg", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Border</label>
+                  <input
+                    type="color"
+                    className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
+                    value={selectedWidget.style?.tableBorderColor || "#e2e8f0"}
+                    onChange={(e) => handleChange("style.tableBorderColor", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Row hover</label>
+                  <input
+                    type="color"
+                    className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
+                    value={selectedWidget.style?.tableRowHoverBg || "#f8fafc"}
+                    onChange={(e) => handleChange("style.tableRowHoverBg", e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Heading font (px)</label>
+                  <input
+                    type="number"
+                    min={8}
+                    max={16}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                    value={selectedWidget.style?.tableHeaderFontSize ?? 9}
+                    onChange={(e) => handleChange("style.tableHeaderFontSize", Math.max(8, Number(e.target.value) || 9))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Body font (px)</label>
+                  <input
+                    type="number"
+                    min={8}
+                    max={18}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                    value={selectedWidget.style?.tableBodyFontSize ?? 10}
+                    onChange={(e) => handleChange("style.tableBodyFontSize", Math.max(8, Number(e.target.value) || 10))}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
         ) : (
-          <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                   {selectedWidget.rawType === "kpi" ? "Value Color" : "Text / Accent Color"}
