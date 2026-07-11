@@ -120,7 +120,9 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
 
         <main className={`flex-1 flex flex-col min-h-0 overflow-hidden ${THEME_CONFIG.footerBg}`}>
           <div className="w-full flex-1 flex flex-col min-h-0 from-black/20 to-transparent bg-[#f0f4f8] overflow-y-auto overflow-x-hidden">
-            <div className="mx-auto animate-in fade-in slide-in-from-bottom-2 duration-500 flex-1 flex flex-col min-h-0 w-full p-2 md:p-2">
+            <div className={`mx-auto animate-in fade-in slide-in-from-bottom-2 duration-500 flex-1 flex flex-col min-h-0 w-full ${
+              pathname?.includes("/dashboard") ? "p-0 md:p-2" : "p-2 md:p-2"
+            }`}>
               {accessState?.hasPageAccess ? (
                 children
               ) : (

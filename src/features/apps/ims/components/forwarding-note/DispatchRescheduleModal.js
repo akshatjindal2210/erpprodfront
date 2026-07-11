@@ -132,12 +132,14 @@ export default function DispatchRescheduleModal({ open, item, onClose, onSaved }
   }, [open, item]);
 
   const handleClose = () => {
+    if (saving) return;
     setTargetDate("");
     setRemark("");
     onClose?.();
   };
 
   const handleSubmit = async () => {
+    if (saving) return;
     if (!targetDate) {
       toast.error("Please select a target date.");
       return;
@@ -168,7 +170,9 @@ export default function DispatchRescheduleModal({ open, item, onClose, onSaved }
       if (!res?.success) throw new Error(res?.message || "Reschedule failed.");
       toast.success("Item rescheduled successfully.");
       onSaved?.();
-      handleClose();
+      setTargetDate("");
+      setRemark("");
+      onClose?.();
     } catch (err) {
       toast.error(err?.message || "Failed to reschedule.");
     } finally {
@@ -177,7 +181,7 @@ export default function DispatchRescheduleModal({ open, item, onClose, onSaved }
   };
 
   const footer = (
-    <div className="flex justify-end gap-2 w-full">
+    <div className="flex justify-end gap-2 w-full items-center">
       <button type="button" onClick={handleClose} disabled={saving} className={BTN}>
         Cancel
       </button>
@@ -185,6 +189,7 @@ export default function DispatchRescheduleModal({ open, item, onClose, onSaved }
         type="button"
         onClick={() => void handleSubmit()}
         disabled={saving || !targetDate}
+        title="Ctrl+S"
         className="h-8 px-4 text-[11px] font-bold uppercase text-white rounded-none flex items-center gap-1.5 disabled:opacity-50 bg-indigo-600 hover:bg-indigo-700"
       >
         {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
@@ -199,6 +204,10 @@ export default function DispatchRescheduleModal({ open, item, onClose, onSaved }
     <Drawer
       isOpen={open}
       onClose={handleClose}
+      onSubmit={() => {
+        if (saving) return;
+        void handleSubmit();
+      }}
       title="Reschedule Item"
       maxWidth="max-w-md"
       footer={footer}

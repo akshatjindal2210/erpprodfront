@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { getTables } from "../services/dashboardApi";
 import { Database, Palette, Table2, Code, Trash2, Info, Eye, Save, X, ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
 import { DASHBOARD_WIDGET_QUERY_PLACEHOLDER, getDashboardQueryRuntimeFilters } from "../utils/widgetQuery.js";
@@ -6,6 +6,27 @@ import { EXTERNAL_MSSQL_QUERY_PLACEHOLDER, isExternalMssqlDbSource } from "../ut
 
 const BLOCKED_SQL = /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke)\b/i;
 const REQUIRES_SQL = new Set(["kpi", "table", "graph"]);
+
+const GRAPH_COLOR_PALETTES = {
+  ocean: ["#3b82f6", "#60a5fa", "#38bdf8", "#0ea5e9", "#06b6d4", "#22d3ee", "#67e8f9", "#a5f3fc"],
+  forest: ["#16a34a", "#22c55e", "#4ade80", "#86efac", "#15803d", "#65a30d", "#a3e635", "#bef264"],
+  sunset: ["#f97316", "#fb923c", "#f59e0b", "#fbbf24", "#ef4444", "#f43f5e", "#e11d48", "#fb7185"],
+  violet: ["#7c3aed", "#8b5cf6", "#a855f7", "#c084fc", "#6366f1", "#818cf8", "#a78bfa", "#c4b5fd"],
+  slate: ["#0f172a", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1", "#1e293b", "#3b82f6"],
+  rainbow: ["#ef4444", "#f59e0b", "#84cc16", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899"],
+};
+
+function normalizeHexColor(value, fallback = "#3b82f6") {
+  const raw = String(value || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(raw)) {
+    const r = raw[1];
+    const g = raw[2];
+    const b = raw[3];
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return fallback;
+}
 
 function SimpleToggle({ checked = false, onChange, label, hint = "" }) {
   return (
@@ -108,7 +129,29 @@ const PropertyPanel = ({
   const inputMinPx = Math.max(16, Math.min(resolvedMinWidthPx, resolvedMinHeightPx, 40));
   const [draftWidthPx, setDraftWidthPx] = useState(widthPx);
   const [draftHeightPx, setDraftHeightPx] = useState(heightPx);
+  const [draftStyle, setDraftStyle] = useState(null);
+  const styleFlushTimerRef = useRef(null);
+  const pendingStyleRef = useRef(null);
+  const selectedWidgetRef = useRef(selectedWidget);
+  selectedWidgetRef.current = selectedWidget;
   const isTableWidget = selectedWidget?.rawType === "table";
+  const displayStyle = {
+    ...(selectedWidget?.style || {}),
+    ...(draftStyle || {}),
+  };
+
+  useEffect(() => {
+    setDraftStyle(null);
+    pendingStyleRef.current = null;
+    if (styleFlushTimerRef.current) {
+      window.clearTimeout(styleFlushTimerRef.current);
+      styleFlushTimerRef.current = null;
+    }
+  }, [selectedWidget?.id]);
+
+  useEffect(() => () => {
+    if (styleFlushTimerRef.current) window.clearTimeout(styleFlushTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (selectedWidget?.rawType !== "table") {
@@ -122,10 +165,14 @@ const PropertyPanel = ({
   }, [selectedWidget?.id, widthPx, heightPx]);
 
   useEffect(() => {
-    getTables({ appKey, dbSource: selectedWidget?.dataSource || "ims_postgresql" })
+    if (!selectedWidget || !REQUIRES_SQL.has(selectedWidget.rawType)) {
+      setTables([]);
+      return;
+    }
+    getTables({ appKey, dbSource: selectedWidget.dataSource || "ims_postgresql" })
       .then((res) => setTables(res.data || []))
       .catch(() => setTables([]));
-  }, [appKey, selectedWidget?.dataSource]);
+  }, [appKey, selectedWidget?.id, selectedWidget?.rawType, selectedWidget?.dataSource]);
 
   if (!selectedWidget) {
     return (
@@ -142,9 +189,120 @@ const PropertyPanel = ({
   }
   const isExternalSqlServer = isExternalMssqlDbSource(selectedWidget.dataSource);
 
-  const handleChange = (path, value) => {
-    const updated = { ...selectedWidget };
+  const flushStylePatch = useCallback(() => {
+    const patchStyle = pendingStyleRef.current;
+    pendingStyleRef.current = null;
+    styleFlushTimerRef.current = null;
+    const widget = selectedWidgetRef.current;
+    if (!patchStyle || !widget || !onUpdate) return widget;
+    const nextStyle = {
+      ...(widget.style || {}),
+      ...patchStyle,
+    };
+    const next = {
+      ...widget,
+      style: nextStyle,
+    };
+    selectedWidgetRef.current = next;
+    // Style-only payload — avoid re-sending layout so parent can skip layout work.
+    onUpdate({
+      id: widget.id,
+      rawType: widget.rawType,
+      type: widget.type,
+      style: nextStyle,
+    });
+    setDraftStyle(null);
+    return next;
+  }, [onUpdate]);
+
+  const applyWidgetPatch = useCallback((patch, options = {}) => {
+    const widget = selectedWidgetRef.current;
+    if (!widget || !onUpdate) return;
+    const debounceMs = Number(options.debounceMs) || 0;
+    const patchKeys = Object.keys(patch || {});
+    const styleOnlyPatch = patchKeys.length > 0 && patchKeys.every((key) => key === "style");
+
+    if (debounceMs > 0 && styleOnlyPatch && patch.style) {
+      const mergedStyle = {
+        ...(pendingStyleRef.current || {}),
+        ...patch.style,
+      };
+      pendingStyleRef.current = mergedStyle;
+      setDraftStyle((prev) => ({ ...(prev || {}), ...patch.style }));
+      if (styleFlushTimerRef.current) window.clearTimeout(styleFlushTimerRef.current);
+      styleFlushTimerRef.current = window.setTimeout(flushStylePatch, debounceMs);
+      return;
+    }
+    if (styleFlushTimerRef.current) {
+      window.clearTimeout(styleFlushTimerRef.current);
+      styleFlushTimerRef.current = null;
+    }
+    const pending = pendingStyleRef.current;
+    pendingStyleRef.current = null;
+
+    if (styleOnlyPatch || (patch.style && !patch.layout && !patch.mobileLayout && patchKeys.every((k) => k === "style" || k === "title" || k === "emptyText" || k === "type" || k === "rawType"))) {
+      const nextStyle = {
+        ...(widget.style || {}),
+        ...(pending || {}),
+        ...(patch.style || {}),
+      };
+      const next = {
+        ...widget,
+        ...patch,
+        style: nextStyle,
+      };
+      selectedWidgetRef.current = next;
+      setDraftStyle(null);
+      onUpdate({
+        id: widget.id,
+        rawType: patch.rawType ?? widget.rawType,
+        type: patch.type ?? widget.type,
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.emptyText !== undefined ? { emptyText: patch.emptyText } : {}),
+        style: nextStyle,
+      });
+      return;
+    }
+
+    const next = {
+      ...widget,
+      ...patch,
+      style: {
+        ...(widget.style || {}),
+        ...(pending || {}),
+        ...(patch.style || {}),
+      },
+    };
+    if (patch.layout) {
+      next.layout = {
+        ...(widget.layout || {}),
+        ...patch.layout,
+      };
+    }
+    if (patch.mobileLayout) {
+      next.mobileLayout = {
+        ...(widget.mobileLayout || {}),
+        ...patch.mobileLayout,
+      };
+    }
+    selectedWidgetRef.current = next;
+    setDraftStyle(null);
+    onUpdate(next);
+  }, [flushStylePatch, onUpdate]);
+
+  const handleChange = (path, value, options = {}) => {
     const parts = path.split(".");
+    if (parts.length === 1) {
+      applyWidgetPatch({ [parts[0]]: value }, options);
+      return;
+    }
+    if (parts[0] === "style" && parts.length === 2) {
+      applyWidgetPatch({ style: { [parts[1]]: value } }, options);
+      return;
+    }
+    const widget = selectedWidgetRef.current;
+    if (!widget || !onUpdate) return;
+    const updated = { ...widget };
     let current = updated;
     for (let i = 0; i < parts.length - 1; i++) {
       current[parts[i]] = { ...(current[parts[i]] || {}) };
@@ -154,66 +312,54 @@ const PropertyPanel = ({
     onUpdate(updated);
   };
 
-  const applyWidgetPatch = (patch) => {
-    const next = {
-      ...selectedWidget,
-      ...patch,
-      style: {
-        ...(selectedWidget.style || {}),
-        ...(patch.style || {}),
-      },
-      layout: {
-        ...(selectedWidget.layout || {}),
-        ...(patch.layout || {}),
-      },
-    };
-    onUpdate(next);
-  };
-
   const handlePreview = () => {
+    if (pendingStyleRef.current) flushStylePatch();
+    const widget = selectedWidgetRef.current || selectedWidget;
     const parsedWidth = Math.max(resolvedMinWidthPx, Number(widthPx) || resolvedMinWidthPx);
     const parsedHeight = Math.max(resolvedMinHeightPx, Number(heightPx) || resolvedMinHeightPx);
     onPixelSizeChange?.({
       widthPx: parsedWidth,
       heightPx: parsedHeight,
     });
-    if (!REQUIRES_SQL.has(selectedWidget.rawType)) {
+    if (!REQUIRES_SQL.has(widget.rawType)) {
       setValidationError("");
-      onPreview?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
+      onPreview?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
     }
     if (isExternalSqlServer) {
       setValidationError("");
-      onPreview?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
+      onPreview?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
     }
-    const err = validateSelectOnlyFrontend(selectedWidget.query);
+    const err = validateSelectOnlyFrontend(widget.query);
     setValidationError(err);
     if (err) return;
-    onPreview?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
+    onPreview?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
   };
 
   const handleSave = () => {
+    if (pendingStyleRef.current) flushStylePatch();
+    const widget = selectedWidgetRef.current || selectedWidget;
     const parsedWidth = Math.max(resolvedMinWidthPx, Number(widthPx) || resolvedMinWidthPx);
     const parsedHeight = Math.max(resolvedMinHeightPx, Number(heightPx) || resolvedMinHeightPx);
     onPixelSizeChange?.({
       widthPx: parsedWidth,
       heightPx: parsedHeight,
     });
-    if (!REQUIRES_SQL.has(selectedWidget.rawType)) {
+    if (!REQUIRES_SQL.has(widget.rawType)) {
       setValidationError("");
-      onSave?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
+      onSave?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
     }
     if (isExternalSqlServer) {
       setValidationError("");
-      onSave?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
+      onSave?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
     }
-    const err = validateSelectOnlyFrontend(selectedWidget.query);
+    const err = validateSelectOnlyFrontend(widget.query);
     setValidationError(err);
     if (err) return;
-    onSave?.(selectedWidget, { widthPx: parsedWidth, heightPx: parsedHeight });
+    onSave?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
   };
 
   const insertTableName = (tableName) => {
@@ -395,8 +541,8 @@ const PropertyPanel = ({
             {selectedWidget.rawType === "graph" && (
               <div>
                 <PanelFieldLabel>Chart Type</PanelFieldLabel>
-                <div className="grid grid-cols-3 gap-1">
-                  {["bar", "line", "pie"].map((chartType) => (
+                <div className="grid grid-cols-4 gap-1">
+                  {["bar", "line", "pie", "area"].map((chartType) => (
                     <button
                       type="button"
                       key={chartType}
@@ -414,6 +560,56 @@ const PropertyPanel = ({
               </div>
             )}
 
+            {selectedWidget.rawType === "graph" && (() => {
+              const previewRows = Array.isArray(selectedWidget.previewData) && selectedWidget.previewData.length
+                ? selectedWidget.previewData
+                : (Array.isArray(selectedWidget.data) ? selectedWidget.data : []);
+              const columns = previewRows[0] && typeof previewRows[0] === "object"
+                ? Object.keys(previewRows[0])
+                : [];
+              if (!columns.length) {
+                return (
+                  <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-2.5 py-2 text-[10px] text-slate-500">
+                    Run Preview to load columns, then set X/Y and colors.
+                  </div>
+                );
+              }
+              return (
+                <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
+                  <PanelFieldLabel>Columns (from preview)</PanelFieldLabel>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[9px] font-semibold text-slate-500 mb-1">X / Label</label>
+                      <select
+                        className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                        value={selectedWidget.style?.graphXKey || columns[0]}
+                        onChange={(e) => handleChange("style.graphXKey", e.target.value)}
+                      >
+                        {columns.map((col) => (
+                          <option key={`x-${col}`} value={col}>{col}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-semibold text-slate-500 mb-1">Y / Value</label>
+                      <select
+                        className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                        value={selectedWidget.style?.graphYKey || columns[1] || columns[0]}
+                        onChange={(e) => handleChange("style.graphYKey", e.target.value)}
+                      >
+                        {columns.map((col) => (
+                          <option key={`y-${col}`} value={col}>{col}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <p className="text-[9px] text-slate-400 truncate">
+                    Columns: {columns.join(", ")}
+                  </p>
+                </div>
+              );
+            })()}
+
             {selectedWidget.rawType === "container" && (
               <div className="space-y-3">
                 <div>
@@ -426,7 +622,7 @@ const PropertyPanel = ({
                       <button
                         type="button"
                         key={preset.key}
-                        onClick={() => applyWidgetPatch({ containerPreset: preset.key })}
+                        onClick={() => applyWidgetPatch({ containerPreset: preset.key, layoutLocked: true })}
                         className={`px-2 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest border ${
                           (selectedWidget.containerPreset || "full") === preset.key
                             ? "bg-blue-600 border-blue-600 text-white"
@@ -704,8 +900,49 @@ const PropertyPanel = ({
                     onChange={(pos) => applyWidgetPatch({ tableSearchPosition: pos })}
                   />
                 </div>
+                <p className="text-[9px] text-slate-400">
+                  Search uses body text/background colors by default. Override below if needed.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[9px] font-semibold text-slate-500 mb-1">Search text</label>
+                    <input
+                      type="color"
+                      className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
+                      value={normalizeHexColor(displayStyle.tableSearchColor || displayStyle.tableBodyColor, "#475569")}
+                      onChange={(e) => handleChange("style.tableSearchColor", e.target.value, { debounceMs: 90 })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-semibold text-slate-500 mb-1">Search background</label>
+                    <input
+                      type="color"
+                      className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
+                      value={normalizeHexColor(displayStyle.tableSearchBg || displayStyle.tableBodyBg, "#ffffff")}
+                      onChange={(e) => handleChange("style.tableSearchBg", e.target.value, { debounceMs: 90 })}
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-[9px] font-semibold text-slate-500 mb-1">Search font size (px)</label>
+                    <input
+                      type="number"
+                      min={8}
+                      max={24}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                      value={selectedWidget.style?.tableSearchFontSize ?? selectedWidget.style?.tableBodyFontSize ?? 10}
+                      onChange={(e) => handleChange("style.tableSearchFontSize", Math.max(8, Math.min(24, Number(e.target.value) || 10)))}
+                    />
+                  </div>
+                </div>
               </div>
             )}
+
+            <SimpleToggle
+              label="Export"
+              hint="CSV / Excel / PDF — exports current search results"
+              checked={selectedWidget.tableExportEnabled === true}
+              onChange={(enabled) => applyWidgetPatch({ tableExportEnabled: enabled === true })}
+            />
 
             <SimpleToggle
               label="Column sort"
@@ -722,8 +959,8 @@ const PropertyPanel = ({
                   <input
                     type="color"
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={selectedWidget.style?.tableHeaderColor || "#64748b"}
-                    onChange={(e) => handleChange("style.tableHeaderColor", e.target.value)}
+                    value={normalizeHexColor(displayStyle.tableHeaderColor, "#64748b")}
+                    onChange={(e) => handleChange("style.tableHeaderColor", e.target.value, { debounceMs: 90 })}
                   />
                 </div>
                 <div>
@@ -731,8 +968,8 @@ const PropertyPanel = ({
                   <input
                     type="color"
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={selectedWidget.style?.tableHeaderBg || "#f8fafc"}
-                    onChange={(e) => handleChange("style.tableHeaderBg", e.target.value)}
+                    value={normalizeHexColor(displayStyle.tableHeaderBg, "#f8fafc")}
+                    onChange={(e) => handleChange("style.tableHeaderBg", e.target.value, { debounceMs: 90 })}
                   />
                 </div>
                 <div>
@@ -740,8 +977,8 @@ const PropertyPanel = ({
                   <input
                     type="color"
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={selectedWidget.style?.tableBodyColor || "#475569"}
-                    onChange={(e) => handleChange("style.tableBodyColor", e.target.value)}
+                    value={normalizeHexColor(displayStyle.tableBodyColor, "#475569")}
+                    onChange={(e) => handleChange("style.tableBodyColor", e.target.value, { debounceMs: 90 })}
                   />
                 </div>
                 <div>
@@ -749,8 +986,8 @@ const PropertyPanel = ({
                   <input
                     type="color"
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={selectedWidget.style?.tableBodyBg || "#ffffff"}
-                    onChange={(e) => handleChange("style.tableBodyBg", e.target.value)}
+                    value={normalizeHexColor(displayStyle.tableBodyBg, "#ffffff")}
+                    onChange={(e) => handleChange("style.tableBodyBg", e.target.value, { debounceMs: 90 })}
                   />
                 </div>
                 <div>
@@ -758,8 +995,8 @@ const PropertyPanel = ({
                   <input
                     type="color"
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={selectedWidget.style?.tableBorderColor || "#e2e8f0"}
-                    onChange={(e) => handleChange("style.tableBorderColor", e.target.value)}
+                    value={normalizeHexColor(displayStyle.tableBorderColor, "#e2e8f0")}
+                    onChange={(e) => handleChange("style.tableBorderColor", e.target.value, { debounceMs: 90 })}
                   />
                 </div>
                 <div>
@@ -767,8 +1004,8 @@ const PropertyPanel = ({
                   <input
                     type="color"
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={selectedWidget.style?.tableRowHoverBg || "#f8fafc"}
-                    onChange={(e) => handleChange("style.tableRowHoverBg", e.target.value)}
+                    value={normalizeHexColor(displayStyle.tableRowHoverBg, "#f8fafc")}
+                    onChange={(e) => handleChange("style.tableRowHoverBg", e.target.value, { debounceMs: 90 })}
                   />
                 </div>
               </div>
@@ -778,10 +1015,10 @@ const PropertyPanel = ({
                   <input
                     type="number"
                     min={8}
-                    max={16}
+                    max={28}
                     className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
                     value={selectedWidget.style?.tableHeaderFontSize ?? 9}
-                    onChange={(e) => handleChange("style.tableHeaderFontSize", Math.max(8, Number(e.target.value) || 9))}
+                    onChange={(e) => handleChange("style.tableHeaderFontSize", Math.max(8, Math.min(28, Number(e.target.value) || 9)))}
                   />
                 </div>
                 <div>
@@ -789,10 +1026,10 @@ const PropertyPanel = ({
                   <input
                     type="number"
                     min={8}
-                    max={18}
+                    max={28}
                     className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
                     value={selectedWidget.style?.tableBodyFontSize ?? 10}
-                    onChange={(e) => handleChange("style.tableBodyFontSize", Math.max(8, Number(e.target.value) || 10))}
+                    onChange={(e) => handleChange("style.tableBodyFontSize", Math.max(8, Math.min(28, Number(e.target.value) || 10)))}
                   />
                 </div>
               </div>
@@ -808,8 +1045,18 @@ const PropertyPanel = ({
                 <input
                   type="color"
                   className="w-full h-9 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                  value={selectedWidget.style?.color || "#3b82f6"}
-                  onChange={(e) => handleChange("style.color", e.target.value)}
+                  value={normalizeHexColor(displayStyle.color, "#3b82f6")}
+                  onChange={(e) => {
+                    const color = normalizeHexColor(e.target.value, "#3b82f6");
+                    if (color === normalizeHexColor(displayStyle.color, "#3b82f6")) return;
+                    if (selectedWidget.rawType === "graph") {
+                      const colors = [...(displayStyle.graphColors || GRAPH_COLOR_PALETTES.ocean)];
+                      colors[0] = color;
+                      applyWidgetPatch({ style: { color, graphColors: colors } }, { debounceMs: 90 });
+                      return;
+                    }
+                    applyWidgetPatch({ style: { color } }, { debounceMs: 90 });
+                  }}
                 />
               </div>
               <div>
@@ -817,11 +1064,102 @@ const PropertyPanel = ({
                 <input
                   type="color"
                   className="w-full h-9 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                  value={selectedWidget.style?.bg || "#ffffff"}
-                  onChange={(e) => handleChange("style.bg", e.target.value)}
+                  value={normalizeHexColor(displayStyle.bg, "#ffffff")}
+                  onChange={(e) => {
+                    const bg = normalizeHexColor(e.target.value, "#ffffff");
+                    if (bg === normalizeHexColor(displayStyle.bg, "#ffffff")) return;
+                    applyWidgetPatch({ style: { bg } }, { debounceMs: 90 });
+                  }}
                 />
               </div>
             </div>
+
+            {selectedWidget.rawType === "graph" && (
+              <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
+                <PanelFieldLabel>Graph customize</PanelFieldLabel>
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Color palette</label>
+                  <select
+                    className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                    value={displayStyle.graphColorPalette || "ocean"}
+                    onChange={(e) => {
+                      const key = e.target.value;
+                      const colors = GRAPH_COLOR_PALETTES[key] || GRAPH_COLOR_PALETTES.ocean;
+                      applyWidgetPatch({
+                        style: {
+                          graphColorPalette: key,
+                          graphColors: [...colors],
+                          color: colors[0],
+                        },
+                      });
+                    }}
+                  >
+                    {Object.keys(GRAPH_COLOR_PALETTES).map((key) => (
+                      <option key={key} value={key}>{key}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(displayStyle.graphColors || GRAPH_COLOR_PALETTES.ocean).slice(0, 8).map((hex, idx) => {
+                    const safeHex = normalizeHexColor(hex, GRAPH_COLOR_PALETTES.ocean[idx] || "#3b82f6");
+                    return (
+                      <label key={`gc-${idx}`} className="relative h-7 w-7 overflow-hidden rounded border border-slate-200 cursor-pointer" title={safeHex}>
+                        <input
+                          type="color"
+                          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                          value={safeHex}
+                          onChange={(e) => {
+                            const nextColor = normalizeHexColor(e.target.value, safeHex);
+                            if (nextColor === safeHex) return;
+                            const next = [...(displayStyle.graphColors || GRAPH_COLOR_PALETTES.ocean)];
+                            while (next.length < 8) next.push(GRAPH_COLOR_PALETTES.ocean[next.length] || "#3b82f6");
+                            next[idx] = nextColor;
+                            applyWidgetPatch({
+                              style: {
+                                graphColors: next,
+                                ...(idx === 0 ? { color: nextColor } : {}),
+                              },
+                            }, { debounceMs: 90 });
+                          }}
+                        />
+                        <span className="block h-full w-full" style={{ backgroundColor: safeHex }} />
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[9px] font-semibold text-slate-500 mb-1">Text size (px)</label>
+                    <input
+                      type="number"
+                      min={8}
+                      max={20}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                      value={displayStyle.graphTextSize ?? displayStyle.fontSize ?? 10}
+                      onChange={(e) => handleChange("style.graphTextSize", Math.max(8, Math.min(20, Number(e.target.value) || 10)), { debounceMs: 120 })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-semibold text-slate-500 mb-1">Pie size</label>
+                    <input
+                      type="number"
+                      min={40}
+                      max={320}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                      value={displayStyle.graphPieRadius ?? 70}
+                      onChange={(e) => handleChange("style.graphPieRadius", Math.max(40, Math.min(320, Number(e.target.value) || 70)), { debounceMs: 120 })}
+                      disabled={selectedWidget.type !== "pie"}
+                    />
+                  </div>
+                </div>
+                <SimpleToggle
+                  label="Show legend"
+                  hint="Labels / series legend under chart"
+                  checked={selectedWidget.style?.graphShowLegend !== false}
+                  onChange={(enabled) => handleChange("style.graphShowLegend", enabled)}
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Border Radius (px)</label>
@@ -854,6 +1192,28 @@ const PropertyPanel = ({
                 ))}
               </div>
             </div>
+
+            {(selectedWidget.rawType === "graph" || selectedWidget.rawType === "table") && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Title Position</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {["top", "bottom"].map((pos) => (
+                    <button
+                      type="button"
+                      key={pos}
+                      onClick={() => handleChange("style.titlePosition", pos)}
+                      className={`px-2 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all border ${
+                        (selectedWidget.style?.titlePosition || "top") === pos
+                          ? "bg-blue-600 border-blue-600 text-white shadow-md"
+                          : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
+                      }`}
+                    >
+                      {pos}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>

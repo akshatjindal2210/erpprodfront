@@ -1,9 +1,15 @@
-import React, { useMemo, useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
+import React, { useCallback, useMemo, useState } from "react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area, Legend } from "recharts";
 import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Copy, GripVertical, Pencil, Search, Trash2, X } from "lucide-react";
+import { toast } from "react-toastify";
 import ContainerNestedGrid from "./ContainerNestedGrid";
+import SimpleNestedCanvas from "./SimpleNestedCanvas";
+import ExportMenu from "@/core/components/common/ExportMenu";
+import { exportTableData } from "@/core/utils/tableExport";
+import { notifyListPageExportResult } from "@/core/utils/listPageExport";
+import { boxesFromChildren, savedStyleToCss } from "../utils/floatingLayoutEngine";
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
-import { hasCustomMobileNestedLayout, resolveWidgetSpacingPx, readNestedGridWidthPx, spacingPxToCss, stackNestedLayoutForPhone } from "../utils/dashboardLayoutEngine";
+import { resolveWidgetSpacingPx, readNestedGridWidthPx, spacingPxToCss, stackNestedLayoutForPhone } from "../utils/dashboardLayoutEngine";
 
 const resolveKpiValueFontPx = (style = {}, displayVal = "", readOnly = false, nested = false) => {
   const configured = Number(style.fontSize);
@@ -105,6 +111,9 @@ const resolveTableVisualStyle = (style = {}) => {
   const rowHoverBg = style.tableRowHoverBg || "#f8fafc";
   const headerFontPx = Math.max(8, Number(style.tableHeaderFontSize) || 9);
   const bodyFontPx = Math.max(8, Number(style.tableBodyFontSize) || Number(style.fontSize) || 10);
+  const searchFontPx = Math.max(8, Number(style.tableSearchFontSize) || bodyFontPx);
+  const searchColor = style.tableSearchColor || bodyColor;
+  const searchBg = style.tableSearchBg || bodyBg;
   return {
     headerColor,
     bodyColor,
@@ -114,6 +123,9 @@ const resolveTableVisualStyle = (style = {}) => {
     rowHoverBg,
     headerFontPx,
     bodyFontPx,
+    searchFontPx,
+    searchColor,
+    searchBg,
   };
 };
 
@@ -122,17 +134,21 @@ const DashboardTableView = ({
   style = {},
   nested = false,
   isPhoneMode = false,
+  title = "",
   tableSearchEnabled = false,
   tableSearchPlaceholder = "",
   tableSearchPosition = "right",
   tableColumnSortEnabled = false,
+  tableExportEnabled = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
+  const [exporting, setExporting] = useState(false);
   const keys = Object.keys(data[0] || {});
   const resolvedSearchPlaceholder = String(tableSearchPlaceholder || "").trim() || "Search...";
   const showSearch = tableSearchEnabled === true;
+  const showExport = tableExportEnabled === true;
   const showColumnSort = tableColumnSortEnabled === true;
   const searchAlignLeft = tableSearchPosition === "left";
   const compact = nested || isPhoneMode;
@@ -154,6 +170,46 @@ const DashboardTableView = ({
       ? sortTableRows(filtered, sortKey, sortDir)
       : filtered;
   }, [data, keys, searchQuery, sortKey, sortDir, showSearch, showColumnSort]);
+
+  const handleExport = useCallback(async (format) => {
+    if (!displayRows.length || !keys.length) {
+      toast.info("No rows to export.");
+      return;
+    }
+    setExporting(true);
+    try {
+      const columns = keys.map((key) => ({
+        key,
+        label: String(key),
+        format: (value) => {
+          if (value == null || value === "") return "";
+          if (typeof value === "number" && Number.isFinite(value)) return String(value);
+          if (typeof value === "object") {
+            try {
+              return JSON.stringify(value);
+            } catch {
+              return String(value);
+            }
+          }
+          return String(value);
+        },
+      }));
+      const moduleName = String(title || "Dashboard Table").trim() || "Dashboard Table";
+      const { filename } = await exportTableData({
+        format,
+        rows: displayRows,
+        columns,
+        moduleName,
+        includeMeta: false,
+      });
+      const { message } = notifyListPageExportResult(format, filename);
+      toast.success(message);
+    } catch (err) {
+      toast.error(err?.message || "Export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }, [displayRows, keys, title]);
 
   const toggleSort = (column) => {
     if (!showColumnSort) return;
@@ -180,62 +236,91 @@ const DashboardTableView = ({
       : <ArrowDown size={10} className="shrink-0 text-blue-600" aria-hidden />;
   };
 
+  const showToolbar = showSearch || showExport;
+
   return (
     <div
       className="flex flex-col h-full w-full min-h-0 min-w-0"
       style={{ backgroundColor: tableVisual.bodyBg }}
     >
-      {showSearch && (
+      {showToolbar && (
         <div
           className={`shrink-0 flex items-center gap-2 border-b px-2 py-1.5 ${
-            searchAlignLeft ? "justify-start" : "justify-end"
+            showSearch
+              ? (searchAlignLeft ? "justify-start" : "justify-end")
+              : "justify-end"
           }`}
-          style={{ backgroundColor: tableVisual.headerBg, borderColor: tableVisual.borderColor }}
+          style={{ backgroundColor: tableVisual.bodyBg, borderColor: tableVisual.borderColor }}
         >
-          <label
-            className={`relative block shrink-0 ${
-              compact
-                ? "w-full max-w-full"
-                : nested
-                  ? "w-[min(240px,60vw)]"
-                  : "w-[min(280px,64vw)]"
-            }`}
-          >
-            <Search
-              size={compact ? 13 : 14}
-              className="pointer-events-none absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              aria-hidden
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+          {showSearch && (
+            <label
+              className={`relative block shrink-0 ${
+                compact
+                  ? "w-full max-w-full"
+                  : nested
+                    ? "w-[min(240px,60vw)]"
+                    : "w-[min(280px,64vw)]"
+              }`}
+            >
+              <Search
+                size={Math.max(11, Math.min(16, Math.round(tableVisual.searchFontPx)))}
+                className="pointer-events-none absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2"
+                style={{ color: tableVisual.searchColor, opacity: 0.55 }}
+                aria-hidden
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                placeholder={resolvedSearchPlaceholder}
+                className="w-full rounded-md border focus:outline-none focus:ring-1 focus:ring-blue-400/40 shadow-sm"
+                style={{
+                  borderColor: tableVisual.borderColor,
+                  backgroundColor: tableVisual.searchBg,
+                  color: tableVisual.searchColor,
+                  fontSize: `${tableVisual.searchFontPx}px`,
+                  height: `${Math.max(28, tableVisual.searchFontPx + 16)}px`,
+                  paddingLeft: compact ? 28 : 36,
+                  paddingRight: 32,
+                }}
+                aria-label="Search table rows"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 hover:opacity-80"
+                  style={{ color: tableVisual.searchColor }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSearchQuery("");
+                  }}
+                  aria-label="Clear search"
+                >
+                  <X size={12} />
+                </button>
+              ) : null}
+            </label>
+          )}
+          {showExport && (
+            <div
+              className="shrink-0"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
-              placeholder={resolvedSearchPlaceholder}
-              className={`w-full rounded-md border bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400/40 shadow-sm ${
-                compact ? "h-8 pl-8 pr-8 text-[11px]" : "h-9 pl-10 pr-10 text-xs"
-              }`}
-              style={{ borderColor: tableVisual.borderColor }}
-              aria-label="Search table rows"
-            />
-            {searchQuery ? (
-              <button
-                type="button"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-600"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSearchQuery("");
-                }}
-                aria-label="Clear search"
-              >
-                <X size={12} />
-              </button>
-            ) : null}
-          </label>
+            >
+              <ExportMenu
+                disabled={!displayRows.length}
+                exporting={exporting}
+                onExport={handleExport}
+                label="Export"
+                className="h-8 [&_button]:!h-8 [&_button]:!min-h-8 [&_button]:!min-w-0 [&_button]:!px-2 [&_button]:!text-[10px]"
+              />
+            </div>
+          )}
         </div>
       )}
-      <div className="flex-1 min-h-0 min-w-0 overflow-auto custom-scrollbar overscroll-x-contain">
+      <div className="flex-1 min-h-0 min-w-0 overflow-auto overscroll-x-contain">
         <table
           className={`w-full min-w-max border-collapse ${
             compact ? "table-auto" : "table-fixed sm:table-auto"
@@ -336,17 +421,35 @@ const buildBoxStyle = (style = {}, { transparentBg = false, isContainer = false,
   };
 };
 
+const USE_FLOATING_NESTED = true;
+
+const resolveContainerNestedLayoutPx = (widget, sectionChildren, isPhoneMode = false) => {
+  if (isPhoneMode) {
+    if (Array.isArray(widget.mobileNestedLayoutPx) && widget.mobileNestedLayoutPx.length) {
+      return widget.mobileNestedLayoutPx;
+    }
+    // Fallback preview only — edits copy-on-write into mobileNestedLayoutPx.
+    if (Array.isArray(widget.nestedLayoutPx) && widget.nestedLayoutPx.length) {
+      return widget.nestedLayoutPx;
+    }
+    return boxesFromChildren(sectionChildren, []);
+  }
+  if (Array.isArray(widget.nestedLayoutPx) && widget.nestedLayoutPx.length) {
+    return widget.nestedLayoutPx;
+  }
+  return boxesFromChildren(sectionChildren, []);
+};
+
 const resolveContainerNestedLayout = (widget, sectionChildren, isPhoneMode) => {
   if (isPhoneMode) {
+    if (Array.isArray(widget.mobileNestedLayout) && widget.mobileNestedLayout.length) {
+      return widget.mobileNestedLayout;
+    }
     const desktopNested = Array.isArray(widget.nestedLayout) && widget.nestedLayout.length
       ? widget.nestedLayout
       : sectionChildren
         .map((child) => child.layout || {})
         .filter((item) => item && item.i);
-    const mobileNested = Array.isArray(widget.mobileNestedLayout) ? widget.mobileNestedLayout : [];
-    if (mobileNested.length && hasCustomMobileNestedLayout(desktopNested, mobileNested)) {
-      return mobileNested;
-    }
     return stackNestedLayoutForPhone(desktopNested);
   }
   if (Array.isArray(widget.nestedLayout) && widget.nestedLayout.length) {
@@ -373,6 +476,11 @@ const WidgetRenderer = ({
   onNestedGridWidthDiscover,
   isDropTarget = false,
   isContainerResizing = false,
+  pureSavedStyle = false,
+  suppressChrome = false,
+  onContainerShellPointerDown,
+  canvasScale = 1,
+  dragScale = 1,
 }) => {
   const useBuilderVisuals = !readOnly || designParity;
   const data = widget.previewData || widget.data || [];
@@ -426,19 +534,25 @@ const WidgetRenderer = ({
         bottom: widget.mobilePaddingBottom ?? widget.style?.mobilePaddingBottom ?? 8,
         left: widget.mobilePaddingLeft ?? widget.style?.mobilePaddingLeft ?? 8,
       };
-      const containerShellStyle = buildBoxStyle(style, { isContainer: true });
+      const containerShellStyle = suppressChrome
+        ? { boxSizing: "border-box", width: "100%", maxWidth: "100%" }
+        : buildBoxStyle(style, { isContainer: true });
       if (isPhoneMode) {
         containerShellStyle.padding = "0px";
       }
 
+      const containerShellHeightClass = suppressChrome
+        ? "h-full min-h-0 flex-1"
+        : (readOnly && !isPhoneMode ? "h-full min-h-0" : "h-auto");
+
       return (
         <div
-          className={`group relative flex flex-col items-start w-full max-w-full shrink-0 ${
-            readOnly ? "" : "min-h-0"
-          } h-auto ${readOnly || !isPhoneMode ? "overflow-visible" : "overflow-hidden"}`}
+          className={`group relative flex flex-col items-start w-full h-full max-w-full min-w-0 ${
+            readOnly && isPhoneMode ? "" : "min-h-0"
+          } ${containerShellHeightClass} ${suppressChrome ? "overflow-hidden" : "overflow-hidden"}`}
           style={containerShellStyle}
         >
-          {!readOnly && !nested && (
+          {!readOnly && !nested && !suppressChrome && (
             <>
               {String(selectedWidgetId) === String(widget.id) && (
                 <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500 rounded-l pointer-events-none z-0" />
@@ -476,24 +590,47 @@ const WidgetRenderer = ({
               )}
             </>
           )}
-          {(displayTitle || widget.description) && (
+          {(displayTitle || widget.description) && !suppressChrome && (
             <div className="shrink-0 mb-2">
               {displayTitle ? (
                 <p
                   className="text-[11px] font-bold uppercase tracking-widest"
-                  style={{ color: style.color || "#475569", fontSize: style.fontSize ? `${style.fontSize}px` : undefined }}
+                  style={{ color: style.color, fontSize: style.fontSize ? `${style.fontSize}px` : undefined }}
                 >
                   {displayTitle}
                 </p>
               ) : null}
               {widget.description ? (
-                <p className="text-[10px] mt-0.5 opacity-80" style={{ color: style.color || "#64748b" }}>
+                <p className="text-[10px] mt-0.5 opacity-80" style={{ color: style.color }}>
                   {widget.description}
                 </p>
               ) : null}
             </div>
           )}
-          <ContainerNestedGrid
+          <div className={`min-w-0 w-full max-w-full flex-1 min-h-0 flex flex-col ${suppressChrome ? "overflow-hidden" : "overflow-hidden"}`}>
+            {USE_FLOATING_NESTED ? (
+              <SimpleNestedCanvas
+                key={`simple-nested-${widget.id}`}
+                childWidgets={sectionChildren}
+                layoutPx={resolveContainerNestedLayoutPx(widget, sectionChildren, isPhoneMode)}
+                containerId={widget.id}
+                readOnly={readOnly}
+                selectedWidgetId={selectedWidgetId}
+                fillParentHeight={suppressChrome}
+                canvasScale={canvasScale}
+                dragScale={dragScale}
+                isPhoneMode={isPhoneMode}
+                onLayoutChange={(nextLayout, options) => onNestedLayoutChange?.(widget.id, nextLayout, isPhoneMode, options)}
+                onSelectWidget={(childId) => onSelectWidget?.(childId)}
+                onDeleteWidget={onDeleteWidget}
+                onAddChildWidget={onAddChildWidget}
+                onCloneChildWidget={onCloneChildWidget}
+                isDraggingOver={isDropTarget}
+                onCanvasBackgroundClick={() => onSelectWidget?.(widget.id)}
+                onContainerShellPointerDown={onContainerShellPointerDown}
+              />
+            ) : (
+              <ContainerNestedGrid
             key={isPhoneMode ? `phone-${widget.id}` : `desktop-${widget.id}`}
             childWidgets={sectionChildren}
             layout={nestedLayout}
@@ -514,6 +651,8 @@ const WidgetRenderer = ({
             mobilePadding={isPhoneMode ? mobilePadding : { top: 0, right: 0, bottom: 0, left: 0 }}
             isPhoneMode={isPhoneMode}
           />
+            )}
+          </div>
         </div>
       );
     }
@@ -556,71 +695,111 @@ const WidgetRenderer = ({
     }
 
     if (data.length === 0) {
-      return (
-        <div className="flex items-center justify-center h-full opacity-70 text-[10px] uppercase tracking-widest font-bold">
-          No Data Found
-        </div>
+      const isBuilderNestedKpi = nested && !readOnly && (
+        type === "kpi" || widget.rawType === "kpi" || widget.rawType === "count" || widget.rawType === "sum"
       );
+      if (!isBuilderNestedKpi) {
+        return (
+          <div className="flex items-center justify-center h-full opacity-70 text-[10px] uppercase tracking-widest font-bold">
+            No Data Found
+          </div>
+        );
+      }
     }
 
     const keys = Object.keys(data[0] || {});
-    const xKey = keys[0];
-    const yKey = keys[1] || keys[0];
+    const graphXKey = String(style.graphXKey || "").trim();
+    const graphYKey = String(style.graphYKey || "").trim();
+    const xKey = (graphXKey && keys.includes(graphXKey)) ? graphXKey : keys[0];
+    const yKey = (graphYKey && keys.includes(graphYKey)) ? graphYKey : (keys[1] || keys[0]);
+    const graphTextPx = Math.max(8, Math.min(18, Number(style.graphTextSize) || Number(style.fontSize) || 10));
+    const pieRadius = Math.max(40, Math.min(320, Number(style.graphPieRadius) || 70));
+    const showLegend = style.graphShowLegend !== false;
+    const palette = Array.isArray(style.graphColors) && style.graphColors.length
+      ? style.graphColors
+      : [style.color || "#3b82f6", "#60a5fa", "#93c5fd", "#1d4ed8", "#34d399", "#f59e0b", "#f43f5e", "#a855f7"];
+    const tickFill = style.color || "#64748b";
+    const wrapChart = (chart) => (
+      <div className="h-full w-full min-h-0 min-w-0 overflow-hidden">
+        <ResponsiveContainer width="100%" height="100%">
+          {chart}
+        </ResponsiveContainer>
+      </div>
+    );
 
     if (type === "bar") {
-      return (
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-            <XAxis dataKey={xKey} fontSize={9} tickLine={false} axisLine={false} tick={{ fill: style.color || "#64748b" }} />
-            <YAxis fontSize={9} tickLine={false} axisLine={false} tick={{ fill: style.color || "#64748b" }} />
-            <Tooltip
-              contentStyle={{ backgroundColor: style.bg || "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
-              itemStyle={{ fontSize: "10px", fontWeight: "bold", color: style.color || "#1e293b" }}
-              labelStyle={{ color: style.color || "#64748b", fontSize: "9px", marginBottom: "4px" }}
-            />
-            <Bar dataKey={yKey} fill={style.color || "#3b82f6"} radius={[2, 2, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+      return wrapChart(
+        <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: showLegend ? 8 : 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+          <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
+          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
+          <Tooltip
+            contentStyle={{ backgroundColor: style.bg || "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
+            itemStyle={{ fontSize: `${graphTextPx}px`, fontWeight: "bold", color: style.color || "#1e293b" }}
+            labelStyle={{ color: tickFill, fontSize: `${Math.max(8, graphTextPx - 1)}px`, marginBottom: "4px" }}
+          />
+          {showLegend ? <Legend wrapperStyle={{ fontSize: `${graphTextPx}px` }} /> : null}
+          <Bar dataKey={yKey} fill={palette[0] || "#3b82f6"} radius={[2, 2, 0, 0]} />
+        </BarChart>,
       );
     }
 
     if (type === "line") {
-      return (
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-            <XAxis dataKey={xKey} fontSize={9} tickLine={false} axisLine={false} tick={{ fill: style.color || "#64748b" }} />
-            <YAxis fontSize={9} tickLine={false} axisLine={false} tick={{ fill: style.color || "#64748b" }} />
-            <Tooltip
-              contentStyle={{ backgroundColor: style.bg || "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
-              itemStyle={{ fontSize: "10px", fontWeight: "bold", color: style.color || "#1e293b" }}
-              labelStyle={{ color: style.color || "#64748b", fontSize: "9px", marginBottom: "4px" }}
-            />
-            <Line type="monotone" dataKey={yKey} stroke={style.color || "#3b82f6"} strokeWidth={2} dot={{ r: 3, fill: style.color || "#3b82f6" }} activeDot={{ r: 5 }} />
-          </LineChart>
-        </ResponsiveContainer>
+      return wrapChart(
+        <LineChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: showLegend ? 8 : 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+          <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
+          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
+          <Tooltip
+            contentStyle={{ backgroundColor: style.bg || "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
+            itemStyle={{ fontSize: `${graphTextPx}px`, fontWeight: "bold", color: style.color || "#1e293b" }}
+            labelStyle={{ color: tickFill, fontSize: `${Math.max(8, graphTextPx - 1)}px`, marginBottom: "4px" }}
+          />
+          {showLegend ? <Legend wrapperStyle={{ fontSize: `${graphTextPx}px` }} /> : null}
+          <Line type="monotone" dataKey={yKey} stroke={palette[0] || "#3b82f6"} strokeWidth={2} dot={{ r: 3, fill: palette[0] || "#3b82f6" }} activeDot={{ r: 5 }} />
+        </LineChart>,
+      );
+    }
+
+    if (type === "area") {
+      return wrapChart(
+        <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: showLegend ? 8 : 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+          <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
+          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
+          <Tooltip
+            contentStyle={{ backgroundColor: style.bg || "#fff", border: "1px solid #e2e8f0", borderRadius: "8px" }}
+            itemStyle={{ fontSize: `${graphTextPx}px`, fontWeight: "bold", color: style.color || "#1e293b" }}
+          />
+          {showLegend ? <Legend wrapperStyle={{ fontSize: `${graphTextPx}px` }} /> : null}
+          <Area type="monotone" dataKey={yKey} stroke={palette[0] || "#3b82f6"} fill={palette[1] || palette[0] || "#93c5fd"} fillOpacity={0.35} />
+        </AreaChart>,
       );
     }
 
     if (type === "pie") {
-      return (
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Tooltip
-              contentStyle={{ backgroundColor: style.bg || "#fff", border: "1px solid #e2e8f0", borderRadius: "8px" }}
-              itemStyle={{ fontSize: "10px", fontWeight: "bold", color: style.color || "#1e293b" }}
-            />
-            <Pie data={data} dataKey={yKey} nameKey={xKey} outerRadius={70} label>
-              {data.map((entry, index) => (
-                <Cell
-                  key={`slice-${index}`}
-                  fill={index % 2 === 0 ? style.color || "#3b82f6" : "#93c5fd"}
-                />
-              ))}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
+      return wrapChart(
+        <PieChart>
+          <Tooltip
+            contentStyle={{ backgroundColor: style.bg || "#fff", border: "1px solid #e2e8f0", borderRadius: "8px" }}
+            itemStyle={{ fontSize: `${graphTextPx}px`, fontWeight: "bold", color: style.color || "#1e293b" }}
+          />
+          {showLegend ? <Legend wrapperStyle={{ fontSize: `${graphTextPx}px` }} /> : null}
+          <Pie
+            data={data}
+            dataKey={yKey}
+            nameKey={xKey}
+            outerRadius={pieRadius}
+            label={{ fontSize: graphTextPx, fill: tickFill }}
+          >
+            {data.map((entry, index) => (
+              <Cell
+                key={`slice-${index}`}
+                fill={palette[index % palette.length] || "#3b82f6"}
+              />
+            ))}
+          </Pie>
+        </PieChart>,
       );
     }
 
@@ -631,19 +810,21 @@ const WidgetRenderer = ({
           style={style}
           nested={nested}
           isPhoneMode={isPhoneMode}
+          title={displayTitle || widget.title || widget.description || "Dashboard Table"}
           tableSearchEnabled={widget.tableSearchEnabled === true}
           tableSearchPlaceholder={widget.tableSearchPlaceholder || ""}
           tableSearchPosition={widget.tableSearchPosition === "left" ? "left" : "right"}
           tableColumnSortEnabled={widget.tableColumnSortEnabled === true}
+          tableExportEnabled={widget.tableExportEnabled === true}
         />
       );
     }
 
     if (type === "kpi" || widget.rawType === "kpi" || widget.rawType === "count" || widget.rawType === "sum") {
-      const val = data[0] ? Object.values(data[0])[0] : 0;
+      const val = data[0] ? Object.values(data[0])[0] : null;
       const label = title || widget.description || "";
       const isTop = (style.kpiLabelPosition || "bottom") === "top";
-      const displayVal = formatDisplayValue(val);
+      const displayVal = val != null && val !== "" ? formatDisplayValue(val) : "—";
       const valueFontPx = resolveKpiValueFontPx(style, displayVal, !useBuilderVisuals, nested);
       const labelFontPx = resolveKpiLabelFontPx(style);
       const labelStyle = {
@@ -651,20 +832,24 @@ const WidgetRenderer = ({
         lineHeight: 1.05,
         color: style.color || "#64748b",
       };
-      // Nested cards can be short — center value, never clip the number.
-      const kpiShellClass = `flex flex-col justify-center items-stretch h-full w-full min-h-0 min-w-0 gap-0 overflow-visible ${alignClass}`;
+      // Nested KPI: fit cell; horizontal align follows contentAlign (do not hardcode items-center).
+      const kpiShellClass = nested
+        ? `flex flex-col justify-center h-full w-full min-h-0 min-w-0 gap-0 overflow-visible ${alignClass}`
+        : `flex flex-col justify-center h-full w-full min-h-0 min-w-0 gap-0 overflow-visible ${alignClass}`;
+      const kpiTextAlign =
+        style.contentAlign === "left" ? "text-left" : style.contentAlign === "right" ? "text-right" : "text-center";
       return (
         <div className={kpiShellClass}>
           {label && isTop && (
             <div
-              className={`font-semibold px-0.5 truncate leading-tight shrink-0${nested ? " text-center" : ""}`}
+              className={`font-semibold px-0.5 leading-tight shrink-0 whitespace-normal break-words ${kpiTextAlign}${nested ? "" : " truncate"}`}
               style={labelStyle}
             >
               {label}
             </div>
           )}
           <div
-            className="nested-kpi-value font-black tracking-tight leading-none max-w-full px-0.5 text-center shrink-0"
+            className={`nested-kpi-value font-black tracking-tight leading-none max-w-full px-0.5 shrink-0 ${kpiTextAlign}`}
             style={{
               color: style.color || "#3b82f6",
               fontSize: `${valueFontPx}px`,
@@ -677,7 +862,7 @@ const WidgetRenderer = ({
           </div>
           {label && !isTop && (
             <div
-              className={`font-semibold px-0.5 truncate leading-tight mt-0.5 shrink-0${nested ? " text-center" : ""}`}
+              className={`font-semibold px-0.5 leading-tight mt-0.5 shrink-0 whitespace-normal break-words ${kpiTextAlign}${nested ? "" : " truncate"}`}
               style={labelStyle}
             >
               {label}
@@ -712,6 +897,42 @@ const WidgetRenderer = ({
     );
   }
 
+  const titleAlignClass =
+    style.contentAlign === "left"
+      ? "text-left justify-start"
+      : style.contentAlign === "right"
+        ? "text-right justify-end"
+        : "text-center justify-center";
+  const titlePosition = style.titlePosition === "bottom" ? "bottom" : "top";
+
+  if (suppressChrome) {
+    if (isContainer) {
+      return renderContent();
+    }
+    if (!isHeading) {
+      const isKpiChrome = type === "kpi" || widget.rawType === "kpi" || widget.rawType === "count" || widget.rawType === "sum";
+      const showTitle = Boolean(displayTitle) && !isKpiChrome;
+      const titleEl = showTitle ? (
+        <div
+          className={`shrink-0 px-2 pt-1.5 pb-0.5 text-[11px] font-bold uppercase tracking-widest truncate flex ${titleAlignClass}`}
+          style={{ color: style.color || "#334155", fontSize: style.fontSize ? `${Math.min(14, Number(style.fontSize) || 11)}px` : undefined }}
+          title={displayTitle}
+        >
+          <span className="truncate w-full">{displayTitle}</span>
+        </div>
+      ) : null;
+      return (
+        <div className={`h-full w-full min-h-0 flex flex-col overflow-hidden${nested && !readOnly ? " pointer-events-none" : ""}`}>
+          {titlePosition === "top" ? titleEl : null}
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {renderContent()}
+          </div>
+          {titlePosition === "bottom" ? titleEl : null}
+        </div>
+      );
+    }
+  }
+
   const flatLivePhone = readOnly && isPhoneMode && nested;
   const outerStyle = buildBoxStyle(style, {
     transparentBg: isHeading && !style.bg,
@@ -725,32 +946,77 @@ const WidgetRenderer = ({
     outerStyle.border = "none";
   }
   if (nested && !isContainer) {
-    // Compact padding so value fits on short published cards without changing grid height.
     outerStyle.padding = "0px";
     outerStyle.overflow = "visible";
+    if (!readOnly) {
+      outerStyle.backgroundColor = "transparent";
+      outerStyle.boxShadow = "none";
+      outerStyle.border = "none";
+    }
   }
   const isKpi = type === "kpi" || widget.rawType === "kpi" || widget.rawType === "count" || widget.rawType === "sum";
   const showHeader = displayTitle && !isKpi && !isHeading && !isContainer;
 
+  if (nested && pureSavedStyle) {
+    const innerCss = savedStyleToCss(style);
+    const showTitle = Boolean(displayTitle) && !isKpi;
+    const titleEl = showTitle ? (
+      <div
+        className={`shrink-0 px-1 pb-0.5 text-[10px] font-bold uppercase tracking-widest truncate flex ${titleAlignClass}`}
+        style={{ color: style.color || "#334155" }}
+        title={displayTitle}
+      >
+        <span className="truncate w-full">{displayTitle}</span>
+      </div>
+    ) : null;
+    return (
+      <div
+        className="h-full w-full min-h-0 flex flex-col overflow-hidden"
+        style={{
+          ...innerCss,
+          backgroundColor: "transparent",
+          border: "none",
+          boxShadow: "none",
+          margin: 0,
+          padding: innerCss.padding ?? 0,
+        }}
+      >
+        {titlePosition === "top" ? titleEl : null}
+        <div className="flex-1 min-h-0 w-full overflow-hidden flex items-center justify-center">
+          {renderContent()}
+        </div>
+        {titlePosition === "bottom" ? titleEl : null}
+      </div>
+    );
+  }
+
   if (nested) {
     return (
       <div
-        className={`h-full w-full min-h-0 flex flex-col overflow-visible${
-          flatLivePhone ? "" : " border border-slate-200/80 shadow-sm"
+        className={`h-full w-full min-h-[64px] flex flex-col overflow-visible${
+          flatLivePhone || !readOnly ? "" : " border border-slate-200/80 shadow-sm"
         }`}
         style={outerStyle}
       >
-        {showHeader && (
+        {showHeader && titlePosition === "top" && (
           <div
-            className="shrink-0 border-b border-slate-100/80 font-bold flex justify-between items-center"
+            className={`shrink-0 border-b border-slate-100/80 font-bold flex items-center ${titleAlignClass}`}
             style={{ fontSize: style.fontSize ? `${style.fontSize}px` : "10px", color: style.color || "#64748b" }}
           >
-            <span>{displayTitle}</span>
+            <span className="truncate w-full">{displayTitle}</span>
           </div>
         )}
-        <div className="flex-1 min-h-0 w-full overflow-visible flex items-stretch">
+        <div className="flex-1 min-h-[48px] w-full overflow-visible flex items-center justify-center">
           {renderContent()}
         </div>
+        {showHeader && titlePosition === "bottom" && (
+          <div
+            className={`shrink-0 border-t border-slate-100/80 font-bold flex items-center ${titleAlignClass}`}
+            style={{ fontSize: style.fontSize ? `${style.fontSize}px` : "10px", color: style.color || "#64748b" }}
+          >
+            <span className="truncate w-full">{displayTitle}</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -764,19 +1030,31 @@ const WidgetRenderer = ({
       }`}
       style={outerStyle}
     >
-      {showHeader && (
+      {showHeader && titlePosition === "top" && (
         <div
-          className="shrink-0 border-b border-slate-100/80 font-bold flex justify-between items-center"
+          className={`shrink-0 border-b border-slate-100/80 font-bold flex items-center ${titleAlignClass}`}
           style={{
             fontSize: style.fontSize ? `${style.fontSize}px` : "10px",
             color: style.color || "#64748b",
             backgroundColor: style.bg ? `${style.bg}cc` : "rgba(248,250,252,0.8)",
           }}
         >
-          <span className="truncate">{displayTitle}</span>
+          <span className="truncate w-full">{displayTitle}</span>
         </div>
       )}
       <div className={`flex-1 min-h-0 ${isContainer ? "overflow-visible" : "overflow-hidden"}`}>{renderContent()}</div>
+      {showHeader && titlePosition === "bottom" && (
+        <div
+          className={`shrink-0 border-t border-slate-100/80 font-bold flex items-center ${titleAlignClass}`}
+          style={{
+            fontSize: style.fontSize ? `${style.fontSize}px` : "10px",
+            color: style.color || "#64748b",
+            backgroundColor: style.bg ? `${style.bg}cc` : "rgba(248,250,252,0.8)",
+          }}
+        >
+          <span className="truncate w-full">{displayTitle}</span>
+        </div>
+      )}
     </div>
   );
 };

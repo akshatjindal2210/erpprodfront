@@ -7,10 +7,6 @@ export const getTables = async ({ appKey = "ims", dbSource = "ims_postgresql" } 
   return await api(`${BASE_PATH}/tables?app=${encodeURIComponent(appKey)}&db_source=${encodeURIComponent(dbSource)}`);
 };
 
-export const getColumns = async (table) => {
-  return await api(`${BASE_PATH}/columns/${table}`);
-};
-
 export const listWidgets = async (appKey = "ims", pageKey = "default", dashboardKey = "default") => {
   return api(`${BASE_PATH}/widgets/list`, {
     method: "POST",
@@ -37,18 +33,6 @@ export const deleteWidget = async (id, { appKey = "ims", pageKey = "default", da
     method: "DELETE",
   },
   );
-};
-
-export const publishWidget = async (id) => {
-  return api(`${BASE_PATH}/widgets/${id}/publish`, {
-    method: "POST",
-  });
-};
-
-export const unpublishWidget = async (id) => {
-  return api(`${BASE_PATH}/widgets/${id}/unpublish`, {
-    method: "POST",
-  });
 };
 
 export const previewWidget = async (query, { dbSource = "ims_postgresql", filters = {} } = {}) => {

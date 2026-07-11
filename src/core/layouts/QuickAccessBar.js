@@ -308,9 +308,14 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
     return () => mq?.removeEventListener?.("change", sync);
   }, []);
 
+  const isSuperAdmin = useMemo(() => {
+    const normalized = String(role || "").toLowerCase().trim();
+    return normalized === "super_admin" || normalized === "super admin";
+  }, [role]);
+
   const shortcutRows = useMemo(() => {
-    if (isPwa) {
-      return [
+    const base = isPwa
+      ? [
         { id: "listNew", label: "New Form (list)", parts: ["CTRL", "N"] },
         { id: "listEdit", label: "Edit Selected (list)", parts: ["CTRL", "E"] },
         { id: "listDelete", label: "Delete Selected (list)", parts: ["CTRL", "D"] },
@@ -319,19 +324,31 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
         { id: "closeOverlay", label: "Close Modal / Form", parts: ["ESC"] },
         { id: "copyRow", label: "Copy Row Data", parts: ["CTRL", "C"] },
         { id: "listPrint", label: "Print Selected (list)", parts: ["CTRL", "P"] },
+      ]
+      : [
+        { id: "listNew", label: "New Form (list)", parts: getListHotkeyParts("n", false) },
+        { id: "listEdit", label: "Edit Selected (list)", parts: getListHotkeyParts("e", false) },
+        { id: "save", label: "Save / Submit", parts: ["CTRL", "S"] },
+        { id: "closeOverlay", label: "Close Modal / Form", parts: ["ESC"] },
+        { id: "copyRow", label: "Copy Row Data", parts: ["CTRL", "C"] },
+        { id: "authorize", label: "Authorize Selected", parts: ["CTRL", "A"] },
+        { id: "listPrint", label: "Print Selected (list)", parts: getListHotkeyParts("p", false) },
       ];
-    }
+
+    if (!isSuperAdmin) return base;
 
     return [
-      { id: "listNew", label: "New Form (list)", parts: getListHotkeyParts("n", false) },
-      { id: "listEdit", label: "Edit Selected (list)", parts: getListHotkeyParts("e", false) },
-      { id: "save", label: "Save / Submit", parts: ["CTRL", "S"] },
-      { id: "closeOverlay", label: "Close Modal / Form", parts: ["ESC"] },
-      { id: "copyRow", label: "Copy Row Data", parts: ["CTRL", "C"] },
-      { id: "authorize", label: "Authorize Selected", parts: ["CTRL", "A"] },
-      { id: "listPrint", label: "Print Selected (list)", parts: getListHotkeyParts("p", false) },
+      ...base,
+      { id: "dashUndo", label: "Widget Builder Undo", parts: ["CTRL", "Z"] },
+      { id: "dashRedo", label: "Widget Builder Redo", parts: ["CTRL", "Y"] },
+      { id: "dashSave", label: "Widget Builder Save Draft", parts: ["CTRL", "S"] },
+      {
+        id: "dashPublish",
+        label: "Widget Builder Publish",
+        parts: getListHotkeyParts("u", isPwa),
+      },
     ];
-  }, [isPwa]);
+  }, [isPwa, isSuperAdmin]);
 
   const currentModule = useMemo(() => {
     for (const item of NAV_REGISTRY) {

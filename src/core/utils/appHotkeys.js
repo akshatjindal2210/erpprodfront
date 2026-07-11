@@ -47,6 +47,13 @@ export function isAppSaveChord(e) {
   return isModChord(e) && (e.key || "").toLowerCase() === "s";
 }
 
+/** Widget builder publish: Ctrl+Alt+U (browser) or Ctrl+U (PWA). */
+export function isDashboardPublishChord(e) {
+  const mod = e.ctrlKey || e.metaKey;
+  if (!mod || e.shiftKey) return false;
+  return (e.key || "").toLowerCase() === "u";
+}
+
 export function isAppCopyChord(e) {
   return isModChord(e) && (e.key || "").toLowerCase() === "c";
 }
@@ -82,6 +89,10 @@ export function shouldSwallowAppShortcut(e) {
   }
 
   if (isAppSaveChord(e)) {
+    return !isHotkeyTypingTarget(e.target);
+  }
+
+  if (isDashboardPublishChord(e)) {
     return !isHotkeyTypingTarget(e.target);
   }
 

@@ -12,6 +12,7 @@ import { formatDocDate } from "@/core/utils/utilHelper";
 import DataTable from "@/core/components/ui/DataTable";
 import DispatchRescheduleModal from "./DispatchRescheduleModal";
 import DispatchRejectModal from "./DispatchRejectModal";
+import DispatchCompleteModal from "./DispatchCompleteModal";
 
 function getTodayLabel() {
   const now = new Date();
@@ -117,7 +118,8 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
   const [rescheduleItem, setRescheduleItem] = useState(null);
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectItem, setRejectItem] = useState(null);
-  const [completing, setCompleting] = useState(false);
+  const [completeModalOpen, setCompleteModalOpen] = useState(false);
+  const [completeItem, setCompleteItem] = useState(null);
 
   const rangeLabel = useMemo(getTodayLabel, []);
 
@@ -183,40 +185,24 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     [rows, onSelectedChange]
   );
 
-  const handleCompleteRow = useCallback(
-    async (row) => {
+  const handleOpenCompleteRow = useCallback(
+    (row) => {
       if (!row || !canAddPlan) return;
-      if (!row.fin_year_id) {
-        toast.error("Financial year not found for this item.");
+      if (Number(row.is_planned) !== 1) {
+        toast.warning("Only planned items can be completed.");
         return;
       }
-      setCompleting(true);
-      try {
-        const res = await schedulePlanningService.dispatchComplete({
-          fin_year_id: String(row.fin_year_id),
-          schno: row.schno,
-          itemdcode: row.itemdcode,
-          schmonth: row.schmonth,
-          schdt: row.schdt,
-          acc_code: row.acc_code,
-          acc_name: row.acc_name,
-          item_code: row.item_code,
-          itemdesc: row.itemdesc,
-          totalqty: Number(row.totalqty ?? 0),
-        });
-        if (!res?.success) throw new Error(res?.message || "Complete failed.");
-        toast.success("Item marked as complete.");
-        setSelected(null);
-        onSelectedChange?.(null);
-        void fetchData();
-      } catch (err) {
-        toast.error(err?.message || "Failed to mark as complete.");
-      } finally {
-        setCompleting(false);
-      }
+      setCompleteItem(row);
+      setCompleteModalOpen(true);
     },
-    [canAddPlan, fetchData, onSelectedChange]
+    [canAddPlan]
   );
+
+  const handleCompleteSaved = useCallback(() => {
+    setSelected(null);
+    onSelectedChange?.(null);
+    void fetchData();
+  }, [fetchData, onSelectedChange]);
 
   const handleOpenRescheduleRow = useCallback(
     (row) => {
@@ -280,11 +266,11 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     () => ({
       refresh: fetchData,
       loading,
-      completing,
+      completing: completeModalOpen,
       rejecting: rejectModalOpen,
       completeSelected: () => {
         const row = getSelectedRow();
-        if (row && Number(row.is_planned) === 1) void handleCompleteRow(row);
+        if (row) handleOpenCompleteRow(row);
       },
       rejectSelected: () => {
         const row = getSelectedRow();
@@ -296,7 +282,17 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       },
       hasSelected: Boolean(selected),
     }),
-    [fetchData, loading, completing, rejectModalOpen, selected, getSelectedRow, handleCompleteRow, handleOpenRejectRow, handleOpenRescheduleRow]
+    [
+      fetchData,
+      loading,
+      completeModalOpen,
+      rejectModalOpen,
+      selected,
+      getSelectedRow,
+      handleOpenCompleteRow,
+      handleOpenRejectRow,
+      handleOpenRescheduleRow,
+    ]
   );
 
   const headers = useMemo(() => buildDispatchHeaders(), []);
@@ -334,7 +330,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
           cardConfig={{
             titleKey: "schno",
             badgeIndices: [7],
-            detailKeys: ["acc_name", "item_code", "itemdesc", "totalqty", "action_date", "item_remark"],
+            detailKeys: ["acc_name", "item_code", "itemdesc", "balance_qty", "action_date", "item_remark"],
             footerKey: "schdt",
           }}
         />
@@ -375,6 +371,16 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
           setRejectItem(null);
         }}
         onSaved={handleRejectSaved}
+      />
+
+      <DispatchCompleteModal
+        open={completeModalOpen}
+        item={completeItem}
+        onClose={() => {
+          setCompleteModalOpen(false);
+          setCompleteItem(null);
+        }}
+        onSaved={handleCompleteSaved}
       />
     </>
   );

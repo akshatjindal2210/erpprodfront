@@ -29,6 +29,8 @@ export function useListDrawerHotkeys({
   addActions,
   editAction = "edit",
   authorizeAction = "authorize",
+  /** When set, overrides canAccess(module, authorizeAction) for approve hotkey/button gating. */
+  getAuthorizeAccess,
   modalOpen,
   selectedId,
   getSelectedRow,
@@ -82,8 +84,11 @@ export function useListDrawerHotkeys({
 
   const openApproveModal = useCallback(() => {
     if (typeof openApprove !== "function" || openApprove === null) return;
-    const access = canAccess(module, authorizeAction);
-    if (!access.allowed) return;
+    const access =
+      typeof getAuthorizeAccess === "function"
+        ? getAuthorizeAccess()
+        : canAccess(module, authorizeAction);
+    if (!access?.allowed) return;
     if (typeof canApproveSelection === "function" && !canApproveSelection()) {
       if (typeof onApproveBlocked === "function") {
         onApproveBlocked();
@@ -100,6 +105,7 @@ export function useListDrawerHotkeys({
     canAccess,
     module,
     authorizeAction,
+    getAuthorizeAccess,
     canApproveSelection,
     onApproveBlocked,
     approveBlockedMessage,

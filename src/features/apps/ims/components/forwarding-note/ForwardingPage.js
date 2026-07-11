@@ -237,9 +237,10 @@ export default function ForwardingPage() {
     reportType === "summary" ? appliedSearch : "",
   ]);
 
-  useEffect(() => { 
-    fetchData(); 
-  }, [fetchData]);
+  useEffect(() => {
+    if (outerTab !== "forwarding_master") return;
+    fetchData();
+  }, [fetchData, outerTab]);
 
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
@@ -334,13 +335,18 @@ export default function ForwardingPage() {
       return fgStock > 0 && balance > 0;
     });
     if (!qualifying.length) {
-      toast.info("No items with FG stock for this schedule.");
+      toast.info("No items with remaining balance and FG stock for this schedule.");
       return;
     }
     setDispatchPrefill({ anchorRow: dispatchSelected, rows: qualifying });
     setModalMode("add");
     setModalOpen(true);
   }, [dispatchSelected, dispatchRows]);
+
+  /** Forwarding Master New — FN only from schedule; same message as dispatch-plan New without a row. */
+  const openMasterNewFromScheduleOnly = useCallback(() => {
+    toast.info("Switch to Today's Dispatch Plan, select a schedule row, then click New.");
+  }, []);
 
   const closeModal = useCallback(() => {
     setModalOpen(false);
@@ -353,8 +359,9 @@ export default function ForwardingPage() {
       dispatchPlanRef.current?.refresh();
       setDispatchSelected(null);
       setDispatchPrefill(null);
+    } else {
+      fetchData();
     }
-    fetchData();
     setSelectedId(null);
   }, [dispatchPrefill, fetchData]);
 
@@ -376,15 +383,19 @@ export default function ForwardingPage() {
     }
   }, [selectedRecord?.fuid, billPrinting]);
 
-  const { openNewModal, openEditModal, openPrintModal, openApproveModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
+  const { openEditModal, openPrintModal, openApproveModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "forwarding_note_master",
     modalOpen: modalOpen || isDeleting,
     selectedId: selectedId,
     getSelectedRow,
     openAdd: useCallback(() => {
-      setDispatchPrefill(null);
-      openModal("add");
-    }, [openModal]),
+      if (outerTab === "dispatch_plan") {
+        openDispatchPlanNew();
+        return;
+      }
+      // Free-form New on Forwarding Master disabled — must select a schedule row on Today's Dispatch Plan
+      openMasterNewFromScheduleOnly();
+    }, [outerTab, openDispatchPlanNew, openMasterNewFromScheduleOnly]),
     openEdit: useCallback(() => {
       if (reportType !== "summary") return;
       openModal("edit");
@@ -653,7 +664,7 @@ export default function ForwardingPage() {
                           <Ban size={14} />
                           Reject
                         </button>
-                      ) : (
+                      ) : Number(dispatchSelected?.is_planned) === 1 ? (
                         <button
                           type="button"
                           onClick={() => dispatchPlanRef.current?.completeSelected()}
@@ -663,7 +674,7 @@ export default function ForwardingPage() {
                           <CheckCircle2 size={14} />
                           Complete
                         </button>
-                      )}
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => dispatchPlanRef.current?.openRescheduleForSelected()}
@@ -686,7 +697,10 @@ export default function ForwardingPage() {
                 </>
               ) : (
                 <>
+                  {/* Free-form New disabled — FN must be created from Today's Dispatch Plan (schedule row).
                   <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+                  */}
+                  <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openMasterNewFromScheduleOnly} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selectedId || isSelectedLocked} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selectedId || isSelectedLocked} onClick={() => openModal("approve")} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedId || isSelectedLocked} onClick={() => setIsDeleting(true)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />

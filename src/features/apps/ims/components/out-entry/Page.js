@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, LogOut, FileSearch, FileEdit, Warehouse, ClipboardList, PlayCircle, Truck } from "lucide-react";
+import { useSelector } from "react-redux";
+import { selectUser } from "@/core/store/slices/authSlice";
+import { Plus, RefreshCw, Edit3, Trash2, X, LogOut, FileSearch, FileEdit, Warehouse, ClipboardList, Truck, CheckCircle } from "lucide-react";
 import { toast } from "react-toastify";
 import dayjs from "dayjs";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
@@ -15,6 +17,7 @@ import { formatDateTime } from "@/core/utils/utilHelper";
 import OutEntryModal from "@/features/apps/ims/components/out-entry/OutEntryModal";
 import { OUT_ENTRY_STATUS_FILTER_OPTIONS, OUT_ENTRY_TYPE_FILTER_OPTIONS, buildOutEntryListFilters, isOutEntryScanDraft, matchesOutEntryStatusFilter, outEntryScanProgressLabel, outEntryStatusLabel } from "@/features/apps/ims/utils/outEntryScanStatus";
 import { isOutEntryAutoAuthorized, isOutEntryInventoryOut, isOutEntryPackingArea, isOutEntryQcArea, getOutEntryTypeTableLabel, getOutEntryTypeBadgeClass, OUT_ENTRY_TYPE } from "@/features/apps/ims/utils/outEntryTypes";
+import { canApproveInventoryOut } from "@/features/apps/ims/utils/imsSpecialPermissions";
 import DeleteModal from "@/core/components/common/DeleteModal";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
@@ -36,8 +39,28 @@ const PAGE_TABS = {
   PENDING_FORWARDING: "pending_forwarding",
 };
 
+function isOutEntryApprovable(row) {
+  if (!row) return false;
+  if (isOutEntryAutoAuthorized(row.entry_type)) return false;
+  if (isOutEntryScanDraft(row)) return false;
+  if (row.approved === true || row.approved === "true" || row.approved === 1) return false;
+  return true;
+}
+
+function pendingForwardingToOutEntryRow(row) {
+  if (!row?.out_entry_uid) return null;
+  return {
+    out_uid: row.out_entry_uid,
+    fuid: row.fuid,
+    scan_complete: row.out_entry_scan_complete,
+    approved: row.out_entry_approved ?? false,
+    boxes_scanned: row.out_entry_boxes_scanned,
+    boxes_required: row.out_entry_boxes_required,
+  };
+}
+
 function pendingForwardingStoreOutStatus(row) {
-  const outEntryRow = {
+  const outEntryRow = pendingForwardingToOutEntryRow(row) ?? {
     approved: row?.out_entry_approved,
     scan_complete: row?.out_entry_scan_complete,
     boxes_scanned: row?.out_entry_boxes_scanned,
@@ -62,11 +85,15 @@ function pendingForwardingStoreOutStatus(row) {
 }
 
 export default function OutEntryPage() {
+  const user = useSelector(selectUser);
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("out_entry", "view"), [canAccess]);
+  const canApproveStoreOut = useMemo(() => canAccess("out_entry", "authorize").allowed, [canAccess]);
+  const canApproveInvOut = useMemo(() => canApproveInventoryOut(user), [user]);
 
   const [pageTab, setPageTab] = useState(PAGE_TABS.PENDING_FORWARDING);
   const isStoreOut = pageTab === PAGE_TABS.STORE_OUT;
+  const showApproveButton = canApproveStoreOut || (isStoreOut && canApproveInvOut);
 
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
@@ -88,15 +115,19 @@ export default function OutEntryPage() {
     sortDir: "desc",
   });
 
-  // Update params if dateFilterDefaults change (Store Out tab only)
+  // Update params if dateFilterDefaults change (Store Out tab only) — skip no-op updates
   useEffect(() => {
-    if (dateFilterDefaults.from || dateFilterDefaults.to) {
-      setParams(prev => ({
+    if (!dateFilterDefaults.from && !dateFilterDefaults.to) return;
+    setParams((prev) => {
+      if (prev.fromDate === dateFilterDefaults.from && prev.toDate === dateFilterDefaults.to) {
+        return prev;
+      }
+      return {
         ...prev,
         fromDate: dateFilterDefaults.from,
-        toDate: dateFilterDefaults.to
-      }));
-    }
+        toDate: dateFilterDefaults.to,
+      };
+    });
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
@@ -271,6 +302,30 @@ export default function OutEntryPage() {
 
   const selectedRecord = useMemo(() => filteredRows.find((i) => getRowId(i) === selected), [filteredRows, selected, getRowId]);
 
+  const selectedOutEntryRecord = useMemo(() => {
+    if (!selectedRecord) return null;
+    if (isStoreOut) return selectedRecord;
+    return pendingForwardingToOutEntryRow(selectedRecord);
+  }, [isStoreOut, selectedRecord]);
+
+  const canApproveSelectedRow = useCallback(
+    (row) => {
+      if (!row || !isOutEntryApprovable(row)) return false;
+      if (isOutEntryInventoryOut(row.entry_type)) return canApproveInvOut;
+      return canApproveStoreOut;
+    },
+    [canApproveInvOut, canApproveStoreOut]
+  );
+
+  const selectedIsInventoryOut = Boolean(
+    selectedOutEntryRecord && isOutEntryInventoryOut(selectedOutEntryRecord.entry_type)
+  );
+  const selectedApprovable = isOutEntryApprovable(selectedOutEntryRecord);
+  const approveEnabled =
+    Boolean(selectedOutEntryRecord) &&
+    selectedApprovable &&
+    canApproveSelectedRow(selectedOutEntryRecord);
+
   const getSelectedRow = useCallback(
     () => filteredRows.find((i) => getRowId(i) === selected),
     [filteredRows, selected, getRowId]
@@ -306,32 +361,59 @@ export default function OutEntryPage() {
       }
     }, [isStoreOut]),
     openApprove: useCallback((row) => {
-      if (isStoreOut) {
-        if (isOutEntryScanDraft(row)) {
-          toast.error("Complete all box scans and submit before approving.");
-          return;
-        }
-        setEditItem(row);
-        setModalMode("approve");
-        setModalOpen(true);
-      }
-    }, [isStoreOut]),
-    canApproveSelection: useCallback(
-      () => Boolean(isStoreOut && selected && selectedRecord && !isOutEntryAutoAuthorized(selectedRecord.entry_type)),
-      [selected, selectedRecord, isStoreOut]
-    ),
-    onApproveBlocked: useCallback(() => {
-      const row = getSelectedRow();
-      if (row && isOutEntryAutoAuthorized(row.entry_type)) {
-        toast.info("Auto-authorized — cannot re-approve.");
-        return;
-      }
-      if (row && isStoreOut && isOutEntryScanDraft(row)) {
+      const approveRow = isStoreOut ? row : pendingForwardingToOutEntryRow(row);
+      if (!approveRow) return;
+      if (isOutEntryScanDraft(approveRow)) {
         toast.error("Complete all box scans and submit before approving.");
         return;
       }
-      toast.info("Select a row to open approve (Ctrl+A).");
-    }, [getSelectedRow, isStoreOut]),
+      setEditItem(approveRow);
+      setModalMode("approve");
+      setModalOpen(true);
+    }, [isStoreOut]),
+    canApproveSelection: useCallback(
+      () => {
+        const row = getSelectedRow();
+        if (!row) return false;
+        const approveRow = isStoreOut ? row : pendingForwardingToOutEntryRow(row);
+        return Boolean(approveRow && canApproveSelectedRow(approveRow));
+      },
+      [getSelectedRow, isStoreOut, canApproveSelectedRow]
+    ),
+    getAuthorizeAccess: useCallback(() => {
+      const row = selectedRecord;
+      if (row && isOutEntryInventoryOut(row.entry_type)) {
+        return { allowed: canApproveInvOut };
+      }
+      return canAccess("out_entry", "authorize");
+    }, [selectedRecord, canApproveInvOut, canAccess]),
+    onApproveBlocked: useCallback(() => {
+      const row = getSelectedRow();
+      const approveRow = row ? (isStoreOut ? row : pendingForwardingToOutEntryRow(row)) : null;
+      if (approveRow && isOutEntryAutoAuthorized(approveRow.entry_type)) {
+        toast.info("Auto-authorized — cannot re-approve.");
+        return;
+      }
+      if (approveRow && isOutEntryScanDraft(approveRow)) {
+        toast.error("Complete all box scans and submit before approving.");
+        return;
+      }
+      if (!isStoreOut && row && !row.out_entry_uid) {
+        toast.info("Start and complete store out scans before approving.");
+        return;
+      }
+      if (approveRow && isOutEntryApprovable(approveRow)) {
+        if (isOutEntryInventoryOut(approveRow.entry_type) && !canApproveInvOut) {
+          toast.info("You do not have inventory approve permission.");
+        } else if (!isOutEntryInventoryOut(approveRow.entry_type) && !canApproveStoreOut) {
+          toast.info("You do not have store out authorize permission.");
+        } else {
+          toast.info("Select a pending row you can approve (Ctrl+A).");
+        }
+        return;
+      }
+      toast.info("Select a pending row to approve (Ctrl+A).");
+    }, [getSelectedRow, isStoreOut, canApproveInvOut, canApproveStoreOut]),
     canEditSelection: useCallback(() => {
       const row = getSelectedRow();
       if (isStoreOut) return Boolean(row && !isOutEntryScanDraft(row) && !isOutEntryAutoAuthorized(row.entry_type));
@@ -356,18 +438,6 @@ export default function OutEntryPage() {
     return Boolean(selectedRecord?.out_entry_uid && !selectedRecord.out_entry_scan_complete);
   }, [isStoreOut, selectedRecord]);
 
-  const selectedOutEntryRecord = useMemo(() => {
-    if (!selectedRecord) return null;
-    if (isStoreOut) return selectedRecord;
-    if (!selectedRecord.out_entry_uid) return null;
-    return {
-      out_uid: selectedRecord.out_entry_uid,
-      fuid: selectedRecord.fuid,
-      scan_complete: selectedRecord.out_entry_scan_complete,
-      approved: false, // In pending list, it's never approved
-    };
-  }, [isStoreOut, selectedRecord]);
-
   const handleDraftClick = useCallback(() => {
     const rec = selectedOutEntryRecord;
     if (!rec || !isOutEntryScanDraft(rec)) {
@@ -381,8 +451,7 @@ export default function OutEntryPage() {
     setSelected(id);
   }, []);
 
-  const handleApproveClick = useCallback(() => {
-    const rec = selectedOutEntryRecord;
+  const openApproveForm = useCallback((rec) => {
     if (!rec) return;
     if (isOutEntryScanDraft(rec)) {
       toast.error("Complete all box scans and submit before approving.");
@@ -391,7 +460,56 @@ export default function OutEntryPage() {
     setEditItem(rec);
     setModalMode("approve");
     setModalOpen(true);
-  }, [selectedOutEntryRecord]);
+  }, []);
+
+  const handleApproveClick = useCallback(() => {
+    const rec = selectedOutEntryRecord;
+    if (!rec) {
+      toast.info(
+        isStoreOut
+          ? "Select a pending row to approve."
+          : "Select a row with completed store out scans to approve."
+      );
+      return;
+    }
+    if (!canApproveSelectedRow(rec)) {
+      if (isOutEntryInventoryOut(rec.entry_type)) {
+        toast.error("You do not have permission to approve inventory out.");
+      } else {
+        toast.error("You do not have permission to approve store out.");
+      }
+      return;
+    }
+    if (!isOutEntryApprovable(rec)) {
+      toast.error("Complete all box scans and submit before approving.");
+      return;
+    }
+    openApproveForm(rec);
+  }, [selectedOutEntryRecord, canApproveSelectedRow, openApproveForm, isStoreOut]);
+
+  const approveButtonTitle = useMemo(() => {
+    if (!selectedOutEntryRecord) {
+      return isStoreOut
+        ? "Select a pending row to approve"
+        : "Select a row with completed store out scans to approve";
+    }
+    if (!selectedApprovable) return "Row is draft, auto-authorized, or already approved";
+    if (selectedIsInventoryOut) {
+      return canApproveInvOut
+        ? "Approve inventory out"
+        : "Requires inventory approve permission";
+    }
+    return canApproveStoreOut
+      ? "Approve forwarding note store out"
+      : "Requires store out authorize permission";
+  }, [
+    selectedOutEntryRecord,
+    selectedApprovable,
+    selectedIsInventoryOut,
+    canApproveInvOut,
+    canApproveStoreOut,
+    isStoreOut,
+  ]);
 
   const handleDeleteClick = useCallback(() => {
     if (!selectedOutEntryRecord) return;
@@ -399,6 +517,10 @@ export default function OutEntryPage() {
   }, [selectedOutEntryRecord]);
 
   const handleStartOutEntry = useCallback((row) => {
+    if (!row?.fuid) {
+      toast.info("Select a pending forwarding note first.");
+      return;
+    }
     if (row.out_entry_uid) {
       setEditItem({ out_uid: row.out_entry_uid, fuid: row.fuid, scan_complete: row.out_entry_scan_complete });
       setModalMode("edit");
@@ -641,7 +763,7 @@ export default function OutEntryPage() {
                 action="add" 
                 label="New" 
                 icon={Plus} 
-                onClick={isStoreOut ? openNewModal : () => handleStartOutEntry(selectedRecord || {})} 
+                onClick={isStoreOut ? openNewModal : () => handleStartOutEntry(selectedRecord)} 
                 className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4`}
               />
               <ActionButton
@@ -666,17 +788,18 @@ export default function OutEntryPage() {
                 onClick={openEditModal} 
                 className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-slate-300`}
               />
-              <ActionButton 
-                module="out_entry" 
-                action="authorize" 
-                variant="outline" 
-                label="Approve" 
-                icon={CheckCircle} 
-                disabled={!selectedOutEntryRecord || isOutEntryScanDraft(selectedOutEntryRecord) || isOutEntryAutoAuthorized(selectedRecord?.entry_type)} 
-                record={selectedOutEntryRecord} 
-                onClick={handleApproveClick} 
-                className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-slate-300 text-emerald-600`}
-              />
+              {showApproveButton ? (
+                <button
+                  type="button"
+                  onClick={handleApproveClick}
+                  disabled={!approveEnabled}
+                  title={approveButtonTitle}
+                  className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-colors`}
+                >
+                  <CheckCircle size={16} strokeWidth={2} />
+                  <span>Approve</span>
+                </button>
+              ) : null}
               <ActionButton 
                 module="out_entry" 
                 action="delete" 
@@ -709,7 +832,18 @@ export default function OutEntryPage() {
           {selected && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in fade-in duration-200">
               <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide">
-                Selected: {isStoreOut ? `OUT-#${selected} (FUID: ${selectedRecord?.fuid})` : `FUID: ${selected}`}
+                Selected: {isStoreOut ? `OUT-#${selected} (FUID: ${selectedRecord?.fuid ?? "—"})` : `FUID: ${selected}`}
+                {isStoreOut && selectedRecord ? (
+                  <span className="ml-2 text-indigo-400 font-semibold normal-case">
+                    · {getOutEntryTypeTableLabel(selectedRecord.entry_type)}
+                    {selectedApprovable && showApproveButton ? " · Approve" : ""}
+                  </span>
+                ) : null}
+                {!isStoreOut && selectedApprovable && showApproveButton ? (
+                  <span className="ml-2 text-indigo-400 font-semibold normal-case">
+                    · Approve store out
+                  </span>
+                ) : null}
               </span>
               <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
                 <X size={14} /> Clear Selection
@@ -813,7 +947,6 @@ export default function OutEntryPage() {
         onClose={() => {
           setModalOpen(false);
           setEditItem(null);
-          handleRefresh();
         }}
         onSuccess={() => {
           handleRefresh();

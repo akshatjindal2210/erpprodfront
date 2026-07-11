@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "2.2.24",
+  "version": "2.2.25",
   "private": true,
   "overrides": {
     "postcss": "^8.5.10"
@@ -28,6 +28,7 @@
     "react-grid-layout": "^2.2.3",
     "react-qr-code": "^2.0.18",
     "react-redux": "^9.2.0",
+    "react-rnd": "^10.5.3",
     "react-toastify": "^11.0.5",
     "recharts": "^3.8.1",
     "redux-persist": "^6.0.0",

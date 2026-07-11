@@ -47,9 +47,11 @@ const INITIAL_ITEM_ROW = {
   fg_qty:          0,
   erp_qty:         0,
   erp_by_packing:  {},
-  dispatch_qty:    "", // user input
+  dispatch_qty:    "", // system FIFO outgoing qty (shown in input)
+  dispatch_target: "", // user target for FIFO calc (balance cap)
   dispatch_std:    "", // dispatch according to standard
   source_dispatch_qty: 0,
+  use_system_std:  false, // FIFO / Std suggestion active (save uses Std QTY)
   fetching:        false,
   boxes_edited:    false, // true once user changes box selection (prevents edit fallback)
 };
@@ -109,6 +111,67 @@ const erpPackingEntries = (item) => {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 // Total qty of a box array
 const sumQty = (boxes) => boxes.reduce((s, b) => s + Number(b.qty), 0);
+
+/** Max manual dispatch qty — balance cap from schedule plan, else FG stock. */
+const getDispatchQtyCap = (item) => {
+  const balanceCap = Number(item?.source_dispatch_qty ?? 0);
+  const fgCap = Number(item?.fg_qty ?? 0);
+  if (balanceCap > 0) return Math.min(fgCap, balanceCap);
+  return fgCap;
+};
+
+/** Cap typed dispatch qty; empty string allowed while editing. */
+const formatDispatchQtyInput = (item, rawVal) => {
+  if (rawVal === "" || rawVal == null) return "";
+  const n = Number(rawVal);
+  if (!Number.isFinite(n)) return "";
+  const cap = getDispatchQtyCap(item);
+  return String(Math.min(Math.max(0, n), cap));
+};
+
+/** User / balance target for FIFO — never treat system dispatch_qty as target on schedule rows. */
+const getItemFifoTarget = (item) => {
+  const balanceCap = Number(item?.source_dispatch_qty ?? 0);
+  const targetQty = Number(item.dispatch_target || 0);
+  if (targetQty > 0) {
+    return balanceCap > 0 ? Math.min(targetQty, balanceCap) : targetQty;
+  }
+  if (balanceCap > 0) return balanceCap;
+  return Number(item.dispatch_qty || 0) || 0;
+};
+
+/** Selected boxes as contiguous FIFO prefix (no gaps — full boxes only). */
+const getFifoPrefixFromSelection = (orderedBoxes, selectedBoxes) => {
+  if (!orderedBoxes?.length) return [];
+  const selectedKeys = new Set((selectedBoxes || []).map(forwardingBoxKey).filter(Boolean));
+  if (!selectedKeys.size) return [];
+  const prefix = [];
+  for (const box of orderedBoxes) {
+    const key = forwardingBoxKey(box);
+    if (!key) continue;
+    if (selectedKeys.has(key)) {
+      prefix.push(box);
+    } else if (prefix.length > 0) {
+      break;
+    }
+  }
+  return prefix;
+};
+
+/** FIFO box limit for current target (balance cap + user dispatch target). */
+const maxFifoBoxesForItem = (item, orderedBoxes) => {
+  const target = getItemFifoTarget(item);
+  if (!target || target <= 0) return orderedBoxes.length;
+  return selectBoxesByQty(orderedBoxes, target).length;
+};
+
+const canAddMoreFifoBoxes = (item) => {
+  if (!item?.available_boxes?.length) return false;
+  const orderedBoxes = reorderBoxesForSelection(item.available_boxes, item.loose_priority);
+  const fifoLimit = maxFifoBoxesForItem(item, orderedBoxes);
+  const prefixLen = getFifoPrefixFromSelection(orderedBoxes, item.selected_boxes).length;
+  return prefixLen < fifoLimit && prefixLen < orderedBoxes.length;
+};
 
 /** FIFO pick; always takes full boxes (never partial) to avoid breaking boxes. */
 const selectBoxesByQty = (boxes, targetQty) =>
@@ -201,6 +264,77 @@ const reorderBoxesForSelection = (boxes = [], loosePriority = false) => {
   });
 };
 
+/** Std qty FIFO would allocate for a target dispatch (full boxes, may exceed target). */
+const getFifoStdForTargetQty = (item, targetQty) => {
+  const target = Number(targetQty) || 0;
+  if (target <= 0 || !item?.available_boxes?.length) return 0;
+  const ordered = reorderBoxesForSelection(item.available_boxes, item.loose_priority);
+  return sumQty(selectBoxesByQty(ordered, target));
+};
+
+/** Build row state from user target — dispatch_qty = system FIFO total sent. */
+const buildDispatchFromTarget = (item, targetQty) => {
+  const balanceCap = Number(item?.source_dispatch_qty ?? 0);
+  const ordered = reorderBoxesForSelection(item.available_boxes || [], item.loose_priority);
+  const target = Number(targetQty) || 0;
+
+  if (target <= 0 || !ordered.length) {
+    return {
+      dispatch_target: "",
+      dispatch_qty: "",
+      selected_boxes: [],
+      dispatch_std: "",
+      use_system_std: false,
+      boxes_edited: true,
+    };
+  }
+
+  const fifoTarget = balanceCap > 0 && target > balanceCap ? balanceCap : target;
+  const selected = selectBoxesByQty(ordered, fifoTarget);
+  const stdQty = sumQty(selected);
+  const systemStd = balanceCap > 0 ? getFifoStdForTargetQty(item, balanceCap) : 0;
+
+  return {
+    dispatch_target: String(fifoTarget),
+    dispatch_qty: stdQty > 0 ? String(stdQty) : "",
+    selected_boxes: selected,
+    dispatch_std: stdQty > 0 ? String(stdQty) : "",
+    use_system_std: balanceCap > 0 && fifoTarget === balanceCap && stdQty === systemStd && systemStd > 0,
+    boxes_edited: true,
+  };
+};
+
+/** Apply dispatch qty input → FIFO boxes (never breaks boxes; caps at balance). */
+const resolveDispatchQtySelection = (item, rawVal, { emptyMeansSystem = false } = {}) => {
+  const balanceCap = Number(item?.source_dispatch_qty ?? 0);
+  const ordered = reorderBoxesForSelection(item.available_boxes || [], item.loose_priority);
+
+  if (rawVal === "" || rawVal == null) {
+    if (emptyMeansSystem && balanceCap > 0 && ordered.length) {
+      return buildDispatchFromTarget(item, balanceCap);
+    }
+    return {
+      dispatch_target: "",
+      dispatch_qty: "",
+      selected_boxes: [],
+      dispatch_std: "",
+      use_system_std: false,
+      boxes_edited: true,
+    };
+  }
+
+  const n = Number(rawVal);
+  if (!Number.isFinite(n) || n < 0) {
+    return null;
+  }
+
+  if (balanceCap > 0 && n > balanceCap) {
+    return buildDispatchFromTarget(item, balanceCap);
+  }
+
+  return buildDispatchFromTarget(item, n);
+};
+
 export default function ForwardingModal({ open, onClose, onSuccess, editData, mode = "add", dispatchPrefill = null }) {
   const [saving, setSaving]           = useState(false);
   const [formReady, setFormReady]     = useState(false);
@@ -226,6 +360,8 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
   const showApproval = canAuthorize && (mode === "add" || mode === "approve");
 
   const [transporterHighlight, setTransporterHighlight] = useState(-1);
+  /** Row index whose dispatch input is being typed (show target until blur). */
+  const [editingDispatchIdx, setEditingDispatchIdx] = useState(null);
   /** In-hand stock items — loaded once per modal open; dropdown search is client-only. */
   const [inHandItemCatalog, setInHandItemCatalog] = useState(null);
 
@@ -243,6 +379,8 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       setInHandItemCatalog(null);
       return undefined;
     }
+    // Schedule-locked FN cannot change items — skip catalog API.
+    if (isFromSchedule) return undefined;
 
     let cancelled = false;
     (async () => {
@@ -262,7 +400,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     return () => {
       cancelled = true;
     };
-  }, [open, formReady, editingFuid]);
+  }, [open, formReady, editingFuid, isFromSchedule]);
 
   const getItemById = useCallback(
     (id) => {
@@ -359,8 +497,10 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
         fg_qty,
         erp_qty,
         erp_by_packing,
+        dispatch_target: dispatchQty > 0 ? String(dispatchQty) : "",
         dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
         dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
+        use_system_std: roundedQty > 0 && dispatchQty > 0,
         fetching: false,
         boxes_edited: true,
       };
@@ -539,6 +679,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
             fg_qty,
             erp_qty,
             erp_by_packing,
+            dispatch_target: i.total_qty || "",
             dispatch_qty: i.total_qty || "",
             dispatch_std: i.total_qty || "",
             fetching: false,
@@ -754,8 +895,10 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
               Object.assign(updates, {
                 selected_boxes,
                 loose_priority: false,
+                dispatch_target: String(sourceQty),
                 dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
                 dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
+                use_system_std: roundedQty > 0 && sourceQty > 0,
                 boxes_edited: true,
                 original_breakdowns: [],
               });
@@ -800,10 +943,8 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
   const handleCategoryChange = (categoryId) => {
     if (!categoryId) return;
+    // Stock reload is handled by the packing_category_id effect (avoids double API hit).
     handleInputChange("packing_category_id", categoryId);
-    formItemsRef.current.forEach((item, idx) => {
-      if (item.item_dcode) void fetchItemStock(idx, item.item_dcode, categoryId);
-    });
   };
 
   useEffect(() => {
@@ -854,6 +995,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       erp_qty:         0,
       erp_by_packing:  {},
       dispatch_qty:    "",
+      dispatch_target: "",
       dispatch_std:    "",
       fetching:        true,
       boxes_edited:    false,
@@ -863,79 +1005,106 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     await fetchItemStock(idx, id, form.packing_category_id, { resetSelection: true });
   };
 
+  const handleDispatchQtyFocus = (idx) => {
+    setEditingDispatchIdx(idx);
+  };
+
   const handleDispatchQtyChange = (idx, val) => {
-    const item = form.items[idx];
-    const qty = Math.min(Math.max(0, Number(val)), item.fg_qty);
-    const ordered = reorderBoxesForSelection(item.available_boxes, item.loose_priority);
-    const selected = selectBoxesByQty(ordered, qty);
-    
-    // Update both raw input and the actual boxes.
-    // If the selected boxes sum to more than the input (due to full box rule),
-    // we keep the raw input for now but STD QTY will show the actual rounded total.
-    updateItemRow(idx, {
-      dispatch_qty: val || "",
-      selected_boxes: selected,
-      boxes_edited: true,
-    });
+    if (val === "" || val == null) {
+      updateItemRow(idx, { dispatch_target: "" });
+      return;
+    }
+    if (!/^\d+$/.test(String(val))) return;
+    updateItemRow(idx, { dispatch_target: String(val) });
   };
 
   const handleDispatchQtyBlur = (idx) => {
+    setEditingDispatchIdx((cur) => (cur === idx ? null : cur));
     const item = form.items[idx];
-    const roundedQty = sumQty(item.selected_boxes);
-    // When focus is lost, update the input to match the actual selected boxes
+    const balanceCap = Number(item.source_dispatch_qty ?? 0);
+    const raw =
+      item.dispatch_target === "" || item.dispatch_target == null
+        ? ""
+        : String(item.dispatch_target);
+
+    if (balanceCap > 0 || raw !== "") {
+      const next = resolveDispatchQtySelection(item, raw, {
+        emptyMeansSystem: balanceCap > 0,
+      });
+      if (next) updateItemRow(idx, next);
+      return;
+    }
+
     updateItemRow(idx, {
-      dispatch_qty: roundedQty || "",
+      dispatch_target: "",
+      dispatch_qty: "",
+      selected_boxes: [],
+      dispatch_std: "",
+      use_system_std: false,
+      boxes_edited: true,
     });
   };
 
   const handleBoxChange = (idx, type) => {
     const item = form.items[idx];
     const orderedBoxes = reorderBoxesForSelection(item.available_boxes, item.loose_priority);
+    if (!orderedBoxes.length) return;
 
-    let currentSelected = [...item.selected_boxes];
+    let prefix = getFifoPrefixFromSelection(orderedBoxes, item.selected_boxes);
+
     if (
       isEdit &&
       !item.boxes_edited &&
-      currentSelected.length === 0 &&
-      Number(item.dispatch_qty) > 0 &&
-      orderedBoxes.length > 0
+      prefix.length === 0 &&
+      getItemFifoTarget(item) > 0
     ) {
-      currentSelected = selectBoxesByQty(orderedBoxes, Number(item.dispatch_qty));
+      prefix = selectBoxesByQty(orderedBoxes, getItemFifoTarget(item));
     }
 
-    const selectedIds = new Set(currentSelected.map(forwardingBoxKey));
+    const fifoLimit = maxFifoBoxesForItem(item, orderedBoxes);
+    let newCount = prefix.length;
 
     if (type === "add") {
-      const nextBox = orderedBoxes.find((b) => !selectedIds.has(forwardingBoxKey(b)));
-      if (!nextBox) return toast.info("All available boxes are already selected.");
-      const newSelected = [...currentSelected, nextBox];
-      updateItemRow(idx, {
-        selected_boxes: newSelected,
-        dispatch_qty: sumQty(newSelected) || "",
-        boxes_edited: true,
-      });
+      if (newCount >= fifoLimit || newCount >= orderedBoxes.length) return;
+      newCount += 1;
     } else {
-      if (!currentSelected.length) return;
-      const newSelected = currentSelected.slice(0, -1);
-      updateItemRow(idx, {
-        selected_boxes: newSelected,
-        dispatch_qty: sumQty(newSelected) || "",
-        boxes_edited: true,
-      });
+      if (newCount <= 0) return;
+      newCount -= 1;
     }
+
+    const newSelected = orderedBoxes.slice(0, newCount);
+    const stdQty = sumQty(newSelected);
+    // const fifoTarget = getItemFifoTarget(item);
+
+    updateItemRow(idx, {
+      selected_boxes: newSelected,
+      dispatch_qty: stdQty > 0 ? String(stdQty) : "",
+      dispatch_std: stdQty > 0 ? String(stdQty) : "",
+      // Keep target in sync with box +/- so Dispatch Qty blur does not rebuild old FIFO.
+      // dispatch_target: fifoTarget > 0 ? String(fifoTarget) : "",
+      dispatch_target: stdQty > 0 ? String(stdQty) : "",
+      use_system_std: false,
+      boxes_edited: true,
+    });
   };
 
   const handleLoosePriorityToggle = (idx, checked) => {
     const item = form.items[idx];
-    const ordered = reorderBoxesForSelection(item.available_boxes, checked);
-    const qty = Number(item.dispatch_qty || 0);
-    const { selectedBoxes } = calculateFifoBoxes(ordered, qty);
-    updateItemRow(idx, {
-      loose_priority: checked,
-      selected_boxes: selectedBoxes,
-      dispatch_qty: sumQty(selectedBoxes) || "",
-      boxes_edited: true,
-    });
+    const target = getItemFifoTarget(item);
+    const itemWithLoose = { ...item, loose_priority: checked };
+    const next =
+      target > 0
+        ? buildDispatchFromTarget(itemWithLoose, target)
+        : {
+            dispatch_target: "",
+            dispatch_qty: "",
+            selected_boxes: [],
+            dispatch_std: "",
+            use_system_std: false,
+            boxes_edited: true,
+          };
+    setEditingDispatchIdx((cur) => (cur === idx ? null : cur));
+    updateItemRow(idx, { loose_priority: checked, ...next });
   };
 
   // ── Save ───────────────────────────────────────────────────────────────────
@@ -1371,7 +1540,17 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
               <div key={idx} className="bg-white rounded-lg border border-slate-200 p-2.5 space-y-2.5 relative group/row shadow-sm">
                 
                 <div className="flex items-center justify-between">
-                  <span className={`${FORM_MICRO_LABEL_CLASS} text-slate-400`}>Row #{idx + 1}</span>
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <span className={`${FORM_MICRO_LABEL_CLASS} text-slate-400`}>Row #{idx + 1}</span>
+                    {isFromSchedule && Number(item.source_dispatch_qty) > 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-[10px] font-black uppercase tracking-wide text-amber-900 shadow-sm tabular-nums">
+                        <span className="text-amber-700/90 font-bold">Balance</span>
+                        <span className="text-amber-950">
+                          {item.fetching ? "…" : Number(item.source_dispatch_qty).toLocaleString()}
+                        </span>
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="flex items-center gap-2">
                     <label className={`inline-flex items-center gap-1.5 ${FORM_MICRO_LABEL_CLASS} text-slate-500`}>
                       <input
@@ -1438,14 +1617,22 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                     </div>
                   </div>
 
-                  {/* Dispatch Qty */}
-                  <div className="lg:col-span-2 space-y-0.5">
+                  {/* Dispatch Qty — system FIFO qty after user target */}
+                  <div className="lg:col-span-2 space-y-0.5 min-w-0">
                     <label className={`${FORM_MICRO_LABEL_CLASS} block ml-1`}>Dispatch Qty</label>
                     <input
                       type="number"
-                      value={item.dispatch_qty}
+                      value={
+                        editingDispatchIdx === idx
+                          ? (item.dispatch_target ?? "")
+                          : (item.dispatch_qty ?? "")
+                      }
+                      onFocus={() => handleDispatchQtyFocus(idx)}
                       onChange={(e) => handleDispatchQtyChange(idx, e.target.value)}
                       onBlur={() => handleDispatchQtyBlur(idx)}
+                      min={0}
+                      max={item.source_dispatch_qty > 0 ? item.source_dispatch_qty : item.fg_qty || undefined}
+                      title="Type qty, then Tab/click away — system FIFO total fills here"
                       className={`${OK_INPUT} text-center font-bold text-slate-700 h-[38px] text-[11px] rounded-lg border-slate-200`}
                       placeholder="0"
                     />
@@ -1469,7 +1656,12 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                       </div>
                       <button
                         onClick={() => handleBoxChange(idx, 'add')}
-                        disabled={item.selected_boxes.length >= item.available_boxes.length}
+                        disabled={!canAddMoreFifoBoxes(item)}
+                        title={
+                          !canAddMoreFifoBoxes(item) && Number(item.source_dispatch_qty) > 0
+                            ? `FIFO max for balance ${Number(item.source_dispatch_qty).toLocaleString()}`
+                            : undefined
+                        }
                         className="w-7 h-7 flex items-center justify-center text-indigo-500 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-30 font-black text-lg border border-indigo-50"
                       >+</button>
                     </div>
@@ -1576,9 +1768,6 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                           display.breakdowns.map((bd, bidx) => (
                             <tr key={bidx} className="hover:bg-slate-50/30 transition-colors">
                               <td className="px-2 py-1 font-bold text-slate-600">#{bd.packing_number}</td>
-                              <td className="px-2 py-1 text-right font-bold text-slate-700 tabular-nums">
-                                {erpQtyForPacking(item, bd.packing_number).toLocaleString()}
-                              </td>
                               <td className="px-2 py-1 text-center">
                                 {bd.box > 0 ? (
                                   <span className="text-indigo-600 font-bold">{formatAggregatedBoxCount(bd.box, bd.box_qty)}</span>
@@ -1590,6 +1779,9 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                                 ) : "—"}
                               </td>
                               <td className="px-2 py-1 text-right font-black text-slate-700">{bd.total_qty.toLocaleString()}</td>
+                              <td className="px-2 py-1 text-right font-bold text-slate-700 tabular-nums">
+                                {erpQtyForPacking(item, bd.packing_number).toLocaleString()}
+                              </td>
                             </tr>
                           ))
                         )}

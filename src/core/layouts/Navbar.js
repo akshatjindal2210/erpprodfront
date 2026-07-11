@@ -161,7 +161,7 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
   }, []);
 
   return (
-    <div className="flex flex-col sticky top-0 z-[110]">
+    <div className="flex flex-col sticky top-0 z-[110]" data-app-top-chrome>
       <header className={`h-12 ${THEME_CONFIG.sidebarBg} border-b ${THEME_CONFIG.sidebarBorder} px-4 flex items-center justify-between`}>
         
         {/* LEFT: Search & Title */}

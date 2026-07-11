@@ -407,66 +407,37 @@ export function shouldPreserveSavedLayout(widget = {}) {
   return isWidgetLayoutLocked(widget) || hasManualWidgetLayout(widget);
 }
 
-/** Published desktop: keep sizes, pack leftover holes after permission-hidden widgets. */
+/** Published desktop: keep saved builder grid coords; only repack when widgets are hidden. */
 export function resolvePublishedDesktopLayout(widgets = [], layout = [], cols = GRID_COLS, fullLayout = null) {
   const topLevel = (widgets || []).filter((widget) => isTopLevelWidget(widget));
   const ids = setFromIds(topLevel);
   const source = (layout || []).filter((item) => ids.has(String(item.i)));
-  const allLocked = topLevel.every(
-    (widget) => widget.rawType !== "container" || shouldPreserveSavedLayout(widget),
-  );
 
-  let resolved;
-  if (allLocked) {
-    resolved = source.map((item) => {
-      const widget = topLevel.find((entry) => String(entry.id) === String(item.i));
-      const next = {
-        ...item,
-        i: String(item.i),
-        x: Math.max(0, Number(item.x) || 0),
-        y: Math.max(0, Number(item.y) || 0),
-        w: Math.max(1, Number(item.w) || 1),
-        h: Math.max(1, Number(item.h) || 1),
+  const resolved = source.map((item) => {
+    const widget = topLevel.find((entry) => String(entry.id) === String(item.i));
+    const next = {
+      ...item,
+      i: String(item.i),
+      x: Math.max(0, Number(item.x) || 0),
+      y: Math.max(0, Number(item.y) || 0),
+      w: Math.max(1, Number(item.w) || 1),
+      h: Math.max(1, Number(item.h) || 1),
+    };
+    if (widget?.rawType === "container") {
+      const containerLayout = applyDesktopContainerLayout(widget, item, cols);
+      const withCoords = {
+        ...next,
+        x: containerLayout.x,
+        w: containerLayout.w,
       };
-      if (widget?.rawType === "container") {
-        const containerLayout = applyDesktopContainerLayout(widget, item, cols);
-        const withHeight = applyMainLayoutPixelsToItem(
-          { ...next, ...containerLayout },
-          widget,
-        );
-        return {
-          ...withHeight,
-          x: containerLayout.x,
-          // Always keep saved grid width — never rewrite from canvas-dependent layoutWidthPx.
-          w: containerLayout.w,
-        };
-      }
-      return applyMainLayoutPixelsToItem(next, widget);
-    });
-  } else {
-    resolved = source.map((item) => {
-      const widget = topLevel.find((entry) => String(entry.id) === String(item.i));
-      if (widget?.rawType === "container") {
-        const containerLayout = applyDesktopContainerLayout(widget, item, cols);
-        if (shouldPreserveSavedLayout(widget)) {
-          const withHeight = applyMainLayoutPixelsToItem(
-            { ...item, i: String(item.i), ...containerLayout },
-            widget,
-          );
-          return { ...withHeight, x: containerLayout.x, w: containerLayout.w };
-        }
-        const nested = buildNestedLayoutForLiveDisplay(widget, widgets);
-        return {
-          ...item,
-          i: String(item.i),
-          ...containerLayout,
-          h: containerAutoGridHeight(widget, nested, { trailingGapPx: 0, allWidgets: widgets }),
-        };
-      }
-      return { ...item, i: String(item.i) };
-    });
-    resolved = compactLiveLayoutForDisplay(topLevel, resolved, widgets);
-  }
+      return shouldPreserveSavedLayout(widget)
+        ? applyMainLayoutPixelsToItem(withCoords, widget)
+        : withCoords;
+    }
+    return shouldPreserveSavedLayout(widget)
+      ? applyMainLayoutPixelsToItem(next, widget)
+      : next;
+  });
 
   // Hidden (no-permission) widgets: collapse middle gaps, keep trailing row ends empty.
   return packLayoutGaps(resolved, cols, fullLayout?.length ? fullLayout : null);
@@ -744,7 +715,7 @@ export function containerInnerNestedWidthFromShellPx(widget = {}, shellWidthPx =
   return Math.max(120, widthPx - pad.left - pad.right - innerPad);
 }
 
-/** Use locked nested canvas width; expand to host when container grows, scroll when it shrinks. */
+/** Use locked nested canvas width; container shell resize must not stretch children. */
 export function resolveNestedGridCanvasWidthPx(lockedWidthPx, hostWidthPx) {
   const locked = Number.isFinite(Number(lockedWidthPx)) && Number(lockedWidthPx) > 0
     ? Math.round(Number(lockedWidthPx))
@@ -753,7 +724,7 @@ export function resolveNestedGridCanvasWidthPx(lockedWidthPx, hostWidthPx) {
     ? Math.round(Number(hostWidthPx))
     : 0;
   if (locked != null && locked > 0) {
-    return Math.max(locked, host);
+    return locked;
   }
   return host;
 }
@@ -779,7 +750,7 @@ export function shouldNestedGridScrollHorizontally(lockedWidthPx, hostWidthPx, {
  * Keep inner canvas wide when the container shell narrows; snap to shell when it grows back
  * (clears stale horizontal scroll after shrink → publish → restore).
  */
-export function resolveNextNestedGridWidthPx(priorLocked, shellInnerWidth, { tolerancePx = 8 } = {}) {
+export function resolveNextNestedGridWidthPx(priorLocked, shellInnerWidth, { tolerancePx = 8, growOnly = false } = {}) {
   const locked = Number.isFinite(Number(priorLocked)) && Number(priorLocked) > 0
     ? Math.round(Number(priorLocked))
     : null;
@@ -789,7 +760,8 @@ export function resolveNextNestedGridWidthPx(priorLocked, shellInnerWidth, { tol
   const tolerance = Math.max(0, Number(tolerancePx) || 0);
   if (shell == null) return locked;
   if (locked == null) return shell;
-  if (shell >= locked - tolerance) return shell;
+  if (growOnly) return Math.max(locked, shell);
+  // Container shell resize must not change inner canvas — keep locked width.
   return locked;
 }
 
@@ -829,6 +801,26 @@ export function resolveNextContainerLayoutHeightPx(
     return Math.max(shellHeight, minFitHeight);
   }
   return savedHeight;
+}
+
+/** Pixel width needed for nested children at a fixed inner canvas width. */
+export function inferNestedContentCanvasWidthPx(nestedLayout = [], gridWidthPx = null) {
+  if (!Array.isArray(nestedLayout) || !nestedLayout.length) return null;
+  let maxRightCol = 0;
+  for (const item of nestedLayout) {
+    maxRightCol = Math.max(
+      maxRightCol,
+      (Number(item.x) || 0) + Math.max(1, Number(item.w) || 1),
+    );
+  }
+  if (maxRightCol <= 0) return null;
+  const host = Number.isFinite(Number(gridWidthPx)) && Number(gridWidthPx) > 0
+    ? Math.round(Number(gridWidthPx))
+    : null;
+  const colWidth = host != null
+    ? Math.max(16, (host - NESTED_GAP * 11) / 12)
+    : 72;
+  return Math.ceil(maxRightCol * colWidth + Math.max(0, maxRightCol - 1) * NESTED_GAP);
 }
 
 /** Derive nested inner canvas width from the container shell grid coords (desktop builder). */
@@ -1071,6 +1063,159 @@ const defaultNestedWidthForType = (rawType = "kpi") => {
   return 6;
 };
 
+export const NESTED_GRID_COLS = 12;
+export const NESTED_BUILDER_COLS = 24;
+export const NESTED_BUILDER_COL_SCALE = NESTED_BUILDER_COLS / NESTED_GRID_COLS;
+
+export function scaleNestedLayoutToBuilder(items = [], builderCols = NESTED_BUILDER_COLS) {
+  const ratio = Math.max(1, Number(builderCols) || NESTED_BUILDER_COLS) / NESTED_GRID_COLS;
+  return (items || []).map((item) => ({
+    ...item,
+    x: Math.max(0, Math.round((Number(item.x) || 0) * ratio)),
+    w: Math.max(1, Math.round((Number(item.w) || 1) * ratio)),
+  }));
+}
+
+export function scaleNestedLayoutToStorage(items = [], builderCols = NESTED_BUILDER_COLS) {
+  const ratio = NESTED_GRID_COLS / Math.max(1, Number(builderCols) || NESTED_BUILDER_COLS);
+  return (items || []).map((item) => {
+    let w = Math.max(1, Math.round((Number(item.w) || 1) * ratio));
+    let x = Math.max(0, Math.round((Number(item.x) || 0) * ratio));
+    w = Math.min(w, NESTED_GRID_COLS);
+    if (x + w > NESTED_GRID_COLS) x = Math.max(0, NESTED_GRID_COLS - w);
+    return { ...item, x, w };
+  });
+}
+
+/** Pixel width of one nested grid column at a given canvas width. */
+export function nestedGridColWidthPx(canvasWidthPx, cols = NESTED_BUILDER_COLS) {
+  const width = Math.max(0, Number(canvasWidthPx) || 0);
+  const safeCols = Math.max(1, Number(cols) || NESTED_BUILDER_COLS);
+  return Math.max(8, (width - NESTED_GAP * (safeCols - 1)) / safeCols);
+}
+
+/** Total canvas width for N columns at a fixed column pixel width. */
+export function nestedGridCanvasWidthPx(cols, colWidthPx) {
+  const safeCols = Math.max(1, Number(cols) || 1);
+  const safeColWidth = Math.max(8, Number(colWidthPx) || 8);
+  return Math.round(safeCols * safeColWidth + Math.max(0, safeCols - 1) * NESTED_GAP);
+}
+
+/**
+ * Builder nested grid: keep column pixel width fixed (widgets don't stretch on container resize)
+ * but add more columns when the container shell is wider so extra space is placeable.
+ */
+export function resolveNestedBuilderGridMetrics({
+  lockedWidthPx = null,
+  hostWidthPx = 0,
+  readOnly = false,
+  layout = [],
+} = {}) {
+  const host = Math.max(0, Math.round(Number(hostWidthPx) || 0));
+  const locked = Number.isFinite(Number(lockedWidthPx)) && Number(lockedWidthPx) > 0
+    ? Math.round(Number(lockedWidthPx))
+    : null;
+
+  if (readOnly) {
+    const gridWidth = locked ?? host;
+    const gridCols = NESTED_GRID_COLS;
+    return {
+      gridCols,
+      gridWidth,
+      colWidthPx: nestedGridColWidthPx(gridWidth, gridCols),
+    };
+  }
+
+  const baselineWidth = locked ?? host;
+  const colWidthPx = nestedGridColWidthPx(baselineWidth, NESTED_BUILDER_COLS);
+
+  const scaledLayout = scaleNestedLayoutToBuilder(layout, NESTED_BUILDER_COLS);
+  let contentCols = NESTED_BUILDER_COLS;
+  for (const item of scaledLayout) {
+    contentCols = Math.max(
+      contentCols,
+      (Number(item.x) || 0) + Math.max(1, Number(item.w) || 1),
+    );
+  }
+
+  let hostCols = NESTED_BUILDER_COLS;
+  if (host > 0) {
+    hostCols = Math.floor((host + NESTED_GAP) / (colWidthPx + NESTED_GAP));
+  }
+
+  const gridCols = Math.min(96, Math.max(NESTED_BUILDER_COLS, contentCols, hostCols));
+  const gridWidth = nestedGridCanvasWidthPx(gridCols, colWidthPx);
+
+  return { gridCols, gridWidth, colWidthPx };
+}
+
+export function scaleNestedLayoutBetweenColCounts(items = [], fromCols, toCols) {
+  const from = Math.max(1, Number(fromCols) || NESTED_BUILDER_COLS);
+  const to = Math.max(1, Number(toCols) || NESTED_BUILDER_COLS);
+  if (from === to) return (items || []).map((item) => ({ ...item }));
+  const ratio = to / from;
+  return (items || []).map((item) => ({
+    ...item,
+    x: Math.max(0, Math.round((Number(item.x) || 0) * ratio)),
+    w: Math.max(1, Math.round((Number(item.w) || 1) * ratio)),
+  }));
+}
+
+export function nestedLayoutToBaseBuilder(items = [], gridCols = NESTED_BUILDER_COLS) {
+  return scaleNestedLayoutBetweenColCounts(items, gridCols, NESTED_BUILDER_COLS);
+}
+
+export function nestedLayoutFromBaseBuilder(items = [], gridCols = NESTED_BUILDER_COLS) {
+  return scaleNestedLayoutBetweenColCounts(items, NESTED_BUILDER_COLS, gridCols);
+}
+
+export function activeNestedGridCols(readOnly = false) {
+  return readOnly ? NESTED_GRID_COLS : NESTED_BUILDER_COLS;
+}
+
+export function defaultNestedLayoutWH(rawType = "kpi") {
+  if (rawType === "heading") return { w: NESTED_GRID_COLS, h: 1 };
+  if (rawType === "table" || rawType === "graph") return { w: NESTED_GRID_COLS, h: 2 };
+  return { w: 3, h: 2 };
+}
+
+/** Normalize one nested grid item for the container inner canvas. */
+export function normalizeNestedLayoutItem(
+  raw = {},
+  idx = 0,
+  id = "",
+  { lock = false, rawType = "kpi", cols = NESTED_GRID_COLS } = {},
+) {
+  const defaults = defaultNestedLayoutWH(rawType);
+  let h = Math.max(1, Number.isFinite(Number(raw.h)) ? Number(raw.h) : defaults.h);
+  if (rawType === "kpi" && h < 2) h = 2;
+  const minH = rawType === "kpi" ? 2 : 1;
+  const maxH = rawType === "kpi" ? 8 : 12;
+  if (h > maxH) h = maxH;
+  const safeCols = Math.max(1, Number(cols) || NESTED_GRID_COLS);
+  const w = Math.min(
+    safeCols,
+    Math.max(1, Number.isFinite(Number(raw.w)) ? Number(raw.w) : defaults.w),
+  );
+  let x = Number.isFinite(Number(raw.x)) ? Math.max(0, Math.round(Number(raw.x))) : 0;
+  const y = Number.isFinite(Number(raw.y)) ? Math.max(0, Math.round(Number(raw.y))) : 0;
+  if (x + w > safeCols) x = Math.max(0, safeCols - w);
+  return {
+    i: String(id || raw.i || `nested_${idx}`),
+    x,
+    y,
+    w,
+    h,
+    minW: 1,
+    minH,
+    maxW: safeCols,
+    maxH,
+    static: Boolean(lock),
+    isResizable: !lock,
+    isDraggable: !lock,
+  };
+}
+
 /** Normalize nested layout coords without changing saved w/h semantics. */
 export function sanitizeNestedLayoutItems(nestedLayout = []) {
   if (!Array.isArray(nestedLayout)) return [];
@@ -1097,6 +1242,106 @@ export function isNestedLayoutCorrupt(nestedLayout = []) {
     }
   }
   return false;
+}
+
+/** Light coord cleanup while dragging — avoids heavy normalization fighting RGL mid-gesture. */
+export function sanitizeNestedLiveLayout(layout = [], cols = NESTED_GRID_COLS) {
+  return (layout || []).map((item) => {
+    const w = Math.min(cols, Math.max(1, Math.round(Number(item.w) || 1)));
+    let x = Math.max(0, Math.round(Number(item.x) || 0));
+    const y = Math.max(0, Math.round(Number(item.y) || 0));
+    const h = Math.max(1, Math.round(Number(item.h) || 1));
+    if (x + w > cols) x = Math.max(0, cols - w);
+    return {
+      ...item,
+      i: String(item.i),
+      x,
+      y,
+      w,
+      h,
+    };
+  });
+}
+
+/** Find the first open horizontal slot on a row. */
+function findNestedRowOpenSlot(rowItems = [], itemW = 1, cols = NESTED_GRID_COLS) {
+  const width = Math.max(1, Number(itemW) || 1);
+  const sorted = [...rowItems].sort((a, b) => (Number(a.x) || 0) - (Number(b.x) || 0));
+  let cursor = 0;
+  for (const item of sorted) {
+    const ix = Math.max(0, Number(item.x) || 0);
+    const iw = Math.max(1, Number(item.w) || 1);
+    if (ix - cursor >= width) return cursor;
+    cursor = Math.max(cursor, ix + iw);
+  }
+  return cursor + width <= cols ? cursor : null;
+}
+
+/** Snap nested coords on drag/resize stop so widgets align to rows and stay in bounds. */
+export function snapNestedLayoutOnCommit(layout = [], activeId = null, cols = NESTED_GRID_COLS) {
+  const items = sanitizeNestedLayoutItems(layout).map((item) => {
+    const w = Math.min(cols, Math.max(1, Number(item.w) || 1));
+    let x = Math.max(0, Number(item.x) || 0);
+    if (x + w > cols) x = Math.max(0, cols - w);
+    return { ...item, w, x };
+  });
+  if (!activeId) return items;
+
+  const activeIdx = items.findIndex((item) => String(item.i) === String(activeId));
+  if (activeIdx < 0) return items;
+
+  const active = { ...items[activeIdx] };
+  const others = items.filter((_, idx) => idx !== activeIdx);
+
+  for (const other of others) {
+    if (Math.abs(active.y - other.y) <= 1) {
+      active.y = other.y;
+      break;
+    }
+  }
+
+  const topRowY = others.reduce((min, item) => Math.min(min, Number(item.y) || 0), 0);
+  const openOnTopRow = findNestedRowOpenSlot(
+    others.filter((other) => Number(other.y) === topRowY),
+    active.w,
+    cols,
+  );
+  if (openOnTopRow != null && active.y <= topRowY + 1) {
+    active.y = topRowY;
+    active.x = openOnTopRow;
+  }
+
+  const overlaps = (a, b) =>
+    a.y < b.y + b.h
+    && a.y + a.h > b.y
+    && a.x < b.x + b.w
+    && a.x + a.w > b.x;
+
+  const rowPeers = others.filter((other) => other.y === active.y);
+  const overlapsOnRow = rowPeers.some((other) => overlaps(active, other));
+  if (overlapsOnRow) {
+    const openSlot = findNestedRowOpenSlot(rowPeers, active.w, cols);
+    if (openSlot != null) {
+      active.x = openSlot;
+    } else {
+      const blocker = rowPeers.find((other) => overlaps(active, other));
+      if (blocker) {
+        const rightX = blocker.x + blocker.w;
+        if (rightX + active.w <= cols) {
+          active.x = rightX;
+        } else if (blocker.x >= active.w) {
+          active.x = blocker.x - active.w;
+        }
+      }
+    }
+  }
+
+  if (active.x + active.w > cols) {
+    active.x = Math.max(0, cols - active.w);
+  }
+
+  items[activeIdx] = active;
+  return items;
 }
 
 /** Fix corrupted clone layouts where KPI cards were squished to w=1. */
@@ -1131,7 +1376,13 @@ export function repairNestedLayoutItems(nestedLayout = [], children = []) {
       });
   });
 
-  return items;
+  return items.map((item) => {
+    const child = childById.get(String(item.i));
+    const rawType = child?.rawType || child?.type || "kpi";
+    let h = Math.max(1, Number(item.h) || 1);
+    if (rawType === "kpi" && h < 2) h = 2;
+    return { ...item, h };
+  });
 }
 
 export function phoneContainerPaddingPx(widget = {}) {
@@ -1291,7 +1542,7 @@ export function hydrateContainerNestedLayouts(widgets = []) {
     const reconciledMobile = reconcileNested(
       children,
       widget.mobileNestedLayout,
-      (child, item) => pickNestedLayout(child, { ...(child.mobileLayout || child.layout || {}), ...item }),
+      (child, item) => pickNestedLayout(child, { ...(child.mobileLayout || {}), ...item }),
     );
     const nestedLayout = isNestedLayoutCorrupt(reconciledDesktop)
       ? repairNestedLayoutItems(reconciledDesktop, children)
@@ -1344,19 +1595,14 @@ export function buildCanvasWidgetsWithContainers(widgets = []) {
 export function buildPhoneCanvasWidgets(widgets = []) {
   return buildCanvasWidgetsWithContainers(widgets).map((widget) => {
     if (widget.rawType !== "container") return widget;
-    // Prefer already-resolved phone nested (from resolvePublishedPhoneNestedLayout),
-    // then saved mobile_nested_layout, then desktop nested — never auto-stack published phone.
-    const phoneNested = Array.isArray(widget.nestedLayout) && widget.nestedLayout.length
-      ? widget.nestedLayout
-      : (Array.isArray(widget.mobileNestedLayout) && widget.mobileNestedLayout.length
-        ? widget.mobileNestedLayout
-        : (widget.nestedLayout || []));
+    const phoneNested = Array.isArray(widget.mobileNestedLayout) && widget.mobileNestedLayout.length
+      ? widget.mobileNestedLayout
+      : (Array.isArray(widget.nestedLayout) && widget.nestedLayout.length
+        ? stackNestedLayoutForPhone(widget.nestedLayout)
+        : []);
     return {
       ...widget,
-      nestedLayout: phoneNested,
-      mobileNestedLayout: Array.isArray(widget.mobileNestedLayout) && widget.mobileNestedLayout.length
-        ? widget.mobileNestedLayout
-        : phoneNested,
+      mobileNestedLayout: phoneNested,
     };
   });
 }

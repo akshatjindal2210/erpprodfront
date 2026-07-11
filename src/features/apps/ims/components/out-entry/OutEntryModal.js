@@ -9,6 +9,7 @@ import { toast } from "react-toastify";
 import { outEntryService } from "@/features/apps/ims/services/outEntry";
 import { forwardingNoteService } from "@/features/apps/ims/services/forwardingNote";
 import { qcHoldMaterialService } from "@/features/apps/ims/services/qcHoldMaterial";
+import { masterService } from "@/features/apps/ims/services/master";
 import Drawer from "@/core/components/ui/Drawer";
 import { ERR_INPUT, FORM_LABEL_CLASS, OK_INPUT } from "@/core/components/common/Constants";
 import FormPanelLoader from "@/core/components/common/FormPanelLoader";
@@ -21,7 +22,7 @@ import { useDeviceScanSettings } from "@/core/hooks/useDeviceScanSettings";
 import { isLaserScanEnabled } from "@/core/utils/deviceScanSettings";
 import LaserScanField from "@/core/components/common/LaserScanField";
 import RemarksTextarea from "@/core/components/common/RemarksTextarea";
-import { detectQrType, parseBoxScanRaw, boxNoUidDisplayLabel } from "@/features/apps/ims/helpers/qrScan";
+import { detectQrType, parseBoxScanRaw, parseStickerScan, boxNoUidDisplayLabel } from "@/features/apps/ims/helpers/qrScan";
 import { prepareQrScanSession } from "@/features/apps/ims/helpers/scanFeedback";
 import { createScanBatchQueue } from "@/features/apps/ims/helpers/scanBatchQueue";
 import { useHtml5QrScanner } from "@/core/hooks/useHtml5QrScanner";
@@ -53,6 +54,7 @@ import {
   isOutEntrySimpleScanMode,
   pickerIdFromEntryType,
 } from "@/features/apps/ims/utils/outEntryTypes";
+import { canApproveInventoryOut, canCreateInventoryOut } from "@/features/apps/ims/utils/imsSpecialPermissions";
 import { mapQcHoldSelectRow } from "@/features/apps/ims/utils/qcHoldTypes";
 import { withSortedViewsData } from "@/features/apps/ims/helpers/sortDropdownResponse";
 import { isForwardingLooseBox } from "@/core/utils/utilHelper";
@@ -65,6 +67,7 @@ const INITIAL_FORM = {
   fuid: "",
   qc_hold_id: "",
   reason: "",
+  item_dcode: "",
   remarks: "",
   approved: false,
 };
@@ -132,6 +135,285 @@ function BoxKindBadge({ isLoose, size = "md" }) {
       title={loose ? "Loose (L)" : "Full box (B)"}
     >
       {loose ? "L" : "B"}
+    </div>
+  );
+}
+
+function groupInventoryBoxesByPacking(boxes = []) {
+  const groups = new Map();
+  for (const box of boxes) {
+    const pn = String(box?.packing_number ?? "").trim() || "—";
+    if (!groups.has(pn)) {
+      groups.set(pn, { packing_number: pn, boxes: [], qty: 0, full: 0, loose: 0 });
+    }
+    const g = groups.get(pn);
+    g.boxes.push(box);
+    g.qty += Number(box?.qty) || 0;
+    if (normalizeIsLoose(box?.is_loose)) g.loose += 1;
+    else g.full += 1;
+  }
+  return [...groups.values()].sort((a, b) => {
+    const na = Number(a.packing_number);
+    const nb = Number(b.packing_number);
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+    return String(a.packing_number).localeCompare(String(b.packing_number));
+  });
+}
+
+/** Read-only in-stock boxes for selected Inventory Out item (info only — user still types box_no_uid to ADD). */
+function CollapsibleInventoryItemBoxes({
+  itemLabel,
+  boxes = [],
+  scannedIds,
+  loading = false,
+}) {
+  const [open, setOpen] = useState(true);
+  const [expandedPackings, setExpandedPackings] = useState(() => new Set());
+  const { full, loose, total } = countQcHoldBoxKinds(boxes);
+  const scannedSet = scannedIds instanceof Set ? scannedIds : new Set();
+  const totalQty = useMemo(
+    () => (boxes || []).reduce((sum, b) => sum + (Number(b?.qty) || 0), 0),
+    [boxes]
+  );
+  const packingGroups = useMemo(() => groupInventoryBoxesByPacking(boxes), [boxes]);
+  const packingCount = packingGroups.length;
+
+  useEffect(() => {
+    // New item / stock reload → open first packing only so long lists stay manageable.
+    if (!packingGroups.length) {
+      setExpandedPackings(new Set());
+      return;
+    }
+    setExpandedPackings(new Set([packingGroups[0].packing_number]));
+  }, [itemLabel, packingGroups]);
+
+  const togglePacking = useCallback((packingNumber) => {
+    setExpandedPackings((prev) => {
+      const next = new Set(prev);
+      if (next.has(packingNumber)) next.delete(packingNumber);
+      else next.add(packingNumber);
+      return next;
+    });
+  }, []);
+
+  const expandAllPackings = useCallback(() => {
+    setExpandedPackings(new Set(packingGroups.map((g) => g.packing_number)));
+  }, [packingGroups]);
+
+  const collapseAllPackings = useCallback(() => {
+    setExpandedPackings(new Set());
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 flex items-center gap-2">
+        <Loader2 size={14} className="animate-spin text-indigo-600 shrink-0" />
+        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+          Loading in-stock boxes…
+        </p>
+      </div>
+    );
+  }
+
+  if (!itemLabel) return null;
+
+  const allPackingsOpen = packingCount > 0 && expandedPackings.size === packingCount;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden shadow-sm">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={open ? "Collapse in-stock boxes" : "Expand in-stock boxes"}
+        onClick={() => setOpen((p) => !p)}
+        className={`w-full px-3 py-2 flex items-start gap-2 text-left hover:bg-slate-50/80 transition-colors ${open ? "border-b border-slate-100" : ""}`}
+      >
+        <div className="flex-1 min-w-0 space-y-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Package size={13} className="text-indigo-500 shrink-0" aria-hidden />
+            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide shrink-0">
+              In stock
+            </span>
+            <span className="text-[11px] font-bold text-slate-800 truncate">{itemLabel}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-50 text-[9px] font-black text-indigo-700 tabular-nums">
+              {packingCount} packing{packingCount === 1 ? "" : "s"}
+            </span>
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-[9px] font-black text-slate-600 tabular-nums">
+              {total} boxes
+            </span>
+            {full > 0 ? (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-50 text-[9px] font-black text-emerald-700 tabular-nums">
+                {full} full
+              </span>
+            ) : null}
+            {loose > 0 ? (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 text-[9px] font-black text-amber-700 tabular-nums">
+                {loose} loose
+              </span>
+            ) : null}
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-[9px] font-black text-slate-600 tabular-nums">
+              Qty {totalQty.toLocaleString()}
+            </span>
+          </div>
+        </div>
+        <span className="shrink-0 mt-0.5 px-1.5 py-0.5 text-[8px] font-bold uppercase border rounded bg-slate-50 text-slate-500 border-slate-200">
+          Info
+        </span>
+        <ChevronRight
+          className={`text-slate-400 shrink-0 mt-0.5 transition-transform ${open ? "rotate-90" : ""}`}
+          size={14}
+        />
+      </button>
+
+      {open ? (
+        <div className="bg-slate-50/40 max-h-[min(42dvh,340px)] overflow-y-auto custom-scrollbar">
+          {boxes.length ? (
+            <div>
+              {packingCount > 1 ? (
+                <div className="sticky top-0 z-[1] flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-50/95 border-b border-slate-100 backdrop-blur-sm">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">
+                    {packingCount} packing nos
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (allPackingsOpen) collapseAllPackings();
+                      else expandAllPackings();
+                    }}
+                    className="text-[9px] font-black uppercase text-indigo-600 hover:text-indigo-800"
+                  >
+                    {allPackingsOpen ? "Collapse all" : "Expand all"}
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="divide-y divide-slate-100">
+                {packingGroups.map((group) => {
+                  const isPackingOpen = expandedPackings.has(group.packing_number);
+                  const scannedInGroup = group.boxes.filter((b) =>
+                    scannedSet.has(String(b.box_no_uid || ""))
+                  ).length;
+                  return (
+                    <div key={group.packing_number} className="bg-white/60">
+                      <button
+                        type="button"
+                        aria-expanded={isPackingOpen}
+                        aria-label={`${isPackingOpen ? "Collapse" : "Expand"} packing ${group.packing_number}`}
+                        onClick={() => togglePacking(group.packing_number)}
+                        className="w-full px-2.5 py-2 flex items-center gap-2 text-left hover:bg-white transition-colors"
+                      >
+                        <ChevronRight
+                          className={`text-slate-400 shrink-0 transition-transform ${isPackingOpen ? "rotate-90" : ""}`}
+                          size={14}
+                        />
+                        <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-black text-slate-800">
+                            <Hash size={11} className="text-slate-400" aria-hidden />
+                            <span className="tabular-nums">{group.packing_number}</span>
+                          </span>
+                          <span className="text-[8px] font-bold text-slate-400 uppercase">
+                            {group.boxes.length} box{group.boxes.length === 1 ? "" : "es"}
+                          </span>
+                          {group.full > 0 ? (
+                            <span className="text-[8px] font-black text-emerald-600 tabular-nums">
+                              {group.full} full
+                            </span>
+                          ) : null}
+                          {group.loose > 0 ? (
+                            <span className="text-[8px] font-black text-amber-600 tabular-nums">
+                              {group.loose} loose
+                            </span>
+                          ) : null}
+                          {scannedInGroup > 0 ? (
+                            <span className="text-[8px] font-black text-emerald-700 uppercase">
+                              {scannedInGroup} added
+                            </span>
+                          ) : null}
+                        </div>
+                        <span className="text-[9px] font-black text-slate-500 tabular-nums shrink-0">
+                          Qty {group.qty.toLocaleString()}
+                        </span>
+                      </button>
+
+                      {isPackingOpen ? (
+                        <div className="px-2 pb-2">
+                          <div className="rounded-lg border border-slate-200 bg-white overflow-hidden divide-y divide-slate-50">
+                            {group.boxes.map((box) => {
+                              const uid = String(box.box_no_uid || "");
+                              const isScanned = scannedSet.has(uid);
+                              const isLoose = normalizeIsLoose(box.is_loose);
+                              return (
+                                <div
+                                  key={uid}
+                                  className={`px-2.5 py-2 flex items-start gap-2.5 min-w-0 ${
+                                    isScanned ? "bg-emerald-50/80" : ""
+                                  }`}
+                                >
+                                  <BoxKindBadge isLoose={isLoose} size="sm" />
+                                  <div className="flex-1 min-w-0 space-y-1">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <span
+                                        className="text-[11px] font-mono font-black text-slate-800 break-all leading-snug"
+                                        title={uid}
+                                      >
+                                        {boxNoUidDisplayLabel(uid) || uid}
+                                      </span>
+                                      {isScanned ? (
+                                        <span className="inline-flex items-center gap-0.5 shrink-0 text-[8px] font-black uppercase text-emerald-700">
+                                          <CheckCircle2 size={11} aria-hidden />
+                                          Added
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                      <span className="inline-flex items-center gap-1 text-[9px] font-bold text-slate-600">
+                                        <span className="text-slate-400 uppercase tracking-wide">Qty</span>
+                                        <span className="tabular-nums font-black text-slate-800">
+                                          {(Number(box.qty) || 0).toLocaleString()}
+                                        </span>
+                                      </span>
+                                      <span
+                                        className={`inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
+                                          isLoose
+                                            ? "bg-amber-50 text-amber-700"
+                                            : "bg-emerald-50 text-emerald-700"
+                                        }`}
+                                      >
+                                        {isLoose ? "Loose" : "Full"}
+                                      </span>
+                                      {box.location_no ? (
+                                        <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-indigo-600">
+                                          <MapPin size={10} className="shrink-0" aria-hidden />
+                                          {box.location_no}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[8px] font-bold text-slate-300 uppercase">
+                                          No location
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide text-center py-6">
+              No in-stock boxes for this item
+            </p>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -253,13 +535,10 @@ function CollapsibleQcHoldBoxes({ hold, boxes = [], scannedCount = 0, packingAre
 export default function OutEntryModal({ open, onClose, onSuccess, editData, mode = "add" }) {
   const user = useSelector(selectUser);
   const canAccess = useCanAccess();
-  const canApprove = canAccess("out_entry", "authorize").allowed;
   const canRemoveScannedBox = canAccess("out_entry", "delete").allowed;
 
   const isEdit = mode === "edit";
   const isApprove = mode === "approve";
-  const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
-  const showApproval = canApprove && (mode === "add" || mode === "approve");
 
   const [loading, setLoading] = useState(false);
   const [formReady, setFormReady] = useState(false);
@@ -305,6 +584,14 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   const [reasonOpts, setReasonOpts] = useState([]);
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reasonHighlight, setReasonHighlight] = useState(-1);
+  const [inventoryItemBoxes, setInventoryItemBoxes] = useState([]);
+  const [inventoryItemLabel, setInventoryItemLabel] = useState("");
+  const [fetchingInventoryBoxes, setFetchingInventoryBoxes] = useState(false);
+  const inventoryBoxIndexRef = useRef(new Map());
+  const inventoryBoxesFetchRef = useRef(0);
+  const fetchingInventoryBoxesRef = useRef(false);
+  const reasonSuggestTimerRef = useRef(null);
+  const reasonSuggestFetchRef = useRef(0);
 
   const closeSnackbar = useCallback(() => {
     setSnackbar((s) => ({ ...s, open: false }));
@@ -323,16 +610,42 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     (isQcAreaMode && isConfirmed && (qcHoldDetails || fetchingQcHold));
   const isInventoryOutMode = entryMode === OUT_ENTRY_TYPE.INVENTORY_OUT;
   const isForwardingMode = entryMode === OUT_ENTRY_TYPE.FORWARDING_NOTE;
+  const canApproveStoreOut = canAccess("out_entry", "authorize").allowed;
+  const canApproveInvOut = canApproveInventoryOut(user);
+  const canApprove = isInventoryOutMode ? canApproveInvOut : canApproveStoreOut;
+  const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
+  const showApproval =
+    canApprove &&
+    (isInventoryOutMode ? mode === "approve" : mode === "add" || mode === "approve");
   const selectedQcHoldId = form?.qc_hold_id ?? "";
 
-  const loadReasonSuggestions = useCallback(async (search = "") => {
-    try {
-      const res = await outEntryService.getReasons({ search });
-      const list = Array.isArray(res?.data) ? res.data : [];
-      setReasonOpts(withSortedViewsData(list, "reason"));
-    } catch {
-      setReasonOpts([]);
+  const loadReasonSuggestions = useCallback((search = "", { immediate = false } = {}) => {
+    if (reasonSuggestTimerRef.current) {
+      clearTimeout(reasonSuggestTimerRef.current);
+      reasonSuggestTimerRef.current = null;
     }
+
+    const run = async () => {
+      const fetchId = ++reasonSuggestFetchRef.current;
+      try {
+        const res = await outEntryService.getReasons({ search });
+        if (fetchId !== reasonSuggestFetchRef.current) return;
+        const list = Array.isArray(res?.data) ? res.data : [];
+        setReasonOpts(withSortedViewsData(list, "reason"));
+      } catch {
+        if (fetchId !== reasonSuggestFetchRef.current) return;
+        setReasonOpts([]);
+      }
+    };
+
+    if (immediate) {
+      void run();
+      return;
+    }
+    reasonSuggestTimerRef.current = setTimeout(() => {
+      reasonSuggestTimerRef.current = null;
+      void run();
+    }, 300);
   }, []);
 
   const handleReasonPick = useCallback((opt) => {
@@ -342,6 +655,72 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     }));
     if (errors.reason) setErrors((prev) => ({ ...prev, reason: "" }));
   }, [errors.reason]);
+
+  const clearInventoryItemStock = useCallback(() => {
+    inventoryBoxesFetchRef.current += 1;
+    inventoryBoxIndexRef.current = new Map();
+    fetchingInventoryBoxesRef.current = false;
+    setInventoryItemBoxes([]);
+    setInventoryItemLabel("");
+    setFetchingInventoryBoxes(false);
+  }, []);
+
+  const loadInventoryItemBoxes = useCallback(async (itemDcode, itemMeta = null) => {
+    const id = itemDcode != null && String(itemDcode).trim() !== "" ? String(itemDcode).trim() : "";
+    if (!id) {
+      clearInventoryItemStock();
+      return;
+    }
+
+    const fetchId = ++inventoryBoxesFetchRef.current;
+    fetchingInventoryBoxesRef.current = true;
+    setFetchingInventoryBoxes(true);
+    const labelFromMeta = [itemMeta?.item_code, itemMeta?.itemdesc]
+      .map((v) => (v != null ? String(v).trim() : ""))
+      .filter(Boolean)
+      .join(" — ");
+    if (labelFromMeta) setInventoryItemLabel(labelFromMeta);
+
+    try {
+      const res = await outEntryService.getAvailableBoxes(id);
+      if (fetchId !== inventoryBoxesFetchRef.current) return;
+      const rows = Array.isArray(res?.data) ? res.data : [];
+      const map = new Map();
+      for (const box of rows) {
+        if (!box?.box_no_uid) continue;
+        map.set(String(box.box_no_uid).toLowerCase(), box);
+      }
+      inventoryBoxIndexRef.current = map;
+      setInventoryItemBoxes(rows);
+      if (!labelFromMeta) {
+        setInventoryItemLabel(itemMeta?.item_code || id);
+      }
+    } catch {
+      if (fetchId !== inventoryBoxesFetchRef.current) return;
+      inventoryBoxIndexRef.current = new Map();
+      setInventoryItemBoxes([]);
+      toast.error("Could not load in-stock boxes for this item.");
+    } finally {
+      if (fetchId === inventoryBoxesFetchRef.current) {
+        fetchingInventoryBoxesRef.current = false;
+        setFetchingInventoryBoxes(false);
+      }
+    }
+  }, [clearInventoryItemStock]);
+
+  const handleInventoryItemChange = useCallback(
+    (id, item) => {
+      const nextId = id != null && String(id).trim() !== "" ? String(id) : "";
+      setForm((prev) => ({ ...prev, item_dcode: nextId }));
+      if (errors.item_dcode) setErrors((prev) => ({ ...prev, item_dcode: "" }));
+      if (!nextId) {
+        clearInventoryItemStock();
+        return;
+      }
+      void loadInventoryItemBoxes(nextId, item);
+    },
+    [clearInventoryItemStock, errors.item_dcode, loadInventoryItemBoxes]
+  );
 
   const scopedOutUid = useMemo(() => {
     if (!isEdit && !isApprove) return null;
@@ -519,6 +898,11 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     if (!open) {
       setIsScannerOpen(false);
       setFormReady(false);
+      if (reasonSuggestTimerRef.current) {
+        clearTimeout(reasonSuggestTimerRef.current);
+        reasonSuggestTimerRef.current = null;
+      }
+      reasonSuggestFetchRef.current += 1;
       timeoutId = setTimeout(() => {
         setForm(INITIAL_FORM);
         setFuidDetails(null);
@@ -543,6 +927,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         setReasonHighlight(-1);
         setQcHoldDetails(null);
         qcHoldBoxIndexRef.current = new Map();
+        clearInventoryItemStock();
       }, 300);
       return () => clearTimeout(timeoutId);
     }
@@ -569,6 +954,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       setReasonHighlight(-1);
       setQcHoldDetails(null);
       qcHoldBoxIndexRef.current = new Map();
+      clearInventoryItemStock();
 
       if (editData) {
         const isAutoEntry = isOutEntryAutoAuthorized(editData.entry_type);
@@ -589,6 +975,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               fuid: "",
               qc_hold_id: editData.qc_hold_id ? String(editData.qc_hold_id) : "",
               reason: editData.reason || "",
+              item_dcode: "",
               remarks: editData.remarks || "",
               approved: editData?.approved ?? false,
             });
@@ -643,6 +1030,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               setPickerChoiceId("forwarding_note");
               setForm({
                 fuid: initialFuid,
+                qc_hold_id: "",
+                reason: "",
+                item_dcode: "",
                 remarks: editData.remarks || "",
                 approved: editData?.approved ?? false,
               });
@@ -674,11 +1064,11 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     return () => {
       cancelled = true;
     };
-  }, [open, editData?.out_uid, editData?.outUid, editData?.id, editData?.fuid, editData?.qc_hold_id, editData?.entry_type, isApprove, isEdit, lockForwardingNoteForProcessing, fetchQcHoldInfo]);
+  }, [open, editData?.out_uid, editData?.outUid, editData?.id, editData?.fuid, editData?.qc_hold_id, editData?.entry_type, isApprove, isEdit, lockForwardingNoteForProcessing, fetchQcHoldInfo, clearInventoryItemStock]);
 
   useEffect(() => {
     if (!open || !formReady || !isAutoScanFlow) return;
-    loadReasonSuggestions("");
+    loadReasonSuggestions("", { immediate: true });
   }, [open, formReady, isAutoScanFlow, loadReasonSuggestions]);
 
   const selectEntryMode = useCallback((mode, choiceId = null) => {
@@ -687,19 +1077,19 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     setErrors({});
     setQcHoldDetails(null);
     qcHoldBoxIndexRef.current = new Map();
+    clearInventoryItemStock();
     if (isOutEntrySimpleScanMode(mode)) {
       setIsConfirmed(true);
       setFuidDetails(null);
-      setForm((prev) => ({ ...prev, fuid: "", qc_hold_id: "", reason: "" }));
-      loadReasonSuggestions("");
+      setForm((prev) => ({ ...prev, fuid: "", qc_hold_id: "", reason: "", item_dcode: "" }));
     } else if (isOutEntryQcArea(mode)) {
       setIsConfirmed(false);
       setFuidDetails(null);
-      setForm((prev) => ({ ...prev, fuid: "", qc_hold_id: "", reason: "" }));
+      setForm((prev) => ({ ...prev, fuid: "", qc_hold_id: "", reason: "", item_dcode: "" }));
     } else {
       setIsConfirmed(false);
     }
-  }, [loadReasonSuggestions]);
+  }, [clearInventoryItemStock]);
 
   const handleChangeEntryType = useCallback(() => {
     setEntryMode(null);
@@ -712,9 +1102,10 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     setFuidDetails(null);
     setQcHoldDetails(null);
     qcHoldBoxIndexRef.current = new Map();
+    clearInventoryItemStock();
     setForm(INITIAL_FORM);
     setErrors({});
-  }, []);
+  }, [clearInventoryItemStock]);
 
   const handleConfirmQcHold = async (holdIdOverride = null) => {
     const holdId = String(holdIdOverride ?? form.qc_hold_id ?? "").trim();
@@ -733,7 +1124,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       const ok = await fetchQcHoldInfo(holdId);
       if (ok) {
         setIsConfirmed(true);
-        loadReasonSuggestions("");
+        loadReasonSuggestions("", { immediate: true });
       } else {
         setIsConfirmed(false);
       }
@@ -951,8 +1342,17 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         for (const item of batch) {
           const result = resultMap.get(String(item.id));
           if (result?.allowed) {
-            otherBoxMapRef.current.set(item.canonicalBoxId, {
-              box_no_uid: item.canonicalBoxId,
+            const resolvedUid = String(result.box_no_uid || "").trim();
+            if (!resolvedUid) {
+              scannedBoxIdsRef.current.delete(item.canonicalBoxId);
+              otherBoxMapRef.current.delete(item.canonicalBoxId);
+              continue;
+            }
+            scannedBoxIdsRef.current.delete(item.canonicalBoxId);
+            otherBoxMapRef.current.delete(item.canonicalBoxId);
+            scannedBoxIdsRef.current.add(resolvedUid);
+            otherBoxMapRef.current.set(resolvedUid, {
+              box_no_uid: resolvedUid,
               packing_number: result.packing_number ?? null,
               qty: result.qty ?? 0,
               is_loose: result.is_loose === true || result.is_loose === 1,
@@ -1006,41 +1406,25 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   );
 
   useEffect(() => {
-    if (!open || !isConfirmed || isSimpleScanMode) {
-      if (!open || !isConfirmed) {
-        scanBatchRef.current = null;
-        pendingCountRef.current = 0;
-        setPendingScanCount(0);
-      }
+    if (!open || !isConfirmed) {
+      scanBatchRef.current = null;
+      pendingCountRef.current = 0;
+      setPendingScanCount(0);
       return undefined;
     }
 
+    // Inventory/Packing/QC use processOtherScanBatch; Forwarding Note uses processScanBatch.
+    // Keep a single queue so QC does not get overwritten by the FN handler.
     scanBatchRef.current = createScanBatchQueue({
       flushMs: 80,
       maxBatch: 20,
-      onFlush: processScanBatch,
+      onFlush: isAutoScanFlow ? processOtherScanBatch : processScanBatch,
     });
 
     return () => {
       scanBatchRef.current = null;
     };
-  }, [open, isConfirmed, isSimpleScanMode, processScanBatch]);
-
-  useEffect(() => {
-    if (!open || !isConfirmed || !isAutoScanFlow) {
-      return undefined;
-    }
-
-    scanBatchRef.current = createScanBatchQueue({
-      flushMs: 80,
-      maxBatch: 20,
-      onFlush: processOtherScanBatch,
-    });
-
-    return () => {
-      scanBatchRef.current = null;
-    };
-  }, [open, isConfirmed, isAutoScanFlow, processOtherScanBatch]);
+  }, [open, isConfirmed, isAutoScanFlow, processOtherScanBatch, processScanBatch]);
 
   const tryAddOtherBox = useCallback(
     (rawScanValue) => {
@@ -1050,7 +1434,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         return;
       }
 
-      const bId = parseBoxScanRaw(rawScanValue)?.trim();
+      const { box_no_uid: scanNoUid, box_uid: scanUid } = parseStickerScan(rawScanValue);
+      const bId = (scanNoUid || scanUid || parseBoxScanRaw(rawScanValue) || "").trim();
       if (!bId) {
         showScanToast("error", "other-invalid-sticker", SCAN_SNACK_MSG.REJECTED);
         return;
@@ -1061,6 +1446,21 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       if (isQcAreaMode && !qcHoldHit) {
         showScanToast("error", "qc-not-on-hold", "This box is not an in-store box on the selected QC hold.");
         return;
+      }
+
+      if (isInventoryOutMode) {
+        // Item picker is optional info only — still enrich row details when the box is on the loaded list.
+        const invHit = inventoryBoxIndexRef.current.get(bId.toLowerCase());
+        if (invHit) {
+          otherBoxMapRef.current.set(canonicalBoxId, {
+            box_no_uid: canonicalBoxId,
+            packing_number: invHit.packing_number ?? null,
+            qty: Number(invHit.qty) || 0,
+            is_loose: normalizeIsLoose(invHit.is_loose),
+            location_no: invHit.location_no ?? null,
+          });
+          setOtherBoxMap(new Map(otherBoxMapRef.current));
+        }
       }
 
       if (scannedBoxIdsRef.current.has(canonicalBoxId)) {
@@ -1098,7 +1498,13 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         canonicalBoxId,
       });
     },
-    [isQcAreaMode, showScanSuccess, showScanToast, scheduleDisplaySync]
+    [
+      isInventoryOutMode,
+      isQcAreaMode,
+      showScanSuccess,
+      showScanToast,
+      scheduleDisplaySync,
+    ]
   );
 
   const tryAddBox = useCallback(
@@ -1109,7 +1515,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         return;
       }
 
-      const bId = parseBoxScanRaw(rawScanValue)?.trim();
+      const { box_no_uid: scanNoUid, box_uid: scanUid } = parseStickerScan(rawScanValue);
+      const bId = (scanNoUid || scanUid || parseBoxScanRaw(rawScanValue) || "").trim();
       if (!bId) {
         showScanToast("error", "generic-invalid-sticker", SCAN_SNACK_MSG.REJECTED);
         return;
@@ -1507,7 +1914,12 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
       if (complete) {
         toast.success(
-          res?.message || "Out entry submitted. Approve it from the Out Entry list when ready."
+          res?.message ||
+            (finalApproved
+              ? "Store out authorized."
+              : isApprove
+                ? "Out entry kept pending."
+                : "Out entry submitted. Approve it from the Out Entry list when ready.")
         );
       } else {
         toast.success(
@@ -1608,7 +2020,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       }}
       title={
         isApprove
-          ? "Authorize exit"
+          ? isInventoryOutMode
+            ? "Special Approve — Inventory Out"
+            : "Approve Store Out"
           : isEdit
             ? "Edit Out Entry"
             : isAutoScanFlow
@@ -1625,9 +2039,21 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           <button onClick={onClose} className="px-5 py-2 text-sm font-bold text-slate-500">Cancel</button>
           {isApprove ? (
             <>
-              <button onClick={() => handleSave(false)} disabled={loading || isBlockingDataLoad || pendingScanCount > 0} className="px-5 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-xl">Hold</button>
-              <button onClick={() => handleSave(true)} disabled={loading || isBlockingDataLoad || pendingScanCount > 0 || !isFulfillmentComplete} title={!isFulfillmentComplete ? OUT_ENTRY_APPROVE_BLOCKED_MSG : undefined} className="min-w-[140px] px-6 py-2 text-sm font-bold text-white bg-emerald-600 rounded-xl shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Authorize exit
+              <button
+                onClick={() => handleSave(false)}
+                disabled={loading || isBlockingDataLoad || pendingScanCount > 0}
+                className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-40"
+              >
+                Keep Pending
+              </button>
+              <button
+                onClick={() => handleSave(true)}
+                disabled={loading || isBlockingDataLoad || pendingScanCount > 0 || !isFulfillmentComplete}
+                title={!isFulfillmentComplete ? OUT_ENTRY_APPROVE_BLOCKED_MSG : undefined}
+                className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
+                {isInventoryOutMode ? "Approve Inventory" : "Approve"}
               </button>
             </>
           ) : isAutoScanFlow || (isQcAreaMode && (fetchingQcHold || loading)) ? (
@@ -1690,11 +2116,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {OUT_ENTRY_MODE_PICKER_OPTIONS.filter((option) => {
                 if (option.id === "inventory_out") {
-                  const isSuperAdmin = user?.type === "super_admin" || user?.role === "super_admin";
-                  const specialPerms = typeof user?.special_permissions === 'string' 
-                    ? JSON.parse(user.special_permissions) 
-                    : user?.special_permissions;
-                  return isSuperAdmin || !!specialPerms?.ims?.inventory_out;
+                  return canCreateInventoryOut(user);
                 }
                 return true;
               }).map((option) => {
@@ -1841,6 +2263,52 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               ) : null}
             </div>
 
+            {isInventoryOutMode ? (
+              <div className="space-y-2" data-field="item_dcode">
+                <SearchableSelect
+                  className="min-w-0 w-full"
+                  label="Item Search (Code / Description)"
+                  value={form.item_dcode}
+                  onChange={handleInventoryItemChange}
+                  fetchService={(params) =>
+                    masterService.getItemsViews({
+                      ...params,
+                      permission_module: "out_entry",
+                      permission_action: "view",
+                      filters: { in_hand_inventory: true },
+                    })
+                  }
+                  getByIdService={(id) =>
+                    masterService.getItemViewById(id, {
+                      permission_module: "out_entry",
+                      permission_action: "view",
+                    })
+                  }
+                  dataKey="id"
+                  labelKey="item_code"
+                  subLabelKey="itemdesc"
+                  placeholder="Search Item"
+                  error={errors.item_dcode}
+                  disabled={isApprove || (isEdit && editData?.approved)}
+                  usePortal={false}
+                />
+                {form.item_dcode || fetchingInventoryBoxes ? (
+                  <CollapsibleInventoryItemBoxes
+                    itemLabel={inventoryItemLabel || form.item_dcode}
+                    boxes={inventoryItemBoxes}
+                    scannedIds={scannedBoxIds}
+                    loading={fetchingInventoryBoxes}
+                  />
+                ) : !isApprove ? (
+                  <div className="p-3 bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                    <p className="text-[10px] text-slate-500 italic leading-relaxed">
+                      Optional: pick an item to preview its in-stock boxes. You can still type or scan any store box_no_uid and Add without selecting an item.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100 shadow-sm">
                 {(showPhoneQr || laserScan) ? (
                   <div className="flex items-stretch gap-2 w-full min-w-0">
@@ -1947,7 +2415,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                           <div className="flex items-center gap-3 min-w-0">
                             <BoxKindBadge isLoose={box.is_loose} />
                             <div className="flex flex-col leading-tight min-w-0">
-                              <span className="text-[11px] font-mono font-black text-slate-700 truncate">{box.box_no_uid}</span>
+                              <span className="text-[11px] font-mono font-black text-slate-700 truncate">
+                                {boxNoUidDisplayLabel(box.box_no_uid) || box.box_no_uid}
+                              </span>
                               <span className="text-[8px] font-bold text-slate-400 uppercase truncate">
                                 #{box.packing_number || "—"} · Qty: {box.qty ?? 0}
                                 {normalizeIsLoose(box.is_loose) ? " · Loose" : " · Full"}
@@ -2440,7 +2910,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                                   {isFnLooseBox(box) ? "L" : "B"}
                                 </div>
                                 <div className="flex flex-col leading-tight">
-                                  <span className="text-[11px] font-mono font-black text-slate-700">{box.box_no_uid}</span>
+                                  <span className="text-[11px] font-mono font-black text-slate-700">
+                                    {boxNoUidDisplayLabel(box.box_no_uid) || box.box_no_uid}
+                                  </span>
                                   <span className="text-[8px] font-bold text-slate-400 uppercase">{box.location_name} • Qty: {box.qty}</span>
                                 </div>
                               </div>
@@ -2531,7 +3003,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
             <CheckCircle size={16} className="text-emerald-600" />
             <p className="text-[10px] text-emerald-700 italic">
               {isInventoryOutMode
-                ? "Inventory out requires admin approval. Stock will update only after authorization from the Store Out list."
+                ? "Inventory out requires approval from a user with Inventory Approve permission. Stock will update only after authorization from the Store Out list."
                 : isQcAreaMode
                   ? "QC area out is auto-authorized. Scanned in-store boxes move to QC area and are logged in box transactions."
                   : "This entry will be automatically authorized on submission."}

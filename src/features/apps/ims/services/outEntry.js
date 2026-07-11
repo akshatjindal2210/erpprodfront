@@ -30,6 +30,8 @@ export const outEntryService = {
     }),
   getLinkedBoxes: (out_uid) =>
     api(ENDPOINTS.OUT_ENTRIES.LINKED_BOXES, { method: "POST", body: { out_uid } }),
+  getAvailableBoxes: (item_dcode) =>
+    api(ENDPOINTS.OUT_ENTRIES.AVAILABLE_BOXES, { method: "POST", body: { item_dcode } }),
   lockFuid: (fuid) => api(ENDPOINTS.OUT_ENTRIES.LOCK_FUID, { method: "POST", body: { fuid } }),
   getReasons: (params) => imsApiViews(ENDPOINTS.OUT_ENTRIES.REASONS, params, "reason"),
 };

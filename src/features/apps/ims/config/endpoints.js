@@ -158,6 +158,7 @@ export const ENDPOINTS = {
     GET_FUID_DETAILS: "/out-entries/get-details",
     GET_QC_HOLD_DETAILS: "/out-entries/get-qc-hold-details",
     LINKED_BOXES: "/out-entries/linked-boxes",
+    AVAILABLE_BOXES: "/out-entries/available-boxes",
     LOCK_FUID: "/out-entries/lock-fuid",
   },
 

@@ -6,8 +6,23 @@ const IMS_TOAST_THROTTLE_MS = 14000;
 let __lastImsToastAt = 0;
 let __lastImsToastMsg = "";
 
-function maybeToastImsUnavailable(meta) {
+function hasUsableApiPayload(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  if (payload.success === false) return false;
+  if (payload.data != null) {
+    if (Array.isArray(payload.data)) return true;
+    if (typeof payload.data === "object") return Object.keys(payload.data).length > 0;
+    return true;
+  }
+  // Some endpoints put rows/list at top level without `data`
+  if (Array.isArray(payload.rows) || Array.isArray(payload.items) || Array.isArray(payload.widgets)) return true;
+  return payload.success === true;
+}
+
+/** Only warn when IMS truly failed AND this response has no usable data. */
+function maybeToastImsUnavailable(meta, payload = null) {
   if (typeof window === "undefined" || !meta || meta.ok !== false) return;
+  if (hasUsableApiPayload(payload)) return;
   const msg = String(meta.message || "ERP (IMS) data could not be loaded.").trim();
   const now = Date.now();
   if (msg === __lastImsToastMsg && now - __lastImsToastAt < IMS_TOAST_THROTTLE_MS) return;
@@ -105,7 +120,7 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
         };
       }
 
-      maybeToastImsUnavailable(data?.ims_meta);
+      maybeToastImsUnavailable(data?.ims_meta, data);
       if (typeof window !== "undefined") {
         window.__LAST_API_ERROR__ = {
           status: res.status,
@@ -127,7 +142,8 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
       }
     }
 
-    maybeToastImsUnavailable(data?.ims_meta);
+    // Successful response with data — do not show IMS warning toast.
+    maybeToastImsUnavailable(data?.ims_meta, data);
 
     return data;
   } catch (err) {
