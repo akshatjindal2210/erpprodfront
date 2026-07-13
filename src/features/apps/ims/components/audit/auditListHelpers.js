@@ -60,9 +60,16 @@ export function getAssignedUsersLabel(audit) {
   return formatAuditParticipantNames(audit);
 }
 
-export function canSeeAllAuditLocations(audit, userId, isSuperAdmin, canManageAudit) {
+export function isAuditCreatorByName(audit, userName) {
+  const stored = String(audit?.created_by_name || audit?.created_by || "").trim().toLowerCase();
+  const current = String(userName || "").trim().toLowerCase();
+  if (!stored || !current) return false;
+  return stored === current;
+}
+
+export function canSeeAllAuditLocations(audit, userName, isSuperAdmin, canManageAudit) {
   if (isSuperAdmin || canManageAudit) return true;
-  return userId != null && Number(audit?.created_by) === Number(userId);
+  return isAuditCreatorByName(audit, userName);
 }
 
 export function getDefaultLocationUserFilter(userId, isSuperAdmin = false) {
@@ -70,10 +77,10 @@ export function getDefaultLocationUserFilter(userId, isSuperAdmin = false) {
   return userId != null ? String(userId) : "all";
 }
 
-export function flattenAuditLocations(audits = [], { userId = null, isSuperAdmin = false, canManageAudit = false } = {}) {
+export function flattenAuditLocations(audits = [], { userId = null, userName = null, isSuperAdmin = false, canManageAudit = false } = {}) {
   const rows = [];
   for (const audit of audits) {
-    const seeAllForAudit = canSeeAllAuditLocations(audit, userId, isSuperAdmin, canManageAudit);
+    const seeAllForAudit = canSeeAllAuditLocations(audit, userName, isSuperAdmin, canManageAudit);
     for (const loc of audit.locations || []) {
       rows.push(...expandLocationAssignmentRows(audit, loc, { seeAllForAudit, userId }));
     }

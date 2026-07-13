@@ -1,44 +1,64 @@
 import { API_BASE_URL } from "../utils/lib";
 import { isNetworkReachabilityError, isNetworkMarkedDown, markNetworkReachableFromApi, notifyNetworkUnreachable } from "../utils/companyNetwork";
 
-/** Dedupe IMS warning toasts when many parallel API calls fail together */
+/** Dedupe IMS / network warning toasts when many parallel API calls fail together */
 const IMS_TOAST_THROTTLE_MS = 14000;
 let __lastImsToastAt = 0;
 let __lastImsToastMsg = "";
+let __lastNetworkToastAt = 0;
 
-function hasUsableApiPayload(payload) {
-  if (!payload || typeof payload !== "object") return false;
-  if (payload.success === false) return false;
-  if (payload.data != null) {
-    if (Array.isArray(payload.data)) return true;
-    if (typeof payload.data === "object") return Object.keys(payload.data).length > 0;
-    return true;
-  }
-  // Some endpoints put rows/list at top level without `data`
-  if (Array.isArray(payload.rows) || Array.isArray(payload.items) || Array.isArray(payload.widgets)) return true;
-  return payload.success === true;
-}
-
-/** Only warn when IMS truly failed AND this response has no usable data. */
-function maybeToastImsUnavailable(meta, payload = null) {
-  if (typeof window === "undefined" || !meta || meta.ok !== false) return;
-  if (hasUsableApiPayload(payload)) return;
-  const msg = String(meta.message || "ERP (IMS) data could not be loaded.").trim();
-  const now = Date.now();
-  if (msg === __lastImsToastMsg && now - __lastImsToastAt < IMS_TOAST_THROTTLE_MS) return;
-  __lastImsToastAt = now;
-  __lastImsToastMsg = msg;
+function showWarningToast(msg, toastId) {
+  if (typeof window === "undefined") return;
+  const text = String(msg || "").trim();
+  if (!text) return;
   queueMicrotask(() => {
     import("react-toastify")
       .then(({ toast }) => {
-        toast.warning(msg, {
+        toast.warning(text, {
           autoClose: 9000,
           position: "top-center",
-          toastId: "ims-unavailable",
+          toastId,
         });
       })
       .catch(() => {});
   });
+}
+
+const IMS_TOAST_FALLBACK = "ERP (IMS) data could not be loaded.";
+const IMS_TECHNICAL_MSG =
+  /database\s*query\s*failed|query\s*failed|sql\s*error|syntax\s*error|invalid\s*input\s*syntax|requested\s*data|requested\s*date|`requested|internal\s+server\s+error/i;
+
+function publicImsToastMessage(meta) {
+  const raw = String(meta?.message || "").trim();
+  if (!raw || IMS_TECHNICAL_MSG.test(raw)) return IMS_TOAST_FALLBACK;
+  return raw;
+}
+
+/**
+ * When backend attaches `ims_meta.ok = false` (internal IMS ERP API failed / no response),
+ * always show a friendly warning — never raw DB/SQL text like "Database query failed."
+ */
+function maybeToastImsUnavailable(meta) {
+  if (typeof window === "undefined" || !meta || meta.ok !== false) return;
+  const msg = publicImsToastMessage(meta);
+  const now = Date.now();
+  if (msg === __lastImsToastMsg && now - __lastImsToastAt < IMS_TOAST_THROTTLE_MS) return;
+  __lastImsToastAt = now;
+  __lastImsToastMsg = msg;
+  showWarningToast(msg, "ims-unavailable");
+}
+
+/** Our ERP backend fetch never got an HTTP response (down / network / CORS). */
+function maybeToastBackendUnreachable(err) {
+  if (typeof window === "undefined") return;
+  if (!isNetworkReachabilityError(err)) return;
+  const now = Date.now();
+  if (now - __lastNetworkToastAt < IMS_TOAST_THROTTLE_MS) return;
+  __lastNetworkToastAt = now;
+  showWarningToast(
+    "Server not responding. Check company network / backend and try again.",
+    "backend-unreachable"
+  );
 }
 
 /** Drop DOM, React synthetic events, functions, symbols, cycles — only JSON-safe data reaches the server. */
@@ -120,7 +140,7 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
         };
       }
 
-      maybeToastImsUnavailable(data?.ims_meta, data);
+      maybeToastImsUnavailable(data?.ims_meta);
       if (typeof window !== "undefined") {
         window.__LAST_API_ERROR__ = {
           status: res.status,
@@ -142,12 +162,12 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
       }
     }
 
-    // Successful response with data — do not show IMS warning toast.
-    maybeToastImsUnavailable(data?.ims_meta, data);
+    maybeToastImsUnavailable(data?.ims_meta);
 
     return data;
   } catch (err) {
     if (isNetworkReachabilityError(err)) {
+      maybeToastBackendUnreachable(err);
       notifyNetworkUnreachable();
     }
     throw err;

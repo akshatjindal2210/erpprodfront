@@ -75,6 +75,13 @@ export const schedulePlanningService = {
       body,
     }),
 
+  /** Current-month Plan/Hold lines for one customer (FN item picker). Passes fin_year for IMS merge. */
+  customerMonthSchedules: (body = {}) =>
+    api(ENDPOINTS.SCHEDULE_PLANNING.CUSTOMER_MONTH_SCHEDULES, {
+      method: "POST",
+      body: finYearBody(body),
+    }),
+
   /** Mark a dispatch plan item as complete. fin_year_id must be included in body (taken from row data). */
   dispatchComplete: (body = {}) =>
     api(ENDPOINTS.SCHEDULE_PLANNING.COMPLETE, {

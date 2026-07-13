@@ -23,6 +23,7 @@ const DISPATCH_PLAN_ROW_LEGEND = [
   { swatch: "bg-emerald-50 border border-emerald-200 shadow-[inset_3px_0_0_0_#10b981]", label: "Stock sufficient" },
   { swatch: "bg-amber-50 border border-amber-200 shadow-[inset_3px_0_0_0_#f59e0b]", label: "Insufficient stock" },
   { swatch: "bg-rose-50 border border-rose-200 shadow-[inset_3px_0_0_0_#f43f5e]", label: "On hold" },
+      { swatch: "bg-slate-100 border border-slate-200 shadow-[inset_3px_0_0_0_#94a3b8]", label: "Zero balance / Complete" },
 ];
 
 function DispatchPlanRowLegend() {
@@ -87,7 +88,7 @@ function buildDispatchHeaders() {
       { width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" },
     ],
     [ "Balance Qty", "balance_qty", (v, row) => (
-        <span className="font-black text-slate-700 text-[11px] tabular-nums">
+        <span className="inline-flex items-center justify-center min-w-[3rem] px-1.5 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-[11px] font-black tabular-nums text-amber-950">
           {Number(v ?? row.totalqty ?? row.total_qty ?? 0).toLocaleString()}
         </span>
       ),
@@ -105,7 +106,7 @@ function buildDispatchHeaders() {
   return cols;
 }
 
-const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search = "", statusFilter = "all", onSelectedChange, onRowsChange, viewMode }, ref) {
+const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search = "", statusFilter = "active", onSelectedChange, onRowsChange, viewMode }, ref) {
   const canAccess = useCanAccess();
   const canAddPlan = useMemo(() => canAccess("schedule_planning", "add").allowed, [canAccess]);
 
@@ -134,7 +135,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       setRows(Array.isArray(res?.data) ? res.data : []);
       setDisplayLimit(100);
     } catch {
-      toast.error("Failed to load dispatch plan data");
+      toast.error("Failed to load today's dispatch plan.");
       setRows([]);
     } finally {
       setLoading(false);
@@ -189,7 +190,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     (row) => {
       if (!row || !canAddPlan) return;
       if (Number(row.is_planned) !== 1) {
-        toast.warning("Only planned items can be completed.");
+        toast.warning("Only planned items can be marked as complete.");
         return;
       }
       setCompleteItem(row);
@@ -244,9 +245,19 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     const qty = Number(row.balance_qty ?? row.totalqty ?? row.total_qty ?? 0);
     const stock = Number(row.fg_stock_qty ?? 0);
 
+    // Marked complete — muted.
+    if (status === 3) {
+      return "[&_td]:bg-slate-100 [&_td]:text-slate-500 [&_td:first-child]:shadow-[inset_3px_0_0_0_#64748b]";
+    }
+
     // Hold items should always stand out in red.
     if (status === 6) {
       return "[&_td]:bg-rose-50 [&_td:first-child]:shadow-[inset_3px_0_0_0_#f43f5e]";
+    }
+
+    // Zero remaining balance — muted (still selectable).
+    if (qty <= 0) {
+      return "[&_td]:bg-slate-100 [&_td]:text-slate-500 [&_td:first-child]:shadow-[inset_3px_0_0_0_#94a3b8]";
     }
 
     // Scheduled / planned rows use stock adequacy highlighting.
@@ -268,6 +279,10 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       loading,
       completing: completeModalOpen,
       rejecting: rejectModalOpen,
+      clearSelection: () => {
+        setSelected(null);
+        onSelectedChange?.(null);
+      },
       completeSelected: () => {
         const row = getSelectedRow();
         if (row) handleOpenCompleteRow(row);
@@ -292,6 +307,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       handleOpenCompleteRow,
       handleOpenRejectRow,
       handleOpenRescheduleRow,
+      onSelectedChange,
     ]
   );
 

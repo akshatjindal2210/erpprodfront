@@ -23,3 +23,9 @@ export function canApproveInventoryOut(user) {
   if (isImsSuperAdmin(user)) return true;
   return Boolean(parseImsSpecialPermissions(user)?.ims?.inventory_approve);
 }
+
+/** Direct FN create without schedule. Schedule-based New still works with module add only. */
+export function canCreateDirectForwardingNote(user) {
+  if (isImsSuperAdmin(user)) return true;
+  return Boolean(parseImsSpecialPermissions(user)?.ims?.direct_forwarding_note);
+}

@@ -245,25 +245,35 @@ const DashboardTableView = ({
     >
       {showToolbar && (
         <div
-          className={`shrink-0 flex items-center gap-2 border-b px-2 py-1.5 ${
-            showSearch
-              ? (searchAlignLeft ? "justify-start" : "justify-end")
-              : "justify-end"
+          className={`shrink-0 flex gap-2 border-b px-2 py-2 mb-2 ${
+            compact
+              ? "flex-col items-stretch"
+              : `flex-col sm:flex-row sm:items-center sm:gap-3 sm:px-3 ${
+                  showSearch && showExport
+                    ? "sm:justify-between"
+                    : showSearch
+                      ? searchAlignLeft
+                        ? "sm:justify-start"
+                        : "sm:justify-end"
+                      : "sm:justify-end"
+                }`
           }`}
           style={{ backgroundColor: tableVisual.bodyBg, borderColor: tableVisual.borderColor }}
         >
           {showSearch && (
             <label
-              className={`relative block shrink-0 ${
+              className={`relative block min-w-0 w-full ${
                 compact
-                  ? "w-full max-w-full"
-                  : nested
-                    ? "w-[min(240px,60vw)]"
-                    : "w-[min(280px,64vw)]"
+                  ? "max-w-full"
+                  : showExport
+                    ? "sm:flex-1 sm:max-w-md"
+                    : nested
+                      ? "sm:w-[min(240px,60%)] sm:max-w-sm"
+                      : "sm:w-[min(320px,50%)] sm:max-w-md"
               }`}
             >
               <Search
-                size={Math.max(11, Math.min(16, Math.round(tableVisual.searchFontPx)))}
+                size={Math.max(12, Math.min(16, Math.round(tableVisual.searchFontPx)))}
                 className="pointer-events-none absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2"
                 style={{ color: tableVisual.searchColor, opacity: 0.55 }}
                 aria-hidden
@@ -275,14 +285,14 @@ const DashboardTableView = ({
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
                 placeholder={resolvedSearchPlaceholder}
-                className="w-full rounded-md border focus:outline-none focus:ring-1 focus:ring-blue-400/40 shadow-sm"
+                className="w-full h-8 rounded-lg border focus:outline-none focus:ring-1 focus:ring-blue-400/40 shadow-sm"
                 style={{
                   borderColor: tableVisual.borderColor,
                   backgroundColor: tableVisual.searchBg,
                   color: tableVisual.searchColor,
                   fontSize: `${tableVisual.searchFontPx}px`,
-                  height: `${Math.max(28, tableVisual.searchFontPx + 16)}px`,
-                  paddingLeft: compact ? 28 : 36,
+                  height: 32,
+                  paddingLeft: compact ? 30 : 36,
                   paddingRight: 32,
                 }}
                 aria-label="Search table rows"
@@ -305,7 +315,7 @@ const DashboardTableView = ({
           )}
           {showExport && (
             <div
-              className="shrink-0"
+              className={`flex shrink-0 items-center ${compact ? "w-full" : "w-full sm:w-auto sm:justify-end"}`}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
@@ -314,7 +324,13 @@ const DashboardTableView = ({
                 exporting={exporting}
                 onExport={handleExport}
                 label="Export"
-                className="h-8 [&_button]:!h-8 [&_button]:!min-h-8 [&_button]:!min-w-0 [&_button]:!px-2 [&_button]:!text-[10px]"
+                variant="solid"
+                showLabel
+                className={`h-8 self-center [&_button]:!h-8 [&_button]:!min-h-8 [&_button]:!min-w-[96px] [&_button]:!px-3 [&_button]:!text-[10px] [&_button]:!rounded-lg ${
+                  compact
+                    ? "w-full [&_button]:!w-full"
+                    : "w-full sm:w-auto [&_button]:!w-full sm:[&_button]:!w-auto"
+                }`}
               />
             </div>
           )}

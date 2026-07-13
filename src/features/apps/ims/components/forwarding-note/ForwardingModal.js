@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 
 import { forwardingNoteService } from "@/features/apps/ims/services/forwardingNote";
 import { masterService }         from "@/features/apps/ims/services/master";
+import { schedulePlanningService } from "@/features/apps/ims/services/schedulePlanning";
 import Drawer                    from "@/core/components/ui/Drawer";
 import ModuleSopAcknowledgment   from "@/core/components/common/ModuleSopAcknowledgment";
 import SearchableSelect          from "@/core/components/common/SearchableSelect";
@@ -41,6 +42,7 @@ const INITIAL_ITEM_ROW = {
   item_dcode:      "",
   item_code:       "",
   itemdesc:        "",
+  schno:           "",
   available_boxes: [], // full stock from API
   selected_boxes:  [], // Boxes selected in FIFO order
   loose_priority:  false,
@@ -58,6 +60,121 @@ const INITIAL_ITEM_ROW = {
 
 const forwardingBoxKey = (box) =>
   String(box?.box_no_uid ?? box?.box_uid ?? "").trim();
+
+/** Box keys already taken by other rows of the same item (keeps multi-Sch FIFO exclusive). */
+const claimedBoxKeysForItem = (items, currentIdx, itemDcode) => {
+  const dcode = String(itemDcode ?? "").trim();
+  const claimed = new Set();
+  if (!dcode) return claimed;
+  (items || []).forEach((row, idx) => {
+    if (idx === currentIdx) return;
+    if (String(row?.item_dcode ?? "").trim() !== dcode) return;
+    for (const box of row?.selected_boxes || []) {
+      const key = forwardingBoxKey(box);
+      if (key) claimed.add(key);
+    }
+  });
+  return claimed;
+};
+
+/** FIFO pool for one row — full stock minus other rows' claims (current selection stays available). */
+const fifoPoolForRow = (items, idx) => {
+  const item = items?.[idx];
+  if (!item) return [];
+  const claimed = claimedBoxKeysForItem(items, idx, item.item_dcode);
+  const keep = new Set((item.selected_boxes || []).map(forwardingBoxKey).filter(Boolean));
+  return (item.available_boxes || []).filter((box) => {
+    const key = forwardingBoxKey(box);
+    if (!key) return true;
+    return !claimed.has(key) || keep.has(key);
+  });
+};
+
+/** Run async mapper with limited concurrency (keeps schedule hydrate from flooding the API). */
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const list = Array.isArray(items) ? items : [];
+  const limit = Math.max(1, Number(concurrency) || 3);
+  const out = new Array(list.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, list.length) || 0 }, async () => {
+    while (next < list.length) {
+      const idx = next++;
+      out[idx] = await mapper(list[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+/** Skeleton item row from a dispatch/schedule line — no stock APIs yet. */
+function skeletonItemFromDispatchRow(row) {
+  const itemDcode = row?.itemdcode;
+  const scheduleQty = Number(row?.totalqty ?? row?.total_qty ?? 0);
+  const balanceQty = Math.max(
+    0,
+    Number.isFinite(Number(row?.balance_qty)) ? Number(row.balance_qty) : scheduleQty
+  );
+  const rowSchno =
+    row?.schno != null && String(row.schno).trim() !== "" ? String(row.schno).trim() : "";
+  return {
+    ...INITIAL_ITEM_ROW,
+    item_dcode: itemDcode ? String(itemDcode) : "",
+    item_code: row?.item_code || "",
+    itemdesc: row?.itemdesc || "",
+    schno: rowSchno,
+    source_dispatch_qty: balanceQty,
+    dispatch_target: balanceQty > 0 ? String(balanceQty) : "",
+    fetching: Boolean(itemDcode),
+    boxes_edited: false,
+  };
+}
+
+/** Dropdown option from a customer schedule line (unique per schno+item). */
+function scheduleLineToCatalogItem(row) {
+  const itemdcode = String(row?.itemdcode ?? row?.item_dcode ?? "").trim();
+  const schno = row?.schno != null && String(row.schno).trim() !== "" ? String(row.schno).trim() : "";
+  const balanceQty = Math.max(
+    0,
+    Number.isFinite(Number(row?.balance_qty))
+      ? Number(row.balance_qty)
+      : Number(row?.totalqty ?? row?.total_qty ?? 0)
+  );
+  const fg = Number(row?.fg_stock_qty ?? row?.in_hand_qty ?? 0);
+  const itemCode = row?.item_code || "";
+  const itemdesc = row?.itemdesc || row?.item_desc || "";
+  const fgZero = !(fg > 0);
+  const balanceZero = balanceQty <= 0;
+  return {
+    id: `${schno}::${itemdcode}`,
+    itemdcode,
+    item_dcode: itemdcode,
+    item_code: itemCode,
+    itemdesc,
+    schno,
+    balance_qty: balanceQty,
+    source_dispatch_qty: balanceQty,
+    fg_stock_qty: fg,
+    fg_zero: fgZero,
+    balance_zero: balanceZero,
+    zero_or_no_stock: balanceZero || fgZero,
+    // SearchableSelect sub-label
+    schedule_hint: [
+      schno ? `Sch ${schno}` : null,
+      `Bal ${balanceQty.toLocaleString()}`,
+      `FG ${fg.toLocaleString()}`,
+      fgZero ? "No FG stock" : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  };
+}
+
+function scheduleCatalogSelectionKey(row) {
+  const d = String(row?.item_dcode ?? row?.itemdcode ?? "").trim();
+  const s = String(row?.schno ?? "").trim();
+  if (!d) return "";
+  return s ? `${s}::${d}` : d;
+}
 
 /** Box count / breakdown source — never revert to saved breakdown after user edits selection. */
 const itemBoxDisplay = (item) => {
@@ -158,19 +275,32 @@ const getFifoPrefixFromSelection = (orderedBoxes, selectedBoxes) => {
   return prefix;
 };
 
-/** FIFO box limit for current target (balance cap + user dispatch target). */
+/**
+ * Max boxes for +/- stepper (FIFO, full boxes).
+ * - Schedule (balance > 0): stop at boxes needed for balance qty
+ * - Direct / no schedule: all available boxes so + can grow dispatch qty freely
+ */
 const maxFifoBoxesForItem = (item, orderedBoxes) => {
-  const target = getItemFifoTarget(item);
-  if (!target || target <= 0) return orderedBoxes.length;
-  return selectBoxesByQty(orderedBoxes, target).length;
+  const balanceCap = Number(item?.source_dispatch_qty ?? 0);
+  if (balanceCap > 0) {
+    return selectBoxesByQty(orderedBoxes, balanceCap).length;
+  }
+  return orderedBoxes.length;
+};
+
+/** Current FIFO selection length for +/- (prefer contiguous prefix; fall back to selected count). */
+const getFifoSelectionCount = (item, orderedBoxes) => {
+  const prefixLen = getFifoPrefixFromSelection(orderedBoxes, item.selected_boxes).length;
+  if (prefixLen > 0) return prefixLen;
+  return Array.isArray(item.selected_boxes) ? item.selected_boxes.length : 0;
 };
 
 const canAddMoreFifoBoxes = (item) => {
   if (!item?.available_boxes?.length) return false;
   const orderedBoxes = reorderBoxesForSelection(item.available_boxes, item.loose_priority);
   const fifoLimit = maxFifoBoxesForItem(item, orderedBoxes);
-  const prefixLen = getFifoPrefixFromSelection(orderedBoxes, item.selected_boxes).length;
-  return prefixLen < fifoLimit && prefixLen < orderedBoxes.length;
+  const current = getFifoSelectionCount(item, orderedBoxes);
+  return current < fifoLimit && current < orderedBoxes.length;
 };
 
 /** FIFO pick; always takes full boxes (never partial) to avoid breaking boxes. */
@@ -335,7 +465,15 @@ const resolveDispatchQtySelection = (item, rawVal, { emptyMeansSystem = false } 
   return buildDispatchFromTarget(item, n);
 };
 
-export default function ForwardingModal({ open, onClose, onSuccess, editData, mode = "add", dispatchPrefill = null }) {
+export default function ForwardingModal({
+  open,
+  onClose,
+  onSuccess,
+  editData,
+  mode = "add",
+  dispatchPrefill = null,
+  customerSchedulePicker = false,
+}) {
   const [saving, setSaving]           = useState(false);
   const [formReady, setFormReady]     = useState(false);
   const [form, setForm]               = useState(INITIAL_FORM);
@@ -355,6 +493,29 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
   const isEdit = mode === "edit";
   const isApprove = mode === "approve";
   const isFromSchedule = mode === "add" && Boolean(dispatchPrefill);
+  /** Edit/approve of a schedule-linked FN (item or header schno) — detected after hydrate. */
+  const [loadedAsScheduleNote, setLoadedAsScheduleNote] = useState(false);
+  /** Use customer schedule item catalog (not free in-hand catalog). */
+  const scheduleCatalogActive = Boolean(
+    customerSchedulePicker || ((isEdit || isApprove) && loadedAsScheduleNote)
+  );
+
+  useEffect(() => {
+    if (!open) setLoadedAsScheduleNote(false);
+  }, [open]);
+
+  const scheduleSchnos = useMemo(() => {
+    const fromItems = (form.items || [])
+      .map((i) => String(i.schno ?? "").trim())
+      .filter(Boolean);
+    if (fromItems.length) return [...new Set(fromItems)];
+    const header = String(form.schno ?? "").trim();
+    return header ? [header] : [];
+  }, [form.items, form.schno]);
+  const scheduleLabel =
+    scheduleSchnos.length > 1
+      ? `${scheduleSchnos.length} schedules`
+      : scheduleSchnos[0] || form.schno || "—";
   const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
 
   const showApproval = canAuthorize && (mode === "add" || mode === "approve");
@@ -385,6 +546,31 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     let cancelled = false;
     (async () => {
       try {
+        if (scheduleCatalogActive) {
+          if (!form.acc_code) {
+            if (!cancelled) setInHandItemCatalog([]);
+            return;
+          }
+          const res = await schedulePlanningService.customerMonthSchedules({
+            acc_code: Number(form.acc_code),
+            permission_module: "forwarding_note_master",
+            permission_action: "view",
+            ...(editingFuid ? { exclude_fuid: editingFuid } : {}),
+          });
+          if (cancelled) return;
+          const rows = Array.isArray(res?.records)
+            ? res.records
+            : Array.isArray(res?.data)
+              ? res.data
+              : [];
+          setInHandItemCatalog(
+            rows
+              .map(scheduleLineToCatalogItem)
+              .filter((r) => r.itemdcode && Number(r.balance_qty ?? 0) > 0 && !r.balance_zero)
+          );
+          return;
+        }
+
         const res = await forwardingNoteService.getAvailableItems({
           exclude_fuid: editingFuid ?? undefined,
         });
@@ -400,20 +586,125 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     return () => {
       cancelled = true;
     };
-  }, [open, formReady, editingFuid, isFromSchedule]);
+  }, [open, formReady, editingFuid, isFromSchedule, scheduleCatalogActive, form.acc_code, isEdit, isApprove]);
+
+  // Edit / existing rows: fill Balance from customer schedule catalog when available.
+  // Catalog balance already excludes this FN (exclude_fuid) so it includes qty on this note.
+  useEffect(() => {
+    if (!scheduleCatalogActive || !Array.isArray(inHandItemCatalog) || !inHandItemCatalog.length) return;
+    if (!form.items?.some((row) => row?.item_dcode)) return;
+
+    setForm((prev) => {
+      let changed = false;
+      const nextItems = prev.items.map((row) => {
+        if (!row?.item_dcode) return row;
+        const key = scheduleCatalogSelectionKey(row);
+        const match =
+          inHandItemCatalog.find((c) => String(c.id) === key) ||
+          inHandItemCatalog.find(
+            (c) =>
+              String(c.itemdcode) === String(row.item_dcode) &&
+              (!row.schno || String(c.schno) === String(row.schno))
+          );
+        if (!match) return row;
+        // Never stamp a schedule schno onto a direct (no-schno) row.
+        if (!String(row.schno || "").trim()) return row;
+        const catalogBal = Math.max(0, Number(match.balance_qty ?? match.source_dispatch_qty ?? 0));
+        // Safety: never show balance below qty already selected on this row.
+        const rowQty = Math.max(
+          0,
+          Number(row.dispatch_qty) ||
+            Number(row.dispatch_target) ||
+            (Array.isArray(row.selected_boxes) && row.selected_boxes.length
+              ? row.selected_boxes.reduce((s, b) => s + (Number(b.qty) || 0), 0)
+              : 0) ||
+            (Array.isArray(row.original_breakdowns)
+              ? row.original_breakdowns.reduce((s, bd) => s + (Number(bd.total_qty) || 0), 0)
+              : 0)
+        );
+        const bal = Math.max(catalogBal, rowQty);
+        if (Number(row.source_dispatch_qty) === bal) return row;
+        changed = true;
+        return {
+          ...row,
+          source_dispatch_qty: bal,
+        };
+      });
+      if (!changed) return prev;
+      formItemsRef.current = nextItems;
+      return { ...prev, items: nextItems };
+    });
+  }, [scheduleCatalogActive, inHandItemCatalog, form.items.length]);
 
   const getItemById = useCallback(
     (id) => {
+      const rawId = String(id ?? "").trim();
+      if (!rawId) return Promise.resolve({ data: null });
+
       if (Array.isArray(inHandItemCatalog)) {
-        const match = inHandItemCatalog.find((item) => String(item.id) === String(id));
+        const match =
+          inHandItemCatalog.find((item) => String(item.id) === rawId) ||
+          (rawId.includes("::")
+            ? inHandItemCatalog.find((item) => {
+                const [schno, dcode] = rawId.split("::");
+                return String(item.schno ?? "") === String(schno) && String(item.itemdcode) === String(dcode);
+              })
+            : inHandItemCatalog.find(
+                (item) => String(item.itemdcode) === rawId || String(item.item_dcode) === rawId
+              ));
         if (match) return Promise.resolve({ data: match });
       }
+
+      if (scheduleCatalogActive) {
+        const fromForm = (formItemsRef.current || []).find((row) => {
+          if (!row?.item_dcode) return false;
+          const key = scheduleCatalogSelectionKey(row);
+          if (key && key === rawId) return true;
+          if (String(row.item_dcode) === rawId) return true;
+          if (rawId.includes("::")) {
+            const [schno, dcode] = rawId.split("::");
+            return String(row.schno ?? "") === String(schno) && String(row.item_dcode) === String(dcode);
+          }
+          return false;
+        });
+        if (fromForm?.item_dcode) {
+          const schno =
+            fromForm.schno != null && String(fromForm.schno).trim() !== ""
+              ? String(fromForm.schno).trim()
+              : "";
+          const bal = Math.max(0, Number(fromForm.source_dispatch_qty ?? 0));
+          const fg = Number(fromForm.fg_qty ?? 0);
+          return Promise.resolve({
+            data: {
+              id: schno ? `${schno}::${fromForm.item_dcode}` : String(fromForm.item_dcode),
+              itemdcode: String(fromForm.item_dcode),
+              item_dcode: String(fromForm.item_dcode),
+              item_code: fromForm.item_code || String(fromForm.item_dcode),
+              itemdesc: fromForm.itemdesc || "",
+              schno,
+              balance_qty: bal,
+              source_dispatch_qty: bal,
+              fg_stock_qty: fg,
+              fg_zero: !(fg > 0),
+              schedule_hint: [
+                schno ? `Sch ${schno}` : null,
+                `Bal ${bal.toLocaleString()}`,
+                `FG ${fg.toLocaleString()}`,
+              ]
+                .filter(Boolean)
+                .join(" · "),
+            },
+          });
+        }
+        return Promise.resolve({ data: null });
+      }
+
       return masterService.getItemViewById(id, {
         permission_module: "forwarding_note_master",
         permission_action: "view",
       });
     },
-    [inHandItemCatalog]
+    [inHandItemCatalog, scheduleCatalogActive]
   );
 
   const buildInHandItemFetchService = useCallback((catalog, currentIdx) => {
@@ -422,8 +713,10 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
       const selectedInOtherRows = new Set(
         formItemsRef.current
-          .filter((_, rowIdx) => rowIdx !== currentIdx)
-          .map((row) => String(row.item_dcode))
+          .map((row, rowIdx) => {
+            if (rowIdx === currentIdx) return null;
+            return scheduleCatalogSelectionKey(row);
+          })
           .filter(Boolean)
       );
       let list = catalog.filter((item) => !selectedInOtherRows.has(String(item.id)));
@@ -431,17 +724,44 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       const q = String(search || "").trim();
       if (q) {
         list = applyClientSearch(list, q, {
-          getParts: (item) => [item.item_code, item.itemdesc, item.item_desc].filter(Boolean),
+          getParts: (item) =>
+            [item.item_code, item.itemdesc, item.item_desc, item.schno, item.schedule_hint].filter(Boolean),
           skipSort: true,
         });
       } else {
-        list = sortSelectRowsAsc(list, "item_code", ["itemdesc"]);
+        list = sortSelectRowsAsc(list, "item_code", ["itemdesc", "schno"]);
       }
 
       const start = (Math.max(1, Number(page) || 1) - 1) * (Number(limit) || 50);
       return { data: list.slice(start, start + (Number(limit) || 50)), total: list.length };
     };
   }, []);
+
+  const scheduleOptionClassName = useCallback((item) => {
+    if (!scheduleCatalogActive) return "";
+    if (item?.fg_zero) {
+      return "bg-rose-50 text-rose-700 border-l-2 border-l-rose-400";
+    }
+    if (item?.balance_zero) {
+      return "bg-slate-100/90 text-slate-500";
+    }
+    return "";
+  }, [scheduleCatalogActive]);
+
+  const scheduleOptionDisabled = useCallback(
+    (item) => {
+      if (!scheduleCatalogActive) return false;
+      if (!item?.fg_zero && !item?.balance_zero) return false;
+      // Allow keeping an item already on this note (edit), even if catalog FG/balance shows 0.
+      const id = String(item.id ?? "");
+      const alreadyOnNote = (formItemsRef.current || []).some((row) => {
+        if (!row?.item_dcode) return false;
+        return scheduleCatalogSelectionKey(row) === id || String(row.item_dcode) === String(item.itemdcode);
+      });
+      return !alreadyOnNote;
+    },
+    [scheduleCatalogActive]
+  );
 
   const itemRowFetchServices = useMemo(() => {
     if (!Array.isArray(inHandItemCatalog)) {
@@ -450,116 +770,192 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     return form.items.map((_, idx) => buildInHandItemFetchService(inHandItemCatalog, idx));
   }, [form.items.length, inHandItemCatalog, buildInHandItemFetchService]);
 
-  const buildItemRowFromDispatchRow = useCallback(async (row, packingCategoryId) => {
-    const itemDcode = row?.itemdcode;
-    const scheduleQty = Number(row?.totalqty ?? row?.total_qty ?? 0);
-    const balanceQty = Math.max(0, Number.isFinite(Number(row?.balance_qty)) ? Number(row.balance_qty) : scheduleQty);
-    const dispatchQty = balanceQty;
-
-    let itemRow = {
-      ...INITIAL_ITEM_ROW,
-      item_dcode: itemDcode ? String(itemDcode) : "",
-      item_code: row?.item_code || "",
-      itemdesc: row?.itemdesc || "",
-      source_dispatch_qty: dispatchQty,
-      fetching: Boolean(itemDcode && packingCategoryId),
+  const fetchItemStockBundle = useCallback(async (itemDcode, packingCategoryId, excludeFuid) => {
+    const body = {
+      item_dcode: itemDcode,
+      packing_category_id: Number(packingCategoryId),
     };
-
-    if (!itemDcode || !packingCategoryId) {
-      return itemRow;
-    }
-
-    try {
-      const body = {
-        item_dcode: itemDcode,
-        packing_category_id: Number(packingCategoryId),
-      };
-      const [stockRes, erpRes] = await Promise.all([
-        forwardingNoteService.getAvailableBoxes(body),
-        forwardingNoteService.getErpStock(body),
-      ]);
-      const erp_qty = erpRes?.success !== false ? Number(erpRes?.total) || 0 : 0;
-      const erp_by_packing =
-        erpRes?.by_packing && typeof erpRes.by_packing === "object" ? erpRes.by_packing : {};
-      const fifoBoxes = stockRes?.success
-        ? sortBoxesForFifo(enrichForwardingBoxesWithPackingStd(stockRes.data || []))
-        : [];
-      const fg_qty = sumQty(fifoBoxes);
-      const ordered = reorderBoxesForSelection(fifoBoxes, false);
-      const selected_boxes = dispatchQty > 0 ? selectBoxesByQty(ordered, dispatchQty) : [];
-      const roundedQty = sumQty(selected_boxes);
-
-      return {
-        ...itemRow,
-        available_boxes: fifoBoxes,
-        selected_boxes,
-        loose_priority: false,
-        fg_qty,
-        erp_qty,
-        erp_by_packing,
-        dispatch_target: dispatchQty > 0 ? String(dispatchQty) : "",
-        dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
-        dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
-        use_system_std: roundedQty > 0 && dispatchQty > 0,
-        fetching: false,
-        boxes_edited: true,
-      };
-    } catch {
-      return { ...itemRow, fetching: false };
-    }
+    if (excludeFuid) body.exclude_fuid = excludeFuid;
+    const [stockRes, erpRes] = await Promise.all([
+      forwardingNoteService.getAvailableBoxes(body),
+      forwardingNoteService.getErpStock(body),
+    ]);
+    const erp_qty = erpRes?.success !== false ? Number(erpRes?.total) || 0 : 0;
+    const erp_by_packing =
+      erpRes?.by_packing && typeof erpRes.by_packing === "object" ? erpRes.by_packing : {};
+    const fifoBoxes = stockRes?.success
+      ? sortBoxesForFifo(enrichForwardingBoxesWithPackingStd(stockRes.data || []))
+      : [];
+    return { fifoBoxes, erp_qty, erp_by_packing, ok: Boolean(stockRes?.success) };
   }, []);
 
-  // ── Bootstrap (show loader until form is hydrated — no blank fields) ───────
-  const hydrateFromDispatchPlan = useCallback(async (prefill) => {
-    const rows = Array.isArray(prefill)
-      ? prefill
-      : Array.isArray(prefill?.rows)
-        ? prefill.rows
-        : prefill
-          ? [prefill]
-          : [];
-    if (!rows.length) {
-      throw new Error("No schedule items to load.");
-    }
-
-    const headerRow = prefill?.anchorRow ?? rows[0];
-    const accCode = headerRow?.acc_code;
-
-    let categoryOptions = [];
-    let packingCategoryId = "";
-    if (accCode) {
-      try {
-        const catRes = await forwardingNoteService.getCustomerCategory({ acc_code: Number(accCode) });
-        categoryOptions = Array.isArray(catRes?.data?.options) ? catRes.data.options : [];
-        const defaultId = catRes?.data?.packing_category_id;
-        packingCategoryId =
-          defaultId != null && defaultId !== ""
-            ? String(defaultId)
-            : categoryOptions[0]?.id != null
-              ? String(categoryOptions[0].id)
-              : "";
-      } catch {
-        categoryOptions = [];
+    // ── Bootstrap (open form fast; stock fills in background with exclusive FIFO) ─
+    const hydrateFromDispatchPlan = useCallback(async (prefill) => {
+      const rows = Array.isArray(prefill)
+        ? prefill
+        : Array.isArray(prefill?.rows)
+          ? prefill.rows
+          : prefill
+            ? [prefill]
+            : [];
+      if (!rows.length) {
+        throw new Error("No schedule items to load.");
       }
-    }
-    setCategoryOpts(categoryOptions);
 
-    const itemRows = await Promise.all(rows.map((row) => buildItemRowFromDispatchRow(row, packingCategoryId)));
-    if (!itemRows.some((item) => item.available_boxes.length > 0)) {
-      toast.info("No in-hand stock for these items in the selected category.");
-    }
+      const headerRow = prefill?.anchorRow ?? rows[0];
+      const accCode = headerRow?.acc_code;
 
-    const categoryKey = packingCategoryId || "";
-    prevCategoryRef.current = categoryKey;
+      let categoryOptions = [];
+      let packingCategoryId = "";
+      const prefillCategory =
+        prefill?.packing_category_id != null && String(prefill.packing_category_id).trim() !== ""
+          ? String(prefill.packing_category_id).trim()
+          : "";
 
-    return {
-      ...INITIAL_FORM,
-      acc_code: accCode != null && accCode !== "" ? String(accCode) : "",
-      packing_category_id: packingCategoryId,
-      schno: headerRow?.schno != null && headerRow?.schno !== "" ? String(headerRow.schno).trim() : "",
-      items: itemRows,
-    };
-  }, [buildItemRowFromDispatchRow]);
+      // Prefer category already chosen in schedule picker — skip waiting on API when possible.
+      if (prefillCategory) {
+        packingCategoryId = prefillCategory;
+        if (accCode) {
+          forwardingNoteService
+            .getCustomerCategory({ acc_code: Number(accCode) })
+            .then((catRes) => {
+              const options = Array.isArray(catRes?.data?.options) ? catRes.data.options : [];
+              setCategoryOpts(options);
+            })
+            .catch(() => {});
+        }
+      } else if (accCode) {
+        try {
+          const catRes = await forwardingNoteService.getCustomerCategory({ acc_code: Number(accCode) });
+          categoryOptions = Array.isArray(catRes?.data?.options) ? catRes.data.options : [];
+          const defaultId = catRes?.data?.packing_category_id;
+          packingCategoryId =
+            defaultId != null && defaultId !== ""
+              ? String(defaultId)
+              : categoryOptions[0]?.id != null
+                ? String(categoryOptions[0].id)
+                : "";
+        } catch {
+          categoryOptions = [];
+        }
+        setCategoryOpts(categoryOptions);
+      }
+
+      const itemRows = rows.map((row) => skeletonItemFromDispatchRow(row));
+      const uniqueSchnos = [
+        ...new Set(itemRows.map((i) => String(i.schno ?? "").trim()).filter(Boolean)),
+      ];
+      const headerSchno =
+        uniqueSchnos[0] ||
+        (headerRow?.schno != null && headerRow?.schno !== "" ? String(headerRow.schno).trim() : "");
+
+      prevCategoryRef.current = packingCategoryId || "";
+
+      return {
+        form: {
+          ...INITIAL_FORM,
+          acc_code: accCode != null && accCode !== "" ? String(accCode) : "",
+          packing_category_id: packingCategoryId,
+          schno: headerSchno,
+          items: itemRows,
+        },
+        packingCategoryId,
+        enrich: true,
+      };
+    }, []);
+
+    const fillScheduleItemStock = useCallback(
+      async (items, packingCategoryId, cancelledRef) => {
+        if (!packingCategoryId || !items?.length) return;
+
+        // One stock fetch per item_dcode (not per row) — then exclusive FIFO allocate in row order.
+        const uniqueDcodes = [
+          ...new Set(items.map((i) => String(i.item_dcode ?? "").trim()).filter(Boolean)),
+        ];
+        const stockByDcode = new Map();
+        await mapWithConcurrency(uniqueDcodes, 3, async (dcode) => {
+          if (cancelledRef?.current) return;
+          try {
+            const bundle = await fetchItemStockBundle(dcode, packingCategoryId);
+            stockByDcode.set(dcode, bundle);
+          } catch {
+            stockByDcode.set(dcode, { fifoBoxes: [], erp_qty: 0, erp_by_packing: {}, ok: false });
+          }
+        });
+        if (cancelledRef?.current) return;
+
+        const claimedByDcode = new Map(); // dcode → Set of box keys already allocated
+        const enriched = items.map((itemRow) => {
+          const dcode = String(itemRow.item_dcode ?? "").trim();
+          const dispatchQty = Math.max(0, Number(itemRow?.source_dispatch_qty) || 0);
+          const bundle = stockByDcode.get(dcode);
+          if (!dcode || !bundle) {
+            return { ...itemRow, fetching: false, boxes_edited: true };
+          }
+          if (!claimedByDcode.has(dcode)) claimedByDcode.set(dcode, new Set());
+          const claimed = claimedByDcode.get(dcode);
+          const remaining = (bundle.fifoBoxes || []).filter((box) => {
+            const key = forwardingBoxKey(box);
+            return !key || !claimed.has(key);
+          });
+          const ordered = reorderBoxesForSelection(remaining, false);
+          const selected_boxes = dispatchQty > 0 ? selectBoxesByQty(ordered, dispatchQty) : [];
+          for (const box of selected_boxes) {
+            const key = forwardingBoxKey(box);
+            if (key) claimed.add(key);
+          }
+          const roundedQty = sumQty(selected_boxes);
+          return {
+            ...itemRow,
+            available_boxes: bundle.fifoBoxes || [],
+            selected_boxes,
+            loose_priority: false,
+            fg_qty: sumQty(bundle.fifoBoxes || []),
+            erp_qty: bundle.erp_qty,
+            erp_by_packing: bundle.erp_by_packing,
+            dispatch_target: dispatchQty > 0 ? String(dispatchQty) : "",
+            dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
+            dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
+            use_system_std: roundedQty > 0 && dispatchQty > 0,
+            fetching: false,
+            boxes_edited: true,
+          };
+        });
+
+        if (cancelledRef?.current) return;
+
+        setForm((prev) => {
+          if (!prev.items?.length) return prev;
+          // Replace by index when lengths match (schedule hydrate); preserve user edits mid-load.
+          if (prev.items.length !== enriched.length) {
+            return { ...prev, items: enriched };
+          }
+          const nextItems = prev.items.map((cur, idx) => {
+            const fresh = enriched[idx];
+            if (!fresh) return { ...cur, fetching: false };
+            if (cur.boxes_edited && !cur.fetching && (cur.selected_boxes?.length || 0) > 0) {
+              // User already changed this row — keep selection, attach stock pool if missing.
+              if ((cur.available_boxes?.length || 0) > 0) return { ...cur, fetching: false };
+              return {
+                ...cur,
+                available_boxes: fresh.available_boxes,
+                fg_qty: fresh.fg_qty,
+                erp_qty: fresh.erp_qty,
+                erp_by_packing: fresh.erp_by_packing,
+                fetching: false,
+              };
+            }
+            return fresh;
+          });
+          return { ...prev, items: nextItems };
+        });
+
+        if (!enriched.some((item) => (item?.available_boxes?.length || 0) > 0)) {
+          toast.info("No in-hand stock for these items in the selected category.");
+        }
+      },
+      [fetchItemStockBundle]
+    );
 
   useEffect(() => {
     if (!open) {
@@ -571,6 +967,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     }
 
     let cancelled = false;
+    const cancelledRef = { current: false };
     setFormReady(false);
     setErrors({});
 
@@ -581,9 +978,16 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       if (!needsFetch && isFromSchedule && dispatchPrefill) {
         try {
           const hydrated = await hydrateFromDispatchPlan(dispatchPrefill);
-          if (!cancelled) {
-            setForm(hydrated);
-            setFormReady(true);
+          if (cancelled) return;
+          setForm(hydrated.form);
+          setFormReady(true);
+          // Stock/FIFO fills in background so the drawer opens immediately.
+          if (hydrated.enrich && hydrated.packingCategoryId) {
+            void fillScheduleItemStock(
+              hydrated.form.items,
+              hydrated.packingCategoryId,
+              cancelledRef
+            );
           }
         } catch (err) {
           if (!cancelled) {
@@ -612,10 +1016,11 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
         const fullData = res.data;
 
         let defaultCategoryId = null;
+        let categoryOptions = [];
         if (fullData.acc_code) {
           try {
             const catRes = await forwardingNoteService.getCustomerCategory({ acc_code: Number(fullData.acc_code) });
-            const categoryOptions = Array.isArray(catRes?.data?.options) ? catRes.data.options : [];
+            categoryOptions = Array.isArray(catRes?.data?.options) ? catRes.data.options : [];
             defaultCategoryId = catRes?.data?.packing_category_id ?? null;
             if (!cancelled) setCategoryOpts(categoryOptions);
           } catch {
@@ -628,67 +1033,45 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
             ? fullData.packing_category_id
             : defaultCategoryId;
 
-        const itemsWithStock = await Promise.all((fullData.items || []).map(async (i) => {
-          let available_boxes = [];
-          let fg_qty = i.total_qty || 0;
-          let erp_qty = 0;
-          let erp_by_packing = {};
+        const masterSchno =
+          fullData.schno != null && String(fullData.schno).trim() !== ""
+            ? String(fullData.schno).trim()
+            : "";
 
-          const stockBody = {
-            item_dcode: i.item_dcode,
-            exclude_fuid: fuid || undefined,
-            ...(resolvedCategoryId != null && resolvedCategoryId !== ""
-              ? { packing_category_id: Number(resolvedCategoryId) }
-              : {}),
-          };
-
-          try {
-            const [stockRes, erpRes] = await Promise.all([
-              forwardingNoteService.getAvailableBoxes(stockBody),
-              forwardingNoteService.getErpStock(stockBody),
-            ]);
-            if (stockRes.success) {
-              available_boxes = sortBoxesForFifo(enrichForwardingBoxesWithPackingStd(stockRes.data || []));
-              fg_qty = sumQty(available_boxes);
-            }
-            if (erpRes?.success !== false) {
-              erp_qty = Number(erpRes?.total) || 0;
-              erp_by_packing = erpRes?.by_packing && typeof erpRes.by_packing === "object" ? erpRes.by_packing : {};
-            }
-          } catch (e) {
-            console.error("Stock fetch error", e);
-          }
-
-          const loosePriorityFromSaved =
-            Array.isArray(i.breakdowns) &&
-            i.breakdowns.some(
-              (bd) => Number(bd?.loose_box || 0) > 0 || Number(bd?.loose_box_qty || 0) > 0
-            );
-
-          const orderedBoxes = reorderBoxesForSelection(available_boxes, loosePriorityFromSaved);
-          const selected_boxes = selectBoxesByQty(orderedBoxes, i.total_qty);
-
+        // Open edit immediately with saved breakdowns — stock pool loads in background (FIFO-safe).
+        const quickItems = (fullData.items || []).map((i) => {
+          const itemSchno =
+            i.schno != null && String(i.schno).trim() !== ""
+              ? String(i.schno).trim()
+              : masterSchno;
+          const itemDcode = i.item_dcode != null && String(i.item_dcode).trim() !== ""
+            ? String(i.item_dcode).trim()
+            : "";
           return {
-            ...i,
-            item_dcode: i.item_dcode,
+            item_dcode: itemDcode,
             item_code: i.item_code,
             itemdesc: i.itemdesc,
-            available_boxes,
-            selected_boxes,
-            loose_priority: loosePriorityFromSaved,
-            fg_qty,
-            erp_qty,
-            erp_by_packing,
+            schno: itemSchno,
+            available_boxes: [],
+            selected_boxes: [],
+            loose_priority:
+              Array.isArray(i.breakdowns) &&
+              i.breakdowns.some(
+                (bd) => Number(bd?.loose_box || 0) > 0 || Number(bd?.loose_box_qty || 0) > 0
+              ),
+            fg_qty: Number(i.total_qty) || 0,
+            erp_qty: 0,
+            erp_by_packing: {},
             dispatch_target: i.total_qty || "",
             dispatch_qty: i.total_qty || "",
             dispatch_std: i.total_qty || "",
-            fetching: false,
+            source_dispatch_qty: 0,
+            use_system_std: false,
+            fetching: Boolean(i.item_dcode && resolvedCategoryId),
             boxes_edited: false,
             original_breakdowns: i.breakdowns || [],
           };
-        }));
-
-        if (cancelled) return;
+        });
 
         const categoryKey =
           resolvedCategoryId != null && resolvedCategoryId !== ""
@@ -696,14 +1079,16 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
             : "";
         prevCategoryRef.current = categoryKey;
 
+        if (cancelled) return;
+        const isScheduleLinked = Boolean(
+          masterSchno || quickItems.some((row) => String(row.schno || "").trim())
+        );
+        setLoadedAsScheduleNote(isScheduleLinked);
         setForm({
           acc_code: fullData.acc_code || "",
-          packing_category_id:
-            resolvedCategoryId != null && resolvedCategoryId !== ""
-              ? String(resolvedCategoryId)
-              : "",
+          packing_category_id: categoryKey,
           po_number: fullData.po_number || "",
-          schno: fullData.schno != null && fullData.schno !== "" ? String(fullData.schno).trim() : "",
+          schno: masterSchno,
           transporter_sel_id: "",
           transporter_name: fullData.transporter_name || "",
           transporter_id: fullData.transporter_id || "",
@@ -712,23 +1097,70 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
           customer_qty: fullData.customer_qty ?? "",
           remarks: fullData.remarks || "",
           approved: isApprove ? (fullData?.approved ?? false) : false,
-          items: itemsWithStock,
+          items: quickItems,
         });
+        setFormReady(true);
+
+        // Background: attach FIFO stock pool without wiping saved breakdowns.
+        if (resolvedCategoryId && quickItems.length) {
+          const uniqueDcodes = [
+            ...new Set(quickItems.map((i) => String(i.item_dcode ?? "").trim()).filter(Boolean)),
+          ];
+          const stockByDcode = new Map();
+          await mapWithConcurrency(uniqueDcodes, 3, async (dcode) => {
+            if (cancelledRef.current) return;
+            try {
+              const bundle = await fetchItemStockBundle(dcode, resolvedCategoryId, fuid);
+              stockByDcode.set(dcode, bundle);
+            } catch {
+              stockByDcode.set(dcode, { fifoBoxes: [], erp_qty: 0, erp_by_packing: {}, ok: false });
+            }
+          });
+          if (cancelledRef.current) return;
+
+          setForm((prev) => ({
+            ...prev,
+            items: prev.items.map((cur) => {
+              const dcode = String(cur.item_dcode ?? "").trim();
+              const bundle = stockByDcode.get(dcode);
+              if (!bundle) return { ...cur, fetching: false };
+              const fifoBoxes = bundle.fifoBoxes || [];
+              // Keep saved breakdown path (boxes_edited false). Only attach pool for +/- later.
+              const orderedBoxes = reorderBoxesForSelection(fifoBoxes, cur.loose_priority);
+              const previewSelected =
+                !cur.boxes_edited && Number(cur.dispatch_qty) > 0
+                  ? selectBoxesByQty(orderedBoxes, Number(cur.dispatch_qty))
+                  : cur.selected_boxes;
+              return {
+                ...cur,
+                available_boxes: fifoBoxes,
+                selected_boxes: cur.boxes_edited ? cur.selected_boxes : previewSelected,
+                fg_qty: sumQty(fifoBoxes),
+                erp_qty: bundle.erp_qty,
+                erp_by_packing: bundle.erp_by_packing,
+                fetching: false,
+                // Never flip boxes_edited here — edit save must keep original_breakdowns until user edits.
+                boxes_edited: cur.boxes_edited,
+                original_breakdowns: cur.original_breakdowns,
+              };
+            }),
+          }));
+        }
       } catch (err) {
         if (!cancelled) {
           toast.error(err?.message || "Failed to load forwarding note details.");
           setForm({ ...INITIAL_FORM, items: [{ ...INITIAL_ITEM_ROW }] });
+          setFormReady(true);
         }
-      } finally {
-        if (!cancelled) setFormReady(true);
       }
     };
 
     void hydrate();
     return () => {
       cancelled = true;
+      cancelledRef.current = true;
     };
-  }, [open, editData?.fuid, isEdit, isApprove, isFromSchedule, dispatchPrefill, hydrateFromDispatchPlan]);
+  }, [open, editData?.fuid, isEdit, isApprove, isFromSchedule, dispatchPrefill, hydrateFromDispatchPlan, fillScheduleItemStock, fetchItemStockBundle]);
 
   // ── Form helpers ───────────────────────────────────────────────────────────
   const handleInputChange = (k, value) => {
@@ -785,6 +1217,9 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       transporter_sel_id: "",
       transporter_name: "",
       transporter_id: "",
+      ...(scheduleCatalogActive && mode === "add"
+        ? { items: [{ ...INITIAL_ITEM_ROW }] }
+        : {}),
     }));
     if (id) void loadCustomerCategory(id);
     else setCategoryOpts([]);
@@ -821,10 +1256,11 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
   // ── Item Row Helpers ───────────────────────────────────────────────────────
   const updateItemRow = (idx, updates) => {
-    setForm(prev => ({
-      ...prev,
-      items: prev.items.map((item, i) => i === idx ? { ...item, ...updates } : item)
-    }));
+    setForm((prev) => {
+      const nextItems = prev.items.map((item, i) => (i === idx ? { ...item, ...updates } : item));
+      formItemsRef.current = nextItems;
+      return { ...prev, items: nextItems };
+    });
   };
 
   const addRow = () => {
@@ -955,10 +1391,27 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
     // Only refetch when category changes from one value to another — not on the
     // initial assignment after edit/approve hydrate (that would wipe saved qty/boxes).
     if (!cat || cat === prev || !prev) return;
+
+    if (isFromSchedule) {
+      // Re-allocate exclusive FIFO for all schedule rows (same item must not double-claim).
+      const snapshot = (formItemsRef.current || []).map((item) => ({
+        ...item,
+        fetching: Boolean(item.item_dcode),
+        selected_boxes: [],
+        boxes_edited: false,
+      }));
+      setForm((prevForm) => ({
+        ...prevForm,
+        items: snapshot,
+      }));
+      void fillScheduleItemStock(snapshot, cat, { current: false });
+      return;
+    }
+
     formItemsRef.current.forEach((item, idx) => {
       if (item.item_dcode) void fetchItemStock(idx, item.item_dcode, cat);
     });
-  }, [open, formReady, categoryLoading, form.packing_category_id, fetchItemStock]);
+  }, [open, formReady, categoryLoading, form.packing_category_id, fetchItemStock, isFromSchedule, fillScheduleItemStock]);
 
   // ── Item select — fetch boxes from API ────────────────────────────────────
   const handleItemChange = async (idx, id, rawData) => {
@@ -967,16 +1420,38 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       return;
     }
 
-    const duplicateSelected = form.items.some(
-      (row, rowIdx) => rowIdx !== idx && String(row.item_dcode) === String(id)
-    );
+    const scheduleSchno =
+      rawData?.schno != null && String(rawData.schno).trim() !== ""
+        ? String(rawData.schno).trim()
+        : String(String(id).includes("::") ? String(id).split("::")[0] : "").trim();
+    const itemDcode = String(
+      rawData?.itemdcode ??
+        rawData?.item_dcode ??
+        (String(id).includes("::") ? String(id).split("::")[1] : id) ??
+        ""
+    ).trim();
+
+    if (!itemDcode) {
+      toast.warning("Invalid item selection.");
+      return;
+    }
+
+    const duplicateSelected = form.items.some((row, rowIdx) => {
+      if (rowIdx === idx) return false;
+      if (String(row.item_dcode) !== String(itemDcode)) return false;
+      const curSchno = scheduleSchno || String(form.items[idx]?.schno ?? "").trim();
+      const rowSchno = String(row?.schno ?? "").trim();
+      // Allow same item on different schedule lines.
+      if (curSchno && rowSchno && curSchno !== rowSchno) return false;
+      return true;
+    });
     if (duplicateSelected) {
       toast.warning("This item is already selected in another row.");
       return;
     }
 
     if (categoryLoading) {
-      toast.info("Category is loading — please wait a moment.");
+      toast.info("Category is still loading. Please wait a moment.");
       return;
     }
     if (form.acc_code && !form.packing_category_id) {
@@ -984,10 +1459,34 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       return;
     }
 
+    if (scheduleCatalogActive) {
+      const fg = Number(rawData?.fg_stock_qty ?? 0);
+      if (!(fg > 0) || rawData?.fg_zero) {
+        toast.warning("This item has no FG stock and cannot be added.");
+        return;
+      }
+      const balCheck = Number(rawData?.balance_qty ?? rawData?.source_dispatch_qty ?? 0);
+      if (!(balCheck > 0) || rawData?.balance_zero) {
+        toast.warning("This item has no remaining schedule balance and cannot be added.");
+        return;
+      }
+    }
+
+    const balanceQty = scheduleCatalogActive
+      ? Math.max(
+          0,
+          Number.isFinite(Number(rawData?.balance_qty ?? rawData?.source_dispatch_qty))
+            ? Number(rawData.balance_qty ?? rawData.source_dispatch_qty)
+            : 0
+        )
+      : 0;
+
     updateItemRow(idx, {
-      item_dcode:      id,
+      item_dcode:      itemDcode,
       item_code:       rawData?.item_code || "",
       itemdesc:        rawData?.itemdesc  || "",
+      schno:           scheduleCatalogActive ? scheduleSchno : "",
+      source_dispatch_qty: scheduleCatalogActive ? balanceQty : 0,
       available_boxes: [],
       selected_boxes:  [],
       loose_priority:  false,
@@ -995,14 +1494,14 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       erp_qty:         0,
       erp_by_packing:  {},
       dispatch_qty:    "",
-      dispatch_target: "",
+      dispatch_target: scheduleCatalogActive && balanceQty > 0 ? String(balanceQty) : "",
       dispatch_std:    "",
       fetching:        true,
       boxes_edited:    false,
       original_breakdowns: [],
     });
 
-    await fetchItemStock(idx, id, form.packing_category_id, { resetSelection: true });
+    await fetchItemStock(idx, itemDcode, form.packing_category_id, { resetSelection: true });
   };
 
   const handleDispatchQtyFocus = (idx) => {
@@ -1026,9 +1525,11 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       item.dispatch_target === "" || item.dispatch_target == null
         ? ""
         : String(item.dispatch_target);
+    // Exclusive FIFO pool — never reuse boxes already claimed by another row of same item.
+    const pooled = { ...item, available_boxes: fifoPoolForRow(form.items, idx) };
 
     if (balanceCap > 0 || raw !== "") {
-      const next = resolveDispatchQtySelection(item, raw, {
+      const next = resolveDispatchQtySelection(pooled, raw, {
         emptyMeansSystem: balanceCap > 0,
       });
       if (next) updateItemRow(idx, next);
@@ -1047,7 +1548,10 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
   const handleBoxChange = (idx, type) => {
     const item = form.items[idx];
-    const orderedBoxes = reorderBoxesForSelection(item.available_boxes, item.loose_priority);
+    const orderedBoxes = reorderBoxesForSelection(
+      fifoPoolForRow(form.items, idx),
+      item.loose_priority
+    );
     if (!orderedBoxes.length) return;
 
     let prefix = getFifoPrefixFromSelection(orderedBoxes, item.selected_boxes);
@@ -1061,8 +1565,18 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       prefix = selectBoxesByQty(orderedBoxes, getItemFifoTarget(item));
     }
 
-    const fifoLimit = maxFifoBoxesForItem(item, orderedBoxes);
-    let newCount = prefix.length;
+    // If selection keys do not form a clean prefix, rebuild from selected count so +/- still works.
+    let newCount =
+      prefix.length > 0
+        ? prefix.length
+        : Array.isArray(item.selected_boxes)
+          ? item.selected_boxes.length
+          : 0;
+
+    const fifoLimit = maxFifoBoxesForItem(
+      { ...item, available_boxes: orderedBoxes },
+      orderedBoxes
+    );
 
     if (type === "add") {
       if (newCount >= fifoLimit || newCount >= orderedBoxes.length) return;
@@ -1074,14 +1588,12 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
     const newSelected = orderedBoxes.slice(0, newCount);
     const stdQty = sumQty(newSelected);
-    // const fifoTarget = getItemFifoTarget(item);
 
     updateItemRow(idx, {
       selected_boxes: newSelected,
       dispatch_qty: stdQty > 0 ? String(stdQty) : "",
       dispatch_std: stdQty > 0 ? String(stdQty) : "",
       // Keep target in sync with box +/- so Dispatch Qty blur does not rebuild old FIFO.
-      // dispatch_target: fifoTarget > 0 ? String(fifoTarget) : "",
       dispatch_target: stdQty > 0 ? String(stdQty) : "",
       use_system_std: false,
       boxes_edited: true,
@@ -1090,11 +1602,15 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
   const handleLoosePriorityToggle = (idx, checked) => {
     const item = form.items[idx];
-    const target = getItemFifoTarget(item);
-    const itemWithLoose = { ...item, loose_priority: checked };
+    const pooled = {
+      ...item,
+      loose_priority: checked,
+      available_boxes: fifoPoolForRow(form.items, idx),
+    };
+    const target = getItemFifoTarget(pooled);
     const next =
       target > 0
-        ? buildDispatchFromTarget(itemWithLoose, target)
+        ? buildDispatchFromTarget(pooled, target)
         : {
             dispatch_target: "",
             dispatch_qty: "",
@@ -1121,6 +1637,11 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       return;
     }
 
+    if (form.items.some((i) => i.fetching)) {
+      toast.info("Stock is still loading. Please wait, then save.");
+      return;
+    }
+
     const validItems = form.items.filter(
       (i) => i.item_dcode && (i.selected_boxes.length > 0 || (!i.boxes_edited && i.original_breakdowns?.length > 0))
     );
@@ -1141,17 +1662,25 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
         ...formRest,
         acc_code: parseInt(form.acc_code) || null,
         packing_category_id: form.packing_category_id ? parseInt(form.packing_category_id, 10) : null,
-        schno: form.schno?.trim() || null,
+        schno:
+          form.schno?.trim() ||
+          validItems.map((i) => String(i.schno ?? "").trim()).find(Boolean) ||
+          null,
         cartage: parseFloat(form.cartage) || 0,
         customer_qty: parseInt(form.customer_qty) || 0,
         approved: finalApproved,
         total_items: validItems.reduce((s, i) => s + itemStdQty(i), 0),
         items:       validItems.flatMap(i => {
+          const itemSchno =
+            i.schno != null && String(i.schno).trim() !== ""
+              ? String(i.schno).trim()
+              : form.schno?.trim() || null;
           if (i.selected_boxes.length > 0) {
             return [{
               item_dcode: i.item_dcode,
               item_code:  i.item_code,
               itemdesc:   i.itemdesc,
+              schno:      itemSchno,
               qty:        sumQty(i.selected_boxes),
               selected_boxes: i.selected_boxes,
             }];
@@ -1161,6 +1690,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
               item_dcode: i.item_dcode,
               item_code:  i.item_code,
               itemdesc:   i.itemdesc,
+              schno:      itemSchno || (bd.schno != null ? String(bd.schno).trim() : null),
               qty:        bd.total_qty,
               packing_number: bd.packing_number,
               box:        bd.box,
@@ -1198,15 +1728,17 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       : "Preparing form...";
 
   const hydrateHint = isEdit || isApprove
-    ? "Fetching note, items, and available stock."
+    ? "Note opens first; FG stock fills in background."
     : isFromSchedule
-      ? "Loading customer, item, and stock from schedule plan."
+      ? "Form opens first; FG stock / FIFO fills in background."
       : "Setting up a new forwarding note.";
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const confirmedTotal = form.items.reduce((s, i) => s + itemStdQty(i), 0);
   const customerQty    = parseInt(form.customer_qty) || 0;
   const isQtyExceeded  = !isFromSchedule && customerQty > 0 && confirmedTotal > customerQty;
+  const stockLoading   = form.items.some((i) => i.fetching);
+  const saveDisabled   = !formReady || saving || stockLoading;
 
   // ── Footer ─────────────────────────────────────────────────────────────────
   const footer = (
@@ -1220,6 +1752,11 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
             Dispatched quantity ({confirmedTotal.toLocaleString()}) exceeds customer order quantity ({customerQty.toLocaleString()})
           </span>
         </div>
+      ) : stockLoading ? (
+        <div className="flex items-center gap-2 text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-xl px-3 py-2 w-full sm:w-auto">
+          <Loader2 size={14} className="shrink-0 animate-spin" />
+          <span className="text-[11px] font-bold leading-snug">Loading FG stock / FIFO…</span>
+        </div>
       ) : <div className="hidden sm:block" />}
 
       {/* Right — buttons */}
@@ -1231,14 +1768,14 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
           <>
             <button
               onClick={() => handleSave(false)}
-              disabled={!formReady || saving}
+              disabled={saveDisabled}
               className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-40 w-full sm:w-auto"
             >
               Keep Pending
             </button>
             <button
               onClick={() => handleSave(true)}
-              disabled={!formReady || saving}
+              disabled={saveDisabled}
               className="min-w-[140px] w-full sm:w-auto px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40"
             >
               {saving ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
@@ -1247,7 +1784,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
         ) : (
           <button
             onClick={() => handleSave()}
-            disabled={!formReady || saving || isQtyExceeded}
+            disabled={saveDisabled || isQtyExceeded}
             className="min-w-[140px] w-full sm:w-auto px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400 disabled:cursor-not-allowed"
           >
             {saving ? (
@@ -1268,11 +1805,17 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
       isOpen={open}
       onClose={onClose}
       onSubmit={() => {
-        if (!formReady || saving) return;
+        if (!formReady || saving || form.items.some((i) => i.fetching)) return;
         handleSave(isApprove ? true : undefined);
       }}
       title={isApprove ? "Approve Note" : isEdit ? "Edit Note" : "New Forwarding Note"}
-      description={isFromSchedule ? `From schedule ${form.schno || "—"}` : "Create note for dispatch"}
+      description={
+        isFromSchedule
+          ? scheduleSchnos.length > 1
+            ? `${scheduleSchnos.length} schedules · one customer`
+            : `From schedule ${scheduleLabel}`
+          : "Create note for dispatch"
+      }
       footer={footer}
       maxWidth="max-w-4xl"
     >
@@ -1285,7 +1828,12 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
           <div className="flex items-start gap-2 p-3 rounded-lg bg-indigo-50 border border-indigo-200">
             <AlertCircle size={16} className="text-indigo-500 mt-0.5 shrink-0" />
             <p className="text-[11px] text-indigo-700 font-medium leading-normal">
-              Pre-filled from today&apos;s dispatch plan. Customer and items are locked — change <span className="font-bold text-indigo-900 uppercase">Category</span> or <span className="font-bold text-indigo-900 uppercase">Dispatch Qty</span> as needed, then fill PO and save.
+              One customer · each item row has its own Sch No + Balance (multiple schedules OK). Change{" "}
+              <span className="font-bold text-indigo-900 uppercase">Category</span> or{" "}
+              <span className="font-bold text-indigo-900 uppercase">Dispatch Qty</span> as needed, remove extra rows, then fill PO and save.
+              {form.items.some((i) => i.fetching) ? (
+                <span className="block mt-1 text-indigo-500 font-semibold">Loading FG stock…</span>
+              ) : null}
             </p>
           </div>
         )}
@@ -1301,19 +1849,7 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
         {/* ── Header fields ── */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-1">
-          {isFromSchedule ? (
-            <div className="space-y-1">
-              <label className={FORM_LABEL_CLASS}>Sch No</label>
-              <input
-                value={form.schno || "—"}
-                disabled
-                tabIndex={-1}
-                className={`${OK_INPUT} rounded-lg border-slate-200 font-mono font-bold disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed`}
-              />
-            </div>
-          ) : null}
-
-          <div className={`space-y-1 relative ${isFromSchedule ? "md:col-span-1 pointer-events-none" : "md:col-span-2"}`} data-field="acc_code">
+          <div className={`space-y-1 relative ${isFromSchedule ? "md:col-span-2 pointer-events-none" : "md:col-span-2"}`} data-field="acc_code">
             <SearchableSelect 
               label="Customer / Account"
               required
@@ -1358,6 +1894,8 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
               </select>
             </div>
           {/* ) : null} */}
+
+          {/* Sch No lives on each item row — header field is unused for multi-schedule. */}
 
           {/* Transporter — suggestions from previous forwarding notes (per customer) + manual entry */}
           <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-3 min-w-0">
@@ -1542,11 +2080,23 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     <span className={`${FORM_MICRO_LABEL_CLASS} text-slate-400`}>Row #{idx + 1}</span>
-                    {isFromSchedule && Number(item.source_dispatch_qty) > 0 ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-[10px] font-black uppercase tracking-wide text-amber-900 shadow-sm tabular-nums">
-                        <span className="text-amber-700/90 font-bold">Balance</span>
-                        <span className="text-amber-950">
-                          {item.fetching ? "…" : Number(item.source_dispatch_qty).toLocaleString()}
+                    {item.schno ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-200 text-[10px] font-black uppercase tracking-wide text-indigo-800 font-mono">
+                        Sch {item.schno}
+                      </span>
+                    ) : null}
+                    {(isFromSchedule || scheduleCatalogActive || Number(item.source_dispatch_qty) > 0) &&
+                    (item.schno || Number(item.source_dispatch_qty) > 0 || scheduleCatalogActive) ? (
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wide shadow-sm tabular-nums ${
+                          Number(item.source_dispatch_qty) > 0
+                            ? "bg-amber-100 border-amber-300 text-amber-900"
+                            : "bg-slate-100 border-slate-300 text-slate-600"
+                        }`}
+                      >
+                        <span className="opacity-80 font-bold">Balance</span>
+                        <span>
+                          {item.fetching ? "…" : Number(item.source_dispatch_qty || 0).toLocaleString()}
                         </span>
                       </span>
                     ) : null}
@@ -1577,22 +2127,30 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                   <div className={`col-span-2 sm:col-span-4 lg:col-span-3 text-[11px] min-w-0 ${isFromSchedule ? "pointer-events-none" : ""}`}>
                     <SearchableSelect
                       label="Search Item"
-                      value={item.item_dcode}
+                      value={
+                        scheduleCatalogActive && item.schno && item.item_dcode
+                          ? `${item.schno}::${item.item_dcode}`
+                          : item.item_dcode
+                      }
                       onChange={(id, raw) => handleItemChange(idx, id, raw)}
                       fetchService={itemRowFetchServices[idx]}
                       getByIdService={getItemById}
                       dataKey="id"
                       labelKey="item_code"
-                      subLabelKey="itemdesc"
+                      subLabelKey={scheduleCatalogActive ? "schedule_hint" : "itemdesc"}
+                      getOptionClassName={scheduleCatalogActive ? scheduleOptionClassName : undefined}
+                      isOptionDisabled={scheduleCatalogActive ? scheduleOptionDisabled : undefined}
                       disabled={isFromSchedule || !form.acc_code || categoryLoading || !form.packing_category_id}
                       emptyMessage={
                         !form.acc_code
-                          ? "Select customer first"
+                          ? "Select a customer first"
                           : categoryLoading
                             ? "Loading category…"
                             : !form.packing_category_id
-                              ? "Select category first"
-                              : "No items with in-hand stock"
+                              ? "Select a category first"
+                              : scheduleCatalogActive
+                                ? "No open schedule items for this customer"
+                                : "No items with in-hand stock"
                       }
                     />
                   </div>
@@ -1611,9 +2169,23 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
 
                   {/* FG Stock */}
                   <div className="lg:col-span-2 space-y-0.5 min-w-0">
-                    <label className={`${FORM_MICRO_LABEL_CLASS} text-emerald-600 block ml-1`}>FG Stock</label>
-                    <div className="bg-emerald-600 text-white text-center font-black h-[38px] flex items-center justify-center rounded-lg shadow-sm text-xs">
-                      {item.fg_qty.toLocaleString()}
+                    <label
+                      className={`${FORM_MICRO_LABEL_CLASS} block ml-1 ${
+                        Number(item.fg_qty) > 0 ? "text-emerald-600" : "text-rose-600"
+                      }`}
+                    >
+                      FG Stock
+                    </label>
+                    <div
+                      className={`text-white text-center font-black h-[38px] flex items-center justify-center rounded-lg shadow-sm text-xs ${
+                        Number(item.fg_qty) > 0 ? "bg-emerald-600" : "bg-rose-500"
+                      }`}
+                    >
+                      {item.fetching ? (
+                        <Loader2 size={14} className="animate-spin opacity-80" />
+                      ) : (
+                        (Number(item.fg_qty) || 0).toLocaleString()
+                      )}
                     </div>
                   </div>
 
@@ -1658,8 +2230,12 @@ export default function ForwardingModal({ open, onClose, onSuccess, editData, mo
                         onClick={() => handleBoxChange(idx, 'add')}
                         disabled={!canAddMoreFifoBoxes(item)}
                         title={
-                          !canAddMoreFifoBoxes(item) && Number(item.source_dispatch_qty) > 0
-                            ? `FIFO max for balance ${Number(item.source_dispatch_qty).toLocaleString()}`
+                          !canAddMoreFifoBoxes(item)
+                            ? Number(item.source_dispatch_qty) > 0
+                              ? `FIFO max for balance ${Number(item.source_dispatch_qty).toLocaleString()}`
+                              : Number(item.fg_qty) > 0
+                                ? `FIFO max for FG stock ${Number(item.fg_qty).toLocaleString()}`
+                                : undefined
                             : undefined
                         }
                         className="w-7 h-7 flex items-center justify-center text-indigo-500 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-30 font-black text-lg border border-indigo-50"

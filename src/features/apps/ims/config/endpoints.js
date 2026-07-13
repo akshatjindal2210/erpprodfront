@@ -180,6 +180,7 @@ export const ENDPOINTS = {
     SHORTAGE: "/schedule-planning/shortage",
     DELETE: "/schedule-planning/delete",
     DISPATCH_HELPER: "/schedule-planning/dispatch-helper",
+    CUSTOMER_MONTH_SCHEDULES: "/schedule-planning/customer-month-schedules",
     COMPLETE: "/schedule-planning/complete",
   },
 

@@ -34,6 +34,8 @@ import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/core/components/common/ListPageS
 import { parseSavedBillNos, fetchBillOptions, formatBillNosForSave, getBillByNo, uniqueBillNos } from "@/features/apps/ims/utils/forwardingBillOptions";
 import TodayDispatchPlanTab from "@/features/apps/ims/components/forwarding-note/TodayDispatchPlanTab";
 import { buildScheduleItemWiseHeaders } from "@/features/apps/ims/components/schedule-planning/schedulePlanningColumns";
+import { selectUser } from "@/core/store/slices/authSlice";
+import { canCreateDirectForwardingNote } from "@/features/apps/ims/utils/imsSpecialPermissions";
 
 /** Search matches visible table cells (raw + formatted labels). */
 function forwardingTableSearchParts(row, reportType = "summary") {
@@ -127,9 +129,11 @@ const DISPATCH_FILTER_OPTIONS = [
 ];
 
 const DISPATCH_PLAN_STATUS_OPTIONS = [
-  { label: "All", value: "all" },
-  { label: "Plan", value: "plan" },
+  { label: "Pending + Hold", value: "active" },
+  { label: "Pending", value: "pending" },
   { label: "Hold", value: "hold" },
+  { label: "Complete", value: "complete" },
+  { label: "All", value: "all" },
 ];
 
 /** Match Lock Status column: COMPLETE → scan done; LOCKED → locked & not complete; UNLOCKED → neither. */
@@ -150,14 +154,16 @@ export default function ForwardingPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("forwarding_note_master", "view"), [canAccess]);
   const canEditBill = useMemo(() => canAccess("forwarding_note_master", "edit").allowed, [canAccess]);
+  const user = useSelector(selectUser);
   const role = useSelector(state => state.auth.role);
+  const canDirectCreate = useMemo(() => canCreateDirectForwardingNote(user), [user]);
 
   const [outerTab, setOuterTab] = useState("dispatch_plan");
 
   // Dispatch plan tab ref + state
   const dispatchPlanRef = useRef(null);
   const [dispatchSearch, setDispatchSearch] = useState("");
-  const [dispatchStatusFilter, setDispatchStatusFilter] = useState("all");
+  const [dispatchStatusFilter, setDispatchStatusFilter] = useState("active");
   const [dispatchSelected, setDispatchSelected] = useState(null);
   const [dispatchRows, setDispatchRows] = useState([]);
 
@@ -222,7 +228,7 @@ export default function ForwardingPage() {
       setAllRows(data);
       setDisplayLimit(100);
     } catch (err) {
-      toast.error(err?.message || "Failed to load data");
+      toast.error(err?.message || "Failed to load forwarding notes.");
       setAllRows([]);
     } finally {
       setLoading(false);
@@ -324,18 +330,22 @@ export default function ForwardingPage() {
 
   const openDispatchPlanNew = useCallback(() => {
     if (!dispatchSelected) {
-      toast.info("Select a schedule row first, then click New.");
+      // Blank FN modal — pick customer → category → schedule items in Item Breakdown.
+      setDispatchPrefill(null);
+      setModalMode("add");
+      setModalOpen(true);
       return;
     }
-    const schno = String(dispatchSelected.schno ?? "").trim();
+    // Same customer — all plan lines with balance + FG (multiple Sch Nos in one FN).
+    const acc = String(dispatchSelected.acc_code ?? "").trim();
     const qualifying = dispatchRows.filter((r) => {
-      if (String(r.schno ?? "").trim() !== schno) return false;
+      if (String(r.acc_code ?? "").trim() !== acc) return false;
       const fgStock = Number(r.fg_stock_qty ?? r.in_hand_qty ?? 0);
       const balance = Number(r.balance_qty ?? r.totalqty ?? 0);
       return fgStock > 0 && balance > 0;
     });
     if (!qualifying.length) {
-      toast.info("No items with remaining balance and FG stock for this schedule.");
+      toast.info("No items with remaining balance and FG stock for this customer.");
       return;
     }
     setDispatchPrefill({ anchorRow: dispatchSelected, rows: qualifying });
@@ -343,10 +353,20 @@ export default function ForwardingPage() {
     setModalOpen(true);
   }, [dispatchSelected, dispatchRows]);
 
-  /** Forwarding Master New — FN only from schedule; same message as dispatch-plan New without a row. */
-  const openMasterNewFromScheduleOnly = useCallback(() => {
-    toast.info("Switch to Today's Dispatch Plan, select a schedule row, then click New.");
+  const clearDispatchSelection = useCallback(() => {
+    setDispatchSelected(null);
+    dispatchPlanRef.current?.clearSelection?.();
   }, []);
+
+  /** Forwarding Master New — direct create only with special permission; otherwise schedule-only. */
+  const openMasterNew = useCallback(() => {
+    if (canDirectCreate) {
+      setDispatchPrefill(null);
+      openModal("add");
+      return;
+    }
+    toast.info("Switch to Today's Dispatch Plan, then click New (with or without a row selected).");
+  }, [canDirectCreate, openModal]);
 
   const closeModal = useCallback(() => {
     setModalOpen(false);
@@ -377,7 +397,7 @@ export default function ForwardingPage() {
       const ok = printFromBackendHtml(res.html);
       if (!ok) toast.error("Could not open print preview. Try again.");
     } catch (err) {
-      toast.error(err?.message || "Failed to generate bill");
+      toast.error(err?.message || "Failed to generate bill.");
     } finally {
       setBillPrinting(false);
     }
@@ -393,9 +413,8 @@ export default function ForwardingPage() {
         openDispatchPlanNew();
         return;
       }
-      // Free-form New on Forwarding Master disabled — must select a schedule row on Today's Dispatch Plan
-      openMasterNewFromScheduleOnly();
-    }, [outerTab, openDispatchPlanNew, openMasterNewFromScheduleOnly]),
+      openMasterNew();
+    }, [outerTab, openDispatchPlanNew, openMasterNew]),
     openEdit: useCallback(() => {
       if (reportType !== "summary") return;
       openModal("edit");
@@ -476,8 +495,8 @@ export default function ForwardingPage() {
       setBillDraftNos(parseSavedBillNos(saved?.bill_no ?? payload));
       toast.success(
         saved?.bill_no || payload
-          ? "Bill number(s) saved"
-          : "Bill number cleared"
+          ? "Bill number(s) saved successfully."
+          : "Bill number cleared successfully."
       );
       const auditPatch = {
         bill_no: saved?.bill_no ?? payload,
@@ -489,7 +508,7 @@ export default function ForwardingPage() {
       );
       await fetchData();
     } catch (err) {
-      toast.error(err?.message || "Failed to save bill number");
+      toast.error(err?.message || "Failed to save bill number.");
     } finally {
       setBillSaving(false);
     }
@@ -697,10 +716,7 @@ export default function ForwardingPage() {
                 </>
               ) : (
                 <>
-                  {/* Free-form New disabled — FN must be created from Today's Dispatch Plan (schedule row).
-                  <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
-                  */}
-                  <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openMasterNewFromScheduleOnly} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+                  <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openMasterNew} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selectedId || isSelectedLocked} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selectedId || isSelectedLocked} onClick={() => openModal("approve")} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedId || isSelectedLocked} onClick={() => setIsDeleting(true)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
@@ -765,6 +781,23 @@ export default function ForwardingPage() {
               )
             }
           />
+
+          {outerTab === "dispatch_plan" && dispatchSelected && (
+            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide break-all min-w-0">
+                Selected: {dispatchSelected.schno || "—"}
+                {dispatchSelected.item_code ? ` · ${dispatchSelected.item_code}` : ""}
+                {dispatchSelected.acc_name ? ` · ${dispatchSelected.acc_name}` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={clearDispatchSelection}
+                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
+              >
+                <X size={14} /> Clear
+              </button>
+            </div>
+          )}
 
           {outerTab === "forwarding_master" && selectedId && (
             <div className="border-b border-indigo-100 bg-indigo-50 px-3 py-2 space-y-2">
@@ -866,13 +899,13 @@ export default function ForwardingPage() {
                 searchValue={dispatchSearch}
                 onSearchChange={setDispatchSearch}
                 onApply={(data) => {
-                  setDispatchStatusFilter(data.status ?? "all");
+                  setDispatchStatusFilter(data.status ?? "active");
                 }}
                 searchPlaceholder="Quick search items, party, sch no..."
                 searchLabel="Quick Search"
                 onReset={() => {
                   setDispatchSearch("");
-                  setDispatchStatusFilter("all");
+                  setDispatchStatusFilter("active");
                 }}
               />
             </ListPageFilterStrip>
@@ -963,6 +996,11 @@ export default function ForwardingPage() {
             editData={modalMode === "add" ? null : modalRecord} 
             mode={modalMode}
             dispatchPrefill={dispatchPrefill}
+            customerSchedulePicker={
+              (modalMode === "add" && !dispatchPrefill && outerTab === "dispatch_plan") ||
+              ((modalMode === "edit" || modalMode === "approve") &&
+                Boolean(String(selectedRecord?.schno ?? "").trim()))
+            }
         />
       )}
       

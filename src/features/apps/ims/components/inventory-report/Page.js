@@ -174,12 +174,29 @@ export default function InventoryReportPage() {
                 ? "120px"
                 : "110px";
 
+      const render =
+        key === "location_details"
+          ? (v, row) => {
+              const loc = v != null && String(v).trim() !== "" && String(v).trim() !== "—" ? String(v).trim() : "—";
+              const boxes = Array.isArray(row?.stock_box_nos) ? row.stock_box_nos.map((b) => String(b || "").trim()).filter(Boolean) : [];
+              const countRaw = Number(row?.stock_box_count);
+              const count = Number.isFinite(countRaw) ? countRaw : boxes.length;
+              const tip = boxes.length ? boxes.join(", ") : count ? `${count.toLocaleString()} box(es)` : undefined;
+              return (
+                <span className={`${tableCellClass("text")} cursor-default`} title={tip}>
+                  {loc}
+                  {count ? (<span className="text-slate-500 font-semibold"> ({count.toLocaleString()})</span>) : null}
+                </span>
+              );
+            }
+          : (v) => (
+              <span className={tableCellClass(type)}>{formatInventoryTableCell(type, v)}</span>
+            );
+
       return [
         label,
         key,
-        (v) => (
-          <span className={tableCellClass(type)}>{formatInventoryTableCell(type, v)}</span>
-        ),
+        render,
         { ...(index === 0 ? { fixed: true } : {}), width },
       ];
     });

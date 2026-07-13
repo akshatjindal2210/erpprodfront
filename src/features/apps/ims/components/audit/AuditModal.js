@@ -113,12 +113,19 @@ function getTakenIdsExcludingRow(assignments, currentRowId, field) {
   return taken;
 }
 
-function wrapExcludeFetcher(baseFetch, excludeIds, idKey) {
+function wrapExcludeFetcher(baseFetch, excludeIds, idKey, { excludeNames = [] } = {}) {
   const exclude = excludeIds instanceof Set ? excludeIds : new Set((excludeIds || []).map(String));
+  const names = new Set(
+    (excludeNames || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean)
+  );
   return async (params) => {
     const res = await baseFetch(params);
     const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
-    const filtered = list.filter((item) => !exclude.has(String(item?.[idKey])));
+    const filtered = list.filter((item) => {
+      if (exclude.has(String(item?.[idKey]))) return false;
+      if (names.size && names.has(String(item?.name || "").trim().toLowerCase())) return false;
+      return true;
+    });
     if (Array.isArray(res?.data)) return { ...res, data: filtered };
     if (Array.isArray(res)) return filtered;
     return res;
@@ -159,11 +166,23 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
   const isAdd = mode === "add";
 
   /** Audit creator cannot be assigned — they manage/activate the audit. */
+  const excludeCreatorName = useMemo(() => {
+    if (isEdit) return String(editData?.created_by_name || editData?.created_by || "").trim();
+    return String(currentUser?.name || "").trim();
+  }, [isEdit, editData?.created_by_name, editData?.created_by, currentUser?.name]);
+
   const excludeCreatorUserId = useMemo(() => {
-    if (isEdit && editData?.created_by != null) return Number(editData.created_by);
-    if (currentUser?.id != null) return Number(currentUser.id);
+    if (!isEdit && currentUser?.id != null) return Number(currentUser.id);
+    if (
+      isEdit &&
+      excludeCreatorName &&
+      currentUser?.id != null &&
+      String(currentUser?.name || "").trim().toLowerCase() === excludeCreatorName.toLowerCase()
+    ) {
+      return Number(currentUser.id);
+    }
     return null;
-  }, [isEdit, editData?.created_by, currentUser?.id]);
+  }, [isEdit, excludeCreatorName, currentUser?.id, currentUser?.name]);
   
   const showApproval = canApprove && (isAdd || isEdit);
   const sopPermissionType = isAdd ? "authorize" : isEdit ? "edit" : "add";
@@ -460,7 +479,9 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
                     label="Assigned User"
                     value={row.assigned_user_id}
                     onChange={(id) => handleAssignmentChange(row.row_id, { assigned_user_id: id ?? "" })}
-                    fetchService={wrapExcludeFetcher(fetchAuditUsers, takenUserIds, "id")}
+                    fetchService={wrapExcludeFetcher(fetchAuditUsers, takenUserIds, "id", {
+                      excludeNames: excludeCreatorName ? [excludeCreatorName] : [],
+                    })}
                     getByIdService={(id) => userService.getById(id)}
                     dataKey="id"
                     labelKey="name"

@@ -52,6 +52,10 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   onDropdownOpen,
   /** Fired on hover/focus intent — prefetch options before open. */
   onDropdownIntent,
+  /** Optional per-option class (e.g. muted zero-balance schedule lines). */
+  getOptionClassName,
+  /** Return true to block selecting an option (still shown in list). */
+  isOptionDisabled,
 }) {
   const isToolbar = variant === "toolbar";
   const multiCompactMode = multiple && compactMulti;
@@ -357,7 +361,8 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         setSearch(labelOnlyDisplay ? "" : String(value));
       });
     }
-  }, [value, dataKey, labelKey, labelOnlyDisplay, multiple, open]);
+  // Re-resolve when getById changes (e.g. schedule catalog finished loading on edit).
+  }, [value, dataKey, labelKey, labelOnlyDisplay, multiple, open, getByIdService]);
 
   // 5. Click Outside logic
   useEffect(() => {
@@ -418,14 +423,27 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       subLabelText.toLowerCase() !== String(item[labelKey] ?? "").trim().toLowerCase();
     const rowTitleClass = showSubLabel ? dropdownRowTitleWithDescClass : dropdownRowLabelClass;
 
+    const extraOptionClass =
+      typeof getOptionClassName === "function" ? String(getOptionClassName(item) || "").trim() : "";
+    const optionDisabled =
+      typeof isOptionDisabled === "function" ? Boolean(isOptionDisabled(item)) : false;
+
     return (
       <li
         key={`${keyPrefix}${item[dataKey] ?? idx}`}
-        onClick={() => handleSelect(item)}
+        onClick={() => {
+          if (optionDisabled) return;
+          handleSelect(item);
+        }}
         onMouseEnter={() => !("ontouchstart" in window) && setActiveIndex(idx)}
-        className={`px-3 py-2 cursor-pointer border-b border-slate-50 last:border-0 transition-colors flex flex-col ${
-          activeIndex === idx ? "bg-indigo-50/50" : "hover:bg-slate-50"
-        }`}
+        aria-disabled={optionDisabled || undefined}
+        className={`px-3 py-2 border-b border-slate-50 last:border-0 transition-colors flex flex-col ${
+          optionDisabled
+            ? "cursor-not-allowed opacity-80"
+            : activeIndex === idx
+              ? "cursor-pointer bg-indigo-50/50"
+              : "cursor-pointer hover:bg-slate-50"
+        } ${extraOptionClass}`}
       >
         <div className="flex items-center justify-between">
           <span className={rowTitleClass}>{rowLabel}</span>
@@ -493,6 +511,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   };
 
   const handleSelect = (item) => {
+    if (typeof isOptionDisabled === "function" && isOptionDisabled(item)) return;
     if (multiple) {
       const isSelected = (selected || []).some(s => String(s[dataKey]) === String(item[dataKey]));
       let nextSelected;

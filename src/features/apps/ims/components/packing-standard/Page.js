@@ -1,10 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, Package, RefreshCcw, Edit3, Trash2, CheckCircle, X, Info } from "lucide-react";
+import { Plus, Package, RefreshCcw, Edit3, Trash2, CheckCircle, X } from "lucide-react";
 import { toast } from "react-toastify";
-import dayjs from "dayjs";
-import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
 
 import { formatDateTime } from "@/core/utils/utilHelper";
 import { packingStandardService } from "@/features/apps/ims/services/packingStandard";
@@ -22,24 +20,16 @@ import PackingStandardModal from "@/features/apps/ims/components/packing-standar
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 
-import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 
 export default function PackingStandardPage() {
-  const canAccess = useCanAccess();
-  const viewAccess = useMemo(() => canAccess("packing_standard", "view"), [canAccess]);
-
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
-
-  const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [params, setParams] = useState({
     pageSize: 1000,
     status: "all",
-    fromDate: null,
-    toDate: null,
     sortKey: "standard_id",
     sortDir: "desc",
   });
@@ -49,7 +39,7 @@ export default function PackingStandardPage() {
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState("add"); 
+  const [modalMode, setModalMode] = useState("add");
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
 
@@ -60,8 +50,6 @@ export default function PackingStandardPage() {
         sortBy: params.sortKey || "standard_id",
         order: params.sortDir.toUpperCase(),
         filters: {
-          ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
-          ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
           ...(params.status !== "all" && { approved: params.status === "approved" }),
         },
       };
@@ -77,7 +65,7 @@ export default function PackingStandardPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status]);
+  }, [params.pageSize, params.sortKey, params.sortDir, params.status]);
 
   useEffect(() => {
     fetchPackingStandards();
@@ -104,8 +92,6 @@ export default function PackingStandardPage() {
   const handleFilterApply = (data) => {
     setParams((prev) => ({
       ...prev,
-      fromDate: data.fromDate || null,
-      toDate: data.toDate || null,
       status: data.approvedStatus || prev.status,
     }));
   };
@@ -115,21 +101,19 @@ export default function PackingStandardPage() {
     setParams({
       pageSize: 1000,
       status: "all",
-      fromDate: null,
-      toDate: null,
       sortKey: "standard_id",
       sortDir: "desc",
     });
   };
 
   const extraFilters = useMemo(() => [
-    { 
-      label: "Status", key: "approvedStatus", value: params.status, 
+    {
+      label: "Status", key: "approvedStatus", value: params.status,
       options: [
-        { label: "All Status", value: "all" }, 
-        { label: "Authorized", value: "approved" }, 
+        { label: "All Status", value: "all" },
+        { label: "Authorized", value: "approved" },
         { label: "Pending", value: "pending" }
-      ] 
+      ]
     },
   ], [params.status]);
 
@@ -140,7 +124,7 @@ export default function PackingStandardPage() {
     [filteredRows, selected]
   );
 
-  const { openNewModal, openEditModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
+  const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "packing_standard",
     modalOpen: modalOpen || !!deleteItem,
     selectedId: selected,
@@ -200,7 +184,7 @@ export default function PackingStandardPage() {
         </span>
       );
     }, { width: "90px", align: "right" }],
-    ["Category", "category_name", (v, row) => (
+    ["Category", "category_name", (v) => (
       <div className="flex flex-col leading-tight">
         <span className="text-[10px] font-bold text-slate-600 uppercase">{v || "—"}</span>
       </div>
@@ -228,7 +212,7 @@ export default function PackingStandardPage() {
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
-        
+
         <ListPageToolbar>
           <ListPageToolbarLayout
             actions={
@@ -265,19 +249,15 @@ export default function PackingStandardPage() {
         </ListPageToolbar>
 
         <ListPageFilterStrip>
-          <DateRangeFilter 
-            key={`${params.fromDate}-${params.toDate}`}
-            fromDate={params.fromDate} 
-            toDate={params.toDate} 
-            extraFilters={extraFilters} 
-            onApply={handleFilterApply} 
+          <DateRangeFilter
+            showDate={false}
+            extraFilters={extraFilters}
+            onApply={handleFilterApply}
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             searchPlaceholder="Search item..."
             searchLabel="Search Standard"
-            minDate={dateFilterDefaults.minDate}
-            maxDate={dateFilterDefaults.maxDate}
           />
         </ListPageFilterStrip>
 
@@ -323,4 +303,3 @@ export default function PackingStandardPage() {
     </div>
   );
 }
-

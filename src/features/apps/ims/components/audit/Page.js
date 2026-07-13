@@ -195,8 +195,8 @@ export default function AuditPage() {
   }, [params.pageSize, params.status, params.authorization, appliedSearch]);
 
   const flattenContext = useMemo(
-    () => ({ userId: currentUser?.id, isSuperAdmin, canManageAudit }),
-    [currentUser?.id, isSuperAdmin, canManageAudit]
+    () => ({ userId: currentUser?.id, userName: currentUser?.name, isSuperAdmin, canManageAudit }),
+    [currentUser?.id, currentUser?.name, isSuperAdmin, canManageAudit]
   );
 
   const locationListFilters = useMemo(
@@ -494,10 +494,12 @@ export default function AuditPage() {
     const isSuperAdmin = currentRole?.toLowerCase() === "super_admin";
     if (selectedRecord.status === "verified" && !isSuperAdmin) return false;
 
-    const isCreator = Number(selectedRecord.created_by) === Number(currentUser?.id);
+    const isCreator =
+      String(selectedRecord.created_by_name || selectedRecord.created_by || "").trim().toLowerCase() ===
+      String(currentUser?.name || "").trim().toLowerCase();
 
     return isSuperAdmin || editAccess?.allowed || authorizeAccess?.allowed || isCreator;
-  }, [isLocationView, selectedLocationRow, selectedRecord, currentRole, currentUser?.id, editAccess, authorizeAccess]);
+  }, [isLocationView, selectedLocationRow, selectedRecord, currentRole, currentUser?.name, editAccess, authorizeAccess]);
 
   const canReopenLocation = useMemo(() => {
     if (!canManageLocation || !selectedLocationRow) return false;
@@ -530,14 +532,16 @@ export default function AuditPage() {
     const audit = auditById.get(Number(row.audit_id));
     if (!audit || row.is_history_row || audit.status === "cancelled") return false;
     if (audit.status === "verified" && currentRole?.toLowerCase() !== "super_admin") return false;
-    const isCreator = Number(audit.created_by) === Number(currentUser?.id);
+    const isCreator =
+      String(audit.created_by_name || audit.created_by || "").trim().toLowerCase() ===
+      String(currentUser?.name || "").trim().toLowerCase();
     return (
       currentRole?.toLowerCase() === "super_admin" ||
       editAccess?.allowed ||
       authorizeAccess?.allowed ||
       isCreator
     );
-  }, [comparisonContext, auditById, currentRole, currentUser?.id, editAccess, authorizeAccess]);
+  }, [comparisonContext, auditById, currentRole, currentUser?.name, editAccess, authorizeAccess]);
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>

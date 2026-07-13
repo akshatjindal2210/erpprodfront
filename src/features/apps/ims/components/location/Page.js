@@ -7,8 +7,6 @@ import { toast } from "react-toastify";
 import { formatDateTime } from "@/core/utils/utilHelper";
 import { locationService } from "@/features/apps/ims/services/location";
 import { useViewMode } from "@/core/hooks/useViewMode";
-import dayjs from "dayjs";
-import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
 
 // Components
@@ -25,24 +23,16 @@ import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import LocationQRDrawer from "./LocationQRDrawer";
 import LocationBulkQRDrawer from "./LocationBulkQRDrawer";
 
-import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
 
 export default function LocationMasterPage() {
-  const canAccess = useCanAccess();
-  const viewAccess = useMemo(() => canAccess("location_master", "view"), [canAccess]);
-
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
-
-  const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [params, setParams] = useState({
     pageSize: 1000,
     status: "all",
-    fromDate: null,
-    toDate: null,
     sortKey: "location_id",
     sortDir: "desc",
   });
@@ -67,8 +57,6 @@ export default function LocationMasterPage() {
         sortBy: params.sortKey || "location_id",
         order: params.sortDir.toUpperCase(),
         filters: {
-          ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
-          ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
           ...(params.status !== "all" && { approved: params.status === "approved" }),
         },
       };
@@ -85,7 +73,7 @@ export default function LocationMasterPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.fromDate, params.toDate, params.status]);
+  }, [params.pageSize, params.sortKey, params.sortDir, params.status]);
 
   useEffect(() => {
     fetchLocations();
@@ -112,8 +100,6 @@ export default function LocationMasterPage() {
   const handleFilterApply = (data) => {
     setParams((prev) => ({
       ...prev,
-      fromDate: data.fromDate || null,
-      toDate: data.toDate || null,
       status: data.approvedStatus || prev.status,
     }));
   };
@@ -123,8 +109,6 @@ export default function LocationMasterPage() {
     setParams({
       pageSize: 1000,
       status: "all",
-      fromDate: null,
-      toDate: null,
       sortKey: "location_id",
       sortDir: "desc",
     });
@@ -305,9 +289,7 @@ export default function LocationMasterPage() {
 
         <ListPageFilterStrip>
           <DateRangeFilter
-            key={`${params.fromDate}-${params.toDate}`}
-            fromDate={params.fromDate}
-            toDate={params.toDate}
+            showDate={false}
             extraFilters={extraFilters}
             onApply={handleFilterApply}
             onReset={handleReset}
@@ -315,8 +297,6 @@ export default function LocationMasterPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search rack, ledger, item..."
             searchLabel="Search Database"
-            minDate={dateFilterDefaults.minDate}
-            maxDate={dateFilterDefaults.maxDate}
           />
         </ListPageFilterStrip>
 

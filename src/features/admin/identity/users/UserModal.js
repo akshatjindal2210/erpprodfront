@@ -90,6 +90,7 @@ const EMPTY_FORM = {
     ims: {
       inventory_out: false,
       inventory_approve: false,
+      direct_forwarding_note: false,
     },
   },
 };
@@ -133,7 +134,7 @@ function normalizedUserPayload(user) {
     designation_id: user.designation_id ?? user.designation?.id ?? "",
     special_permissions: (typeof user.special_permissions === 'string' 
       ? JSON.parse(user.special_permissions) 
-      : user.special_permissions) ?? { ims: { inventory_out: false, inventory_approve: false } },
+      : user.special_permissions) ?? { ims: { inventory_out: false, inventory_approve: false, direct_forwarding_note: false } },
   };
   const snapshot = { auth: snapAuth, usercode: snapUc };
   let erpPickKey = "";
@@ -1353,6 +1354,32 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
                       className="text-sm font-bold text-slate-700 cursor-pointer select-none uppercase tracking-tight"
                     >
                       Inventory Approve
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2 px-1 mt-2">
+                    <input
+                      id="direct-fn-perm"
+                      type="checkbox"
+                      checked={form.special_permissions?.ims?.direct_forwarding_note || false}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          special_permissions: {
+                            ...prev.special_permissions,
+                            ims: {
+                              ...prev.special_permissions?.ims,
+                              direct_forwarding_note: e.target.checked,
+                            },
+                          },
+                        }))
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <label
+                      htmlFor="direct-fn-perm"
+                      className="text-sm font-bold text-slate-700 cursor-pointer select-none uppercase tracking-tight"
+                    >
+                      Direct Forwarding Note
                     </label>
                   </div>
                 </>

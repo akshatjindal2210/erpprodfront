@@ -10,6 +10,8 @@ const BUTTON_VARIANTS = {
     "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
   accent:
     "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+  solid:
+    "!rounded-lg border border-blue-600 bg-blue-600 text-white shadow-sm hover:bg-blue-700 hover:border-blue-700",
 };
 
 const GROUPED_BTN_CLASS =
@@ -23,11 +25,19 @@ export default function ExportMenu({
   className = "",
   variant = "default",
   grouped = false,
+  showLabel = "auto",
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const formats = listTableExportFormats();
   const buttonVariantClass = BUTTON_VARIANTS[variant] || BUTTON_VARIANTS.default;
+  const isSolid = variant === "solid";
+  const labelVisible = showLabel === true || showLabel === "always";
+  const labelClass = labelVisible
+    ? "inline normal-case tracking-normal"
+    : "hidden lg:inline normal-case tracking-normal";
+  const iconTone = isSolid ? "text-white/90" : "text-slate-500";
+  const chevronTone = isSolid ? "text-white/80" : "text-slate-400";
 
   useEffect(() => {
     if (!open) return;
@@ -47,7 +57,7 @@ export default function ExportMenu({
 
   const buttonClass = grouped
     ? `${GROUPED_BTN_CLASS} ${open ? "bg-slate-50 text-slate-800" : ""}`
-    : `${LIST_PAGE_ACTION_CLASS} h-9 min-w-[96px] px-3 flex items-center justify-center gap-1.5 disabled:opacity-50 ${buttonVariantClass}`;
+    : `${LIST_PAGE_ACTION_CLASS} h-9 min-w-[96px] px-3 flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors ${buttonVariantClass}`;
 
   return (
     <div className={`relative shrink-0 self-stretch flex ${className}`.trim()} ref={rootRef}>
@@ -61,14 +71,14 @@ export default function ExportMenu({
         title="Export table"
       >
         {exporting ? (
-          <Loader2 size={15} className="shrink-0 animate-spin text-slate-500" aria-hidden />
+          <Loader2 size={15} className={`shrink-0 animate-spin ${iconTone}`} aria-hidden />
         ) : (
-          <Download size={15} className="shrink-0 text-slate-500" aria-hidden />
+          <Download size={15} className={`shrink-0 ${iconTone}`} aria-hidden />
         )}
-        <span className="hidden lg:inline normal-case tracking-normal">{label}</span>
+        <span className={labelClass}>{label}</span>
         <ChevronDown
           size={13}
-          className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`shrink-0 ${chevronTone} transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden
         />
       </button>

@@ -55,8 +55,8 @@ export default function DispatchRejectModal({ open, item, onClose, onSaved }) {
         action_reason: actionReason,
         item_remark: remark.trim() || null,
       });
-      if (!res?.success) throw new Error(res?.message || "Reject failed.");
-      toast.success("Item marked as reject.");
+      if (!res?.success) throw new Error(res?.message || "Could not reject this item.");
+      toast.success("Item rejected successfully.");
       onSaved?.();
       handleClose();
     } catch (err) {

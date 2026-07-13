@@ -44,12 +44,12 @@ export default function DispatchCompleteModal({ open, item, onClose, onSaved }) 
         totalqty: Number(item.totalqty ?? item.total_qty ?? item.balance_qty ?? 0),
         item_remark: item?.item_remark ? String(item.item_remark) : null,
       });
-      if (!res?.success) throw new Error(res?.message || "Complete failed.");
-      toast.success("Item marked as complete.");
+      if (!res?.success) throw new Error(res?.message || "Could not mark this item as complete.");
+      toast.success("Item marked as complete successfully.");
       onSaved?.();
       onClose?.();
     } catch (err) {
-      toast.error(err?.message || "Failed to mark as complete.");
+      toast.error(err?.message || "Failed to mark item as complete.");
     } finally {
       setSaving(false);
     }
