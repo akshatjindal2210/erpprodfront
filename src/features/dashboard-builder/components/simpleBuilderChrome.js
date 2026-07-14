@@ -34,12 +34,29 @@ export const RESIZE_HANDLE_STYLES = {
   topLeft: { ...RESIZE_HANDLE_STYLE, top: "-1px", left: "-1px", cursor: "nwse-resize" },
 };
 
+/** Hide handles without disableResizing — that can break Rnd pointer hit-testing. */
+export function resizeHandleStylesForSelection(isSelected) {
+  if (isSelected) return RESIZE_HANDLE_STYLES;
+  const hidden = {};
+  Object.keys(RESIZE_HANDLE_STYLES).forEach((key) => {
+    hidden[key] = {
+      ...RESIZE_HANDLE_STYLES[key],
+      opacity: 0,
+      pointerEvents: "none",
+      width: 0,
+      height: 0,
+    };
+  });
+  return hidden;
+}
+
 export function selectionStyle(isSelected, isContainer = false) {
   if (!isSelected) return {};
   return {
     outline: "2px solid #3b82f6",
     outlineOffset: 0,
     borderRadius: isContainer ? 8 : 6,
+    boxShadow: "0 0 0 1px rgba(59, 130, 246, 0.25)",
   };
 }
 

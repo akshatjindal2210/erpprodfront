@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area, Legend } from "recharts";
 import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Copy, GripVertical, Pencil, Search, Trash2, X } from "lucide-react";
 import { toast } from "react-toastify";
@@ -41,6 +41,54 @@ const resolveKpiLabelFontPx = (style = {}) => {
   if (Number.isFinite(fallback) && fallback >= 8 && fallback <= 12) return fallback;
   return 10;
 };
+
+/**
+ * Recharts ResponsiveContainer warns width/height -1 when the parent is not measurable yet
+ * (floating builder scale / nested layout first paint). Mount the chart only after we have size.
+ */
+function ChartResponsiveContainer({ children }) {
+  const hostRef = useRef(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useLayoutEffect(() => {
+    const node = hostRef.current;
+    if (!node) return undefined;
+
+    const measure = () => {
+      const width = Math.max(0, Math.floor(node.clientWidth || 0));
+      const height = Math.max(0, Math.floor(node.clientHeight || 0));
+      setSize((prev) => (
+        prev.width === width && prev.height === height ? prev : { width, height }
+      ));
+    };
+
+    measure();
+    const raf = window.requestAnimationFrame(measure);
+    if (typeof ResizeObserver === "undefined") {
+      return () => window.cancelAnimationFrame(raf);
+    }
+    const ro = new ResizeObserver(() => {
+      window.requestAnimationFrame(measure);
+    });
+    ro.observe(node);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, []);
+
+  const ready = size.width > 1 && size.height > 1;
+
+  return (
+    <div ref={hostRef} className="h-full w-full min-h-0 min-w-0 overflow-hidden">
+      {ready ? (
+        <ResponsiveContainer width={size.width} height={size.height} minWidth={0} minHeight={0}>
+          {children}
+        </ResponsiveContainer>
+      ) : null}
+    </div>
+  );
+}
 
 const renderTitleOnlyKpi = (label, style = {}, alignClass = "items-center text-center") => {
   const labelFontPx = resolveKpiLabelFontPx(style);
@@ -736,11 +784,9 @@ const WidgetRenderer = ({
       : [style.color || "#3b82f6", "#60a5fa", "#93c5fd", "#1d4ed8", "#34d399", "#f59e0b", "#f43f5e", "#a855f7"];
     const tickFill = style.color || "#64748b";
     const wrapChart = (chart) => (
-      <div className="h-full w-full min-h-0 min-w-0 overflow-hidden">
-        <ResponsiveContainer width="100%" height="100%">
-          {chart}
-        </ResponsiveContainer>
-      </div>
+      <ChartResponsiveContainer>
+        {chart}
+      </ChartResponsiveContainer>
     );
 
     if (type === "bar") {
@@ -1039,8 +1085,8 @@ const WidgetRenderer = ({
 
   return (
     <div
-      className={`h-full w-full flex flex-col transition-all ${
-        isContainer && readOnly ? "overflow-visible" : "overflow-hidden"
+      className={`h-full w-full min-w-0 max-w-full flex flex-col transition-all ${
+        isContainer && readOnly ? "overflow-x-hidden overflow-y-visible" : "overflow-hidden"
       } ${
         isHeading ? "border-0 shadow-none" : "border border-slate-200/80 shadow-sm hover:shadow-md"
       }`}
@@ -1058,7 +1104,7 @@ const WidgetRenderer = ({
           <span className="truncate w-full">{displayTitle}</span>
         </div>
       )}
-      <div className={`flex-1 min-h-0 ${isContainer ? "overflow-visible" : "overflow-hidden"}`}>{renderContent()}</div>
+      <div className={`flex-1 min-h-0 min-w-0 max-w-full ${isContainer ? "overflow-x-hidden overflow-y-visible" : "overflow-hidden"}`}>{renderContent()}</div>
       {showHeader && titlePosition === "bottom" && (
         <div
           className={`shrink-0 border-t border-slate-100/80 font-bold flex items-center ${titleAlignClass}`}

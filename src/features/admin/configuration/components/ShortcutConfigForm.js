@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Plus, Trash2, ArrowUp, ArrowDown, Settings, Link as LinkIcon, ChevronDown, Store, Box, Truck, Users as UsersIcon, FileText, Home, Zap, Package, Database, FileSearch, BarChart3, Map, Boxes, 
   ClipboardCheck, Locate, ClipboardList, Scale, Sticker, History, ShieldAlert, Activity, Clock, Briefcase, Calendar, Cloud, Filter,
   Flag, Folder, Layers, LifeBuoy, PieChart, Printer, ShoppingCart, Tag, Target, Toolbox, Wrench, Hammer, Wallet, X, Check, User, Users, Edit3, RefreshCcw
@@ -341,8 +341,16 @@ export default function ShortcutConfigForm() {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [selected, setSelected] = useState(null);
+  const pendingActionRef = useRef(null);
+  const hasUnsavedChangesRef = useRef(false);
+  const handleSaveAllRef = useRef(null);
+
+  useEffect(() => {
+    hasUnsavedChangesRef.current = hasUnsavedChanges;
+  }, [hasUnsavedChanges]);
 
   const appPagesMap = useMemo(() => {
     const map = {
@@ -439,7 +447,7 @@ export default function ShortcutConfigForm() {
     setHasUnsavedChanges(true);
   };
 
-  const handleSaveAll = async (e) => {
+  const handleSaveAll = useCallback(async (e) => {
     if (e) e.preventDefault();
     setSaving(true);
     try {
@@ -447,15 +455,83 @@ export default function ShortcutConfigForm() {
       if (res?.success) {
         toast.success("Configuration saved");
         setHasUnsavedChanges(false);
-      } else {
-        throw new Error(res?.message || "Failed to save");
+        return true;
       }
+      throw new Error(res?.message || "Failed to save");
     } catch (err) {
       toast.error(err?.message || "Save failed");
+      return false;
     } finally {
       setSaving(false);
     }
-  };
+  }, [shortcuts]);
+
+  useEffect(() => {
+    handleSaveAllRef.current = handleSaveAll;
+  }, [handleSaveAll]);
+
+  const runPendingAction = useCallback(() => {
+    const action = pendingActionRef.current;
+    pendingActionRef.current = null;
+    setShowUnsavedModal(false);
+    if (typeof action === "function") action();
+  }, []);
+
+  const handleUnsavedSave = useCallback(async () => {
+    const saved = await handleSaveAllRef.current?.();
+    if (saved) runPendingAction();
+  }, [runPendingAction]);
+
+  const handleUnsavedLeave = useCallback(() => {
+    setHasUnsavedChanges(false);
+    runPendingAction();
+  }, [runPendingAction]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const mod = event.ctrlKey || event.metaKey;
+      if (!mod || event.shiftKey || event.altKey) return;
+      if (String(event.key || "").toLowerCase() !== "s") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!hasUnsavedChangesRef.current) {
+        toast.info("No changes to save");
+        return;
+      }
+      handleSaveAllRef.current?.();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return undefined;
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return undefined;
+    const handleDocumentClick = (event) => {
+      const anchor = event.target.closest?.("a[href]");
+      if (!anchor || anchor.target === "_blank") return;
+      const href = String(anchor.getAttribute("href") || "").trim();
+      if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+      if (href === window.location.pathname + window.location.search) return;
+      event.preventDefault();
+      event.stopPropagation();
+      pendingActionRef.current = () => {
+        window.location.href = href;
+      };
+      setShowUnsavedModal(true);
+    };
+    document.addEventListener("click", handleDocumentClick, true);
+    return () => document.removeEventListener("click", handleDocumentClick, true);
+  }, [hasUnsavedChanges]);
 
   if (loading) return <AppConfigFormLoading />;
 
@@ -595,6 +671,54 @@ export default function ShortcutConfigForm() {
         shortcuts={shortcuts}
         editingId={editingId}
       />
+
+      {showUnsavedModal && (
+        <>
+          <button
+            type="button"
+            aria-label="Close unsaved changes dialog"
+            className="fixed inset-0 z-[110] bg-slate-900/30"
+            onClick={() => {
+              pendingActionRef.current = null;
+              setShowUnsavedModal(false);
+            }}
+          />
+          <div className="fixed left-1/2 top-1/2 z-[120] w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white p-4 shadow-2xl">
+            <p className="text-sm font-bold text-slate-800">Unsaved shortcut changes</p>
+            <p className="mt-2 text-xs text-slate-500 leading-relaxed">
+              Do you want to save your changes before leaving, leave without saving, or stay on this page?
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleUnsavedSave}
+                disabled={saving}
+                className="flex-1 min-w-[100px] rounded-md bg-indigo-600 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={handleUnsavedLeave}
+                disabled={saving}
+                className="flex-1 min-w-[100px] rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-rose-600 hover:bg-rose-100 disabled:opacity-50"
+              >
+                Leave
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  pendingActionRef.current = null;
+                  setShowUnsavedModal(false);
+                }}
+                className="flex-1 min-w-[100px] rounded-md border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:bg-slate-50"
+              >
+                Stay
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

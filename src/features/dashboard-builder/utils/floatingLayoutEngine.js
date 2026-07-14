@@ -323,6 +323,10 @@ export function boxWithId(id, raw = {}) {
   return { i: key, ...normalizeBox(raw) };
 }
 
+/** Soft elevation presets available from Style → Shadow in the builder. */
+export const DEFAULT_WIDGET_BOX_SHADOW = "0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.08)";
+export const STRONG_WIDGET_BOX_SHADOW = "0 4px 14px rgba(15, 23, 42, 0.12), 0 1px 3px rgba(15, 23, 42, 0.08)";
+
 /** Build inline CSS object from saved widget style only (preview parity). */
 export function savedStyleToCss(style = {}, { isContainer = false } = {}) {
   const s = style && typeof style === "object" ? style : {};
@@ -334,7 +338,10 @@ export function savedStyleToCss(style = {}, { isContainer = false } = {}) {
   if (s.fontFamily) css.fontFamily = s.fontFamily;
   if (Number.isFinite(Number(s.borderRadius))) css.borderRadius = `${Number(s.borderRadius)}px`;
   if (s.border) css.border = s.border;
-  if (s.boxShadow) css.boxShadow = s.boxShadow;
+  // Only apply shadow when user explicitly set it in Style panel (no default).
+  if (s.boxShadow && s.boxShadow !== "none") {
+    css.boxShadow = s.boxShadow;
+  }
   const pad = Number.isFinite(Number(s.padding)) ? Number(s.padding) : null;
   if (pad != null) css.padding = `${pad}px`;
   if (Number.isFinite(Number(s.paddingTop))) css.paddingTop = `${Number(s.paddingTop)}px`;

@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Rnd } from "react-rnd";
 import WidgetRenderer from "./WidgetRenderer";
 import {
   HANDLE_STYLES,
-  RESIZE_HANDLE_STYLES,
+  resizeHandleStylesForSelection,
   selectionStyle,
   SimpleWidgetToolbar,
 } from "./simpleBuilderChrome";
@@ -21,6 +22,7 @@ import {
   savedStyleToCss,
   sanitizeNestedLayoutPx,
 } from "../utils/floatingLayoutEngine";
+import { getWidgetClickUrl, navigateWidgetClickUrl, shouldIgnoreWidgetLinkClick, widgetHasClickLink } from "../utils/widgetClickLink";
 
 const CANCEL_SELECTOR = ".simple-no-drag, button, a, input, textarea, select";
 
@@ -43,6 +45,7 @@ export default function SimpleNestedCanvas({
   dragScale = 1,
   isPhoneMode = false,
 }) {
+  const router = useRouter();
   // canvasScale remaps design→view when needed; keep 1 when parent CSS-scales the tree.
   const scale = Number(canvasScale) > 0 ? Number(canvasScale) : 1;
   // Parent SimpleBuilderCanvas applies CSS transform:scale(fitScale) — Rnd must match it
@@ -182,9 +185,12 @@ export default function SimpleNestedCanvas({
         delete css.marginLeft;
 
         if (readOnly) {
+          const clickable = widgetHasClickLink(child);
           return (
             <div
               key={String(child.id)}
+              role={clickable ? "link" : undefined}
+              tabIndex={clickable ? 0 : undefined}
               style={{
                 ...boxToInlineStyle(viewBox),
                 ...css,
@@ -193,6 +199,19 @@ export default function SimpleNestedCanvas({
                 overflow: "hidden",
                 margin: 0,
                 padding: 0,
+                cursor: clickable ? "pointer" : undefined,
+              }}
+              onClick={(e) => {
+                if (!clickable) return;
+                if (shouldIgnoreWidgetLinkClick(e)) return;
+                e.stopPropagation();
+                navigateWidgetClickUrl(getWidgetClickUrl(child), router);
+              }}
+              onKeyDown={(e) => {
+                if (!clickable) return;
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                navigateWidgetClickUrl(getWidgetClickUrl(child), router);
               }}
             >
               <WidgetRenderer widget={child} readOnly nested designParity={false} pureSavedStyle suppressChrome isPhoneMode={isPhoneMode} />
@@ -210,7 +229,7 @@ export default function SimpleNestedCanvas({
             minWidth={Math.max(40, mins.width * 0.5 * scale)}
             minHeight={Math.max(32, mins.height * 0.5 * scale)}
             enableResizing={HANDLE_STYLES}
-            resizeHandleStyles={RESIZE_HANDLE_STYLES}
+            resizeHandleStyles={resizeHandleStylesForSelection(isSelected)}
             cancel={CANCEL_SELECTOR}
             style={{
               ...css,
@@ -219,6 +238,7 @@ export default function SimpleNestedCanvas({
               overflow: "visible",
               margin: 0,
               padding: 0,
+              boxShadow: selectionStyle(isSelected, false).boxShadow || css.boxShadow,
             }}
             onDragStart={() => onSelectWidget?.(child.id)}
             onDrag={(_e, d) => {
@@ -255,18 +275,18 @@ export default function SimpleNestedCanvas({
                 height: ref.offsetHeight,
               });
             }}
-            onMouseDown={(e) => {
-              e.stopPropagation();
-              onSelectWidget?.(child.id);
-            }}
-            onClick={(e) => e.stopPropagation()}
           >
-            <SimpleWidgetToolbar
-              onEdit={(e) => { e.stopPropagation(); onSelectWidget?.(child.id); }}
-              onClone={(e) => { e.stopPropagation(); onCloneChildWidget?.(containerId, child); }}
-              onDelete={(e) => { e.stopPropagation(); onDeleteWidget?.(child); }}
-            />
-            <div className="h-full w-full min-h-0 min-w-0 overflow-hidden">
+            {isSelected ? (
+              <SimpleWidgetToolbar
+                onEdit={(e) => { e.stopPropagation(); onSelectWidget?.(child.id); }}
+                onClone={(e) => { e.stopPropagation(); onCloneChildWidget?.(containerId, child); }}
+                onDelete={(e) => { e.stopPropagation(); onDeleteWidget?.(child); }}
+              />
+            ) : null}
+            <div
+              data-widget-id={String(child.id)}
+              className="h-full w-full min-h-0 min-w-0 overflow-hidden"
+            >
               <WidgetRenderer widget={child} readOnly={false} nested designParity={false} pureSavedStyle suppressChrome isPhoneMode={isPhoneMode} />
             </div>
           </Rnd>

@@ -263,6 +263,7 @@ function mergeWidgetStyle(rawType, chartConfig = {}) {
     bg: cfg.bg ?? defaults.bg,
     fontSize: cfg.fontSize ?? defaults.fontSize,
     borderRadius: cfg.borderRadius ?? defaults.borderRadius,
+    boxShadow: cfg.boxShadow ?? defaults.boxShadow,
     contentAlign: cfg.contentAlign ?? defaults.contentAlign,
     fontFamily: cfg.fontFamily ?? defaults.fontFamily,
     padding: cfg.padding ?? defaults.padding,
@@ -359,10 +360,15 @@ function chartConfigFromWidgetStyle(widget = {}) {
     bg: widget.style?.bg,
     fontSize: widget.style?.fontSize,
     borderRadius: widget.style?.borderRadius,
+    boxShadow: widget.style?.boxShadow,
     fontFamily: widget.style?.fontFamily || "inherit",
     ...spacingConfigFromWidgetStyle(widget, defaults),
     data_source: widget.dataSource || "ims_postgresql",
     erp_filter: widget.erpFilter && typeof widget.erpFilter === "object" ? widget.erpFilter : {},
+    link_type: widget.linkType || "NONE",
+    link_url: widget.linkUrl || "",
+    link_app_id: widget.linkAppId || "",
+    link_page_id: widget.linkPageId || "",
     section_id: widget.containerId || widget.sectionId || null,
     container_preset: widget.containerPreset || "full",
     layout_locked: widget.layoutLocked === true || hasManualWidgetLayout(widget),
@@ -537,6 +543,10 @@ const normalizeWidgetForDashboardJson = (widget = {}, resolvedLayout = {}, { per
     isActive: widget.is_active !== false,
     targetPageKey: widget.targetPageKey || "dashboard",
     targetPageModule: widget.targetPageModule || null,
+    linkType: widget.linkType || "NONE",
+    linkUrl: widget.linkUrl || "",
+    linkAppId: widget.linkAppId || "",
+    linkPageId: widget.linkPageId || "",
   };
 };
 const GRID_COLS = 12;
@@ -721,6 +731,10 @@ function buildStateFingerprint(widgets = [], layout = [], mobileLayout = []) {
       targetUserIds: Array.isArray(widget.targetUserIds) ? widget.targetUserIds : [],
       targetPageKey: String(widget.targetPageKey || "dashboard"),
       targetPageModule: widget.targetPageModule || null,
+      linkType: String(widget.linkType || "NONE"),
+      linkUrl: String(widget.linkUrl || ""),
+      linkAppId: String(widget.linkAppId || ""),
+      linkPageId: String(widget.linkPageId || ""),
       deviceTarget: normalizeWidgetDeviceTarget(widget.deviceTarget),
       emptyText: String(widget.emptyText || ""),
       tableSearchEnabled: widget.tableSearchEnabled === true,
@@ -738,7 +752,11 @@ function buildStateFingerprint(widgets = [], layout = [], mobileLayout = []) {
 }
 
 function cloneBuilderSnapshot(widgetsState = [], layoutState = [], mobileLayoutState = []) {
-  const widgets = JSON.parse(JSON.stringify(widgetsState));
+  // Strip heavy runtime data so style edits (colors) don't freeze the UI while cloning history.
+  const widgets = JSON.parse(JSON.stringify(widgetsState, (key, value) => {
+    if (key === "data" || key === "previewData" || key === "error" || key === "previewError") return undefined;
+    return value;
+  }));
   const layout = JSON.parse(JSON.stringify(layoutState));
   const mobileLayout = JSON.parse(JSON.stringify(mobileLayoutState));
   return {
@@ -1211,6 +1229,21 @@ export default function DashboardBuilder({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [readOnly, handleUndo, handleRedo]);
 
+  useEffect(() => {
+    if (readOnly) return undefined;
+    const clearDragHack = () => {
+      try {
+        document.body?.classList?.remove?.("react-draggable-transparent-selection");
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("blur", clearDragHack);
+    return () => {
+      window.removeEventListener("blur", clearDragHack);
+    };
+  }, [readOnly]);
+
   // Save / Publish hotkeys — handlers assigned later via ref (must stay above early returns).
   const builderSavePublishHotkeysRef = useRef({ save: null, publish: null });
 
@@ -1424,6 +1457,14 @@ export default function DashboardBuilder({
       mobilePaddingBottom: chartConfig.mobile_padding_bottom ?? 8,
       targetPageKey: row?.target_page_key || row?.targetPageKey || "dashboard",
       targetPageModule: row?.target_page_module || row?.targetPageModule || null,
+      linkType: String(chartConfig.link_type || row?.linkType || "NONE").toUpperCase() === "APP"
+        ? "APP"
+        : String(chartConfig.link_type || row?.linkType || "NONE").toUpperCase() === "URL"
+          ? "URL"
+          : "NONE",
+      linkUrl: String(chartConfig.link_url || row?.linkUrl || "").trim(),
+      linkAppId: String(chartConfig.link_app_id || row?.linkAppId || "").trim(),
+      linkPageId: String(chartConfig.link_page_id || row?.linkPageId || "").trim(),
       deviceTarget: normalizeWidgetDeviceTarget(row?.device_target || row?.deviceTarget),
       layout: normalizeLayoutItem(
         enforceLayoutByType(rawType, row.layout && typeof row.layout === "object" ? row.layout : {}),
@@ -2837,6 +2878,10 @@ export default function DashboardBuilder({
       is_active: true,
       targetPageKey: getDefaultPageKeyForApp(targetAppKey, canAccess, role),
       targetPageModule: null,
+      linkType: "NONE",
+      linkUrl: "",
+      linkAppId: "",
+      linkPageId: "",
     };
 
     if (isPhoneBuilderMode && USE_FLOATING_BUILDER) {
@@ -3034,6 +3079,10 @@ export default function DashboardBuilder({
           is_active: true,
           targetPageKey: getDefaultPageKeyForApp(targetAppKey, canAccess, role),
           targetPageModule: null,
+          linkType: "NONE",
+          linkUrl: "",
+          linkAppId: "",
+          linkPageId: "",
           mobileLayout: mobileNestedItem,
         };
 
@@ -3102,6 +3151,10 @@ export default function DashboardBuilder({
         is_active: true,
         targetPageKey: getDefaultPageKeyForApp(targetAppKey, canAccess, role),
         targetPageModule: null,
+        linkType: "NONE",
+        linkUrl: "",
+        linkAppId: "",
+        linkPageId: "",
         ...(mobileNestedItem ? { mobileLayout: mobileNestedItem } : {}),
       };
 
@@ -4195,6 +4248,14 @@ export default function DashboardBuilder({
               layoutLocked: widgetForSave.layoutLocked === true || saved?.chart_config?.layout_locked === true,
               targetPageKey: saved?.target_page_key || widgetForSave.targetPageKey || "dashboard",
               targetPageModule: saved?.target_page_module || widgetForSave.targetPageModule || null,
+              linkType: String(saved?.chart_config?.link_type || widgetForSave.linkType || "NONE").toUpperCase() === "APP"
+                ? "APP"
+                : String(saved?.chart_config?.link_type || widgetForSave.linkType || "NONE").toUpperCase() === "URL"
+                  ? "URL"
+                  : "NONE",
+              linkUrl: String(saved?.chart_config?.link_url || widgetForSave.linkUrl || "").trim(),
+              linkAppId: String(saved?.chart_config?.link_app_id || widgetForSave.linkAppId || "").trim(),
+              linkPageId: String(saved?.chart_config?.link_page_id || widgetForSave.linkPageId || "").trim(),
               deviceTarget: normalizeWidgetDeviceTarget(saved?.device_target || widgetForSave.deviceTarget),
               layout: resolvedDesktopLayout,
               mobileLayout: resolvedMobileLayout,
@@ -5596,7 +5657,7 @@ export default function DashboardBuilder({
       embedMode
         ? "min-h-0"
         : readOnly
-          ? "w-full min-h-0"
+          ? "w-full min-h-0 min-w-0 overflow-x-hidden"
           : "flex-1 h-full min-h-0 w-full overflow-hidden"
     } bg-[#f8fafc] font-sans`}>
       {!readOnly && builderNotice ? (
@@ -5617,7 +5678,7 @@ export default function DashboardBuilder({
         embedMode
           ? "w-full"
           : readOnly
-            ? "w-full flex flex-col min-w-0 overflow-visible"
+            ? "w-full flex flex-col min-w-0 overflow-x-hidden"
             : "flex-1 flex flex-col overflow-hidden min-w-0"
       }`}>
         {!readOnly && (
@@ -6028,12 +6089,12 @@ export default function DashboardBuilder({
         <div
           ref={canvasContainerRef}
           data-dashboard-canvas-host
-          className={`relative z-0 w-full ${
+          className={`relative z-0 w-full min-w-0 ${
             embedMode
               ? "max-h-[480px] overflow-auto"
               : readOnly
                 ? "overflow-x-hidden overflow-y-auto"
-                : "flex-1 overflow-auto"
+                : "flex-1 overflow-x-auto overflow-y-auto"
           } ${
             readOnly
               ? isPhoneView
@@ -6044,12 +6105,13 @@ export default function DashboardBuilder({
         >
           <div
             style={readOnly ? undefined : { minHeight: "100%" }}
-            className={`w-full max-w-full ${isPhonePreviewFrame ? "flex justify-center py-3" : ""}`}
-            onClick={() => {
-              if (!readOnly && !isCanvasLocked) {
-                setSelectedWidgetId(null);
-              }
-            }}
+            className={`${
+              isPhonePreviewFrame
+                ? "flex justify-center py-3 w-full max-w-full"
+                : readOnly
+                  ? "w-full max-w-full"
+                  : "w-max min-w-full"
+            }`}
           >
             {gridReady ? (
             <div
@@ -6060,7 +6122,9 @@ export default function DashboardBuilder({
                   ? "w-[390px] max-w-full rounded-[24px] border-4 border-slate-800 bg-white shadow-xl overflow-hidden"
                   : (readOnly && isPhoneView)
                     ? "w-full max-w-[390px] mx-auto overflow-hidden"
-                    : "w-full max-w-full"
+                    : readOnly
+                      ? "w-full max-w-full"
+                      : "w-max min-w-full"
               }
             >
             {USE_FLOATING_BUILDER ? (
@@ -6074,8 +6138,10 @@ export default function DashboardBuilder({
                 selectedWidgetId={readOnly ? null : selectedWidgetId}
                 onLayoutChange={readOnly ? undefined : handleCanvasLayoutPxChange}
                 onSelectWidget={readOnly ? undefined : (widgetId) => {
-                  setSelectedWidgetId(widgetId);
-                  if (widgetId != null) setPropertyPanelOpen(true);
+                  setSelectedWidgetId(widgetId == null || widgetId === "" ? null : widgetId);
+                  if (widgetId != null && widgetId !== "") {
+                    setPropertyPanelOpen(true);
+                  }
                 }}
                 onDeleteWidget={readOnly ? undefined : handleDeleteWidget}
                 onCloneWidget={readOnly ? undefined : handleCloneWidget}

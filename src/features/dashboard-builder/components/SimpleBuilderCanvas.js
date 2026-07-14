@@ -6,11 +6,12 @@
  */
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Rnd } from "react-rnd";
 import WidgetRenderer from "./WidgetRenderer";
 import {
   HANDLE_STYLES,
-  RESIZE_HANDLE_STYLES,
+  resizeHandleStylesForSelection,
   selectionStyle,
   SimpleWidgetToolbar,
 } from "./simpleBuilderChrome";
@@ -24,10 +25,12 @@ import {
   savedStyleToCss,
   sanitizeNestedLayoutPx,
 } from "../utils/floatingLayoutEngine";
+import { getWidgetClickUrl, navigateWidgetClickUrl, shouldIgnoreWidgetLinkClick, widgetHasClickLink } from "../utils/widgetClickLink";
 
 const CANCEL_SELECTOR = ".simple-no-drag, button, a, input, textarea, select, .simple-nested-canvas";
-const BOTTOM_ROOM_PX = 1000;
-const MIN_BUILDER_HEIGHT = 2000;
+/** Extra room below content for dropping widgets in the builder (keep modest to avoid endless vertical scroll). */
+const BOTTOM_ROOM_PX = 320;
+const MIN_BUILDER_HEIGHT = 560;
 const EDGE_SCROLL_PX = 72;
 const EDGE_SCROLL_SPEED = 28;
 
@@ -45,8 +48,8 @@ function contentSizeOf(boxes = [], origin = { x: 0, y: 0 }) {
   const maxRight = boxes.reduce((max, box) => Math.max(max, box.left + box.width), 0);
   const maxBottom = boxes.reduce((max, box) => Math.max(max, box.top + box.height), 0);
   return {
-    width: Math.max(320, maxRight - origin.x),
-    height: Math.max(240, maxBottom - origin.y),
+    width: Math.max(1, maxRight - origin.x),
+    height: Math.max(1, maxBottom - origin.y),
   };
 }
 
@@ -68,6 +71,7 @@ export default function SimpleBuilderCanvas({
   canvasWidth = 1200,
   phoneMode = false,
 }) {
+  const router = useRouter();
   const topLevel = useMemo(() => {
     // Keep saved order so builder + publish paint the same way (no container re-sort).
     return (widgets || []).filter((w) => !w.containerId && !w.sectionId);
@@ -96,9 +100,9 @@ export default function SimpleBuilderCanvas({
     const phoneFrame = node.closest("[data-dashboard-phone-frame]");
     const host = phoneFrame || node.closest("[data-dashboard-canvas-host]") || node;
     const w = Math.floor(
-      host.getBoundingClientRect().width
-      || host.clientWidth
-      || node.getBoundingClientRect().width
+      host.clientWidth
+      || host.getBoundingClientRect().width
+      || node.clientWidth
       || 0,
     );
     const fromProp = Number(canvasWidth) >= 200 ? Math.floor(Number(canvasWidth)) : 0;
@@ -106,8 +110,12 @@ export default function SimpleBuilderCanvas({
     if (phoneMode || phoneFrame) {
       // Lock to the phone frame / prop width — never expand to desktop host width.
       resolved = fromProp >= 200 ? fromProp : Math.min(w || 390, 390);
+    } else if (w >= 200) {
+      // Prefer the visible host width — never inflate past what is on screen
+      // (inflating caused horizontal scroll / layout shake on Publish → live).
+      resolved = w;
     } else if (fromProp >= 200) {
-      resolved = Math.max(w, fromProp);
+      resolved = fromProp;
     }
     if (resolved >= 200) {
       setParentWidth((prev) => (Math.abs(prev - resolved) <= 1 ? prev : resolved));
@@ -135,17 +143,17 @@ export default function SimpleBuilderCanvas({
   const origin = useMemo(() => contentOriginOf(boxes), [boxes]);
   const designSize = useMemo(() => contentSizeOf(boxes, origin), [boxes, origin]);
 
+  // Builder: 1:1 + scroll when content is wider than the screen.
+  // Publish/live: shrink-to-fit width so there is no giant empty horizontal scroll.
+  const useScrollLayout = !readOnly && !phoneMode;
+
   const fitScale = useMemo(() => {
     if (parentWidth < 200 || designSize.width < 40) return 1;
-    const raw = parentWidth / designSize.width;
-    // Phone builder + live phone: keep designed pixels (never scale up; shrink only if frame is narrower).
-    if (phoneMode) return Math.min(1, raw);
-    // Builder desktop: never blow up a small first widget to full screen.
-    if (!readOnly) return Math.min(1, raw);
-    // Live desktop: fill width only when the layout is already fairly wide; otherwise 1:1.
-    if (designSize.width >= parentWidth * 0.7) return raw;
-    return Math.min(1, raw);
-  }, [parentWidth, designSize.width, phoneMode, readOnly]);
+    if (useScrollLayout) return 1;
+    // Live: shrink only when content is wider than the host — never leave a blank right strip.
+    if (designSize.width <= parentWidth) return 1;
+    return parentWidth / designSize.width;
+  }, [parentWidth, designSize.width, useScrollLayout]);
 
   const designHeight = useMemo(() => {
     if (readOnly) return designSize.height;
@@ -157,10 +165,11 @@ export default function SimpleBuilderCanvas({
 
   const scaledHeight = Math.ceil(designHeight * fitScale);
 
-  // When not scaling up, give the builder a full-width dotted workspace to drop into.
-  const surfaceWidth = (!readOnly && fitScale === 1)
-    ? Math.max(designSize.width + 24, parentWidth)
-    : designSize.width;
+  // Always fill the visible host width so right-side empty band disappears.
+  // Builder may grow past it when widgets are wider (horizontal scroll).
+  const surfaceWidth = phoneMode
+    ? designSize.width
+    : Math.max(designSize.width, parentWidth);
 
   const commitCanvasBox = useCallback((id, patch) => {
     const next = sanitizeNestedLayoutPx(
@@ -172,8 +181,8 @@ export default function SimpleBuilderCanvas({
           ...box,
           left,
           top,
-          width: patch.width != null ? Number(patch.width) : box.width,
-          height: patch.height != null ? Number(patch.height) : box.height,
+          width: patch.width != null ? Math.max(40, Number(patch.width)) : box.width,
+          height: patch.height != null ? Math.max(32, Number(patch.height)) : box.height,
         });
       }).filter(Boolean),
     );
@@ -238,8 +247,12 @@ export default function SimpleBuilderCanvas({
   return (
     <div
       ref={measureRef}
-      className="relative w-full max-w-full overflow-x-hidden"
-      style={{ height: scaledHeight, minHeight: readOnly ? scaledHeight : Math.max(scaledHeight, 480) }}
+      className={`relative min-w-0 ${useScrollLayout ? "" : "w-full max-w-full overflow-hidden"}`}
+      style={{
+        height: scaledHeight,
+        minHeight: readOnly ? scaledHeight : Math.max(scaledHeight, 420),
+        width: useScrollLayout ? surfaceWidth : "100%",
+      }}
     >
       <div
         className="relative origin-top-left"
@@ -253,8 +266,19 @@ export default function SimpleBuilderCanvas({
             : "radial-gradient(#e2e8f0 1px, transparent 1px)",
           backgroundSize: readOnly ? undefined : "18px 18px",
         }}
-        onMouseDown={(e) => {
-          if (e.target === e.currentTarget && !readOnly) onSelectWidget?.(null);
+        onMouseDownCapture={(e) => {
+          if (readOnly) return;
+          const host = e.target?.closest?.("[data-widget-id]")
+            || e.target?.closest?.(".simple-rnd")?.querySelector?.("[data-widget-id]");
+          if (host) {
+            const id = host.getAttribute("data-widget-id");
+            if (id) onSelectWidget?.(id);
+            return;
+          }
+          // Empty canvas only — do not clear on the later click (avoids select→deselect race).
+          if (e.target === e.currentTarget || !e.target?.closest?.(".simple-rnd")) {
+            onSelectWidget?.(null);
+          }
         }}
       >
         {!readOnly && !phoneMode && (
@@ -284,9 +308,12 @@ export default function SimpleBuilderCanvas({
           const stackZ = isSelected ? 40 : (10 + idx);
 
           if (readOnly) {
+            const clickable = widgetHasClickLink(widget);
             return (
               <div
                 key={String(widget.id)}
+                role={clickable ? "link" : undefined}
+                tabIndex={clickable ? 0 : undefined}
                 style={{
                   ...boxToInlineStyle(canvasBox),
                   ...css,
@@ -297,6 +324,19 @@ export default function SimpleBuilderCanvas({
                   display: isContainer ? "flex" : undefined,
                   flexDirection: isContainer ? "column" : undefined,
                   boxSizing: "border-box",
+                  cursor: clickable ? "pointer" : undefined,
+                }}
+                onClick={(e) => {
+                  if (!clickable) return;
+                  if (shouldIgnoreWidgetLinkClick(e)) return;
+                  e.stopPropagation();
+                  navigateWidgetClickUrl(getWidgetClickUrl(widget), router);
+                }}
+                onKeyDown={(e) => {
+                  if (!clickable) return;
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  e.preventDefault();
+                  navigateWidgetClickUrl(getWidgetClickUrl(widget), router);
                 }}
               >
                 <WidgetRenderer
@@ -326,7 +366,7 @@ export default function SimpleBuilderCanvas({
               minWidth={isContainer ? 160 : 80}
               minHeight={isContainer ? 80 : 48}
               enableResizing={HANDLE_STYLES}
-              resizeHandleStyles={RESIZE_HANDLE_STYLES}
+              resizeHandleStyles={resizeHandleStylesForSelection(isSelected)}
               cancel={CANCEL_SELECTOR}
               style={{
                 ...css,
@@ -335,7 +375,9 @@ export default function SimpleBuilderCanvas({
                 overflow: "visible",
                 display: isContainer ? "flex" : undefined,
                 flexDirection: isContainer ? "column" : undefined,
-                boxShadow: isDropTarget ? "0 0 0 2px #60a5fa" : undefined,
+                boxShadow: isDropTarget
+                  ? "0 0 0 2px #60a5fa"
+                  : (selectionStyle(isSelected, isContainer).boxShadow || css.boxShadow),
               }}
               onDragStart={() => onSelectWidget?.(widget.id)}
               onDrag={(e, d) => {
@@ -361,19 +403,17 @@ export default function SimpleBuilderCanvas({
                   height: ref.offsetHeight,
                 });
               }}
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                onSelectWidget?.(widget.id);
-              }}
-              onClick={(e) => e.stopPropagation()}
             >
-              <SimpleWidgetToolbar
-                onEdit={(e) => { e.stopPropagation(); onSelectWidget?.(widget.id); }}
-                onClone={(e) => { e.stopPropagation(); onCloneWidget?.(widget); }}
-                onDelete={(e) => { e.stopPropagation(); onDeleteWidget?.(widget); }}
-                onSendToBottom={(e) => { e.stopPropagation(); sendWidgetToBottom(widget.id); }}
-              />
+              {isSelected ? (
+                <SimpleWidgetToolbar
+                  onEdit={(e) => { e.stopPropagation(); onSelectWidget?.(widget.id); }}
+                  onClone={(e) => { e.stopPropagation(); onCloneWidget?.(widget); }}
+                  onDelete={(e) => { e.stopPropagation(); onDeleteWidget?.(widget); }}
+                  onSendToBottom={(e) => { e.stopPropagation(); sendWidgetToBottom(widget.id); }}
+                />
+              ) : null}
               <div
+                data-widget-id={String(widget.id)}
                 className={`simple-widget-body min-h-0 min-w-0 h-full flex-1 ${isContainer ? "simple-nested-canvas flex flex-col overflow-hidden" : "overflow-hidden"}`}
               >
                 <WidgetRenderer

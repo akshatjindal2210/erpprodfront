@@ -135,6 +135,10 @@ export default function WidgetBuilderPanel({
 
   useEffect(() => {
     if (dockMode !== "float") return undefined;
+    const endInteraction = () => {
+      dragRef.current.active = false;
+      resizeRef.current.active = false;
+    };
     const onMove = (event) => {
       if (dragRef.current.active) {
         const next = clampPosition(
@@ -157,21 +161,24 @@ export default function WidgetBuilderPanel({
         setFloatSize(next);
       }
     };
-    const onUp = () => {
-      dragRef.current.active = false;
-      resizeRef.current.active = false;
-    };
+    // Color dialog / alt-tab can swallow mouseup — clear drag so the panel doesn't keep eating clicks.
     window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("mouseup", endInteraction);
+    window.addEventListener("pointerup", endInteraction);
+    window.addEventListener("blur", endInteraction);
+    document.addEventListener("visibilitychange", endInteraction);
     return () => {
       window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("mouseup", endInteraction);
+      window.removeEventListener("pointerup", endInteraction);
+      window.removeEventListener("blur", endInteraction);
+      document.removeEventListener("visibilitychange", endInteraction);
     };
   }, [dockMode, clampPosition, clampSize]);
 
   const startDrag = useCallback((e) => {
     if (e.button !== 0) return;
-    if (e.target.closest("button")) return;
+    if (e.target.closest("button, input, select, textarea, a, label")) return;
     dragRef.current.active = true;
     const host = e.currentTarget.closest("[data-widget-builder-panel]");
     const rect = host?.getBoundingClientRect?.();

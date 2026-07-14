@@ -1,8 +1,12 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getTables } from "../services/dashboardApi";
 import { Database, Palette, Table2, Code, Trash2, Info, Eye, Save, X, ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
 import { DASHBOARD_WIDGET_QUERY_PLACEHOLDER, getDashboardQueryRuntimeFilters } from "../utils/widgetQuery.js";
 import { EXTERNAL_MSSQL_QUERY_PLACEHOLDER, isExternalMssqlDbSource } from "../utils/dashboardDbSources.js";
+import { APPS } from "@/config/appsRegistry";
+import { getAppNavPages } from "../utils/appNavPages";
+import { DEFAULT_WIDGET_BOX_SHADOW, STRONG_WIDGET_BOX_SHADOW } from "../utils/floatingLayoutEngine";
+import { normalizeWidgetLinkType } from "../utils/widgetClickLink";
 
 const BLOCKED_SQL = /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke)\b/i;
 const REQUIRES_SQL = new Set(["kpi", "table", "graph"]);
@@ -26,6 +30,140 @@ function normalizeHexColor(value, fallback = "#3b82f6") {
     return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
   }
   return fallback;
+}
+
+const COLOR_PRESETS = [
+  "#0f172a", "#334155", "#64748b", "#94a3b8",
+  "#ffffff", "#fecaca", "#fed7aa", "#fef08a",
+  "#ef4444", "#f97316", "#eab308", "#22c55e",
+  "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899",
+];
+
+/**
+ * Do NOT use <input type="color"> — Chrome's OS color dialog freezes the tab when React
+ * re-renders during / right after pick. Custom swatch + hex + presets stays responsive.
+ */
+function ColorPickerInput({
+  value,
+  fallback = "#3b82f6",
+  className = "w-full h-9 bg-slate-50 border border-slate-200 rounded-md cursor-pointer",
+  onCommit,
+  resetKey = "",
+  title,
+}) {
+  const committed = normalizeHexColor(value, fallback);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(committed);
+  const [hexText, setHexText] = useState(committed);
+  const rootRef = useRef(null);
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
+
+  useEffect(() => {
+    setDraft(committed);
+    setHexText(committed);
+  }, [committed, resetKey]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    try {
+      document.body?.classList?.remove?.(
+        "react-draggable-transparent-selection",
+        "floating-canvas-interacting",
+      );
+    } catch {
+      /* ignore */
+    }
+    const onDocDown = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
+  }, [open]);
+
+  const commitColor = (raw) => {
+    const next = normalizeHexColor(raw, fallback);
+    setDraft(next);
+    setHexText(next);
+    if (next === normalizeHexColor(value, fallback)) return;
+    // Defer so the popover close / click target isn't blocked by a heavy canvas update.
+    window.setTimeout(() => {
+      onCommitRef.current?.(next);
+    }, 0);
+  };
+
+  const compact = /\babsolute\b/.test(className) || /opacity-0/.test(className);
+
+  return (
+    <div ref={rootRef} className={`relative ${compact ? "h-full w-full" : "w-full"}`}>
+      <button
+        type="button"
+        title={title || draft}
+        aria-label={title || "Pick color"}
+        className={compact
+          ? "block h-full w-full cursor-pointer border-0 p-0"
+          : className}
+        style={{ backgroundColor: draft }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+      />
+      {open ? (
+        <div
+          className="absolute left-0 top-full z-[220] mt-1 w-[200px] rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="mb-2 flex items-center gap-2">
+            <span
+              className="h-7 w-7 shrink-0 rounded border border-slate-200"
+              style={{ backgroundColor: draft }}
+            />
+            <input
+              type="text"
+              spellCheck={false}
+              className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 font-mono text-[11px] text-slate-700"
+              value={hexText}
+              onChange={(e) => {
+                const raw = e.target.value.trim();
+                setHexText(raw);
+                if (/^#[0-9a-fA-F]{6}$/.test(raw) || /^#[0-9a-fA-F]{3}$/.test(raw)) {
+                  const next = normalizeHexColor(raw, fallback);
+                  setDraft(next);
+                }
+              }}
+              onBlur={() => commitColor(hexText)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitColor(hexText);
+                  setOpen(false);
+                }
+              }}
+            />
+          </div>
+          <div className="grid grid-cols-8 gap-1">
+            {COLOR_PRESETS.map((hex) => (
+              <button
+                key={hex}
+                type="button"
+                title={hex}
+                className={`h-5 w-5 rounded border ${draft === hex ? "border-blue-500 ring-1 ring-blue-300" : "border-slate-200"}`}
+                style={{ backgroundColor: hex }}
+                onClick={() => {
+                  commitColor(hex);
+                  setOpen(false);
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function SimpleToggle({ checked = false, onChange, label, hint = "" }) {
@@ -127,6 +265,12 @@ const PropertyPanel = ({
   const resolvedMinWidthPx = minWidthPx ?? (isPhoneBuilderMode ? 24 : 80);
   const resolvedMinHeightPx = minHeightPx ?? resolvedMinWidthPx;
   const inputMinPx = Math.max(16, Math.min(resolvedMinWidthPx, resolvedMinHeightPx, 40));
+  const linkAppPages = useMemo(() => {
+    const appId = selectedWidget?.linkAppId || "";
+    if (!appId) return [];
+    return getAppNavPages(appId).filter((p) => p.href);
+  }, [selectedWidget?.linkAppId]);
+  const linkType = normalizeWidgetLinkType(selectedWidget?.linkType);
   const [draftWidthPx, setDraftWidthPx] = useState(widthPx);
   const [draftHeightPx, setDraftHeightPx] = useState(heightPx);
   const [draftStyle, setDraftStyle] = useState(null);
@@ -538,6 +682,93 @@ const PropertyPanel = ({
               </div>
             </div>
 
+            {selectedWidget.rawType !== "container" && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2.5 space-y-2">
+                <PanelFieldLabel>Click Link (open on click)</PanelFieldLabel>
+                <select
+                  value={linkType}
+                  onChange={(e) => {
+                    const next = normalizeWidgetLinkType(e.target.value);
+                    applyWidgetPatch({
+                      linkType: next,
+                      linkUrl: next === "NONE" ? "" : (selectedWidget.linkUrl || ""),
+                      linkAppId: next === "APP" ? (selectedWidget.linkAppId || "") : "",
+                      linkPageId: next === "APP" ? (selectedWidget.linkPageId || "") : "",
+                    });
+                  }}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+                >
+                  <option value="NONE">No link</option>
+                  <option value="URL">External / Custom URL</option>
+                  <option value="APP">ERP Module Page</option>
+                </select>
+
+                {linkType === "URL" && (
+                  <div>
+                    <PanelFieldLabel>URL / Path</PanelFieldLabel>
+                    <input
+                      type="text"
+                      value={selectedWidget.linkUrl || ""}
+                      onChange={(e) => applyWidgetPatch({ linkUrl: e.target.value, linkType: "URL" })}
+                      placeholder="https://... or /ims/dashboard/..."
+                      className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+                    />
+                  </div>
+                )}
+
+                {linkType === "APP" && (
+                  <div className="grid grid-cols-1 gap-2">
+                    <div>
+                      <PanelFieldLabel>Choose App</PanelFieldLabel>
+                      <select
+                        value={selectedWidget.linkAppId || ""}
+                        onChange={(e) => {
+                          applyWidgetPatch({
+                            linkType: "APP",
+                            linkAppId: e.target.value,
+                            linkPageId: "",
+                            linkUrl: "",
+                          });
+                        }}
+                        className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+                      >
+                        <option value="">-- Select App --</option>
+                        {APPS.filter((a) => a.id !== "home").map((app) => (
+                          <option key={app.id} value={app.id}>{app.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <PanelFieldLabel>Choose Page</PanelFieldLabel>
+                      <select
+                        value={selectedWidget.linkPageId || ""}
+                        disabled={!selectedWidget.linkAppId}
+                        onChange={(e) => {
+                          const page = linkAppPages.find((p) => p.value === e.target.value);
+                          applyWidgetPatch({
+                            linkType: "APP",
+                            linkPageId: e.target.value,
+                            linkUrl: page?.href || "",
+                          });
+                        }}
+                        className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700 disabled:opacity-50"
+                      >
+                        <option value="">-- Select Page --</option>
+                        {linkAppPages.map((page) => (
+                          <option key={page.value} value={page.value}>{page.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {selectedWidget.linkUrl ? (
+                      <p className="text-[10px] text-slate-400 truncate" title={selectedWidget.linkUrl}>
+                        {selectedWidget.linkUrl}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            )}
+
             {selectedWidget.rawType === "graph" && (
               <div>
                 <PanelFieldLabel>Chart Type</PanelFieldLabel>
@@ -906,20 +1137,20 @@ const PropertyPanel = ({
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block text-[9px] font-semibold text-slate-500 mb-1">Search text</label>
-                    <input
-                      type="color"
+                    <ColorPickerInput
                       className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                      value={normalizeHexColor(displayStyle.tableSearchColor || displayStyle.tableBodyColor, "#475569")}
-                      onChange={(e) => handleChange("style.tableSearchColor", e.target.value, { debounceMs: 90 })}
+                      value={displayStyle.tableSearchColor || displayStyle.tableBodyColor}
+                      fallback="#475569"
+                      onCommit={(color) => handleChange("style.tableSearchColor", color, { debounceMs: 220 })}
                     />
                   </div>
                   <div>
                     <label className="block text-[9px] font-semibold text-slate-500 mb-1">Search background</label>
-                    <input
-                      type="color"
+                    <ColorPickerInput
                       className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                      value={normalizeHexColor(displayStyle.tableSearchBg || displayStyle.tableBodyBg, "#ffffff")}
-                      onChange={(e) => handleChange("style.tableSearchBg", e.target.value, { debounceMs: 90 })}
+                      value={displayStyle.tableSearchBg || displayStyle.tableBodyBg}
+                      fallback="#ffffff"
+                      onCommit={(color) => handleChange("style.tableSearchBg", color, { debounceMs: 220 })}
                     />
                   </div>
                   <div className="col-span-2">
@@ -956,56 +1187,56 @@ const PropertyPanel = ({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[9px] font-semibold text-slate-500 mb-1">Heading text</label>
-                  <input
-                    type="color"
+                  <ColorPickerInput
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={normalizeHexColor(displayStyle.tableHeaderColor, "#64748b")}
-                    onChange={(e) => handleChange("style.tableHeaderColor", e.target.value, { debounceMs: 90 })}
+                    value={displayStyle.tableHeaderColor}
+                    fallback="#64748b"
+                    onCommit={(color) => handleChange("style.tableHeaderColor", color, { debounceMs: 220 })}
                   />
                 </div>
                 <div>
                   <label className="block text-[9px] font-semibold text-slate-500 mb-1">Heading background</label>
-                  <input
-                    type="color"
+                  <ColorPickerInput
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={normalizeHexColor(displayStyle.tableHeaderBg, "#f8fafc")}
-                    onChange={(e) => handleChange("style.tableHeaderBg", e.target.value, { debounceMs: 90 })}
+                    value={displayStyle.tableHeaderBg}
+                    fallback="#f8fafc"
+                    onCommit={(color) => handleChange("style.tableHeaderBg", color, { debounceMs: 220 })}
                   />
                 </div>
                 <div>
                   <label className="block text-[9px] font-semibold text-slate-500 mb-1">Body text</label>
-                  <input
-                    type="color"
+                  <ColorPickerInput
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={normalizeHexColor(displayStyle.tableBodyColor, "#475569")}
-                    onChange={(e) => handleChange("style.tableBodyColor", e.target.value, { debounceMs: 90 })}
+                    value={displayStyle.tableBodyColor}
+                    fallback="#475569"
+                    onCommit={(color) => handleChange("style.tableBodyColor", color, { debounceMs: 220 })}
                   />
                 </div>
                 <div>
                   <label className="block text-[9px] font-semibold text-slate-500 mb-1">Body background</label>
-                  <input
-                    type="color"
+                  <ColorPickerInput
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={normalizeHexColor(displayStyle.tableBodyBg, "#ffffff")}
-                    onChange={(e) => handleChange("style.tableBodyBg", e.target.value, { debounceMs: 90 })}
+                    value={displayStyle.tableBodyBg}
+                    fallback="#ffffff"
+                    onCommit={(color) => handleChange("style.tableBodyBg", color, { debounceMs: 220 })}
                   />
                 </div>
                 <div>
                   <label className="block text-[9px] font-semibold text-slate-500 mb-1">Border</label>
-                  <input
-                    type="color"
+                  <ColorPickerInput
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={normalizeHexColor(displayStyle.tableBorderColor, "#e2e8f0")}
-                    onChange={(e) => handleChange("style.tableBorderColor", e.target.value, { debounceMs: 90 })}
+                    value={displayStyle.tableBorderColor}
+                    fallback="#e2e8f0"
+                    onCommit={(color) => handleChange("style.tableBorderColor", color, { debounceMs: 220 })}
                   />
                 </div>
                 <div>
                   <label className="block text-[9px] font-semibold text-slate-500 mb-1">Row hover</label>
-                  <input
-                    type="color"
+                  <ColorPickerInput
                     className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                    value={normalizeHexColor(displayStyle.tableRowHoverBg, "#f8fafc")}
-                    onChange={(e) => handleChange("style.tableRowHoverBg", e.target.value, { debounceMs: 90 })}
+                    value={displayStyle.tableRowHoverBg}
+                    fallback="#f8fafc"
+                    onCommit={(color) => handleChange("style.tableRowHoverBg", color, { debounceMs: 220 })}
                   />
                 </div>
               </div>
@@ -1042,33 +1273,31 @@ const PropertyPanel = ({
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
                   {selectedWidget.rawType === "kpi" ? "Value Color" : "Text / Accent Color"}
                 </label>
-                <input
-                  type="color"
-                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                  value={normalizeHexColor(displayStyle.color, "#3b82f6")}
-                  onChange={(e) => {
-                    const color = normalizeHexColor(e.target.value, "#3b82f6");
-                    if (color === normalizeHexColor(displayStyle.color, "#3b82f6")) return;
+                <ColorPickerInput
+                  resetKey={`${selectedWidget.id}-accent`}
+                  value={displayStyle.color}
+                  fallback="#3b82f6"
+                  onCommit={(color) => {
+                    if (color === normalizeHexColor(selectedWidgetRef.current?.style?.color, "#3b82f6")) return;
                     if (selectedWidget.rawType === "graph") {
-                      const colors = [...(displayStyle.graphColors || GRAPH_COLOR_PALETTES.ocean)];
+                      const colors = [...(selectedWidgetRef.current?.style?.graphColors || displayStyle.graphColors || GRAPH_COLOR_PALETTES.ocean)];
                       colors[0] = color;
-                      applyWidgetPatch({ style: { color, graphColors: colors } }, { debounceMs: 90 });
+                      applyWidgetPatch({ style: { color, graphColors: colors } }, { debounceMs: 220 });
                       return;
                     }
-                    applyWidgetPatch({ style: { color } }, { debounceMs: 90 });
+                    applyWidgetPatch({ style: { color } }, { debounceMs: 220 });
                   }}
                 />
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Background</label>
-                <input
-                  type="color"
-                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                  value={normalizeHexColor(displayStyle.bg, "#ffffff")}
-                  onChange={(e) => {
-                    const bg = normalizeHexColor(e.target.value, "#ffffff");
-                    if (bg === normalizeHexColor(displayStyle.bg, "#ffffff")) return;
-                    applyWidgetPatch({ style: { bg } }, { debounceMs: 90 });
+                <ColorPickerInput
+                  resetKey={`${selectedWidget.id}-bg`}
+                  value={displayStyle.bg}
+                  fallback="#ffffff"
+                  onCommit={(bg) => {
+                    if (bg === normalizeHexColor(selectedWidgetRef.current?.style?.bg, "#ffffff")) return;
+                    applyWidgetPatch({ style: { bg } }, { debounceMs: 220 });
                   }}
                 />
               </div>
@@ -1091,7 +1320,7 @@ const PropertyPanel = ({
                           graphColors: [...colors],
                           color: colors[0],
                         },
-                      });
+                      }, { debounceMs: 220 });
                     }}
                   >
                     {Object.keys(GRAPH_COLOR_PALETTES).map((key) => (
@@ -1103,15 +1332,16 @@ const PropertyPanel = ({
                   {(displayStyle.graphColors || GRAPH_COLOR_PALETTES.ocean).slice(0, 8).map((hex, idx) => {
                     const safeHex = normalizeHexColor(hex, GRAPH_COLOR_PALETTES.ocean[idx] || "#3b82f6");
                     return (
-                      <label key={`gc-${idx}`} className="relative h-7 w-7 overflow-hidden rounded border border-slate-200 cursor-pointer" title={safeHex}>
-                        <input
-                          type="color"
-                          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      <div key={`gc-${idx}`} className="relative h-7 w-7 overflow-visible rounded border border-slate-200" title={safeHex}>
+                        <ColorPickerInput
+                          className="absolute inset-0 h-full w-full"
                           value={safeHex}
-                          onChange={(e) => {
-                            const nextColor = normalizeHexColor(e.target.value, safeHex);
+                          fallback={safeHex}
+                          title={safeHex}
+                          onCommit={(nextColor) => {
                             if (nextColor === safeHex) return;
-                            const next = [...(displayStyle.graphColors || GRAPH_COLOR_PALETTES.ocean)];
+                            const base = selectedWidgetRef.current?.style?.graphColors || displayStyle.graphColors || GRAPH_COLOR_PALETTES.ocean;
+                            const next = [...base];
                             while (next.length < 8) next.push(GRAPH_COLOR_PALETTES.ocean[next.length] || "#3b82f6");
                             next[idx] = nextColor;
                             applyWidgetPatch({
@@ -1119,11 +1349,10 @@ const PropertyPanel = ({
                                 graphColors: next,
                                 ...(idx === 0 ? { color: nextColor } : {}),
                               },
-                            }, { debounceMs: 90 });
+                            }, { debounceMs: 220 });
                           }}
                         />
-                        <span className="block h-full w-full" style={{ backgroundColor: safeHex }} />
-                      </label>
+                      </div>
                     );
                   })}
                 </div>
@@ -1172,6 +1401,36 @@ const PropertyPanel = ({
                 onChange={(e) => handleChange("style.borderRadius", Math.max(0, Number(e.target.value) || 0))}
               />
             </div>
+
+            {selectedWidget.rawType !== "heading" && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Shadow</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { value: "none", label: "None" },
+                    { value: DEFAULT_WIDGET_BOX_SHADOW, label: "Soft" },
+                    { value: STRONG_WIDGET_BOX_SHADOW, label: "Strong" },
+                  ].map((opt) => {
+                    const current = selectedWidget.style?.boxShadow || "none";
+                    const active = current === opt.value || (!selectedWidget.style?.boxShadow && opt.value === "none");
+                    return (
+                      <button
+                        type="button"
+                        key={opt.label}
+                        onClick={() => handleChange("style.boxShadow", opt.value)}
+                        className={`px-2 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all border ${
+                          active
+                            ? "bg-blue-600 border-blue-600 text-white shadow-md"
+                            : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Text Align</label>
