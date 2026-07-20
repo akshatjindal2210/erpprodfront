@@ -9,8 +9,10 @@ import { usePathname } from "next/navigation";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { NAV_REGISTRY } from "@/features/apps/ims/config/navRegistry";
 import { ShieldAlert, Lock } from "lucide-react";
-import { APP_SHELL, isPortalShell, isSettingsShell } from "@/config/appsRegistry";
+import { APP_SHELL, isPortalShell, isSettingsShell, isTaskShell } from "@/config/appsRegistry";
 import { SETTINGS_NAV_REGISTRY } from "@/features/admin/configuration/config/settingsNavRegistry";
+import { TASK_NAV_REGISTRY } from "@/features/apps/task/config/navRegistry";
+import { canShowTaskReportMenu } from "@/features/apps/task/config/appConfig";
 import { ROUTES } from "@/config/routes";
 import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 
@@ -30,10 +32,22 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
   const canAccess = useCanAccess();
   const isPortal = isPortalShell(shell, pathname);
   const isSettings = isSettingsShell(shell, pathname);
+  const isTask = isTaskShell(shell, pathname);
   const hideNav = isPortal || shell === APP_SHELL.STANDALONE;
-  const hideQuickLinks = hideNav || isSettings;
-  const sidebarNav = isSettings ? SETTINGS_NAV_REGISTRY : undefined;
-  const sidebarBrand = isSettings ? "Settings" : "JFL ERP Portal";
+  const hideQuickLinks = hideNav || isSettings || isTask;
+  const sidebarNav = useMemo(() => {
+    if (isSettings) return SETTINGS_NAV_REGISTRY;
+    if (isTask) {
+      return TASK_NAV_REGISTRY.filter((item) => {
+        if (item.href === "/task/dashboard/reports") {
+          return canShowTaskReportMenu(role, userData);
+        }
+        return true;
+      });
+    }
+    return undefined;
+  }, [isSettings, isTask, role, userData]);
+  const sidebarBrand = isSettings ? "Settings" : "ERP Portal";
 
   const accessState = useMemo(() => {
     // 1. Find the module associated with current path
@@ -58,16 +72,24 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
     };
     findModule(NAV_REGISTRY);
     findModule(SETTINGS_NAV_REGISTRY);
+    findModule(TASK_NAV_REGISTRY);
+
+    // Task app: RouteGuard + feature map own access. Do not block with portal
+    // module canAccess here — that was causing CL Verification / module pages
+    // to show as inaccessible (and soft-nav looked like "not found").
+    if (isTask) {
+      return { hasPageAccess: true, moduleDeactivated: false };
+    }
 
     // 1.1 Check role restriction if any
-    if (requiredRoles && !requiredRoles.includes(role?.toLowerCase())) {
+    if (requiredRoles && !requiredRoles.includes(role?.toLowerCase()) && !requiredRoles.includes(role)) {
       return { hasPageAccess: false, moduleDeactivated: false };
     }
 
     // 2. If no module found, it's a public/unknown page (like Dashboard)
     if (!currentModule) return { hasPageAccess: true, moduleDeactivated: false };
 
-    // 3. Gate layout by permission only.
+    // 3. Gate layout by permission (same Access Restricted page for IMS / Settings / Task).
     // Deactivated module pages should still open and show deactivated messaging in-page.
     const access = canAccess(currentModule, "view");
     const hasPageAccess = access.allowed;
@@ -85,7 +107,7 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
       );
 
     return { hasPageAccess, moduleDeactivated };
-  }, [pathname, canAccess, permissions, role]);
+  }, [pathname, canAccess, permissions, role, isTask]);
 
   const handleToggleCollapse = () => {
     setCollapsed((prev) => {

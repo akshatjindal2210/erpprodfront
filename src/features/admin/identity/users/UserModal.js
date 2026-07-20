@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Check, Eye, EyeOff, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Check, Eye, EyeOff, Loader2, CheckCircle2, XCircle, UserCheck } from "lucide-react";
 import { toast } from "react-toastify";
 import { userService } from "@/features/shared/auth/services/userService";
 import { settingsModuleService } from "@/features/admin/services/moduleService";
@@ -92,6 +92,9 @@ const EMPTY_FORM = {
       inventory_approve: false,
       direct_forwarding_note: false,
     },
+    task: {
+      verification_user_id: "",
+    },
   },
 };
 
@@ -132,9 +135,28 @@ function normalizedUserPayload(user) {
     password: "",
     department_id: user.department_id ?? user.department?.id ?? "",
     designation_id: user.designation_id ?? user.designation?.id ?? "",
-    special_permissions: (typeof user.special_permissions === 'string' 
-      ? JSON.parse(user.special_permissions) 
-      : user.special_permissions) ?? { ims: { inventory_out: false, inventory_approve: false, direct_forwarding_note: false } },
+    special_permissions: (() => {
+      const raw = typeof user.special_permissions === "string"
+        ? (() => { try { return JSON.parse(user.special_permissions); } catch { return {}; } })()
+        : (user.special_permissions ?? {});
+      return {
+        ims: {
+          inventory_out: false,
+          inventory_approve: false,
+          direct_forwarding_note: false,
+          ...(raw.ims || {}),
+        },
+        task: {
+          verification_user_id: (() => {
+            const rawId = raw?.task?.verification_user_id;
+            if (rawId == null || rawId === "") return "";
+            // User cannot be their own CL verification person
+            if (user?.id != null && Number(rawId) === Number(user.id)) return "";
+            return String(rawId);
+          })(),
+        },
+      };
+    })(),
   };
   const snapshot = { auth: snapAuth, usercode: snapUc };
   let erpPickKey = "";
@@ -406,6 +428,45 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
   const fetchDesignationById = useCallback(
     (id) => designationService.getById(id).then((res) => ({ data: res?.data?.data ?? res?.data ?? null })),
     []
+  );
+
+  const fetchTaskUsers = useCallback(
+    (params) =>
+      userService
+        .getViews({
+          permission_module: "tasks",
+          permission_action: "view",
+          ...params,
+        })
+        .then((res) => {
+          const list = Array.isArray(res?.data)
+            ? res.data
+            : (Array.isArray(res?.data?.data) ? res.data.data : []);
+          const selfId = isDbUpdate ? Number(editUser?.id) : null;
+          const filtered =
+            Number.isFinite(selfId) && selfId > 0
+              ? list.filter((u) => Number(u?.id) !== selfId)
+              : list;
+          // Keep page-size based hasMore working in SearchableSelect
+          return { data: filtered };
+        }),
+    [isDbUpdate, editUser?.id],
+  );
+  const fetchTaskUserById = useCallback(
+    (id) => {
+      const selfId = isDbUpdate ? Number(editUser?.id) : null;
+      if (Number.isFinite(selfId) && selfId > 0 && Number(id) === selfId) {
+        return Promise.resolve({ data: null });
+      }
+      return userService
+        .getViews({
+          permission_module: "tasks",
+          permission_action: "view",
+          id,
+        })
+        .then((res) => ({ data: res?.data ?? null }));
+    },
+    [isDbUpdate, editUser?.id],
   );
 
   const loadModules = useCallback(async () => {
@@ -862,6 +923,30 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
       if (!Number.isFinite(payload.department_id)) payload.department_id = null;
       if (!Number.isFinite(payload.designation_id)) payload.designation_id = null;
 
+      const verifierRaw = payload.special_permissions?.task?.verification_user_id;
+      let verifierNum = verifierRaw === "" || verifierRaw == null ? null : Number(verifierRaw);
+      // Editing Ram → Ram cannot be selected as their own CL Verification Person
+      if (
+        isDbUpdate &&
+        Number.isFinite(verifierNum) &&
+        Number(verifierNum) === Number(editUser?.id)
+      ) {
+        verifierNum = null;
+        toast.info("CL Verification Person cannot be the same user");
+      }
+      payload.special_permissions = {
+        ...(payload.special_permissions || {}),
+        ims: {
+          inventory_out: false,
+          inventory_approve: false,
+          direct_forwarding_note: false,
+          ...(payload.special_permissions?.ims || {}),
+        },
+        task: {
+          verification_user_id: Number.isFinite(verifierNum) && verifierNum > 0 ? verifierNum : null,
+        },
+      };
+
       if (isDbUpdate) {
         console.log("Updating user payload:", payload);
         await userService.update(editUser.id, payload);
@@ -1300,89 +1385,124 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
               onSelectAllPermissions={setAllPermissionsForList}
               userRole={form.type}
               imsSpecialPermissionsSection={
-                <>
-                  <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">
+                <div className="space-y-3">
+                  <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
                     Special Permissions
                   </h3>
-                  <div className="flex items-center gap-2 px-1">
-                    <input
-                      id="inv-out-perm"
-                      type="checkbox"
-                      checked={form.special_permissions?.ims?.inventory_out || false}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          special_permissions: {
-                            ...prev.special_permissions,
-                            ims: {
-                              ...prev.special_permissions?.ims,
-                              inventory_out: e.target.checked,
+                  <div className="rounded-lg border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden">
+                    <label htmlFor="inv-out-perm" className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
+                      <input
+                        id="inv-out-perm"
+                        type="checkbox"
+                        checked={form.special_permissions?.ims?.inventory_out || false}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            special_permissions: {
+                              ...prev.special_permissions,
+                              ims: {
+                                ...prev.special_permissions?.ims,
+                                inventory_out: e.target.checked,
+                              },
                             },
-                          },
-                        }))
-                      }
-                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                    />
-                    <label
-                      htmlFor="inv-out-perm"
-                      className="text-sm font-bold text-slate-700 cursor-pointer select-none uppercase tracking-tight"
-                    >
-                      Inventory Out
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <span className="text-sm font-bold text-slate-700 select-none uppercase tracking-tight">
+                        Inventory Out
+                      </span>
+                    </label>
+                    <label htmlFor="inv-approve-perm" className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
+                      <input
+                        id="inv-approve-perm"
+                        type="checkbox"
+                        checked={form.special_permissions?.ims?.inventory_approve || false}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            special_permissions: {
+                              ...prev.special_permissions,
+                              ims: {
+                                ...prev.special_permissions?.ims,
+                                inventory_approve: e.target.checked,
+                              },
+                            },
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <span className="text-sm font-bold text-slate-700 select-none uppercase tracking-tight">
+                        Inventory Approve
+                      </span>
+                    </label>
+                    <label htmlFor="direct-fn-perm" className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
+                      <input
+                        id="direct-fn-perm"
+                        type="checkbox"
+                        checked={form.special_permissions?.ims?.direct_forwarding_note || false}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            special_permissions: {
+                              ...prev.special_permissions,
+                              ims: {
+                                ...prev.special_permissions?.ims,
+                                direct_forwarding_note: e.target.checked,
+                              },
+                            },
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <span className="text-sm font-bold text-slate-700 select-none uppercase tracking-tight">
+                        Direct Forwarding Note
+                      </span>
                     </label>
                   </div>
-                  <div className="flex items-center gap-2 px-1 mt-2">
-                    <input
-                      id="inv-approve-perm"
-                      type="checkbox"
-                      checked={form.special_permissions?.ims?.inventory_approve || false}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          special_permissions: {
-                            ...prev.special_permissions,
-                            ims: {
-                              ...prev.special_permissions?.ims,
-                              inventory_approve: e.target.checked,
+                </div>
+              }
+              taskSpecialPermissionsSection={
+                <div className="space-y-3">
+                  <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                    Special Permissions
+                  </h3>
+                  <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+                    <div className="px-3 py-3 space-y-1.5">
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        CL Verification Person
+                      </label>
+                      <SearchableSelect
+                        key={`cl-verifier-${isDbUpdate ? editUser?.id : "new"}`}
+                        value={form.special_permissions?.task?.verification_user_id || ""}
+                        onChange={(id) => {
+                          if (
+                            isDbUpdate &&
+                            id != null &&
+                            Number(id) === Number(editUser?.id)
+                          ) {
+                            toast.info("CL Verification Person cannot be the same user");
+                            return;
+                          }
+                          setForm((prev) => ({
+                            ...prev,
+                            special_permissions: {
+                              ...prev.special_permissions,
+                              task: {
+                                ...prev.special_permissions?.task,
+                                verification_user_id: id ? String(id) : "",
+                              },
                             },
-                          },
-                        }))
-                      }
-                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                    />
-                    <label
-                      htmlFor="inv-approve-perm"
-                      className="text-sm font-bold text-slate-700 cursor-pointer select-none uppercase tracking-tight"
-                    >
-                      Inventory Approve
-                    </label>
+                          }));
+                        }}
+                        fetchService={fetchTaskUsers}
+                        getByIdService={fetchTaskUserById}
+                        placeholder="Search task users…"
+                        heightClass="h-10"
+                      />
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 px-1 mt-2">
-                    <input
-                      id="direct-fn-perm"
-                      type="checkbox"
-                      checked={form.special_permissions?.ims?.direct_forwarding_note || false}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          special_permissions: {
-                            ...prev.special_permissions,
-                            ims: {
-                              ...prev.special_permissions?.ims,
-                              direct_forwarding_note: e.target.checked,
-                            },
-                          },
-                        }))
-                      }
-                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                    />
-                    <label
-                      htmlFor="direct-fn-perm"
-                      className="text-sm font-bold text-slate-700 cursor-pointer select-none uppercase tracking-tight"
-                    >
-                      Direct Forwarding Note
-                    </label>
-                  </div>
-                </>
+                </div>
               }
             />
           </div>

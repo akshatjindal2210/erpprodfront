@@ -22,6 +22,25 @@ export function getFieldTypeMeta(type) {
   return CL_FORM_FIELD_TYPES.find((t) => t.value === type) || { value: type, label: type, group: "Other" };
 }
 
+/** Default layout width in the 2-col form grid. */
+export const FULL_WIDTH_FIELD_TYPES = [
+  "text",
+  "radio",
+  "multiselect",
+  "query_dropdown",
+  "attachment",
+  "section",
+];
+
+export function getDefaultFieldWidth(type) {
+  return FULL_WIDTH_FIELD_TYPES.includes(type) ? "full" : "half";
+}
+
+export function getFieldGridClass(field) {
+  const width = field?.width || getDefaultFieldWidth(field?.type);
+  return width === "full" ? "col-span-2" : "col-span-2 sm:col-span-1";
+}
+
 export function newFormField(type = "short_text") {
   const field = {
     id: `f_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -34,6 +53,7 @@ export function newFormField(type = "short_text") {
     queryOptions: "",
     min: null,
     max: null,
+    width: getDefaultFieldWidth(type),
   };
   if (FIELDS_WITH_OPTIONS.includes(type)) {
     field.options = ["Option 1"];
@@ -91,14 +111,28 @@ export function normalizeToEntries(raw) {
   if (Array.isArray(parsed.entries)) return parsed.entries;
   const keys = Object.keys(parsed);
   if (keys.length === 0) return [];
-  return [{ id: "legacy", filled_at: null, responses: parsed }];
+  if (keys.every((k) => k === "fills" || k === "entries")) return [];
+  const { fills, entries, ...rest } = parsed;
+  if (Object.keys(rest).length === 0) return [];
+  return [{ id: "legacy", filled_at: null, responses: rest }];
+}
+
+/** Archived open-task fills on the same instance. */
+export function getOpenFills(raw) {
+  const parsed = parseFormResponses(raw);
+  return Array.isArray(parsed.fills) ? parsed.fills : [];
 }
 
 function isEmptyValue(field, val) {
   if (field.type === "section") return true;
   if (field.type === "checkbox") return val !== true && val !== false;
   if (field.type === "multiselect") return !Array.isArray(val) || val.length === 0;
-  if (field.type === "attachment") return !(val instanceof File) && !val?.file_path;
+  if (field.type === "attachment") {
+    if (Array.isArray(val)) {
+      return !val.some((v) => v instanceof File || v?.file_path);
+    }
+    return !(val instanceof File) && !val?.file_path;
+  }
   return val === undefined || val === null || val === "";
 }
 
@@ -140,8 +174,10 @@ export function stripHtml(html) {
 
 export function validateFormSchemaFields(fields) {
   for (const field of fields) {
-    if (!field.label?.trim() && field.type !== "section") {
-      return "All fields need a label";
+    if (!field.label?.trim()) {
+      return field.type === "section"
+        ? "Section needs a title"
+        : "All fields need a label";
     }
     if (FIELDS_WITH_OPTIONS.includes(field.type)) {
       const opts = cleanFieldOptions(field.options);

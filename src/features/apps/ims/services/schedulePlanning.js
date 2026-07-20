@@ -50,6 +50,12 @@ export const schedulePlanningService = {
       body: finYearBody(body),
     }),
 
+  readyToDispatch: (body) =>
+    api(ENDPOINTS.SCHEDULE_PLANNING.READY_TO_DISPATCH, {
+      method: "POST",
+      body: finYearBody(body),
+    }),
+
   transactions: (body) =>
     api(ENDPOINTS.SCHEDULE_PLANNING.TRANSACTIONS, {
       method: "POST",
@@ -58,6 +64,12 @@ export const schedulePlanningService = {
 
   shortage: (body) =>
     api(ENDPOINTS.SCHEDULE_PLANNING.SHORTAGE, {
+      method: "POST",
+      body: finYearBody(body),
+    }),
+
+  complete: (body) =>
+    api(ENDPOINTS.SCHEDULE_PLANNING.COMPLETE, {
       method: "POST",
       body: finYearBody(body),
     }),

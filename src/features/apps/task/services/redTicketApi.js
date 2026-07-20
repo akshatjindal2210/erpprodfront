@@ -4,9 +4,9 @@ import { ENDPOINTS } from "@/features/apps/task/config/endpoints";
 const R = ENDPOINTS.RED_TICKETS;
 
 export const redTicketService = {
-  getAll: (params) => api.get(R.LIST, { params }),
-  getById: (id) => api.get(R.item(id)),
-  create: (data) => api.post(R.LIST, data),
-  update: (id, data) => api.put(R.item(id), data),
-  delete: (id) => api.delete(R.item(id)),
+  getAll: (params) => api.post(R.LIST, params || {}),
+  getById: (id) => api.post(R.GET, { ticket_id: id }),
+  create: (data) => api.post(R.CREATE, data),
+  update: (id, data) => api.post(R.UPDATE, { ticket_id: id, ...(data || {}) }),
+  delete: (id) => api.post(R.DELETE, { ticket_id: id }),
 };

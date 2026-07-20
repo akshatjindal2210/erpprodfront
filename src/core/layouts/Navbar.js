@@ -9,6 +9,10 @@ import { THEME_CONFIG } from "@/config/theme";
 import { QUICK_LINKS_CONFIG } from "@/features/apps/ims/config/quickLinks";
 import { NAV_REGISTRY } from "@/features/apps/ims/config/navRegistry";
 import { SETTINGS_NAV_REGISTRY } from "@/features/admin/configuration/config/settingsNavRegistry";
+import { TASK_NAV_REGISTRY } from "@/features/apps/task/config/navRegistry";
+import { canShowTaskReportMenu } from "@/features/apps/task/config/appConfig";
+import { useSelector } from "react-redux";
+import { selectRole, selectUser } from "@/core/store/slices/authSlice";
 import QuickAccessBar from "./QuickAccessBar";
 import PortalAppLauncherButton from "@/features/shared/portal/components/PortalAppLauncherButton";
 import ChangePasswordModal from "@/features/admin/identity/users/ChangePasswordModal";
@@ -24,6 +28,8 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
   const canAccess = useCanAccess();
   const router = useRouter();
   const pathname = usePathname();
+  const role = useSelector(selectRole);
+  const authUser = useSelector(selectUser);
   
   const [profileOpen, setProfileOpen] = useState(false);
   const [changePassOpen, setChangePassOpen] = useState(false);
@@ -103,39 +109,55 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
       const settingsItem = SETTINGS_NAV_REGISTRY.find((item) => item.href === pathname);
       return settingsItem?.name || "Settings";
     }
+    if (pathname?.startsWith("/task/")) {
+      const taskItem = TASK_NAV_REGISTRY.find((item) => item.href === pathname);
+      return taskItem?.name || "Task";
+    }
     return "Dashboard";
   }, [pathname, canAccess]);
 
   const searchableItems = useMemo(() => {
     const items = [];
-    QUICK_LINKS_CONFIG.forEach(link => 
-      items.push({ name: link.label, path: link.path, type: "Quick Access", icon: link.icon })
-    );
+    const isTaskPath = pathname?.startsWith("/task/");
 
-    const getAccess = (module) => {
-      if (!module) return false;
-      const access = whoAmi?.permissions?.[module];
-      if (!access) return false;
-      return typeof access === 'object' ? access.view?.allowed : access.view;
-    };
+    if (!isTaskPath) {
+      QUICK_LINKS_CONFIG.forEach(link => 
+        items.push({ name: link.label, path: link.path, type: "Quick Access", icon: link.icon })
+      );
 
-    NAV_REGISTRY.forEach(item => {
-      const isPublicHome = !item.module && item.href && !item.subItems?.length;
-      const hasParentAccess = item.module ? getAccess(item.module) : isPublicHome;
-      const filteredSubs = (item.subItems || []).filter(sub => getAccess(sub.module));
-      const hasSub = filteredSubs.length > 0;
+      const getAccess = (module) => {
+        if (!module) return false;
+        const access = whoAmi?.permissions?.[module];
+        if (!access) return false;
+        return typeof access === 'object' ? access.view?.allowed : access.view;
+      };
 
-      if (hasParentAccess || hasSub) {
-        if (item.href && hasParentAccess) {
-          items.push({ name: item.name, path: item.href, type: "Menu", icon: item.icon });
+      NAV_REGISTRY.forEach(item => {
+        const isPublicHome = !item.module && item.href && !item.subItems?.length;
+        const hasParentAccess = item.module ? getAccess(item.module) : isPublicHome;
+        const filteredSubs = (item.subItems || []).filter(sub => getAccess(sub.module));
+        const hasSub = filteredSubs.length > 0;
+
+        if (hasParentAccess || hasSub) {
+          if (item.href && hasParentAccess) {
+            items.push({ name: item.name, path: item.href, type: "Menu", icon: item.icon });
+          }
+          filteredSubs.forEach(sub => {
+            if (sub.href) items.push({ name: sub.name, path: sub.href, type: item.name, icon: sub.icon });
+          });
         }
-        filteredSubs.forEach(sub => {
-          if (sub.href) items.push({ name: sub.name, path: sub.href, type: item.name, icon: sub.icon });
-        });
-      }
-    });
+      });
+    } else {
+      TASK_NAV_REGISTRY.forEach((item) => {
+        if (item.href === "/task/dashboard/reports" && !canShowTaskReportMenu(role, authUser)) return;
+        const raw = String(role || "").toLowerCase();
+        const normalized = raw === "team" ? "executive_assistant" : raw;
+        if (item.roles?.length && !item.roles.some((r) => String(r).toLowerCase() === normalized)) return;
+        items.push({ name: item.name, path: item.href, type: "Task", icon: item.icon });
+      });
+    }
     return items;
-  }, [whoAmi]);
+  }, [whoAmi, pathname, role, authUser]);
 
   const results = useMemo(() => {
     if (!searchQuery.trim()) return [];

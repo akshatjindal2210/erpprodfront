@@ -34,12 +34,21 @@ function measureStickyHeadPx(container) {
   return Number.isFinite(h) && h > 0 ? h : TABLE_STICKY_HEAD_PX;
 }
 
+function isFixedLeft(config = {}) {
+  if (config.fixedRight || config.fixed === "right") return false;
+  return config.fixed === true || config.fixed === "left";
+}
+
+function isFixedRight(config = {}) {
+  return config.fixedRight === true || config.fixed === "right";
+}
+
 function measureStickyLeftPx(showSelection, colIndex, headers, columnWidths, selW) {
   let left = showSelection ? selW : 0;
   if (colIndex == null || colIndex < 0 || !headers?.length) return left;
   for (let i = 0; i < colIndex; i++) {
     const [, key, , config = {}] = headers[i] || [];
-    if (config.fixed) {
+    if (isFixedLeft(config)) {
       left += parseColWidthPx(columnWidths[key ?? i] ?? config.width);
     }
   }
@@ -188,6 +197,8 @@ export default function DataTable({
   
   // --- 0. INFINITE SCROLL LOGIC ---
   const observer = useRef();
+  /** Prevents sentinel re-fire while parent is still applying the previous chunk. */
+  const loadMoreLockRef = useRef(false);
 
   // --- 1. COLUMN RESIZE + CELL SELECTION ---
   const [columnWidths, setColumnWidths] = useState({});
@@ -465,15 +476,34 @@ export default function DataTable({
     (node) => {
       if (loading) return;
       if (observer.current) observer.current.disconnect();
-      observer.current = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && hasMore && onLoadMore) {
+      if (!node) return;
+      observer.current = new IntersectionObserver(
+        (entries) => {
+          if (
+            !entries[0]?.isIntersecting ||
+            !hasMore ||
+            !onLoadMore ||
+            loading ||
+            loadMoreLockRef.current
+          ) {
+            return;
+          }
+          loadMoreLockRef.current = true;
           captureScrollPositions();
           onLoadMore();
-        }
-      });
-      if (node) observer.current.observe(node);
+          window.setTimeout(() => {
+            loadMoreLockRef.current = false;
+          }, 150);
+        },
+        {
+          root: scrollContainerRef.current,
+          rootMargin: "120px 0px",
+          threshold: 0,
+        },
+      );
+      observer.current.observe(node);
     },
-    [loading, hasMore, onLoadMore, captureScrollPositions]
+    [loading, hasMore, onLoadMore, captureScrollPositions],
   );
 
   useEffect(() => {
@@ -888,6 +918,23 @@ export default function DataTable({
     }
   };
 
+  /**
+   * Ctrl/Cmd+Click → same as double-click open.
+   * In cell-select mode (allowCopy), plain row clicks must not toggle selection —
+   * cells already select on mousedown; a second toggle was breaking double-click.
+   */
+  const handleRowClickEvent = (e, item, id) => {
+    if ((e.ctrlKey || e.metaKey) && typeof onRowDoubleClick === "function") {
+      e.preventDefault();
+      e.stopPropagation();
+      onRowDoubleClick(item, id);
+      return;
+    }
+    if (cellSelectActive && !onRowClick) return;
+    if (e.detail > 1) return;
+    handleRowClick(item, id);
+  };
+
   /** Row is interactive for selection, copy, or custom row click (e.g. open detail). */
   const rowClickable = showSelection || allowCopy || !!onRowClick;
 
@@ -991,9 +1038,10 @@ export default function DataTable({
                   />
                 )}
                 {headers.map(([label, key, renderFn, config = {}], i) => {
-                  const isSticky = config?.fixed;
+                  const stickyLeftCol = isFixedLeft(config);
+                  const stickyRightCol = isFixedRight(config);
                   const isSortable = key && config.sortable !== false;
-                  const stickyLeft = isSticky ? (config.offset || 0) + (showSelection ? selW : 0) : 0;
+                  const stickyLeft = stickyLeftCol ? (config.offset || 0) + (showSelection ? selW : 0) : 0;
                   const currentWidth = columnWidths[key || i] || config.width || 150;
 
                   return (
@@ -1002,10 +1050,12 @@ export default function DataTable({
                       style={{
                         width: currentWidth,
                         textAlign: config.align || 'left',
-                        ...(isSticky ? { left: `${stickyLeft}px` } : {})
+                        ...(stickyLeftCol ? { left: `${stickyLeft}px` } : {}),
+                        ...(stickyRightCol ? { right: 0 } : {}),
                       }}
-                      className={`relative px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-tight select-none bg-slate-50 border-b border-r border-slate-200 sticky top-0
-                      ${isSticky ? "z-[65]" : "z-[55]"}`}
+                      className={`relative px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-tight select-none bg-slate-50 border-b border-slate-200 sticky top-0
+                      ${stickyRightCol ? "border-l border-r-0" : "border-r"}
+                      ${stickyLeftCol ? "z-[65]" : stickyRightCol ? "z-[66]" : "z-[55]"}`}
                     >
                       <div 
                         className={`flex items-center ${isSortable ? "cursor-pointer hover:text-slate-700 transition-colors" : ""}`}
@@ -1052,7 +1102,10 @@ export default function DataTable({
                   {data.map((item, rowIndex) => {
                     const currentId = getId(item, rowIndex);
                     const rowReactKey = `${rowIndex}-${String(currentId)}`;
-                    const isSelected = selectedId === currentId;
+                    const isSelected =
+                      selectedId != null &&
+                      selectedId !== "" &&
+                      String(selectedId) === String(currentId);
                     const isRowHighlighted = isSelected && selectionMode !== "cell";
                     /** Full-row select: soft fill + left stripe; single cell adds ring only. */
                     const trRowSelectedClass = isRowHighlighted
@@ -1081,11 +1134,11 @@ export default function DataTable({
                         }}
                         onClick={
                           cellSelectActive
-                            ? onRowClick
-                              ? () => onRowClick(item, currentId)
+                            ? onRowClick || onRowDoubleClick
+                              ? (e) => handleRowClickEvent(e, item, currentId)
                               : undefined
                             : rowClickable
-                              ? () => handleRowClick(item, currentId)
+                              ? (e) => handleRowClickEvent(e, item, currentId)
                               : undefined
                         }
                         onDoubleClick={
@@ -1120,8 +1173,10 @@ export default function DataTable({
                         )}
                         {headers.map((h, i) => {
                           const config = h[3] || {};
-                          const isSticky = config?.fixed;
-                          const stickyLeft = isSticky ? (config.offset || 0) + (showSelection ? selW : 0) : 0;
+                          const stickyLeftCol = isFixedLeft(config);
+                          const stickyRightCol = isFixedRight(config);
+                          const isSticky = stickyLeftCol || stickyRightCol;
+                          const stickyLeft = stickyLeftCol ? (config.offset || 0) + (showSelection ? selW : 0) : 0;
                           const currentWidth = columnWidths[h[1] || i] || config.width || 150;
                           const allowWrap = config.wrap === true;
                           const cellSelected =
@@ -1139,12 +1194,14 @@ export default function DataTable({
                               key={`${h[1] ?? "col"}-${i}`}
                               style={{
                                 width: currentWidth,
-                                ...(isSticky ? { left: `${stickyLeft}px` } : {}),
+                                ...(stickyLeftCol ? { left: `${stickyLeft}px` } : {}),
+                                ...(stickyRightCol ? { right: 0 } : {}),
                                 textAlign: config.align || "left",
                               }}
-                              className={`px-3 py-2 text-[13px] border-b border-r border-slate-200 transition-colors align-top select-none
+                              className={`px-3 py-2 text-[13px] border-b border-slate-200 transition-colors align-top select-none
+                              ${stickyRightCol ? "border-l border-r-0" : "border-r"}
                               ${allowWrap ? "whitespace-normal break-words min-w-0 overflow-hidden" : "whitespace-nowrap overflow-hidden text-ellipsis"}
-                              ${isSticky ? "sticky z-20" : "text-slate-600"}
+                              ${stickyLeftCol ? "sticky z-20" : stickyRightCol ? "sticky z-[25]" : "text-slate-600"}
                               ${cellSelectActive ? "cursor-cell" : ""} ${cellBg}`}
                               onMouseDown={
                                 cellSelectActive
@@ -1220,7 +1277,10 @@ export default function DataTable({
               {data.map((item, rowIndex) => {
                 const currentId = getId(item, rowIndex);
                 const rowReactKey = `${rowIndex}-${String(currentId)}`;
-                const isSelected = selectedId === currentId;
+                const isSelected =
+                  selectedId != null &&
+                  selectedId !== "" &&
+                  String(selectedId) === String(currentId);
                 const titleH = getHeader(cardConfig.titleKey ?? cardConfig.titleIdx);
                 const footerH = getHeader(cardConfig.footerKey ?? cardConfig.footerIdx);
                 const titleKeyStr =
@@ -1255,7 +1315,15 @@ export default function DataTable({
                       registerRowRef(currentId, el);
                       if (isLastElement) lastElementRef(el);
                     }}
-                    onClick={rowClickable ? () => handleRowClick(item, currentId) : undefined}
+                    onClick={rowClickable ? (e) => handleRowClickEvent(e, item, currentId) : undefined}
+                    onDoubleClick={
+                      onRowDoubleClick
+                        ? (e) => {
+                            e.stopPropagation();
+                            onRowDoubleClick(item, currentId);
+                          }
+                        : undefined
+                    }
                     className={`relative bg-white rounded-xl border transition-all duration-200 overflow-hidden ${rowClickable ? "cursor-pointer" : ""} ${isSelected ? "border-indigo-600 shadow-lg shadow-indigo-100 ring-[0.5px] ring-indigo-600" : "border-slate-200 hover:border-slate-300 hover:shadow-md"}`}
                   >
                     {isSelected && <div className="absolute top-0 left-0 right-0 h-[3px] bg-indigo-600" />}

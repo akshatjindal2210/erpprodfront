@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Truck, FileText, Info, List, Package, Lock, Unlock, Printer, CalendarClock, CheckCircle2, Ban } from "lucide-react";
+import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Truck, FileText, Info, List, Package, Lock, Unlock, Printer, CalendarClock, CheckCircle2 } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 
@@ -34,6 +34,7 @@ import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/core/components/common/ListPageS
 import { parseSavedBillNos, fetchBillOptions, formatBillNosForSave, getBillByNo, uniqueBillNos } from "@/features/apps/ims/utils/forwardingBillOptions";
 import TodayDispatchPlanTab from "@/features/apps/ims/components/forwarding-note/TodayDispatchPlanTab";
 import { buildScheduleItemWiseHeaders } from "@/features/apps/ims/components/schedule-planning/schedulePlanningColumns";
+import { SCHEDULE_PLAN_STATUS } from "@/features/apps/ims/components/schedule-planning/schedulePlanStatus";
 import { selectUser } from "@/core/store/slices/authSlice";
 import { canCreateDirectForwardingNote } from "@/features/apps/ims/utils/imsSpecialPermissions";
 
@@ -129,11 +130,8 @@ const DISPATCH_FILTER_OPTIONS = [
 ];
 
 const DISPATCH_PLAN_STATUS_OPTIONS = [
-  { label: "Pending + Hold", value: "active" },
-  { label: "Pending", value: "pending" },
-  { label: "Hold", value: "hold" },
+  { label: "Plan", value: "plan" },
   { label: "Complete", value: "complete" },
-  { label: "All", value: "all" },
 ];
 
 /** Match Lock Status column: COMPLETE → scan done; LOCKED → locked & not complete; UNLOCKED → neither. */
@@ -163,7 +161,7 @@ export default function ForwardingPage() {
   // Dispatch plan tab ref + state
   const dispatchPlanRef = useRef(null);
   const [dispatchSearch, setDispatchSearch] = useState("");
-  const [dispatchStatusFilter, setDispatchStatusFilter] = useState("active");
+  const [dispatchStatusFilter, setDispatchStatusFilter] = useState("plan");
   const [dispatchSelected, setDispatchSelected] = useState(null);
   const [dispatchRows, setDispatchRows] = useState([]);
 
@@ -336,7 +334,7 @@ export default function ForwardingPage() {
       setModalOpen(true);
       return;
     }
-    // Same customer — all plan lines with balance + FG (multiple Sch Nos in one FN).
+    // Same customer — plan lines with balance + FG (one row per item — no duplicate item_dcode).
     const acc = String(dispatchSelected.acc_code ?? "").trim();
     const qualifying = dispatchRows.filter((r) => {
       if (String(r.acc_code ?? "").trim() !== acc) return false;
@@ -348,7 +346,20 @@ export default function ForwardingPage() {
       toast.info("No items with remaining balance and FG stock for this customer.");
       return;
     }
-    setDispatchPrefill({ anchorRow: dispatchSelected, rows: qualifying });
+    // Prefer the selected row first, then other lines — keep first occurrence per item.
+    const ordered = [
+      ...qualifying.filter((r) => r === dispatchSelected),
+      ...qualifying.filter((r) => r !== dispatchSelected),
+    ];
+    const seenItems = new Set();
+    const uniqueByItem = [];
+    for (const row of ordered) {
+      const dcode = String(row?.itemdcode ?? row?.item_dcode ?? "").trim();
+      if (!dcode || seenItems.has(dcode)) continue;
+      seenItems.add(dcode);
+      uniqueByItem.push(row);
+    }
+    setDispatchPrefill({ anchorRow: dispatchSelected, rows: uniqueByItem });
     setModalMode("add");
     setModalOpen(true);
   }, [dispatchSelected, dispatchRows]);
@@ -646,8 +657,8 @@ export default function ForwardingPage() {
                   setDispatchSelected(null);
                 }}
                 tabs={[
-                  { id: "dispatch_plan", label: "Today Dispatch Plan", icon: CalendarClock },
                   { id: "forwarding_master", label: "Forwarding Master", icon: FileText },
+                  { id: "dispatch_plan", label: "Today Dispatch Plan", icon: CalendarClock },
                 ]}
               />
             }
@@ -673,17 +684,10 @@ export default function ForwardingPage() {
                   <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openDispatchPlanNew} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" /> 
                   {canAccess("schedule_planning", "add").allowed && dispatchSelected && (
                     <>
-                      {Number(dispatchSelected?.is_planned) === 6 ? (
-                        <button
-                          type="button"
-                          onClick={() => dispatchPlanRef.current?.rejectSelected()}
-                          disabled={dispatchPlanRef.current?.rejecting}
-                          className="h-9 px-4 border border-rose-400 bg-rose-600 text-white hover:bg-rose-700 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shrink-0 disabled:opacity-50"
-                        >
-                          <Ban size={14} />
-                          Reject
-                        </button>
-                      ) : Number(dispatchSelected?.is_planned) === 1 ? (
+                      {Number(dispatchSelected?.db_is_planned ?? dispatchSelected?.is_planned) ===
+                        SCHEDULE_PLAN_STATUS.PLANNED ||
+                      Number(dispatchSelected?.db_is_planned ?? dispatchSelected?.is_planned) ===
+                        SCHEDULE_PLAN_STATUS.RUNNING ? (
                         <button
                           type="button"
                           onClick={() => dispatchPlanRef.current?.completeSelected()}
@@ -899,13 +903,13 @@ export default function ForwardingPage() {
                 searchValue={dispatchSearch}
                 onSearchChange={setDispatchSearch}
                 onApply={(data) => {
-                  setDispatchStatusFilter(data.status ?? "active");
+                  setDispatchStatusFilter(data.status ?? "plan");
                 }}
                 searchPlaceholder="Quick search items, party, sch no..."
                 searchLabel="Quick Search"
                 onReset={() => {
                   setDispatchSearch("");
-                  setDispatchStatusFilter("active");
+                  setDispatchStatusFilter("plan");
                 }}
               />
             </ListPageFilterStrip>

@@ -69,7 +69,7 @@ export default function VerificationClTaskTableRow({ task, index, onVerify }) {
       <td className="px-4 py-3 text-slate-600 max-w-[120px] truncate">{task.department_name || "—"}</td>
       <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{formatScheduledDate(task.scheduled_date)}</td>
       <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{formatDateTime(task.submitted_at)}</td>
-      <td className="px-4 py-3 text-slate-600 font-medium">{task.wastage ?? "—"}</td>
+      <td className="px-4 py-3 text-slate-600 font-medium">{task.weightage ?? task.wastage ?? "—"}</td>
       <td className="px-4 py-3 whitespace-nowrap">
         {scoringOn ? (
           <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg">

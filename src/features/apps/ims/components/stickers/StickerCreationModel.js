@@ -1361,7 +1361,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       noPadding
       bodyScrollable={false}
     >
-      <div className="w-full max-w-full h-full min-h-0 flex flex-col bg-slate-50 antialiased">
+      <div className="w-full max-w-full flex-1 h-full min-h-0 flex flex-col bg-slate-50 antialiased">
         {fetching ? (
           <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-blue-600" /></div>
         ) : !selectedRow ? (

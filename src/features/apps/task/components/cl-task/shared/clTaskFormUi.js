@@ -1,23 +1,23 @@
 export const inputBase =
-  "w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 placeholder-slate-400 outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 min-h-[42px]";
+  "w-full bg-white border border-slate-200 rounded-md px-2.5 py-1.5 text-sm text-slate-800 placeholder-slate-400 outline-none transition-all focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 min-h-[34px]";
 
 export const inputError =
-  "w-full bg-rose-50/40 border border-rose-300 rounded-lg px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100 min-h-[42px]";
+  "w-full bg-rose-50/40 border border-rose-300 rounded-md px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-rose-400 focus:ring-1 focus:ring-rose-100 min-h-[34px]";
 
 export function ClFormSection({ title, children, className = "" }) {
   return (
-    <section className={`rounded-xl border border-slate-200 bg-white overflow-hidden ${className}`}>
-      <div className="px-3 sm:px-4 py-2.5 bg-slate-50 border-b border-slate-100">
-        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{title}</h3>
+    <section className={`rounded-lg border border-slate-200 bg-white overflow-hidden ${className}`}>
+      <div className="px-2.5 py-1.5 bg-slate-50 border-b border-slate-100">
+        <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{title}</h3>
       </div>
-      <div className="p-3 sm:p-4 space-y-3">{children}</div>
+      <div className="p-2.5 space-y-2">{children}</div>
     </section>
   );
 }
 
 export function ClFormLabel({ children, required }) {
   return (
-    <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+    <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
       {children}
       {required && <span className="text-rose-400 ml-0.5">*</span>}
     </label>

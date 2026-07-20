@@ -31,6 +31,11 @@ export function useListDrawerHotkeys({
   authorizeAction = "authorize",
   /** When set, overrides canAccess(module, authorizeAction) for approve hotkey/button gating. */
   getAuthorizeAccess,
+  /**
+   * Skip portal `canAccess(module, …)` for New/Edit.
+   * Use when the page already gates `openAdd` / `openEdit` (e.g. Task `canFeature`).
+   */
+  bypassModulePermission = false,
   modalOpen,
   selectedId,
   getSelectedRow,
@@ -60,7 +65,7 @@ export function useListDrawerHotkeys({
   const canAccess = useCanAccess();
 
   const openNewModal = useCallback(() => {
-    if (!canOpenNewByAccess(canAccess, module, addAction, addActions)) return;
+    if (!bypassModulePermission && !canOpenNewByAccess(canAccess, module, addAction, addActions)) return;
     if (typeof canOpenNew === "function" && !canOpenNew()) {
       if (typeof onNewBlocked === "function") {
         onNewBlocked();
@@ -70,17 +75,19 @@ export function useListDrawerHotkeys({
       return;
     }
     openAdd();
-  }, [canAccess, module, addAction, addActions, canOpenNew, newBlockedMessage, onNewBlocked, openAdd]);
+  }, [bypassModulePermission, canAccess, module, addAction, addActions, canOpenNew, newBlockedMessage, onNewBlocked, openAdd]);
 
   const openEditModal = useCallback(() => {
     if (typeof openEdit !== "function" || openEdit === null) return;
     const row = typeof getSelectedRow === "function" ? getSelectedRow() : null;
     if (!row) return;
-    const access = canAccess(module, editAction);
-    if (!access.allowed) return;
-    if (editTimeBlockedByAccess(row, access)) return;
+    if (!bypassModulePermission) {
+      const access = canAccess(module, editAction);
+      if (!access.allowed) return;
+      if (editTimeBlockedByAccess(row, access)) return;
+    }
     openEdit(row);
-  }, [canAccess, module, editAction, getSelectedRow, openEdit, canEditSelection, onEditBlocked, editBlockedMessage]);
+  }, [bypassModulePermission, canAccess, module, editAction, getSelectedRow, openEdit, canEditSelection, onEditBlocked, editBlockedMessage]);
 
   const openApproveModal = useCallback(() => {
     if (typeof openApprove !== "function" || openApprove === null) return;

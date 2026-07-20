@@ -79,7 +79,7 @@ export default function ClTaskAdminCard({ task, index, onDelete }) {
 
         <div className="flex flex-wrap gap-1.5 text-[9px]">
           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-bold">
-            <Zap size={9} /> Wattage {task.wastage ?? "—"}/10
+            <Zap size={9} /> Weightage {task.weightage ?? task.wastage ?? "—"}/10
           </span>
           {task.verification_required !== false && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-bold">
@@ -128,7 +128,12 @@ export default function ClTaskAdminCard({ task, index, onDelete }) {
         </div>
 
         <div className="flex items-center justify-between gap-2 text-[9px] text-slate-400 pt-1 border-t border-slate-50">
-          <span className="font-semibold text-slate-600">Score: {task.score ?? "—"}/10</span>
+          <span className="font-semibold text-slate-600">
+            Score:{" "}
+            {task.score != null && Number.isFinite(Number(task.score))
+              ? `${Math.round((Number(task.score) / 10) * 1000) / 10}%`
+              : "—"}
+          </span>
           <span className="truncate">{formatDateTime(task.created_at)}</span>
         </div>
       </div>

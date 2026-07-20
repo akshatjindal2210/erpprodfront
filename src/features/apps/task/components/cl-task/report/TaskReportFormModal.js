@@ -1,92 +1,115 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSelector } from "react-redux";
+import { Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
+import Drawer from "@/core/components/ui/Drawer";
 import { reportPanelService } from "@/features/apps/task/services/reportApi";
-import { useCanAccess } from "@/core/hooks/useCanAccess";
+import ClVerificationFormModal from "../verification/ClVerificationFormModal";
 
-export default function TaskReportFormModal({ open, task, onClose, onSaved }) {
-  const canAccess = useCanAccess();
-  const canEdit = canAccess("task_report", "edit").allowed;
+/**
+ * Report score click → load full CL instance, then show CL create/verify form.
+ * Super Admin: can Update user fill + score/weightage.
+ * Everyone else: view only (and report list already scopes to own rows).
+ */
+export default function TaskReportFormModal({ open, task, onClose, onSaved, onSwitchTask }) {
+  const role = useSelector((s) => s.auth?.role);
+  const userType = useSelector((s) => s.auth?.user?.type || s.auth?.user?.role);
+  const isSuperAdmin =
+    String(role || "").toLowerCase() === "super_admin" ||
+    String(userType || "").toLowerCase() === "super_admin";
 
-  const [score, setScore] = useState("");
-  const [remark, setRemark] = useState("");
-  const [isRed, setIsRed] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [fullTask, setFullTask] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!open || !task) return;
-    setScore(task.effective_score != null ? String(task.effective_score) : task.score != null ? String(task.score) : "");
-    setRemark(task.management_remark ?? "");
-    setIsRed(!!task.is_red_flag);
-  }, [open, task]);
+    if (!open || !task?.instance_id) {
+      setFullTask(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setFullTask(null);
+      try {
+        const res = await reportPanelService.getInstance(task.instance_id);
+        const payload = res?.data?.data ?? res?.data ?? null;
+        if (!cancelled) {
+          if (!payload) {
+            toast.error("Task details not found");
+            onClose?.();
+            return;
+          }
+          setFullTask(payload);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(err.response?.data?.message || "Failed to load CL task");
+          onClose?.();
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // intentionally omit onClose — parent often passes inline fn (re-fetch loop)
+  }, [open, task?.instance_id]);
 
   if (!open || !task) return null;
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await reportPanelService.saveReview({
-        cl_instance_id: task.instance_id,
-        report_date: task.scheduled_date,
-        score: score !== "" ? Number(score) : null,
-        management_remark: remark.trim() || null,
-        is_red_flag: isRed,
-      });
-      toast.success(isRed ? "Saved — red flag applied to MIS score" : "Report review saved");
-      onSaved?.();
-      onClose();
-    } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to save review");
-    } finally {
-      setSaving(false);
-    }
-  };
+  if (loading || !fullTask) {
+    return (
+      <Drawer
+        isOpen
+        onClose={onClose}
+        title="CL Task Report"
+        description={task.title || ""}
+        headerVariant="form"
+        maxWidth="max-w-2xl"
+        closeOnOutside={false}
+        footer={
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2.5 text-sm font-bold text-slate-500"
+          >
+            Close
+          </button>
+        }
+      >
+        <div className="flex items-center justify-center py-16 text-slate-400 gap-2">
+          <Loader2 size={20} className="animate-spin" />
+          <span className="text-sm font-medium">Loading form…</span>
+        </div>
+      </Drawer>
+    );
+  }
 
   return (
-    <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
-        <div className="px-5 py-4 border-b border-slate-100 shrink-0">
-          <h2 className="text-lg font-bold text-slate-800">CL Task Report</h2>
-          <p className="text-sm text-slate-500 mt-1">{task.title}</p>
-        </div>
-        <div className="p-5 space-y-4 overflow-y-auto flex-1">
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span className="text-slate-400 text-xs">Date</span><p className="font-medium">{task.scheduled_date}</p></div>
-            <div><span className="text-slate-400 text-xs">Person</span><p className="font-medium">{task.person_name ?? "—"}</p></div>
-            <div><span className="text-slate-400 text-xs">Status</span><p className="font-medium capitalize">{task.status?.replace("_", " ")}</p></div>
-            <div><span className="text-slate-400 text-xs">Current Score</span><p className="font-medium">{task.score ?? "—"}</p></div>
-          </div>
-          {canEdit && (
-            <>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase">Management Score (1–10)</label>
-                <input type="number" min={1} max={10} value={score} onChange={(e) => setScore(e.target.value)}
-                  className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-400" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase">Management Remark</label>
-                <textarea value={remark} onChange={(e) => setRemark(e.target.value)} rows={3}
-                  className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none resize-none focus:border-indigo-400"
-                  placeholder="Add management remarks…" />
-              </div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={isRed} onChange={(e) => setIsRed(e.target.checked)} className="rounded border-slate-300 text-rose-600" />
-                <span className="text-sm text-rose-700 font-medium">Mark as Red Ticket (minus MIS score impact)</span>
-              </label>
-            </>
-          )}
-        </div>
-        <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-2 shrink-0">
-          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-xl">Close</button>
-          {canEdit && (
-            <button type="button" disabled={saving} onClick={handleSave}
-              className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50">
-              {saving ? "Saving…" : "Save Review"}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+    <ClVerificationFormModal
+      task={fullTask}
+      reportVariant
+      /** Super Admin: update even after complete. All other users: view only. */
+      permissions={isSuperAdmin ? ["APPROVE"] : ["VIEW"]}
+      onSwitchFill={(next) => {
+        if (!next?.instance_id) return;
+        setFullTask(null);
+        onSwitchTask?.(next);
+      }}
+      onClose={() => {
+        setFullTask(null);
+        onClose?.();
+      }}
+      onSuccess={() => {
+        setFullTask(null);
+        onSaved?.();
+        onClose?.();
+      }}
+    />
   );
 }

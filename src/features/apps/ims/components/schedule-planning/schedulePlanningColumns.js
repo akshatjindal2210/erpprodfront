@@ -28,11 +28,28 @@ export function currentScheduleMonthValue() {
 }
 
 export function scheduleItemRowKey(row) {
-  return `${row.schno}-${row.itemdcode}`;
+  const dcode = resolveScheduleItemdcode(row);
+  return dcode != null ? `${row.schno}-${dcode}` : String(row.schno ?? "");
 }
 
 export function scheduleSchnoKey(row) {
   return String(row.schno ?? "");
+}
+
+/** Item dcode from list row or selected row key (`schno-itemdcode`). */
+export function resolveScheduleItemdcode(row, selectedKey = "") {
+  const fromRow = row?.itemdcode ?? row?.item_dcode ?? row?.Itemdcode ?? row?.ItemDcode;
+  if (fromRow != null && String(fromRow).trim() !== "") {
+    const n = Number(fromRow);
+    if (Number.isFinite(n)) return n;
+  }
+  const key = String(selectedKey || "").trim();
+  const dash = key.lastIndexOf("-");
+  if (dash > 0) {
+    const n = Number(key.slice(dash + 1));
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
 }
 
 /** IMS Remarks JSON — one or many `{ date, qty }` pairs, e.g. `[{"date":"1/7/26","qty":6000}]`. */
@@ -118,17 +135,59 @@ export function ScheduleCustRequestCell({ raw, className = "", showIndex = false
   );
 }
 
-export function formatPreviousPlanDates(rawOrRow) {
-  if (rawOrRow == null || typeof rawOrRow !== "object" || Array.isArray(rawOrRow)) return "—";
-  const fromTxn = rawOrRow.plan_date_history ?? rawOrRow.previous_plan_dates;
-  if (!Array.isArray(fromTxn) || !fromTxn.length) return "—";
-  const dates = fromTxn
-    .map((d) => {
-      const iso = remarkDateToInputValue(d);
-      return iso ? formatDocDate(iso) : formatDocDate(d);
+/** Last Action meta: always date + remark/reason when present (Hold / Reject / any). */
+export function formatLastActionMeta(row) {
+  if (!row) return "";
+
+  const dateRaw =
+    row.last_action_date
+    ?? row.action_date
+    ?? row.last_action_at
+    ?? null;
+  const dateText =
+    formatDocDate(remarkDateToInputValue(dateRaw) || dateRaw)
+    || formatDocDate(dateRaw)
+    || "";
+
+  const remark = String(row.item_remark || "").trim();
+  const reason = String(row.action_reason || row.last_action_reason || "").trim();
+  const notes = [];
+  if (remark) notes.push(remark);
+  if (reason && reason.toLowerCase() !== remark.toLowerCase()) notes.push(reason);
+  const note = notes.join(" · ");
+
+  if (dateText && note) return `${dateText} — ${note}`;
+  return dateText || note || "";
+}
+
+/** Previous column: plan/hold history as "DD/MM/YYYY — remark" (oldest → newest). */
+export function formatPreviousPlanDates(row, txnRows) {
+  if (row == null || typeof row !== "object" || Array.isArray(row)) return "—";
+
+  const fromTxn = (Array.isArray(txnRows) ? txnRows : [])
+    .filter((t) => {
+      const type = String(t?.action_type || "").toLowerCase();
+      return (type === "plan" || type === "hold") && t?.action_date;
     })
-    .filter(Boolean);
-  return dates.length ? dates.join(", ") : "—";
+    .slice()
+    .reverse(); // API newest-first → show oldest first
+
+  const lines = fromTxn.map((t) => {
+    const dateText = formatDocDate(t.action_date);
+    if (!dateText) return "";
+    const remark = String(t.remark || "").trim();
+    return remark ? `${dateText} — ${remark}` : dateText;
+  }).filter(Boolean);
+
+  if (lines.length) return lines.join("; ");
+
+  // No txn yet — show current saved date + remark
+  const date = row.action_date ?? row.last_action_date;
+  if (!date) return "—";
+  const dateText = formatDocDate(remarkDateToInputValue(date) || date);
+  if (!dateText) return "—";
+  const remark = String(row.item_remark || "").trim();
+  return remark ? `${dateText} — ${remark}` : dateText;
 }
 
 /** Current saved plan snapshot for list/modal (not history). */
@@ -287,6 +346,7 @@ export function scheduleItemWiseSearchParts(row) {
     row.created_by_name, row.updated_by_name,
     formatDateTime(row.created_at), formatDateTime(row.updated_at),
     row.last_action_label, row.last_action_type, row.last_action_by_name,
+    row.shortage_no,
   ]);
 }
 
@@ -303,7 +363,10 @@ export function scheduleUniqueSearchParts(row) {
 
 function pickScheduleStatusFromItems(items = []) {
   if (!items.length) {
-    return { is_planned: SCHEDULE_PLAN_STATUS.PENDING, status_label: statusLabel(SCHEDULE_PLAN_STATUS.PENDING) };
+    return {
+      is_planned: SCHEDULE_PLAN_STATUS.PENDING,
+      status_label: statusLabel(SCHEDULE_PLAN_STATUS.PENDING),
+    };
   }
   const codes = items.map((i) => {
     if (!isDbRow(i)) return SCHEDULE_PLAN_STATUS.PENDING;
@@ -377,29 +440,87 @@ export function toUniqueScheduleRows(records) {
 }
 
 export function ScheduleStatusBadge({ row }) {
-  const label = row?.status_label || statusLabel(row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
-  const isPartial = label === "Partial" || row?.is_planned == null;
-  const code = isPartial
+  const code = Number(row?.is_planned);
+  const isPartial = row?.status_label === "Partial" || row?.is_planned == null;
+  const resolvedCode = isPartial
     ? null
-    : Number(row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
-  const isPending = !isPartial && code === SCHEDULE_PLAN_STATUS.PENDING;
-  let className = "bg-amber-50 text-amber-600 border-amber-100";
+    : Number.isFinite(code)
+      ? code
+      : SCHEDULE_PLAN_STATUS.PENDING;
+
+  const label = isPartial
+    ? "Partial"
+    : row?.status_label || statusLabel(resolvedCode);
+
+  let className = "bg-slate-50 text-slate-600 border-slate-200";
   if (isPartial) className = "bg-slate-50 text-slate-600 border-slate-200";
-  else if (code === SCHEDULE_PLAN_STATUS.PLANNED) className = "bg-cyan-50 text-cyan-700 border-cyan-200";
-  else if (code === SCHEDULE_PLAN_STATUS.RUNNING) className = "bg-indigo-50 text-indigo-700 border-indigo-200";
-  else if (code === SCHEDULE_PLAN_STATUS.COMPLETE) className = "bg-emerald-50 text-emerald-600 border-emerald-100";
-  else if (code === SCHEDULE_PLAN_STATUS.REJECT) className = "bg-rose-50 text-rose-700 border-rose-200";
-  else if (code === SCHEDULE_PLAN_STATUS.HOLD) className = "bg-orange-50 text-orange-700 border-orange-200";
-  const prefix = isPending || isPartial ? "○ " : "● ";
+  else if (resolvedCode === SCHEDULE_PLAN_STATUS.PENDING) {
+    className = "bg-amber-50 text-amber-700 border-amber-200";
+  } else if (resolvedCode === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH) {
+    className = "bg-cyan-50 text-cyan-700 border-cyan-200";
+  } else if (resolvedCode === SCHEDULE_PLAN_STATUS.PLANNED) {
+    className = "bg-indigo-50 text-indigo-700 border-indigo-200";
+  } else if (resolvedCode === SCHEDULE_PLAN_STATUS.RUNNING) {
+    className = "bg-violet-50 text-violet-700 border-violet-200";
+  } else if (resolvedCode === SCHEDULE_PLAN_STATUS.COMPLETE) {
+    className = "bg-emerald-50 text-emerald-600 border-emerald-100";
+  } else if (resolvedCode === SCHEDULE_PLAN_STATUS.REJECT) {
+    className = "bg-rose-50 text-rose-700 border-rose-200";
+  } else if (resolvedCode === SCHEDULE_PLAN_STATUS.HOLD) {
+    className = "bg-orange-50 text-orange-700 border-orange-200";
+  }
+
+  const isPending = resolvedCode === SCHEDULE_PLAN_STATUS.PENDING;
+  const isReadyToDispatch = resolvedCode === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH;
+  const prefix = isPartial || (isPending && !isDbRow(row)) ? "○ " : "● ";
   const title = isPartial ? "Items in this schedule have different statuses" : undefined;
   return (
     <span
       title={title}
       className={`px-2 py-0.5 text-[9px] font-black uppercase border w-fit ${className}`}
     >
-      {prefix}{label}
+      {prefix}
+      {isReadyToDispatch ? "Ready to Dispatch" : isPending ? "Pending" : label}
     </span>
   );
+}
+
+/** Simple status row colors. */
+export const SCHEDULE_LIST_ROW_LEGEND = [
+  { swatch: "bg-amber-50 border border-amber-200 shadow-[inset_3px_0_0_0_#f59e0b]", label: "Pending" },
+  { swatch: "bg-cyan-50 border border-cyan-200 shadow-[inset_3px_0_0_0_#06b6d4]", label: "Ready to Dispatch" },
+  { swatch: "bg-indigo-50 border border-indigo-200 shadow-[inset_3px_0_0_0_#6366f1]", label: "Plan" },
+  { swatch: "bg-orange-50 border border-orange-200 shadow-[inset_3px_0_0_0_#f97316]", label: "Hold" },
+  { swatch: "bg-rose-50 border border-rose-200 shadow-[inset_3px_0_0_0_#f43f5e]", label: "Reject" },
+  { swatch: "bg-emerald-50 border border-emerald-200 shadow-[inset_3px_0_0_0_#10b981]", label: "Complete" },
+];
+
+export function getScheduleListRowClassName(row) {
+  if (row?.status_label === "Partial" && Array.isArray(row?._items) && row._items.length) {
+    return "[&_td]:bg-slate-50 [&_td:first-child]:shadow-[inset_3px_0_0_0_#94a3b8]";
+  }
+
+  const status = Number(row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
+
+  if (status === SCHEDULE_PLAN_STATUS.PENDING) {
+    return "[&_td]:bg-amber-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#f59e0b]";
+  }
+  if (status === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH) {
+    return "[&_td]:bg-cyan-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#06b6d4]";
+  }
+  if (status === SCHEDULE_PLAN_STATUS.PLANNED || status === SCHEDULE_PLAN_STATUS.RUNNING) {
+    return "[&_td]:bg-indigo-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#6366f1]";
+  }
+  if (status === SCHEDULE_PLAN_STATUS.HOLD) {
+    return "[&_td]:bg-orange-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#f97316]";
+  }
+  if (status === SCHEDULE_PLAN_STATUS.REJECT) {
+    return "[&_td]:bg-rose-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#f43f5e]";
+  }
+  if (status === SCHEDULE_PLAN_STATUS.COMPLETE) {
+    return "[&_td]:bg-emerald-50/70 [&_td:first-child]:shadow-[inset_3px_0_0_0_#10b981]";
+  }
+  return "";
 }
 
 function formatComparePlain(v, { date = false, qty = false, month = false } = {}) {
@@ -588,7 +709,7 @@ export function buildScheduleUniqueHeaders({ onDrillToItems } = {}) {
       { fixed: true, width: "100px" },
     ],
     ["Date", "schdt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatSchHeaderDate(v)}</span>, { width: "100px" }],
-    ["Custommer", "acc_name", (v) => (
+    ["Customer", "acc_name", (v) => (
       <span className="font-bold text-slate-900 text-[10px] uppercase whitespace-normal break-words leading-snug" title={v}>{v || "—"}</span>
     ), { width: "280px", wrap: true, copyValue: (row) => row.acc_name || "—" }],
     ["Month", "schmonth", (_v, row) => <span className="text-[10px] text-slate-600 font-medium">{schMonthLabel(row.schmonth)}</span>, { width: "110px" }],
@@ -604,7 +725,7 @@ export function buildScheduleUniqueHeaders({ onDrillToItems } = {}) {
       { align: "center", width: "80px" },
     ],
     ["Total Qty", "total_qty", (v) => <span className="font-black text-slate-700 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>, { align: "center", width: "110px" }],
-    ["Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { width: "110px", copyValue: (row) => row.status_label || statusLabel(row.is_planned) }],
+    ["Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { align: "center", width: "140px", copyValue: (row) => row.status_label || statusLabel(row.is_planned) }],
     ...SCHEDULE_AUDIT_HEADERS,
   ];
 }
@@ -620,7 +741,44 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
       { fixed: true, width: "100px" },
     ],
     ["Date", "schdt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatSchHeaderDate(v)}</span>, { width: "100px" }],
-    ["Custommer", "acc_name", (v) => (
+    ["Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { align: "center", width: "160px", copyValue: (row) => row.status_label || statusLabel(row.is_planned) }],
+    ["Last Action", "last_action_label", (_v, row) => {
+        const label = row.last_action_label || "—";
+        const meta = formatLastActionMeta(row);
+        return (
+          <div className="flex flex-col items-start gap-0.5 min-w-0">
+            <span className={`${IMS_TABLE_CELL_TEXT} text-slate-800 uppercase`}>{label}</span>
+            {meta ? (
+              <span className="text-[9px] text-slate-500 leading-snug break-words whitespace-normal" title={meta}>
+                {meta}
+              </span>
+            ) : null}
+            {onViewHistory && row.last_action_type ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewHistory(row);
+                }}
+                className="text-[10px] font-bold uppercase text-indigo-600 hover:underline"
+              >
+                View
+              </button>
+            ) : null}
+          </div>
+        );
+      },
+      {
+        width: "220px",
+        wrap: true,
+        copyValue: (row) => {
+          const label = row.last_action_label || "";
+          const meta = formatLastActionMeta(row);
+          return [label, meta].filter(Boolean).join(" | ") || "—";
+        },
+      },
+    ],
+    ["Customer", "acc_name", (v) => (
       <span className="font-bold text-slate-900 text-[10px] uppercase whitespace-normal break-words leading-snug" title={v}>{v || "—"}</span>
     ), { width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" }],
     // ["Month", "schmonth", (_v, row) => <span className="text-[10px] text-slate-600 font-medium">{schMonthLabel(row.schmonth)}</span>, { width: "100px" }],
@@ -641,36 +799,12 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
     ["Dispatch Qty", "dispatch_qty", (v, row) => (
       <span className="font-black text-slate-600 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
     ), { align: "center", width: "95px" }],
-    ["Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { width: "120px", copyValue: (row) => row.status_label || statusLabel(row.is_planned) }],
-    [
-      "Last Action",
-      "last_action_label",
-      (_v, row) => {
-        const label = row.last_action_label || "—";
-        if (!onViewHistory || !row.last_action_type) {
-          return <span className={IMS_TABLE_CELL_TEXT}>{label}</span>;
-        }
-        return (
-          <div className="flex flex-col items-start gap-0.5">
-            <span className={`${IMS_TABLE_CELL_TEXT} text-slate-800 uppercase`}>{label}</span>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onViewHistory(row);
-              }}
-              className="text-[10px] font-bold uppercase text-indigo-600 hover:underline"
-            >
-              View
-            </button>
-          </div>
-        );
-      },
-      { width: "110px" },
-    ],
+    ["Shortage No", "shortage_no", (v) => (
+      <span className="font-bold text-amber-800 text-[10px] tabular-nums uppercase">{v || "—"}</span>
+    ), { align: "center", width: "110px", copyValue: (row) => row.shortage_no || "—" }],
     ["Cust. Request", "remarks", (_v, row) => (
       <ScheduleCustRequestCell raw={row.Remarks ?? row.remarks} />
-    ), { width: "200px", wrap: true }],
+    ), { width: "150px", wrap: true }],
     ...SCHEDULE_ACTION_HEADERS,
     ...SCHEDULE_AUDIT_HEADERS
   ];

@@ -166,7 +166,7 @@ export default function BoxTablePage() {
       {
         type: "text",
         label: "Journey",
-        placeholder: "Packing no or box no",
+        placeholder: "Packing no, box no, or item code",
         value: journeyInput,
         onChange: setJourneyInput,
         onEnter: applyJourneyFilter,

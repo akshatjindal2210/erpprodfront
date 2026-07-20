@@ -17,11 +17,13 @@ import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
 import DateRangeFilter from "@/core/components/common/DateRangeFilter";
 import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
+import { useSelector } from "react-redux";
+import { selectUser, selectRole } from "@/core/store/slices/authSlice";
 import { applyClientSearch, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
 import { schedulePlanningService } from "@/features/apps/ims/services/schedulePlanning";
-import { SCHEDULE_LIST_FILTER, SCHEDULE_PLAN_STATUS, canOpenPlanModal, isDbRow, SCHEDULE_REPORT_FILTER } from "./schedulePlanStatus";
-import { SCHEDULE_PAGE_TABS, MONTH_FILTER_OPTIONS, currentScheduleMonthValue, SCHEDULE_STATUS_FILTER_OPTIONS, SCHEDULE_REPORT_FILTER_OPTIONS, scheduleItemRowKey, scheduleSchnoKey, canDeleteRow, scheduleItemWiseSearchParts,
-  scheduleUniqueSearchParts, toUniqueScheduleRows, SCHEDULE_UNIQUE_HEADERS, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, hasScheduleComparisonMismatch } from "./schedulePlanningColumns";
+import { SCHEDULE_LIST_FILTER, SCHEDULE_PLAN_STATUS, canOpenPlanModal, SCHEDULE_REPORT_FILTER, getDefaultScheduleStatusFilter, getScheduleStatusFilterOptions, filterScheduleItemsForPermission, isSalesDepartmentUser } from "./schedulePlanStatus";
+import { SCHEDULE_PAGE_TABS, MONTH_FILTER_OPTIONS, currentScheduleMonthValue, SCHEDULE_REPORT_FILTER_OPTIONS, scheduleItemRowKey, scheduleSchnoKey, resolveScheduleItemdcode, canDeleteRow, scheduleItemWiseSearchParts,
+  scheduleUniqueSearchParts, toUniqueScheduleRows, SCHEDULE_UNIQUE_HEADERS, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, hasScheduleComparisonMismatch, localTodayYmd, getScheduleListRowClassName, SCHEDULE_LIST_ROW_LEGEND } from "./schedulePlanningColumns";
 import SchedulePlanModal from "./SchedulePlanModal";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import SchedulePlanRemoveConfirmModal from "./SchedulePlanRemoveConfirmModal";
@@ -51,27 +53,83 @@ function matchesFrontendStatusFilter(row, status) {
   const st = String(status ?? SCHEDULE_LIST_FILTER.ALL).toLowerCase();
   if (st === SCHEDULE_LIST_FILTER.ALL) return true;
   if (st === SCHEDULE_LIST_FILTER.COMPARISON) return hasScheduleComparisonMismatch(row);
-  if (st === SCHEDULE_LIST_FILTER.PENDING) return !isDbRow(row) || Number(row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING) === SCHEDULE_PLAN_STATUS.PENDING;
 
-  const code = Number(row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
-  if (!Number.isFinite(code)) return false;
+  const codes =
+    row?.status_label === "Partial" && Array.isArray(row?._items) && row._items.length
+      ? row._items.map((i) => {
+          const n = Number(i?.is_planned);
+          return Number.isFinite(n) ? n : SCHEDULE_PLAN_STATUS.PENDING;
+        })
+      : (() => {
+          if (row?.is_planned == null || row?.is_planned === "") {
+            return [SCHEDULE_PLAN_STATUS.PENDING];
+          }
+          const n = Number(row.is_planned);
+          return [Number.isFinite(n) ? n : SCHEDULE_PLAN_STATUS.PENDING];
+        })();
 
-  if (st === SCHEDULE_LIST_FILTER.SCHEDULE) {
-    return code === SCHEDULE_PLAN_STATUS.PLANNED || code === SCHEDULE_PLAN_STATUS.RUNNING;
+  const has = (pred) => codes.some(pred);
+
+  if (st === SCHEDULE_LIST_FILTER.PENDING) {
+    return has((c) => c === SCHEDULE_PLAN_STATUS.PENDING);
   }
-  if (st === SCHEDULE_LIST_FILTER.COMPLETE) return code === SCHEDULE_PLAN_STATUS.COMPLETE;
-  if (st === SCHEDULE_LIST_FILTER.REJECT) return code === SCHEDULE_PLAN_STATUS.REJECT;
-  if (st === SCHEDULE_LIST_FILTER.HOLD) return code === SCHEDULE_PLAN_STATUS.HOLD;
+  if (st === SCHEDULE_LIST_FILTER.READY_TO_DISPATCH) {
+    return has((c) => c === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH);
+  }
+  if (st === SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT) {
+    return has(
+      (c) =>
+        c === SCHEDULE_PLAN_STATUS.PENDING ||
+        c === SCHEDULE_PLAN_STATUS.HOLD ||
+        c === SCHEDULE_PLAN_STATUS.REJECT
+    );
+  }
+  if (st === SCHEDULE_LIST_FILTER.PLAN) {
+    return has(
+      (c) => c === SCHEDULE_PLAN_STATUS.PLANNED || c === SCHEDULE_PLAN_STATUS.RUNNING
+    );
+  }
+  if (st === SCHEDULE_LIST_FILTER.COMPLETE) {
+    return has((c) => c === SCHEDULE_PLAN_STATUS.COMPLETE);
+  }
+  if (st === SCHEDULE_LIST_FILTER.REJECT) {
+    return has((c) => c === SCHEDULE_PLAN_STATUS.REJECT);
+  }
+  if (st === SCHEDULE_LIST_FILTER.HOLD) {
+    return has((c) => c === SCHEDULE_PLAN_STATUS.HOLD);
+  }
   return true;
 }
 
 export default function SchedulePlanningPage() {
   const canAccess = useCanAccess();
+  const currentUser = useSelector(selectUser);
+  const role = useSelector(selectRole);
+  const isSuperAdmin =
+    String(role || "").toLowerCase() === "super_admin" ||
+    String(currentUser?.type || currentUser?.role || "").toLowerCase() === "super_admin";
   const viewAccess = useMemo(() => canAccess("schedule_planning", "view"), [canAccess]);
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
   const [viewMode, handleViewMode] = useViewMode();
 
-  const [pageTab, setPageTab] = useState("schedule");
+  const canRemovePlan = useMemo(() => canAccess("schedule_planning", "delete").allowed, [canAccess]);
+  const canAddPlan = useMemo(() => canAccess("schedule_planning", "add").allowed, [canAccess]);
+  const canApprovePlan = useMemo(() => canAccess("schedule_planning", "authorize").allowed, [canAccess]);
+  const isSalesDepartment = useMemo(() => isSalesDepartmentUser(currentUser), [currentUser]);
+  const defaultStatusFilter = useMemo(
+    () =>
+      getDefaultScheduleStatusFilter({
+        canAdd: canAddPlan,
+        canApprove: canApprovePlan,
+        isSalesDepartment,
+        isSuperAdmin,
+      }),
+    [canAddPlan, canApprovePlan, isSalesDepartment, isSuperAdmin]
+  );
+  const statusFilterOptions = useMemo(() => getScheduleStatusFilterOptions(), []);
+  const canOpenScheduleActions = canAddPlan || canApprovePlan;
+
+  const [pageTab, setPageTab] = useState("item-wise");
   const [itemWiseSchnoFilter, setItemWiseSchnoFilter] = useState(null);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [loading, setLoading] = useState(false);
@@ -79,7 +137,7 @@ export default function SchedulePlanningPage() {
   const [tempSearch, setTempSearch] = useState("");
   const [params, setParams] = useState({ sortKey: "", sortDir: "asc" });
   const [appliedQuery, setAppliedQuery] = useState(null);
-  const [statusFilter, setStatusFilter] = useState(SCHEDULE_LIST_FILTER.PENDING);
+  const [statusFilter, setStatusFilter] = useState(defaultStatusFilter);
   const [draftReportType, setDraftReportType] = useState(SCHEDULE_REPORT_FILTER.DEFAULT);
   const initialQuerySet = useRef(false);
 
@@ -92,9 +150,6 @@ export default function SchedulePlanningPage() {
   const [modalScheduleItems, setModalScheduleItems] = useState([]);
   const [modalItemsLoading, setModalItemsLoading] = useState(false);
 
-  const canRemovePlan = useMemo(() => canAccess("schedule_planning", "delete").allowed, [canAccess]);
-  const canAddPlan = useMemo(() => canAccess("schedule_planning", "add").allowed, [canAccess]);
-
   useEffect(() => {
     if (!dateFilterDefaults.from && !dateFilterDefaults.to) return;
     if (initialQuerySet.current) return;
@@ -105,8 +160,8 @@ export default function SchedulePlanningPage() {
       month: currentScheduleMonthValue(),
     });
     setDraftReportType(SCHEDULE_REPORT_FILTER.DEFAULT);
-    setStatusFilter(SCHEDULE_LIST_FILTER.PENDING);
-  }, [dateFilterDefaults.from, dateFilterDefaults.to]);
+    setStatusFilter(defaultStatusFilter);
+  }, [dateFilterDefaults.from, dateFilterDefaults.to, defaultStatusFilter]);
 
   const isCustomReport = String(draftReportType) === SCHEDULE_REPORT_FILTER.CUSTOM;
 
@@ -250,7 +305,11 @@ export default function SchedulePlanningPage() {
 
   const planSchedule = useMemo(() => {
     if (!selectedRecord || !planModalOpen) return null;
-    const scheduleItems = modalScheduleItems;
+    // Modal only: Plan user → Ready/Plan rows; Hold only for APPROVE.
+    const scheduleItems = filterScheduleItemsForPermission(modalScheduleItems, {
+      canAdd: canAddPlan,
+      canApprove: canApprovePlan,
+    });
     if (!scheduleItems.length && modalItemsLoading) {
       return {
         schno: selectedRecord.schno,
@@ -274,18 +333,23 @@ export default function SchedulePlanningPage() {
       _items: scheduleItems,
       overall_remark: scheduleItems.find((i) => i.overall_remark)?.overall_remark ?? null,
     };
-  }, [selectedRecord, planModalOpen, modalScheduleItems, modalItemsLoading]);
+  }, [selectedRecord, planModalOpen, modalScheduleItems, modalItemsLoading, canAddPlan, canApprovePlan]);
 
   const canOpenPlan = Boolean(canOpenPlanModal(statusFilter) && selectedRecord);
 
   const deleteSchno = selectedRecord ? scheduleSchnoKey(selectedRecord) : "";
+  const deleteItemdcode = useMemo(() => {
+    if (isScheduleTab || !selectedRecord) return null;
+    return resolveScheduleItemdcode(selectedRecord, selected);
+  }, [isScheduleTab, selectedRecord, selected]);
 
   const canDeleteSelection = useMemo(() => {
     if (!deleteSchno) return false;
+    if (!isScheduleTab) return canDeleteRow(selectedRecord);
     const schedule = uniqueSchedules.find((row) => scheduleSchnoKey(row) === deleteSchno);
     if (schedule && canDeleteRow(schedule)) return true;
     return rows.some((row) => scheduleSchnoKey(row) === deleteSchno && canDeleteRow(row));
-  }, [deleteSchno, uniqueSchedules, rows]);
+  }, [deleteSchno, isScheduleTab, selectedRecord, uniqueSchedules, rows]);
 
   const deleteItemCount = useMemo(() => {
     if (!deleteSchno) return 0;
@@ -294,25 +358,35 @@ export default function SchedulePlanningPage() {
     return rows.filter((row) => scheduleSchnoKey(row) === deleteSchno).length;
   }, [deleteSchno, uniqueSchedules, rows]);
 
+  const actionButtonLabel = canApprovePlan && !canAddPlan ? "Authorize" : "Plan";
+
   const openPlanModal = useCallback(() => {
-    if (!canAddPlan) return;
+    if (!canOpenScheduleActions) return;
     if (!canOpenPlan) {
-      toast.info(isScheduleTab ? "Select a pending schedule row to plan." : "Select a pending item row to plan.");
+      toast.info(
+        canApprovePlan && !canAddPlan
+          ? isScheduleTab
+            ? "Select a schedule row to authorize (Hold / Ready)."
+            : "Select an item row to authorize (Hold / Ready)."
+          : isScheduleTab
+            ? "Select a schedule row to plan."
+            : "Select an item row to plan."
+      );
       return;
     }
-    setPlanModalMode("plan");
+    setPlanModalMode(canApprovePlan && !canAddPlan ? "authorize" : "plan");
     setPlanModalOpen(true);
-  }, [canAddPlan, canOpenPlan, isScheduleTab]);
+  }, [canOpenScheduleActions, canOpenPlan, isScheduleTab, canApprovePlan, canAddPlan]);
 
   const handleRowDoubleClick = useCallback(
     (_item, id) => {
-      if (!canAddPlan) return;
+      if (!canOpenScheduleActions) return;
       if (!canOpenPlanModal(statusFilter)) return;
       setSelected(id);
-      setPlanModalMode("plan");
+      setPlanModalMode(canApprovePlan && !canAddPlan ? "authorize" : "plan");
       setPlanModalOpen(true);
     },
-    [canAddPlan, statusFilter]
+    [canOpenScheduleActions, statusFilter, canApprovePlan, canAddPlan]
   );
 
   const handleViewHistory = useCallback((row) => {
@@ -331,44 +405,90 @@ export default function SchedulePlanningPage() {
     await refreshListOnly();
   }, [refreshListOnly]);
 
-  const removePlanLabel = deleteSchno
-    ? `Sch No ${deleteSchno} (${deleteItemCount || 0} items)`
-    : "";
+  const removePlanLabel = useMemo(() => {
+    if (!deleteSchno) return "";
+    if (!isScheduleTab && selectedRecord) {
+      const item = selectedRecord.item_code || selectedRecord.itemdcode || "item";
+      return `Sch ${deleteSchno} · ${item}`;
+    }
+    return `Sch No ${deleteSchno} (${deleteItemCount || 0} items)`;
+  }, [deleteSchno, deleteItemCount, isScheduleTab, selectedRecord]);
+
+  const removePlanDescription = useMemo(() => {
+    if (!isScheduleTab && deleteItemdcode != null) {
+      return "Only the selected item row and its history will be permanently deleted. Other items in this schedule are not affected.";
+    }
+    return "All items and history for this Sch No will be permanently deleted.";
+  }, [isScheduleTab, deleteItemdcode]);
 
   const handleRemovePlan = useCallback(async () => {
     if (!canRemovePlan || !deleteSchno || !canDeleteSelection) return;
+
+    if (isScheduleTab) {
+      // Schedule master tab → delete entire Sch No (all items at once).
+      setRemovePlanLoading(true);
+      try {
+        const res = await schedulePlanningService.remove({ schno: deleteSchno, delete_scope: "schedule" });
+        if (!res?.success) throw new Error(res?.message || "Delete failed");
+        toast.success(res.message || "Schedule deleted.");
+        setRemovePlanOpen(false);
+        setSelected(null);
+        setItemWiseSchnoFilter(null);
+        await fetchData();
+      } catch (err) {
+        toast.error(err?.message || "Delete failed");
+      } finally {
+        setRemovePlanLoading(false);
+      }
+      return;
+    }
+
+    // Schedule Item Wise tab → delete only the selected item row.
+    if (deleteItemdcode == null) {
+      toast.error("Could not identify the selected item. Select one item row and try again.");
+      return;
+    }
+
     setRemovePlanLoading(true);
     try {
-      const res = await schedulePlanningService.remove({ schno: deleteSchno });
+      const res = await schedulePlanningService.remove({
+        schno: deleteSchno,
+        itemdcode: deleteItemdcode,
+        delete_scope: "item",
+      });
       if (!res?.success) throw new Error(res?.message || "Delete failed");
-      toast.success(res.message || "Schedule deleted.");
+      toast.success(res.message || "Schedule item deleted.");
       setRemovePlanOpen(false);
       setSelected(null);
-      setItemWiseSchnoFilter(null);
       await fetchData();
     } catch (err) {
       toast.error(err?.message || "Delete failed");
     } finally {
       setRemovePlanLoading(false);
     }
-  }, [canRemovePlan, deleteSchno, canDeleteSelection, fetchData]);
+  }, [canRemovePlan, deleteSchno, deleteItemdcode, canDeleteSelection, fetchData, isScheduleTab]);
 
   const openDeleteConfirm = useCallback(() => {
     if (!selected || !deleteSchno) return;
     if (!canDeleteSelection) {
-      toast.info("Select a schedule with saved plan data to delete.");
+      toast.info(isScheduleTab ? "Select a schedule with saved plan data to delete." : "Select an item row with saved plan data to delete.");
+      return;
+    }
+    if (!isScheduleTab && deleteItemdcode == null) {
+      toast.error("Could not identify the selected item. Select one item row and try again.");
       return;
     }
     setRemovePlanOpen(true);
-  }, [selected, deleteSchno, canDeleteSelection]);
+  }, [selected, deleteSchno, canDeleteSelection, isScheduleTab, deleteItemdcode]);
 
   const { openNewModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "schedule_planning",
+    addActions: ["add", "authorize"],
     modalOpen: planModalOpen || removePlanOpen || Boolean(historyItem),
     selectedId: selected,
     getSelectedRow: () => selectedRecord,
     openAdd: openPlanModal,
-    canOpenNew: () => Boolean(canOpenPlan && selected),
+    canOpenNew: () => Boolean(canOpenScheduleActions && canOpenPlan && selected),
     openDelete: openDeleteConfirm,
     canDeleteSelection: () => canDeleteSelection,
     deleteBlockedMessage: "Select a schedule with saved plan data to delete.",
@@ -377,23 +497,38 @@ export default function SchedulePlanningPage() {
   const extraFilters = useMemo(
     () => [
       { label: "Month", key: "month", value: isCustomReport ? (appliedQuery?.month ?? "all") : (appliedQuery?.month ?? currentScheduleMonthValue()), options: MONTH_FILTER_OPTIONS, preserveOrder: true, disabled: !isCustomReport },
-      { label: "Status", key: "status", value: statusFilter, options: SCHEDULE_STATUS_FILTER_OPTIONS, variant: "quick" },
+      { label: "Status", key: "status", value: statusFilter, options: statusFilterOptions, variant: "quick" },
       { label: "Report", key: "reportType", value: draftReportType, options: SCHEDULE_REPORT_FILTER_OPTIONS, preserveOrder: false },
     ],
-    [appliedQuery?.month, draftReportType, isCustomReport, statusFilter]
+    [appliedQuery?.month, draftReportType, isCustomReport, statusFilter, statusFilterOptions]
   );
 
   const emptyState = useMemo(() => {
     const st = String(statusFilter ?? SCHEDULE_LIST_FILTER.ALL).toLowerCase();
     const map = {
-      [SCHEDULE_LIST_FILTER.SCHEDULE]: { message: "No active schedules", subMessage: "Planned / running rows saved in database" },
+      [SCHEDULE_LIST_FILTER.PLAN]: {
+        message: "No Plan items",
+        subMessage: "Planned / Running schedules appear here",
+      },
+      [SCHEDULE_LIST_FILTER.PENDING]: {
+        message: "No Pending items",
+        subMessage: "IMS schedules not yet authorized",
+      },
+      [SCHEDULE_LIST_FILTER.READY_TO_DISPATCH]: {
+        message: "No Ready to Dispatch items",
+        subMessage: "Authorized — waiting to be planned",
+      },
+      [SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT]: {
+        message: "No Pending / Hold / Reject items",
+        subMessage: "Authorize queue — Pending, Hold, or Reject",
+      },
       [SCHEDULE_LIST_FILTER.COMPLETE]: { message: "No completed schedules", subMessage: "Finished schedules appear here" },
       [SCHEDULE_LIST_FILTER.COMPARISON]: { message: "No IMS vs DB mismatches", subMessage: "Live IMS matches the DB snapshot saved at plan time" },
       [SCHEDULE_LIST_FILTER.ALL]: { message: "No schedule records", subMessage: "Try a different date range or month" },
-      [SCHEDULE_LIST_FILTER.REJECT]: { message: "No rejected schedules", subMessage: "Rejected from Pending tab" },
+      [SCHEDULE_LIST_FILTER.REJECT]: { message: "No rejected schedules", subMessage: "Rejected items appear here" },
       [SCHEDULE_LIST_FILTER.HOLD]: { message: "No items on hold", subMessage: "Held schedule items appear here" },
     };
-    return map[st] || { message: "No pending schedule items", subMessage: "IMS rows not yet entered in database" };
+    return map[st] || { message: "No schedule items", subMessage: "Try a different status or date range" };
   }, [statusFilter]);
 
   const isComparisonView = String(statusFilter ?? "").toLowerCase() === SCHEDULE_LIST_FILTER.COMPARISON;
@@ -439,11 +574,16 @@ export default function SchedulePlanningPage() {
               <>
                 <ActionButton
                   module="schedule_planning"
-                  action="add"
-                  label="Plan"
+                  action={canAddPlan ? "add" : "authorize"}
+                  label={actionButtonLabel}
                   icon={CalendarClock}
                   onClick={openNewModal}
-                  disabled={!canOpenPlan}
+                  disabled={!canOpenPlan || !canOpenScheduleActions}
+                  title={
+                    canApprovePlan && !canAddPlan
+                      ? "Select row(s) → Hold or Ready to Dispatch (same as Plan flow)"
+                      : "Select row(s) → Plan / Reject / Complete"
+                  }
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none"
                 />
                 <ActionButton
@@ -543,7 +683,7 @@ export default function SchedulePlanningPage() {
             onReset={() => {
               setTempSearch("");
               setDraftReportType(SCHEDULE_REPORT_FILTER.DEFAULT);
-              setStatusFilter(SCHEDULE_LIST_FILTER.PENDING);
+              setStatusFilter(defaultStatusFilter);
               setAppliedQuery({
                 reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
                 status: SCHEDULE_LIST_FILTER.ALL,
@@ -577,6 +717,7 @@ export default function SchedulePlanningPage() {
             onSelect={handleSelect}
             onRowDoubleClick={handleRowDoubleClick}
             getRowId={(item) => (isScheduleTab ? scheduleSchnoKey(item) : scheduleItemRowKey(item))}
+            getRowClassName={getScheduleListRowClassName}
             emptyIcon={Calendar}
             emptyMessage={hasSearch ? "No matches for your search" : emptyState.message}
             emptySubMessage={hasSearch ? "Try a different search term" : emptyState.subMessage}
@@ -586,15 +727,29 @@ export default function SchedulePlanningPage() {
             {...tableHotkeyProps}
           />
         </div>
+        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-center gap-3 flex-wrap shrink-0">
+          {SCHEDULE_LIST_ROW_LEGEND.map(({ swatch, label }) => (
+            <span
+              key={label}
+              className="inline-flex items-center gap-1.5 text-[9px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap"
+            >
+              <span className={`w-3 h-3 rounded-sm shrink-0 ${swatch}`} aria-hidden />
+              {label}
+            </span>
+          ))}
+        </div>
         <MasterListFooter shown={displayRows.length} total={activeTotal} noun="entries" />
       </div>
 
       <SchedulePlanModal
-        open={planModalOpen && canAddPlan}
+        open={planModalOpen && canOpenScheduleActions}
         mode={planModalMode}
         onClose={() => setPlanModalOpen(false)}
         schedule={planSchedule}
         itemsLoading={modalItemsLoading}
+        canAdd={canAddPlan}
+        canApprove={canApprovePlan}
+        isSuperAdmin={isSuperAdmin}
         onSaved={() => { void refreshAfterSave(); }}
       />
 
@@ -607,7 +762,7 @@ export default function SchedulePlanningPage() {
       <SchedulePlanRemoveConfirmModal
         open={removePlanOpen}
         title={removePlanLabel}
-        description="All items and history for this Sch No will be permanently deleted."
+        description={removePlanDescription}
         loading={removePlanLoading}
         onClose={() => { if (!removePlanLoading) setRemovePlanOpen(false); }}
         onConfirm={() => void handleRemovePlan()}

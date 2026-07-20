@@ -5,11 +5,11 @@ const H = ENDPOINTS.HOLIDAYS;
 const multipart = { headers: { "Content-Type": "multipart/form-data" } };
 
 export const holidayService = {
-  getAll: (params) => api.get(H.LIST, { params }),
-  getById: (id) => api.get(H.item(id)),
-  create: (data) => api.post(H.LIST, data),
-  update: (id, data) => api.put(H.item(id), data),
-  delete: (id) => api.delete(H.item(id)),
+  getAll: (params) => api.post(H.LIST, params || {}),
+  getById: (id) => api.post(H.GET, { id }),
+  create: (data) => api.post(H.CREATE, data),
+  update: (id, data) => api.post(H.UPDATE, { id, ...(data || {}) }),
+  delete: (id) => api.post(H.DELETE, { id }),
 
   bulkUpload: (file) => {
     const formData = new FormData();
@@ -17,4 +17,3 @@ export const holidayService = {
     return api.post(H.BULK_UPLOAD, formData, multipart);
   },
 };
-

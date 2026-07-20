@@ -177,6 +177,7 @@ export const ENDPOINTS = {
     SAVE: "/schedule-planning/save",
     REJECT: "/schedule-planning/reject",
     HOLD: "/schedule-planning/hold",
+    READY_TO_DISPATCH: "/schedule-planning/ready-to-dispatch",
     SHORTAGE: "/schedule-planning/shortage",
     DELETE: "/schedule-planning/delete",
     DISPATCH_HELPER: "/schedule-planning/dispatch-helper",

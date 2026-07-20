@@ -6,7 +6,7 @@ import { SearchBar, FilterButtonsRecurrence, EmptyState } from "@/features/apps/
 import MyClTaskTableRow from "./MyClTaskTableRow";
 import MyClTaskCard from "./MyClTaskCard";
 
-const TABLE_COLS = ["#", "Title", "Type", "Scheduled", "Wattage", "Due", "Status", "Score"];
+const TABLE_COLS = ["#", "Title", "Type", "Scheduled", "Weightage", "Due", "Status", "Score"];
 
 export default function MyClTaskPanel({
   title,

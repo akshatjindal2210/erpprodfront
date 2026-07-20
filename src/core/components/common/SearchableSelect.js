@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Loader2, Search, X, AlertCircle, CheckCircle2 } from "lucide-react";
 import { FORM_ERROR_CLASS, FORM_HINT_CLASS, FORM_LABEL_CLASS } from "./Constants";
-import { listPageFilterLabelClass, LIST_PAGE_FILTER_VALUE_CLASS, LIST_PAGE_FILTER_SERVER_BOX_CLASS } from "./ListPageSearchField";
+import { listPageFilterLabelClass, LIST_PAGE_FILTER_VALUE_CLASS, listPageFilterBoxClass } from "./ListPageSearchField";
 import { sortSelectRowsAsc } from "@/core/utils/sortSelectOptions";
 
 const PAGE_SIZE = 50;
@@ -32,6 +32,11 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
    * "toolbar" — sharp corners to match list filter strips next to `ListPageSearchField`.
    */
   variant = "form",
+  /**
+   * When `variant="toolbar"`: `"quick"` = indigo client filter (same as Quick Search),
+   * `"server"` = white DB filter.
+   */
+  filterVariant = "server",
   emptyMessage = "No options available",
   /** Override trigger height to align with sibling inputs (e.g. "h-10"). */
   heightClass = "h-9",
@@ -58,6 +63,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   isOptionDisabled,
 }) {
   const isToolbar = variant === "toolbar";
+  const toolbarTone = filterVariant === "quick" ? "quick" : "server";
   const multiCompactMode = multiple && compactMulti;
   const multiTagsMode = multiple && showTags && !compactMulti;
   const dropdownRowLabelClass = isToolbar
@@ -72,7 +78,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     : "text-[11px] text-slate-500 font-normal leading-snug";
   const triggerRadius = isToolbar ? "rounded-none" : "rounded-lg";
   const triggerShellClass = isToolbar
-    ? `${LIST_PAGE_FILTER_SERVER_BOX_CLASS}${multiTagsMode ? " searchable-select-multi" : ""}`
+    ? `${listPageFilterBoxClass(toolbarTone)}${multiTagsMode ? " searchable-select-multi" : ""}`
     : `${
         multiTagsMode ? "min-h-9 h-auto" : "min-h-9 h-9"
       } w-full min-w-0 border border-slate-200 bg-white px-3 transition-all duration-200`;
@@ -636,7 +642,8 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
               width: dropPos.width,
               maxWidth: "calc(100vw - 16px)",
               position: "fixed",
-              zIndex: 1100,
+              // Above GlobalDetailModal (z-9999) and similar full-screen overlays
+              zIndex: 10050,
             }
           : {
               position: "absolute",
@@ -730,7 +737,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   return (
     <div className={`space-y-1 ${className} ${usePortal ? "" : "relative"}`}>
       {label && (
-        <label className={isToolbar ? listPageFilterLabelClass("server") : FORM_LABEL_CLASS}>
+        <label className={isToolbar ? listPageFilterLabelClass(toolbarTone) : FORM_LABEL_CLASS}>
           {label}
           {required ? <span className="text-rose-500"> *</span> : null}
         </label>

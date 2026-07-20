@@ -1,62 +1,76 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { LayoutGrid, List, Loader2, Minimize2, Maximize2 } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Plus, Trash2, RefreshCcw, X, ClipboardList, Power, Edit3, Copy } from "lucide-react";
 import { toast } from "react-toastify";
+
 import { useCanAccess } from "@/core/hooks/useCanAccess";
-import {
-  SearchBar,
-  Pagination,
-  DeleteModal,
-  FilterButtonsRecurrence,
-  SortIcon,
-  EmptyState,
-} from "@/features/apps/task/common";
+import { useViewMode } from "@/core/hooks/useViewMode";
+import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
+import { applyClientSearch, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
+
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
+import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
+import DateRangeFilter from "@/core/components/common/DateRangeFilter";
+import DataTable from "@/core/components/ui/DataTable";
+import ActionButton from "@/core/components/ui/ActionButton";
+import DeleteModal from "@/core/components/common/DeleteModal";
+
 import { clTaskService } from "@/features/apps/task/services/clTaskApi";
 import { useClTaskFilters } from "@/features/apps/task/hooks/useClTaskFilters";
-import { useViewMode } from "@/features/apps/task/hooks/useViewMode";
-import ClTaskTopFilters from "./ClTaskTopFilters";
+import { formatDateTime, formatScheduledDate } from "@/features/apps/task/helpers/utilHelper";
+import { stripHtml } from "@/features/apps/task/helpers/clTaskFormHelper";
+import { formatDueTimeLabel } from "@/features/apps/task/helpers/clTaskTimeHelper";
+import { filterRowsByViewDays } from "@/core/utils/permissionDays";
+import { editTimeBlockedByAccess } from "@/core/hooks/useListDrawerHotkeys";
 import ClTaskModal from "./ClTaskModal";
-import ClTaskTableRow from "./ClTaskTableRow";
-import ClTaskAdminCard from "./ClTaskAdminCard";
+const capitalize = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : "—");
 
-const TABLE_COLS = [
-  { label: "#", key: "index" },
-  { label: "Title", key: "title" },
-  { label: "Type", key: "task_type" },
-  { label: "Scheduled", key: "scheduled_date" },
-  { label: "Wattage", key: "wastage" },
-  { label: "Department", key: "department_name" },
-  { label: "Designation", key: "designation_name" },
-  { label: "Person", key: "person_name" },
-  { label: "Verification", key: "verification_user_name" },
-  { label: "End Date", key: "end_date_time" },
-  { label: "Status", key: "status" },
-  { label: "Score", key: "score" },
-  { label: "Rejects", key: "reject_count" },
-  { label: "Created At", key: "created_at" },
-];
+const isActiveFlag = (v) => v === true || v === 1 || v === "1" || v === "t" || v === "true";
+
+const formatTypeLabel = (taskType, recurrenceType) => {
+  const base = capitalize(taskType);
+  if (taskType === "frequently" && recurrenceType) {
+    return `${base} · ${capitalize(recurrenceType)}`;
+  }
+  return base;
+};
 
 export default function ClTaskPage() {
   const canAccess = useCanAccess();
-  const canView = canAccess("cl_task", "view").allowed;
-  const canAdd = canAccess("cl_task", "add").allowed;
-  const canDelete = canAccess("cl_task", "delete").allowed;
+  const canView = canAccess("cl_task_master", "view").allowed;
+  const canAdd = canAccess("cl_task_master", "add").allowed;
+  const canDelete = canAccess("cl_task_master", "delete").allowed;
+  const canEdit = canAccess("cl_task_master", "edit").allowed;
+  /** Active / Deactive — authorize (approve) permission only. */
+  const canToggleActive = canAccess("cl_task_master", "authorize").allowed;
+  const viewAccess = canAccess("cl_task_master", "view");
+  const editAccess = canAccess("cl_task_master", "edit");
 
-  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [totalItems, setTotalItems] = useState(0);
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [sortKey, setSortKey] = useState("instance_id");
-  const [sortDir, setSortDir] = useState("desc");
-  const [modalOpen, setModalOpen] = useState(false);
-  const [deleteTask, setDeleteTask] = useState(null);
-  const [viewMode, handleViewMode] = useViewMode("table");
+  const [viewMode, handleViewMode] = useViewMode();
+  const [togglingId, setTogglingId] = useState(null);
 
-  const tableContainerRef = useRef(null);
-  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [params, setParams] = useState({
+    pageSize: 1000,
+    taskType: "all",
+    activeFilter: "all",
+    sortKey: "cl_task_id",
+    sortDir: "desc",
+  });
+
+  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
+  const [allRows, setAllRows] = useState([]);
+  const [displayLimit, setDisplayLimit] = useState(100);
+  const [selected, setSelected] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [cloneItem, setCloneItem] = useState(null);
+  const [deleteItem, setDeleteItem] = useState(null);
 
   const {
     selectedDepartment,
@@ -72,274 +86,645 @@ export default function ClTaskPage() {
   } = useClTaskFilters();
 
   const fetchTasks = useCallback(async () => {
-    if (!canView) { setLoading(false); return; }
+    if (!canView) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const params = {
-        page,
-        limit: pageSize,
-        sortBy: sortKey,
-        order: sortDir,
-        search: search || undefined,
-        department_id: selectedDepartment || undefined,
-        designation_id: selectedDesignation || undefined,
-        person_id: selectedPerson || undefined,
-      };
-
-      const response = await clTaskService.getAll(params);
+      const response = await clTaskService.getAll({
+        page: 1,
+        limit: params.pageSize,
+        sortBy: "cl_task_id",
+        order: "DESC",
+        ...(appliedSearch ? { search: appliedSearch } : {}),
+      });
       const body = response.data;
-      const list = body.data?.data ?? [];
-      const total = body.data?.total ?? 0;
-
-      setTasks(Array.isArray(list) ? list : []);
-      setTotalItems(total);
+      const nested = body?.data;
+      const list = Array.isArray(nested)
+        ? nested
+        : (nested?.data ?? nested?.items ?? []);
+      setAllRows(Array.isArray(list) ? list : []);
+      setDisplayLimit(100);
     } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to load CL tasks");
+      toast.error(err.response?.data?.message || err?.message || "Failed to load CL tasks");
+      setAllRows([]);
     } finally {
       setLoading(false);
     }
-  }, [canView, page, pageSize, search, sortKey, sortDir, selectedDepartment, selectedDesignation, selectedPerson]);
+  }, [canView, params.pageSize, appliedSearch]);
 
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
 
-  useEffect(() => {
-    const handler = () => setIsFullScreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", handler);
-    return () => document.removeEventListener("fullscreenchange", handler);
-  }, []);
+  const filteredRows = useMemo(() => {
+    let data = filterRowsByViewDays(allRows, viewAccess.days);
+    if (params.taskType !== "all") {
+      data = data.filter((r) => String(r.task_type) === params.taskType);
+    }
+    if (params.activeFilter === "active") {
+      data = data.filter((r) => isActiveFlag(r.approved ?? r.is_active));
+    } else if (params.activeFilter === "inactive") {
+      data = data.filter((r) => !isActiveFlag(r.approved ?? r.is_active));
+    }
+    if (selectedDepartment) {
+      data = data.filter((r) => Number(r.department_id) === Number(selectedDepartment));
+    }
+    if (selectedDesignation) {
+      data = data.filter((r) => Number(r.designation_id) === Number(selectedDesignation));
+    }
+    if (selectedPerson) {
+      data = data.filter((r) => Number(r.person_id) === Number(selectedPerson));
+    }
+    const q = String(tempSearch || "").trim();
+    if (q) {
+      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
+    }
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
+  }, [
+    allRows,
+    tempSearch,
+    params.sortKey,
+    params.sortDir,
+    params.taskType,
+    params.activeFilter,
+    selectedDepartment,
+    selectedDesignation,
+    selectedPerson,
+    viewAccess.days,
+  ]);
 
-  const toggleSort = (key) => {
-    if (key === "index") return;
-    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(key); setSortDir("asc"); }
-    setPage(1);
+  const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
+  const totalItems = filteredRows.length;
+
+  const handleLoadMore = useCallback(() => {
+    if (!loading && items.length < totalItems) {
+      setDisplayLimit((n) => n + 100);
+    }
+  }, [loading, items.length, totalItems]);
+
+  const selectedRecord = useMemo(
+    () => filteredRows.find((t) => String(t.cl_task_id) === String(selected)) || null,
+    [filteredRows, selected],
+  );
+
+  const getSelectedRow = useCallback(
+    () => filteredRows.find((t) => String(t.cl_task_id) === String(selected)),
+    [filteredRows, selected],
+  );
+
+  const openNewModal = useCallback(() => {
+    if (!canAdd) return;
+    setEditItem(null);
+    setCloneItem(null);
+    setModalOpen(true);
+  }, [canAdd]);
+
+  const openEditModal = useCallback((row) => {
+    if (!canEdit || !row) return;
+    if (editTimeBlockedByAccess(row, editAccess)) {
+      toast.info(`Edit time limit exceeded (${editAccess.days} days)`);
+      return;
+    }
+    setCloneItem(null);
+    setEditItem(row);
+    setModalOpen(true);
+  }, [canEdit, editAccess]);
+
+  const openCloneModal = useCallback((row) => {
+    if (!canAdd || !row) return;
+    setEditItem(null);
+    setCloneItem(row);
+    setModalOpen(true);
+  }, [canAdd]);
+
+  const openDeleteModal = useCallback((row) => {
+    if (!canDelete || !row) return;
+    setDeleteItem({ ...row, id: row.cl_task_id });
+  }, [canDelete]);
+
+  const { tableHotkeyProps } = useListDrawerHotkeys({
+    module: "cl_task_master",
+    modalOpen: modalOpen || !!deleteItem,
+    selectedId: selected,
+    getSelectedRow,
+    openAdd: canAdd ? openNewModal : undefined,
+    openEdit: canEdit ? openEditModal : undefined,
+    openDelete: canDelete ? openDeleteModal : undefined,
+    canDeleteSelection: useCallback(() => !!selected && canDelete, [selected, canDelete]),
+  });
+
+  const handleFilterApply = (data = {}) => {
+    if (data.searchSubmit) {
+      applySearchFromInput();
+    }
+    setSelectedDepartment(data.department_id || "");
+    setSelectedDesignation(data.designation_id || "");
+    setSelectedPerson(data.person_id || "");
+    setParams((prev) => ({
+      ...prev,
+      taskType: data.taskType || prev.taskType,
+      activeFilter: data.activeFilter || prev.activeFilter,
+    }));
+    setDisplayLimit(100);
+    setSelected(null);
   };
-
-  const hasFilter = !!(selectedDepartment || selectedDesignation || selectedPerson || search);
 
   const handleReset = () => {
-    setSearch("");
-    setSortKey("instance_id");
-    setSortDir("desc");
-    setPage(1);
+    resetSearch();
     clearFilters();
+    setParams({
+      pageSize: 1000,
+      taskType: "all",
+      activeFilter: "all",
+      sortKey: "cl_task_id",
+      sortDir: "desc",
+    });
+    setDisplayLimit(100);
+    setSelected(null);
   };
 
-  const toggleFullScreen = () => {
-    if (!isFullScreen) {
-      tableContainerRef.current?.requestFullscreen?.();
-    } else {
-      document.exitFullscreen?.();
+  const toggleActive = async (row) => {
+    if (!canToggleActive || !row?.cl_task_id) {
+      toast.error("You do not have permission to activate / deactivate CL Task Master");
+      return;
+    }
+    setTogglingId(row.cl_task_id);
+    try {
+      const next = !isActiveFlag(row.approved ?? row.is_active);
+      await clTaskService.setActive(row.cl_task_id, next);
+      toast.success(next ? "CL Task Master activated" : "CL Task Master deactivated — new cycles stopped");
+      fetchTasks();
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to update status");
+    } finally {
+      setTogglingId(null);
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const extraFilters = useMemo(
+    () => [
+      {
+        label: "Type",
+        key: "taskType",
+        value: params.taskType,
+        variant: "quick",
+        className: "w-[7rem] shrink-0",
+        options: [
+          { label: "All Types", value: "all" },
+          { label: "Open", value: "open" },
+          { label: "Frequently", value: "frequently" },
+        ],
+      },
+      {
+        label: "Status",
+        key: "activeFilter",
+        value: params.activeFilter,
+        variant: "quick",
+        className: "w-[6.5rem] shrink-0",
+        options: [
+          { label: "All", value: "all" },
+          { label: "Active", value: "active" },
+          { label: "Inactive", value: "inactive" },
+        ],
+      },
+      {
+        label: "Department",
+        key: "department_id",
+        value: selectedDepartment || "",
+        variant: "quick",
+        className: "min-w-[9.5rem] md:w-[11rem] shrink-0",
+        options: [
+          { label: "All Departments", value: "" },
+          ...departmentsLists.map((d) => ({ label: d.name, value: String(d.id) })),
+        ],
+      },
+      {
+        label: "Designation",
+        key: "designation_id",
+        value: selectedDesignation || "",
+        variant: "quick",
+        className: "min-w-[9.5rem] md:w-[11rem] shrink-0",
+        options: [
+          { label: "All Designations", value: "" },
+          ...designationsLists.map((d) => ({ label: d.name, value: String(d.id) })),
+        ],
+      },
+      {
+        label: "Person",
+        key: "person_id",
+        value: selectedPerson || "",
+        variant: "quick",
+        className: "min-w-[9.5rem] md:w-[11rem] shrink-0",
+        options: [
+          { label: "All Persons", value: "" },
+          ...personOptions.map((p) => ({ label: p.name, value: String(p.id) })),
+        ],
+      },
+    ],
+    [
+      params.taskType,
+      params.activeFilter,
+      selectedDepartment,
+      selectedDesignation,
+      selectedPerson,
+      departmentsLists,
+      designationsLists,
+      personOptions,
+    ],
+  );
 
-  if (!canView) {
-    return (
-      <div className="p-8 text-center text-slate-500">
-        <p className="font-medium">You do not have permission to view CL Tasks.</p>
-      </div>
-    );
-  }
+  const HEADERS = useMemo(
+    () => [
+      [
+        "ID",
+        "cl_task_id",
+        (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>,
+        { fixed: true, width: "70px" },
+      ],
+      [
+        "Title",
+        "title",
+        (v, row) => {
+          const desc = stripHtml(row.description) || stripHtml(row.sop_description);
+          return (
+            <div className="flex flex-col leading-tight py-0.5 min-w-0 max-w-full">
+              <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight truncate" title={v}>
+                {v || "—"}
+              </span>
+            </div>
+          );
+        },
+        {
+          fixed: true,
+          width: "200px",
+          // Card title wrapper forces whitespace-normal on children — use clamps here.
+          cardRender: (v, row) => {
+            const desc = stripHtml(row.description) || stripHtml(row.sop_description);
+            return (
+              <div className="flex flex-col gap-0.5 min-w-0 max-w-full normal-case">
+                <span
+                  className="font-bold text-slate-800 text-[13px] leading-snug line-clamp-2 break-words"
+                  title={v || ""}
+                >
+                  {v || "—"}
+                </span>
+                {desc ? (
+                  <span className="text-[11px] text-slate-500 italic leading-snug line-clamp-2 break-words font-medium" title={desc}>
+                    {desc}
+                  </span>
+                ) : null}
+              </div>
+            );
+          },
+        },
+      ],
+      [
+        "Type",
+        "task_type",
+        (v, row) => (
+          <span className="text-[10px] font-bold text-slate-600 uppercase whitespace-nowrap" title={formatTypeLabel(v, row.recurrence_type)}>
+            {formatTypeLabel(v, row.recurrence_type)}
+          </span>
+        ),
+        {
+          width: "110px",
+          cardRender: (v, row) => (
+            <span className="text-[11px] font-bold text-slate-600 uppercase whitespace-nowrap">
+              {formatTypeLabel(v, row.recurrence_type)}
+            </span>
+          ),
+        },
+      ],
+      [
+        "Status",
+        "approved",
+        (v, row) => {
+          const ok = isActiveFlag(v ?? row.is_active);
+          return (
+            <span
+              className={`px-2 py-0.5 text-[9px] font-black uppercase border ${
+                ok
+                  ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                  : "bg-slate-100 text-slate-500 border-slate-200"
+              }`}
+            >
+              {ok ? "● ACTIVE" : "○ INACTIVE"}
+            </span>
+          );
+        },
+        { width: "100px" },
+      ],
+      [
+        "Subs",
+        "instance_count",
+        (v) => <span className="font-bold text-slate-700 text-[11px] tabular-nums">{v ?? 0}</span>,
+        { width: "70px", align: "center" },
+      ],
+      [
+        "Due Time",
+        "due_time",
+        (v, row) =>
+          row.task_type === "frequently" && v ? (
+            <span className="text-[10px] font-bold text-indigo-600 uppercase">
+              {formatDueTimeLabel(v)}
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-400">—</span>
+          ),
+        { width: "100px" },
+      ],
+      [
+        "Next cycle",
+        "next_occurrence",
+        (v, row) =>
+          row.task_type === "frequently" ? (
+            <div className="flex flex-col leading-tight">
+              <span className="text-[10px] text-slate-600 font-medium tabular-nums">
+                {formatScheduledDate(v) || "—"}
+              </span>
+              {Number(row.day_offset) > 0 ? (
+                <span className="text-[9px] text-indigo-500 font-semibold">+{row.day_offset}d offset</span>
+              ) : null}
+            </div>
+          ) : (
+            <span className="text-[10px] text-slate-400">—</span>
+          ),
+        { width: "120px" },
+      ],
+      [
+        "Weightage",
+        "weightage",
+        (v, row) => <span className="font-black text-slate-700 text-[11px]">{v ?? row.wastage ?? "—"}</span>,
+        { width: "90px", align: "center" },
+      ],
+      [
+        "Department",
+        "department_name",
+        (v) => <span className="text-[10px] font-bold text-slate-600 uppercase">{v || "—"}</span>,
+        { width: "120px" },
+      ],
+      [
+        "Person",
+        "person_name",
+        (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>,
+        { width: "130px" },
+      ],
+      [
+        "Verifier",
+        "verification_user_name",
+        (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>,
+        { width: "130px" },
+      ],
+      [
+        "Created by",
+        "created_by_name",
+        (v, row) => (
+          <div className="flex flex-col leading-tight">
+            <span className="text-[10px] font-semibold text-slate-700 truncate" title={v || ""}>
+              {v || "—"}
+            </span>
+            <span className="text-[9px] text-slate-400">{formatDateTime(row.created_at)}</span>
+          </div>
+        ),
+        { width: "130px" },
+      ],
+      [
+        "Updated by",
+        "updated_by_name",
+        (v, row) => (
+          <div className="flex flex-col leading-tight">
+            <span className="text-[10px] font-semibold text-slate-700 truncate" title={v || ""}>
+              {v || "—"}
+            </span>
+            <span className="text-[9px] text-slate-400">
+              {row.updated_by_name || row.updated_by ? formatDateTime(row.updated_at) : "—"}
+            </span>
+          </div>
+        ),
+        { width: "130px" },
+      ],
+    ],
+    [],
+  );
+
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "CL Task Master",
+    rows: filteredRows,
+    headers: HEADERS,
+  });
 
   return (
-    <>
-      <div className="p-4 md:p-6 bg-slate-100 min-h-screen text-slate-800">
-        <ClTaskTopFilters
-          onAdd={() => setModalOpen(true)}
-          canAdd={canAdd}
-          departmentsLists={departmentsLists}
-          designationsLists={designationsLists}
-          personOptions={personOptions}
-          selectedDepartment={selectedDepartment}
-          selectedDesignation={selectedDesignation}
-          selectedPerson={selectedPerson}
-          onDepartmentChange={(id) => { setSelectedDepartment(id); setPage(1); }}
-          onDesignationChange={(id) => { setSelectedDesignation(id); setPage(1); }}
-          onPersonChange={(id) => { setSelectedPerson(id); setPage(1); }}
-        />
+    <div className={IMS_LIST_PAGE_SHELL}>
+      <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <>
+                <ActionButton
+                  module="cl_task_master"
+                  action="add"
+                  label="New"
+                  icon={Plus}
+                  onClick={openNewModal}
+                  className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
+                />
 
-        {/* Main card — same shell as Tasks page (no tabs) */}
-        <div
-          ref={tableContainerRef}
-          className={`bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col transition-all duration-300 ${
-            isFullScreen
-              ? "fixed inset-0 z-[999] rounded-none h-screen w-screen"
-              : ""
-          }`}
-        >
-          <div className={`flex flex-col overflow-hidden ${isFullScreen ? "h-full" : ""}`}>
-            {/* Toolbar */}
-            <div className="px-5 py-4 border-b border-slate-100 flex-shrink-0 bg-white z-[10]">
-              <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <SearchBar
-                    value={search}
-                    onChange={(val) => { setSearch(val); setPage(1); }}
-                    placeholder="Search by title, description…"
-                  />
-                </div>
+                <ActionButton
+                  module="cl_task_master"
+                  action="add"
+                  variant="outline"
+                  label="Clone"
+                  icon={Copy}
+                  disabled={!selectedRecord}
+                  onClick={() => openCloneModal(selectedRecord)}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                  title="Copy selected row — edit details then create as new"
+                />
 
-                <div className="flex flex-wrap items-center justify-between lg:justify-end gap-2 sm:gap-3">
-                  <FilterButtonsRecurrence onRefresh={fetchTasks} onReset={handleReset} />
+                <ActionButton
+                  module="cl_task_master"
+                  action="edit"
+                  variant="outline"
+                  label="Edit"
+                  icon={Edit3}
+                  disabled={!selectedRecord}
+                  record={selectedRecord}
+                  onClick={() => openEditModal(selectedRecord)}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                />
 
-                  <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white shrink-0 shadow-sm">
-                    <button
-                      type="button"
-                      onClick={() => handleViewMode("table")}
-                      className={`px-3 py-2.5 transition-all ${viewMode === "table" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"}`}
-                      title="Table view"
-                    >
-                      <List size={15} />
-                    </button>
-                    <div className="w-px h-5 bg-slate-200" />
-                    <button
-                      type="button"
-                      onClick={() => handleViewMode("card")}
-                      className={`px-3 py-2.5 transition-all ${viewMode === "card" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"}`}
-                      title="Card view"
-                    >
-                      <LayoutGrid size={15} />
-                    </button>
-                    <div className="w-px h-5 bg-slate-200" />
-                    <button
-                      type="button"
-                      onClick={toggleFullScreen}
-                      className="px-3 py-2.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 transition-all"
-                      title={isFullScreen ? "Exit fullscreen" : "Fullscreen"}
-                    >
-                      {isFullScreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+                {canToggleActive ? (
+                  <button
+                    type="button"
+                    disabled={!selectedRecord || togglingId === selectedRecord?.cl_task_id}
+                    onClick={() => selectedRecord && toggleActive(selectedRecord)}
+                    title="Active / Deactive (approve permission)"
+                    className="flex items-center justify-center gap-2 px-4 h-9 text-[11px] font-bold uppercase rounded-none transition-colors duration-200 border bg-white border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed shadow-none shrink-0"
+                  >
+                    <Power size={16} strokeWidth={2} />
+                    <span>
+                      {selectedRecord && isActiveFlag(selectedRecord.approved ?? selectedRecord.is_active)
+                        ? "Deactive"
+                        : "Active"}
+                    </span>
+                  </button>
+                ) : null}
 
-            {/* Table view */}
-            {viewMode === "table" ? (
-              <div
-                className={
-                  isFullScreen
-                    ? "flex-1 min-h-0 overflow-auto border-t border-slate-100"
-                    : "overflow-auto border-t border-slate-100 h-[550px]"
-                }
-              >
-                <table className="w-full text-sm min-w-[1100px] border-separate border-spacing-0">
-                  <thead className="sticky top-0 z-[5] shadow-sm">
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="w-1 p-0 sticky left-0 z-[5] bg-slate-50 border-b border-slate-200" />
-                      {TABLE_COLS.map(({ label, key }, i) => (
-                        <th
-                          key={key}
-                          onClick={() => toggleSort(key)}
-                          className={`px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider select-none whitespace-nowrap border-b border-slate-200 ${
-                            key !== "index" ? "cursor-pointer hover:text-slate-700 transition-colors" : ""
-                          } ${
-                            i === 0
-                              ? "sticky left-[5px] z-[5] bg-slate-50 border-r"
-                              : i === 1
-                                ? "sticky left-[42px] z-[5] bg-slate-50 border-r min-w-[160px]"
-                                : "bg-slate-50"
-                          }`}
-                        >
-                          {label}
-                          {key !== "index" && <SortIcon sortKey={sortKey} columnKey={key} sortDir={sortDir} />}
-                        </th>
-                      ))}
-                      <th className="px-3 py-3 w-20 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider sticky right-0 z-[5] bg-slate-50 border-l border-slate-200 border-b">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {loading ? (
-                      <tr>
-                        <td colSpan={TABLE_COLS.length + 2} className="py-16 text-center text-slate-400">
-                          <Loader2 size={28} className="mx-auto mb-2 animate-spin opacity-40" />
-                          <p className="text-sm">Loading CL tasks…</p>
-                        </td>
-                      </tr>
-                    ) : tasks.length === 0 ? (
-                      <tr>
-                        <td colSpan={TABLE_COLS.length + 2} className="py-16 text-center">
-                          <EmptyState activeTab="" hasFilter={hasFilter} onReset={handleReset} />
-                        </td>
-                      </tr>
-                    ) : (
-                      tasks.map((task, i) => (
-                        <ClTaskTableRow
-                          key={task.instance_id}
-                          task={task}
-                          index={(page - 1) * pageSize + i + 1}
-                          onDelete={canDelete ? (t) => setDeleteTask({ ...t, id: t.instance_id }) : undefined}
-                        />
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div
-                className={
-                  isFullScreen
-                    ? "flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar border-t border-slate-100"
-                    : "overflow-y-auto p-4 custom-scrollbar border-t border-slate-100 min-h-[320px]"
-                }
-              >
-                {loading ? (
-                  <div className="py-16 text-center text-slate-400">
-                    <Loader2 size={28} className="mx-auto mb-2 animate-spin opacity-40" />
-                    <p className="text-sm">Loading CL tasks…</p>
-                  </div>
-                ) : tasks.length === 0 ? (
-                  <div className="py-16 text-center">
-                    <EmptyState activeTab="" hasFilter={hasFilter} onReset={handleReset} />
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {tasks.map((task, i) => (
-                      <ClTaskAdminCard
-                        key={task.instance_id}
-                        task={task}
-                        index={(page - 1) * pageSize + i + 1}
-                        onDelete={canDelete ? (t) => setDeleteTask({ ...t, id: t.instance_id }) : undefined}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+                <ActionButton
+                  module="cl_task_master"
+                  action="delete"
+                  variant="danger"
+                  label="Delete"
+                  icon={Trash2}
+                  disabled={!selected}
+                  onClick={() => selectedRecord && openDeleteModal(selectedRecord)}
+                  className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
+                />
 
-            <div className="flex-shrink-0 mt-auto">
-              <Pagination
-                page={page}
-                totalPages={totalPages}
-                pageSize={pageSize}
-                totalItems={totalItems}
-                onPageChange={setPage}
-                onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+                <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
+
+                <button
+                  type="button"
+                  onClick={() => fetchTasks()}
+                  className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase shadow-none shrink-0"
+                >
+                  <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
+                </button>
+              </>
+            }
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
               />
+            }
+          />
+
+          {selected && (
+            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
+              <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
+                Selected: {selectedRecord?.title || selectedRecord?.cl_task_id}
+                {selectedRecord?.instance_count != null
+                  ? ` · ${selectedRecord.instance_count} assigned task(s)`
+                  : ""}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
+              >
+                <X size={14} /> Clear
+              </button>
             </div>
-          </div>
+          )}
+        </ListPageToolbar>
+
+        <ListPageFilterStrip>
+          <DateRangeFilter
+            showDate={false}
+            applyExtrasOnChange
+            extraFilters={extraFilters}
+            onApply={handleFilterApply}
+            onReset={handleReset}
+            searchValue={tempSearch}
+            onSearchChange={setTempSearch}
+            searchVariant="quick"
+            searchPlaceholder="Search title, person, description…"
+            searchLabel="Search"
+          />
+        </ListPageFilterStrip>
+
+        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+          <DataTable
+            headers={HEADERS}
+            data={items}
+            loading={loading}
+            viewMode={viewMode}
+            allowCopy
+            {...tableHotkeyProps}
+            showSelection
+            skeletonCount={100}
+            emptyIcon={ClipboardList}
+            sortKey={params.sortKey ?? ""}
+            sortDir={params.sortDir}
+            onSort={(key) => {
+              setDisplayLimit(100);
+              setParams((p) => ({
+                ...p,
+                sortKey: key,
+                sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
+              }));
+            }}
+            selectedId={selected}
+            onSelect={setSelected}
+            getRowId={(item) => String(item.cl_task_id)}
+            onRowDoubleClick={
+              canEdit
+                ? (row) => {
+                    setSelected(String(row.cl_task_id));
+                    openEditModal(row);
+                  }
+                : undefined
+            }
+            onLoadMore={handleLoadMore}
+            hasMore={items.length < totalItems}
+            totalItems={totalItems}
+            cardConfig={{
+              titleKey: "title",
+              badgeIndices: [3],
+              detailIndices: [2, 4, 5, 9],
+              footerKey: "created_at",
+            }}
+          />
         </div>
 
-        <DeleteModal
-          item={deleteTask}
-          onClose={() => setDeleteTask(null)}
-          onSuccess={fetchTasks}
-          service={clTaskService}
-          entityLabel="CL Task"
-        />
+        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            Showing {items.length} of {totalItems} CL Task Master
+          </span>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
+          </div>
+        </div>
       </div>
 
-      <ClTaskModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSuccess={fetchTasks}
-      />
-    </>
+      {modalOpen && (
+        <ClTaskModal
+          open={modalOpen}
+          editItem={editItem}
+          cloneItem={cloneItem}
+          onClose={() => {
+            setModalOpen(false);
+            setEditItem(null);
+            setCloneItem(null);
+          }}
+          onSuccess={() => {
+            fetchTasks();
+            setSelected(null);
+          }}
+        />
+      )}
+
+      {deleteItem && (
+        <DeleteModal
+          item={deleteItem}
+          onClose={() => setDeleteItem(null)}
+          onSuccess={() => {
+            fetchTasks();
+            setSelected(null);
+          }}
+          service={clTaskService}
+          entityLabel="CL Task Master"
+          idKey="id"
+          warningMessage="This deletes the master template and all of its assigned CL tasks."
+        />
+      )}
+    </div>
   );
 }

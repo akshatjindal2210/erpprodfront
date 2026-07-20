@@ -8,6 +8,7 @@ export const APP_SHELL = {
   IMS: "ims",
   STANDALONE: "standalone",
   SETTINGS: "settings",
+  TASK: "task",
 };
 
 /** Top navbar 9-dot launcher — fixed order: Home → IMS → Task → Settings. */
@@ -36,7 +37,7 @@ export const APPS = [
     name: "Task",
     subtitle: "Tasks",
     href: ROUTES.TASK_DASHBOARD,
-    shell: APP_SHELL.STANDALONE,
+    shell: APP_SHELL.TASK,
     icon: ListTodo,
     accent: "from-violet-500 to-violet-700",
     inLauncher: true,
@@ -89,4 +90,12 @@ export function isSettingsShellPath(pathname) {
 
 export function isSettingsShell(shell, pathname) {
   return shell === APP_SHELL.SETTINGS || isSettingsShellPath(pathname);
+}
+
+export function isTaskShellPath(pathname) {
+  return pathname === ROUTES.TASK_DASHBOARD || pathname?.startsWith(`${ROUTES.TASK_DASHBOARD}/`) || pathname?.startsWith("/task/");
+}
+
+export function isTaskShell(shell, pathname) {
+  return shell === APP_SHELL.TASK || isTaskShellPath(pathname);
 }

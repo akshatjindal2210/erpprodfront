@@ -18,7 +18,8 @@ const Drawer = ({
   canPrintHotkey,
   title, 
   description, 
-  children, 
+  children,
+  banner,
   footer, 
   maxWidth = "max-w-2xl", 
   closeOnOutside = false, 
@@ -198,18 +199,31 @@ const Drawer = ({
             bodyScrollable
               ? "overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar"
               : "overflow-hidden"
-          } ${noPadding ? "p-0" : "p-3 sm:p-4"}`}
+          }`}
         >
-          {children}
+          {banner ? <div className="shrink-0">{banner}</div> : null}
+
+          {/* When bodyScrollable=false, children manage scroll — wrapper must constrain height. */}
+          <div
+            className={
+              bodyScrollable
+                ? noPadding
+                  ? "p-0"
+                  : "p-3 sm:p-4"
+                : `flex flex-1 min-h-0 flex-col overflow-hidden ${noPadding ? "p-0" : "p-3 sm:p-4"}`
+            }
+          >
+            {children}
+          </div>
         </div>
 
-        {footer && (
-          <div className="shrink-0 px-3 sm:px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-slate-200 flex justify-end items-center bg-slate-50 z-30">
+        {footer ? (
+          <div className="shrink-0 px-3 sm:px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-slate-200 flex justify-end items-center bg-slate-50">
             <div className="flex w-full sm:w-auto gap-2 items-center justify-end flex-wrap">
               {footer}
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

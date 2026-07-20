@@ -1,8 +1,35 @@
 import { useState } from "react";
-import { parseFormSchema, parseOptionsText } from "@/features/apps/task/helpers/clTaskFormHelper";
-import { FILE_BASE_URL } from "@/core/utils/lib";
+import { parseFormSchema, parseOptionsText, getFieldGridClass } from "@/features/apps/task/helpers/clTaskFormHelper";
 import { inputBase } from "./clTaskFormUi";
 import SearchableSelect from "../../common/SearchableSelect";
+import ClTaskAttachmentsField, { parseAttachments } from "./ClTaskAttachmentBlock";
+
+function AttachmentFieldInput({ fieldId, value, onChange, disabled, readOnly }) {
+  const list = parseAttachments(value);
+  if (readOnly || disabled) {
+    if (!list.length) {
+      return <div className="text-sm text-slate-400 bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">—</div>;
+    }
+    return (
+      <ClTaskAttachmentsField
+        value={list}
+        readOnly
+        label=""
+        inputId={`cl-form-upload-${fieldId}`}
+      />
+    );
+  }
+  return (
+    <ClTaskAttachmentsField
+      value={list}
+      onChange={(next) => onChange(next?.length ? next : null)}
+      label=""
+      accept="image/*,.pdf,.doc,.docx"
+      inputId={`cl-form-upload-${fieldId}`}
+      maxFiles={10}
+    />
+  );
+}
 
 function QueryDropdownField({ field, value, onChange, disabled }) {
   const [search, setSearch] = useState("");
@@ -69,7 +96,11 @@ function FieldLabel({ field }) {
 function formatReadValue(field, val) {
   if (field.type === "checkbox") return val === true ? "Yes" : val === false ? "No" : "—";
   if (field.type === "multiselect") return Array.isArray(val) ? val.join(", ") : String(val ?? "—");
-  if (field.type === "attachment" && val?.file_path) return val.file_name || "View attachment";
+  if (field.type === "attachment") {
+    const list = parseAttachments(val);
+    if (!list.length) return "—";
+    return list.map((a) => a.file_name || a.name || "file").join(", ");
+  }
   return String(val ?? "—");
 }
 
@@ -87,28 +118,30 @@ export default function ClTaskCustomFieldRenderer({ schema, values, onChange, di
   };
 
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-2 gap-2.5">
       {fields.map((field) => {
         if (field.type === "section") {
-          return <FieldLabel key={field.id} field={field} />;
+          return (
+            <div key={field.id} className="col-span-2">
+              <FieldLabel field={field} />
+            </div>
+          );
         }
 
         const val = values[field.id];
 
         return (
-          <div key={field.id}>
+          <div key={field.id} className={`min-w-0 ${getFieldGridClass(field)}`}>
             <FieldLabel field={field} />
 
             {readOnly ? (
-              <div className="text-sm text-slate-700 bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
-                {field.type === "attachment" && val?.file_path ? (
-                  <a href={`${FILE_BASE_URL}/${val.file_path}`} target="_blank" rel="noreferrer" className="text-indigo-600 underline">
-                    {val.file_name || "View attachment"}
-                  </a>
-                ) : (
-                  formatReadValue(field, val)
-                )}
-              </div>
+              field.type === "attachment" ? (
+                <AttachmentFieldInput fieldId={field.id} value={val} readOnly />
+              ) : (
+                <div className="text-sm text-slate-700 bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
+                  {formatReadValue(field, val)}
+                </div>
+              )
             ) : (
               <>
                 {field.type === "short_text" && (
@@ -245,18 +278,12 @@ export default function ClTaskCustomFieldRenderer({ schema, values, onChange, di
                 )}
 
                 {field.type === "attachment" && (
-                  <div>
-                    <input
-                      type="file"
-                      accept="image/*,.pdf,.doc,.docx"
-                      disabled={disabled}
-                      onChange={(e) => set(field.id, e.target.files?.[0] || null)}
-                      className="text-sm text-slate-600"
-                    />
-                    {val instanceof File && (
-                      <p className="text-xs text-slate-400 mt-1">{val.name}</p>
-                    )}
-                  </div>
+                  <AttachmentFieldInput
+                    fieldId={field.id}
+                    value={val}
+                    onChange={(files) => set(field.id, files)}
+                    disabled={disabled}
+                  />
                 )}
               </>
             )}

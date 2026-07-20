@@ -6,58 +6,39 @@ import { designationService } from "@/features/admin/services/designationService
 import { formatTaskUserOptionLabel } from "@/features/apps/task/helpers/utilHelper";
 import { isManagerDesignation, hasFullTaskReportAccess } from "@/features/apps/task/config/appConfig";
 import { userService } from "@/features/apps/task/services/userApi";
+import { REPORT_FILTER_SS, readSessionString, writeSessionString, clearSessionKeys } from "@/features/apps/task/helpers/taskListFilterSession";
 
 export function useReportFilters(currentUser) {
   const role = useSelector((state) => state.auth.role);
   
-  const [selectedAssignedBy, setSelectedAssignedBy] = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_assigned_by") || "";
-    }
-    return "";
-  });
-  const [selectedDepartment, setSelectedDepartment] = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_department") || "";
-    }
-    return "";
-  });
-  const [selectedDesignation, setSelectedDesignation] = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_designation") || "";
-    }
-    return "";
-  });
-  const [selectedUser, setSelectedUser] = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_user") || "";
-    }
-    return "";
-  });
+  const [selectedAssignedBy, setSelectedAssignedBy] = useState(() =>
+    readSessionString(REPORT_FILTER_SS.assignedBy, ""),
+  );
+  const [selectedDepartment, setSelectedDepartment] = useState(() =>
+    readSessionString(REPORT_FILTER_SS.department, ""),
+  );
+  const [selectedDesignation, setSelectedDesignation] = useState(() =>
+    readSessionString(REPORT_FILTER_SS.designation, ""),
+  );
+  const [selectedUser, setSelectedUser] = useState(() =>
+    readSessionString(REPORT_FILTER_SS.user, ""),
+  );
 
   // Sync with sessionStorage
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("report_filter_assigned_by", selectedAssignedBy || "");
-    }
+    writeSessionString(REPORT_FILTER_SS.assignedBy, selectedAssignedBy || "");
   }, [selectedAssignedBy]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("report_filter_department", selectedDepartment || "");
-    }
+    writeSessionString(REPORT_FILTER_SS.department, selectedDepartment || "");
   }, [selectedDepartment]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("report_filter_designation", selectedDesignation || "");
-    }
+    writeSessionString(REPORT_FILTER_SS.designation, selectedDesignation || "");
   }, [selectedDesignation]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("report_filter_user", selectedUser || "");
-    }
+    writeSessionString(REPORT_FILTER_SS.user, selectedUser || "");
   }, [selectedUser]);
 
   const [departmentsLists, setDepartmentsLists] = useState([]);
@@ -148,17 +129,17 @@ export function useReportFilters(currentUser) {
     }
   }, [selectedDepartment, selectedDesignation, allUsers, hasFullReportAccess, isManager, loggedInUser?.department?.id, currentUser?.id]);
 
-  // Reset selectedUser if it's no longer in filteredUsers or if department changed
+  // Reset selectedUser only after users load — avoid wiping session restore on remount
   useEffect(() => {
-    if (filteredUsers.length > 0 && selectedUser) {
-      const exists = filteredUsers.some(u => String(u.id) === String(selectedUser));
-      if (!exists) {
-        setSelectedUser(prev => prev === "" ? prev : "");
-      }
-    } else if (filteredUsers.length === 0 && selectedUser) {
-      setSelectedUser(prev => prev === "" ? prev : "");
+    if (!selectedUser) return;
+    if (!allUsers.length) return;
+    if (filteredUsers.length > 0) {
+      const exists = filteredUsers.some((u) => String(u.id) === String(selectedUser));
+      if (!exists) setSelectedUser("");
+    } else {
+      setSelectedUser("");
     }
-  }, [filteredUsers, selectedUser]);
+  }, [filteredUsers, selectedUser, allUsers.length]);
 
   // Selected Assigned By should not appear in Assigned To list
   useEffect(() => {
@@ -205,14 +186,12 @@ export function useReportFilters(currentUser) {
     setSelectedUser("");
     setSelectedDesignation("");
     if (showDepartmentDropdown) setSelectedDepartment("");
-    
-    if (typeof window !== "undefined") {
-      sessionStorage.removeItem("report_filter_assigned_by");
-      sessionStorage.removeItem("report_filter_department");
-      sessionStorage.removeItem("report_filter_designation");
-      sessionStorage.removeItem("report_filter_user");
-    }
-    
+    clearSessionKeys([
+      REPORT_FILTER_SS.assignedBy,
+      REPORT_FILTER_SS.department,
+      REPORT_FILTER_SS.designation,
+      REPORT_FILTER_SS.user,
+    ]);
     resetPage?.();
   };
 

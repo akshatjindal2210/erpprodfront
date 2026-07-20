@@ -49,11 +49,20 @@ export function sortSelectRowsAsc(rows, labelKey, extraKeys = []) {
 export function sortFilterOptionsAsc(options) {
   if (!Array.isArray(options) || options.length < 2) return Array.isArray(options) ? [...options] : [];
 
+  const isAllOption = (opt) => {
+    if (opt == null || typeof opt !== "object") return false;
+    const v = opt.value;
+    if (v === "" || v == null) return true;
+    if (String(v).trim().toLowerCase() === "all") return true;
+    const label = String(opt.label ?? "").trim().toLowerCase();
+    return label === "all" || label.startsWith("all ");
+  };
+
   const first = options[0];
   if (first && typeof first === "object" && ("label" in first || "value" in first)) {
     return [...options].sort((a, b) => {
-      const aAll = a?.value === "" || a?.value === "all" || a?.value == null;
-      const bAll = b?.value === "" || b?.value === "all" || b?.value == null;
+      const aAll = isAllOption(a);
+      const bAll = isAllOption(b);
       if (aAll && !bAll) return -1;
       if (!aAll && bAll) return 1;
       return compareAscStrings(a?.label ?? a?.value, b?.label ?? b?.value);

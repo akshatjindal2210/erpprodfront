@@ -2,21 +2,23 @@
  * Report list API params — same shape as ReportPage fetchTasks and task detail sidebar (report=true).
  */
 
+import { REPORT_FILTER_SS, readSessionString, readQuickFilterSession } from "@/features/apps/task/helpers/taskListFilterSession";
+
 export function readReportFilterStateFromSession() {
   if (typeof window === "undefined") return null;
   return {
-    activeTab: sessionStorage.getItem("report_filter_active_tab") || "assigned_to_me",
-    search: sessionStorage.getItem("report_filter_search") || "",
-    statusFilter: sessionStorage.getItem("report_filter_status") || "All",
-    priorityFilter: sessionStorage.getItem("report_filter_priority") || "All",
-    categoryFilter: sessionStorage.getItem("report_filter_category") || "All",
-    quickFilter: sessionStorage.getItem("report_filter_quick") || "",
-    sortKey: sessionStorage.getItem("report_filter_sort_key") || "task_id",
-    sortDir: sessionStorage.getItem("report_filter_sort_dir") || "desc",
-    selectedAssignedBy: sessionStorage.getItem("report_filter_assigned_by") || "",
-    selectedDepartment: sessionStorage.getItem("report_filter_department") || "",
-    selectedDesignation: sessionStorage.getItem("report_filter_designation") || "",
-    selectedUser: sessionStorage.getItem("report_filter_user") || "",
+    activeTab: readSessionString(REPORT_FILTER_SS.activeTab, "assigned_to_me"),
+    search: readSessionString(REPORT_FILTER_SS.search, ""),
+    statusFilter: readSessionString(REPORT_FILTER_SS.status, "All"),
+    priorityFilter: readSessionString(REPORT_FILTER_SS.priority, "All"),
+    categoryFilter: readSessionString(REPORT_FILTER_SS.category, "All"),
+    quickFilter: readQuickFilterSession(REPORT_FILTER_SS.quick, "") || "",
+    sortKey: readSessionString(REPORT_FILTER_SS.sortKey, "task_id"),
+    sortDir: readSessionString(REPORT_FILTER_SS.sortDir, "desc"),
+    selectedAssignedBy: readSessionString(REPORT_FILTER_SS.assignedBy, ""),
+    selectedDepartment: readSessionString(REPORT_FILTER_SS.department, ""),
+    selectedDesignation: readSessionString(REPORT_FILTER_SS.designation, ""),
+    selectedUser: readSessionString(REPORT_FILTER_SS.user, ""),
   };
 }
 

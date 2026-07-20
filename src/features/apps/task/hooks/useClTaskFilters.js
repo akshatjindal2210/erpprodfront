@@ -38,12 +38,12 @@ export function useClTaskFilters() {
     let users = allUsers;
     if (selectedDepartment) {
       users = users.filter(
-        (u) => Number(u.department?.id) === Number(selectedDepartment),
+        (u) => Number(u.department?.id ?? u.department_id) === Number(selectedDepartment),
       );
     }
     if (selectedDesignation) {
       users = users.filter(
-        (u) => Number(u.designation?.id) === Number(selectedDesignation),
+        (u) => Number(u.designation?.id ?? u.designation_id) === Number(selectedDesignation),
       );
     }
     return users;

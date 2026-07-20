@@ -80,7 +80,7 @@ export default function ClTaskTableRow({ task, index, onDelete }) {
         )}
       </td>
       <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{formatScheduledDate(task.scheduled_date)}</td>
-      <td className="px-4 py-3 text-slate-600 font-medium">{task.wastage ?? "—"}</td>
+      <td className="px-4 py-3 text-slate-600 font-medium">{task.weightage ?? task.wastage ?? "—"}</td>
       <td className="px-4 py-3 text-slate-600 max-w-[120px] truncate">{task.department_name || "—"}</td>
       <td className="px-4 py-3 text-slate-600 max-w-[120px] truncate">{task.designation_name || "—"}</td>
       <td className="px-4 py-3 text-slate-600 max-w-[140px] truncate">{task.person_name || "—"}</td>
@@ -91,7 +91,11 @@ export default function ClTaskTableRow({ task, index, onDelete }) {
           {STATUS_LABEL[task.status] || capitalize(task.status)}
         </span>
       </td>
-      <td className="px-4 py-3 text-slate-600">{task.score ?? "—"}</td>
+      <td className="px-4 py-3 text-slate-600">
+        {task.score != null && Number.isFinite(Number(task.score))
+          ? `${Math.round((Number(task.score) / 10) * 1000) / 10}%`
+          : "—"}
+      </td>
       <td className="px-4 py-3 text-slate-600">{task.reject_count > 0 ? task.reject_count : "—"}</td>
       <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{formatDateTime(task.created_at)}</td>
 

@@ -1,273 +1,788 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { LayoutGrid, List, Loader2, Minimize2, Maximize2 } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { FilePenLine, ShieldCheck, RefreshCcw, X, ClipboardCheck, Star, AlertTriangle, Eye, Loader2, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
-import { useCanAccess } from "@/core/hooks/useCanAccess";
-import {
-  SearchBar,
-  FilterButtonsRecurrence,
-  EmptyState,
-} from "@/features/apps/task/common";
-import { clTaskService } from "@/features/apps/task/services/clTaskApi";
-import { stripHtml } from "@/features/apps/task/helpers/clTaskFormHelper";
-import { useViewMode } from "@/features/apps/task/hooks/useViewMode";
-import VerificationClTaskCard from "./VerificationClTaskCard";
-import VerificationClTaskTableRow from "./VerificationClTaskTableRow";
-import VerifyClTaskModal from "./VerifyClTaskModal";
 
-const TABLE_COLS = ["#", "Title", "Type", "Person", "Department", "Scheduled", "Submitted", "Wattage", "Scoring"];
+import { useCanAccess } from "@/core/hooks/useCanAccess";
+import { useViewMode } from "@/core/hooks/useViewMode";
+import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
+import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
+import { applyClientSearch, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
+
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
+import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
+import DateRangeFilter from "@/core/components/common/DateRangeFilter";
+import DataTable from "@/core/components/ui/DataTable";
+import ActionButton from "@/core/components/ui/ActionButton";
+import DeleteModal from "@/core/components/common/DeleteModal";
+
+import { clTaskService } from "@/features/apps/task/services/clTaskApi";
+import { useClTaskFilters } from "@/features/apps/task/hooks/useClTaskFilters";
+import { formatDateTime, formatScheduledDate } from "@/features/apps/task/helpers/utilHelper";
+import { stripHtml } from "@/features/apps/task/helpers/clTaskFormHelper";
+import { isClTaskMissed, isClTaskDueFillable } from "@/features/apps/task/helpers/clTaskTimeHelper";
+import { filterRowsByViewDays, isOutsidePermissionDays } from "@/core/utils/permissionDays";
+import { editTimeBlockedByAccess } from "@/core/hooks/useListDrawerHotkeys";
+import ClVerificationFormModal from "./ClVerificationFormModal";
+import VerificationClTaskCard from "./VerificationClTaskCard";
+
+const capitalize = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : "—");
+
+/** Default Approval = submitted, waiting for verifier. */
+const STATUS_FILTER_OPTIONS = [
+  { label: "All", value: "all" },
+  { label: "Due", value: "due" },
+  { label: "Missed", value: "missed" },
+  { label: "Approval", value: "approval" },
+  { label: "Complete", value: "complete" },
+];
+
+function matchesVerificationStatus(row, statusFilter) {
+  if (!statusFilter || statusFilter === "all") return true;
+  /** Approval / Complete / All: any type (open + frequently). */
+  if (statusFilter === "approval") return row.status === "awaiting_verification";
+  if (statusFilter === "complete") return row.status === "completed";
+  /** Due + Missed: frequently only (open never appears here). */
+  if (statusFilter === "missed") {
+    return row.task_type === "frequently" && (isClTaskMissed(row) || row.is_missed === true);
+  }
+  if (statusFilter === "due") {
+    return row.task_type === "frequently" && isClTaskDueFillable(row);
+  }
+  return true;
+}
+
+function verificationStatusMeta(row) {
+  const type = String(row?.task_type || "");
+  const status = String(row?.status || "");
+  const missed = type === "frequently" && (isClTaskMissed(row) || row?.is_missed === true);
+
+  if (missed) {
+    return { label: "MISSED", tone: "bg-rose-50 text-rose-600 border-rose-100" };
+  }
+  if (status === "completed") {
+    return { label: "COMPLETE", tone: "bg-emerald-50 text-emerald-600 border-emerald-100" };
+  }
+  if (status === "awaiting_verification") {
+    return { label: "APPROVAL", tone: "bg-indigo-50 text-indigo-600 border-indigo-100" };
+  }
+  if (type === "open") {
+    return { label: "OPEN", tone: "bg-sky-50 text-sky-700 border-sky-100" };
+  }
+  return { label: "DUE", tone: "bg-amber-50 text-amber-700 border-amber-100" };
+}
+
+const instanceDeleteService = {
+  delete: (id) => clTaskService.deleteInstance(id),
+};
 
 export default function VerificationClTaskPage() {
   const canAccess = useCanAccess();
   const canView = canAccess("cl_task_verification", "view").allowed;
-  const canVerify = canAccess("cl_task_verification", "authorize").allowed
-    || canAccess("cl_task_verification", "edit").allowed;
+  const canAdd = canAccess("cl_task_verification", "add").allowed;
+  const canEdit = canAccess("cl_task_verification", "edit").allowed;
+  const canDelete = canAccess("cl_task_verification", "delete").allowed;
+  const canVerify = canAccess("cl_task_verification", "authorize").allowed;
+  const viewAccess = canAccess("cl_task_verification", "view");
+  const editAccess = canAccess("cl_task_verification", "edit");
 
-  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [verifyTask, setVerifyTask] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [search, setSearch] = useState("");
-  const [viewMode, handleViewMode] = useViewMode("table");
+  const [viewMode, handleViewMode] = useViewMode();
+  const [allRows, setAllRows] = useState([]);
+  const [displayLimit, setDisplayLimit] = useState(100);
+  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
+  const [selected, setSelected] = useState(null);
+  const [formTask, setFormTask] = useState(null);
+  /** Permission subset passed into the shared form, e.g. ['ADD'], ['EDIT'], ['APPROVE'], ['VIEW']. */
+  const [formPermissions, setFormPermissions] = useState(["VIEW"]);
+  const [deleteItem, setDeleteItem] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("approval");
 
-  const tableContainerRef = useRef(null);
-  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [params, setParams] = useState({
+    pageSize: 1000,
+    sortKey: "submitted_at",
+    sortDir: "desc",
+  });
+
+  const {
+    selectedDepartment,
+    setSelectedDepartment,
+    selectedDesignation,
+    setSelectedDesignation,
+    selectedPerson,
+    setSelectedPerson,
+    departmentsLists,
+    designationsLists,
+    personOptions,
+    clearFilters,
+  } = useClTaskFilters();
 
   const fetchTasks = useCallback(async () => {
-    if (!canView) { setLoading(false); return; }
+    if (!canView) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const res = await clTaskService.getVerification({ limit: 200 });
-      setTasks(res.data?.data?.data ?? []);
+      const res = await clTaskService.getVerification({
+        page: 1,
+        limit: params.pageSize,
+        sortBy: "submitted_at",
+        order: "DESC",
+        status: "all",
+        ...(appliedSearch ? { search: appliedSearch } : {}),
+      });
+      const body = res?.data;
+      const nested = body?.data;
+      const list = Array.isArray(nested)
+        ? nested
+        : (nested?.data ?? nested?.items ?? []);
+      setAllRows(Array.isArray(list) ? list : []);
+      setDisplayLimit(100);
     } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to load verification tasks");
+      toast.error(err.response?.data?.message || err?.message || "Failed to load verification tasks");
+      setAllRows([]);
     } finally {
       setLoading(false);
     }
-  }, [canView]);
+  }, [canView, params.pageSize, appliedSearch]);
 
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
 
-  useEffect(() => {
-    const handler = () => setIsFullScreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", handler);
-    return () => document.removeEventListener("fullscreenchange", handler);
+  const filteredRows = useMemo(() => {
+    let data = filterRowsByViewDays(allRows, viewAccess.days, [
+      "submitted_at",
+      "created_at",
+      "scheduled_date",
+      "updated_at",
+    ]);
+    data = data.filter((r) => matchesVerificationStatus(r, statusFilter));
+    if (selectedDepartment) {
+      data = data.filter((r) => Number(r.department_id) === Number(selectedDepartment));
+    }
+    if (selectedDesignation) {
+      data = data.filter((r) => Number(r.designation_id) === Number(selectedDesignation));
+    }
+    if (selectedPerson) {
+      data = data.filter((r) => Number(r.person_id) === Number(selectedPerson));
+    }
+    if (String(tempSearch || "").trim()) {
+      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
+    }
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
+  }, [
+    allRows,
+    tempSearch,
+    params.sortKey,
+    params.sortDir,
+    statusFilter,
+    selectedDepartment,
+    selectedDesignation,
+    selectedPerson,
+    viewAccess.days,
+  ]);
+
+  const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
+  const totalItems = filteredRows.length;
+
+  const handleLoadMore = useCallback(() => {
+    if (!loading && items.length < totalItems) {
+      setDisplayLimit((n) => n + 100);
+    }
+  }, [loading, items.length, totalItems]);
+
+  const selectedRecord = useMemo(
+    () => filteredRows.find((t) => t.instance_id === selected) || null,
+    [filteredRows, selected],
+  );
+
+  const getSelectedRow = useCallback(
+    () => filteredRows.find((t) => t.instance_id === selected),
+    [filteredRows, selected],
+  );
+
+  const canAddOnRow = useCallback(
+    (row) => !!row && canAdd && row.status === "awaiting_verification",
+    [canAdd],
+  );
+  /** EDIT only before verify — locked once completed. */
+  const canEditOnRow = useCallback(
+    (row) =>
+      !!row &&
+      canEdit &&
+      !isOutsidePermissionDays(row, editAccess.days) &&
+      ["pending", "awaiting_verification"].includes(row.status),
+    [canEdit, editAccess.days],
+  );
+  /** APPROVE: update only (awaiting or completed) — cannot verify. */
+  const canApproveOnRow = useCallback(
+    (row) =>
+      !!row &&
+      canVerify &&
+      ["awaiting_verification", "completed", "pending"].includes(row.status) &&
+      !isOutsidePermissionDays(row, editAccess.days),
+    [canVerify, editAccess.days],
+  );
+
+  const openView = useCallback((row) => {
+    if (!row) return;
+    setFormPermissions(["VIEW"]);
+    setFormTask(row);
   }, []);
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return tasks;
-    const q = search.toLowerCase();
-    return tasks.filter((t) => {
-      const desc = stripHtml(t.description) || stripHtml(t.sop_description) || "";
-      return (
-        t.title?.toLowerCase().includes(q) ||
-        t.person_name?.toLowerCase().includes(q) ||
-        t.department_name?.toLowerCase().includes(q) ||
-        desc.toLowerCase().includes(q)
-      );
-    });
-  }, [tasks, search]);
-
-  const handleReset = () => setSearch("");
-
-  const toggleFullScreen = () => {
-    if (!isFullScreen) tableContainerRef.current?.requestFullscreen?.();
-    else document.exitFullscreen?.();
-  };
-
-  const hasFilter = !!search.trim();
-
-  const handleVerify = async (task, payload) => {
-    setSaving(true);
-    try {
-      await clTaskService.verify(task.instance_id, payload);
-      toast.success(
-        payload.action === "approve"
-          ? `Task approved${payload.score ? ` · Score ${payload.score}/10` : ""}`
-          : "Task rejected — sent back to person",
-      );
-      setVerifyTask(null);
-      fetchTasks();
-    } catch (err) {
-      toast.error(err.response?.data?.message || "Verification failed");
-    } finally {
-      setSaving(false);
+  /** Verify button only — score + Verify/Reject (ADD). Never opened from Update / Approve. */
+  const openAddForm = useCallback((row) => {
+    if (!row || !canAdd) return;
+    if (row.status !== "awaiting_verification") {
+      toast.info("Verify is available only on Approval status");
+      return;
     }
+    setFormPermissions(["ADD"]);
+    setFormTask(row);
+  }, [canAdd]);
+
+  /** Update button — user data only (EDIT). No Verify actions. */
+  const openEditForm = useCallback((row) => {
+    if (!row || !canEdit) return;
+    if (editTimeBlockedByAccess(row, editAccess)) {
+      toast.info(`Edit time limit exceeded (${editAccess.days} days)`);
+      return;
+    }
+    if (row.status === "completed") {
+      toast.info("Verified tasks can only be updated with Approve permission");
+      return;
+    }
+    if (!["pending", "awaiting_verification"].includes(row.status)) {
+      toast.info("Update is available only before verification");
+      return;
+    }
+    setFormPermissions(["EDIT"]);
+    setFormTask(row);
+  }, [canEdit, editAccess]);
+
+  /** Approve button — update only (APPROVE). No Verify actions. */
+  const openApproveForm = useCallback((row) => {
+    if (!row || !canVerify) return;
+    if (editTimeBlockedByAccess(row, editAccess)) {
+      toast.info(`Edit time limit exceeded (${editAccess.days} days)`);
+      return;
+    }
+    if (!["awaiting_verification", "completed", "pending"].includes(row.status)) {
+      toast.info("Update is available on Approval, Pending, or Complete status");
+      return;
+    }
+    setFormPermissions(["APPROVE"]);
+    setFormTask(row);
+  }, [canVerify, editAccess]);
+
+  /**
+   * Card / double-click — update or view only.
+   * Verify never opens here; user must click Verify toolbar button.
+   */
+  const openSmartForm = useCallback((row) => {
+    if (!row) return;
+    if (row.status === "completed") {
+      if (canVerify && canApproveOnRow(row)) {
+        setFormPermissions(["APPROVE"]);
+        setFormTask(row);
+        return;
+      }
+      openView(row);
+      return;
+    }
+    const updatePerms = [];
+    if (canEditOnRow(row)) updatePerms.push("EDIT");
+    if (canApproveOnRow(row)) updatePerms.push("APPROVE");
+    if (updatePerms.length) {
+      setFormPermissions(updatePerms);
+      setFormTask(row);
+      return;
+    }
+    openView(row);
+  }, [canVerify, openView, canApproveOnRow, canEditOnRow]);
+
+  const openDeleteModal = useCallback((row) => {
+    if (!canDelete || !row) return;
+    setDeleteItem({ ...row, id: row.instance_id });
+  }, [canDelete]);
+
+  const { tableHotkeyProps } = useListDrawerHotkeys({
+    module: "cl_task_verification",
+    authorizeAction: "authorize",
+    modalOpen: !!formTask || !!deleteItem,
+    selectedId: selected,
+    getSelectedRow,
+    openAdd: canAdd ? () => openAddForm(getSelectedRow()) : undefined,
+    openApprove: canVerify ? openApproveForm : undefined,
+    openEdit: canEdit ? openEditForm : undefined,
+    openDelete: canDelete ? openDeleteModal : undefined,
+    canOpenNew: useCallback(
+      () => !!selected && canAdd && selectedRecord?.status === "awaiting_verification",
+      [selected, canAdd, selectedRecord?.status],
+    ),
+    canApproveSelection: useCallback(
+      () =>
+        !!selected &&
+        canVerify &&
+        ["awaiting_verification", "completed", "pending"].includes(selectedRecord?.status),
+      [selected, canVerify, selectedRecord?.status],
+    ),
+    canDeleteSelection: useCallback(() => !!selected && canDelete, [selected, canDelete]),
+  });
+
+  const handleFilterApply = (data = {}) => {
+    if (data.searchSubmit) {
+      applySearchFromInput();
+    }
+    const nextStatus = data.status || statusFilter || "approval";
+    setStatusFilter(nextStatus);
+    setSelectedDepartment(data.department_id || "");
+    setSelectedDesignation(data.designation_id || "");
+    setSelectedPerson(data.person_id || "");
+    setDisplayLimit(100);
+    setSelected(null);
   };
 
-  if (!canView) {
-    return (
-      <div className="p-8 text-center text-slate-500">
-        <p className="font-medium">You do not have permission to view CL Verification.</p>
-      </div>
-    );
-  }
+  const handleReset = () => {
+    resetSearch();
+    setStatusFilter("approval");
+    clearFilters();
+    setSelected(null);
+    setDisplayLimit(100);
+    setParams({
+      pageSize: 1000,
+      sortKey: "submitted_at",
+      sortDir: "desc",
+    });
+  };
+  const extraFilters = useMemo(
+    () => [
+      {
+        label: "Status",
+        key: "status",
+        value: statusFilter || "approval",
+        variant: "quick",
+        preserveOrder: true,
+        options: STATUS_FILTER_OPTIONS,
+      },
+      {
+        label: "Department",
+        key: "department_id",
+        value: selectedDepartment || "",
+        variant: "quick",
+        options: [
+          { label: "All Departments", value: "" },
+          ...departmentsLists.map((d) => ({ label: d.name, value: String(d.id) })),
+        ],
+      },
+      {
+        label: "Designation",
+        key: "designation_id",
+        value: selectedDesignation || "",
+        variant: "quick",
+        options: [
+          { label: "All Designations", value: "" },
+          ...designationsLists.map((d) => ({ label: d.name, value: String(d.id) })),
+        ],
+      },
+      {
+        label: "Person",
+        key: "person_id",
+        value: selectedPerson || "",
+        variant: "quick",
+        options: [
+          { label: "All Persons", value: "" },
+          ...personOptions.map((p) => ({ label: p.name, value: String(p.id) })),
+        ],
+      },
+    ],
+    [
+      statusFilter,
+      selectedDepartment,
+      selectedDesignation,
+      selectedPerson,
+      departmentsLists,
+      designationsLists,
+      personOptions,
+    ],
+  );
+
+  const HEADERS = useMemo(
+    () => [
+      [
+        "#",
+        "instance_id",
+        (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>,
+        { fixed: true, width: "70px" },
+      ],
+      [
+        "Title",
+        "title",
+        (v, row) => {
+          const desc = stripHtml(row.description) || stripHtml(row.sop_description);
+          return (
+            <div className="flex flex-col leading-tight py-0.5 min-w-0">
+              <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight truncate" title={v}>
+                {v || "—"}
+              </span>
+              {desc ? (
+                <span className="text-[10px] text-slate-500 truncate italic" title={desc}>
+                  {desc}
+                </span>
+              ) : null}
+              {row.reject_count > 0 ? (
+                <span className="inline-flex items-center gap-1 mt-0.5 text-[9px] font-bold text-rose-600 uppercase">
+                  <AlertTriangle size={9} /> {row.reject_count}x reject
+                </span>
+              ) : null}
+            </div>
+          );
+        },
+        { fixed: true, width: "220px" },
+      ],
+      [
+        "Type",
+        "task_type",
+        (v, row) => (
+          <div className="flex flex-col leading-tight">
+            <span className="text-[10px] font-bold text-slate-600 uppercase">{capitalize(v)}</span>
+            {row.recurrence_type ? (
+              <span className="text-[9px] text-slate-400 uppercase">{row.recurrence_type}</span>
+            ) : null}
+          </div>
+        ),
+        { width: "100px" },
+      ],
+      [
+        "Person",
+        "person_name",
+        (v) => <span className={IMS_TABLE_CELL_TEXT}>{v || "—"}</span>,
+        { width: "130px" },
+      ],
+      [
+        "Department",
+        "department_name",
+        (v) => <span className="text-[10px] font-bold text-slate-600 uppercase">{v || "—"}</span>,
+        { width: "120px" },
+      ],
+      [
+        "Designation",
+        "designation_name",
+        (v) => <span className="text-[10px] font-medium text-slate-500 uppercase">{v || "—"}</span>,
+        { width: "120px" },
+      ],
+      [
+        "Scheduled",
+        "scheduled_date",
+        (v) => <span className={IMS_TABLE_CELL_DATE}>{formatScheduledDate(v)}</span>,
+        { width: "110px" },
+      ],
+      [
+        "Submitted",
+        "submitted_at",
+        (v) => <span className={IMS_TABLE_CELL_DATE}>{formatDateTime(v)}</span>,
+        { width: "150px" },
+      ],
+      [
+        "Status",
+        "status",
+        (_v, row) => {
+          const { label, tone } = verificationStatusMeta(row);
+          return (
+            <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${tone}`}>
+              ● {label}
+            </span>
+          );
+        },
+        { width: "110px" },
+      ],
+      [
+        "Score",
+        "score",
+        (v, row) =>
+          row.status === "completed" && v != null ? (
+            <span className="inline-flex items-center gap-1 text-[11px] font-black text-amber-700">
+              <Star size={11} className="fill-amber-400 text-amber-400" />{" "}
+              {Number.isFinite(Number(v)) ? `${Math.round((Number(v) / 10) * 1000) / 10}%` : "—"}
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-300">—</span>
+          ),
+        { width: "90px", align: "center" },
+      ],
+      [
+        "Weightage",
+        "weightage",
+        (v, row) => (
+          <span className="font-black text-slate-700 text-[11px]">{v ?? row.wastage ?? "—"}</span>
+        ),
+        { width: "90px", align: "center" },
+      ],
+    ],
+    [],
+  );
+
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "CL Verification",
+    rows: filteredRows,
+    headers: HEADERS,
+  });
+
+  const statusFooter =
+    statusFilter === "complete"
+      ? " · Complete"
+      : statusFilter === "due"
+        ? " · Due"
+        : statusFilter === "missed"
+          ? " · Missed"
+          : statusFilter === "all"
+            ? " · All"
+            : " · Approval";
 
   return (
-    <>
-      <div className="p-4 md:p-6 bg-slate-100 min-h-screen text-slate-800">
-        <div className="mb-6">
-          <div className="mb-1 flex items-center gap-1.5 text-xs text-slate-400">
-            <span>Dashboard</span>
-            <span>/</span>
-            <span className="font-medium text-slate-500">CL Task</span>
-            <span>/</span>
-            <span className="font-medium text-slate-500">Verification</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800">CL Verification</h1>
+    <div className={IMS_LIST_PAGE_SHELL}>
+      <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <>
+                <button
+                  type="button"
+                  onClick={() => openView(selectedRecord)}
+                  disabled={!selectedRecord}
+                  className="h-9 shrink-0 px-4 rounded-none border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider shadow-none disabled:opacity-40"
+                >
+                  <Eye size={14} /> View
+                </button>
+
+                <ActionButton
+                  module="cl_task_verification"
+                  action="add"
+                  variant="outline"
+                  label="Verify"
+                  icon={ClipboardCheck}
+                  disabled={!canAddOnRow(selectedRecord)}
+                  onClick={() => openAddForm(selectedRecord)}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                  title="Add permission — scoring / Verify-Approve"
+                />
+
+                <ActionButton
+                  module="cl_task_verification"
+                  action="edit"
+                  variant="outline"
+                  label="Update"
+                  icon={FilePenLine}
+                  disabled={!canEditOnRow(selectedRecord)}
+                  record={selectedRecord}
+                  onClick={() => openEditForm(selectedRecord)}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                  title="Edit permission — user data only (cannot approve)"
+                />
+
+                <ActionButton
+                  module="cl_task_verification"
+                  action="authorize"
+                  label="Approve"
+                  icon={ShieldCheck}
+                  disabled={!canApproveOnRow(selectedRecord)}
+                  onClick={() => openApproveForm(selectedRecord)}
+                  className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
+                  title="Approve permission — update only (cannot verify; only Add can approve)"
+                />
+
+                <ActionButton
+                  module="cl_task_verification"
+                  action="delete"
+                  variant="danger"
+                  label="Delete"
+                  icon={Trash2}
+                  disabled={!selectedRecord || !canDelete}
+                  onClick={() => openDeleteModal(selectedRecord)}
+                  className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
+                />
+
+                <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
+
+                <button
+                  type="button"
+                  onClick={fetchTasks}
+                  disabled={loading}
+                  className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase shadow-none shrink-0 disabled:opacity-60"
+                  aria-label="Refresh"
+                >
+                  <RefreshCcw size={14} className={loading ? "animate-spin text-indigo-600" : ""} />
+                </button>
+              </>
+            }
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+              />
+            }
+          />
+
+          {selected && (
+            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
+              <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
+                Selected: {selectedRecord?.title || selectedRecord?.instance_id}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
+              >
+                <X size={14} /> Clear
+              </button>
+            </div>
+          )}
+        </ListPageToolbar>
+
+        <ListPageFilterStrip>
+          <DateRangeFilter
+            showDate={false}
+            applyExtrasOnChange
+            extraFilters={extraFilters}
+            onApply={handleFilterApply}
+            onReset={handleReset}
+            searchValue={tempSearch}
+            onSearchChange={setTempSearch}
+            searchVariant="quick"
+            searchPlaceholder="Search title, person, description…"
+            searchLabel="Search"
+          />
+        </ListPageFilterStrip>
+
+        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+          {viewMode === "card" ? (
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 bg-slate-50/60">
+              {loading && items.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
+                  <Loader2 size={28} className="animate-spin text-indigo-500" />
+                  <p className="text-sm font-medium">Loading verification queue…</p>
+                </div>
+              ) : items.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center px-4">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center mb-3">
+                    <ClipboardCheck size={22} className="text-slate-400" />
+                  </div>
+                  <p className="text-sm font-semibold text-slate-700">No tasks in this filter</p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                    Change status or dept / person filters to see more.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+                  {items.map((task) => (
+                    <VerificationClTaskCard
+                      key={task.instance_id}
+                      task={task}
+                      selected={Number(selected) === Number(task.instance_id)}
+                      onSelect={(row) =>
+                        setSelected((prev) =>
+                          Number(prev) === Number(row.instance_id) ? null : row.instance_id,
+                        )
+                      }
+                      onOpen={openSmartForm}
+                    />
+                  ))}
+                </div>
+              )}
+              {!loading && items.length < totalItems ? (
+                <div className="flex justify-center py-4">
+                  <button
+                    type="button"
+                    onClick={handleLoadMore}
+                    className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50"
+                  >
+                    Load more
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <DataTable
+              headers={HEADERS}
+              data={items}
+              loading={loading}
+              viewMode="table"
+              allowCopy
+              {...tableHotkeyProps}
+              showSelection
+              skeletonCount={50}
+              emptyIcon={ClipboardCheck}
+              sortKey={params.sortKey ?? ""}
+              sortDir={params.sortDir}
+              onSort={(key) => {
+                setDisplayLimit(100);
+                setParams((p) => ({
+                  ...p,
+                  sortKey: key,
+                  sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
+                }));
+              }}
+              selectedId={selected}
+              onSelect={setSelected}
+              getRowId={(item) => item.instance_id}
+              onRowDoubleClick={openSmartForm}
+              onLoadMore={handleLoadMore}
+              hasMore={items.length < totalItems}
+              totalItems={totalItems}
+            />
+          )}
         </div>
 
-        <div
-          ref={tableContainerRef}
-          className={`bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col transition-all duration-300 ${
-            isFullScreen ? "fixed inset-0 z-[999] rounded-none h-screen w-screen" : ""
-          }`}
-        >
-          <div className={`flex flex-col overflow-hidden ${isFullScreen ? "h-full" : ""}`}>
-            <div className="px-5 py-4 border-b border-slate-100 flex-shrink-0 bg-white z-[10]">
-              <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <SearchBar
-                    value={search}
-                    onChange={setSearch}
-                    placeholder="Search by title, person, description…"
-                  />
-                </div>
-                <div className="flex flex-wrap items-center justify-between lg:justify-end gap-2 sm:gap-3">
-                  <FilterButtonsRecurrence onRefresh={fetchTasks} onReset={handleReset} />
-                  <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white shrink-0 shadow-sm">
-                    <button
-                      type="button"
-                      onClick={() => handleViewMode("table")}
-                      className={`px-3 py-2.5 transition-all ${viewMode === "table" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"}`}
-                      title="Table view"
-                    >
-                      <List size={15} />
-                    </button>
-                    <div className="w-px h-5 bg-slate-200" />
-                    <button
-                      type="button"
-                      onClick={() => handleViewMode("card")}
-                      className={`px-3 py-2.5 transition-all ${viewMode === "card" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"}`}
-                      title="Card view"
-                    >
-                      <LayoutGrid size={15} />
-                    </button>
-                    <div className="w-px h-5 bg-slate-200" />
-                    <button
-                      type="button"
-                      onClick={toggleFullScreen}
-                      className="px-3 py-2.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 transition-all"
-                      title={isFullScreen ? "Exit fullscreen" : "Fullscreen"}
-                    >
-                      {isFullScreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {viewMode === "table" ? (
-              <div
-                className={
-                  isFullScreen
-                    ? "flex-1 min-h-0 overflow-auto border-t border-slate-100"
-                    : "overflow-auto border-t border-slate-100 h-[550px]"
-                }
-              >
-                <table className="w-full text-sm min-w-[1050px] border-separate border-spacing-0">
-                  <thead className="sticky top-0 z-[5] shadow-sm">
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="w-1 p-0 sticky left-0 z-[5] bg-slate-50 border-b border-slate-200" />
-                      {TABLE_COLS.map((label, i) => (
-                        <th
-                          key={label}
-                          className={`px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap border-b border-slate-200 ${
-                            i === 0
-                              ? "sticky left-[5px] z-[5] bg-slate-50 border-r"
-                              : i === 1
-                                ? "sticky left-[42px] z-[5] bg-slate-50 border-r min-w-[160px]"
-                                : "bg-slate-50"
-                          }`}
-                        >
-                          {label}
-                        </th>
-                      ))}
-                      <th className="px-3 py-3 w-24 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider sticky right-0 z-[5] bg-slate-50 border-l border-slate-200 border-b">
-                        Action
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {loading ? (
-                      <tr>
-                        <td colSpan={TABLE_COLS.length + 2} className="py-16 text-center text-slate-400">
-                          <Loader2 size={28} className="mx-auto mb-2 animate-spin opacity-40" />
-                          <p className="text-sm">Loading verification tasks…</p>
-                        </td>
-                      </tr>
-                    ) : filtered.length === 0 ? (
-                      <tr>
-                        <td colSpan={TABLE_COLS.length + 2} className="py-16 text-center">
-                          <EmptyState
-                            activeTab=""
-                            hasFilter={hasFilter}
-                            onReset={handleReset}
-                          />
-                        </td>
-                      </tr>
-                    ) : (
-                      filtered.map((task, i) => (
-                        <VerificationClTaskTableRow
-                          key={task.instance_id}
-                          task={task}
-                          index={i + 1}
-                          onVerify={canVerify ? setVerifyTask : undefined}
-                        />
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div
-                className={
-                  isFullScreen
-                    ? "flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar border-t border-slate-100"
-                    : "overflow-y-auto p-4 custom-scrollbar border-t border-slate-100 min-h-[320px]"
-                }
-              >
-                {loading ? (
-                  <div className="py-16 text-center text-slate-400">
-                    <Loader2 size={28} className="mx-auto mb-2 animate-spin opacity-40" />
-                    <p className="text-sm">Loading verification tasks…</p>
-                  </div>
-                ) : filtered.length === 0 ? (
-                  <div className="py-16 text-center">
-                    <EmptyState activeTab="" hasFilter={hasFilter} onReset={handleReset} />
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {filtered.map((task) => (
-                      <VerificationClTaskCard key={task.instance_id} task={task} onVerify={canVerify ? setVerifyTask : undefined} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            Showing {items.length} of {totalItems}
+            {statusFooter}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
           </div>
         </div>
       </div>
 
-      <VerifyClTaskModal
-        task={verifyTask}
-        onClose={() => setVerifyTask(null)}
-        onVerify={handleVerify}
-        saving={saving}
+      <ClVerificationFormModal
+        task={formTask}
+        permissions={formPermissions}
+        onClose={() => {
+          setFormTask(null);
+          setFormPermissions(["VIEW"]);
+        }}
+        onSuccess={() => {
+          setFormTask(null);
+          setFormPermissions(["VIEW"]);
+          setSelected(null);
+          fetchTasks();
+        }}
       />
-    </>
+
+      {deleteItem && (
+        <DeleteModal
+          item={deleteItem}
+          onClose={() => setDeleteItem(null)}
+          onSuccess={() => {
+            fetchTasks();
+            setSelected(null);
+          }}
+          service={instanceDeleteService}
+          entityLabel="CL Task"
+          idKey="instance_id"
+          warningMessage="This deletes only this task occurrence (instance), not the master template."
+        />
+      )}
+    </div>
   );
 }

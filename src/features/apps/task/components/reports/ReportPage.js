@@ -1,22 +1,18 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Loader2, LayoutGrid, List, X, Minimize2, Maximize2 } from "lucide-react";
+import { Loader2, X, Minimize2, Maximize2, RefreshCcw, Edit3, Trash2, Copy, Eye, RefreshCw } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 import { useRouter } from "next/navigation";
 
 import {
   taskService,
-  categoryService,
   StatCard,
-  SearchBar,
-  Pagination,
   DeleteModal,
   useViewMode,
   usePersistedScroll,
   TABS,
-  TABLE_COLS,
   STAT_CARDS,
   COLOR_LEGEND,
   QUICK_FILTER_LABELS,
@@ -24,26 +20,52 @@ import {
   applyReportDisplayTaskFilter,
   getRowMeta,
   getActiveStatKey,
-  SortIcon,
   EmptyState,
   TaskCard,
   useReportFilters,
-  TaskFilterButtons,
-  TaskFilterPanel,
-  BulkActionBar,
+  getTaskDataTableRowClassName,
 } from "@/features/apps/task/common";
 
-import TaskModal    from "@/features/apps/task/components/tasks/TaskModal";
-import TaskTableRow from "@/features/apps/task/components/tasks/TaskTableRow";
+const FETCH_LIMIT = 1000;
+const DISPLAY_CHUNK = 100;
+import { categoryService } from "@/features/apps/task/services/categoryApi";
+import { extractList } from "@/features/apps/task/helpers/utilHelper";
+import {
+  TASK_STATUSES,
+  PRIORITIES,
+  TASK_STATUS_CONFIG,
+  PRIORITY_CONFIG,
+} from "@/features/apps/task/components/common/Constants";
+import { buildTaskDetailUrl } from "@/features/apps/task/helpers/taskRouteHelper";
+import { useCanAccess } from "@/core/hooks/useCanAccess";
+import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 
-import ReportFilters from "@/features/apps/task/components/reports/ReportFilters";
+import { IMS_LIST_PAGE_SHELL } from "@/features/apps/ims/helpers/listPageShellClasses";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
+import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import DateRangeFilter from "@/core/components/common/DateRangeFilter";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
+import ImsSegmentedTabs from "@/features/apps/ims/components/common/ImsSegmentedTabs";
+import DataTable from "@/core/components/ui/DataTable";
+import ActionButton from "@/core/components/ui/ActionButton";
+
+import TaskModal from "@/features/apps/task/components/tasks/TaskModal";
+import { buildTaskListHeaders, buildTaskExportHeaders } from "@/features/apps/task/components/tasks/taskListTableHeaders";
+
 import { ReassignModal } from "../tasks/SubPageExtra";
 import { canAccessTaskReport, getTaskHomePath } from "@/features/apps/task/config/appConfig";
+import { REPORT_FILTER_SS, clearSessionKeys, readQuickFilterSession, readSessionString, writeSessionString } from "@/features/apps/task/helpers/taskListFilterSession";
+
+const MODULE = "tasks";
 
 export default function ReportPage({ reportPage }) {
   const currentUser = useSelector((state) => state.auth.user);
   const role = useSelector((state) => state.auth.role);
   const router = useRouter();
+  const canAccess = useCanAccess();
+  const canEdit = canAccess(MODULE, "edit").allowed;
+  const canDelete = canAccess(MODULE, "delete").allowed;
 
   useEffect(() => {
     const access = canAccessTaskReport(role, currentUser);
@@ -56,7 +78,6 @@ export default function ReportPage({ reportPage }) {
   const [tasks,       setTasks]       = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [totalItems,  setTotalItems]  = useState(0);
-  const [categories,  setCategories]  = useState([]);
   const [viewMode,    handleViewMode] = useViewMode();
   const [stats,       setStats]       = useState({
     open_tasks: 0, updated_tasks: 0,
@@ -65,74 +86,45 @@ export default function ReportPage({ reportPage }) {
     overdue: 0, new_today: 0, reminder: 0, upcoming_due: 0,
   });
 
-  const [activeTab,      setActiveTab]      = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_active_tab") || "assigned_to_me";
-    }
-    return "assigned_to_me";
-  });
-  const [search,         setSearch]         = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_search") || "";
-    }
-    return "";
-  });
-  const [statusFilter,   setStatusFilter]   = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_status") || "All";
-    }
-    return "All";
-  });
-  const [priorityFilter, setPriorityFilter] = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_priority") || "All";
-    }
-    return "All";
-  });
-  const [categoryFilter, setCategoryFilter] = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_category") || "All";
-    }
-    return "All";
-  });
-  const [quickFilter,    setQuickFilter]    = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_quick") || "action_required";
-    }
-    return "action_required";
-  });
-  const [page,           setPage]           = useState(() => {
-    if (typeof window !== "undefined") {
-      return parseInt(sessionStorage.getItem("report_filter_page") || "1");
-    }
-    return 1;
-  });
-  const [pageSize,       setPageSize]       = useState(() => {
-    if (typeof window !== "undefined") {
-      return parseInt(sessionStorage.getItem("report_filter_page_size") || "10");
-    }
-    return 10;
-  });
-  const [sortKey,        setSortKey]        = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_sort_key") || "task_id";
-    }
-    return "task_id";
-  });
-  const [sortDir,        setSortDir]        = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("report_filter_sort_dir") || "desc";
-    }
-    return "desc";
-  });
-  const [showFilters,    setShowFilters]    = useState(false);
+  const [activeTab,      setActiveTab]      = useState(() =>
+    readSessionString(REPORT_FILTER_SS.activeTab, "assigned_to_me"),
+  );
+  const [search,         setSearch]         = useState(() =>
+    readSessionString(REPORT_FILTER_SS.search, ""),
+  );
+  const [statusFilter,   setStatusFilter]   = useState(() =>
+    readSessionString(REPORT_FILTER_SS.status, "All"),
+  );
+  const [priorityFilter, setPriorityFilter] = useState(() =>
+    readSessionString(REPORT_FILTER_SS.priority, "All"),
+  );
+  const [categoryFilter, setCategoryFilter] = useState(() =>
+    readSessionString(REPORT_FILTER_SS.category, "All"),
+  );
+  const [quickFilter,    setQuickFilter]    = useState(() =>
+    readQuickFilterSession(REPORT_FILTER_SS.quick, "action_required"),
+  );
+  const [displayLimit, setDisplayLimit] = useState(DISPLAY_CHUNK);
+  const [sortKey,        setSortKey]        = useState(() =>
+    readSessionString(REPORT_FILTER_SS.sortKey, "task_id"),
+  );
+  const [sortDir,        setSortDir]        = useState(() =>
+    readSessionString(REPORT_FILTER_SS.sortDir, "desc"),
+  );
+  const [tempSearch, setTempSearch] = useState(() =>
+    readSessionString(REPORT_FILTER_SS.search, ""),
+  );
+  const [categoryOptions, setCategoryOptions] = useState([]);
+  const cardScrollRef = useRef(null);
+  const tableContainerRef = useRef(null);
 
   const [cloneTask,  setCloneTask]  = useState(null);
-  const [selected,   setSelected]   = useState([]);
+  const [selected,   setSelected]   = useState(null);
   const [modalOpen,  setModalOpen]  = useState(false);
   const [selfModal,  setSelfModal]  = useState(false);
   const [editTask,   setEditTask]   = useState(null);
   const [deleteTask, setDeleteTask] = useState(null);
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   const {
     selectedAssignedBy,
@@ -156,30 +148,30 @@ export default function ReportPage({ reportPage }) {
     clearFilters,
   } = useReportFilters(currentUser);
 
-  // Sync state to sessionStorage
+  // Sync state to sessionStorage (Report keys — separate from Tasks)
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("report_filter_active_tab", activeTab);
-      sessionStorage.setItem("report_filter_search", search);
-      sessionStorage.setItem("report_filter_status", statusFilter);
-      sessionStorage.setItem("report_filter_priority", priorityFilter);
-      sessionStorage.setItem("report_filter_category", categoryFilter);
-      sessionStorage.setItem("report_filter_quick", quickFilter || "");
-      sessionStorage.setItem("report_filter_page", page.toString());
-      sessionStorage.setItem("report_filter_page_size", pageSize.toString());
-      sessionStorage.setItem("report_filter_sort_key", sortKey);
-      sessionStorage.setItem("report_filter_sort_dir", sortDir);
-    }
-  }, [activeTab, search, statusFilter, priorityFilter, categoryFilter, quickFilter, page, pageSize, sortKey, sortDir]);
+    writeSessionString(REPORT_FILTER_SS.activeTab, activeTab);
+    writeSessionString(REPORT_FILTER_SS.search, search);
+    writeSessionString(REPORT_FILTER_SS.status, statusFilter);
+    writeSessionString(REPORT_FILTER_SS.priority, priorityFilter);
+    writeSessionString(REPORT_FILTER_SS.category, categoryFilter);
+    writeSessionString(REPORT_FILTER_SS.quick, quickFilter || "");
+    writeSessionString(REPORT_FILTER_SS.sortKey, sortKey);
+    writeSessionString(REPORT_FILTER_SS.sortDir, sortDir);
+  }, [activeTab, search, statusFilter, priorityFilter, categoryFilter, quickFilter, sortKey, sortDir]);
 
-  // ── Load categories ───────────────────────────────────────────────────────
   useEffect(() => {
-    categoryService.getAll({ limit: 200 })
+    categoryService.getViews({
+      permission_module: "task_report",
+      permission_action: "view",
+      limit: 500,
+    })
       .then((res) => {
-        const raw = res.data?.data?.items ?? res.data?.data ?? res.data ?? [];
-        setCategories(Array.isArray(raw) ? raw : []);
+        setCategoryOptions(extractList(res));
       })
-      .catch(() => {});
+      .catch(() => {
+        setCategoryOptions([]);
+      });
   }, []);
 
   // ── Fetch tasks ───────────────────────────────────────────────────────────
@@ -207,8 +199,8 @@ export default function ReportPage({ reportPage }) {
         selectedUser,
       };
       const params = buildReportTaskListApiParams(filterState, currentUser, {
-        page,
-        limit: pageSize,
+        page: 1,
+        limit: FETCH_LIMIT,
       });
 
       const res       = await taskService.getAll(params);
@@ -227,22 +219,38 @@ export default function ReportPage({ reportPage }) {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, statusFilter, priorityFilter, categoryFilter, sortKey, sortDir, activeTab, quickFilter, selectedAssignedBy, selectedDepartment, selectedDesignation, selectedUser, currentUser, router, role]);
+  }, [search, statusFilter, priorityFilter, categoryFilter, sortKey, sortDir, activeTab, quickFilter, selectedAssignedBy, selectedDepartment, selectedDesignation, selectedUser, currentUser, router, role]);
 
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
+
+  useEffect(() => {
+    setDisplayLimit(DISPLAY_CHUNK);
+    setSelected(null);
+  }, [search, statusFilter, priorityFilter, categoryFilter, quickFilter, activeTab, sortKey, sortDir, selectedAssignedBy, selectedDepartment, selectedDesignation, selectedUser]);
 
   // ── Display tasks ─────────────────────────────────────────────────────────
   const displayTasks = useMemo(() => {
     return applyReportDisplayTaskFilter(tasks, { statusFilter, quickFilter });
   }, [tasks, statusFilter, quickFilter]);
 
+  const visibleTasks = useMemo(
+    () => displayTasks.slice(0, displayLimit),
+    [displayTasks, displayLimit],
+  );
+
   // ── Derived UI ────────────────────────────────────────────────────────────
-  const displayCount  = activeTab === "action_required" ? displayTasks.length : totalItems;
-  const totalPages    = Math.max(1, Math.ceil(displayCount / pageSize));
+  /** Infinite scroll pages the loaded client slice (fetch cap). Footer must not claim more than loaded. */
+  const displayCount = displayTasks.length;
+  const serverTotal = Number(totalItems) || 0;
+  const hasMore = visibleTasks.length < displayTasks.length;
   const hasFilter     = statusFilter !== "All" || priorityFilter !== "All" || categoryFilter !== "All" || !!quickFilter || !!selectedAssignedBy || !!selectedDepartment || !!selectedUser;
   const activeStatKey = getActiveStatKey(quickFilter, statusFilter, activeTab);
+
+  const handleLoadMore = useCallback(() => {
+    if (!loading && hasMore) setDisplayLimit((n) => n + DISPLAY_CHUNK);
+  }, [loading, hasMore]);
 
   const activeFilterLabel = useMemo(() => {
     if (quickFilter)                            return QUICK_FILTER_LABELS[quickFilter];
@@ -253,22 +261,14 @@ export default function ReportPage({ reportPage }) {
   const statCardCls = (key) => activeStatKey === key ? "shadow-[0_8px_16px_-4px_rgba(0,0,0,0.15)] -translate-y-0.5" : "hover:shadow-sm hover:scale-[1.01]";
 
   // ── Filter helpers ────────────────────────────────────────────────────────
+  const getDefaultQuickFilterForTab = () => "action_required";
+
   const clearAllFilters = () => {
     setQuickFilter(null); setStatusFilter("All");
     setPriorityFilter("All"); setCategoryFilter("All");
   };
 
-  const clearPanelFilters = () => {
-    setStatusFilter("All");
-    setPriorityFilter("All");
-    setCategoryFilter("All");
-    setSelectedAssignedBy("");
-    setSelectedUser("");
-    setPage(1);
-  };
-
   const handleStatClick = (key) => {
-    setPage(1);
     setQuickFilter(null);
     setStatusFilter("All");
     setPriorityFilter("All");
@@ -281,76 +281,48 @@ export default function ReportPage({ reportPage }) {
   };
 
   const handleReset = () => {
-    setSearch(""); setSortKey("task_id"); setSortDir("desc"); setPage(1);
+    setTempSearch("");
+    setSearch("");
+    setSortKey("task_id");
+    setSortDir("desc");
     clearAllFilters();
     setActiveTab("assigned_to_me");
     setQuickFilter(getDefaultQuickFilterForTab("assigned_to_me"));
-    
-    if (typeof window !== "undefined") {
-      sessionStorage.removeItem("report_filter_active_tab");
-      sessionStorage.removeItem("report_filter_search");
-      sessionStorage.removeItem("report_filter_status");
-      sessionStorage.removeItem("report_filter_priority");
-      sessionStorage.removeItem("report_filter_category");
-      sessionStorage.removeItem("report_filter_quick");
-      sessionStorage.removeItem("report_filter_page");
-      sessionStorage.removeItem("report_filter_page_size");
-      sessionStorage.removeItem("report_filter_sort_key");
-      sessionStorage.removeItem("report_filter_sort_dir");
-    }
+    setSelected(null);
+    setDisplayLimit(DISPLAY_CHUNK);
+    clearFilters();
+    clearSessionKeys(REPORT_FILTER_SS);
   };
 
   const clearActiveBannerFilter = () => {
     if (activeTab === "all") setActiveTab("assigned_to_me");
     setQuickFilter(null);
     setStatusFilter("All");
-    setPage(1);
-  };
-
-  // ── Sort ──────────────────────────────────────────────────────────────────
-  const toggleSort = (key) => {
-    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(key); setSortDir("asc"); }
-    setPage(1);
-  };
-
-  // ── Select / bulk ─────────────────────────────────────────────────────────
-  const allSelected = displayTasks.length > 0 &&
-    displayTasks.every((t) => selected.includes(t.task_id));
-
-  const toggleAll = () => setSelected(
-    allSelected
-      ? selected.filter((id) => !displayTasks.find((t) => t.task_id === id))
-      : [...new Set([...selected, ...displayTasks.map((t) => t.task_id)])]
-  );
-
-  const toggleOne = (id) => setSelected((s) =>
-    s.includes(id) ? s.filter((x) => x !== id) : [...s, id]
-  );
-
-  const handleBulkDelete = async () => {
-    try {
-      await Promise.all(selected.map((id) => taskService.delete(id)));
-      toast.success(`${selected.length} tasks deleted`);
-      setSelected([]); fetchTasks();
-    } catch {
-      toast.error("Some deletions failed");
-    }
   };
 
   // ── Modal helpers ─────────────────────────────────────────────────────────
-  const openEditModal    = (task) => {
+  const openEditModal = useCallback((task) => {
+    if (!task) return;
     if (task.task_type === "self") { setEditTask(task); setSelfModal(true); }
-    else                           { setEditTask(task); setModalOpen(true); }
-  };
+    else { setEditTask(task); setModalOpen(true); }
+  }, []);
   const closeAssignModal = () => { setModalOpen(false); setEditTask(null); };
   const closeSelfModal   = () => { setSelfModal(false); setEditTask(null); };
+
+  const handleClone = useCallback((task) => {
+    if (!task) return;
+    setCloneTask({ ...task, status: "pending", completed_at: null });
+  }, []);
+
+  const navigateToTask = useCallback((task) => {
+    if (!task?.task_id) return;
+    router.push(buildTaskDetailUrl(task.task_id, { report: true }), { scroll: false });
+  }, [router]);
 
   // State for modal
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
   const [selectedTaskForReassign, setSelectedTaskForReassign] = useState(null);
   const [loadingReassign, setLoadingReassign] = useState(false);
-  const getDefaultQuickFilterForTab = () => "action_required";
 
   // Example submit handler
   const handleReassignSubmit = async ({ reassign_to }) => {
@@ -358,42 +330,25 @@ export default function ReportPage({ reportPage }) {
 
     setLoadingReassign(true);
     try {
-      // Call API to reassign the task
-      await taskService.reassignTask(selectedTaskForReassign.task_id, { old:selectedUser, new :reassign_to, });
-
-      console.log(
-        "Task reassigned successfully:",
-        selectedTaskForReassign.task_id,
-        "to user:",
-        reassign_to
-      );
-
+      await taskService.reassignTask(selectedTaskForReassign.task_id, { old: selectedUser, new: reassign_to });
       setReassignModalOpen(false);
       setSelectedTaskForReassign(null);
-
-      // Optionally refresh table or show a toast
       toast.success("Task reassigned successfully");
       fetchTasks();
     } catch (error) {
-      // console.error("Failed to reassign task:", error);
-      toast.error("Failed to reassign task",error);
+      toast.error("Failed to reassign task", error);
     } finally {
       setLoadingReassign(false);
     }
   };
 
-  // When opening modal (for example in TaskTableRow onReassign)
-  const handleOpenReassignModal = (task) => {
+  const handleOpenReassignModal = useCallback((task) => {
     setSelectedTaskForReassign(task);
     setReassignModalOpen(true);
-  };
+  }, []);
 
   
   // Table Full Screen Mode
-  const tableContainerRef = useRef(null);
-  const cardScrollRef = useRef(null);
-  const [isFullScreen, setIsFullScreen] = useState(false);
-
   const toggleFullScreen = () => {
     if (!isFullScreen) {
       if (tableContainerRef.current?.requestFullscreen) {
@@ -416,232 +371,439 @@ export default function ReportPage({ reportPage }) {
   usePersistedScroll(cardScrollRef, "reportCardScrollTop", viewMode === "card");
 
   
-  // ── Render ────────────────────────────────────────────────────────────────
   const onDepartmentChange = (id) => {
     setSelectedDepartment(id);
-    setSelectedUser(""); // Clear user when department changes
-    setPage(1);
+    setSelectedUser("");
   };
 
+  const tabItems = useMemo(
+    () => TABS.map((tab) => ({ id: tab.key, label: tab.label, icon: tab.icon })),
+    [],
+  );
+
+  const handleFilterApply = (data = {}) => {
+    if (data.searchSubmit) setSearch(String(tempSearch || "").trim());
+    if (data.status !== undefined) {
+      setStatusFilter(data.status || "All");
+      setQuickFilter(null);
+    }
+    if (data.priority !== undefined) setPriorityFilter(data.priority || "All");
+    if (data.category_id !== undefined) setCategoryFilter(data.category_id || "All");
+    if (data.assigned_by_id !== undefined) {
+      setSelectedAssignedBy(data.assigned_by_id || "");
+    }
+    if (data.department_id !== undefined) {
+      setSelectedDepartment(data.department_id || "");
+      setSelectedUser("");
+    }
+    if (data.designation_id !== undefined) setSelectedDesignation(data.designation_id || "");
+    if (data.user_id !== undefined) setSelectedUser(data.user_id || "");
+  };
+
+  const extraFilters = useMemo(() => {
+    const filters = [
+      {
+        label: "Status",
+        key: "status",
+        value: statusFilter,
+        preserveOrder: true,
+        options: [
+          { label: "All Status", value: "All" },
+          ...TASK_STATUSES.map((s) => ({
+            label: TASK_STATUS_CONFIG[s]?.label ?? s,
+            value: s,
+          })),
+        ],
+      },
+      {
+        label: "Priority",
+        key: "priority",
+        value: priorityFilter,
+        preserveOrder: true,
+        options: [
+          { label: "All Priority", value: "All" },
+          ...PRIORITIES.map((p) => ({
+            label: PRIORITY_CONFIG[p]?.label ?? p,
+            value: p,
+          })),
+        ],
+      },
+      {
+        label: "Category",
+        key: "category_id",
+        value: categoryFilter,
+        searchable: true,
+        placeholder: "Search categories…",
+        options: [
+          { label: "All Categories", value: "All" },
+          ...categoryOptions
+            .filter((c) => c && (c.id != null || c.category_id != null))
+            .map((c) => ({
+              label: c.name || c.category_name || String(c.id ?? c.category_id),
+              value: String(c.id ?? c.category_id),
+            })),
+        ],
+      },
+    ];
+
+    if (showAssignedByDropdown) {
+      filters.push({
+        label: "Assigned By",
+        key: "assigned_by_id",
+        value: selectedAssignedBy || "",
+        searchable: true,
+        placeholder: "Search users…",
+        options: [
+          { label: "All Users", value: "" },
+          ...(assignedByOptions || []).map((o) => ({
+            label: o.name || o.label,
+            value: String(o.id ?? o.value),
+          })),
+        ],
+      });
+    }
+    if (showDepartmentDropdown) {
+      filters.push({
+        label: "Department",
+        key: "department_id",
+        value: selectedDepartment || "",
+        searchable: true,
+        placeholder: "Search departments…",
+        options: [
+          { label: "All Departments", value: "" },
+          ...(departmentOptions || []).map((o) => ({
+            label: o.name || o.label,
+            value: String(o.id ?? o.value),
+          })),
+        ],
+      });
+    }
+    if (showDesignationDropdown) {
+      filters.push({
+        label: "Designation",
+        key: "designation_id",
+        value: selectedDesignation || "",
+        searchable: true,
+        placeholder: "Search designations…",
+        options: [
+          { label: "All Designations", value: "" },
+          ...(designationOptions || []).map((o) => ({
+            label: o.name || o.label,
+            value: String(o.id ?? o.value),
+          })),
+        ],
+      });
+    }
+    if (showTeamMemberDropdown) {
+      filters.push({
+        label: "Assigned To",
+        key: "user_id",
+        value: selectedUser || "",
+        searchable: true,
+        placeholder: "Search users…",
+        options: [
+          { label: "All Users", value: "" },
+          ...(teamMemberOptions || []).map((o) => ({
+            label: o.name || o.label,
+            value: String(o.id ?? o.value),
+          })),
+        ],
+      });
+    }
+    return filters;
+  }, [
+    statusFilter,
+    priorityFilter,
+    categoryFilter,
+    categoryOptions,
+    showAssignedByDropdown,
+    showDepartmentDropdown,
+    showDesignationDropdown,
+    showTeamMemberDropdown,
+    selectedAssignedBy,
+    selectedDepartment,
+    selectedDesignation,
+    selectedUser,
+    assignedByOptions,
+    departmentOptions,
+    designationOptions,
+    teamMemberOptions,
+  ]);
+
+  const exportHeaders = useMemo(() => buildTaskExportHeaders(), []);
+
+  const selectedRecord = useMemo(
+    () => displayTasks.find((t) => t.task_id === selected) || null,
+    [displayTasks, selected],
+  );
+
+  const isSelectedOwner = useMemo(() => {
+    if (!selectedRecord || !currentUser?.id) return false;
+    return selectedRecord.task_type === "self"
+      ? String(selectedRecord.created_by_id) === String(currentUser.id)
+      : String(selectedRecord.assigned_by_id) === String(currentUser.id);
+  }, [selectedRecord, currentUser?.id]);
+
+  const getSelectedRow = useCallback(
+    () => displayTasks.find((t) => String(t.task_id) === String(selected)) || null,
+    [displayTasks, selected],
+  );
+
+  const { tableHotkeyProps } = useListDrawerHotkeys({
+    module: MODULE,
+    modalOpen: modalOpen || selfModal || !!cloneTask || !!deleteTask || reassignModalOpen,
+    selectedId: selected,
+    getSelectedRow,
+    openAdd: null,
+    openEdit: useCallback((row) => {
+      if (!row) return;
+      const isOwner = row.task_type === "self"
+        ? String(row.created_by_id) === String(currentUser?.id)
+        : String(row.assigned_by_id) === String(currentUser?.id);
+      if (!isOwner) {
+        toast.info("Only the task owner can edit");
+        return;
+      }
+      openEditModal(row);
+    }, [currentUser?.id, openEditModal]),
+    openDelete: useCallback((row) => {
+      if (!row) return;
+      const isOwner = row.task_type === "self"
+        ? String(row.created_by_id) === String(currentUser?.id)
+        : String(row.assigned_by_id) === String(currentUser?.id);
+      if (!isOwner) {
+        toast.info("Only the task owner can delete");
+        return;
+      }
+      setDeleteTask(row);
+    }, [currentUser?.id]),
+    canDeleteSelection: useCallback(() => !!selected && isSelectedOwner, [selected, isSelectedOwner]),
+    canEditSelection: useCallback(() => !!selected && isSelectedOwner, [selected, isSelectedOwner]),
+    editBlockedMessage: "Select a task you own to edit",
+    deleteBlockedMessage: "Select a task you own to delete",
+  });
+
+  const showReassign = !!selectedUser;
+
+  const HEADERS = useMemo(
+    () =>
+      buildTaskListHeaders({
+        activeTab,
+        currentUserId: currentUser?.id,
+        quickFilter,
+        statusFilter,
+        canEdit,
+        canDelete,
+        onNavigate: navigateToTask,
+        onEdit: openEditModal,
+        onDelete: (t) => setDeleteTask(t),
+        onClone: handleClone,
+        onReassign: handleOpenReassignModal,
+        showReassign,
+      }),
+    [
+      activeTab,
+      currentUser?.id,
+      quickFilter,
+      statusFilter,
+      canEdit,
+      canDelete,
+      navigateToTask,
+      openEditModal,
+      handleClone,
+      handleOpenReassignModal,
+      showReassign,
+    ],
+  );
+
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "Task Report",
+    rows: displayTasks,
+    headers: exportHeaders,
+  });
+
   return (
-    <div className="p-4 md:p-6 bg-slate-100 min-h-screen text-slate-800">
-
-      {/* ReportFilters component */}
-      <ReportFilters
-        currentUser={currentUser}
-        departmentsLists={departmentOptions}
-        filteredUsers={filteredUsers}
-        teamMemberOptions={teamMemberOptions}
-        assignedByOptions={assignedByOptions}
-        designationOptions={designationOptions}
-        selectedAssignedBy={selectedAssignedBy}
-        selectedDepartment={selectedDepartment}
-        selectedDesignation={selectedDesignation}
-        selectedUser={selectedUser}
-        showDepartmentDropdown={showDepartmentDropdown}
-        showDesignationDropdown={showDesignationDropdown}
-        showAssignedByDropdown={showAssignedByDropdown}
-        showTeamMemberDropdown={showTeamMemberDropdown}
-        onAssignedByChange={(id) => { setSelectedAssignedBy(id); setPage(1); }}
-        onDepartmentChange={onDepartmentChange}
-        onDesignationChange={(id) => { setSelectedDesignation(id); setPage(1); }}
-        onUserChange={(id) => { setSelectedUser(id); setPage(1); }}
-        onClearAll={() => clearFilters(() => setPage(1))}
-      />
-
-      {/* Stat Cards — 6 per row */}
-      <div className="mb-6">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {STAT_CARDS.map(({ key, label, icon, bg, text, border, barColor }) => (
-            <div key={key} onClick={() => handleStatClick(key)}
-              className={`cursor-pointer transition-all rounded-2xl ${statCardCls(key)}`}>
-              <StatCard label={label} value={stats[key] ?? 0}
-                icon={icon} iconBg={bg} iconText={text}
-                borderColor={border} barColor={barColor}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Quick filter banner */}
-      {activeFilterLabel && (
-        <div className="mb-3 flex items-center gap-2 px-4 py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl">
-          <span className="text-xs font-semibold text-indigo-700">Showing: {activeFilterLabel}</span>
-          <button onClick={clearActiveBannerFilter}
-            className="ml-auto text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1">
-            <X size={12} /> Clear
-          </button>
-        </div>
-      )}
-
-      {/* Main Card */}
-
-      <div 
+    <div className={IMS_LIST_PAGE_SHELL}>
+      <div
         ref={tableContainerRef}
-        className={`bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col transition-all duration-300 ${
-          isFullScreen ? "fixed inset-0 z-[999] rounded-none h-screen w-screen" : "max-h-[calc(100vh-40px)] md:max-h-[calc(100vh-60px)]"
-          // isFullScreen ? "fixed inset-0 z-[999] rounded-none h-screen w-screen" : "max-h-[calc(100vh-200px)] md:max-h-[calc(100vh-250px)]"
+        className={`bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden transition-all duration-300 ${
+          isFullScreen ? "fixed inset-0 z-[999] h-screen w-screen" : ""
         }`}
       >
-
-        <div className="flex flex-col h-full overflow-hidden">
-
-          {/* Toolbar */}
-          <div className="px-5 py-4 border-b border-slate-100 space-y-3 flex-shrink-0 bg-white z-[10]">
-            <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-full overflow-x-auto flex-nowrap lg:flex-wrap">
-              {TABS.map((tab) => (
-                <button key={tab.key}
-                  onClick={() => {
-                    setActiveTab(tab.key);
-                    setPage(1);
-                    setStatusFilter("All");
-                    setPriorityFilter("All");
-                    setCategoryFilter("All");
-                    setQuickFilter(getDefaultQuickFilterForTab(tab.key));
-                  }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap flex-shrink-0 ${
-                    activeTab === tab.key ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                  }`}>
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <SearchBar value={search}
-                  onChange={(val) => { setSearch(val); setPage(1); }}
-                  placeholder="Search by title, description…"
-                />
-              </div>
-              
-              <div className="flex flex-wrap items-center justify-between lg:justify-end gap-2 sm:gap-3">
-                <TaskFilterButtons
-                  showFilters={showFilters}
-                  onToggleFilters={() => setShowFilters((v) => !v)}
-                  hasActiveFilter={hasFilter}
-                  onRefresh={fetchTasks}
-                  onReset={handleReset}
-                />
-                
-                <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-white shrink-0 shadow-sm self-end sm:self-auto">
-                  <button
-                    onClick={() => handleViewMode("table")}
-                    className={`px-3 py-2.5 transition-all ${viewMode === "table" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"}`}
-                    title="Table view">
-                      <List size={15} />
-                  </button>
-                  
-                  <div className="w-px h-5 bg-slate-200" />
-                  
-                  <button
-                    onClick={() => handleViewMode("card")}
-                    className={`px-3 py-2.5 transition-all ${viewMode === "card" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"}`}
-                    title="Card view">
-                      <LayoutGrid size={15} />
-                  </button>
-                  
-                  <div className="w-px h-5 bg-slate-200" />
-                  
-                  <button
-                    onClick={toggleFullScreen}
-                    className="px-3 py-2.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 transition-all"
-                    title={isFullScreen ? "Exit Fullscreen" : "Full Screen Mode"}
-                  >
-                    {isFullScreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {showFilters && (
-              <TaskFilterPanel
-                statusFilter={statusFilter}
-                onStatusChange={(s) => { setStatusFilter(s); setQuickFilter(null); setPage(1); }}
-                priorityFilter={priorityFilter}
-                onPriorityChange={(p) => { setPriorityFilter(p); setPage(1); }}
-                categoryFilter={categoryFilter}
-                onCategoryChange={(c) => { setCategoryFilter(c); setPage(1); }}
-                userFilter={selectedAssignedBy || "All"}
-                onUserChange={(u) => { setSelectedAssignedBy(u === "All" ? "" : u); setPage(1); }}
-                categories={categories}
-                onReset={clearPanelFilters}
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            tabs={
+              <ImsSegmentedTabs
+                active={activeTab}
+                onChange={(id) => {
+                  setActiveTab(id);
+                  setStatusFilter("All");
+                  setPriorityFilter("All");
+                  setCategoryFilter("All");
+                  setQuickFilter(getDefaultQuickFilterForTab(id));
+                  setSelected(null);
+                }}
+                tabs={tabItems}
               />
-            )}
+            }
+            actions={
+              <>
+                <ActionButton
+                  module={MODULE}
+                  action="view"
+                  variant="outline"
+                  label="View"
+                  icon={Eye}
+                  disabled={!selectedRecord}
+                  onClick={() => navigateToTask(selectedRecord)}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-slate-700 shadow-none shrink-0"
+                />
+                <ActionButton
+                  module={MODULE}
+                  action="edit"
+                  variant="outline"
+                  label="Edit"
+                  icon={Edit3}
+                  disabled={!selectedRecord || !isSelectedOwner}
+                  record={selectedRecord}
+                  onClick={() => openEditModal(selectedRecord)}
+                  title="Edit (Ctrl+Alt+E / Ctrl+E in app, F2)"
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                />
+                <button
+                  type="button"
+                  disabled={!selectedRecord}
+                  onClick={() => handleClone(selectedRecord)}
+                  className="h-9 shrink-0 px-3 rounded-none border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider shadow-none"
+                >
+                  <Copy size={14} /> Clone
+                </button>
+                {showReassign && (
+                  <button
+                    type="button"
+                    disabled={!selectedRecord}
+                    onClick={() => handleOpenReassignModal(selectedRecord)}
+                    className="h-9 shrink-0 px-3 rounded-none border border-slate-300 bg-white text-purple-700 hover:bg-purple-50 disabled:opacity-50 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider shadow-none"
+                  >
+                    <RefreshCw size={14} /> Reassign
+                  </button>
+                )}
+                <ActionButton
+                  module={MODULE}
+                  action="delete"
+                  variant="danger"
+                  label="Delete"
+                  icon={Trash2}
+                  disabled={!selectedRecord || !isSelectedOwner}
+                  onClick={() => setDeleteTask(selectedRecord)}
+                  title="Delete (Ctrl+Alt+D / Ctrl+D in app, Delete)"
+                  className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
+                />
+                <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
+                <button
+                  type="button"
+                  onClick={fetchTasks}
+                  disabled={loading}
+                  className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none inline-flex items-center justify-center disabled:opacity-60"
+                  aria-label="Refresh"
+                >
+                  <RefreshCcw size={14} className={loading ? "animate-spin text-indigo-600" : ""} />
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleFullScreen}
+                  className="h-9 px-3 border border-slate-300 bg-white text-slate-500 hover:text-indigo-600 hover:bg-slate-50 rounded-none inline-flex items-center justify-center"
+                  title={isFullScreen ? "Exit Fullscreen" : "Full Screen Mode"}
+                >
+                  {isFullScreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                </button>
+              </>
+            }
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+              />
+            }
+          />
+        </ListPageToolbar>
 
-            <BulkActionBar
-              count={selected.length}
-              onBulkDelete={handleBulkDelete}
-              onClearSelection={() => setSelected([])}
-            />
+        <ListPageFilterStrip>
+          <DateRangeFilter
+            showDate={false}
+            applyExtrasOnChange
+            extraFilters={extraFilters}
+            searchValue={tempSearch}
+            onSearchChange={setTempSearch}
+            searchPlaceholder="Search by title, description…"
+            searchLabel="Quick Search"
+            onApply={handleFilterApply}
+            onReset={handleReset}
+          />
+        </ListPageFilterStrip>
+
+        <div className="shrink-0 px-3 py-2 border-b border-slate-200 bg-slate-50/80">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            {STAT_CARDS.map(({ key, label, icon, bg, text, border, barColor }) => (
+              <div
+                key={key}
+                onClick={() => handleStatClick(key)}
+                className={`cursor-pointer transition-all rounded-none ${statCardCls(key)}`}
+              >
+                <StatCard
+                  label={label}
+                  value={stats[key] ?? 0}
+                  icon={icon}
+                  iconBg={bg}
+                  iconText={text}
+                  borderColor={border}
+                  barColor={barColor}
+                />
+              </div>
+            ))}
           </div>
+        </div>
 
-          {/* Table View */}
-          {viewMode === "table" ? (
-            // <div className="flex-1 overflow-auto relative">
-            <div className="flex-1 overflow-auto relative h-[600px] border border-slate-200 rounded-lg">
-              <table className="w-full text-sm min-w-[1100px] border-separate border-spacing-0">
-                <thead className="sticky top-0 z-[5] shadow-sm">
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="w-1 p-0 sticky left-0 z-[5] bg-slate-50 border-b border-slate-200" />
-                    <th className="px-4 py-3 w-10 sticky left-1 z-[5] bg-slate-50 border-b border-slate-200">
-                      <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                        className="w-4 h-4 rounded border-slate-300 accent-indigo-600 cursor-pointer" />
-                    </th>
-                    {TABLE_COLS.map(({ label, key }, i) => (
-                      <th key={key} onClick={() => toggleSort(key)}
-                        className={`px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-700 transition-colors select-none whitespace-nowrap border-b border-slate-200 ${
-                          i === 0
-                            ? "sticky left-[42px] z-[5] bg-slate-50 border-r"
-                            : "bg-slate-50"
-                        }`}
-                        >
-                        {label}
-                        <SortIcon sortKey={sortKey} columnKey={key} sortDir={sortDir} />
-                      </th>
-                    ))}
-                    <th className="px-3 py-3 w-28 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider sticky right-0 z-[5] bg-slate-50 border-l border-slate-200 border-b">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {loading ? (
-                    <tr><td colSpan={TABLE_COLS.length + 3} className="py-16 text-center text-slate-400">
-                      <Loader2 size={28} className="mx-auto mb-2 animate-spin opacity-40" />
-                      <p className="text-sm">Loading tasks…</p>
-                    </td></tr>
-                  ) : displayTasks.length === 0 ? (
-                    <tr><td colSpan={TABLE_COLS.length + 3} className="py-16 text-center">
-                      <EmptyState activeTab={activeTab} hasFilter={hasFilter} onReset={handleReset} />
-                    </td></tr>
-                  ) : (
-                    displayTasks.map((task, i) => (
-                      <TaskTableRow
-                        key={task.task_id} task={task}
-                        index={(page - 1) * pageSize + i + 1}
-                        isSelected={selected.includes(task.task_id)}
-                        onToggle={toggleOne} onEdit={openEditModal}
-                        onDelete={(t) => setDeleteTask(t)}
-                        onClone={(t) => setCloneTask({ ...t, status: "pending", completed_at: null })}
-                        rowMeta={getRowMeta(task, activeTab, currentUser?.id, quickFilter, statusFilter)}
-                        columns={TABLE_COLS} showFullTitle
-                        reportPage={selectedUser}
-                        report={true}
-                        onReassign={handleOpenReassignModal}
-                      />
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div ref={cardScrollRef} className="flex-1 overflow-y-auto p-4 custom-scrollbar"> 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {loading ? (
+        {activeFilterLabel && (
+          <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border-b border-indigo-200">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700">
+              Showing: {activeFilterLabel}
+            </span>
+            <button
+              type="button"
+              onClick={clearActiveBannerFilter}
+              className="ml-auto text-[11px] font-bold uppercase text-indigo-500 hover:text-indigo-700 flex items-center gap-1"
+            >
+              <X size={12} /> Clear
+            </button>
+          </div>
+        )}
+
+        {selected && (
+          <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border-b border-indigo-100 shrink-0">
+            <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
+              Selected: {selectedRecord?.title || `#${selected}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelected(null)}
+              className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
+            >
+              <X size={14} /> Clear
+            </button>
+          </div>
+        )}
+
+        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+          {viewMode === "card" ? (
+            <div ref={cardScrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 custom-scrollbar bg-slate-50/60">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                {loading && visibleTasks.length === 0 ? (
                   <div className="col-span-4 py-16 text-center text-slate-400">
-                    <Loader2 size={28} className="mx-auto mb-2 animate-spin opacity-40" />
+                    <Loader2 size={28} className="mx-auto mb-2 animate-spin text-indigo-500 opacity-60" />
                     <p className="text-sm">Loading tasks…</p>
                   </div>
                 ) : displayTasks.length === 0 ? (
@@ -649,56 +811,116 @@ export default function ReportPage({ reportPage }) {
                     <EmptyState activeTab={activeTab} hasFilter={hasFilter} onReset={handleReset} />
                   </div>
                 ) : (
-                  displayTasks.map((task) => (
-                    <TaskCard key={task.task_id} task={task}
+                  visibleTasks.map((task) => (
+                    <TaskCard
+                      key={task.task_id}
+                      task={task}
+                      selected={String(selected) === String(task.task_id)}
+                      onSelect={(t) => setSelected(t?.task_id ?? null)}
                       onEdit={openEditModal}
                       onDelete={(t) => setDeleteTask(t)}
-                      onClone={(t) => setCloneTask({ ...t, status: "pending", completed_at: null })}
+                      onClone={handleClone}
                       rowMeta={getRowMeta(task, activeTab, currentUser?.id, quickFilter, statusFilter)}
                       report
                     />
                   ))
                 )}
               </div>
-            </div>
-          )}
-
-          {/* Pagination */}
-          <Pagination page={page} totalPages={totalPages} pageSize={pageSize}
-            totalItems={displayCount}
-            onPageChange={(p) => setPage(p)}
-            onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
-          />
-
-          {/* Color Legend */}
-          <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60">
-            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-              {COLOR_LEGEND.map(({ label, barColor }) => (
-                <div key={label} className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: barColor }} />
-                  <span className="text-[11px] text-slate-500 font-medium">{label}</span>
+              {!loading && hasMore && (
+                <div className="flex justify-center py-4">
+                  <button
+                    type="button"
+                    onClick={handleLoadMore}
+                    className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-indigo-600 border border-indigo-200 rounded-none hover:bg-indigo-50"
+                  >
+                    Load more
+                  </button>
                 </div>
-              ))}
+              )}
             </div>
-          </div>
+          ) : (
+            <DataTable
+              headers={HEADERS}
+              data={visibleTasks}
+              loading={loading}
+              viewMode="table"
+              showSelection
+              idKey="task_id"
+              getRowId={(row) => row.task_id}
+              selectedId={selected}
+              onSelect={setSelected}
+              emptyIcon={Eye}
+              emptyMessage="No tasks found"
+              sortKey={sortKey}
+              sortDir={sortDir}
+              getRowClassName={getTaskDataTableRowClassName}
+              onSort={(key) => {
+                if (key === "_actions") return;
+                setDisplayLimit(DISPLAY_CHUNK);
+                if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                else { setSortKey(key); setSortDir("asc"); }
+              }}
+              onLoadMore={handleLoadMore}
+              hasMore={hasMore}
+              totalItems={displayCount}
+              allowCopy
+              onRowDoubleClick={(row) => navigateToTask(row)}
+              hotkeysDisabled={tableHotkeyProps.hotkeysDisabled}
+            />
+          )}
         </div>
 
+        <div className="px-3 py-1.5 border-t border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 items-center">
+            {COLOR_LEGEND.map(({ label, barColor }) => (
+              <div key={label} className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: barColor }} />
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">{label}</span>
+              </div>
+            ))}
+          </div>
+          <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap">
+            Showing {visibleTasks.length} of {displayCount}
+            {serverTotal > displayCount ? ` · ${serverTotal} total` : ""}
+          </span>
+        </div>
       </div>
 
-      {/* Modals */}
-      <TaskModal open={modalOpen} onClose={closeAssignModal} onSuccess={fetchTasks}
-        editTask={editTask} taskType="assigned" currentUser={currentUser} />
-      <TaskModal open={selfModal} onClose={closeSelfModal}
+      <TaskModal
+        open={modalOpen}
+        onClose={closeAssignModal}
+        onSuccess={fetchTasks}
+        editTask={editTask}
+        taskType="assigned"
+        currentUser={currentUser}
+      />
+      <TaskModal
+        open={selfModal}
+        onClose={closeSelfModal}
         onSuccess={() => { closeSelfModal(); fetchTasks(); }}
-        editTask={editTask} taskType="self" currentUser={currentUser} />
-      <TaskModal open={!!cloneTask} onClose={() => setCloneTask(null)}
+        editTask={editTask}
+        taskType="self"
+        currentUser={currentUser}
+      />
+      <TaskModal
+        open={!!cloneTask}
+        onClose={() => setCloneTask(null)}
         onSuccess={() => { setCloneTask(null); fetchTasks(); }}
-        editTask={null} prefillTask={cloneTask}
-        taskType={cloneTask?.task_type ?? "assigned"} currentUser={currentUser} />
-      <DeleteModal item={deleteTask} onClose={() => setDeleteTask(null)}
-        onSuccess={fetchTasks} service={taskService}
-        entityLabel="Task" idKey="task_id" nameKey="title"
-        warningMessage="This action cannot be undone. All notes, attachments and activity logs will also be deleted." />
+        editTask={null}
+        prefillTask={cloneTask}
+        taskType={cloneTask?.task_type ?? "assigned"}
+        currentUser={currentUser}
+      />
+      <DeleteModal
+        item={deleteTask}
+        onClose={() => setDeleteTask(null)}
+        onSuccess={() => { setSelected(null); fetchTasks(); }}
+        service={taskService}
+        entityLabel="Task"
+        idKey="task_id"
+        nameKey="title"
+        warningMessage="This action cannot be undone. All notes, attachments and activity logs will also be deleted."
+      />
       <ReassignModal
         open={reassignModalOpen}
         onClose={() => {

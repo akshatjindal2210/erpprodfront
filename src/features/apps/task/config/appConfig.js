@@ -1,6 +1,6 @@
 // ─── CENTRAL CONFIG — Sidebar + Navbar + Roles + Permissions ─────────────────
 
-import { LayoutDashboard, CheckSquare, Shield, List, CalendarDays, Recycle, BarChart3 } from "lucide-react";
+import { LayoutDashboard, CheckSquare, Shield, List, CalendarDays, Recycle, BarChart3, ClipboardList, ListTodo, UserCheck, ListCheck, AlertTriangle } from "lucide-react";
 
 // ════════════════════════════════════════════════════════════════════════════
 // 1. ROLES
@@ -34,13 +34,13 @@ export const SIDEBAR_MENU = [
   { name: "Tasks",          icon: CheckSquare,     href: "/task/dashboard/tasks",          roles: ALL   },
   { name: "Reports",        icon: BarChart3,       href: "/task/dashboard/reports",        roles: TASK_REPORT_MENU_ROLES },
   { name: "Recurring Task", icon: Recycle,         href: "/task/dashboard/recurring-task", roles: ALL   },
-  // { name: "CL Task",        icon: ClipboardList,   href: "/task/dashboard/cl-task",                roles: ALL, module: "cl_task" },
-  // { name: "My CL Tasks",    icon: ListTodo,        href: "/task/dashboard/cl-task/my-tasks",       roles: ALL   },
-  // { name: "CL Verification", icon: UserCheck,      href: "/task/dashboard/cl-task/verification",   roles: ALL, module: "cl_task_verification" },
-  // { name: "CL Task Report", icon: ListCheck,       href: "/task/dashboard/cl-task/report",         roles: ALL, module: "task_report" },
-  // { name: "Red Ticket",     icon: AlertTriangle,   href: "/task/dashboard/red-ticket",             roles: ALL, module: "red_ticket" },
-  { name: "Category",       icon: List,            href: "/task/dashboard/category",       roles: STAFF },
-  { name: "Holiday",        icon: CalendarDays,    href: "/task/dashboard/holidays",       roles: STAFF },
+  { name: "CL Task Master", icon: ClipboardList,  href: "/task/dashboard/cl-task",          roles: ALL, module: "cl_task_master" },
+  { name: "CL Task",        icon: ListTodo,       href: "/task/dashboard/cl-tasks",         roles: ALL, module: "cl_task" },
+  { name: "CL Verification", icon: UserCheck,      href: "/task/dashboard/cl-task/verification",   roles: ALL, module: "cl_task_verification" },
+  { name: "CL Task Report", icon: ListCheck,       href: "/task/dashboard/cl-task/report",         roles: ALL, module: "task_report" },
+  { name: "Red Ticket",     icon: AlertTriangle,   href: "/task/dashboard/red-ticket",             roles: ALL, module: "red_ticket" },
+  { name: "Category",       icon: List,            href: "/task/dashboard/category",       roles: ALL, module: "category" },
+  { name: "Holiday",        icon: CalendarDays,    href: "/task/dashboard/holidays",       roles: ALL, module: "holiday" },
   { name: "Logs",           icon: Shield,          href: "/task/dashboard/logs",           roles: ALL },
 ];
 
@@ -52,13 +52,13 @@ export const NAVBAR_PAGES = [
   { label: "Tasks",           path: "/task/dashboard/tasks",             icon: "✅",     category: "Management",  roles: ALL   },
   { label: "Reports",         path: "/task/dashboard/reports",           icon: "📊",     category: "Management",  roles: TASK_REPORT_MENU_ROLES },
   { label: "Recurring Task",  path: "/task/dashboard/recurring-task",    icon: "✅",     category: "Management",  roles: ALL   },
-  // { label: "CL Task",         path: "/task/dashboard/cl-task",                icon: "📋",     category: "Management",  roles: ALL, module: "cl_task" },
-  // { label: "My CL Tasks",     path: "/task/dashboard/cl-task/my-tasks",       icon: "📝",     category: "Management",  roles: ALL   },
-  // { label: "CL Verification", path: "/task/dashboard/cl-task/verification", icon: "✅",     category: "Management",  roles: ALL, module: "cl_task_verification" },
-  // { label: "CL Task Report",  path: "/task/dashboard/cl-task/report",         icon: "📊",     category: "Management",  roles: ALL, module: "task_report" },
-  // { label: "Red Ticket",      path: "/task/dashboard/red-ticket",             icon: "🎫",     category: "Management",  roles: ALL, module: "red_ticket" },
-  { label: "Category",        path: "/task/dashboard/category",          icon: "🏷️",     category: "Master Data", roles: STAFF },
-  { label: "Holiday",         path: "/task/dashboard/holidays",          icon: "📅",     category: "Master Data", roles: STAFF },
+  { label: "CL Task Master", path: "/task/dashboard/cl-task",          icon: "📋",     category: "Management",  roles: ALL, module: "cl_task_master" },
+  { label: "CL Task",        path: "/task/dashboard/cl-tasks",         icon: "📝",     category: "Management",  roles: ALL, module: "cl_task" },
+  { label: "CL Verification", path: "/task/dashboard/cl-task/verification", icon: "✅",     category: "Management",  roles: ALL, module: "cl_task_verification" },
+  { label: "CL Task Report",  path: "/task/dashboard/cl-task/report",         icon: "📊",     category: "Management",  roles: ALL, module: "task_report" },
+  { label: "Red Ticket",      path: "/task/dashboard/red-ticket",             icon: "🎫",     category: "Management",  roles: ALL, module: "red_ticket" },
+  { label: "Category",        path: "/task/dashboard/category",          icon: "🏷️",     category: "Master Data", roles: ALL, module: "category" },
+  { label: "Holiday",         path: "/task/dashboard/holidays",          icon: "📅",     category: "Master Data", roles: ALL, module: "holiday" },
   { label: "Logs",            path: "/task/dashboard/logs",              icon: "📋",     category: "System",      roles: SUPER },
 ];
 
@@ -106,16 +106,16 @@ export const ROLE_CONFIG = {
 // ════════════════════════════════════════════════════════════════════════════
 export const FEATURE_PERMISSIONS = {
   category: {
-    create: STAFF,
-    read:   STAFF,
-    update: STAFF,
-    delete: SUPER,
+    create: ALL,
+    read:   ALL,
+    update: ALL,
+    delete: ALL,
   },
   holiday: {
-    create: STAFF,
-    read:   STAFF,
-    update: STAFF,
-    delete: SUPER,
+    create: ALL,
+    read:   ALL,
+    update: ALL,
+    delete: ALL,
   },
   department: {
     create: STAFF,
@@ -156,23 +156,29 @@ export const FEATURE_PERMISSIONS = {
     read:   SUPER,
     update: SUPER,
   },
-  // cl_task: {
-  //   create: ALL,
-  //   read:   ALL,
-  //   update: ALL,
-  //   delete: ALL,
-  // },
-  // cl_task_verification: {
-  //   read:   ALL,
-  //   update: ALL,
-  //   delete: ALL,
-  // },
-  // red_ticket: {
-  //   create: ALL,
-  //   read:   ALL,
-  //   update: ALL,
-  //   delete: ALL,
-  // },
+  cl_task_master: {
+    create: ALL,
+    read:   ALL,
+    update: ALL,
+    delete: ALL,
+  },
+  cl_task: {
+    create: ALL,
+    read:   ALL,
+    update: ALL,
+    delete: ALL,
+  },
+  cl_task_verification: {
+    read:   ALL,
+    update: ALL,
+    delete: ALL,
+  },
+  red_ticket: {
+    create: ALL,
+    read:   ALL,
+    update: ALL,
+    delete: ALL,
+  },
   dashboard: {
     read: DASHBOARD_ROLES,
   },
@@ -191,10 +197,11 @@ const PATH_FEATURE_MAP = {
   "/task/dashboard/reports":      { feature: "tasks",       action: "read" },
   "/task/dashboard/cl-task/report": { feature: "task_report", action: "read" },
   "/task/dashboard/recurring-task": { feature: "tasks",       action: "read" },
-  // "/task/dashboard/cl-task":        { feature: "cl_task",     action: "read" },
-  // "/task/dashboard/cl-task/my-tasks": { feature: "tasks",     action: "read" },
-  // "/task/dashboard/cl-task/verification": { feature: "cl_task_verification", action: "read" },
-  // "/task/dashboard/red-ticket":     { feature: "red_ticket",  action: "read" },
+  "/task/dashboard/cl-task":        { feature: "cl_task_master", action: "read" },
+  "/task/dashboard/cl-tasks":       { feature: "cl_task",        action: "read" },
+  "/task/dashboard/cl-task/my-tasks": { feature: "cl_task",     action: "read" },
+  "/task/dashboard/cl-task/verification": { feature: "cl_task_verification", action: "read" },
+  "/task/dashboard/red-ticket":     { feature: "red_ticket",  action: "read" },
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -280,10 +287,24 @@ export function getRoleConfig(role) {
 
 export function hasAccess(role, path, user = null) {
   const normalizedRole = normalizeTaskRole(role);
-  if (path === "/task/dashboard/reports") {
+  const cleanPath = String(path || "").split("?")[0];
+
+  if (cleanPath === "/task/dashboard/reports" || cleanPath.startsWith("/task/dashboard/reports/")) {
     return canAccessTaskReport(role, user);
   }
-  const rule = PATH_FEATURE_MAP[path];
+
+  // Exact match first, then longest prefix (so /tasks/abc inherits /tasks,
+  // and /cl-task/verification wins over /cl-task).
+  let rule = PATH_FEATURE_MAP[cleanPath];
+  if (!rule) {
+    const keys = Object.keys(PATH_FEATURE_MAP).sort((a, b) => b.length - a.length);
+    for (const key of keys) {
+      if (cleanPath === key || cleanPath.startsWith(`${key}/`)) {
+        rule = PATH_FEATURE_MAP[key];
+        break;
+      }
+    }
+  }
   if (!rule) return true;
 
   // When HIDE_DASHBOARD_FROM_USERS is false, /task/dashboard is open to all roles

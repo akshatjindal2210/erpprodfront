@@ -260,6 +260,7 @@ export default function UserPermissionsPanel({
   onSelectAllPermissions,
   userRole,
   imsSpecialPermissionsSection = null,
+  taskSpecialPermissionsSection = null,
 }) {
   const isSuperAdmin = userRole === "super_admin";
   const activeMeta = APP_ACCESS[activePermTab];
@@ -384,7 +385,7 @@ export default function UserPermissionsPanel({
           <p className="text-sm text-slate-400 py-10 text-center bg-slate-50">
             Turn on access for <span className="font-medium text-slate-600">{activeMeta?.label}</span>.
           </p>
-        ) : activeMeta?.hasModulePermissions ? (
+        ) : activeMeta?.hasModulePermissions && moduleList.length > 0 ? (
           <ModulePermissionTable
             moduleList={moduleList}
             permissions={permissions}
@@ -397,9 +398,15 @@ export default function UserPermissionsPanel({
           />
         ) : null}
 
-        {activePermTab === "ims" && imsSpecialPermissionsSection ? (
+        {(enabled || isSuperAdmin) && activePermTab === "ims" && imsSpecialPermissionsSection ? (
           <div className="border-t border-slate-100 px-3 py-4 bg-slate-50/40">
             {imsSpecialPermissionsSection}
+          </div>
+        ) : null}
+
+        {(enabled || isSuperAdmin) && activePermTab === "task" && taskSpecialPermissionsSection ? (
+          <div className="border-t border-slate-100 px-3 py-4 bg-slate-50/40">
+            {taskSpecialPermissionsSection}
           </div>
         ) : null}
       </div>

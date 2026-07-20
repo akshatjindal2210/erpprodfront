@@ -555,8 +555,8 @@ export default function AuditPage() {
                   active={pageTab}
                   onChange={handleTabChange}
                   tabs={[
-                    { id: PAGE_TABS.LOCATION, label: "Location Wise", icon: MapPin },
                     { id: PAGE_TABS.MASTER, label: "Master Wise", icon: ClipboardList },
+                    { id: PAGE_TABS.LOCATION, label: "Location Wise", icon: MapPin },
                   ]}
                 />
               )

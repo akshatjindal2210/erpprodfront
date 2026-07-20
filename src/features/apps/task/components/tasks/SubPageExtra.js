@@ -6,18 +6,18 @@ import SearchableSelect  from "@/features/apps/task/components/common/Searchable
 import { PRIORITY_CONFIG } from "../common/Constants";
 import { taskService } from "@/features/apps/task/services/taskApi";
 import { mapTaskUserToOption } from "@/features/apps/task/helpers/utilHelper";
-import { createPortal } from "react-dom";
+import Drawer from "@/core/components/ui/Drawer";
 import { toast } from "react-toastify";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 export function MiniRow({ label, value, icon, color = "text-slate-600" }) {
   if (!value) return null;
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col min-w-0">
       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight leading-none mb-1">{label}</span>
-      <div className={`flex items-center gap-1.5 ${color}`}>
-        <span className="opacity-70">{icon}</span>
-        <span className="text-[11px] font-medium truncate max-w-[120px]">{value}</span>
+      <div className={`flex items-center gap-1.5 min-w-0 ${color}`}>
+        <span className="opacity-70 shrink-0">{icon}</span>
+        <span className="text-[11px] font-medium truncate">{value}</span>
       </div>
     </div>
   );
@@ -465,17 +465,33 @@ export function ForwardModal({ open, onClose, onSubmit, loading, users }) {
   const [forwardTo, setForwardTo] = useState("");
   const [note, setNote] = useState("");
   useEffect(() => { if (!open) { setForwardTo(""); setNote(""); } }, [open]);
-  if (!open) return null;
+  const handleSubmit = () => {
+    if (!forwardTo || loading) return;
+    onSubmit({ forward_to: forwardTo, note });
+  };
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-violet-50 border border-violet-200 flex items-center justify-center"><Share2 size={16} className="text-violet-600" /></div>
-          <div className="flex-1"><h3 className="text-sm font-semibold text-slate-800">Forward Task</h3><p className="text-xs text-slate-400">Delegate to someone else</p></div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"><X size={16} /></button>
-        </div>
-        <SearchableSelect label="Forward To" required
+    <Drawer
+      isOpen={open}
+      onClose={onClose}
+      closeOnOutside={false}
+      title="Forward Task"
+      description="Delegate to someone else"
+      headerVariant="form"
+      maxWidth="max-w-md"
+      onSubmit={handleSubmit}
+      footer={
+        <>
+          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={loading || !forwardTo} title="Ctrl+S"
+            className="px-5 py-2 text-sm font-medium text-white bg-violet-600 hover:bg-violet-700 rounded-xl flex items-center gap-2 disabled:opacity-50 shadow-sm">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />} Forward
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <SearchableSelect label="Forward To" required clearable
           options={users.map(mapTaskUserToOption)}
           value={forwardTo} onChange={setForwardTo}
           placeholder={users.length === 0 ? "Loading…" : "Select a person…"}  />
@@ -484,15 +500,8 @@ export function ForwardModal({ open, onClose, onSubmit, loading, users }) {
           <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Instructions…" rows={3}
             className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 placeholder-slate-400 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all resize-none" />
         </div>
-        <div className="flex gap-3 justify-end">
-          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50">Cancel</button>
-          <button onClick={() => onSubmit({ forward_to: forwardTo, note })} disabled={loading || !forwardTo}
-            className="px-5 py-2 text-sm font-medium text-white bg-violet-600 hover:bg-violet-700 rounded-xl flex items-center gap-2 disabled:opacity-50 shadow-sm">
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />} Forward
-          </button>
-        </div>
       </div>
-    </div>
+    </Drawer>
   );
 }
 
@@ -504,39 +513,23 @@ export function ReassignModal({ open, onClose, onSubmit, loading, users }) {
     if (!open) setReassignTo("");
   }, [open]);
 
-  if (!open) return null;
+  const handleSubmit = () => {
+    if (!reassignTo || loading) return;
+    onSubmit({ reassign_to: reassignTo });
+  };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
-        
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-center">
-            <Share2 size={16} className="text-purple-600" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-sm font-semibold text-slate-800">Reassign Task</h3>
-            <p className="text-xs text-slate-400">Select a person to reassign</p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100">
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Dropdown */}
-        <SearchableSelect
-          label="Reassign To"
-          required
-          options={users.map(mapTaskUserToOption)}
-          value={reassignTo}
-          onChange={setReassignTo}
-          placeholder={users.length === 0 ? "Loading…" : "Select a person…"}
-        />
-
-        {/* Buttons */}
-        <div className="flex gap-3 justify-end">
+    <Drawer
+      isOpen={open}
+      onClose={onClose}
+      closeOnOutside={false}
+      title="Reassign Task"
+      description="Select a person to reassign"
+      headerVariant="form"
+      maxWidth="max-w-md"
+      onSubmit={handleSubmit}
+      footer={
+        <>
           <button
             onClick={onClose}
             disabled={loading}
@@ -545,16 +538,26 @@ export function ReassignModal({ open, onClose, onSubmit, loading, users }) {
             Cancel
           </button>
           <button
-            onClick={() => onSubmit({ reassign_to: reassignTo })}
+            onClick={handleSubmit}
             disabled={loading || !reassignTo}
+            title="Ctrl+S"
             className="px-5 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-xl flex items-center gap-2 disabled:opacity-50 shadow-sm"
           >
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />} Reassign
           </button>
-        </div>
-
-      </div>
-    </div>
+        </>
+      }
+    >
+      <SearchableSelect
+        label="Reassign To"
+        required
+        clearable
+        options={users.map(mapTaskUserToOption)}
+        value={reassignTo}
+        onChange={setReassignTo}
+        placeholder={users.length === 0 ? "Loading…" : "Select a person…"}
+      />
+    </Drawer>
   );
 }
 
@@ -585,20 +588,32 @@ export function ActionModal({ open, onClose, onSubmit, loading, type }) {
   }[type] ?? {};
 
   const Icon = cfg.icon;
-  if (!open) return null;
+
+  const handleSubmit = () => {
+    if (loading || (cfg.noteRequired && !note.trim())) return;
+    onSubmit({ note });
+  };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-xl border flex items-center justify-center ${cfg.iconBg}`}>
-            <Icon size={16} className={cfg.iconClr} />
-          </div>
-          <div className="flex-1"><h3 className="text-sm font-semibold text-slate-800">{cfg.title}</h3></div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"><X size={16} /></button>
-        </div>
-
+    <Drawer
+      isOpen={open && !!cfg.title}
+      onClose={onClose}
+      closeOnOutside={false}
+      title={cfg.title || ""}
+      headerVariant="form"
+      maxWidth="max-w-md"
+      onSubmit={handleSubmit}
+      footer={
+        <>
+          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={loading || (cfg.noteRequired && !note.trim())} title="Ctrl+S"
+            className={`px-5 py-2 text-sm font-medium text-white rounded-xl flex items-center gap-2 disabled:opacity-50 shadow-sm transition-all ${cfg.btnClr}`}>
+            {loading ? <Loader2 size={14} className="animate-spin" /> : Icon ? <Icon size={14} /> : null} {cfg.label}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
         {type === "reject" && (
           <div className="flex items-start gap-2.5 p-3 bg-rose-50 border border-rose-100 rounded-xl">
             <AlertTriangle size={14} className="text-rose-500 flex-shrink-0 mt-0.5" />
@@ -613,16 +628,8 @@ export function ActionModal({ open, onClose, onSubmit, loading, type }) {
           <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={cfg.ph} rows={3}
             className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 placeholder-slate-400 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 resize-none transition-all" />
         </div>
-
-        <div className="flex gap-3 justify-end">
-          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50">Cancel</button>
-          <button onClick={() => onSubmit({ note })} disabled={loading || (cfg.noteRequired && !note.trim())}
-            className={`px-5 py-2 text-sm font-medium text-white rounded-xl flex items-center gap-2 disabled:opacity-50 shadow-sm transition-all ${cfg.btnClr}`}>
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Icon size={14} />} {cfg.label}
-          </button>
-        </div>
       </div>
-    </div>
+    </Drawer>
   );
 }
 
@@ -675,77 +682,48 @@ export function getSidebarStyle(task) {
 export function SidebarTaskItem({ task, isActive, onClick, colorData }) {
   const pri = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.low;
 
-  // colorData aaye (TaskDetailPage se getTaskColor) toh sab kuch wahan se lo
-  // if colorData not provided, then old getSidebarStyle fallback — same design
   const sidebarStyle = colorData || getSidebarStyle(task) || {};
   const tag = sidebarStyle.tag;
   const tagCls = sidebarStyle.tagCls || "";
   const barHex = colorData ? colorData.bar : null;
-
-  // due date red — for both overdue or approval
-  const dueDateRed = tag === "Overdue" || tag === "Approval";
+  const dueDateRed = tag === "Overdue" || tag === "Approval" || tag === "Due Today";
 
   return (
-    <button onClick={onClick}
-      className={`w-full text-left px-2.5 py-2.5 rounded-xl transition-all border ${
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full text-left rounded-none transition-all border ${
         isActive
-          ? "bg-indigo-50 border-indigo-200 shadow-sm"
+          ? "bg-indigo-50 border-indigo-300"
           : "bg-white border-transparent hover:bg-slate-50 hover:border-slate-200"
-      }`}>
-      <div className="flex items-stretch gap-2">
-
-        {/* Left bar — hex inline ya Tailwind fallback */}
+      }`}
+    >
+      <div className="flex items-stretch gap-0">
         {barHex ? (
-          <div className="w-1 rounded-full flex-shrink-0"
-            style={{ backgroundColor: isActive ? "#818cf8" : barHex }} />
+          <div
+            className="w-[2px] rounded-none flex-shrink-0 self-stretch"
+            style={{ backgroundColor: isActive ? "#4f46e5" : barHex }}
+          />
         ) : (
-          <div className={`w-1 rounded-full flex-shrink-0 ${isActive ? "bg-indigo-400" : sidebarStyle.bar}`} />
+          <div className={`w-[2px] rounded-none flex-shrink-0 self-stretch ${isActive ? "bg-indigo-500" : sidebarStyle.bar}`} />
         )}
 
-        <div className="flex-1 min-w-0">
-          <p className={`text-xs font-semibold leading-snug line-clamp-2 ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
+        <div className="flex-1 min-w-0 px-1.5 py-1">
+          <p className={`text-[10px] font-semibold leading-snug line-clamp-2 ${isActive ? "text-indigo-800" : "text-slate-700"}`}>
             {task.title}
           </p>
-
-          <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-            {/* Dot — hex inline ya Tailwind fallback */}
-            {barHex ? (
-              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: barHex }} />
-            ) : (
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${sidebarStyle.dot}`} />
-            )}
-
-            {tag && (
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border leading-none ${tagCls}`}>
+          <div className="flex items-center gap-1 mt-0.5 min-w-0">
+            {tag ? (
+              <span className={`text-[8px] font-bold px-1 py-px rounded-none border leading-none truncate max-w-[52%] ${tagCls}`}>
                 {tag}
               </span>
-            )}
-
-            <span className={`text-[10px] font-semibold ${pri.color}`}>
-              {pri.label}
-            </span>
-
-            <span className="text-[10px] text-slate-300 ml-auto">#{task.task_id}</span>
-          </div>
-
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            {task.due_date && (
-              <span className={`text-[9px] flex items-center gap-0.5 ${dueDateRed ? "text-rose-500 font-semibold" : "text-slate-400"}`}>
-                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
-                </svg>
+            ) : null}
+            <span className={`text-[9px] font-medium truncate ${pri.color}`}>{pri.label}</span>
+            {task.due_date ? (
+              <span className={`text-[9px] ml-auto tabular-nums flex-shrink-0 ${dueDateRed ? "text-rose-600 font-semibold" : "text-slate-400"}`}>
                 {new Date(task.due_date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
               </span>
-            )}
-            {task.current_holder_name && (
-              <span className="text-[9px] text-slate-400 flex items-center gap-0.5 truncate max-w-[80px]">
-                <svg className="w-2.5 h-2.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-                </svg>
-                {task.current_holder_name}
-              </span>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
@@ -842,30 +820,27 @@ export function ActivityLogModal({ open, onClose, taskId, taskTitle, taskStatus,
 
   if (!open) return null;
 
-  return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[85vh]">
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center">
-              <Activity size={15} className="text-blue-600" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-slate-800">Activity Log</h3>
-              <p className="text-xs text-slate-400">{displayTotal} activities recorded</p>
-            </div>
-          </div>
+  return (
+    <Drawer
+      isOpen={open}
+      onClose={onClose}
+      closeOnOutside={false}
+      title="Activity Log"
+      description={`${displayTotal} activities recorded`}
+      headerVariant="form"
+      maxWidth="max-w-3xl"
+      footer={
+        <div className="flex items-center justify-between w-full">
+          <p className="text-[10px] text-slate-400">Newest first · {displayTotal} total</p>
           <button onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
-            <X size={16} />
+            className="px-4 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
+            Close
           </button>
         </div>
-
+      }
+    >
         {/* Task strip */}
-        <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-100 flex-shrink-0 flex items-center gap-2">
+        <div className="py-2.5 bg-slate-50 border border-slate-100 rounded-xl mb-3 flex items-center gap-2 px-3">
           <span className="text-xs font-bold text-slate-600">#{taskId}</span>
           <span className="text-xs text-slate-500 truncate flex-1">{taskInfo.title}</span>
           {taskInfo.status && (
@@ -876,7 +851,7 @@ export function ActivityLogModal({ open, onClose, taskId, taskTitle, taskStatus,
         </div>
 
         {/* Filter chips */}
-        <div className="px-5 py-2.5 border-b border-slate-100 flex-shrink-0 flex gap-1.5 overflow-x-auto"
+        <div className="mb-3 flex gap-1.5 overflow-x-auto"
           style={{ scrollbarWidth: "none" }}>
           {ACTION_TYPES.map((at) => (
             <button key={at.value}
@@ -892,7 +867,7 @@ export function ActivityLogModal({ open, onClose, taskId, taskTitle, taskStatus,
         </div>
 
         {/* Timeline */}
-        <div className="flex-1 overflow-y-auto px-5 py-4"
+        <div className="min-h-[200px]"
           style={{ scrollbarWidth: "thin", scrollbarColor: "#e2e8f0 transparent" }}>
           {loading && logs.length === 0 ? (
             <div className="flex items-center justify-center py-12">
@@ -950,16 +925,6 @@ export function ActivityLogModal({ open, onClose, taskId, taskTitle, taskStatus,
             </>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-100 flex-shrink-0 flex items-center justify-between">
-          <p className="text-[10px] text-slate-400">Newest first · {displayTotal} total</p>
-          <button onClick={onClose}
-            className="px-4 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">
-            Close
-          </button>
-        </div>
-      </div>
-    </div>, document.body
+    </Drawer>
   );
 }

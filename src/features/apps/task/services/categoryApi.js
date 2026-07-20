@@ -4,11 +4,10 @@ import { ENDPOINTS } from "@/features/apps/task/config/endpoints";
 const C = ENDPOINTS.CATEGORIES;
 
 export const categoryService = {
-  getAll: (params) => api.get(C.LIST, { params }),
-  getById: (id) => api.get(C.item(id)),
-  create: (data) => api.post(C.LIST, data),
-  update: (id, data) => api.put(C.item(id), data),
-  delete: (id) => api.delete(C.item(id)),
-  getStats: () => api.get(C.STATS),
+  getAll: (params) => api.post(C.LIST, params || {}),
+  getViews: (params = {}) => api.post(C.HELPER, { permission_module: "tasks", permission_action: "view", ...params}),
+  getById: (id) => api.post(C.GET, { id }),
+  create: (data) => api.post(C.CREATE, data),
+  update: (id, data) => api.post(C.UPDATE, { id, ...(data || {}) }),
+  delete: (id) => api.post(C.DELETE, { id }),
 };
-

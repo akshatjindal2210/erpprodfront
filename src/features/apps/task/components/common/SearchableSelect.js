@@ -40,6 +40,7 @@ const SearchableSelect = ({
   selectCls,
   disabled = false,
   isMulti = false,
+  clearable = false,
   error,
 }) => {
   const [mounted, setMounted] = useState(false);
@@ -115,11 +116,24 @@ const SearchableSelect = ({
     }
   };
 
+  const handleClear = (e) => {
+    e.stopPropagation();
+    if (disabled) return;
+    if (isMulti) onChange([]);
+    else onChange("");
+    setSearch("");
+    setIsOpen(false);
+  };
+
+  const hasValue = isMulti
+    ? Array.isArray(value) && value.length > 0
+    : value !== "" && value != null;
+
   const dropdownPanel = isOpen && mounted ? (
     <div
       ref={optionsContainerRef}
       role="listbox"
-      className="fixed z-[1100] bg-white border border-slate-200 shadow-2xl rounded-xl flex flex-col overflow-hidden"
+      className="fixed z-[1100] bg-white border border-slate-300 shadow-lg rounded-none flex flex-col overflow-hidden"
       style={{
         top: dropdownPos.top,
         left: dropdownPos.left,
@@ -184,10 +198,11 @@ const SearchableSelect = ({
       <div
         ref={buttonRef}
         onClick={openDropdown}
-        className={`${selectCls || ""} relative flex flex-wrap items-center gap-1.5 w-full min-w-0 text-left transition-all duration-200 bg-white border 
-        ${error ? "border-rose-400 ring-1 ring-rose-50" : "border-slate-200"} 
-        ${disabled ? "opacity-60 cursor-not-allowed bg-slate-50" : "hover:border-slate-300 cursor-pointer"} 
-        ${isOpen ? "ring-2 ring-indigo-50 border-indigo-400 shadow-sm" : ""} p-2 min-h-[42px] rounded-xl`}
+        className={`${selectCls || "bg-white border border-slate-300 rounded-none p-2 min-h-9"} relative flex flex-wrap items-center gap-1.5 w-full min-w-0 text-left transition-all duration-200 ${
+          error ? "border-rose-400 ring-1 ring-rose-50" : ""
+        } ${disabled ? "opacity-60 cursor-not-allowed bg-slate-50" : "hover:border-slate-400 cursor-pointer"} ${
+          isOpen ? "ring-1 ring-indigo-200 border-indigo-500" : ""
+        }`}
       >
         {isMulti && Array.isArray(value) && value.length > 0 ? (
           <div className="flex flex-wrap gap-1 min-w-0">
@@ -203,12 +218,25 @@ const SearchableSelect = ({
             ))}
           </div>
         ) : !isMulti && selectedOptions ? (
-          <span className="text-sm text-slate-700 pl-1 truncate min-w-0">{selectedOptions.name}</span>
+          <span className="text-[12px] text-slate-700 pl-1 truncate min-w-0 flex-1">{selectedOptions.name}</span>
         ) : (
-          <span className="text-sm text-slate-400 pl-1 truncate">{placeholder}</span>
+          <span className="text-[12px] text-slate-400 pl-1 truncate flex-1">{placeholder}</span>
         )}
 
-        <ChevronDown size={14} className={`ml-auto shrink-0 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+        <div className="ml-auto flex items-center gap-0.5 shrink-0">
+          {clearable && hasValue && !disabled && (
+            <button
+              type="button"
+              onClick={handleClear}
+              className="p-0.5 rounded text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors"
+              title="Clear"
+              aria-label="Clear selection"
+            >
+              <X size={13} />
+            </button>
+          )}
+          <ChevronDown size={14} className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+        </div>
       </div>
 
       {mounted && dropdownPanel ? createPortal(dropdownPanel, document.body) : null}

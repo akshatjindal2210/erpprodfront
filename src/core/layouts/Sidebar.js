@@ -68,7 +68,7 @@ export default function Sidebar({
   toggleCollapsed,
   hideNav = false,
   navRegistry = NAV_REGISTRY,
-  brandLabel = "JFL ERP Portal",
+  brandLabel = "ERP Portal",
 }) {
   const pathname = usePathname();
   const { handleLogout } = useAppLogout();
@@ -121,7 +121,12 @@ export default function Sidebar({
 
     // 2. Fallback to standard role-based rules
     if (item.roles?.length) {
-      return item.roles.includes(role);
+      const raw = String(role || "").toLowerCase();
+      const normalized = raw === "team" ? "executive_assistant" : raw;
+      return item.roles.some((allowed) => {
+        const a = String(allowed).toLowerCase();
+        return a === normalized || a === raw || a === String(role || "").toLowerCase();
+      });
     }
     return true;
   };
@@ -275,11 +280,26 @@ export default function Sidebar({
         className={`fixed inset-y-0 left-0 z-[120] ${THEME_CONFIG.sidebarBg} flex flex-col h-screen transition-all duration-300 border-r ${THEME_CONFIG.sidebarBorder}
         ${sidebarOpen ? "translate-x-0 w-64 shadow-2xl" : "-translate-x-full"} md:translate-x-0 ${collapsed ? "md:w-14" : "md:w-56"}`}
       >
-        <div className={`h-12 flex items-center px-4 border-b ${THEME_CONFIG.sidebarBorder} shrink-0`}>
-          <Zap size={16} className={`${THEME_CONFIG.sidebarAccent} shrink-0`} fill="currentColor" />
-          {(!collapsed || sidebarOpen) && (
-            <span className={`ml-2 font-bold text-[11px] ${THEME_CONFIG.sidebarText} uppercase tracking-wider truncate`}>{brandLabel}</span>
-          )}
+        <div className={`h-12 flex items-center gap-2 px-3 border-b ${THEME_CONFIG.sidebarBorder} shrink-0 overflow-hidden ${collapsed && !sidebarOpen ? "md:justify-center md:px-1.5" : ""}`}>
+          {/* White plate so black JFL mark stays visible on dark sidebar */}
+          <div
+            className={`flex items-center justify-center rounded-md bg-white shrink-0 ${
+              collapsed && !sidebarOpen ? "md:h-9 md:w-9 md:p-0.5" : "h-9 px-2 py-1"
+            }`}
+          >
+            <img
+              src="/logo.png"
+              alt={brandLabel}
+              className={`object-contain shrink-0 ${
+                collapsed && !sidebarOpen ? "h-full w-full" : "h-7 w-auto max-w-[8.5rem]"
+              }`}
+            />
+          </div>
+          {(!collapsed || sidebarOpen) && brandLabel ? (
+            <span className={`font-bold text-[11px] ${THEME_CONFIG.sidebarText} uppercase tracking-wider truncate`}>
+              {brandLabel}
+            </span>
+          ) : null}
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-0.5 custom-scrollbar">

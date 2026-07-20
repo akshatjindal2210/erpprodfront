@@ -43,7 +43,8 @@ export const ENDPOINTS = {
   },
 
   RECURRING_TASKS: {
-    LIST: `${TASK_API}/recurring-tasks/`,
+    BASE: `${TASK_API}/recurring-tasks`,
+    LIST: `${TASK_API}/recurring-tasks/list`,
     STATS: `${TASK_API}/recurring-tasks/stats`,
     item: (recurringId) => `${TASK_API}/recurring-tasks/${recurringId}`,
     attachments: (recurringId) =>
@@ -51,15 +52,21 @@ export const ENDPOINTS = {
   },
 
   CATEGORIES: {
-    LIST: `${TASK_API}/categories/`,
-    STATS: `${TASK_API}/categories/stats`,
-    item: (categoryId) => `${TASK_API}/categories/${categoryId}`,
+    LIST: `${TASK_API}/categories/list`,
+    HELPER: `${TASK_API}/categories/helper`,
+    GET: `${TASK_API}/categories/get`,
+    CREATE: `${TASK_API}/categories/create`,
+    UPDATE: `${TASK_API}/categories/update`,
+    DELETE: `${TASK_API}/categories/delete`,
   },
 
   HOLIDAYS: {
-    LIST: `${TASK_API}/holidays`,
+    LIST: `${TASK_API}/holidays/list`,
+    GET: `${TASK_API}/holidays/get`,
+    CREATE: `${TASK_API}/holidays/create`,
+    UPDATE: `${TASK_API}/holidays/update`,
+    DELETE: `${TASK_API}/holidays/delete`,
     BULK_UPLOAD: `${TASK_API}/holidays/bulk-upload`,
-    item: (holidayId) => `${TASK_API}/holidays/${holidayId}`,
   },
 
   REMINDERS: {
@@ -67,21 +74,32 @@ export const ENDPOINTS = {
   },
 
   CL_TASKS: {
-    LIST: `${TASK_API}/cl-tasks`,
+    LIST: `${TASK_API}/cl-tasks/list`,
     MY: `${TASK_API}/cl-tasks/my`,
     VERIFICATION: `${TASK_API}/cl-tasks/verification`,
-    item: (id) => `${TASK_API}/cl-tasks/${id}`,
-    submit: (id) => `${TASK_API}/cl-tasks/${id}/submit`,
-    verify: (id) => `${TASK_API}/cl-tasks/${id}/verify`,
+    CREATE: `${TASK_API}/cl-tasks/create`,
+    UPDATE: `${TASK_API}/cl-tasks/update`,
+    DELETE: `${TASK_API}/cl-tasks/delete`,
+    APPROVE: `${TASK_API}/cl-tasks/approve`,
+    SUBMIT: `${TASK_API}/cl-tasks/submit`,
+    SUBMISSION_UPDATE: `${TASK_API}/cl-tasks/submission-update`,
+    VERIFY: `${TASK_API}/cl-tasks/verify`,
+    VERIFICATION_UPDATE: `${TASK_API}/cl-tasks/verification-update`,
+    INSTANCE_DELETE: `${TASK_API}/cl-tasks/instance-delete`,
+    INSTANCE: `${TASK_API}/cl-tasks/instance`,
   },
 
   RED_TICKETS: {
-    LIST: `${TASK_API}/red-tickets`,
-    item: (id) => `${TASK_API}/red-tickets/${id}`,
+    LIST: `${TASK_API}/red-tickets/list`,
+    GET: `${TASK_API}/red-tickets/get`,
+    CREATE: `${TASK_API}/red-tickets/create`,
+    UPDATE: `${TASK_API}/red-tickets/update`,
+    DELETE: `${TASK_API}/red-tickets/delete`,
   },
 
   REPORTS: {
     DAILY: `${TASK_API}/reports/daily`,
+    INSTANCE: `${TASK_API}/reports/instance`,
     REVIEW: `${TASK_API}/reports/review`,
   },
 };

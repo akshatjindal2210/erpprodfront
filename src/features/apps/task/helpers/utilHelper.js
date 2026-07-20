@@ -1,18 +1,34 @@
 export const formatDate = (d) => d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", }) : "—";
 
-/** CL task scheduled_date — date-only, no raw ISO in UI */
+/** CL task scheduled_date / next_occurrence — date-only, IST calendar day (no −1 day shift) */
 export function formatScheduledDate(val) {
-  if (!val) return "—";
-  const d = String(val).slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
-    return new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      timeZone: "Asia/Kolkata",
-    });
+  if (val == null || val === "") return "—";
+  let ymd = "";
+  if (val instanceof Date && !Number.isNaN(val.getTime())) {
+    ymd = val.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  } else {
+    const s = String(val).trim();
+    // Recover IST local-midnight values serialized as prior UTC date (…T18:30:00.000Z)
+    if (/T18:30:00/i.test(s)) {
+      const d = new Date(s);
+      if (!Number.isNaN(d.getTime())) {
+        ymd = d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      }
+    }
+    if (!ymd) {
+      const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+      ymd = m ? m[1] : "";
+    }
   }
-  return formatDateTime(val);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return formatDateTime(val);
+  const [y, mo, d] = ymd.split("-").map(Number);
+  // Format via UTC noon on that calendar day — stable across timezones.
+  return new Date(Date.UTC(y, mo - 1, d, 12)).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 function istDateTimeParts(date) {

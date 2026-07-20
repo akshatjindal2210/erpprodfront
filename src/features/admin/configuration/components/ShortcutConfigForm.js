@@ -81,6 +81,41 @@ function ShortcutModal({ open, onClose, onSave, editData, users, appPagesMap, sh
 
   const [isIconDropdownOpen, setIsIconDropdownOpen] = useState(false);
 
+  const fetchUsers = useCallback(
+    async ({ search, page = 1, limit = 50 }) => {
+      const q = String(search || "").trim().toLowerCase();
+      let rows = (Array.isArray(users) ? users : [])
+        .map((u) => ({
+          id: u.id,
+          name: String(u.name || u.username || "").trim(),
+          username: u.username,
+        }))
+        .filter((row) => row.id != null && row.name);
+      if (q) {
+        rows = rows.filter(
+          (row) =>
+            row.name.toLowerCase().includes(q) ||
+            String(row.username || "").toLowerCase().includes(q)
+        );
+      }
+      const start = (page - 1) * limit;
+      return { data: rows.slice(start, start + limit), total: rows.length };
+    },
+    [users]
+  );
+
+  const getUserById = useCallback(
+    async (id) => {
+      const found = (Array.isArray(users) ? users : []).find((u) => String(u.id) === String(id));
+      if (found) {
+        return { id: found.id, name: String(found.name || found.username || "").trim(), username: found.username };
+      }
+      const res = await userService.getById(id);
+      return res?.data || res;
+    },
+    [users]
+  );
+
   useEffect(() => {
     if (editData) {
       setFormData({
@@ -270,12 +305,15 @@ function ShortcutModal({ open, onClose, onSave, editData, users, appPagesMap, sh
                 multiple={true}
                 value={formData.allowedUsers}
                 onChange={handleUsersChange}
-                fetchService={(params) => userService.getViews({ ...params, permission_module: "users", permission_action: "view" })}
-                getByIdService={(id) => userService.getById(id)}
+                fetchService={fetchUsers}
+                getByIdService={getUserById}
                 placeholder="Search and add users..."
                 label=""
                 variant="form"
                 showTags={true}
+                dataKey="id"
+                labelKey="name"
+                subLabelKey="username"
               />
             </div>
           )}

@@ -44,6 +44,8 @@ export {
   getActiveStatKey,
   SortIcon,
   EmptyState,
+  getTaskRowColor,
+  getTaskDataTableRowClassName,
 } from "@/features/apps/task/components/tasks_common_component/TaskHelper";
 
 export { TaskCard } from "@/features/apps/task/components/tasks_common_component/TaskCard";

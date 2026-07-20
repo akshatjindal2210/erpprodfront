@@ -1,14 +1,16 @@
-// Pehle install karein: npm install xlsx
-import { useRef, useState } from "react";
-import { Upload, X, FileText, CheckCircle2, AlertCircle, Trash2, Send } from "lucide-react";
-import * as XLSX from "xlsx"; 
-import { holidayService } from "@/features/apps/task/services/holidayApi";
-import { toast } from "react-toastify";
+"use client";
 
-export default function HolidayBulkUpload({ onSuccess }) {
+import { useRef, useState } from "react";
+import { Upload, FileText, Trash2, Send, Loader2 } from "lucide-react";
+import * as XLSX from "xlsx";
+import { toast } from "react-toastify";
+import Drawer from "@/core/components/ui/Drawer";
+import { holidayService } from "@/features/apps/task/services/holidayApi";
+
+export default function HolidayBulkUpload({ onSuccess, onOpenChange }) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState(null);
-  const [previewData, setPreviewData] = useState([]); // For Excel data display
+  const [previewData, setPreviewData] = useState([]);
   const [loading, setLoading] = useState(false);
   const fileRef = useRef();
 
@@ -17,7 +19,16 @@ export default function HolidayBulkUpload({ onSuccess }) {
     setPreviewData([]);
   };
 
-  // 1. File select hote hi frontend par parse karna
+  const setDrawerOpen = (next) => {
+    setOpen(next);
+    onOpenChange?.(next);
+  };
+
+  const close = () => {
+    setDrawerOpen(false);
+    reset();
+  };
+
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
@@ -27,32 +38,28 @@ export default function HolidayBulkUpload({ onSuccess }) {
 
     reader.onload = (evt) => {
       const bstr = evt.target.result;
-      const wb = XLSX.read(bstr, { type: "binary", cellDates: true }); // cellDates true karein
+      const wb = XLSX.read(bstr, { type: "binary", cellDates: true });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
-      
-      // raw: false and dateNF will show date correctly in preview table
-      const data = XLSX.utils.sheet_to_json(ws, { 
+      const data = XLSX.utils.sheet_to_json(ws, {
         raw: false,
-        dateNF: "yyyy-mm-dd" 
-      }); 
+        dateNF: "yyyy-mm-dd",
+      });
       setPreviewData(data);
     };
 
     reader.readAsBinaryString(selectedFile);
-    e.target.value = ""; 
+    e.target.value = "";
   };
 
-  // 2. Final API Call (Confirm hone par)
   const handleFinalUpload = async () => {
-    if (!file) return;
+    if (!file || previewData.length === 0) return;
     setLoading(true);
     try {
       await holidayService.bulkUpload(file);
       toast.success(`${previewData.length} Holidays uploaded successfully!`);
-      if (onSuccess) onSuccess();
-      setOpen(false);
-      reset();
+      onSuccess?.();
+      close();
     } catch (err) {
       toast.error(err.response?.data?.message || "Something went wrong");
     } finally {
@@ -62,107 +69,129 @@ export default function HolidayBulkUpload({ onSuccess }) {
 
   return (
     <>
-      <button onClick={() => { reset(); setOpen(true); }}
-        className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-orange-700 bg-orange-50 border border-orange-200 hover:bg-orange-100 rounded-xl transition-all">
-        <Upload size={15} /> Bulk Upload
+      <button
+        type="button"
+        onClick={() => {
+          reset();
+          setDrawerOpen(true);
+        }}
+        className="h-9 shrink-0 px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider"
+      >
+        <Upload size={14} /> Bulk Upload
       </button>
 
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          
-          <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
-            
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b">
-              <div>
-                <h3 className="text-lg font-bold text-slate-800">Bulk Upload Holidays</h3>
-                <p className="text-xs text-slate-500">Review your data before saving to database</p>
+      <Drawer
+        isOpen={open}
+        onClose={close}
+        onSubmit={file && previewData.length > 0 ? handleFinalUpload : undefined}
+        closeOnOutside={false}
+        title="Bulk Upload Holidays"
+        description="Review your data before saving to database"
+        headerVariant="form"
+        maxWidth="max-w-xl"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={close}
+              disabled={loading}
+              className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            {file && (
+              <button
+                type="button"
+                onClick={handleFinalUpload}
+                disabled={loading || previewData.length === 0}
+                className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 inline-flex items-center gap-2 disabled:opacity-50"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Saving…
+                  </>
+                ) : (
+                  <>
+                    <Send size={14} /> Confirm & Submit
+                  </>
+                )}
+              </button>
+            )}
+          </>
+        }
+      >
+        {!file ? (
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => fileRef.current?.click()}
+            onKeyDown={(e) => e.key === "Enter" && fileRef.current?.click()}
+            className="border-2 border-dashed border-slate-200 p-10 text-center cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition-all"
+          >
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv, .xlsx, .xls"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <div className="w-14 h-14 bg-indigo-50 border border-indigo-100 flex items-center justify-center mx-auto mb-4 text-indigo-600">
+              <Upload size={26} />
+            </div>
+            <p className="text-sm font-semibold text-slate-700">Click to upload CSV or Excel</p>
+            <p className="text-xs text-slate-400 mt-1">Make sure it has &apos;name&apos; and &apos;date&apos; columns</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between bg-slate-50 p-3 border border-slate-200">
+              <div className="flex items-center gap-3 min-w-0">
+                <FileText className="text-indigo-600 shrink-0" size={18} />
+                <span className="text-sm font-medium text-slate-700 truncate">{file.name}</span>
               </div>
-              <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600 p-2">
-                <X size={20} />
+              <button
+                type="button"
+                onClick={reset}
+                className="flex items-center gap-1 text-xs font-bold text-rose-500 hover:text-rose-600 uppercase tracking-wider shrink-0"
+              >
+                <Trash2 size={14} /> Remove
               </button>
             </div>
 
-            {/* Body */}
-            <div className="p-6 overflow-y-auto flex-1">
-              {!file ? (
-                /* Step 1: Upload Box */
-                <div 
-                  onClick={() => fileRef.current?.click()}
-                  className="border-2 border-dashed border-slate-200 rounded-2xl p-12 text-center cursor-pointer hover:border-orange-300 hover:bg-orange-50/30 transition-all">
-                  <input ref={fileRef} type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleFileChange} />
-                  <div className="w-16 h-16 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-4 text-orange-500">
-                    <Upload size={30} />
-                  </div>
-                  <p className="text-sm font-semibold text-slate-700">Click to upload CSV or Excel</p>
-                  <p className="text-xs text-slate-400 mt-1">Make sure it has 'name' and 'date' columns</p>
-                </div>
-              ) : (
-                /* Step 2: Table Preview */
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between bg-orange-50 p-3 rounded-xl border border-orange-100">
-                    <div className="flex items-center gap-3">
-                      <FileText className="text-orange-600" size={18} />
-                      <span className="text-sm font-medium text-slate-700">{file.name}</span>
-                    </div>
-                    <button onClick={reset} className="flex items-center gap-1 text-xs font-bold text-rose-500 hover:text-rose-600 uppercase tracking-wider">
-                      <Trash2 size={14} /> Remove
-                    </button>
-                  </div>
-
-                  <div className="border border-slate-100 rounded-xl overflow-hidden">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-100">
-                        <tr>
-                          <th className="px-4 py-3">#</th>
-                          <th className="px-4 py-3">Holiday Name</th>
-                          <th className="px-4 py-3">Date</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {previewData.length > 0 ? (
-                          previewData.map((row, index) => (
-                            <tr key={index} className="hover:bg-slate-50/50">
-                              <td className="px-4 py-3 text-slate-400">{index + 1}</td>
-                              <td className="px-4 py-3 font-medium text-slate-700">{row.name || row.Name || "—"}</td>
-                              <td className="px-4 py-3 text-slate-600">{row.date || row.Date || "—"}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan="3" className="px-4 py-10 text-center text-slate-400 italic">No data found in file</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+            <div className="border border-slate-200 overflow-hidden">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="px-3 py-2 text-[10px] uppercase tracking-wider">#</th>
+                    <th className="px-3 py-2 text-[10px] uppercase tracking-wider">Holiday Name</th>
+                    <th className="px-3 py-2 text-[10px] uppercase tracking-wider">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {previewData.length > 0 ? (
+                    previewData.map((row, index) => (
+                      <tr key={index} className="hover:bg-slate-50/50">
+                        <td className="px-3 py-2 text-slate-400">{index + 1}</td>
+                        <td className="px-3 py-2 font-medium text-slate-700">{row.name || row.Name || "—"}</td>
+                        <td className="px-3 py-2 text-slate-600">{row.date || row.Date || "—"}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="3" className="px-3 py-8 text-center text-slate-400 italic">
+                        No data found in file
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
 
-            {/* Footer */}
-            <div className="px-6 py-4 border-t bg-slate-50 flex items-center justify-between">
-              <p className="text-xs text-slate-500">
-                {file ? `Total Rows: ${previewData.length}` : "No file selected"}
-              </p>
-              <div className="flex gap-3">
-                <button onClick={() => setOpen(false)} className="px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-all">
-                  Cancel
-                </button>
-                {file && (
-                  <button 
-                    onClick={handleFinalUpload}
-                    disabled={loading || previewData.length === 0}
-                    className="px-6 py-2 bg-orange-600 text-white text-sm font-bold rounded-xl hover:bg-orange-700 transition-all flex items-center gap-2 shadow-lg shadow-orange-200 disabled:opacity-50">
-                    {loading ? "Saving..." : <><Send size={16} /> Confirm & Submit</>}
-                  </button>
-                )}
-              </div>
-            </div>
+            <p className="text-[10px] text-slate-400">
+              {previewData.length} row(s) · Ctrl+S to submit · Esc to close
+            </p>
           </div>
-        </div>
-      )}
+        )}
+      </Drawer>
     </>
   );
 }

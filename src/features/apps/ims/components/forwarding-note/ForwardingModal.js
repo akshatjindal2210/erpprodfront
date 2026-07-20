@@ -90,6 +90,61 @@ const fifoPoolForRow = (items, idx) => {
   });
 };
 
+/**
+ * When 2+ rows share the same item_dcode (different Sch Nos), allocate FIFO boxes
+ * exclusively in row order so they never claim the same box.
+ * Never mutates schno / source_dispatch_qty (schedule balance stays original).
+ */
+const reallocateExclusiveFifoForDcode = (items, itemDcode) => {
+  const dcode = String(itemDcode ?? "").trim();
+  if (!dcode || !Array.isArray(items)) return items;
+
+  const indices = [];
+  items.forEach((row, idx) => {
+    if (String(row?.item_dcode ?? "").trim() === dcode) indices.push(idx);
+  });
+  if (indices.length < 2) return items;
+
+  let fifoBoxes = [];
+  for (const idx of indices) {
+    const boxes = items[idx]?.available_boxes || [];
+    if (boxes.length > fifoBoxes.length) fifoBoxes = boxes;
+  }
+  if (!fifoBoxes.length) return items;
+
+  const claimed = new Set();
+  const next = items.slice();
+  for (const idx of indices) {
+    const row = next[idx];
+    // Use user/dispatch target — NOT schedule balance (source_dispatch_qty).
+    const dispatchQty = getItemFifoTarget(row);
+    const remaining = fifoBoxes.filter((box) => {
+      const key = forwardingBoxKey(box);
+      return !key || !claimed.has(key);
+    });
+    const ordered = reorderBoxesForSelection(remaining, Boolean(row?.loose_priority));
+    const selected_boxes = dispatchQty > 0 ? selectBoxesByQty(ordered, dispatchQty) : [];
+    for (const box of selected_boxes) {
+      const key = forwardingBoxKey(box);
+      if (key) claimed.add(key);
+    }
+    const roundedQty = sumQty(selected_boxes);
+    next[idx] = {
+      ...row,
+      available_boxes: fifoBoxes,
+      selected_boxes,
+      fg_qty: sumQty(fifoBoxes),
+      // Keep schno + source_dispatch_qty (original balance) untouched.
+      dispatch_target: dispatchQty > 0 ? String(dispatchQty) : "",
+      dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
+      dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
+      use_system_std: false,
+      boxes_edited: true,
+    };
+  }
+  return next;
+};
+
 /** Run async mapper with limited concurrency (keeps schedule hydrate from flooding the API). */
 async function mapWithConcurrency(items, concurrency, mapper) {
   const list = Array.isArray(items) ? items : [];
@@ -588,8 +643,8 @@ export default function ForwardingModal({
     };
   }, [open, formReady, editingFuid, isFromSchedule, scheduleCatalogActive, form.acc_code, isEdit, isApprove]);
 
-  // Edit / existing rows: fill Balance from customer schedule catalog when available.
-  // Catalog balance already excludes this FN (exclude_fuid) so it includes qty on this note.
+  // Edit / existing rows: fill Balance once from schedule catalog when still empty.
+  // Never overwrite schno / balance after set — qty edits must not change them.
   useEffect(() => {
     if (!scheduleCatalogActive || !Array.isArray(inHandItemCatalog) || !inHandItemCatalog.length) return;
     if (!form.items?.some((row) => row?.item_dcode)) return;
@@ -598,36 +653,27 @@ export default function ForwardingModal({
       let changed = false;
       const nextItems = prev.items.map((row) => {
         if (!row?.item_dcode) return row;
+        const rowSchno = String(row.schno || "").trim();
+        // Never stamp a schedule schno onto a direct (no-schno) row.
+        if (!rowSchno) return row;
+        // Balance already locked at item select / prior catalog fill — keep original.
+        if (Number(row.source_dispatch_qty) > 0) return row;
+
         const key = scheduleCatalogSelectionKey(row);
         const match =
           inHandItemCatalog.find((c) => String(c.id) === key) ||
           inHandItemCatalog.find(
             (c) =>
               String(c.itemdcode) === String(row.item_dcode) &&
-              (!row.schno || String(c.schno) === String(row.schno))
+              String(c.schno ?? "") === rowSchno
           );
         if (!match) return row;
-        // Never stamp a schedule schno onto a direct (no-schno) row.
-        if (!String(row.schno || "").trim()) return row;
         const catalogBal = Math.max(0, Number(match.balance_qty ?? match.source_dispatch_qty ?? 0));
-        // Safety: never show balance below qty already selected on this row.
-        const rowQty = Math.max(
-          0,
-          Number(row.dispatch_qty) ||
-            Number(row.dispatch_target) ||
-            (Array.isArray(row.selected_boxes) && row.selected_boxes.length
-              ? row.selected_boxes.reduce((s, b) => s + (Number(b.qty) || 0), 0)
-              : 0) ||
-            (Array.isArray(row.original_breakdowns)
-              ? row.original_breakdowns.reduce((s, bd) => s + (Number(bd.total_qty) || 0), 0)
-              : 0)
-        );
-        const bal = Math.max(catalogBal, rowQty);
-        if (Number(row.source_dispatch_qty) === bal) return row;
+        if (!(catalogBal > 0)) return row;
         changed = true;
         return {
           ...row,
-          source_dispatch_qty: bal,
+          source_dispatch_qty: catalogBal,
         };
       });
       if (!changed) return prev;
@@ -642,6 +688,7 @@ export default function ForwardingModal({
       if (!rawId) return Promise.resolve({ data: null });
 
       if (Array.isArray(inHandItemCatalog)) {
+        // Schedule catalog: never resolve by item_dcode alone (same item can exist on multiple Sch Nos).
         const match =
           inHandItemCatalog.find((item) => String(item.id) === rawId) ||
           (rawId.includes("::")
@@ -649,9 +696,11 @@ export default function ForwardingModal({
                 const [schno, dcode] = rawId.split("::");
                 return String(item.schno ?? "") === String(schno) && String(item.itemdcode) === String(dcode);
               })
-            : inHandItemCatalog.find(
-                (item) => String(item.itemdcode) === rawId || String(item.item_dcode) === rawId
-              ));
+            : scheduleCatalogActive
+              ? null
+              : inHandItemCatalog.find(
+                  (item) => String(item.itemdcode) === rawId || String(item.item_dcode) === rawId
+                ));
         if (match) return Promise.resolve({ data: match });
       }
 
@@ -660,7 +709,6 @@ export default function ForwardingModal({
           if (!row?.item_dcode) return false;
           const key = scheduleCatalogSelectionKey(row);
           if (key && key === rawId) return true;
-          if (String(row.item_dcode) === rawId) return true;
           if (rawId.includes("::")) {
             const [schno, dcode] = rawId.split("::");
             return String(row.schno ?? "") === String(schno) && String(row.item_dcode) === String(dcode);
@@ -711,15 +759,26 @@ export default function ForwardingModal({
     return async ({ search = "", page = 1, limit = 50 } = {}) => {
       if (!Array.isArray(catalog)) return { data: [] };
 
-      const selectedInOtherRows = new Set(
-        formItemsRef.current
-          .map((row, rowIdx) => {
-            if (rowIdx === currentIdx) return null;
-            return scheduleCatalogSelectionKey(row);
-          })
-          .filter(Boolean)
-      );
-      let list = catalog.filter((item) => !selectedInOtherRows.has(String(item.id)));
+      // Exact lines already on other rows → hide (previous flow).
+      // Same item_dcode on another Sch No → keep visible (colored + disabled below).
+      const selectedExactKeys = new Set();
+      (formItemsRef.current || []).forEach((row, rowIdx) => {
+        if (rowIdx === currentIdx) return;
+        if (!row?.item_dcode) return;
+        if (scheduleCatalogActive) {
+          selectedExactKeys.add(scheduleCatalogSelectionKey(row));
+        } else {
+          selectedExactKeys.add(String(row.item_dcode).trim());
+        }
+      });
+
+      let list = catalog.filter((item) => {
+        const id = scheduleCatalogActive
+          ? String(item.id ?? "")
+          : String(item.itemdcode ?? item.item_dcode ?? item.id ?? "").trim();
+        if (!id) return true;
+        return !selectedExactKeys.has(id);
+      });
 
       const q = String(search || "").trim();
       if (q) {
@@ -735,32 +794,52 @@ export default function ForwardingModal({
       const start = (Math.max(1, Number(page) || 1) - 1) * (Number(limit) || 50);
       return { data: list.slice(start, start + (Number(limit) || 50)), total: list.length };
     };
-  }, []);
-
-  const scheduleOptionClassName = useCallback((item) => {
-    if (!scheduleCatalogActive) return "";
-    if (item?.fg_zero) {
-      return "bg-rose-50 text-rose-700 border-l-2 border-l-rose-400";
-    }
-    if (item?.balance_zero) {
-      return "bg-slate-100/90 text-slate-500";
-    }
-    return "";
   }, [scheduleCatalogActive]);
 
-  const scheduleOptionDisabled = useCallback(
-    (item) => {
+  const itemDcodeUsedOnOtherRows = useCallback((dcode, currentIdx) => {
+    const code = String(dcode ?? "").trim();
+    if (!code) return false;
+    return (formItemsRef.current || []).some((row, rowIdx) => {
+      if (rowIdx === currentIdx) return false;
+      return String(row?.item_dcode ?? "").trim() === code;
+    });
+  }, []);
+
+  const scheduleOptionClassNameForRow = useCallback(
+    (currentIdx) => (item) => {
+      const dcode = String(item?.itemdcode ?? item?.item_dcode ?? "").trim();
+      // Same item already on another row (different Sch) — show, different color.
+      if (itemDcodeUsedOnOtherRows(dcode, currentIdx)) {
+        return "bg-violet-50 text-violet-800 border-l-2 border-l-violet-500 opacity-80";
+      }
+      if (!scheduleCatalogActive) return "";
+      if (item?.fg_zero) {
+        return "bg-rose-50 text-rose-700 border-l-2 border-l-rose-400";
+      }
+      if (item?.balance_zero) {
+        return "bg-slate-100/90 text-slate-500";
+      }
+      return "";
+    },
+    [scheduleCatalogActive, itemDcodeUsedOnOtherRows]
+  );
+
+  const scheduleOptionDisabledForRow = useCallback(
+    (currentIdx) => (item) => {
+      const dcode = String(item?.itemdcode ?? item?.item_dcode ?? "").trim();
+      // Duplicate item_dcode (other Sch) — visible but not selectable.
+      if (itemDcodeUsedOnOtherRows(dcode, currentIdx)) return true;
+
       if (!scheduleCatalogActive) return false;
       if (!item?.fg_zero && !item?.balance_zero) return false;
-      // Allow keeping an item already on this note (edit), even if catalog FG/balance shows 0.
       const id = String(item.id ?? "");
       const alreadyOnNote = (formItemsRef.current || []).some((row) => {
         if (!row?.item_dcode) return false;
-        return scheduleCatalogSelectionKey(row) === id || String(row.item_dcode) === String(item.itemdcode);
+        return scheduleCatalogSelectionKey(row) === id;
       });
       return !alreadyOnNote;
     },
-    [scheduleCatalogActive]
+    [scheduleCatalogActive, itemDcodeUsedOnOtherRows]
   );
 
   const itemRowFetchServices = useMemo(() => {
@@ -769,6 +848,17 @@ export default function ForwardingModal({
     }
     return form.items.map((_, idx) => buildInHandItemFetchService(inHandItemCatalog, idx));
   }, [form.items.length, inHandItemCatalog, buildInHandItemFetchService]);
+
+  const itemRowOptionClassNames = useMemo(
+    () => form.items.map((_, idx) => scheduleOptionClassNameForRow(idx)),
+    // Rebind when items change so used-dcode colors stay fresh after select.
+    [form.items, scheduleOptionClassNameForRow]
+  );
+
+  const itemRowOptionDisabled = useMemo(
+    () => form.items.map((_, idx) => scheduleOptionDisabledForRow(idx)),
+    [form.items, scheduleOptionDisabledForRow]
+  );
 
   const fetchItemStockBundle = useCallback(async (itemDcode, packingCategoryId, excludeFuid) => {
     const body = {
@@ -887,7 +977,8 @@ export default function ForwardingModal({
         const claimedByDcode = new Map(); // dcode → Set of box keys already allocated
         const enriched = items.map((itemRow) => {
           const dcode = String(itemRow.item_dcode ?? "").trim();
-          const dispatchQty = Math.max(0, Number(itemRow?.source_dispatch_qty) || 0);
+          // FIFO target = user target or original balance — never mutate balance/schno here.
+          const dispatchQty = getItemFifoTarget(itemRow);
           const bundle = stockByDcode.get(dcode);
           if (!dcode || !bundle) {
             return { ...itemRow, fetching: false, boxes_edited: true };
@@ -913,6 +1004,7 @@ export default function ForwardingModal({
             fg_qty: sumQty(bundle.fifoBoxes || []),
             erp_qty: bundle.erp_qty,
             erp_by_packing: bundle.erp_by_packing,
+            // Keep itemRow.schno + source_dispatch_qty (original balance) as-is.
             dispatch_target: dispatchQty > 0 ? String(dispatchQty) : "",
             dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
             dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
@@ -1323,32 +1415,60 @@ export default function ForwardingModal({
             fetching: false,
           };
           if (resetSelection) {
-            const sourceQty = Number(formItemsRef.current[idx]?.source_dispatch_qty ?? 0);
-            if (sourceQty > 0) {
-              const ordered = reorderBoxesForSelection(fifoBoxes, false);
-              const selected_boxes = selectBoxesByQty(ordered, sourceQty);
-              const roundedQty = sumQty(selected_boxes);
-              Object.assign(updates, {
-                selected_boxes,
-                loose_priority: false,
-                dispatch_target: String(sourceQty),
-                dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
-                dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
-                use_system_std: roundedQty > 0 && sourceQty > 0,
-                boxes_edited: true,
-                original_breakdowns: [],
-              });
-            } else {
-              Object.assign(updates, {
-                selected_boxes: [],
-                loose_priority: false,
-                dispatch_qty: "",
-                boxes_edited: true,
-                original_breakdowns: [],
-              });
-            }
+            // Apply stock, then exclusive FIFO when multiple schedule lines share this item.
+            setForm((prev) => {
+              let nextItems = prev.items.map((item, i) =>
+                i === idx ? { ...item, ...updates } : item
+              );
+              const dcode = String(itemDcode ?? "").trim();
+              const siblingCount = nextItems.filter(
+                (r) => String(r?.item_dcode ?? "").trim() === dcode
+              ).length;
+
+              if (siblingCount >= 2) {
+                nextItems = reallocateExclusiveFifoForDcode(nextItems, itemDcode);
+              } else {
+                const sourceQty = Number(nextItems[idx]?.source_dispatch_qty ?? 0);
+                if (sourceQty > 0) {
+                  const ordered = reorderBoxesForSelection(fifoBoxes, false);
+                  const selected_boxes = selectBoxesByQty(ordered, sourceQty);
+                  const roundedQty = sumQty(selected_boxes);
+                  nextItems = nextItems.map((item, i) =>
+                    i === idx
+                      ? {
+                          ...item,
+                          selected_boxes,
+                          loose_priority: false,
+                          dispatch_target: String(sourceQty),
+                          dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
+                          dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
+                          use_system_std: roundedQty > 0 && sourceQty > 0,
+                          boxes_edited: true,
+                          original_breakdowns: [],
+                        }
+                      : item
+                  );
+                } else {
+                  nextItems = nextItems.map((item, i) =>
+                    i === idx
+                      ? {
+                          ...item,
+                          selected_boxes: [],
+                          loose_priority: false,
+                          dispatch_qty: "",
+                          boxes_edited: true,
+                          original_breakdowns: [],
+                        }
+                      : item
+                  );
+                }
+              }
+              formItemsRef.current = nextItems;
+              return { ...prev, items: nextItems };
+            });
+          } else {
+            updateItemRow(idx, updates);
           }
-          updateItemRow(idx, updates);
           if (fifoBoxes.length === 0) {
             toast.info("No stock for this item in the selected category.");
           }
@@ -1392,7 +1512,7 @@ export default function ForwardingModal({
     // initial assignment after edit/approve hydrate (that would wipe saved qty/boxes).
     if (!cat || cat === prev || !prev) return;
 
-    if (isFromSchedule) {
+    if (isFromSchedule || scheduleCatalogActive) {
       // Re-allocate exclusive FIFO for all schedule rows (same item must not double-claim).
       const snapshot = (formItemsRef.current || []).map((item) => ({
         ...item,
@@ -1411,7 +1531,16 @@ export default function ForwardingModal({
     formItemsRef.current.forEach((item, idx) => {
       if (item.item_dcode) void fetchItemStock(idx, item.item_dcode, cat);
     });
-  }, [open, formReady, categoryLoading, form.packing_category_id, fetchItemStock, isFromSchedule, fillScheduleItemStock]);
+  }, [
+    open,
+    formReady,
+    categoryLoading,
+    form.packing_category_id,
+    fetchItemStock,
+    isFromSchedule,
+    scheduleCatalogActive,
+    fillScheduleItemStock,
+  ]);
 
   // ── Item select — fetch boxes from API ────────────────────────────────────
   const handleItemChange = async (idx, id, rawData) => {
@@ -1438,15 +1567,11 @@ export default function ForwardingModal({
 
     const duplicateSelected = form.items.some((row, rowIdx) => {
       if (rowIdx === idx) return false;
-      if (String(row.item_dcode) !== String(itemDcode)) return false;
-      const curSchno = scheduleSchno || String(form.items[idx]?.schno ?? "").trim();
-      const rowSchno = String(row?.schno ?? "").trim();
-      // Allow same item on different schedule lines.
-      if (curSchno && rowSchno && curSchno !== rowSchno) return false;
-      return true;
+      // One item once per FN — same item from another Sch No is also blocked.
+      return String(row.item_dcode) === String(itemDcode);
     });
     if (duplicateSelected) {
-      toast.warning("This item is already selected in another row.");
+      toast.warning("This item is already on this note. Same item cannot be added twice.");
       return;
     }
 
@@ -1519,84 +1644,119 @@ export default function ForwardingModal({
 
   const handleDispatchQtyBlur = (idx) => {
     setEditingDispatchIdx((cur) => (cur === idx ? null : cur));
-    const item = form.items[idx];
-    const balanceCap = Number(item.source_dispatch_qty ?? 0);
-    const raw =
-      item.dispatch_target === "" || item.dispatch_target == null
-        ? ""
-        : String(item.dispatch_target);
-    // Exclusive FIFO pool — never reuse boxes already claimed by another row of same item.
-    const pooled = { ...item, available_boxes: fifoPoolForRow(form.items, idx) };
+    setForm((prev) => {
+      const item = prev.items[idx];
+      if (!item) return prev;
+      const balanceCap = Number(item.source_dispatch_qty ?? 0);
+      const raw =
+        item.dispatch_target === "" || item.dispatch_target == null
+          ? ""
+          : String(item.dispatch_target);
+      const pooled = { ...item, available_boxes: fifoPoolForRow(prev.items, idx) };
 
-    if (balanceCap > 0 || raw !== "") {
-      const next = resolveDispatchQtySelection(pooled, raw, {
-        emptyMeansSystem: balanceCap > 0,
-      });
-      if (next) updateItemRow(idx, next);
-      return;
-    }
+      let nextItems;
+      if (balanceCap > 0 || raw !== "") {
+        const next = resolveDispatchQtySelection(pooled, raw, {
+          emptyMeansSystem: balanceCap > 0,
+        });
+        if (!next) return prev;
+        // Qty / boxes only — never touch schno or source_dispatch_qty (original balance).
+        nextItems = prev.items.map((row, i) => (i === idx ? { ...row, ...next } : row));
+      } else {
+        nextItems = prev.items.map((row, i) =>
+          i === idx
+            ? {
+                ...row,
+                dispatch_target: "",
+                dispatch_qty: "",
+                selected_boxes: [],
+                dispatch_std: "",
+                use_system_std: false,
+                boxes_edited: true,
+              }
+            : row
+        );
+      }
 
-    updateItemRow(idx, {
-      dispatch_target: "",
-      dispatch_qty: "",
-      selected_boxes: [],
-      dispatch_std: "",
-      use_system_std: false,
-      boxes_edited: true,
+      const dcode = String(nextItems[idx]?.item_dcode ?? "").trim();
+      if (
+        dcode &&
+        nextItems.filter((r) => String(r?.item_dcode ?? "").trim() === dcode).length >= 2
+      ) {
+        nextItems = reallocateExclusiveFifoForDcode(nextItems, dcode);
+      }
+      formItemsRef.current = nextItems;
+      return { ...prev, items: nextItems };
     });
   };
 
   const handleBoxChange = (idx, type) => {
-    const item = form.items[idx];
-    const orderedBoxes = reorderBoxesForSelection(
-      fifoPoolForRow(form.items, idx),
-      item.loose_priority
-    );
-    if (!orderedBoxes.length) return;
+    setForm((prev) => {
+      const item = prev.items[idx];
+      if (!item) return prev;
+      const orderedBoxes = reorderBoxesForSelection(
+        fifoPoolForRow(prev.items, idx),
+        item.loose_priority
+      );
+      if (!orderedBoxes.length) return prev;
 
-    let prefix = getFifoPrefixFromSelection(orderedBoxes, item.selected_boxes);
+      let prefix = getFifoPrefixFromSelection(orderedBoxes, item.selected_boxes);
 
-    if (
-      isEdit &&
-      !item.boxes_edited &&
-      prefix.length === 0 &&
-      getItemFifoTarget(item) > 0
-    ) {
-      prefix = selectBoxesByQty(orderedBoxes, getItemFifoTarget(item));
-    }
+      if (
+        isEdit &&
+        !item.boxes_edited &&
+        prefix.length === 0 &&
+        getItemFifoTarget(item) > 0
+      ) {
+        prefix = selectBoxesByQty(orderedBoxes, getItemFifoTarget(item));
+      }
 
-    // If selection keys do not form a clean prefix, rebuild from selected count so +/- still works.
-    let newCount =
-      prefix.length > 0
-        ? prefix.length
-        : Array.isArray(item.selected_boxes)
-          ? item.selected_boxes.length
-          : 0;
+      let newCount =
+        prefix.length > 0
+          ? prefix.length
+          : Array.isArray(item.selected_boxes)
+            ? item.selected_boxes.length
+            : 0;
 
-    const fifoLimit = maxFifoBoxesForItem(
-      { ...item, available_boxes: orderedBoxes },
-      orderedBoxes
-    );
+      const fifoLimit = maxFifoBoxesForItem(
+        { ...item, available_boxes: orderedBoxes },
+        orderedBoxes
+      );
 
-    if (type === "add") {
-      if (newCount >= fifoLimit || newCount >= orderedBoxes.length) return;
-      newCount += 1;
-    } else {
-      if (newCount <= 0) return;
-      newCount -= 1;
-    }
+      if (type === "add") {
+        if (newCount >= fifoLimit || newCount >= orderedBoxes.length) return prev;
+        newCount += 1;
+      } else {
+        if (newCount <= 0) return prev;
+        newCount -= 1;
+      }
 
-    const newSelected = orderedBoxes.slice(0, newCount);
-    const stdQty = sumQty(newSelected);
+      const newSelected = orderedBoxes.slice(0, newCount);
+      const stdQty = sumQty(newSelected);
 
-    updateItemRow(idx, {
-      selected_boxes: newSelected,
-      dispatch_qty: stdQty > 0 ? String(stdQty) : "",
-      dispatch_std: stdQty > 0 ? String(stdQty) : "",
-      // Keep target in sync with box +/- so Dispatch Qty blur does not rebuild old FIFO.
-      dispatch_target: stdQty > 0 ? String(stdQty) : "",
-      use_system_std: false,
-      boxes_edited: true,
+      let nextItems = prev.items.map((row, i) =>
+        i === idx
+          ? {
+              ...row,
+              selected_boxes: newSelected,
+              dispatch_qty: stdQty > 0 ? String(stdQty) : "",
+              dispatch_std: stdQty > 0 ? String(stdQty) : "",
+              dispatch_target: stdQty > 0 ? String(stdQty) : "",
+              use_system_std: false,
+              boxes_edited: true,
+            }
+          : row
+      );
+
+      const dcode = String(nextItems[idx]?.item_dcode ?? "").trim();
+      if (
+        dcode &&
+        nextItems.filter((r) => String(r?.item_dcode ?? "").trim() === dcode).length >= 2
+      ) {
+        nextItems = reallocateExclusiveFifoForDcode(nextItems, dcode);
+      }
+      formItemsRef.current = nextItems;
+      return { ...prev, items: nextItems };
     });
   };
 
@@ -2138,8 +2298,8 @@ export default function ForwardingModal({
                       dataKey="id"
                       labelKey="item_code"
                       subLabelKey={scheduleCatalogActive ? "schedule_hint" : "itemdesc"}
-                      getOptionClassName={scheduleCatalogActive ? scheduleOptionClassName : undefined}
-                      isOptionDisabled={scheduleCatalogActive ? scheduleOptionDisabled : undefined}
+                      getOptionClassName={itemRowOptionClassNames[idx]}
+                      isOptionDisabled={itemRowOptionDisabled[idx]}
                       disabled={isFromSchedule || !form.acc_code || categoryLoading || !form.packing_category_id}
                       emptyMessage={
                         !form.acc_code

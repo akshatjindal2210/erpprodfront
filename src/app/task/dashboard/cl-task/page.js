@@ -1,1 +1,7 @@
-export { default } from "@/features/apps/task/components/cl-task/admin/Page";
+"use client";
+
+import ClTaskMasterPage from "@/features/apps/task/components/cl-task/admin/Page";
+
+export default function ClTaskMasterRoutePage() {
+  return <ClTaskMasterPage />;
+}

@@ -85,14 +85,15 @@ const EMPTY_META = { bg: "", barColor: "#e2e8f0", badgeCls: "", badge: null, due
 
 // ── Color legend ────────────────────────────────────────────────────────────
 const COLOR_LEGEND = [
-  { label: "Pending Approval",              key: "creator_pending" },
-  { label: "Reminder",                      key: "reminder"        },
-  { label: "Overdue",                       key: "overdue"         },
-  { label: "Upcoming Due / Due Today",      key: "upcoming_due"    },
-  { label: "In Progress",                   key: "in_progress"     },
-  { label: "New Today",                     key: "new_today"       },
-  { label: "Completed",                     key: "completed"       },
-].map(({ label, key }) => ({ label, barColor: SC[key]?.barColor }));
+  { label: "Pending Approval",         barColor: "#8800ff" },
+  { label: "Reminder",                 barColor: "#ff8800" },
+  { label: "Overdue",                  barColor: "#ff0000" },
+  { label: "Upcoming Due / Due Today", barColor: "#ffe600" },
+  { label: "In Progress",              barColor: "#0e79aa" },
+  { label: "New Today",                barColor: "#0011ff" },
+  { label: "Completed",                barColor: "#2bff00" },
+  { label: "Pending",                  barColor: "#00eeff" },
+];
 
 
 const QUICK_FILTER_LABELS = {

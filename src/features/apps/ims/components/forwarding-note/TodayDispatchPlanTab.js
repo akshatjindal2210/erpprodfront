@@ -6,9 +6,9 @@ import { toast } from "react-toastify";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { schedulePlanningService } from "@/features/apps/ims/services/schedulePlanning";
 import { scheduleItemRowKey, scheduleItemWiseSearchParts, ScheduleStatusBadge, formatSchHeaderDate } from "@/features/apps/ims/components/schedule-planning/schedulePlanningColumns";
+import { SCHEDULE_PLAN_STATUS } from "@/features/apps/ims/components/schedule-planning/schedulePlanStatus";
 import { IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
 import { applyClientSearch, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
-import { formatDocDate } from "@/core/utils/utilHelper";
 import DataTable from "@/core/components/ui/DataTable";
 import DispatchRescheduleModal from "./DispatchRescheduleModal";
 import DispatchRejectModal from "./DispatchRejectModal";
@@ -16,14 +16,16 @@ import DispatchCompleteModal from "./DispatchCompleteModal";
 
 function getTodayLabel() {
   const now = new Date();
-  return `Till ${now.getDate()} ${now.toLocaleString("default", { month: "long" })} ${now.getFullYear()}`;
+  const monthName = now.toLocaleString("default", { month: "long" });
+  const year = now.getFullYear();
+  const day = now.getDate();
+  return `Same month · till ${day} ${monthName} ${year} (today + past dates)`;
 }
 
 const DISPATCH_PLAN_ROW_LEGEND = [
   { swatch: "bg-emerald-50 border border-emerald-200 shadow-[inset_3px_0_0_0_#10b981]", label: "Stock sufficient" },
   { swatch: "bg-amber-50 border border-amber-200 shadow-[inset_3px_0_0_0_#f59e0b]", label: "Insufficient stock" },
-  { swatch: "bg-rose-50 border border-rose-200 shadow-[inset_3px_0_0_0_#f43f5e]", label: "On hold" },
-      { swatch: "bg-slate-100 border border-slate-200 shadow-[inset_3px_0_0_0_#94a3b8]", label: "Zero balance / Complete" },
+  { swatch: "bg-slate-100 border border-slate-200 shadow-[inset_3px_0_0_0_#94a3b8]", label: "Zero balance / Complete" },
 ];
 
 function DispatchPlanRowLegend() {
@@ -49,14 +51,14 @@ function buildDispatchHeaders() {
         <span className="font-mono text-[10px] font-bold text-slate-800 uppercase tracking-tight">
           {v || "—"}
         </span>
-      ), 
-      { fixed: true, width: "90px" } 
+      ),
+      { fixed: true, width: "90px" }
     ],
     [ "Due Date", "action_date", (v) => (
         <span className={`${IMS_TABLE_CELL_TEXT} text-slate-600 font-bold uppercase`}>
           {formatSchHeaderDate(v)}
         </span>
-      ), 
+      ),
       { width: "96px" },
     ],
     [ "Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { width: "88px" }],
@@ -64,7 +66,7 @@ function buildDispatchHeaders() {
         <span className={`${IMS_TABLE_CELL_TEXT} break-words text-slate-600`}>
           {v || "—"}
         </span>
-      ), 
+      ),
       { width: "180px", wrap: true },
     ],
     [ "Item Code", "item_code", (v) => (
@@ -101,12 +103,19 @@ function buildDispatchHeaders() {
       ),
       { align: "center", width: "80px" },
     ],
+    [ "Shortage No", "shortage_no", (v) => (
+        <span className="font-bold text-amber-800 text-[10px] tabular-nums uppercase">
+          {v || "—"}
+        </span>
+      ),
+      { align: "center", width: "120px", copyValue: (row) => row.shortage_no || "—" },
+    ],
   ];
 
   return cols;
 }
 
-const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search = "", statusFilter = "active", onSelectedChange, onRowsChange, viewMode }, ref) {
+const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search = "", statusFilter = "plan", onSelectedChange, onRowsChange, viewMode }, ref) {
   const canAccess = useCanAccess();
   const canAddPlan = useMemo(() => canAccess("schedule_planning", "add").allowed, [canAccess]);
 
@@ -189,8 +198,13 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
   const handleOpenCompleteRow = useCallback(
     (row) => {
       if (!row || !canAddPlan) return;
-      if (Number(row.is_planned) !== 1) {
-        toast.warning("Only planned items can be marked as complete.");
+      const dbStatus = Number(row.db_is_planned ?? row.is_planned);
+      if (Number(row.is_planned) === SCHEDULE_PLAN_STATUS.COMPLETE) {
+        toast.info("Already complete.");
+        return;
+      }
+      if (dbStatus !== SCHEDULE_PLAN_STATUS.PLANNED && dbStatus !== SCHEDULE_PLAN_STATUS.RUNNING) {
+        toast.warning("Only Plan items can be marked complete.");
         return;
       }
       setCompleteItem(row);
@@ -246,13 +260,8 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     const stock = Number(row.fg_stock_qty ?? 0);
 
     // Marked complete — muted.
-    if (status === 3) {
+    if (status === SCHEDULE_PLAN_STATUS.COMPLETE) {
       return "[&_td]:bg-slate-100 [&_td]:text-slate-500 [&_td:first-child]:shadow-[inset_3px_0_0_0_#64748b]";
-    }
-
-    // Hold items should always stand out in red.
-    if (status === 6) {
-      return "[&_td]:bg-rose-50 [&_td:first-child]:shadow-[inset_3px_0_0_0_#f43f5e]";
     }
 
     // Zero remaining balance — muted (still selectable).
@@ -260,8 +269,8 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       return "[&_td]:bg-slate-100 [&_td]:text-slate-500 [&_td:first-child]:shadow-[inset_3px_0_0_0_#94a3b8]";
     }
 
-    // Scheduled / planned rows use stock adequacy highlighting.
-    if (status === 1) {
+    // Plan (Planned / Running) — stock adequacy highlighting.
+    if (status === SCHEDULE_PLAN_STATUS.PLANNED || status === SCHEDULE_PLAN_STATUS.RUNNING) {
       if (qty > 0 && stock >= qty) {
         return "[&_td]:bg-emerald-50 [&_td:first-child]:shadow-[inset_3px_0_0_0_#10b981]";
       }

@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSelector } from "react-redux";
-import { ArrowLeft, Calendar, Clock, User, Tag, Flag, CheckCircle2, AlertCircle, Paperclip, MessageSquare, Activity, RefreshCw, Edit2, ChevronRight, Repeat, TrendingUp, Shield,
-  Send, Image as ImageIcon, X, ChevronDown, CornerUpLeft, GitBranch, ThumbsUp, CheckCheck, AlertTriangle, Share2, Loader2, Lock, XCircle, ClipboardList, Search, Bell,
+import { ArrowLeft, Calendar, Clock, User, Tag, Flag, CheckCircle2, AlertCircle, Paperclip, MessageSquare, Activity, RefreshCw, Edit2, ChevronRight, Repeat, Shield, TrendingUp,
+  Send, X, ChevronDown, CornerUpLeft, GitBranch, ThumbsUp, CheckCheck, AlertTriangle, Share2, Loader2, Lock, XCircle, ClipboardList, Search, Bell,
 } from "lucide-react";
 import { toast }       from "react-toastify";
 import { taskService } from "@/features/apps/task/services/taskApi";
@@ -29,8 +29,12 @@ import { usePersistedScroll } from "@/features/apps/task/hooks/usePersistedScrol
 
 function ActionBtn({ onClick, cls, icon: Icon, label, pulse }) {
   return (
-    <button onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition-all shadow-sm ${pulse ? "animate-pulse" : ""} ${cls}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      style={{ borderRadius: 12 }}
+      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all shadow-sm ${pulse ? "animate-pulse" : ""} ${cls}`}
+    >
       <Icon size={12} /><span className="hidden sm:inline">{label}</span>
     </button>
   );
@@ -38,7 +42,8 @@ function ActionBtn({ onClick, cls, icon: Icon, label, pulse }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function TaskDetailPage() {
-  const { id: routeId }  = useParams();
+  const params = useParams();
+  const routeId = Array.isArray(params?.id) ? params.id[0] : params?.id;
   const router  = useRouter();
   const searchParams = useSearchParams();
   const report = searchParams.get("report") === "true";
@@ -266,6 +271,8 @@ export default function TaskDetailPage() {
   const canAdminOverrideTarget = isAssignedTask && !isTaskDone && task?.can_admin_override_target_date === true;
   const hasValidTarget   = task?.has_valid_target === true;
   const isChatLockedByTarget = isAssignedTask && !hasValidTarget && !isAssigner && !isTaskDone;
+  /** Assigned To must set target before chat unlocks — highlight Target Date card. */
+  const needsTargetFirst = canSetTargetDate && !hasValidTarget && !canAdminOverrideTarget;
   const isCurrentHolder = task && Number(task.current_holder_id)    === Number(currentUserId);
   const isTaskFinalDone = task?.status === "completed";
 
@@ -282,12 +289,16 @@ export default function TaskDetailPage() {
     && ["in_progress", "pending", "forwarded"].includes(task?.status ?? "");
   const canL1AlwaysAction = isL1 && task?.status !== "creator_pending" && !isTaskFinalDone;
 
+  // Super Admin can complete any open user/self task (Final Approve used when creator_pending)
+  const canAdminComplete = isSuperAdmin && !isTaskFinalDone
+    && !["creator_pending", "pending_approval"].includes(task?.status ?? "");
+
   const canForward        = (canL1AlwaysAction || canSubUserAction) && task?.task_type !== "self";
-  const canComplete       = canL1AlwaysAction || canSubUserAction;
-  const canL1Approve      = isL1      && task?.status === "pending_approval";
-  const canL1Reject       = isL1      && task?.status === "pending_approval";
-  const canAssignerApprove = isAssigner && task?.status === "creator_pending";
-  const canAssignerReject  = isAssigner && task?.status === "creator_pending";
+  const canComplete       = canL1AlwaysAction || canSubUserAction || canAdminComplete;
+  const canL1Approve      = (isL1 || isSuperAdmin) && task?.status === "pending_approval";
+  const canL1Reject       = (isL1 || isSuperAdmin) && task?.status === "pending_approval";
+  const canAssignerApprove = (isAssigner || isSuperAdmin) && task?.status === "creator_pending";
+  const canAssignerReject  = (isAssigner || isSuperAdmin) && task?.status === "creator_pending";
 
   const sidebarTasks = filterSidebarTasks(allTasks, sidebarTab, sidebarSearch);
 
@@ -444,28 +455,30 @@ export default function TaskDetailPage() {
     toast.success("Task forwarded"); setForwardOpen(false);
   });
   const handleComplete = withAction(async ({ note }) => {
-    await taskService.requestCompletion(id, { completion_note: note });
-    toast.success("Completion requested"); setCompleteOpen(false);
+    const res = await taskService.requestCompletion(id, { completion_note: note });
+    const msg = res?.data?.message || (isSuperAdmin ? "Task completed" : "Completion requested");
+    toast.success(msg);
+    setCompleteOpen(false);
   });
   const handleApprove  = withAction(async ({ note }) => {
-    if (canL1Approve) {
+    if (task?.status === "pending_approval" && canL1Approve) {
       const sub = task.assignment_chain?.find((a) => a.role === "sub_user" && a.is_active && a.completion_requested_at && !a.completion_approved_at);
       if (!sub) throw new Error("No pending sub-user assignment found");
       await taskService.approveSubUser(id, sub.assignment_id, { approval_note: note });
       toast.success("Sub-user approved!");
-    } else if (canAssignerApprove) {
+    } else if (task?.status === "creator_pending" && canAssignerApprove) {
       await taskService.creatorDecision(id, { decision: "approved", approval_note: note });
       toast.success("Task finally approved & completed!");
     }
     setApproveOpen(false);
   });
   const handleReject   = withAction(async ({ note }) => {
-    if (canL1Reject) {
+    if (task?.status === "pending_approval" && canL1Reject) {
       const sub = task.assignment_chain?.find((a) => a.role === "sub_user" && a.is_active && a.completion_requested_at && !a.completion_approved_at);
       if (!sub) throw new Error("No pending sub-user assignment found");
       await taskService.rejectSubUser(id, sub.assignment_id, { rejection_note: note });
       toast.success("Sub-user request rejected");
-    } else if (canAssignerReject) {
+    } else if (task?.status === "creator_pending" && canAssignerReject) {
       await taskService.creatorDecision(id, { decision: "rejected", rejection_note: note });
       toast.success("Rejected — task back to In Progress");
     }
@@ -513,7 +526,11 @@ export default function TaskDetailPage() {
       key: "complete",
       onClick: () => setCompleteOpen(true),
       icon: CheckCircle2,
-      label: isL1 ? "L1 Complete" : "Complete",
+      label: isSuperAdmin && !isL1 && !canSubUserAction
+        ? "Admin Complete"
+        : isL1
+          ? "L1 Complete"
+          : "Complete",
       cls: "bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100",
       pulse: false,
     },
@@ -581,53 +598,77 @@ export default function TaskDetailPage() {
 
   // ── Sidebar Content JSX ──────────────────────────────────────────────────
   const sidebarContentJSX = (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="px-2 py-2 flex-shrink-0">
-        <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5">
+    <div className="flex flex-col h-full overflow-hidden bg-white">
+      <div className="px-1.5 pt-1.5 pb-1.5 flex-shrink-0 space-y-1.5 border-b border-slate-200">
+        <div className="flex items-center gap-1 bg-slate-50 border border-slate-300 rounded-none px-1.5 py-1">
           <Search size={11} className="text-slate-400 flex-shrink-0" />
-          <input value={sidebarSearch} onChange={(e) => setSidebarSearchPersist(e.target.value)}
-            placeholder="Search tasks…"
-            className="flex-1 bg-transparent text-xs text-slate-700 placeholder-slate-400 outline-none min-w-0" />
-          {sidebarSearch && <button onClick={() => setSidebarSearchPersist("")} className="text-slate-400 hover:text-slate-600"><X size={10} /></button>}
+          <input
+            value={sidebarSearch}
+            onChange={(e) => setSidebarSearchPersist(e.target.value)}
+            placeholder="Search…"
+            className="flex-1 bg-transparent text-[11px] text-slate-700 placeholder-slate-400 outline-none min-w-0"
+          />
+          {sidebarSearch && (
+            <button type="button" onClick={() => setSidebarSearchPersist("")} className="text-slate-400 hover:text-slate-600">
+              <X size={10} />
+            </button>
+          )}
+        </div>
+        <div className="flex gap-0.5">
+          {SIDEBAR_TABS.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setSidebarTabPersist(key)}
+              className={`flex-1 min-w-0 flex items-center justify-center gap-0.5 px-0.5 py-1 rounded-lg text-[8px] font-bold uppercase tracking-wide transition-all border ${
+                sidebarTab === key
+                  ? "bg-slate-800 text-white border-slate-800"
+                  : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+              }`}
+              title={label}
+            >
+              <Icon size={9} className="opacity-80 shrink-0" />
+              <span className="truncate">{label === "Action Required" ? "Action" : label}</span>
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="flex px-2 gap-1 pb-2 flex-shrink-0 flex-wrap">
-        {SIDEBAR_TABS.map(({ key, label, icon: Icon }) => (
-          <button key={key} onClick={() => setSidebarTabPersist(key)}
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-all flex-1 justify-center ${
-              sidebarTab === key ? "bg-indigo-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100"
-            }`}>
-            <Icon size={9} /> {label}
-          </button>
-        ))}
-      </div>
-
-      <div ref={sidebarListRef} className="flex-1 overflow-y-auto px-2 pb-2 space-y-1"
-        style={{ scrollbarWidth: "thin", scrollbarColor: "#e2e8f0 transparent" }}>
+      <div
+        ref={sidebarListRef}
+        className="flex-1 overflow-y-auto px-1 py-1 space-y-0.5"
+        style={{ scrollbarWidth: "thin", scrollbarColor: "#e2e8f0 transparent" }}
+      >
         {sidebarTasks.length === 0 ? (
           <div className="py-8 text-center">
-            <ClipboardList size={20} className="mx-auto text-slate-300 mb-2" />
+            <ClipboardList size={18} className="mx-auto text-slate-300 mb-1" />
             <p className="text-[10px] text-slate-400">No tasks</p>
           </div>
-        ) : sidebarTasks.map((t) => (
-          <div key={t.task_id} data-task-id={String(t.task_id)}>
-            <SidebarTaskItem task={t}
-              isActive={String(t.task_id) === String(id)}
-              colorData={getTaskColor(t)}
-              onClick={() => {
-                const newId = Number(t.task_id);
-                setId(newId);
-                router.push(buildTaskDetailUrl(newId, { report }), { scroll: false });
-                setMobileSidebar(false);
-              }} />
-          </div>
-        ))}
+        ) : (
+          sidebarTasks.map((t) => (
+            <div key={t.task_id} data-task-id={String(t.task_id)}>
+              <SidebarTaskItem
+                task={t}
+                isActive={String(t.task_id) === String(id)}
+                colorData={getTaskColor(t)}
+                onClick={() => {
+                  const newId = Number(t.task_id);
+                  setId(newId);
+                  router.push(buildTaskDetailUrl(newId, { report }), { scroll: false });
+                  setMobileSidebar(false);
+                }}
+              />
+            </div>
+          ))
+        )}
       </div>
 
-      <div className="flex-shrink-0 px-3 py-2 border-t border-slate-100 space-y-1.5">
-        <div className="flex items-center justify-between">
-          <p className="text-[10px] text-slate-400">{sidebarTasks.length} task{sidebarTasks.length !== 1 ? "s" : ""}</p>
+      {/* Bottom details — count + legend (original) */}
+      <div className="flex-shrink-0 px-2 py-1.5 border-t border-slate-200 bg-white space-y-1.5">
+        <div className="flex items-center justify-between gap-1.5">
+          <p className="text-[10px] text-slate-400 tabular-nums">
+            {sidebarTasks.length} task{sidebarTasks.length !== 1 ? "s" : ""}
+          </p>
           <SidebarCounts tasks={sidebarTasks} />
         </div>
         <div className="flex flex-wrap gap-x-2 gap-y-1">
@@ -641,8 +682,10 @@ export default function TaskDetailPage() {
             { key: "completed",    label: "Done"         },
           ].map(({ key, label }) => (
             <div key={key} className="flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: TASK_COLORS[key]?.bar }} />
+              <span
+                className="w-1.5 h-1.5 rounded-none flex-shrink-0"
+                style={{ backgroundColor: TASK_COLORS[key]?.bar }}
+              />
               <span className="text-[9px] text-slate-400">{label}</span>
             </div>
           ))}
@@ -657,23 +700,27 @@ export default function TaskDetailPage() {
       {mobileSidebar && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setMobileSidebar(false)} />
-          <div className="absolute left-0 top-0 bottom-0 w-72 bg-white flex flex-col shadow-2xl">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0">
-              <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">{report ? "Report list" : "All Tasks"}</span>
-              <button onClick={() => setMobileSidebar(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X size={14} /></button>
+          <div className="absolute left-0 top-0 bottom-0 w-60 bg-white flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-2 py-2 border-b border-slate-200 flex-shrink-0">
+              <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">{report ? "Report list" : "All Tasks"}</span>
+              <button onClick={() => setMobileSidebar(false)} className="p-1 rounded-none text-slate-400 hover:bg-slate-100"><X size={14} /></button>
             </div>
             {sidebarContentJSX}
           </div>
         </div>
       )}
 
-      <div className={`flex-shrink-0 flex-col bg-white border-r border-slate-200 transition-all duration-300 hidden md:flex ${sidebarCollapsed ? "w-10" : "w-64"}`}>
-        <div className="flex items-center justify-between px-3 py-3 border-b border-slate-100 flex-shrink-0 h-13">
+      <div className={`flex-shrink-0 flex-col bg-white border-r border-slate-300 transition-all duration-300 hidden md:flex ${sidebarCollapsed ? "w-9" : "w-60"}`}>
+        <div className="h-12 flex items-center justify-between px-3 border-b border-slate-200 flex-shrink-0 bg-white">
           {!sidebarCollapsed && (
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">{report ? "Report list" : "Tasks"}</span>
+            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">{report ? "Report" : "Tasks"}</span>
           )}
-          <button onClick={() => setSidebarCollapsedPersist(!sidebarCollapsed)}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors ml-auto">
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsedPersist(!sidebarCollapsed)}
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors ml-auto"
+            title={sidebarCollapsed ? "Expand list" : "Collapse list"}
+          >
             {sidebarCollapsed ? <ChevronRight size={14} /> : <ArrowLeft size={14} />}
           </button>
         </div>
@@ -682,8 +729,8 @@ export default function TaskDetailPage() {
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
-        {/* Top bar */}
-        <div className="flex-shrink-0 bg-white border-b border-slate-200 px-3 md:px-5 py-2.5 flex items-center gap-2 z-20 shadow-sm">
+        {/* Top bar — same h-12 as sidebar Tasks header */}
+        <div className="h-12 flex-shrink-0 bg-white border-b border-slate-200 px-3 md:px-5 flex items-center gap-2 z-20 shadow-sm">
           <button onClick={() => router.back()}
             className="p-1.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500 transition-all flex-shrink-0">
             <ArrowLeft size={15} />
@@ -710,15 +757,25 @@ export default function TaskDetailPage() {
                 />
               ))}
               <div className="w-px h-5 bg-slate-200 mx-0.5" />
-              <button onClick={handleRefreshAll} disabled={loading}
-                className="p-1.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500 transition-all">
+              <button
+                type="button"
+                onClick={handleRefreshAll}
+                disabled={loading}
+                style={{ borderRadius: 12 }}
+                className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-500 transition-all"
+              >
                 <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
               </button>
               {((task.task_type === "self" && task.created_by_id === currentUserId) || (task.task_type !== "self" && task.assigned_by_id === currentUserId)) && (
-                <button onClick={() => { if (!isTaskFinalDone) setEditOpen(true); }} disabled={isTaskFinalDone}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition-all shadow-sm ${
+                <button
+                  type="button"
+                  onClick={() => { if (!isTaskFinalDone) setEditOpen(true); }}
+                  disabled={isTaskFinalDone}
+                  style={{ borderRadius: 12 }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all shadow-sm ${
                     isTaskFinalDone ? "bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed opacity-60" : "bg-slate-800 text-white hover:bg-slate-900"
-                  }`}>
+                  }`}
+                >
                   <Edit2 size={12} /><span className="hidden sm:inline">Edit</span>
                 </button>
               )}
@@ -768,7 +825,7 @@ export default function TaskDetailPage() {
             </div>
           ) : (
             <div ref={mainSplitRef} className="col-span-12 min-h-0 flex flex-col lg:flex-row gap-2">
-              {/* LEFT PANEL */}
+              {/* CENTER PANEL — same vertical flow, sharp ERP styling */}
               <div
                 className="flex flex-col gap-2 overflow-y-auto min-h-0 pb-1 w-full lg:flex-none lg:min-w-[320px] lg:max-w-[65%]"
                 style={{
@@ -777,175 +834,176 @@ export default function TaskDetailPage() {
                   scrollbarColor: "#e2e8f0 transparent",
                 }}
               >
-
-                <div className="flex-shrink-0 bg-white border border-slate-200 rounded-2xl px-4 py-3 shadow-sm flex flex-wrap items-center gap-2">
-                  <Badge config={statusCfg} />
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${priorityCfg.bg} ${priorityCfg.color}`}>
-                    <Flag size={9} /> {priorityCfg.label}
-                  </span>
-                  {isRecurring && <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border bg-indigo-50 text-indigo-600 border-indigo-200"><Repeat size={9} /> {task.recurrence_type}</span>}
-                  {isOverdue   && <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border bg-rose-50 text-rose-600 border-rose-200"><AlertCircle size={9} /> Overdue</span>}
-                  <span className="ml-auto text-[10px] text-slate-400">#{task.task_id}</span>
-                </div>
-
-                <div className="flex-shrink-0 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Bell size={13} className="text-purple-500" />
-                      <span className="text-sm font-semibold text-slate-700">Personal Reminder</span>
-                      {savedReminder && !reminderDirty && (
-                        <span className="text-[10px] bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full font-semibold">Saved</span>
-                      )}
-                      {reminderDirty && (
-                        <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">Unsaved</span>
-                      )}
-                    </div>
-                    {selfReminder && (
-                      <button
-                        onClick={() => { setSelfReminder(""); setReminderDirty(true); }}
-                        className="text-[10px] text-rose-400 hover:text-rose-600 font-semibold px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                  <div className="p-3 space-y-2">
-                    <input
-                      type="datetime-local"
-                      value={selfReminder}
-                      min={getCurrentDateTime()}
-                      onChange={(e) => { setSelfReminder(e.target.value); setReminderDirty(true); }}
-                      className="w-full border border-purple-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-white outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100 transition-all"
-                    />
-                    {savedReminder && !reminderDirty && (
-                      <p className="text-[10px] text-purple-500 flex items-center gap-1">
-                        🔔 Active: {formatDateTimeLocalLabel(savedReminder)}
-                      </p>
-                    )}
-                    {selfReminder && reminderDirty && (
-                      <p className="text-[10px] text-amber-600 flex items-center gap-1">
-                        Preview: {formatDateTimeLocalLabel(selfReminder)} — click Save to apply
-                      </p>
-                    )}
-                    <button
-                      onClick={handleSaveReminder}
-                      disabled={reminderSaving || !reminderDirty}
-                      className="w-full py-2 text-xs font-semibold rounded-xl bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 transition-colors"
-                    >
-                      {reminderSaving ? "Saving…" : savedReminder ? "Update Reminder" : "Save Reminder"}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex-shrink-0 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                  <div className="p-4 border-b border-slate-50">
-                    <div className="flex justify-between items-start gap-3">
-                      <h2 className="text-base font-bold text-slate-800 leading-tight">{task.title}</h2>
-                      {isOverdue && <span className="shrink-0 bg-rose-50 text-rose-600 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-100 uppercase">Overdue</span>}
-                    </div>
-                    {task.description ? <RichTextDisplay value={task.description} className="mt-2" /> : <p className="mt-2 text-xs text-slate-300 italic">No description provided</p>}
-                  </div>
-                  <div className="p-4 bg-slate-50/50">
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-                      <div className="space-y-3">
-                        <MiniRow label="Created By"  value={task.created_by_name ? `${task.created_by_name}${task.creator_label ? ` (${task.creator_label})` : ""}` : null} icon={<User size={12}/>} />
-                        <MiniRow label="Assigned By" value={task.assigned_by_name}       icon={<User size={12}/>} />
-                        <MiniRow label="Assigned To" value={task.current_holder_name || task.first_assigned_to_name} icon={<Shield size={12} />} color="text-indigo-600" />
-                      </div>
-                      <div className="space-y-3">
-                        <MiniRow label="Due Date" value={fmtDt(task.due_date)} icon={<Calendar size={12}/>} color={isOverdue ? "text-rose-600 font-bold" : ""} />
-                        <MiniRow label="Reminder" value={fmtDt(task.reminder_date ?? task.self_reminder_date)} icon={<Clock size={12}/>} />
-                        <MiniRow label="Category" value={task.category_name} icon={<Tag size={12}/>} />
-                      </div>
-                      <div className="col-span-2 pt-2 mt-1 border-t border-slate-100 flex flex-wrap gap-4">
-                        {task.created_at   && <div className="flex items-center gap-1.5 text-slate-400"><Clock size={11}/><span className="text-[10px]">Created: {formatDateTime(task.created_at)}</span></div>}
-                        {task.updated_at   && <div className="flex items-center gap-1.5 text-slate-400"><Clock size={11}/><span className="text-[10px]">Last Updated: {formatDateTime(task.updated_at)}</span></div>}
-                        {task.completed_at && <div className="flex items-center gap-1.5 text-emerald-600"><CheckCircle2 size={12}/><span className="text-[10px] font-bold uppercase tracking-tight">Completed: {formatDateTime(task.completed_at)}</span></div>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
+                {/* 1. Target Date — compact bar at top (matches reminder style) */}
                 {isAssignedTask && (
-                  <div className="flex-shrink-0 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                    <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Calendar size={13} className="text-sky-500" />
-                        <span className="text-sm font-semibold text-slate-700">Target Date</span>
-                        {hasValidTarget && task?.current_target?.target_at && (
-                          <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-semibold">Active</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="p-3 space-y-3">
-                      {task?.current_target?.target_at && (
-                        <div className="rounded-xl bg-sky-50 border border-sky-100 px-3 py-2">
-                          <p className="text-[10px] font-semibold text-sky-600 uppercase tracking-wide">Current Target</p>
-                          <p className="text-sm font-bold text-sky-900 mt-0.5">{formatDateTime(task.current_target.target_at)}</p>
-                          {task.current_target.set_by_name && (
-                            <p className="text-[10px] text-sky-600 mt-1">Set by {task.current_target.set_by_name}</p>
-                          )}
-                        </div>
+                  <div
+                    className={`order-1 flex-shrink-0 rounded-none border overflow-hidden shadow-sm ${
+                      needsTargetFirst ? "border-amber-300" : "border-sky-200"
+                    }`}
+                  >
+                    <div
+                      className={`flex items-center gap-1.5 px-2.5 py-1 border-b ${
+                        needsTargetFirst ? "bg-amber-100 border-amber-200" : "bg-sky-50 border-sky-100"
+                      }`}
+                    >
+                      {needsTargetFirst ? (
+                        <Lock size={11} className="text-amber-700 shrink-0" />
+                      ) : (
+                        <Calendar size={11} className="text-sky-600 shrink-0" />
                       )}
-                      {canSetTargetDate && (
-                        <div className="space-y-2">
-                          <p className="text-[10px] text-slate-500">
-                            {canAdminOverrideTarget
-                              ? "Admin override — change target date before current one passes:"
-                              : task?.current_target?.target_at
-                                ? "Set next target date (current target has passed):"
-                                : "Set your target date & time:"}
-                          </p>
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-wide ${
+                          needsTargetFirst ? "text-amber-800" : "text-sky-700"
+                        }`}
+                      >
+                        Target Date
+                      </span>
+                      <span
+                        className={`text-[10px] truncate ${
+                          needsTargetFirst ? "text-amber-700" : "text-sky-600"
+                        }`}
+                      >
+                        {needsTargetFirst ? "Required to unlock chat" : "Planned completion date"}
+                      </span>
+                    </div>
+                    <div className={`flex flex-wrap items-center gap-2 px-2.5 py-1.5 ${needsTargetFirst ? "bg-amber-50/60" : "bg-white"}`}>
+                      {!needsTargetFirst && task?.current_target?.target_at && (
+                        <span className="text-[11px] font-semibold text-sky-800 tabular-nums">
+                          {formatDateTime(task.current_target.target_at)}
+                        </span>
+                      )}
+                      {canSetTargetDate ? (
+                        <>
                           <input
                             type="datetime-local"
                             value={targetDateInput}
                             min={getCurrentDateTime()}
                             onChange={(e) => setTargetDateInput(e.target.value)}
-                            className="w-full border border-sky-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-white outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 transition-all"
+                            title="Select target completion date and time"
+                            className={`flex-1 min-w-[150px] border rounded-lg px-2 py-1 text-[11px] text-slate-700 bg-white outline-none focus:border-sky-400 ${
+                              needsTargetFirst ? "border-amber-300" : "border-sky-200"
+                            }`}
                           />
                           <button
+                            type="button"
                             onClick={handleSetTargetDate}
                             disabled={targetDateSaving || !targetDateInput}
-                            className="w-full py-2 text-xs font-semibold rounded-xl bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-40 transition-colors"
+                            className={`shrink-0 px-2.5 py-1 text-[11px] font-semibold rounded-lg text-white disabled:opacity-40 ${
+                              needsTargetFirst ? "bg-amber-600 hover:bg-amber-700" : "bg-sky-600 hover:bg-sky-700"
+                            }`}
                           >
-                            {targetDateSaving
-                              ? "Saving…"
-                              : canAdminOverrideTarget
-                                ? "Override Target Date"
-                                : task?.current_target?.target_at
-                                  ? "Set Next Target Date"
-                                  : "Set Target Date"}
+                            {targetDateSaving ? "…" : canAdminOverrideTarget ? "Override" : "Save Target"}
                           </button>
-                        </div>
-                      )}
-                      {hasValidTarget && !canSetTargetDate && isL1 && (
-                        <p className="text-[10px] text-sky-700 bg-sky-50 border border-sky-100 rounded-lg px-3 py-2">
-                          Target date is locked until {formatDateTime(task.current_target.target_at)} passes. Contact Admin to change it earlier.
-                        </p>
-                      )}
-                      {(task?.target_dates?.length ?? 0) > 0 && (
-                        <div className="border-t border-slate-100 pt-2">
-                          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Previous Target Dates</p>
-                          <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                            {task.target_dates.map((td, idx) => (
-                              <div
-                                key={`${td.target_at}-${td.created_at}-${idx}`}
-                                className={`flex items-center justify-between text-[11px] px-2 py-1.5 rounded-lg ${
-                                  td.is_current ? "bg-sky-50 text-sky-800 border border-sky-100" : "bg-slate-50 text-slate-600"
-                                }`}
-                              >
-                                <span>{formatDateTime(td.target_at)}</span>
-                                <span className="text-[9px] text-slate-400">{td.is_current ? "Current" : "Past"}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                        </>
+                      ) : hasValidTarget && isL1 ? (
+                        <span className="text-[10px] text-slate-400 ml-auto">Locked until the current target expires</span>
+                      ) : null}
                     </div>
+                    {(task?.target_dates?.length ?? 0) > 1 && (
+                      <details className="px-2.5 pb-1.5 text-[10px] text-slate-400 bg-white border-t border-slate-100">
+                        <summary className="cursor-pointer hover:text-slate-600 pt-1">Previous targets ({task.target_dates.length})</summary>
+                        <div className="mt-1 space-y-0.5 max-h-20 overflow-y-auto">
+                          {task.target_dates.map((td, idx) => (
+                            <div key={`${td.target_at}-${idx}`} className="flex justify-between gap-2">
+                              <span>{formatDateTime(td.target_at)}</span>
+                              <span>{td.is_current ? "Current" : "Past"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
                   </div>
                 )}
 
-                <div className="flex-shrink-0 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                {/* 2. Task details */}
+                <div className="order-2 flex-shrink-0 bg-white border border-slate-300 rounded-none shadow-sm overflow-hidden">
+                  <div className="px-3 py-2 flex flex-wrap items-center gap-1.5 border-b border-slate-200 bg-slate-50">
+                    <Badge config={statusCfg} />
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${priorityCfg.bg} ${priorityCfg.color}`}>
+                      <Flag size={9} /> {priorityCfg.label}
+                    </span>
+                    {isRecurring && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-indigo-50 text-indigo-600 border-indigo-200">
+                        <Repeat size={9} /> {task.recurrence_type}
+                      </span>
+                    )}
+                    {isOverdue && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-rose-50 text-rose-600 border-rose-200">
+                        <AlertCircle size={9} /> Overdue
+                      </span>
+                    )}
+                    <span className="ml-auto text-[10px] text-slate-400 font-mono">#{task.task_id}</span>
+                  </div>
+                  <div className="px-3 py-3 border-b border-slate-100">
+                    <h2 className="text-[15px] font-bold text-slate-900 leading-snug">{task.title}</h2>
+                    {task.description ? (
+                      <RichTextDisplay value={task.description} className="mt-2" />
+                    ) : (
+                      <p className="mt-2 text-xs text-slate-400 italic">No description</p>
+                    )}
+                  </div>
+                  <div className="px-3 py-3 bg-slate-50/80">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                      <MiniRow label="Created By" value={task.created_by_name ? `${task.created_by_name}${task.creator_label ? ` (${task.creator_label})` : ""}` : null} icon={<User size={12}/>} />
+                      <MiniRow label="Due Date" value={fmtDt(task.due_date)} icon={<Calendar size={12}/>} color={isOverdue ? "text-rose-600 font-bold" : ""} />
+                      <MiniRow label="Assigned By" value={task.assigned_by_name} icon={<User size={12}/>} />
+                      <MiniRow label="Category" value={task.category_name} icon={<Tag size={12}/>} />
+                      <MiniRow label="Assigned To" value={task.current_holder_name || task.first_assigned_to_name} icon={<Shield size={12} />} color="text-indigo-600" />
+                      {hasValidTarget && task?.current_target?.target_at ? (
+                        <MiniRow label="Target" value={fmtDt(task.current_target.target_at)} icon={<Calendar size={12}/>} color="text-sky-700 font-semibold" />
+                      ) : (
+                        <MiniRow label="Reminder" value={fmtDt(task.reminder_date ?? task.self_reminder_date)} icon={<Clock size={12}/>} />
+                      )}
+                    </div>
+                    <div className="pt-2 mt-2 border-t border-slate-200 flex flex-wrap gap-x-4 gap-y-1">
+                      {task.created_at && <span className="text-[10px] text-slate-400">Created {formatDateTime(task.created_at)}</span>}
+                      {task.updated_at && <span className="text-[10px] text-slate-400">Updated {formatDateTime(task.updated_at)}</span>}
+                      {task.completed_at && <span className="text-[10px] text-emerald-600 font-semibold">Completed {formatDateTime(task.completed_at)}</span>}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Personal Reminder — compact violet bar (2 steps prior) */}
+                <div className="order-3 flex-shrink-0 rounded-none border border-violet-200 overflow-hidden bg-white shadow-sm">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 bg-violet-50 border-b border-violet-100">
+                    <Bell size={11} className="text-violet-600 shrink-0" />
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-violet-700">
+                      Personal Reminder
+                    </span>
+                    <span className="text-[10px] text-violet-600 truncate">
+                      Optional private alert. Does not unlock chat.
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 px-2.5 py-1.5">
+                    <input
+                      type="datetime-local"
+                      value={selfReminder}
+                      min={getCurrentDateTime()}
+                      onChange={(e) => { setSelfReminder(e.target.value); setReminderDirty(true); }}
+                      title="Select a personal reminder date and time"
+                      className="flex-1 min-w-[150px] border border-violet-200 rounded-lg px-2 py-1 text-[11px] text-slate-700 bg-white outline-none focus:border-violet-400"
+                    />
+                    {selfReminder ? (
+                      <button
+                        type="button"
+                        onClick={() => { setSelfReminder(""); setReminderDirty(true); }}
+                        className="text-[10px] text-rose-500 font-semibold shrink-0 hover:underline"
+                      >
+                        Clear
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={handleSaveReminder}
+                      disabled={reminderSaving || !reminderDirty}
+                      className="shrink-0 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-40"
+                    >
+                      {reminderSaving ? "…" : "Save Reminder"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="order-4 flex-shrink-0 bg-white border border-slate-200 shadow-sm overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
                     <TrendingUp size={13} className="text-emerald-500" />
                     <span className="text-sm font-semibold text-slate-700">Quick Stats</span>
@@ -965,30 +1023,39 @@ export default function TaskDetailPage() {
                   </div>
                 </div>
 
-                <div className="flex-shrink-0 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                  <button onClick={() => setShowChain(v => !v)} className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                <div className="order-5 flex-shrink-0 bg-white border border-slate-200 shadow-sm overflow-hidden">
+                  <button type="button" onClick={() => setShowChain(v => !v)} className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-2">
                       <GitBranch size={13} className="text-violet-500" />
                       <span className="text-sm font-semibold text-slate-700">Assignment Chain</span>
-                      {assignChain.length > 0 && <span className="text-[10px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold">{assignChain.length}</span>}
+                      {assignChain.length > 0 && (
+                        <span className="text-[10px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold">{assignChain.length}</span>
+                      )}
                     </div>
                     <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${showChain ? "rotate-180" : ""}`} />
                   </button>
                   {showChain && <div className="border-t border-slate-100 px-4 py-3"><AssignmentChain chain={assignChain} /></div>}
                 </div>
 
-                <div className="flex-shrink-0 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                  <div className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer"
-                    onClick={() => setShowActivity(v => !v)}>
+                <div className="order-6 flex-shrink-0 bg-white border border-slate-200 shadow-sm overflow-hidden">
+                  <div
+                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer"
+                    onClick={() => setShowActivity(v => !v)}
+                  >
                     <div className="flex items-center gap-2">
                       <Activity size={13} className="text-blue-500" />
                       <span className="text-sm font-semibold text-slate-700">Activity Log</span>
-                      {(task.task_log?.length ?? 0) > 0 && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-semibold">{task.task_log.length}</span>}
+                      {(task.task_log?.length ?? 0) > 0 && (
+                        <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-semibold">{task.task_log.length}</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       {(task.task_log?.length ?? 0) > 0 && (
-                        <button onClick={(e) => { e.stopPropagation(); setActivityModalOpen(true); }}
-                          className="flex items-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setActivityModalOpen(true); }}
+                          className="flex items-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors"
+                        >
                           <Activity size={10} /> View All
                         </button>
                       )}
@@ -997,13 +1064,21 @@ export default function TaskDetailPage() {
                   </div>
                   {showActivity && (
                     <div className="border-t border-slate-100">
-                      <div className="overflow-y-auto px-4 pt-3 pb-4"
-                        style={{ maxHeight: 260, scrollbarWidth: "thin", scrollbarColor: "#e2e8f0 transparent" }}>
+                      <div
+                        className="overflow-y-auto px-4 pt-3 pb-4"
+                        style={{ maxHeight: 260, scrollbarWidth: "thin", scrollbarColor: "#e2e8f0 transparent" }}
+                      >
                         {(task.task_log?.length ?? 0) === 0
                           ? <p className="text-xs text-slate-400 text-center py-3">No activity yet</p>
                           : task.task_log.map((log, i) => (
-                              <TimelineItem key={log.activity_id} action={log.action} action_detail={log.action_detail}
-                                performedBy={log.performed_by} time={log.action_time} isLast={i === task.task_log.length - 1} />
+                              <TimelineItem
+                                key={log.activity_id}
+                                action={log.action}
+                                action_detail={log.action_detail}
+                                performedBy={log.performed_by}
+                                time={log.action_time}
+                                isLast={i === task.task_log.length - 1}
+                              />
                             ))}
                       </div>
                     </div>
@@ -1013,16 +1088,16 @@ export default function TaskDetailPage() {
 
               <div
                 onMouseDown={() => setIsResizingPanels(true)}
-                className="hidden lg:flex w-3 items-center justify-center cursor-col-resize select-none"
+                className="hidden lg:flex w-2 items-center justify-center cursor-col-resize select-none"
                 title="Drag to resize panels"
               >
-                <div className={`w-1.5 h-16 rounded-full transition-colors ${isResizingPanels ? "bg-indigo-400" : "bg-slate-200 hover:bg-slate-300"}`} />
+                <div className={`w-0.5 h-14 rounded-none transition-colors ${isResizingPanels ? "bg-indigo-500" : "bg-slate-300 hover:bg-slate-400"}`} />
               </div>
 
               {/* RIGHT PANEL */}
-              <div className="flex-1 flex flex-col bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden min-h-0">
-                <div className="flex-shrink-0 flex items-center px-3 pt-3 pb-0 border-b border-slate-100 gap-0.5">
-                  <div className="flex gap-0.5 flex-1">
+              <div className="flex-1 flex flex-col bg-white border border-slate-300 rounded-none shadow-sm overflow-hidden min-h-0">
+                <div className="flex-shrink-0 flex items-center px-2 pt-2 pb-0 border-b border-slate-200 gap-0.5">
+                  <div className="flex gap-0 flex-1">
                     {[
                       { id: "chat", label: "Chat",    icon: MessageSquare, badge: chatMessages.length > 0 ? chatMessages.length : null },
                       { id: "self", label: "My Note", icon: Lock,          badge: null },
@@ -1050,7 +1125,11 @@ export default function TaskDetailPage() {
                           <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center mb-3"><MessageSquare size={22} className="text-slate-300" /></div>
                           <p className="text-sm font-medium text-slate-400">No messages yet</p>
                           <p className="text-xs text-slate-400 mt-1">
-                            {isTaskDone ? "Task is completed" : isChatLockedByTarget ? "Waiting for target date — only Assigned By can chat" : "Start the conversation below"}
+                            {isTaskDone
+                              ? "This task is completed"
+                              : isChatLockedByTarget
+                                ? "Waiting for target date. Only Assigned By can message."
+                                : "Start the conversation below"}
                           </p>
                         </div>
                       ) : chatMessages.map((msg) => (
@@ -1076,34 +1155,41 @@ export default function TaskDetailPage() {
                     {isTaskDone ? (
                       <div className="flex-shrink-0 px-4 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-center gap-2">
                         <Lock size={13} className="text-slate-400" />
-                        <p className="text-xs text-slate-400 font-medium">Chat is locked — task completed</p>
+                        <p className="text-xs text-slate-400 font-medium">Chat is locked. This task is completed.</p>
                       </div>
                     ) : isChatLockedByTarget ? (
                       <div className="flex-shrink-0 px-4 py-3 border-t border-sky-100 bg-sky-50 flex items-center justify-center gap-2 text-center">
                         <Lock size={13} className="text-sky-500 flex-shrink-0" />
-                        <p className="text-xs text-sky-700 font-medium">Chat locked — Assigned To must set target date first. Only Assigned By can message.</p>
+                        <p className="text-xs text-sky-700 font-medium">Chat is locked until Assigned To sets a Target Date. Only Assigned By can message until then.</p>
                       </div>
                     ) : (
                       <div className="flex-shrink-0 px-3 py-3 border-t border-slate-100 bg-white">
                         <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
                           <AutoTextarea value={chatMsg} onChange={(e) => setChatMsg(e.target.value)} onKeyDown={handleChatKey}
-                            placeholder={replyTo ? "Write a reply…" : "Type a message… (Enter to send)"}
+                            placeholder={replyTo ? "Write a reply..." : "Type a message... (Enter to send)"}
                             disabled={isTaskDone} />
                           <div className="flex items-center gap-1 flex-shrink-0 pb-0.5">
                             <input ref={chatFileRef} type="file" multiple className="hidden"
                               accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx" onChange={handleChatFilePick} />
-                            <button onClick={() => chatFileRef.current?.click()}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"><Paperclip size={15} /></button>
-                            <button onClick={() => chatFileRef.current?.click()}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"><ImageIcon size={15} /></button>
-                            <button onClick={handleChatSend}
+                            <button
+                              type="button"
+                              onClick={() => chatFileRef.current?.click()}
+                              title="Attach file"
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            >
+                              <Paperclip size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleChatSend}
                               disabled={chatSending || (!chatMsg.trim() && chatFiles.length === 0)}
-                              className="w-8 h-8 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center transition-colors shadow-sm disabled:opacity-40">
+                              className="w-8 h-8 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center transition-colors shadow-sm disabled:opacity-40"
+                            >
                               {chatSending ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
                             </button>
                           </div>
                         </div>
-                        <p className="text-[10px] text-slate-400 mt-1 ml-1">Shift+Enter for new line · Hover a message to reply or delete</p>
+                        <p className="text-[10px] text-slate-400 mt-1 ml-1">Shift+Enter for a new line. Hover a message to reply or delete.</p>
                       </div>
                     )}
                   </div>
@@ -1118,15 +1204,15 @@ export default function TaskDetailPage() {
                           <Lock size={14} className="text-amber-600" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-amber-800">Private Note — Only You Can See This</p>
-                          <p className="text-[10px] text-amber-600 mt-0.5">Stored per task, per user. No one else has access.</p>
+                          <p className="text-xs font-semibold text-amber-800">Private note — only you can see this</p>
+                          <p className="text-[10px] text-amber-600 mt-0.5">Saved per task for your account only.</p>
                         </div>
                         {autoSaving
-                          ? <span className="text-[10px] bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-semibold flex-shrink-0 flex items-center gap-1"><RefreshCw size={8} className="animate-spin" /> Saving…</span>
+                          ? <span className="text-[10px] bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-semibold flex-shrink-0 flex items-center gap-1"><RefreshCw size={8} className="animate-spin" /> Saving...</span>
                           : selfDirty
                             ? <span className="text-[10px] bg-amber-200 text-amber-800 border border-amber-300 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">Unsaved</span>
                             : selfNoteExists
-                              ? <span className="text-[10px] bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">Saved ✓</span>
+                              ? <span className="text-[10px] bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">Saved</span>
                               : null}
                       </div>
                       <div>

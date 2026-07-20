@@ -181,6 +181,99 @@ export function EmptyState({ activeTab, hasFilter, onReset }) {
   );
 }
 
+/** Same row/card bar colors used by TaskTableRow + TaskCard (original list colors). */
+const LIST_ROW_COLORS = {
+  total: "#696969",
+  pending: "#00eeff",
+  in_progress: "#0e79aa",
+  completed: "#2bff00",
+  action_required: "#ff0000",
+  overdue: "#ff0000",
+  new_today: "#0011ff",
+  reminder: "#ff8800",
+  upcoming_due: "#ffe600",
+  creator_pending: "#8800ff",
+};
+
+export function getTaskRowColor(task) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const parseDate = (date) => {
+    if (!date) return null;
+    const d = new Date(date);
+    if (isNaN(d)) return null;
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
+  const taskDue = parseDate(task.due_date);
+  const reminder = parseDate(task.reminder_date) || parseDate(task.self_reminder_date);
+  const createdAt = parseDate(task.created_at);
+
+  const isSameDay = (date) => date && date.getTime() === today.getTime();
+  const isPast = (date) => date && date.getTime() < today.getTime();
+
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const isTomorrow = (date) => date && date.getTime() === tomorrow.getTime();
+
+  if (task.status === "creator_pending") return LIST_ROW_COLORS.creator_pending;
+  if (reminder && isSameDay(reminder)) return LIST_ROW_COLORS.reminder;
+  if (taskDue && isPast(taskDue) && !["completed", "closed"].includes(task.status)) {
+    return LIST_ROW_COLORS.overdue;
+  }
+  if (
+    taskDue &&
+    !["completed", "closed"].includes(task.status) &&
+    (isSameDay(taskDue) || isTomorrow(taskDue))
+  ) {
+    return LIST_ROW_COLORS.upcoming_due;
+  }
+  if (task.status === "in_progress") return LIST_ROW_COLORS.in_progress;
+  if (createdAt && isSameDay(createdAt)) return LIST_ROW_COLORS.new_today;
+  if (task.status === "pending") return LIST_ROW_COLORS.pending;
+  if (task.status === "completed") return LIST_ROW_COLORS.completed;
+  return LIST_ROW_COLORS.total;
+}
+
+/** Opaque row tints (blended with white) so sticky columns do not show scrolled cells through. */
+const TASK_DT_ROW_BY_COLOR = {
+  "#696969": "[&_td]:!bg-[#f2f2f2] [&_td:first-child]:!shadow-[inset_3px_0_0_0_#696969]",
+  "#00eeff": "[&_td]:!bg-[#e8fdff] [&_td:first-child]:!shadow-[inset_3px_0_0_0_#00eeff]",
+  "#0e79aa": "[&_td]:!bg-[#e9f2f6] [&_td:first-child]:!shadow-[inset_3px_0_0_0_#0e79aa]",
+  "#2bff00": "[&_td]:!bg-[#eaffe8] [&_td:first-child]:!shadow-[inset_3px_0_0_0_#2bff00]",
+  "#ff0000": "[&_td]:!bg-[#ffe8e8] [&_td:first-child]:!shadow-[inset_3px_0_0_0_#ff0000]",
+  "#0011ff": "[&_td]:!bg-[#e8e9ff] [&_td:first-child]:!shadow-[inset_3px_0_0_0_#0011ff]",
+  "#ff8800": "[&_td]:!bg-[#fff4e8] [&_td:first-child]:!shadow-[inset_3px_0_0_0_#ff8800]",
+  "#ffe600": "[&_td]:!bg-[#fffde8] [&_td:first-child]:!shadow-[inset_3px_0_0_0_#ffe600]",
+  "#8800ff": "[&_td]:!bg-[#f4e8ff] [&_td:first-child]:!shadow-[inset_3px_0_0_0_#8800ff]",
+};
+
+/** IMS DataTable row tint + left color bar — same palette as TaskTableRow / TaskCard. */
+export function getTaskDataTableRowClassName(task) {
+  const color = getTaskRowColor(task);
+  return TASK_DT_ROW_BY_COLOR[color] || TASK_DT_ROW_BY_COLOR["#696969"];
+}
+
+export function blendHexWithWhite(hex, alpha = 0.09) {
+  const raw = String(hex || "#e2e8f0").replace("#", "");
+  const h = raw.length >= 6 ? raw.slice(0, 6) : "e2e8f0";
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const br = Math.round(r * alpha + 255 * (1 - alpha));
+  const bg = Math.round(g * alpha + 255 * (1 - alpha));
+  const bb = Math.round(b * alpha + 255 * (1 - alpha));
+  return `rgb(${br},${bg},${bb})`;
+}
+
+export function taskRowTint(hex) {
+  const raw = String(hex || "#e2e8f0").replace("#", "");
+  const h = raw.length >= 6 ? raw.slice(0, 6) : "e2e8f0";
+  return `#${h}18`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SubPage
 // ─────────────────────────────────────────────────────────────────────────────
@@ -247,9 +340,12 @@ export function SidebarCounts({ tasks }) {
 
   if (!chips.length) return null;
   return (
-    <div className="flex items-center gap-1 flex-wrap">
-      {chips.map(({ tag, cls }) => (
-        <span key={tag} className={`text-[8px] px-1 py-0.5 rounded-full font-bold border whitespace-nowrap ${cls}`}>
+    <div className="flex items-center gap-1 flex-wrap justify-end max-w-[72%]">
+      {chips.slice(0, 2).map(({ tag, cls }) => (
+        <span
+          key={tag}
+          className={`text-[8px] px-1 py-0.5 rounded-none font-bold border whitespace-nowrap ${cls}`}
+        >
           {counts[tag]} {tag}
         </span>
       ))}

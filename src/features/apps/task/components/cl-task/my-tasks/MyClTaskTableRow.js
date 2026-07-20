@@ -2,6 +2,7 @@ import { CheckCircle, Clock, Calendar, AlertTriangle } from "lucide-react";
 import { formatDateTime, formatScheduledDate } from "@/features/apps/task/helpers/utilHelper";
 import { stripHtml } from "@/features/apps/task/helpers/clTaskFormHelper";
 import { canSubmitPreviousTask, getISTDateString } from "@/features/apps/task/helpers/clTaskTimeHelper";
+import ClTaskAttachmentsField from "../shared/ClTaskAttachmentBlock";
 
 const TYPE_BADGE = {
   open: "bg-sky-50 text-sky-700 border-sky-200",
@@ -59,9 +60,10 @@ export default function MyClTaskTableRow({ task, index, tab, variant = "all", on
     lockedPrevious = isPending && isPrevious && !canSubmitPreviousTask();
   }
 
-  const barColor = ROW_COLORS[task.status] || "#94a3b8";
-  const stickyBg = blendWithWhite(barColor, 0.09);
-  const rowBg = { backgroundColor: `${barColor}18` };
+  const isRejected = Number(task.reject_count) > 0;
+  const barColor = isRejected ? "#e11d48" : ROW_COLORS[task.status] || "#94a3b8";
+  const stickyBg = blendWithWhite(barColor, isRejected ? 0.14 : 0.09);
+  const rowBg = { backgroundColor: isRejected ? "#fff1f2" : `${barColor}18` };
   const description = stripHtml(task.description) || stripHtml(task.sop_description);
 
   return (
@@ -82,16 +84,33 @@ export default function MyClTaskTableRow({ task, index, tab, variant = "all", on
         style={{ backgroundColor: stickyBg }}
       >
         <div className="truncate font-semibold" title={task.title}>{task.title}</div>
+        {task.person_name ? (
+          <p className="text-[10px] text-slate-500 truncate mt-0.5 font-normal" title={task.person_name}>
+            Assignee: {task.person_name}
+          </p>
+        ) : null}
         {description && (
           <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5 font-normal" title={description}>
             {description}
           </p>
         )}
-        {task.reject_count > 0 && (
-          <span className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-bold text-rose-600">
-            <AlertTriangle size={10} /> {task.reject_count}x reject
-          </span>
-        )}
+        <div className="mt-0.5">
+          <ClTaskAttachmentsField value={task.attachment} readOnly label="" />
+        </div>
+        {isRejected ? (
+          <div className="mt-1.5 rounded border border-rose-200 bg-rose-50 px-2 py-1.5 space-y-0.5">
+            <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-rose-700">
+              <AlertTriangle size={10} /> Rejected · {task.reject_count}{" "}
+              {Number(task.reject_count) === 1 ? "time" : "times"}
+            </span>
+            {task.verifier_remark ? (
+              <p className="text-[10px] text-rose-800/90 leading-snug line-clamp-2" title={task.verifier_remark}>
+                <span className="font-bold">Reason: </span>
+                {task.verifier_remark}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </td>
 
       <td className="px-4 py-3 whitespace-nowrap">
@@ -103,14 +122,18 @@ export default function MyClTaskTableRow({ task, index, tab, variant = "all", on
         )}
       </td>
       <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{formatScheduledDate(task.scheduled_date)}</td>
-      <td className="px-4 py-3 text-slate-600 font-medium">{task.wastage ?? "—"}</td>
+      <td className="px-4 py-3 text-slate-600 font-medium">{task.weightage ?? task.wastage ?? "—"}</td>
       <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{formatDateTime(task.end_date_time)}</td>
       <td className="px-4 py-3 whitespace-nowrap">
         <span className={`inline-flex px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase border ${STATUS_BADGE[task.status] || ""}`}>
           {STATUS_LABEL[task.status] || capitalize(task.status)}
         </span>
       </td>
-      <td className="px-4 py-3 text-slate-600">{task.score ?? "—"}</td>
+      <td className="px-4 py-3 text-slate-600">
+        {task.score != null && Number.isFinite(Number(task.score))
+          ? `${Math.round((Number(task.score) / 10) * 1000) / 10}%`
+          : "—"}
+      </td>
 
       <td
         className="px-3 py-3 text-center sticky right-0 z-[2] border-l border-slate-200 min-w-[120px]"

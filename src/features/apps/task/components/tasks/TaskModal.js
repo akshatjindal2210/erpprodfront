@@ -8,6 +8,7 @@ import { PRIORITIES, TASK_STATUSES, RECURRENCE_TYPES, WEEKDAYS, MONTHS, TASK_STA
 import { extractList, mapTaskUserToOption }  from "@/features/apps/task/helpers/utilHelper";
 import { parseArr } from "@/features/apps/task/helpers/formArrays";
 import { compareLabelAsc } from "@/features/apps/task/helpers/sortOptions";
+import Drawer from "@/core/components/ui/Drawer";
 import SelectField      from "../common/SelectField";
 import SearchableSelect from "../common/SearchableSelect";
 import RichTextEditor from "../common/RichTextEditor";
@@ -227,11 +228,12 @@ function SubUserSelector({ users, value = [], onChange, disabled }) {
             />
           </div>
 
-          {!disabled && !su.is_active && (
+          {!disabled && (
             <button 
               type="button" 
               onClick={() => removeUser(su.user_id)}
-              className="text-slate-300 hover:text-rose-500 transition-colors mt-0.5 flex-shrink-0">
+              className="text-slate-300 hover:text-rose-500 transition-colors mt-0.5 flex-shrink-0"
+              title="Remove">
               <X size={14} />
             </button>
           )}
@@ -555,13 +557,27 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
     const load = async () => {
       setFetchingMeta(true);
       try {
-        const promises = [categoryService.getAll({ limit: 200 })];
-        if (!isSelf) promises.unshift(userService.getViews());
-        const results = await Promise.all(promises);
-        if (!isSelf) setUsers(results[0].data?.data || []);
-        setCategories(extractList(isSelf ? results[0] : results[1]));
-      } catch {
-        toast.error("Failed to load form data");
+        const userPromise = isSelf
+          ? Promise.resolve(null)
+          : userService.getViews().then((res) => {
+              setUsers(extractList(res));
+            }).catch(() => {
+              setUsers([]);
+            });
+
+        const categoryPromise = categoryService.getViews({
+          permission_module: "tasks",
+          permission_action: "add",
+          limit: 200,
+        })
+          .then((res) => {
+            setCategories(extractList(res));
+          })
+          .catch(() => {
+            setCategories([]);
+          });
+
+        await Promise.all([userPromise, categoryPromise]);
       } finally {
         setFetchingMeta(false);
       }
@@ -699,8 +715,12 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
     if (!isSelf) {
       if (!form.assigned_by) e.assigned_by = "Please select the assigner";
       if (!form.assigned_to) e.assigned_to = "Please select the Level-1 assignee";
-      if (form.assigned_by && form.assigned_to && String(form.assigned_by) === String(form.assigned_to))
-        e.assigned_to = "Assigner and Level-1 cannot be the same";
+      else if (
+        form.assigned_by &&
+        String(form.assigned_by) === String(form.assigned_to)
+      ) {
+        e.assigned_to = "Assign To cannot be the same as Assign By";
+      }
 
       const subs = Array.isArray(form.sub_users) ? form.sub_users : [];
       const badSub = subs.find((s) => String(s.user_id) === String(form.assigned_to));
@@ -821,13 +841,21 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
     }
   };
 
-  if (!open) return null;
-
   const isLoadingDetail = isEdit && fetchingDetail;
   const headerTitle =
     isEdit  ? (isSelf ? "Edit Self Task"   : "Edit Task")       :
     isClone ? (isSelf ? "Clone Self Task"  : "Clone Task")      :
     isSelf  ? "New Self Task"                                   : "Assign New Task";
+  const headerDescription =
+    isEdit && !isSelf
+      ? (canEditAssignment
+        ? "You can change Assign To and sub-users"
+        : "Only the assigner can change Assign To or sub-users")
+      : !isEdit && isSelf
+        ? "Create a personal task for yourself"
+        : !isEdit && !isSelf
+          ? "Assign task to Assign To + optional sub-users"
+          : "";
 
   // In sub-user selector: filter out L1 and assigner
   const subUserOptions = users.filter(
@@ -836,87 +864,89 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
       String(u.id) !== String(form.assigned_by)
   );
 
-  // const assignedToOptions = users
-  //   .filter((u) => String(u.id) !== String(form.assigned_by))
-  //   .map((u) => ({ id: u.id, name: `${u.name} ${u?.department?.name ? ` (${u.department.name})` : ""}` }));
-  //   // .map((u) => ({ id: u.id, name: `${u.name} (${u.type}) (${u?.department?.name})` }));
-
- const assignedToOptions = users
-  .filter((u) => 
-    String(u.id) !== String(form.assigned_by) &&
-    String(u.id) !== String(currentUser?.id)   // 👈 exclude logged-in user (creator)
-  )
-  .map(mapTaskUserToOption);
-    
-  // If selected user is assigned_by (edge case), still show their name
-  const allOptionsForDisplay = users.map(mapTaskUserToOption);
+  // Assign To: creator OK; Assign By person must not appear (cannot be both)
+  const assignedToOptions = users
+    .filter((u) => !form.assigned_by || String(u.id) !== String(form.assigned_by))
+    .map(mapTaskUserToOption);
+  const allOptionsForDisplay = assignedToOptions;
+  const assignByOptions = users.map(mapTaskUserToOption);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-
-      <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-slate-200 max-h-[90vh] flex flex-col">
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-lg border flex items-center justify-center ${
-              isSelf  ? "bg-violet-50 border-violet-200" :
-              isClone ? "bg-amber-50  border-amber-200"  :
-                        "bg-indigo-50 border-indigo-200"
-            }`}>
-              {isSelf   ? <User          size={15} className="text-violet-600" /> :
-               isClone  ? <Copy          size={15} className="text-amber-600"  /> :
-                           <ClipboardList size={15} className="text-indigo-600" />}
-            </div>
-            <div>
-              <h3 className="text-base font-semibold text-slate-800">{headerTitle}</h3>
-              <p className="text-xs text-slate-400">
-                {isEdit && !isSelf && (canEditAssignment
-                  ? "You can change Assign To and sub-users"
-                  : "Only the assigner can change Assign To or sub-users")}
-                {!isEdit && isSelf  && "Create a personal task for yourself"}
-                {!isEdit && !isSelf && "Assign task to Assign To + optional sub-users"}
-              </p>
-            </div>
-          </div>
-          <button onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
-            <X size={18} />
+    <Drawer
+      isOpen={open}
+      onClose={onClose}
+      onSubmit={handleSave}
+      closeOnOutside={false}
+      title={headerTitle}
+      description={headerDescription}
+      headerVariant="form"
+      maxWidth="max-w-3xl"
+      banner={
+        (isEdit && !isSelf && !canEditAssignment && taskDetail) || (isSelf && !isEdit) || isClone ? (
+          <>
+            {isEdit && !isSelf && !canEditAssignment && taskDetail ? (
+              <div className="flex items-center gap-2 px-4 sm:px-6 py-2 bg-amber-50 border-b border-amber-100">
+                <Lock size={12} className="text-amber-500 flex-shrink-0" />
+                <p className="text-xs text-amber-700">
+                  Assign To and sub-users can only be edited by{" "}
+                  <span className="font-semibold">{taskDetail.assigned_by_name ?? "Assigner"}</span> (assigner)
+                </p>
+              </div>
+            ) : null}
+            {isSelf && !isEdit ? (
+              <div className="flex items-center gap-2.5 px-4 sm:px-6 py-2.5 bg-violet-50 border-b border-violet-100">
+                <User size={13} className="text-violet-600 flex-shrink-0" />
+                <p className="text-xs text-violet-700">
+                  This task will be <span className="font-semibold">visible only to you</span>.
+                </p>
+              </div>
+            ) : null}
+            {isClone ? (
+              <div className="flex items-center gap-2.5 px-4 sm:px-6 py-2.5 bg-amber-50 border-b border-amber-100">
+                <Copy size={13} className="text-amber-600 flex-shrink-0" />
+                <p className="text-xs text-amber-700">
+                  Cloning task —<span className="font-semibold"> due date and reminder are reset</span>, please set them.
+                </p>
+              </div>
+            ) : null}
+          </>
+        ) : null
+      }
+      footer={
+        <>
+          <button onClick={onClose} disabled={loading}
+            className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50">
+            Cancel
           </button>
-        </div>
-
-        {/* Permission warning banner */}
-        {isEdit && !isSelf && !canEditAssignment && taskDetail && (
-          <div className="flex items-center gap-2 px-6 py-2 bg-amber-50 border-b border-amber-100">
-            <Lock size={12} className="text-amber-500 flex-shrink-0" />
-            <p className="text-xs text-amber-700">
-              Assign To and sub-users can only be edited by{" "}
-              <span className="font-semibold">{taskDetail.assigned_by_name ?? "Assigner"}</span> (assigner)
-            </p>
-          </div>
-        )}
-
-        {/* Banners */}
-        {isSelf && !isEdit && (
-          <div className="flex items-center gap-2.5 px-6 py-2.5 bg-violet-50 border-b border-violet-100">
-            <User size={13} className="text-violet-600 flex-shrink-0" />
-            <p className="text-xs text-violet-700">
-              This task will be <span className="font-semibold">visible only to you</span>.
-            </p>
-          </div>
-        )}
-        {isClone && (
-          <div className="flex items-center gap-2.5 px-6 py-2.5 bg-amber-50 border-b border-amber-100">
-            <Copy size={13} className="text-amber-600 flex-shrink-0" />
-            <p className="text-xs text-amber-700">
-              Cloning task —<span className="font-semibold"> due date and reminder are reset</span>, please set them.
-            </p>
-          </div>
-        )}
-
-        {/* Body */}
-        <div className="p-6 space-y-4 overflow-y-auto">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={loading || fetchingMeta || isLoadingDetail}
+            title="Ctrl+S"
+            className={`px-5 py-2 text-sm font-medium text-white rounded-xl transition-all flex items-center gap-2 shadow-sm disabled:opacity-60 ${
+              isSelf  ? "bg-violet-600 hover:bg-violet-700" :
+              isClone ? "bg-amber-500  hover:bg-amber-600"  :
+                        "bg-indigo-600 hover:bg-indigo-700"
+            }`}
+          >
+            {loading ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                </svg>
+                Saving…
+              </>
+            ) : isClone ? <><Copy  size={15} /> Clone Task</>
+              : isEdit  ? <><Check size={15} /> Save Changes</>
+              : isSelf  ? <><User  size={15} /> Create Self Task</>
+                        : <><Check size={15} /> Assign Task</>
+            }
+          </button>
+        </>
+      }
+    >
+        <div className="space-y-4">
           {isLoadingDetail ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <svg className="w-7 h-7 animate-spin text-indigo-500" viewBox="0 0 24 24" fill="none">
@@ -991,6 +1021,8 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                       setErrors((p) => ({ ...p, description: "" }));
                     }}
                     placeholder="Task description"
+                    compact={isSelf}
+                    resizable
                   />
                 </div>
 
@@ -1045,20 +1077,24 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                           <SearchableSelect
                             label="Assign By"
                             required
-                            // options={users.map((u) => ({ id: u.id, name: `${u.name} ${u?.department?.name ? ` (${u.department.name})` : ""}` }))}
-                            options={users
-                              .filter((u) => String(u.id) !== String(form.assigned_to))
-                              .map(mapTaskUserToOption)
-                            }
+                            clearable
+                            options={assignByOptions}
                             value={form.assigned_by}
                             onChange={(id) => {
                               setForm((p) => ({
-                                ...p, assigned_by: id,
-                                assigned_by_name: users.find(u => String(u.id) === String(id))?.name ?? "",
-                                assigned_to:  String(p.assigned_to) === String(id) ? "" : p.assigned_to,
-                                sub_users:    p.sub_users.filter((s) => String(s.user_id) !== String(id)),
+                                ...p,
+                                assigned_by: id || "",
+                                assigned_by_name: id
+                                  ? (users.find((u) => String(u.id) === String(id))?.name ?? "")
+                                  : "",
+                                // Assign By cannot also be Assign To — clear if same
+                                assigned_to:
+                                  id && String(p.assigned_to) === String(id) ? "" : p.assigned_to,
+                                sub_users: id
+                                  ? p.sub_users.filter((s) => String(s.user_id) !== String(id))
+                                  : p.sub_users,
                               }));
-                              setErrors((p) => ({ ...p, assigned_by: "" }));
+                              setErrors((p) => ({ ...p, assigned_by: "", assigned_to: "" }));
                             }}
                             placeholder={fetchingMeta ? "Loading…" : "Who is assigning?"}
                           />
@@ -1093,15 +1129,17 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                               </span>
                             }
                             required
-                            // options={users.filter((u) => String(u.id) !== String(form.assigned_by)).map((u) => ({ id: u.id, name: `${u.name} (${u.type})` }))}
-                            options={assignedToOptions}              // filtered — assigned_by hidden from dropdown
-                            displayOptions={allOptionsForDisplay}    // full list — so selected name resolves
+                            clearable
+                            options={assignedToOptions}
+                            displayOptions={allOptionsForDisplay}
                             value={form.assigned_to}
                             onChange={(id) => {
                               setForm((p) => ({
                                 ...p,
-                                assigned_to: id,
-                                sub_users: p.sub_users.filter((s) => String(s.user_id) !== String(id)),
+                                assigned_to: id || "",
+                                sub_users: id
+                                  ? p.sub_users.filter((s) => String(s.user_id) !== String(id))
+                                  : p.sub_users,
                               }));
                               setErrors((p) => ({ ...p, assigned_to: "" }));
                             }}
@@ -1458,37 +1496,6 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
             </>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 flex-shrink-0">
-          <button onClick={onClose} disabled={loading}
-            className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50">
-            Cancel
-          </button>
-          <button onClick={handleSave}
-            disabled={loading || fetchingMeta || isLoadingDetail}
-            className={`px-5 py-2 text-sm font-medium text-white rounded-xl transition-all flex items-center gap-2 shadow-sm disabled:opacity-60 ${
-              isSelf  ? "bg-violet-600 hover:bg-violet-700" :
-              isClone ? "bg-amber-500  hover:bg-amber-600"  :
-                        "bg-indigo-600 hover:bg-indigo-700"
-            }`}>
-            {loading ? (
-              <>
-                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                </svg>
-                Saving…
-              </>
-            ) : isClone ? <><Copy  size={15} /> Clone Task</>
-              : isEdit  ? <><Check size={15} /> Save Changes</>
-              : isSelf  ? <><User  size={15} /> Create Self Task</>
-                        : <><Check size={15} /> Assign Task</>
-            }
-          </button>
-        </div>
-
-      </div>
-    </div>
+    </Drawer>
   );
 }

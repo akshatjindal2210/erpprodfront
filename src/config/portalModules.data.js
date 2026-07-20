@@ -43,10 +43,13 @@ export const MODULES = {
     { name: "schedule_planning", label: "Schedule Planning" },
   ],
   task: [
-    // { name: "cl_task", label: "CL Task" },
-    // { name: "cl_task_verification", label: "CL Task Verification" },
-    // { name: "task_report", label: "CL Task Report" },
-    // { name: "red_ticket", label: "Red Ticket" },
+    { name: "cl_task_master", label: "CL Task Master" },
+    { name: "cl_task", label: "CL Task" },
+    { name: "cl_task_verification", label: "CL Task Verification" },
+    { name: "task_report", label: "CL Task Report" },
+    { name: "red_ticket", label: "Red Ticket" },
+    { name: "category", label: "Category" },
+    { name: "holiday", label: "Holiday" },
   ],
 };
 

@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { X, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "react-toastify";
+import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 
+/**
+ * Centered delete confirm — same pattern as IMS (`core/components/common/DeleteModal`).
+ */
 export default function DeleteModal({
   item,
   onClose,
@@ -16,20 +20,27 @@ export default function DeleteModal({
 }) {
   const [loading, setLoading] = useState(false);
 
+  useEscapeKey(onClose, !!item);
+
   if (!item) return null;
 
   const recordId = item[idKey] ?? item.id ?? item.task_id;
-  const recordTitle = item[nameKey] ?? item.name ?? item.title ?? recordId;
+  const recordTitle =
+    item[nameKey] ?? item.name ?? item.title ?? item.person_name ?? recordId;
 
   const handleDelete = async () => {
     setLoading(true);
     try {
       await service.delete(recordId);
       toast.success(`${entityLabel} deleted`);
-      onSuccess();
-      onClose();
+      onSuccess?.();
+      onClose?.();
     } catch (err) {
-      const msg = err?.message || err?.payload?.message || err?.response?.data?.message || "";
+      const msg =
+        err?.message ||
+        err?.payload?.message ||
+        err?.response?.data?.message ||
+        "";
       if (
         msg.toLowerCase().includes("foreign") ||
         msg.toLowerCase().includes("constraint") ||
@@ -47,7 +58,7 @@ export default function DeleteModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
       <div
         className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
         onClick={onClose}
@@ -64,6 +75,7 @@ export default function DeleteModal({
             </h3>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
           >
@@ -84,12 +96,13 @@ export default function DeleteModal({
           </div>
           <p className="text-sm text-slate-600">
             Are you sure you want to delete{" "}
-            <span className="font-semibold text-slate-800">"{recordTitle}"</span>?
+            <span className="font-semibold text-slate-800">&quot;{recordTitle}&quot;</span>?
           </p>
         </div>
 
         <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3">
           <button
+            type="button"
             onClick={onClose}
             disabled={loading}
             className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50"
@@ -97,6 +110,7 @@ export default function DeleteModal({
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleDelete}
             disabled={loading}
             className="px-4 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-all flex items-center gap-2 disabled:opacity-60"

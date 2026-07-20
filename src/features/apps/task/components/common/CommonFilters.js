@@ -41,37 +41,29 @@ export function FilterButtons({showFilters, onToggleFilters, hasActiveFilter, on
 }
 
 export function FilterButtonsRecurrence({showFilters, onToggleFilters, hasActiveFilter, onExport, onRefresh, onReset, accentColor = "indigo"}) {
+  const btnBase =
+    "h-9 px-3 inline-flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wider border rounded-none shadow-none transition-colors whitespace-nowrap";
   return (
     <div className="flex items-center gap-2 flex-shrink-0">
-
-      {/* <button onClick={onToggleFilters}
-        className={`flex items-center gap-2 px-3 py-2.5 text-sm border rounded-xl transition-all whitespace-nowrap ${showFilters || hasActiveFilter? `bg-${accentColor}-50 border-${accentColor}-200 text-${accentColor}-700` : "bg-white border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300"}`}>
-        <SlidersHorizontal size={14} />
-        <span>Filters</span>
-        {hasActiveFilter && <span className={`w-1.5 h-1.5 rounded-full bg-${accentColor}-500`} />}
-      </button> */}
-
-      {/* <button onClick={onExport}
-        className="flex items-center gap-2 px-3 py-2.5 text-sm bg-white border border-slate-200 text-slate-500 hover:text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 rounded-xl transition-all whitespace-nowrap"
-        title="Export CSV">
-        <Download size={14} />
-        <span className="hidden sm:inline">Export</span>
-      </button> */}
-
-      <button onClick={onRefresh}
-        className="flex items-center gap-2 px-3 py-2.5 text-sm bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 rounded-xl transition-all whitespace-nowrap"
-        title="Refresh">
+      <button
+        type="button"
+        onClick={onRefresh}
+        className={`${btnBase} bg-white border-slate-300 text-slate-600 hover:bg-slate-50`}
+        title="Refresh"
+      >
         <RefreshCw size={14} />
         <span className="hidden sm:inline">Refresh</span>
       </button>
 
-      <button onClick={onReset}
-        className="flex items-center gap-2 px-3 py-2.5 text-sm bg-white border border-slate-200 text-slate-500 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 rounded-xl transition-all whitespace-nowrap"
-        title="Reset">
+      <button
+        type="button"
+        onClick={onReset}
+        className={`${btnBase} bg-white border-slate-300 text-slate-600 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50`}
+        title="Reset"
+      >
         <RotateCcw size={14} />
         <span className="hidden sm:inline">Reset</span>
       </button>
-
     </div>
   );
 }
@@ -158,29 +150,6 @@ export function FilterPanel({
 }
 
 // ── Bulk Action Bar ───────────────────────────────────────────────────────────
-/*
-export function BulkActionBar({ count, onBulkDelete, onClearSelection, accentColor = "indigo" }) {
-  if (count === 0) return null;
-  return (
-    <div className={`flex items-center justify-between px-4 py-2.5 bg-${accentColor}-50 border border-${accentColor}-200 rounded-xl`}>
-      <span className={`text-sm font-medium text-${accentColor}-700`}>
-        {count} item{count > 1 ? "s" : ""} selected
-      </span>
-      <div className="flex items-center gap-2">
-        <button onClick={onClearSelection}
-          className="px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-all">
-          Clear
-        </button>
-        <button onClick={onBulkDelete}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-all">
-          <Trash2 size={12} /> Delete Selected
-        </button>
-      </div>
-    </div>
-  );
-}
-*/
-
 export function BulkActionBar({ count, onBulkDelete, onClearSelection, accentColor = "indigo", entity = "users" }) {
   const canAccess = useCanAccess();
   const canDelete = canAccess(entity, "delete").allowed;
@@ -188,26 +157,27 @@ export function BulkActionBar({ count, onBulkDelete, onClearSelection, accentCol
   if (count === 0) return null;
 
   return (
-    <div className={`flex items-center justify-between px-4 py-2.5 bg-${accentColor}-50 border border-${accentColor}-200 rounded-xl`}>
+    <div className={`flex items-center justify-between px-3 py-2 bg-${accentColor}-50 border border-${accentColor}-200 rounded-none`}>
       
-      <span className={`text-sm font-medium text-${accentColor}-700`}>
+      <span className={`text-[11px] font-bold uppercase tracking-wider text-${accentColor}-700`}>
         {count} item{count > 1 ? "s" : ""} selected
       </span>
 
       <div className="flex items-center gap-2">
         
         <button
+          type="button"
           onClick={onClearSelection}
-          className="px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-all"
+          className="h-7 px-2.5 text-[10px] font-bold uppercase text-slate-600 border border-slate-300 bg-white rounded-none hover:bg-slate-50 transition-all"
         >
           Clear
         </button>
 
-        {/* ✅ Permission-based delete */}
         {canDelete && (
           <button
+            type="button"
             onClick={onBulkDelete}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-all"
+            className="flex items-center gap-1.5 h-7 px-2.5 text-[10px] font-bold uppercase text-white bg-rose-600 hover:bg-rose-700 rounded-none transition-all"
           >
             <Trash2 size={12} /> Delete Selected
           </button>

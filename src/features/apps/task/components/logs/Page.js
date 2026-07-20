@@ -1,402 +1,328 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { ScrollText, Activity, Loader2, Eye, Trash2 } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { RefreshCcw, Activity, Layers } from "lucide-react";
 import { toast } from "react-toastify";
-import { useSelector } from "react-redux";
 
 import { activityLogService } from "@/features/shared/services/activityLogService";
+import { useViewMode } from "@/core/hooks/useViewMode";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
-import StatCard          from "@/features/apps/task/components/common/StatCard";
-import SearchBar         from "@/features/apps/task/components/common/SearchBar";
-import Pagination        from "@/features/apps/task/components/common/Pagination";
-import { FilterButtons, BulkActionBar } from "@/features/apps/task/components/common/CommonFilters";
-import LogDetailModal    from "@/features/apps/task/components/logs/DetailModal";
+import { useViewDateFilterDefaults } from "@/features/apps/ims/helpers/dateFilterDefaults";
+import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
 
-// ── Badges ────────────────────────────────────────────────────────────────────
-const ROLE_STYLE = {
-  super_admin: "bg-violet-50 text-violet-700 border-violet-200",
-  admin:       "bg-amber-50 text-amber-700 border-amber-200",
-  user:        "bg-slate-100 text-slate-500 border-slate-200",
-};
-const ACTION_STYLE = {
-  CREATE:   "bg-emerald-50 text-emerald-700 border-emerald-200",
-  UPDATE:    "bg-blue-50 text-blue-700 border-blue-200",
-  MODIFY:  "bg-blue-50 text-blue-700 border-blue-200",
-  DELETE: "bg-rose-50 text-rose-600 border-rose-200",
-  APPROVE: "bg-indigo-50 text-indigo-700 border-indigo-200",
-};
-const ROLE_LABEL = { super_admin: "Super Admin", admin: "Admin", user: "User" };
-
-const SortIcon = ({ sortKey, k, sortDir }) => {
-  if (sortKey !== k) return <span className="ml-1 text-xs text-slate-300">↕</span>;
-  return <span className="ml-1 text-xs text-violet-500">{sortDir === "asc" ? "↑" : "↓"}</span>;
-};
-
-const PAGE_SIZES = [5, 10, 25, 50];
+import DataTable from "@/core/components/ui/DataTable";
+import DateRangeFilter from "@/core/components/common/DateRangeFilter";
+import ListPageFilterStrip from "@/core/components/common/ListPageFilterStrip";
+import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
+import { useListPageExport } from "@/core/hooks/useListPageExport";
+import { ListPageToolbar, ListPageToolbarLayout } from "@/core/components/common/ListPageToolbar";
+import { formatDateTime } from "@/core/utils/utilHelper";
+import { formatActivityLogValue, getActivityLogSections, getActivityLogMoreSections, hasActivityLogDetails } from "@/core/utils/activityLogDisplay";
 
 export default function LogsPage() {
   const canAccess = useCanAccess();
-  const canView   = canAccess("activity_logs", "view").allowed;
+  const viewAccess = useMemo(() => canAccess("activity_logs", "view"), [canAccess]);
 
-  // ── Data ──────────────────────────────────────────────────────────────────
-  const [items,      setItems]      = useState([]);
-  const [loading,    setLoading]    = useState(true);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [totalItems, setTotalItems] = useState(0);
+  const [viewMode, handleViewMode] = useViewMode();
+  const [tempSearch, setTempSearch] = useState("");
+  const [expandedLogId, setExpandedLogId] = useState(null);
 
-  // ── Filters ───────────────────────────────────────────────────────────────
-  const [search,      setSearch]      = useState("");
-  const [dateFrom,    setDateFrom]    = useState("");
-  const [dateTo,      setDateTo]      = useState("");
-  const [page,        setPage]        = useState(1);
-  const [pageSize,    setPageSize]    = useState(10);
-  const [sortKey,     setSortKey]     = useState("created_at");
-  const [sortDir,     setSortDir]     = useState("desc");
-  const [showFilters, setShowFilters] = useState(false);
+  const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
-  // ── Selection + Modals ────────────────────────────────────────────────────
-  const [selected,   setSelected]   = useState([]);
-  const [viewItem,   setViewItem]   = useState(null);
+  const [params, setParams] = useState({
+    page: 1,
+    pageSize: 100,
+    search: "",
+    fromDate: dateFilterDefaults.from,
+    toDate: dateFilterDefaults.to,
+    sortKey: "created_at",
+    sortDir: "desc",
+  });
 
-  // ── Fetch ─────────────────────────────────────────────────────────────────
-  const fetchItems = useCallback(async () => {
-    setLoading(true);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setParams((prev) => ({ ...prev, search: tempSearch, page: 1 }));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [tempSearch]);
+
+  useEffect(() => {
+    if (dateFilterDefaults.from || dateFilterDefaults.to) {
+      setParams((prev) => ({
+        ...prev,
+        fromDate: dateFilterDefaults.from,
+        toDate: dateFilterDefaults.to,
+      }));
+    }
+  }, [dateFilterDefaults.from, dateFilterDefaults.to]);
+
+  const fetchLogs = useCallback(async (isLoadMore = false) => {
+    const append = isLoadMore === true;
+    if (!append) setLoading(true);
     try {
+      const currentPage = append ? params.page + 1 : 1;
+
       const response = await activityLogService.getLogs({
         app_type: "task",
-        page,
-        limit: pageSize,
-        search: search || undefined,
-        date_from: dateFrom ? `${dateFrom} 00:00:00` : undefined,
-        date_to: dateTo ? `${dateTo} 23:59:59` : undefined,
-        all_users: "true"
+        page: currentPage,
+        limit: params.pageSize,
+        search: params.search || undefined,
+        date_from: params.fromDate ? `${params.fromDate} 00:00:00` : undefined,
+        date_to: params.toDate ? `${params.toDate} 23:59:59` : undefined,
+        all_users: "true",
       });
 
       if (response.success) {
-        setItems(response.data || []);
+        const newItems = response.data ?? [];
+        if (append) {
+          setItems((prev) => [...prev, ...newItems]);
+          setParams((prev) => ({ ...prev, page: currentPage }));
+        } else {
+          setItems(newItems);
+          setParams((prev) => ({ ...prev, page: 1 }));
+        }
         setTotalItems(response.pagination?.total ?? 0);
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to load logs");
+      toast.error(err?.response?.data?.message || err?.message || "Failed to load activity logs");
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, dateFrom, dateTo, sortKey, sortDir]);
+  }, [params.pageSize, params.search, params.fromDate, params.toDate, params.page]);
 
-  useEffect(() => { fetchItems(); }, [fetchItems]);
+  useEffect(() => {
+    fetchLogs(false);
+  }, [params.pageSize, params.sortKey, params.sortDir, params.search, params.fromDate, params.toDate]);
 
-  // ── Stats ─────────────────────────────────────────────────────────────────
-  const stats = useMemo(() => {
-    const now = new Date();
-    return {
-      total:     totalItems,
-      today:     items.filter(i => new Date(i.created_at).toDateString() === now.toDateString()).length,
-      thisMonth: items.filter(i => {
-        const d = new Date(i.created_at);
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-      }).length,
-    };
-  }, [items, totalItems]);
+  const handleLoadMore = useCallback(() => {
+    if (!loading && items.length < totalItems) {
+      fetchLogs(true);
+    }
+  }, [loading, items.length, totalItems, fetchLogs]);
 
-  // ── Sort ──────────────────────────────────────────────────────────────────
-  const toggleSort = (key) => {
-    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
-    else { setSortKey(key); setSortDir("asc"); }
-    setPage(1);
+  const handleSearch = (data) => {
+    setParams((prev) => ({
+      ...prev,
+      page: 1,
+      search: tempSearch,
+      fromDate: data.fromDate,
+      toDate: data.toDate,
+    }));
   };
 
-  // ── Selection ─────────────────────────────────────────────────────────────
-  const allSelected = items.length > 0 && items.every(i => selected.includes(i.id));
-  const toggleAll   = () => setSelected(allSelected
-    ? selected.filter(id => !items.find(i => i.id === id))
-    : [...new Set([...selected, ...items.map(i => i.id)])]);
-  const toggleOne   = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-
-  // ── Export ────────────────────────────────────────────────────────────────
-  const handleExport = () => {
-    const csv = [
-      ["ID","User","Username","Action Type","Module","Description","Created At"],
-      ...items.map(i => [
-        i.id, i.user_name ?? `User #${i.user_id}`, i.user_username ?? "",
-        i.action_type ?? "", i.module ?? "",
-        i.description ?? "", i.created_at,
-      ].map(v => `"${v ?? ""}"`).join(",")),
-    ].join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    Object.assign(document.createElement("a"), { href: url, download: "task_activity_logs.csv" }).click();
-    URL.revokeObjectURL(url);
-    toast.success("Exported successfully");
-  };
-
-  // ── Reset ─────────────────────────────────────────────────────────────────
   const handleReset = () => {
-    setSearch(""); setDateFrom(""); setDateTo("");
-    setPage(1); setSortKey("created_at"); setSortDir("desc");
-    setShowFilters(false);
+    setTempSearch("");
+    setParams((prev) => ({
+      ...prev,
+      page: 1,
+      search: "",
+      fromDate: dateFilterDefaults.from,
+      toDate: dateFilterDefaults.to,
+    }));
   };
-
-  const hasActiveFilter = dateFrom !== "" || dateTo !== "";
-  const totalPages      = Math.max(1, Math.ceil(totalItems / pageSize));
 
   const HEADERS = [
-    ["#",           "id"],
-    ["User",        "user_id"],
-    ["Action Type", "action_type"],
-    ["Module",      "module"],
-    ["Description", "description"],
-    ["Created At",  "created_at"],
+    ["#", "id", (_v, _row, i) => <span className={IMS_TABLE_CELL_TEXT}>{i + 1}</span>, { fixed: true, width: "50px", align: "center" }],
+
+    ["Action", "action_type", (v) => {
+      const colors = {
+        CREATE: "bg-indigo-50 text-indigo-600 border-indigo-100",
+        UPDATE: "bg-blue-50 text-blue-600 border-blue-100",
+        MODIFY: "bg-blue-50 text-blue-600 border-blue-100",
+        DELETE: "bg-rose-50 text-rose-600 border-rose-100",
+        APPROVE: "bg-emerald-50 text-emerald-600 border-emerald-100",
+      };
+      const cls = colors[v] || "bg-slate-50 text-slate-600 border-slate-100";
+      return (
+        <span className={`px-2 py-0.5 border text-[9px] font-black uppercase tracking-widest ${cls}`}>
+          {v || "—"}
+        </span>
+      );
+    }, { width: "110px", align: "center" }],
+
+    ["Module / Entity", "module", (v, row) => (
+      <div className="flex flex-col leading-tight min-w-[140px]">
+        <div className="flex items-center gap-1">
+          <Layers size={10} className="text-slate-500 shrink-0" />
+          <span className={`capitalize ${IMS_TABLE_CELL_TEXT}`}>{v?.replace(/_/g, " ") || "—"}</span>
+        </div>
+        <span className="text-[9px] text-indigo-500 font-mono ml-3">REF: {row.entity_id || "—"}</span>
+      </div>
+    ), { width: "180px" }],
+
+    ["Details", "log_data", (v, row) => {
+      const isOpen = expandedLogId === row.id;
+      const hasDetails = hasActivityLogDetails(v);
+      const sections = isOpen ? [...getActivityLogSections(v), ...getActivityLogMoreSections(v)] : [];
+
+      const renderSection = (section) => (
+        <div key={section.title} className="flex flex-col gap-1">
+          <span className="text-[8px] font-black uppercase tracking-widest text-indigo-500">
+            {section.title}
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {Object.entries(section.data || {}).map(([key, value]) => (
+              <div
+                key={`${section.title}-${key}`}
+                className="flex flex-col bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-sm min-w-[60px] max-w-full"
+              >
+                <span className="text-[7px] text-slate-400 uppercase font-black leading-none mb-0.5">
+                  {key}
+                </span>
+                <span className="text-[9px] text-slate-700 font-bold break-words whitespace-pre-wrap">
+                  {formatActivityLogValue(value)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="flex flex-col gap-1 py-1">
+          <span className={IMS_TABLE_CELL_TEXT}>{row.description || "—"}</span>
+          {hasDetails ? (
+            <button
+              type="button"
+              onClick={() => setExpandedLogId(isOpen ? null : row.id)}
+              className="self-start text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wide"
+            >
+              {isOpen ? "Hide details" : "View details"}
+            </button>
+          ) : (
+            <span className="text-[10px] text-slate-400 italic">No extra details</span>
+          )}
+          {isOpen && sections.length > 0 && (
+            <div className="flex flex-col gap-1.5 mt-1">{sections.map(renderSection)}</div>
+          )}
+        </div>
+      );
+    }, { width: "350px" }],
+
+    ["Created By", "user_name", (v, row) => (
+      <span className={IMS_TABLE_CELL_TEXT}>{v || (row.user_id ? `User #${row.user_id}` : "—")}</span>
+    ), { width: "120px" }],
+
+    ["Created At", "created_at", (v) => (
+      <span className={IMS_TABLE_CELL_DATE}>{v ? formatDateTime(v) : "—"}</span>
+    ), { width: "150px" }],
   ];
 
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "Task Activity Log",
+    rows: items,
+    headers: HEADERS,
+    onExport: async () => {
+      try {
+        const response = await activityLogService.getLogs({
+          app_type: "task",
+          page: 1,
+          limit: 100000,
+          isExport: "true",
+          search: params.search || undefined,
+          date_from: params.fromDate ? `${params.fromDate} 00:00:00` : undefined,
+          date_to: params.toDate ? `${params.toDate} 23:59:59` : undefined,
+          all_users: "true",
+        });
+        return response.data || [];
+      } catch {
+        toast.error("Failed to fetch all data for export");
+        return [];
+      }
+    },
+  });
+
   return (
-    <div className="p-4 md:p-6 bg-slate-100 min-h-screen">
+    <div className={IMS_LIST_PAGE_SHELL}>
+      <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
+        <ListPageToolbar>
+          <ListPageToolbarLayout
+            actions={
+              <button
+                type="button"
+                onClick={() => fetchLogs(false)}
+                disabled={loading}
+                className="h-9 shrink-0 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 inline-flex items-center justify-center gap-2 transition-all disabled:opacity-60 touch-manipulation"
+                aria-label="Refresh"
+              >
+                {loading ? (
+                  <RefreshCcw size={14} className="shrink-0 animate-spin text-indigo-600" aria-hidden />
+                ) : (
+                  <RefreshCcw size={14} className="shrink-0" aria-hidden />
+                )}
+              </button>
+            }
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={loading || exportDisabled}
+                onExport={handleExport}
+              />
+            }
+          />
+        </ListPageToolbar>
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div>
-          <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
-            <span>Dashboard</span><span>/</span>
-            <span className="text-slate-600 font-medium">Activity Logs</span>
-          </div>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Activity Logs</h1>
-        </div>
-      </div>
+        <ListPageFilterStrip>
+          <DateRangeFilter
+            key={`${params.fromDate}-${params.toDate}`}
+            fromDate={params.fromDate}
+            toDate={params.toDate}
+            onApply={handleSearch}
+            onReset={handleReset}
+            searchValue={tempSearch}
+            onSearchChange={setTempSearch}
+            searchPlaceholder="Search by User, Module, Action..."
+            searchLabel="Filter Logs"
+            minDate={dateFilterDefaults.minDate}
+            maxDate={dateFilterDefaults.maxDate}
+          />
+        </ListPageFilterStrip>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
-        <StatCard label="Total Logs"  value={stats.total}     icon={ScrollText} iconBg="bg-violet-50" iconText="text-violet-600" borderColor="border-violet-100" />
-        <StatCard label="Today"       value={stats.today}     icon={Activity}   iconBg="bg-blue-50"   iconText="text-blue-500"   borderColor="border-blue-100"   />
-        <StatCard label="This Month"  value={stats.thisMonth} icon={ScrollText} iconBg="bg-indigo-50" iconText="text-indigo-600" borderColor="border-indigo-100" />
-      </div>
-
-      {/* Table Card */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-
-        {/* Toolbar */}
-        <div className="px-5 py-4 border-b border-slate-100 space-y-3">
-
-          {/* Row 1 */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 min-w-0">
-              <SearchBar value={search}
-                onChange={val => { setSearch(val); setPage(1); }}
-                placeholder="Search action, module, user…" />
-            </div>
-            <FilterButtons
-              showFilters={showFilters}
-              onToggleFilters={() => setShowFilters(v => !v)}
-              hasActiveFilter={hasActiveFilter}
-              onExport={handleExport}
-              onRefresh={fetchItems}
-              onReset={handleReset}
-              accentColor="violet"
-            />
-          </div>
-
-          {/* Row 2 — Filter panel (custom for logs — date + order + pagesize) */}
-          {showFilters && (
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
-
-              {/* Date range */}
-              <div className="flex items-center gap-2.5">
-                <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">Date:</span>
-                <div className="flex items-center gap-2">
-                  <input type="date" value={dateFrom}
-                    onChange={e => { setDateFrom(e.target.value); setPage(1); }}
-                    className="appearance-none bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all" />
-                  <span className="text-xs text-slate-400">to</span>
-                  <input type="date" value={dateTo} min={dateFrom || undefined}
-                    onChange={e => { setDateTo(e.target.value); setPage(1); }}
-                    className="appearance-none bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all" />
-                </div>
-              </div>
-
-              <div className="h-5 w-px bg-slate-200 hidden sm:block" />
-
-              {/* Sort order */}
-              <div className="flex items-center gap-2.5">
-                <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">Sort:</span>
-                <div className="flex gap-1">
-                  {[{ value: "desc", label: "Newest" }, { value: "asc", label: "Oldest" }].map(s => (
-                    <button key={s.value} onClick={() => { setSortDir(s.value); setPage(1); }}
-                      className={`px-2.5 py-1 text-xs rounded-lg border transition-all ${
-                        sortDir === s.value
-                          ? "bg-violet-600 border-violet-600 text-white font-medium"
-                          : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
-                      }`}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="h-5 w-px bg-slate-200 hidden sm:block" />
-
-              {/* Page size */}
-              <div className="flex items-center gap-2.5">
-                <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">Show:</span>
-                <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
-                  className="appearance-none bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all">
-                  {PAGE_SIZES.map(s => <option key={s} value={s}>{s} per page</option>)}
-                </select>
-              </div>
-
-              {hasActiveFilter && (
-                <button onClick={handleReset}
-                  className="ml-auto flex items-center gap-1 text-xs text-rose-500 hover:text-rose-700 font-medium transition-colors">
-                  ✕ Clear filters
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Row 3 — Bulk bar */}
-          <BulkActionBar
-            count={selected.length}
-            onBulkDelete={() => {}} // Disabled for now as per requirements
-            onClearSelection={() => setSelected([])}
-            accentColor="violet"
-            showDelete={false}
+        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+          <DataTable
+            headers={HEADERS}
+            data={items}
+            loading={loading}
+            viewMode={viewMode}
+            onSort={(key) => setParams((p) => ({
+              ...p,
+              sortKey: key,
+              sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
+              page: 1,
+            }))}
+            sortKey={params.sortKey}
+            sortDir={params.sortDir}
+            showSelection={false}
+            idKey="id"
+            emptyIcon={Activity}
+            onLoadMore={handleLoadMore}
+            hasMore={items.length < totalItems}
+            totalItems={totalItems}
+            cardConfig={{
+              titleKey: "user_name",
+              badgeIndices: [1],
+              detailIndices: [2, 3, 4],
+              footerKey: "created_at",
+              className: "rounded-none border border-slate-200 shadow-none",
+            }}
           />
         </div>
 
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-4 py-3.5 w-10">
-                  <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                    className="w-4 h-4 rounded border-slate-300 accent-violet-600 cursor-pointer" />
-                </th>
-                {HEADERS.map(([label, key]) => (
-                  <th key={key} onClick={() => toggleSort(key)}
-                    className="px-4 py-3.5 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest cursor-pointer select-none whitespace-nowrap hover:text-slate-600 transition-colors">
-                    {label}<SortIcon sortKey={sortKey} k={key} sortDir={sortDir} />
-                  </th>
-                ))}
-                <th className="px-4 py-3.5 text-center text-[11px] font-bold text-slate-400 uppercase tracking-widest">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i}>
-                    {Array.from({ length: 8 }).map((__, j) => (
-                      <td key={j} className="px-4 py-3.5">
-                        <div className="h-3.5 bg-slate-100 rounded-full animate-pulse"
-                          style={{ width: `${50 + (i * j % 4) * 12}%` }} />
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : items.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-20 text-center">
-                    <div className="flex flex-col items-center gap-3 text-slate-400">
-                      <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center">
-                        <ScrollText size={24} className="text-slate-300" />
-                      </div>
-                      <p className="text-sm font-medium">No logs found</p>
-                      {hasActiveFilter && (
-                        <button onClick={handleReset} className="text-xs text-violet-500 hover:underline">
-                          Clear filters
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ) : items.map((item, i) => (
-                <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
-
-                  {/* Checkbox */}
-                  <td className="px-4 py-3 w-10">
-                    <input type="checkbox" checked={selected.includes(item.id)} onChange={() => toggleOne(item.id)}
-                      className="w-4 h-4 rounded border-slate-300 accent-violet-600 cursor-pointer" />
-                  </td>
-
-                  {/* # */}
-                  <td className="px-3 py-3 text-xs text-slate-400 font-medium">
-                    {(page - 1) * pageSize + i + 1}
-                  </td>
-
-                  {/* User */}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
-                        <span className="text-xs font-bold text-violet-600">
-                          {(item.user_name ?? "?")?.[0]?.toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-700 leading-tight truncate">
-                          {item.user_name ?? `User #${item.user_id}`}
-                        </p>
-                        {item.user_username && (
-                          <p className="text-[11px] text-slate-400">@{item.user_username}</p>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-
-                  {/* Action Type */}
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold border ${ACTION_STYLE[item.action_type] ?? "bg-slate-100 text-slate-500 border-slate-200"}`}>
-                      {item.action_type ?? "—"}
-                    </span>
-                  </td>
-
-                  {/* Module */}
-                  <td className="px-4 py-3">
-                    <span className="inline-flex px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 capitalize">
-                      {item.module ?? "—"}
-                    </span>
-                  </td>
-
-                  {/* Description */}
-                  <td className="px-4 py-3 max-w-xs">
-                    <span className="text-sm text-slate-600 line-clamp-1 block" title={item.description}>
-                      {item.description ?? "—"}
-                    </span>
-                  </td>
-
-                  {/* Created At */}
-                  <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
-                    {new Date(item.created_at).toLocaleString("en-IN", {
-                      day: "2-digit", month: "short", year: "numeric",
-                      hour: "2-digit", minute: "2-digit",
-                    })}
-                  </td>
-
-                  {/* Actions */}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-center gap-1">
-                      {canView && (
-                        <button onClick={() => setViewItem(item)} title="View"
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all">
-                          <Eye size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            Showing {items.length} of {totalItems} Activity Logs
+          </span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
+          </div>
         </div>
-
-        {!loading && (
-          <Pagination
-            page={page} totalPages={totalPages} pageSize={pageSize} totalItems={totalItems}
-            onPageChange={p => setPage(p)}
-            onPageSizeChange={s => { setPageSize(s); setPage(1); }}
-          />
-        )}
       </div>
-
-      <LogDetailModal item={viewItem} onClose={() => setViewItem(null)} />
     </div>
   );
 }
