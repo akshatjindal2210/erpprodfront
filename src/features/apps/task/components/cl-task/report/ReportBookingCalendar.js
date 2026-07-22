@@ -59,6 +59,10 @@ function groupTasksBySection(tasks = []) {
 
 function resolveCellScore(task, ymd, today) {
   if (!ymd || ymd > today) return 0;
+  if (task?.day_scores && typeof task.day_scores === "object" && ymd in task.day_scores) {
+    const n = Number(task.day_scores[ymd]);
+    return Number.isFinite(n) ? n : 0;
+  }
   if (task.score_pct != null && task.score_pct !== "") {
     const n = Number(task.score_pct);
     return Number.isFinite(n) ? n : 0;
@@ -67,7 +71,6 @@ function resolveCellScore(task, ymd, today) {
     const raw = Number(task.effective_score_raw);
     return Number.isFinite(raw) && raw > 0 ? Math.round((Math.min(10, raw) / 10) * 1000) / 10 : 0;
   }
-  // New API: effective_score is already %
   if (task.effective_score != null && task.effective_score !== "") {
     const n = Number(task.effective_score);
     return Number.isFinite(n) ? n : 0;
@@ -76,6 +79,22 @@ function resolveCellScore(task, ymd, today) {
   return Number.isFinite(legacy) && legacy > 0
     ? Math.round((Math.min(10, legacy) / 10) * 1000) / 10
     : 0;
+}
+
+/** True when this day should show a score cell for the task. */
+function cellMatched(task, ymd, today) {
+  if (!ymd || !task) return false;
+  const scores = task.day_scores;
+  if (scores && typeof scores === "object" && Object.keys(scores).length > 0) {
+    if (ymd in scores) return ymd <= today;
+    if (task.not_done && task.scheduled_date && ymd === task.scheduled_date && ymd <= today) {
+      return true;
+    }
+    return false;
+  }
+  const start = task.startDate;
+  const end = task.endDate || start;
+  return Boolean(start && end && ymd >= start && ymd <= end);
 }
 
 function formatSignedScore(n) {
@@ -87,6 +106,9 @@ function formatSignedScore(n) {
 function barTone(task, score) {
   if (task.is_red_flag) return "bg-rose-500 text-white border-rose-600";
   if (score < 0) return "bg-rose-100 text-rose-800 border-rose-300";
+  if (task.day_scores && score > 0) {
+    return "bg-slate-600 text-white border-slate-700";
+  }
   if (task.done_verified) return "bg-slate-600 text-white border-slate-700";
   if (task.status === "awaiting_verification") return "bg-indigo-500 text-white border-indigo-600";
   if (task.not_done) return "bg-amber-200 text-slate-800 border-amber-300";
@@ -128,7 +150,23 @@ export default function ReportBookingCalendar({
         toYmdClient(task.scheduled_date) ||
         toYmdClient(fallbackDate);
       const end = toYmdClient(task.endDate) || start;
-      return { ...task, startDate: start, endDate: end || start };
+      let day_scores = task.day_scores;
+      if (day_scores && typeof day_scores === "object") {
+        const normalized = {};
+        for (const [k, v] of Object.entries(day_scores)) {
+          const ymd = toYmdClient(k);
+          if (!ymd) continue;
+          normalized[ymd] = Number(v) || 0;
+        }
+        day_scores = normalized;
+      }
+      return {
+        ...task,
+        startDate: start,
+        endDate: end || start,
+        scheduled_date: toYmdClient(task.scheduled_date) || start,
+        day_scores,
+      };
     };
 
     let list;
@@ -379,14 +417,18 @@ export default function ReportBookingCalendar({
                   </div>
 
                   {section.tasks.map((task, tIdx) => {
-                    const start = task.startDate;
-                    const end = task.endDate || start;
                     const zebra = tIdx % 2 === 1;
                     const fullTitle = task.title || "Task";
+                    const attempts =
+                      Number(task.fill_count) > 1 ? ` · ${task.fill_count} submits` : "";
 
                     return (
                       <div
-                        key={task.instance_id ?? `${user.person_id}-${section.key}-${tIdx}`}
+                        key={
+                          task.cl_task_id != null
+                            ? `m-${user.person_id}-${task.cl_task_id}`
+                            : (task.instance_id ?? `${user.person_id}-${section.key}-${tIdx}`)
+                        }
                         className={`flex border-b border-slate-100 ${zebra ? "bg-slate-50/40" : "bg-white"}`}
                         style={{ minWidth: gridWidth, height: ROW_H }}
                       >
@@ -398,15 +440,23 @@ export default function ReportBookingCalendar({
                         >
                           <div className="border-r border-slate-100" style={{ width: SNO_W }} />
                           <div className="flex-1 min-w-0 px-1.5 pl-2 flex items-center">
-                            <p className="text-[9px] font-semibold text-slate-700 truncate" title={fullTitle}>
+                            <p
+                              className="text-[9px] font-semibold text-slate-700 truncate"
+                              title={`${fullTitle}${attempts}`}
+                            >
                               {fullTitle}
+                              {Number(task.fill_count) > 1 ? (
+                                <span className="ml-1 text-[8px] font-bold text-slate-400 tabular-nums">
+                                  ×{task.fill_count}
+                                </span>
+                              ) : null}
                             </p>
                           </div>
                         </div>
 
                         {dateCols.map((ymd) => {
                           const isToday = ymd === today;
-                          const matched = Boolean(start && end && ymd >= start && ymd <= end);
+                          const matched = cellMatched(task, ymd, today);
                           const score = matched ? resolveCellScore(task, ymd, today) : 0;
                           const label = formatSignedScore(score);
 
@@ -424,7 +474,7 @@ export default function ReportBookingCalendar({
                                 onClick={() => matched && onSelectTask?.(task)}
                                 title={
                                   matched
-                                    ? `${fullTitle} · ${weekdayLong(ymd)} · ${label}`
+                                    ? `${fullTitle} · ${weekdayLong(ymd)} · ${label}${attempts}`
                                     : `${formatDmy(ymd)} · no task`
                                 }
                                 className={`w-[calc(100%-2px)] h-5 rounded-sm border text-[9px] font-black tabular-nums ${

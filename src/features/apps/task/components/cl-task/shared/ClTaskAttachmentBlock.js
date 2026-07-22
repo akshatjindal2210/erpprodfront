@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { ImageIcon, FileText, ClipboardList, X } from "lucide-react";
 import { FILE_BASE_URL } from "@/core/utils/lib";
 import { FORM_LABEL_CLASS } from "@/core/components/common/Constants";
+import FilePreviewLink from "@/core/components/common/FilePreviewLink";
 
 /** Normalize DB / form value → array of meta objects or File. Legacy single object supported. */
 export function parseAttachments(raw) {
@@ -133,14 +134,11 @@ export default function ClTaskAttachmentsField({
                 key={key}
                 className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
               >
-                <a
-                  href={url || "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <FilePreviewLink
+                  href={url}
+                  fileName={name}
+                  mimeType={mime}
                   className="flex items-center gap-2 min-w-0 flex-1 hover:opacity-90"
-                  onClick={(e) => {
-                    if (!url) e.preventDefault();
-                  }}
                 >
                   <div
                     className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 ${
@@ -159,7 +157,7 @@ export default function ClTaskAttachmentsField({
                   {size > 0 && (
                     <span className="text-xs text-slate-400 flex-shrink-0">{formatSize(size)}</span>
                   )}
-                </a>
+                </FilePreviewLink>
                 {!readOnly && onChange && (
                   <button
                     type="button"

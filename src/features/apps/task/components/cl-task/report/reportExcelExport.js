@@ -103,6 +103,7 @@ export function buildClReportExportRows(users = []) {
   const rows = [];
   for (const user of users) {
     for (const task of user.tasks || []) {
+      const fillCount = Number(task.fill_count) || 0;
       rows.push({
         sno: user.sno,
         scheduled_date: formatScheduledDate(toYmdClient(task.startDate || task.scheduled_date)),
@@ -113,6 +114,7 @@ export function buildClReportExportRows(users = []) {
         title: task.title || "",
         status: statusLabel(task),
         score_display: formatSignedScore(resolveExportScorePct(task)),
+        attempts: fillCount > 1 ? fillCount : fillCount === 1 ? 1 : "",
         weightage: task.weightage ?? task.wastage ?? "",
         _task: task,
       });
@@ -131,6 +133,7 @@ const EXPORT_COLUMNS = [
   ["Task", "title"],
   ["Status", "status"],
   ["Score", "score_display"],
+  ["Attempts", "attempts"],
   ["Weightage", "weightage"],
 ];
 
@@ -193,6 +196,7 @@ export async function exportClTaskReportExcel({
     { wch: 28 },
     { wch: 14 },
     { wch: 8 },
+    { wch: 10 },
     { wch: 10 },
   ];
 

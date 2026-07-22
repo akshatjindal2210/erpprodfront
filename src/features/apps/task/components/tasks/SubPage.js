@@ -408,7 +408,11 @@ export default function TaskDetailPage() {
     const tooBig  = files.filter((f) => ALLOWED_FILE_TYPES.includes(f.type) && f.size > MAX_MB * 1024 * 1024);
     if (invalid.length > 0) toast.error(`${invalid.length} file(s) rejected — only images & documents allowed`);
     if (tooBig.length  > 0) toast.error(`${tooBig.length} file(s) rejected — max size is ${MAX_MB}MB`);
-    if (valid.length   > 0) onValid(valid.map((f) => ({ file: f, name: f.name, preview: f.type.startsWith("image/") ? URL.createObjectURL(f) : null })));
+    if (valid.length   > 0) onValid(valid.map((f) => ({
+      file: f,
+      name: f.name,
+      preview: URL.createObjectURL(f),
+    })));
   };
 
   const handleChatFilePick = (e) => {
@@ -1149,7 +1153,14 @@ export default function TaskDetailPage() {
                     )}
                     {chatFiles.length > 0 && !isTaskDone && !isChatLockedByTarget && (
                       <div className="flex-shrink-0 px-3 py-2 border-t border-slate-100 bg-white flex gap-2 overflow-x-auto">
-                        {chatFiles.map((f, i) => <FilePill key={i} file={{ file_name: f.name, preview: f.preview }} isNew onRemove={() => removeChatFile(i)} />)}
+                        {chatFiles.map((f, i) => (
+                          <FilePill
+                            key={i}
+                            file={{ file_name: f.name, preview: f.preview, mime_type: f.file?.type || "", type: f.file?.type || "" }}
+                            isNew
+                            onRemove={() => removeChatFile(i)}
+                          />
+                        ))}
                       </div>
                     )}
                     {isTaskDone ? (
@@ -1256,7 +1267,14 @@ export default function TaskDetailPage() {
                             {selfNewFiles.length > 0 && (
                               <div>
                                 <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Pending Upload</p>
-                                <div className="flex flex-wrap gap-2">{selfNewFiles.map((f, i) => <FilePill key={i} file={{ file_name: f.name, preview: f.preview }} isNew onRemove={() => removeSelfNew(i)} />)}</div>
+                                <div className="flex flex-wrap gap-2">{selfNewFiles.map((f, i) => (
+                                  <FilePill
+                                    key={i}
+                                    file={{ file_name: f.name, preview: f.preview, mime_type: f.file?.type || "", type: f.file?.type || "" }}
+                                    isNew
+                                    onRemove={() => removeSelfNew(i)}
+                                  />
+                                ))}</div>
                               </div>
                             )}
                           </div>

@@ -444,6 +444,23 @@ export default function ClVerificationFormModal({
     });
   }, [showVerifyApprove, runApprove, createAsRedTicket]);
 
+  /** Ctrl+S via Drawer — same as primary footer action (Verify/Approve or Update). */
+  const handleDrawerSubmit = useCallback(() => {
+    if (saving || viewOnly) return;
+    if (showVerifyApprove) {
+      handleVerifyApprove();
+      return;
+    }
+    if (showUpdate) handleUpdate();
+  }, [
+    saving,
+    viewOnly,
+    showVerifyApprove,
+    showUpdate,
+    handleVerifyApprove,
+    handleUpdate,
+  ]);
+
   const title = reportVariant
     ? viewOnly
       ? "View CL Task Report"
@@ -460,6 +477,11 @@ export default function ClVerificationFormModal({
     <Drawer
       isOpen={isOpen}
       onClose={onClose}
+      onSubmit={
+        viewOnly || (!showVerifyApprove && !showUpdate)
+          ? undefined
+          : handleDrawerSubmit
+      }
       title={title}
       description={
         task
@@ -496,6 +518,7 @@ export default function ClVerificationFormModal({
                   type="button"
                   onClick={handleUpdate}
                   disabled={saving}
+                  title="Ctrl+S"
                   className="px-4 py-2.5 text-sm font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl border border-indigo-200 disabled:opacity-50 inline-flex items-center gap-1.5"
                 >
                   <Save size={15} />
@@ -519,7 +542,7 @@ export default function ClVerificationFormModal({
                     title={
                       createAsRedTicket
                         ? "Approve disabled — Create as Red Ticket only allows Reject"
-                        : undefined
+                        : "Ctrl+S"
                     }
                     className="min-w-[140px] px-5 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5 shadow-sm"
                   >
@@ -659,18 +682,22 @@ export default function ClVerificationFormModal({
                 clTaskId={task.cl_task_id}
                 personId={task.person_id}
                 currentInstanceId={task.instance_id}
-                excludeCurrent
-                defaultCollapsed
-                title="Other submits for this task"
+                currentFillId={task.fill_id || null}
+                excludeCurrent={!reportVariant}
+                defaultCollapsed={!reportVariant}
+                title={reportVariant ? "All submissions" : "Other submits for this task"}
                 onOpenFill={
-                  typeof onSwitchFill === "function"
-                    ? (fill) =>
-                        onSwitchFill({
-                          instance_id: fill.instance_id,
-                          title: fill.title || task?.title,
-                          scheduled_date: fill.scheduled_date,
-                        })
-                    : undefined
+                  reportVariant
+                    ? undefined
+                    : typeof onSwitchFill === "function"
+                      ? (fill) =>
+                          onSwitchFill({
+                            instance_id: fill.instance_id,
+                            fill_id: fill.fill_id || undefined,
+                            title: fill.title || task?.title,
+                            scheduled_date: fill.scheduled_date,
+                          })
+                      : undefined
                 }
               />
             </>

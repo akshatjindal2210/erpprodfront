@@ -6,21 +6,29 @@ import { formatStoredScoreAsPercent } from "@/features/apps/task/helpers/clTaskS
 import ClTaskFormEntriesView from "./ClTaskFormEntriesView";
 import { ClFormSection } from "./clTaskFormUi";
 
+function fillKey(fill, index = 0) {
+  if (fill?.fill_id != null && fill.fill_id !== "") return `fill:${fill.fill_id}`;
+  if (fill?.id != null && String(fill.id).startsWith("fill_")) return `fill:${fill.id}`;
+  const instanceId = Number(fill?.instance_id);
+  if (instanceId) return `inst:${instanceId}`;
+  return `idx:${index}`;
+}
+
 function dedupeFills(fills) {
   const seen = new Set();
   const out = [];
-  for (const fill of fills || []) {
-    const id = Number(fill?.instance_id);
-    if (id && seen.has(id)) continue;
-    if (id) seen.add(id);
+  (fills || []).forEach((fill, index) => {
+    const key = fillKey(fill, index);
+    if (seen.has(key)) return;
+    seen.add(key);
     out.push(fill);
-  }
+  });
   return out;
 }
 
 /**
- * Collapsible timeline of submits for one CL master + person.
- * Only includes fills for the opened task (`clTaskId`).
+ * Collapsible list of submissions for one CL task.
+ * Open tasks may share instance_id; rows are keyed by fill_id when present.
  */
 export default function ClTaskSubmissionFillsList({
   fills = [],
@@ -28,7 +36,8 @@ export default function ClTaskSubmissionFillsList({
   clTaskId = null,
   personId = null,
   currentInstanceId = null,
-  /** Hide the row already shown as the main form above. */
+  currentFillId = null,
+  /** Hide the submission already shown in the main form. */
   excludeCurrent = false,
   title,
   emptyLabel = "No previous submissions yet",
@@ -41,16 +50,24 @@ export default function ClTaskSubmissionFillsList({
       if (personId != null && fill.person_id != null && Number(fill.person_id) !== Number(personId)) {
         return false;
       }
+      if (!excludeCurrent) return true;
+
+      const fillId = fill.fill_id ?? fill.id ?? null;
+      if (currentFillId != null && fillId != null) {
+        return String(fillId) !== String(currentFillId);
+      }
+      // Keep other fills that only share the same instance_id
+      if (fillId != null && currentFillId == null) return true;
       if (
-        excludeCurrent &&
         currentInstanceId != null &&
-        Number(fill.instance_id) === Number(currentInstanceId)
+        Number(fill.instance_id) === Number(currentInstanceId) &&
+        fillId == null
       ) {
         return false;
       }
       return true;
     });
-  }, [fills, clTaskId, personId, currentInstanceId, excludeCurrent]);
+  }, [fills, clTaskId, personId, currentInstanceId, currentFillId, excludeCurrent]);
 
   const [sectionOpen, setSectionOpen] = useState(!defaultCollapsed);
   const [expandedIds, setExpandedIds] = useState(() => new Set());
@@ -58,14 +75,15 @@ export default function ClTaskSubmissionFillsList({
   useEffect(() => {
     setSectionOpen(!defaultCollapsed);
     const next = new Set();
-    if (currentInstanceId != null && !excludeCurrent) {
-      next.add(Number(currentInstanceId));
+    if (currentFillId != null) {
+      next.add(`fill:${currentFillId}`);
+    } else if (currentInstanceId != null && !excludeCurrent) {
+      next.add(`inst:${Number(currentInstanceId)}`);
     }
     setExpandedIds(next);
-  }, [clTaskId, currentInstanceId, excludeCurrent, defaultCollapsed, list.length]);
+  }, [clTaskId, currentInstanceId, currentFillId, excludeCurrent, defaultCollapsed, list.length]);
 
-  const toggleFill = (id) => {
-    const key = Number(id);
+  const toggleFill = (key) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -116,15 +134,19 @@ export default function ClTaskSubmissionFillsList({
           <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
             {list.map((fill, i) => {
               const fillEntries = normalizeToEntries(fill.form_responses);
-              const id = Number(fill.instance_id) || i;
+              const key = fillKey(fill, i);
+              const fillId = fill.fill_id ?? fill.id ?? null;
               const isCurrent =
-                currentInstanceId != null &&
-                Number(fill.instance_id) === Number(currentInstanceId);
-              const open = expandedIds.has(id);
+                currentFillId != null && fillId != null
+                  ? String(fillId) === String(currentFillId)
+                  : currentInstanceId != null &&
+                    Number(fill.instance_id) === Number(currentInstanceId) &&
+                    fillId == null;
+              const open = expandedIds.has(key);
 
               return (
                 <div
-                  key={fill.instance_id || `fill-${i}`}
+                  key={key}
                   className={`rounded-xl border overflow-hidden ${
                     isCurrent
                       ? "border-indigo-300 bg-indigo-50/40"
@@ -134,7 +156,7 @@ export default function ClTaskSubmissionFillsList({
                   <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/80 flex flex-wrap items-center gap-x-2 gap-y-1">
                     <button
                       type="button"
-                      onClick={() => toggleFill(id)}
+                      onClick={() => toggleFill(key)}
                       className="inline-flex items-center gap-1.5 text-left min-w-0"
                     >
                       {open ? (
@@ -172,7 +194,9 @@ export default function ClTaskSubmissionFillsList({
                         {Number(fill.reject_count) === 1 ? "time" : "times"}
                       </span>
                     ) : null}
-                    {typeof onOpenFill === "function" && fill.instance_id && !isCurrent ? (
+                    {typeof onOpenFill === "function" &&
+                    (fill.instance_id || fill.fill_id) &&
+                    !isCurrent ? (
                       <button
                         type="button"
                         onClick={() => onOpenFill(fill)}

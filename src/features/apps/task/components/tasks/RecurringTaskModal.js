@@ -19,6 +19,7 @@ import SelectField      from "../common/SelectField";
 import SearchableSelect from "../common/SearchableSelect";
 import { recurringTaskService } from "@/features/apps/task/services/recurringTaskApi";
 import { FILE_BASE_URL } from "@/core/utils/lib";
+import FilePreviewLink from "@/core/components/common/FilePreviewLink";
 import RichTextEditor from "../common/RichTextEditor";
 import YearlyRecurrencePicker from "../common/YearlyRecurrencePicker";
 
@@ -1342,15 +1343,14 @@ export default function RecurringTaskModal({open, onClose, onSuccess, editTask, 
                               }
                             </div>
 
-                            {/* Wrap name in a link to open in new tab */}
-                            <a
+                            <FilePreviewLink
                               href={fileUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                              fileName={name}
+                              mimeType={file.type || file.mime_type || ""}
                               className="text-xs text-slate-700 truncate hover:underline"
                             >
                               {name}
-                            </a>
+                            </FilePreviewLink>
 
                             <span className="text-xs text-slate-400 flex-shrink-0">{(size / 1024).toFixed(0)} KB</span>
                           </div>

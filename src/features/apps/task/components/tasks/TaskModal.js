@@ -20,6 +20,8 @@ import SelectField      from "../common/SelectField";
 import SearchableSelect from "../common/SearchableSelect";
 import RichTextEditor from "../common/RichTextEditor";
 import YearlyRecurrencePicker from "../common/YearlyRecurrencePicker";
+import FilePreviewLink from "@/core/components/common/FilePreviewLink";
+import { FILE_BASE_URL } from "@/core/utils/lib";
 
 // ─── IMS drawer density — same height / radius as SearchableSelect ─────────────
 const okCls   = OK_INPUT;
@@ -1347,8 +1349,16 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                   {form.attachments.length > 0 && (
                     <div className="mt-2 space-y-1.5">
                       {form.attachments.map((file, i) => {
-                        const isImage = file.type.startsWith("image/");
-                        const isPdf   = file.type === "application/pdf";
+                        const isExisting = !(file instanceof File) && file?.file_path;
+                        const name = file.name || file.file_name;
+                        const mime = file.type || file.mime_type || "";
+                        const isImage = mime.startsWith("image/") || /\.(png|jpe?g|gif|webp)$/i.test(name || "");
+                        const isPdf = mime === "application/pdf" || /\.pdf$/i.test(name || "");
+                        const fileUrl = isExisting
+                          ? `${FILE_BASE_URL}/${file.file_path}`
+                          : file instanceof File
+                            ? URL.createObjectURL(file)
+                            : null;
                         return (
                           <div key={i} className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
                             <div className="flex items-center gap-2 min-w-0">
@@ -1362,9 +1372,20 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                                     : <ClipboardList size={11} className="text-indigo-600" />
                                 }
                               </div>
-                              <span className="text-xs text-slate-700 truncate">{file.name}</span>
+                              {fileUrl ? (
+                                <FilePreviewLink
+                                  href={fileUrl}
+                                  fileName={name}
+                                  mimeType={mime}
+                                  className="text-xs text-slate-700 truncate hover:underline"
+                                >
+                                  {name}
+                                </FilePreviewLink>
+                              ) : (
+                                <span className="text-xs text-slate-700 truncate">{name}</span>
+                              )}
                               <span className="text-xs text-slate-400 flex-shrink-0">
-                                {(file.size / 1024).toFixed(0)} KB
+                                {((file.size || file.file_size || 0) / 1024).toFixed(0)} KB
                               </span>
                             </div>
                             <button type="button"

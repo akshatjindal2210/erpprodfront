@@ -2,6 +2,8 @@ import { AlertTriangle, Download, Trash2, FileText, CheckCircle2, ThumbsUp, XCir
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 
 import { FILE_BASE_URL } from "@/core/utils/lib";
+import FilePreviewLink from "@/core/components/common/FilePreviewLink";
+import { ALLOW_FILE_DOWNLOAD } from "@/core/config/filePreviewConfig";
 import SearchableSelect  from "@/features/apps/task/components/common/SearchableSelect";
 import { PRIORITY_CONFIG } from "../common/Constants";
 import { taskService } from "@/features/apps/task/services/taskApi";
@@ -247,22 +249,28 @@ export function AutoTextarea({ value, onChange, onKeyDown, placeholder, classNam
 
 export function FilePill({ file, onRemove, isNew = false }) {
   const fileName = file.file_name ?? file.name;
-  const isImg    = file.preview || /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(fileName);
-  const fileUrl  = file.preview ?? (file.file_path ? `${FILE_BASE_URL}/${file.file_path}` : null);
+  const mime = file.mime_type || file.type || "";
+  const isImg =
+    mime.startsWith("image/") ||
+    /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(fileName || "");
+  const fileUrl = file.preview ?? (file.file_path ? `${FILE_BASE_URL}/${file.file_path}` : null);
   return (
     <div className="relative group flex-shrink-0">
       {fileUrl ? (
-        <a href={fileUrl} target="_blank" rel="noopener noreferrer"
-          className="block w-14 h-14 rounded-lg overflow-hidden border border-slate-200" title={fileName}>
+        <FilePreviewLink
+          href={fileUrl}
+          fileName={fileName}
+          mimeType={mime}
+          className="block w-14 h-14 rounded-lg overflow-hidden border border-slate-200"
+          title={fileName}
+        >
           {isImg
             ? <img src={fileUrl} alt={fileName} className="w-full h-full object-cover" />
             : <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center gap-1 p-1">
                 <FileText size={16} className="text-slate-400" />
                 <span className="text-[8px] text-slate-400 truncate w-full text-center">{fileName}</span>
               </div>}
-        </a>
-      ) : isImg ? (
-        <img src={file.preview} alt={fileName} className="w-14 h-14 object-cover rounded-lg border border-slate-200" />
+        </FilePreviewLink>
       ) : (
         <div className="w-14 h-14 rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-1 p-1">
           <FileText size={16} className="text-slate-400" />
@@ -317,16 +325,27 @@ export function ChatBubble({ msg, onReply, onDelete, isTaskDone, isSuperAdmin })
           <div className={`flex flex-wrap gap-1.5 mt-0.5 ${isOwn ? "justify-end" : ""}`}>
             {atts.map((a, i) => {
               const isImg = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(a.file_name ?? "");
+              const url = `${FILE_BASE_URL}/${a.file_path}`;
               return isImg ? (
-                <a key={i} href={`${FILE_BASE_URL}/${a.file_path}`} target="_blank" rel="noreferrer"
-                  className="block w-28 h-20 rounded-xl overflow-hidden border border-slate-200 shadow-sm hover:opacity-90">
-                  <img src={`${FILE_BASE_URL}/${a.file_path}`} alt={a.file_name} className="w-full h-full object-cover" />
-                </a>
+                <FilePreviewLink
+                  key={i}
+                  href={url}
+                  fileName={a.file_name}
+                  mimeType={a.mime_type || ""}
+                  className="block w-28 h-20 rounded-xl overflow-hidden border border-slate-200 shadow-sm hover:opacity-90"
+                >
+                  <img src={url} alt={a.file_name} className="w-full h-full object-cover" />
+                </FilePreviewLink>
               ) : (
-                <a key={i} href={`${FILE_BASE_URL}/${a.file_path}`} target="_blank" rel="noreferrer"
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors ${isOwn ? "bg-indigo-500 border-indigo-400 text-white hover:bg-indigo-400" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
-                  <FileText size={11} /><span className="truncate max-w-[100px]">{a.file_name}</span><Download size={10} />
-                </a>
+                <FilePreviewLink
+                  key={i}
+                  href={url}
+                  fileName={a.file_name}
+                  mimeType={a.mime_type || ""}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors ${isOwn ? "bg-indigo-500 border-indigo-400 text-white hover:bg-indigo-400" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                >
+                  <FileText size={11} /><span className="truncate max-w-[100px]">{a.file_name}</span>{ALLOW_FILE_DOWNLOAD ? <Download size={10} /> : null}
+                </FilePreviewLink>
               );
             })}
           </div>
