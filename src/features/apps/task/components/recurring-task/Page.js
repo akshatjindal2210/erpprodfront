@@ -330,7 +330,7 @@ export default function RecurringTasksPage() {
     ];
     if (isAdmin || isSuperAdmin) {
       filters.push({
-        label: "Member",
+        label: "Users",
         key: "user_id",
         value: selectedUser ? String(selectedUser) : "",
         searchable: true,

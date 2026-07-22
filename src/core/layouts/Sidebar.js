@@ -100,8 +100,8 @@ export default function Sidebar({
   }, [role, permissions]);
 
   const PORTAL_NAV = [
-    { id: 'home', name: 'Home', href: ROUTES.HOME, icon: <LayoutDashboard size={14} /> },
-    { id: 'logs', name: 'Activity Logs', href: ROUTES.ACTIVITY_LOGS, icon: <History size={14} /> },
+    { id: "home", name: "Home", href: ROUTES.HOME, icon: <LayoutDashboard size={14} /> },
+    { id: "logs", name: "Activity Logs", href: ROUTES.ACTIVITY_LOGS, icon: <History size={14} /> },
   ];
 
   const canSeeNavItem = (item) => {
@@ -280,7 +280,11 @@ export default function Sidebar({
         className={`fixed inset-y-0 left-0 z-[120] ${THEME_CONFIG.sidebarBg} flex flex-col h-screen transition-all duration-300 border-r ${THEME_CONFIG.sidebarBorder}
         ${sidebarOpen ? "translate-x-0 w-64 shadow-2xl" : "-translate-x-full"} md:translate-x-0 ${collapsed ? "md:w-14" : "md:w-56"}`}
       >
-        <div className={`h-12 flex items-center gap-2 px-3 border-b ${THEME_CONFIG.sidebarBorder} shrink-0 overflow-hidden ${collapsed && !sidebarOpen ? "md:justify-center md:px-1.5" : ""}`}>
+        <Link
+          href={ROUTES.HOME}
+          title="Go to Home"
+          className={`h-12 flex items-center gap-2 px-3 border-b ${THEME_CONFIG.sidebarBorder} shrink-0 overflow-hidden hover:bg-white/5 transition-colors ${collapsed && !sidebarOpen ? "md:justify-center md:px-1.5" : ""}`}
+        >
           {/* White plate so black JFL mark stays visible on dark sidebar */}
           <div
             className={`flex items-center justify-center rounded-md bg-white shrink-0 ${
@@ -289,7 +293,7 @@ export default function Sidebar({
           >
             <img
               src="/logo.png"
-              alt={brandLabel}
+              alt={brandLabel || "Home"}
               className={`object-contain shrink-0 ${
                 collapsed && !sidebarOpen ? "h-full w-full" : "h-7 w-auto max-w-[8.5rem]"
               }`}
@@ -300,7 +304,7 @@ export default function Sidebar({
               {brandLabel}
             </span>
           ) : null}
-        </div>
+        </Link>
 
         <nav className="flex-1 overflow-y-auto px-2 py-4 space-y-0.5 custom-scrollbar">
           {!hideNav ? (

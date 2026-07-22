@@ -14,6 +14,9 @@ export const HANDLE_STYLES = {
   topLeft: true,
 };
 
+/** Class used with Rnd `dragHandleClassName` for containers (and toolbar grip). */
+export const DRAG_HANDLE_CLASS = "simple-drag-handle";
+
 const RESIZE_HANDLE_STYLE = {
   width: "12px",
   height: "12px",
@@ -60,13 +63,31 @@ export function selectionStyle(isSelected, isContainer = false) {
   };
 }
 
-/** Do not stopPropagation on the toolbar root — that blocks react-rnd drag. */
+/** Do not stopPropagation on the toolbar root — that blocks react-rnd drag.
+ *  Fire on pointerdown: react-rnd often swallows the subsequent click. */
+function toolbarAction(handler) {
+  return (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handler?.(e);
+  };
+}
+
+function swallowClick(e) {
+  e.preventDefault();
+  e.stopPropagation();
+}
+
 export function SimpleWidgetToolbar({ onEdit, onClone, onDelete, onSendToBottom }) {
   return (
-    <div className="absolute top-1 left-1 z-30 flex items-center gap-0.5 rounded-md border border-slate-200 bg-white p-0.5 shadow-sm">
+    <div
+      className="simple-widget-toolbar absolute top-1 left-1 z-30 flex items-center gap-0.5 rounded-md border border-slate-200 bg-white p-0.5 shadow-sm"
+      data-simple-toolbar="true"
+    >
       <div
-        className="grid h-5 w-5 cursor-grab place-items-center rounded hover:bg-slate-100 active:cursor-grabbing"
-        title="Drag"
+        className={`${DRAG_HANDLE_CLASS} grid h-5 w-5 cursor-grab place-items-center rounded hover:bg-slate-100 hover:cursor-grab active:cursor-grabbing`}
+        title="Move"
+        style={{ cursor: "grab" }}
       >
         <GripVertical size={11} className="pointer-events-none text-slate-400" />
       </div>
@@ -74,8 +95,8 @@ export function SimpleWidgetToolbar({ onEdit, onClone, onDelete, onSendToBottom 
         type="button"
         title="Edit"
         className="simple-no-drag grid h-5 w-5 place-items-center rounded text-slate-600 hover:bg-slate-100"
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={onEdit}
+        onPointerDown={toolbarAction(onEdit)}
+        onClick={swallowClick}
       >
         <Pencil size={10} />
       </button>
@@ -83,8 +104,8 @@ export function SimpleWidgetToolbar({ onEdit, onClone, onDelete, onSendToBottom 
         type="button"
         title="Clone"
         className="simple-no-drag grid h-5 w-5 place-items-center rounded text-slate-600 hover:bg-slate-100"
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={onClone}
+        onPointerDown={toolbarAction(onClone)}
+        onClick={swallowClick}
       >
         <Copy size={10} />
       </button>
@@ -93,8 +114,8 @@ export function SimpleWidgetToolbar({ onEdit, onClone, onDelete, onSendToBottom 
           type="button"
           title="Send to bottom"
           className="simple-no-drag grid h-5 w-5 place-items-center rounded text-slate-600 hover:bg-slate-100"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={onSendToBottom}
+          onPointerDown={toolbarAction(onSendToBottom)}
+          onClick={swallowClick}
         >
           <ArrowDownToLine size={10} />
         </button>
@@ -103,8 +124,8 @@ export function SimpleWidgetToolbar({ onEdit, onClone, onDelete, onSendToBottom 
         type="button"
         title="Delete"
         className="simple-no-drag grid h-5 w-5 place-items-center rounded text-rose-500 hover:bg-rose-50"
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={onDelete}
+        onPointerDown={toolbarAction(onDelete)}
+        onClick={swallowClick}
       >
         <Trash2 size={10} />
       </button>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Rnd } from "react-rnd";
 import WidgetRenderer from "./WidgetRenderer";
@@ -16,6 +16,7 @@ import {
   boxWithId,
   containerContentHeightPx,
   defaultBoxForType,
+  fitNestedPhoneBoxes,
   layoutPxFingerprint,
   normalizeBox,
   readWidgetBoxPx,
@@ -52,10 +53,41 @@ export default function SimpleNestedCanvas({
   // or drag/resize commits wrong pixel gaps (tight visually, spaced after publish).
   const rndScale = Number(dragScale) > 0 ? Number(dragScale) : 1;
 
-  const boxes = useMemo(
+  const hostRef = useRef(null);
+  const [hostWidth, setHostWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    if (!isPhoneMode) return undefined;
+    const node = hostRef.current;
+    if (!node) return undefined;
+    const measure = () => {
+      const w = Math.floor(node.clientWidth || node.getBoundingClientRect().width || 0);
+      if (w >= 40) setHostWidth((prev) => (Math.abs(prev - w) <= 1 ? prev : w));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => window.requestAnimationFrame(measure));
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [isPhoneMode, childWidgets.length]);
+
+  // Saved designer coords — never overwrite these with display-fitted sizes.
+  const sourceBoxes = useMemo(
     () => boxesFromChildren(childWidgets, layoutPx),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [childWidgets, layoutPxFingerprint(layoutPx)],
+  );
+  const sourceBoxesRef = useRef(sourceBoxes);
+  sourceBoxesRef.current = sourceBoxes;
+
+  const boxes = useMemo(
+    () => {
+      if (!isPhoneMode || hostWidth < 40) return sourceBoxes;
+      // Builder: clamp only (exact sizes). Live: scale-to-fill for publish width.
+      return fitNestedPhoneBoxes(sourceBoxes, hostWidth, { fill: readOnly });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sourceBoxes, isPhoneMode, hostWidth, readOnly],
   );
   const boxesRef = useRef(boxes);
   boxesRef.current = boxes;
@@ -92,17 +124,21 @@ export default function SimpleNestedCanvas({
 
   const commitBox = useCallback((id, viewPatch) => {
     const patch = fromView(viewPatch);
+    // Commit against saved source boxes — not display-fitted coords — so resizing
+    // one nested widget never rewrites sibling width/height/left/top.
     const next = sanitizeNestedLayoutPx(
-      boxesRef.current.map((box) => {
+      sourceBoxesRef.current.map((box) => {
         if (String(box.i) !== String(id)) return box;
         return boxWithId(id, {
           ...box,
-          ...patch,
-          left: Math.max(0, Number(patch.left ?? box.left) || 0),
-          top: Math.max(0, Number(patch.top ?? box.top) || 0),
+          left: patch.left != null ? Math.max(0, Number(patch.left)) : box.left,
+          top: patch.top != null ? Math.max(0, Number(patch.top)) : box.top,
+          width: patch.width != null ? Math.max(40, Number(patch.width)) : box.width,
+          height: patch.height != null ? Math.max(32, Number(patch.height)) : box.height,
         });
       }).filter(Boolean),
     );
+    sourceBoxesRef.current = next;
     boxesRef.current = next;
     setLiveBoxes(null);
     onLayoutChangeRef.current?.(next, {});
@@ -153,17 +189,34 @@ export default function SimpleNestedCanvas({
 
   return (
     <div
+      ref={hostRef}
       className={`relative w-full min-w-0 ${fillParentHeight ? "h-full min-h-0 flex-1" : ""}`}
       style={fillParentHeight
         ? { height: "100%", overflow: "hidden" }
-        : { height: canvasHeight, minHeight: canvasHeight, overflow: "hidden" }}
+        : { height: canvasHeight, minHeight: canvasHeight, overflow: readOnly ? "hidden" : "visible" }}
       onMouseDown={(e) => {
-        if (e.target.closest(".simple-rnd, button")) return;
+        if (e.target.closest("button, .simple-no-drag, .simple-widget-toolbar")) return;
+        if (e.target.closest(".simple-rnd")) {
+          const id = e.target.closest(".simple-rnd")?.querySelector?.("[data-widget-id]")?.getAttribute("data-widget-id");
+          if (id) {
+            e.stopPropagation();
+            onSelectWidget?.(id);
+          }
+          return;
+        }
         if (onContainerShellPointerDown) {
           onContainerShellPointerDown(e);
           return;
         }
         onCanvasBackgroundClick?.();
+      }}
+      onPointerDownCapture={(e) => {
+        if (readOnly) return;
+        if (e.target.closest("button, .simple-no-drag, .simple-widget-toolbar")) return;
+        const nested = e.target.closest(".simple-rnd");
+        if (!nested) return;
+        const id = nested.querySelector?.("[data-widget-id]")?.getAttribute("data-widget-id");
+        if (id) onSelectWidget?.(id);
       }}
     >
       {childWidgets.map((child) => {
@@ -239,6 +292,10 @@ export default function SimpleNestedCanvas({
               margin: 0,
               padding: 0,
               boxShadow: selectionStyle(isSelected, false).boxShadow || css.boxShadow,
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              onSelectWidget?.(child.id);
             }}
             onDragStart={() => onSelectWidget?.(child.id)}
             onDrag={(_e, d) => {

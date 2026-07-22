@@ -2,7 +2,7 @@ import {
   ChevronDown, Search, Paperclip,
 } from "lucide-react";
 import { getFieldTypeMeta } from "@/features/apps/task/helpers/clTaskFormHelper";
-import { inputBase } from "./clTaskFormUi";
+import { inputBase, textareaBase } from "./clTaskFormUi";
 
 export default function ClTaskFormFieldPreview({ field }) {
   const meta = getFieldTypeMeta(field.type);
@@ -30,7 +30,7 @@ export default function ClTaskFormFieldPreview({ field }) {
         <input className={inputBase} placeholder={field.placeholder || "Short answer…"} disabled />
       )}
       {field.type === "text" && (
-        <textarea className={`${inputBase} min-h-[44px]`} placeholder={field.placeholder || "Long answer…"} disabled rows={2} />
+        <textarea className={`${textareaBase} min-h-[44px]`} placeholder={field.placeholder || "Long answer…"} disabled rows={2} />
       )}
       {(field.type === "numeric" || field.type === "email" || field.type === "phone") && (
         <input className={inputBase} placeholder={field.placeholder || meta.label} disabled />

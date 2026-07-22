@@ -87,7 +87,7 @@ export default function ReportPage({ reportPage }) {
   });
 
   const [activeTab,      setActiveTab]      = useState(() =>
-    readSessionString(REPORT_FILTER_SS.activeTab, "assigned_to_me"),
+    readSessionString(REPORT_FILTER_SS.activeTab, "all"),
   );
   const [search,         setSearch]         = useState(() =>
     readSessionString(REPORT_FILTER_SS.search, ""),
@@ -286,8 +286,8 @@ export default function ReportPage({ reportPage }) {
     setSortKey("task_id");
     setSortDir("desc");
     clearAllFilters();
-    setActiveTab("assigned_to_me");
-    setQuickFilter(getDefaultQuickFilterForTab("assigned_to_me"));
+    setActiveTab("all");
+    setQuickFilter(getDefaultQuickFilterForTab("all"));
     setSelected(null);
     setDisplayLimit(DISPLAY_CHUNK);
     clearFilters();
@@ -295,7 +295,7 @@ export default function ReportPage({ reportPage }) {
   };
 
   const clearActiveBannerFilter = () => {
-    if (activeTab === "all") setActiveTab("assigned_to_me");
+    if (activeTab !== "all") setActiveTab("all");
     setQuickFilter(null);
     setStatusFilter("All");
   };
@@ -401,50 +401,7 @@ export default function ReportPage({ reportPage }) {
   };
 
   const extraFilters = useMemo(() => {
-    const filters = [
-      {
-        label: "Status",
-        key: "status",
-        value: statusFilter,
-        preserveOrder: true,
-        options: [
-          { label: "All Status", value: "All" },
-          ...TASK_STATUSES.map((s) => ({
-            label: TASK_STATUS_CONFIG[s]?.label ?? s,
-            value: s,
-          })),
-        ],
-      },
-      {
-        label: "Priority",
-        key: "priority",
-        value: priorityFilter,
-        preserveOrder: true,
-        options: [
-          { label: "All Priority", value: "All" },
-          ...PRIORITIES.map((p) => ({
-            label: PRIORITY_CONFIG[p]?.label ?? p,
-            value: p,
-          })),
-        ],
-      },
-      {
-        label: "Category",
-        key: "category_id",
-        value: categoryFilter,
-        searchable: true,
-        placeholder: "Search categories…",
-        options: [
-          { label: "All Categories", value: "All" },
-          ...categoryOptions
-            .filter((c) => c && (c.id != null || c.category_id != null))
-            .map((c) => ({
-              label: c.name || c.category_name || String(c.id ?? c.category_id),
-              value: String(c.id ?? c.category_id),
-            })),
-        ],
-      },
-    ];
+    const filters = [];
 
     if (showAssignedByDropdown) {
       filters.push({
@@ -512,10 +469,6 @@ export default function ReportPage({ reportPage }) {
     }
     return filters;
   }, [
-    statusFilter,
-    priorityFilter,
-    categoryFilter,
-    categoryOptions,
     showAssignedByDropdown,
     showDepartmentDropdown,
     showDesignationDropdown,
@@ -530,7 +483,55 @@ export default function ReportPage({ reportPage }) {
     teamMemberOptions,
   ]);
 
-  const exportHeaders = useMemo(() => buildTaskExportHeaders(), []);
+  const moreFilters = useMemo(
+    () => [
+      {
+        label: "Status",
+        key: "status",
+        value: statusFilter,
+        preserveOrder: true,
+        options: [
+          { label: "All Status", value: "All" },
+          ...TASK_STATUSES.map((s) => ({
+            label: TASK_STATUS_CONFIG[s]?.label ?? s,
+            value: s,
+          })),
+        ],
+      },
+      {
+        label: "Priority",
+        key: "priority",
+        value: priorityFilter,
+        preserveOrder: true,
+        options: [
+          { label: "All Priority", value: "All" },
+          ...PRIORITIES.map((p) => ({
+            label: PRIORITY_CONFIG[p]?.label ?? p,
+            value: p,
+          })),
+        ],
+      },
+      {
+        label: "Category",
+        key: "category_id",
+        value: categoryFilter,
+        searchable: true,
+        placeholder: "Search categories…",
+        options: [
+          { label: "All Categories", value: "All" },
+          ...categoryOptions
+            .filter((c) => c && (c.id != null || c.category_id != null))
+            .map((c) => ({
+              label: c.name || c.category_name || String(c.id ?? c.category_id),
+              value: String(c.id ?? c.category_id),
+            })),
+        ],
+      },
+    ],
+    [statusFilter, priorityFilter, categoryFilter, categoryOptions],
+  );
+
+  const exportHeaders = useMemo(() => buildTaskExportHeaders({ showTargetDate: true }), []);
 
   const selectedRecord = useMemo(
     () => displayTasks.find((t) => t.task_id === selected) || null,
@@ -600,6 +601,7 @@ export default function ReportPage({ reportPage }) {
         onClone: handleClone,
         onReassign: handleOpenReassignModal,
         showReassign,
+        showTargetDate: true,
       }),
     [
       activeTab,
@@ -736,6 +738,8 @@ export default function ReportPage({ reportPage }) {
             showDate={false}
             applyExtrasOnChange
             extraFilters={extraFilters}
+            moreFilters={moreFilters}
+            moreFiltersTitle="More filters"
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by title, description…"
@@ -745,13 +749,13 @@ export default function ReportPage({ reportPage }) {
           />
         </ListPageFilterStrip>
 
-        <div className="shrink-0 px-3 py-2 border-b border-slate-200 bg-slate-50/80">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        <div className="shrink-0 relative z-0 px-3 py-2 border-b border-slate-200 bg-slate-50/80">
+          <div className="flex gap-2 overflow-x-auto md:grid md:grid-cols-3 lg:grid-cols-6 md:overflow-visible pb-0.5 md:pb-0">
             {STAT_CARDS.map(({ key, label, icon, bg, text, border, barColor }) => (
               <div
                 key={key}
                 onClick={() => handleStatClick(key)}
-                className={`cursor-pointer transition-all rounded-none ${statCardCls(key)}`}
+                className={`cursor-pointer transition-all rounded-none shrink-0 w-[9.5rem] md:w-auto md:min-w-0 ${statCardCls(key)}`}
               >
                 <StatCard
                   label={label}
@@ -797,7 +801,7 @@ export default function ReportPage({ reportPage }) {
           </div>
         )}
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 relative z-10 bg-white flex flex-col overflow-hidden isolate">
           {viewMode === "card" ? (
             <div ref={cardScrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 custom-scrollbar bg-slate-50/60">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
@@ -855,7 +859,7 @@ export default function ReportPage({ reportPage }) {
               sortDir={sortDir}
               getRowClassName={getTaskDataTableRowClassName}
               onSort={(key) => {
-                if (key === "_actions") return;
+                if (key === "_actions" || key === "reminder_date" || key === "last_remark") return;
                 setDisplayLimit(DISPLAY_CHUNK);
                 if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
                 else { setSortKey(key); setSortDir("asc"); }

@@ -50,8 +50,8 @@ export default function RedTicketTopFilters({
           <SearchableSelect options={designationsLists} value={selectedDesignation} onChange={onDesignationChange} placeholder="All Designations" />
         </div>
         <div className="w-52 shrink-0 space-y-1.5 sm:w-64">
-          <label className="ml-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">Person</label>
-          <SearchableSelect options={personOptions} value={selectedPerson} onChange={onPersonChange} placeholder="All Persons" />
+          <label className="ml-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">Users</label>
+          <SearchableSelect options={personOptions} value={selectedPerson} onChange={onPersonChange} placeholder="All Users" />
         </div>
       </div>
     </div>

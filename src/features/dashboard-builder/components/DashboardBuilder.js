@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import dayjs from "dayjs";
-import { Responsive, useContainerWidth, noCompactor } from "react-grid-layout";
+import { useContainerWidth } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { ChevronDown, Copy, CloudOff, GripVertical, Layout, Monitor, MoreHorizontal, Pencil, Plus, Redo2, Smartphone, Trash2, Undo2, UploadCloud, X } from "lucide-react";
@@ -13,17 +13,18 @@ import { CORE_ENDPOINTS } from "@/core/api/endpoints";
 import WidgetRenderer from "./WidgetRenderer";
 import SimpleBuilderCanvas from "./SimpleBuilderCanvas";
 import WidgetBuilderPanel from "./WidgetBuilderPanel";
-import { applyMainLayoutPixelsToItem, applyNestedLayoutPixelsToItem, buildCanvasWidgetsWithContainers, buildPhoneCanvasWidgets, applyDesktopContainerLayout, buildNestedLayoutFromChildren, compactLiveLayoutForDisplay, containerAutoGridHeight, containerInnerNestedWidthFromShellPx, fitPhoneContainerGridHeight, hasCustomMobileNestedLayout, hasCustomPhoneLayout, hasCustomTopLevelMobileLayout, hasManualWidgetLayout, hydrateContainerNestedLayouts, inferContainerPresetFromLayout, inferNestedContentCanvasWidthPx, inferNestedGridWidthPx, isContainerLayoutLocked, isWidgetLayoutLocked, mainGridLayoutToPixels, mainLayoutItemPixelStyle, mergeNestedItemFromChild, nestedGridColWidthPx, nestedLayoutItemPixelStyle, nestedLayoutToGridHeight, NESTED_BUILDER_COLS, NESTED_GAP, NESTED_GRID_COLS, NESTED_ROW_HEIGHT, normalizeContainerLayoutItem, normalizeNestedLayoutItem, phoneContainerAutoGridHeight, placeNextNestedLayoutItem, readNestedGridWidthPx, readWidgetLayoutPixels, repackLayoutItems, resolveContainerDisplayHeight, resolveContainerGridHeight, resolveContainerPreset, resolveLiveContainerDisplayHeight, resolveNextContainerLayoutHeightPx, resolveNextNestedGridWidthPx, resolvePhoneNestedLayoutForDisplay, resolvePhoneTopLevelLayout, resolvePublishedDesktopLayout, resolvePublishedNestedLayout, resolvePublishedPhoneLayout, resolvePublishedPhoneNestedLayout, sanitizeNestedLayoutItems, scaleNestedLayoutToBuilder, scaleNestedLayoutToStorage, shouldPreserveSavedLayout, stackLayoutForPhone, stackNestedLayoutForPhone, syncAllContainerHeights, syncNestedChildLayoutsFromContainers } from "../utils/dashboardLayoutEngine";
-import { boxesFromChildren, boxesFromTopLevelWidgets, boxPxToGridItem, cloneBoxBeside, containerContentHeightPx, containerShellHeightFromNested, contentBoundsPx, defaultBoxForType, defaultTopLevelBoxForType, mergeLayoutPxFromWidgets, normalizeBox, placeNextBoxPx, readWidgetBoxPx, sanitizeNestedLayoutPx, scaleLayoutPx } from "../utils/floatingLayoutEngine";
+import { applyMainLayoutPixelsToItem, buildCanvasWidgetsWithContainers, applyDesktopContainerLayout, containerAutoGridHeight, hasCustomMobileNestedLayout, hasCustomPhoneLayout, hasCustomTopLevelMobileLayout, hasManualWidgetLayout, hydrateContainerNestedLayouts, inferContainerPresetFromLayout, inferNestedContentCanvasWidthPx, inferNestedGridWidthPx, mainGridLayoutToPixels, mainLayoutItemPixelStyle, mergeNestedItemFromChild, nestedGridColWidthPx, NESTED_BUILDER_COLS, NESTED_GAP, NESTED_GRID_COLS, NESTED_ROW_HEIGHT, normalizeContainerLayoutItem, normalizeNestedLayoutItem, placeNextNestedLayoutItem, readNestedGridWidthPx, readWidgetLayoutPixels, resolveContainerDisplayHeight, resolveContainerGridHeight, resolveContainerPreset, resolveNextContainerLayoutHeightPx, resolvePhoneNestedLayoutForDisplay, resolvePhoneTopLevelLayout, resolvePublishedDesktopLayout, resolvePublishedNestedLayout, resolvePublishedPhoneLayout, sanitizeNestedLayoutItems, scaleNestedLayoutToBuilder, scaleNestedLayoutToStorage, shouldPreserveSavedLayout, stackLayoutForPhone, stackNestedLayoutForPhone, syncNestedChildLayoutsFromContainers } from "../utils/dashboardLayoutEngine";
+import { boxesFromChildren, boxesFromTopLevelWidgets, boxPxToGridItem, cloneBoxBeside, cloneBoxInContainer, contentBoundsPx, defaultBoxForType, defaultTopLevelBoxForType, ensurePhoneLayoutPx, layoutPxFingerprint, mergeLayoutPxFromWidgets, normalizeBox, packLayoutPxGaps, placeNextBoxPx, PHONE_CONTENT_WIDTH, PHONE_FRAME_INSET, readWidgetBoxPx, sanitizeNestedLayoutPx, scaleLayoutPx } from "../utils/floatingLayoutEngine";
 import DashboardAudienceUserSelect from "./DashboardAudienceUserSelect";
 import DashboardHome from "@/features/shared/dashboard/components/DashboardHome";
-import { cloneDashboardToUsers, createWidget, deleteDashboardConfig, deleteWidget, getDashboardWidgets, listDashboardConfigs, listWidgets, previewWidget, publishDashboardConfig, renameDashboardConfig, saveDashboardDraft, unpublishDashboardConfig, updateWidget as updateWidgetApi } from "../services/dashboardApi";
+import { cloneDashboardToUsers, createWidget, deleteDashboardConfig, deleteWidget, getDashboardWidgets, hybridPreviewWidget, listDashboardConfigs, listWidgets, previewWidget, publishDashboardConfig, renameDashboardConfig, saveDashboardDraft, unpublishDashboardConfig, updateWidget as updateWidgetApi } from "../services/dashboardApi";
 import { useEscapeKey } from "@/core/hooks/useEscapeKey";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { filterAppNavPagesByAccess, getDefaultPageKeyForApp } from "../utils/appNavPages";
 import { buildDashboardRuntimeFilters, canFilterDashboardByUser } from "../utils/dashboardFilterAccess";
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
-import { DASHBOARD_DB_SOURCE_OPTIONS } from "../utils/dashboardDbSources.js";
+import { DASHBOARD_DB_SOURCE_OPTIONS, isWidgetHybridMode, resolveHybridExternalDbSource } from "../utils/dashboardDbSources.js";
+import { normalizeTableSearchPosition, normalizeTableSearchWidth } from "../utils/tableToolbar.js";
 import { isPwaStandalone, getListHotkeyParts } from "@/core/utils/pwa";
 
 const typeToDisplayType = {
@@ -35,6 +36,7 @@ const typeToDisplayType = {
   heading: "heading",
   section: "container",
   container: "container",
+  hybrid: "hybrid",
 };
 
 const requiresDataQuery = (rawType) => ["kpi", "table", "graph", "count", "sum"].includes(String(rawType));
@@ -43,6 +45,7 @@ const resolveApiType = (widget) => {
   if (raw === "kpi" || raw === "count" || raw === "sum") {
     return widget?.metricType === "sum" || raw === "sum" ? "sum" : "count";
   }
+  if (raw === "hybrid") return "table";
   if (raw === "container" || raw === "section") return "section";
   if (raw === "table" || raw === "graph" || raw === "heading") return raw;
   return "table";
@@ -161,33 +164,6 @@ const getContainerNestedMobileSource = (container, allWidgets = [], options = {}
   return sanitizeNestedLayoutItems(nested);
 };
 
-const findContainerDropTarget = (draggedLayout, nextLayout, containers = []) => {
-  if (!draggedLayout) return null;
-  const dx = Number(draggedLayout.x) || 0;
-  const dy = Number(draggedLayout.y) || 0;
-  const dw = Math.max(1, Number(draggedLayout.w) || 1);
-  const dh = Math.max(1, Number(draggedLayout.h) || 1);
-  let bestId = null;
-  let bestOverlap = 0;
-
-  for (const container of containers) {
-    const containerLayout = nextLayout.find((item) => String(item.i) === String(container.id));
-    if (!containerLayout) continue;
-    const cx = Number(containerLayout.x) || 0;
-    const cy = Number(containerLayout.y) || 0;
-    const cw = Math.max(1, Number(containerLayout.w) || 1);
-    const ch = Math.max(1, Number(containerLayout.h) || 1);
-    const overlapW = Math.max(0, Math.min(dx + dw, cx + cw) - Math.max(dx, cx));
-    const overlapH = Math.max(0, Math.min(dy + dh, cy + ch) - Math.max(dy, cy));
-    const overlap = overlapW * overlapH;
-    if (overlap > bestOverlap) {
-      bestOverlap = overlap;
-      bestId = container.id;
-    }
-  }
-  return bestOverlap > 0 ? bestId : null;
-};
-
 function defaultWidgetStyle(rawType = "table") {
   const shared = {
     color: "#3b82f6",
@@ -236,6 +212,23 @@ function defaultWidgetStyle(rawType = "table") {
       graphShowLegend: true,
       graphColors: ["#3b82f6", "#60a5fa", "#34d399", "#f59e0b", "#f43f5e", "#a855f7", "#06b6d4", "#84cc16"],
       graphColorPalette: "ocean",
+    };
+  }
+  if (rawType === "hybrid") {
+    return {
+      ...shared,
+      color: "#475569",
+      fontSize: 10,
+      padding: 8,
+      tableHeaderColor: "#64748b",
+      tableHeaderBg: "#f8fafc",
+      tableBodyColor: "#475569",
+      tableBodyBg: "#ffffff",
+      tableBorderColor: "#e2e8f0",
+      tableHeaderFontSize: 9,
+      tableBodyFontSize: 10,
+      tableSearchFontSize: 10,
+      tableRowHoverBg: "#f8fafc",
     };
   }
   return { ...shared, fontSize: 10, padding: 8 };
@@ -363,7 +356,6 @@ function chartConfigFromWidgetStyle(widget = {}) {
     boxShadow: widget.style?.boxShadow,
     fontFamily: widget.style?.fontFamily || "inherit",
     ...spacingConfigFromWidgetStyle(widget, defaults),
-    data_source: widget.dataSource || "ims_postgresql",
     erp_filter: widget.erpFilter && typeof widget.erpFilter === "object" ? widget.erpFilter : {},
     link_type: widget.linkType || "NONE",
     link_url: widget.linkUrl || "",
@@ -401,7 +393,8 @@ function chartConfigFromWidgetStyle(widget = {}) {
     emptyText: widget.emptyText || "Click edit and add query",
     table_search_enabled: widget.tableSearchEnabled === true,
     table_search_placeholder: String(widget.tableSearchPlaceholder || "").trim(),
-    table_search_position: widget.tableSearchPosition === "left" ? "left" : "right",
+    table_search_position: normalizeTableSearchPosition(widget.tableSearchPosition),
+    table_search_width: normalizeTableSearchWidth(widget.tableSearchWidth),
     table_column_sort_enabled: widget.tableColumnSortEnabled === true,
     table_export_enabled: widget.tableExportEnabled === true,
     table_header_color: widget.style?.tableHeaderColor,
@@ -422,6 +415,10 @@ function chartConfigFromWidgetStyle(widget = {}) {
     graph_y_key: widget.style?.graphYKey || undefined,
     graph_color_palette: widget.style?.graphColorPalette || undefined,
     graph_colors: Array.isArray(widget.style?.graphColors) ? widget.style.graphColors : undefined,
+    is_hybrid: isWidgetHybridMode(widget),
+    hybrid_mssql_query: widget.chart_config?.hybrid_mssql_query || "",
+    hybrid_external_source: resolveHybridExternalDbSource(widget),
+    data_source: isWidgetHybridMode(widget) ? "hybrid" : (widget.dataSource || "ims_postgresql"),
   };
 }
 const BUILDER_WIDGET_TYPES = ["kpi", "table", "graph", "heading", "container"];
@@ -436,6 +433,7 @@ const widgetStripLabel = (widget, idx) => {
     table: "Table",
     graph: "Graph",
     heading: "Heading",
+    hybrid: "Hybrid",
   }[widget.rawType] || "Widget";
   return `${typeLabel} ${idx + 1}`;
 };
@@ -518,7 +516,8 @@ const normalizeWidgetForDashboardJson = (widget = {}, resolvedLayout = {}, { per
     emptyText: widget.emptyText || "Click edit and add query",
     tableSearchEnabled: widget.tableSearchEnabled === true,
     tableSearchPlaceholder: String(widget.tableSearchPlaceholder || "").trim(),
-    tableSearchPosition: widget.tableSearchPosition === "left" ? "left" : "right",
+    tableSearchPosition: normalizeTableSearchPosition(widget.tableSearchPosition),
+    tableSearchWidth: normalizeTableSearchWidth(widget.tableSearchWidth),
     tableColumnSortEnabled: widget.tableColumnSortEnabled === true,
     tableExportEnabled: widget.tableExportEnabled === true,
     sectionId: widget.containerId || widget.sectionId || null,
@@ -547,6 +546,9 @@ const normalizeWidgetForDashboardJson = (widget = {}, resolvedLayout = {}, { per
     linkUrl: widget.linkUrl || "",
     linkAppId: widget.linkAppId || "",
     linkPageId: widget.linkPageId || "",
+    // Required for Hybrid publish/runtime — without this, hybrid_mssql_query is lost
+    // and live load runs plain PG against {{temp_erp_data}} (query error).
+    chart_config: chartConfigFromWidgetStyle(widget),
   };
 };
 const GRID_COLS = 12;
@@ -556,10 +558,8 @@ const GRID_ROW_HEIGHT = 64;
 const GRID_GAP_X = 12;
 const GRID_GAP_Y = 12;
 const BUILDER_PANEL_WIDTH = 300;
-const BUILDER_BREAKPOINTS = { lg: 0 };
 const BUILDER_SELECT_CLASS =
   "h-7 rounded-md border border-slate-200 bg-white px-2 text-[10px] font-semibold text-slate-700 outline-none focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-500/15 transition-shadow";
-const BUILDER_COLS_MAP = { lg: BUILDER_GRID_COLS };
 
 const scaleLayoutCoordsToBuilder = (items = []) => items.map((item) => ({
   ...item,
@@ -577,7 +577,8 @@ const activeDesktopGridCols = (isPhoneBuilderMode) => (isPhoneBuilderMode ? GRID
 const HISTORY_LIMIT = 50;
 const BUILDER_DEVICE_DESKTOP = "desktop";
 const BUILDER_DEVICE_MOBILE = "mobile";
-const PHONE_BUILDER_WIDTH = 390;
+/** Phone layout math uses content box (inside bezel). Outer chrome stays PHONE_OUTER_WIDTH (390). */
+const PHONE_BUILDER_WIDTH = PHONE_CONTENT_WIDTH;
 
 function normalizeDeviceTargetValue(rawValue = "") {
   const value = String(rawValue || "").trim().toLowerCase();
@@ -739,7 +740,8 @@ function buildStateFingerprint(widgets = [], layout = [], mobileLayout = []) {
       emptyText: String(widget.emptyText || ""),
       tableSearchEnabled: widget.tableSearchEnabled === true,
       tableSearchPlaceholder: String(widget.tableSearchPlaceholder || "").trim(),
-      tableSearchPosition: widget.tableSearchPosition === "left" ? "left" : "right",
+      tableSearchPosition: normalizeTableSearchPosition(widget.tableSearchPosition),
+      tableSearchWidth: normalizeTableSearchWidth(widget.tableSearchWidth),
       tableColumnSortEnabled: widget.tableColumnSortEnabled === true,
       tableExportEnabled: widget.tableExportEnabled === true,
       style: fingerprintStyleForCompare(widget.style || {}),
@@ -751,7 +753,13 @@ function buildStateFingerprint(widgets = [], layout = [], mobileLayout = []) {
   return JSON.stringify(normalized);
 }
 
-function cloneBuilderSnapshot(widgetsState = [], layoutState = [], mobileLayoutState = []) {
+function cloneBuilderSnapshot(
+  widgetsState = [],
+  layoutState = [],
+  mobileLayoutState = [],
+  layoutPxState = [],
+  layoutPxMobileState = [],
+) {
   // Strip heavy runtime data so style edits (colors) don't freeze the UI while cloning history.
   const widgets = JSON.parse(JSON.stringify(widgetsState, (key, value) => {
     if (key === "data" || key === "previewData" || key === "error" || key === "previewError") return undefined;
@@ -759,12 +767,42 @@ function cloneBuilderSnapshot(widgetsState = [], layoutState = [], mobileLayoutS
   }));
   const layout = JSON.parse(JSON.stringify(layoutState));
   const mobileLayout = JSON.parse(JSON.stringify(mobileLayoutState));
+  const layoutPxSnap = JSON.parse(JSON.stringify(layoutPxState || []));
+  const layoutPxMobileSnap = JSON.parse(JSON.stringify(layoutPxMobileState || []));
   return {
     widgets,
     layout,
     mobileLayout,
-    fingerprint: buildStateFingerprint(widgets, layout, mobileLayout),
+    layoutPx: layoutPxSnap,
+    layoutPxMobile: layoutPxMobileSnap,
+    fingerprint: `${buildStateFingerprint(widgets, layout, mobileLayout)}|px:${layoutPxFingerprint(layoutPxSnap)}|mpx:${layoutPxFingerprint(layoutPxMobileSnap)}`,
   };
+}
+
+/** Reattach preview/live rows after undo/redo (history strips them to stay light). */
+function mergeRuntimeWidgetData(snapshotWidgets = [], liveWidgets = [], runtimeCache = null) {
+  const liveById = new Map((liveWidgets || []).map((widget) => [String(widget.id), widget]));
+  return (snapshotWidgets || []).map((widget) => {
+    const id = String(widget.id);
+    const live = liveById.get(id);
+    const cached = runtimeCache instanceof Map ? runtimeCache.get(id) : null;
+    if (!live && !cached) return widget;
+    const next = { ...widget };
+    const pick = (key) => {
+      if (live && live[key] !== undefined) return live[key];
+      if (cached && cached[key] !== undefined) return cached[key];
+      return undefined;
+    };
+    const data = pick("data");
+    const previewData = pick("previewData");
+    const error = pick("error");
+    const previewError = pick("previewError");
+    if (data !== undefined) next.data = data;
+    if (previewData !== undefined) next.previewData = previewData;
+    if (error !== undefined) next.error = error;
+    if (previewError !== undefined) next.previewError = previewError;
+    return next;
+  });
 }
 
 function findCloneLayoutSlot(layout = [], sourceLayout = {}, cols = NESTED_GRID_COLS) {
@@ -787,7 +825,7 @@ function findCloneLayoutSlot(layout = [], sourceLayout = {}, cols = NESTED_GRID_
         candidateX + width <= ix
         || candidateX >= ix + iw
         || candidateY + height <= iy
-        || candidateY >= ih + ih
+        || candidateY >= iy + ih
       );
     });
     if (!collision) {
@@ -837,41 +875,12 @@ const compactLayoutForLiveView = (layouts = []) => {
   return placed;
 };
 
-const scaleLayoutForCols = (layouts = [], targetCols = GRID_COLS, sourceCols = GRID_COLS) => {
-  const base = clampLayoutInBounds(layouts, sourceCols);
-  if (targetCols >= sourceCols) {
-    return base.map((item, idx) => normalizeLayoutItem(item, idx, item.i, { lock: true }));
-  }
-  return clampLayoutInBounds(
-    base.map((item, idx) => {
-      const sourceW = Math.max(1, Number(item.w) || 1);
-      const sourceX = Math.max(0, Number(item.x) || 0);
-      const scaledW = Math.max(1, Math.min(targetCols, Math.round((sourceW / sourceCols) * targetCols)));
-      const scaledX = Math.max(0, Math.min(targetCols - scaledW, Math.round((sourceX / sourceCols) * targetCols)));
-      return normalizeLayoutItem({ ...item, x: scaledX, w: scaledW }, idx, item.i, { lock: true });
-    }),
-    targetCols,
-  );
-};
-
-/** @deprecated use stackLayoutForPhone from dashboardLayoutEngine */
-const stackLayoutForMobile = (layouts = [], widgets = [], cols = GRID_COLS) =>
-  stackLayoutForPhone(widgets, layouts, cols).map((item, idx) =>
-    normalizeLayoutItem(item, idx, item.i, { lock: true }),
-  );
-
 const buildDefaultLayout = (idx = 0) => ({
   x: (idx * 2) % 12,
   y: idx * 2,
   w: 3,
   h: 2,
 });
-
-const containerCellHeightClass = (widget = {}, { readOnly = false, isPhoneView = false } = {}) => {
-  if (widget.rawType !== "container") return "h-full";
-  if (readOnly && !isPhoneView) return "h-full";
-  return "h-auto";
-};
 
 const buildInitialLayoutForType = (rawType, idx, id, containerPreset = "full") => {
   const base = normalizeLayoutItem({}, idx, id);
@@ -886,6 +895,9 @@ const buildInitialLayoutForType = (rawType, idx, id, containerPreset = "full") =
   }
   if (rawType === "heading") {
     return normalizeLayoutItem({ ...base, w: 12, h: 1 }, idx, id);
+  }
+  if (rawType === "hybrid") {
+    return normalizeLayoutItem({ ...base, w: 12, h: 4 }, idx, id);
   }
   if (rawType === "container") {
     const containerLayout = normalizeContainerLayoutItem(
@@ -904,6 +916,7 @@ const buildInitialNestedLayoutForType = (rawType, idx, id) => {
   if (rawType === "table") return normalizeLayoutItem({ ...base, w: 12, h: 2 }, idx, id);
   if (rawType === "graph") return normalizeLayoutItem({ ...base, w: 12, h: 2 }, idx, id);
   if (rawType === "heading") return normalizeLayoutItem({ ...base, w: 12, h: 1 }, idx, id);
+  if (rawType === "hybrid") return normalizeLayoutItem({ ...base, w: 12, h: 2 }, idx, id);
   return normalizeLayoutItem({ ...base, w: 6, h: 2 }, idx, id);
 };
 
@@ -950,6 +963,8 @@ export default function DashboardBuilder({
   const savedFingerprintRef = useRef("");
   const pendingActionRef = useRef(null);
   const widgetsRef = useRef([]);
+  /** Keeps preview/data by id across delete so undo can restore numbers. */
+  const widgetRuntimeDataRef = useRef(new Map());
   const historyPastRef = useRef([]);
   const historyFutureRef = useRef([]);
   const historyApplyingRef = useRef(false);
@@ -979,16 +994,18 @@ export default function DashboardBuilder({
   const [designCanvasWidth, setDesignCanvasWidth] = useState(null);
   const mobileLayoutRef = useRef([]);
   const layoutBlueprintRef = useRef({ desktop: [], mobile: [] });
+  /** Full published layout_px (incl. permission-hidden widgets) for live gap packing. */
+  const layoutPxBlueprintRef = useRef({ desktop: [], mobile: [] });
   const manualSizedWidgetIdsRef = useRef(new Set());
-  const draggingWidgetRef = useRef(null);
-  const [draggingWidgetId, setDraggingWidgetId] = useState(null);
-  const [resizingContainerId, setResizingContainerId] = useState(null);
-  const [builderInteractionLayout, setBuilderInteractionLayout] = useState(null);
-  const [isPhoneView, setIsPhoneView] = useState(false);
+  const [isPhoneView, setIsPhoneView] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(max-width: 767px)").matches;
+  });
   const isPhoneBuilderMode = !readOnly && builderDeviceMode === BUILDER_DEVICE_MOBILE;
   const isPhonePreviewFrame = isPhoneBuilderMode;
   const isPhoneLayoutView = isPhonePreviewFrame;
   const isPhoneLayoutMode = isPhoneBuilderMode || isPhoneView;
+  const [selectedDashboardKey, setSelectedDashboardKey] = useState("default");
   const [targetAppKey, setTargetAppKey] = useState(String(appKey || "ims").toLowerCase());
   const [selectedWidgetId, setSelectedWidgetId] = useState(null);
   const [panelWidgetSnapshot, setPanelWidgetSnapshot] = useState(null);
@@ -997,11 +1014,11 @@ export default function DashboardBuilder({
   const [dashboardOptions, setDashboardOptions] = useState([
     { value: "default", label: "Default", scope: "global", targetUserIds: [], defaultForUserIds: [] },
   ]);
-  const [selectedDashboardKey, setSelectedDashboardKey] = useState("default");
   const [cloneName, setCloneName] = useState("");
   const [showClonePanel, setShowClonePanel] = useState(false);
   const [showAddWidgetMenu, setShowAddWidgetMenu] = useState(false);
   const [showWidgetsStrip, setShowWidgetsStrip] = useState(false);
+  const [widgetsSearchQuery, setWidgetsSearchQuery] = useState("");
   const [selectedAudienceUserIds, setSelectedAudienceUserIds] = useState([]);
   const [cloneAudienceUserIds, setCloneAudienceUserIds] = useState([]);
   const [cloneAsDefaultForUsers, setCloneAsDefaultForUsers] = useState(false);
@@ -1016,6 +1033,18 @@ export default function DashboardBuilder({
     const fromUrl = String(searchParams?.get("df_dash") || "").trim().toLowerCase();
     return fromUrl || "default";
   }, [readOnly, selectedDashboardKey, searchParams]);
+
+  const filteredWidgetsList = useMemo(() => {
+    if (!widgetsSearchQuery) return widgets;
+    const query = widgetsSearchQuery.toLowerCase().trim();
+    return widgets.filter(w => 
+      String(w.title || "").toLowerCase().includes(query) ||
+      String(w.rawType || "").toLowerCase().includes(query) ||
+      String(w.query || "").toLowerCase().includes(query) ||
+      String(w.id || "").toLowerCase().includes(query)
+    );
+  }, [widgets, widgetsSearchQuery]);
+
   const filterRefreshToken = String(searchParams?.get("df_r") || "");
   // Start busy=true so dashboard never briefly flashes DashboardHome before data arrives
   const [busy, setBusy] = useState(true);
@@ -1080,6 +1109,30 @@ export default function DashboardBuilder({
 
   useEffect(() => {
     widgetsRef.current = widgets;
+    (widgets || []).forEach((widget) => {
+      if (!widget?.id) return;
+      const id = String(widget.id);
+      const prev = widgetRuntimeDataRef.current.get(id) || {};
+      const next = { ...prev };
+      let changed = false;
+      if (widget.data !== undefined) {
+        next.data = widget.data;
+        changed = true;
+      }
+      if (widget.previewData !== undefined) {
+        next.previewData = widget.previewData;
+        changed = true;
+      }
+      if (widget.error !== undefined) {
+        next.error = widget.error;
+        changed = true;
+      }
+      if (widget.previewError !== undefined) {
+        next.previewError = widget.previewError;
+        changed = true;
+      }
+      if (changed) widgetRuntimeDataRef.current.set(id, next);
+    });
   }, [widgets]);
 
   const refreshHistoryFlags = useCallback(() => {
@@ -1094,6 +1147,14 @@ export default function DashboardBuilder({
     refreshHistoryFlags();
   }, [refreshHistoryFlags]);
 
+  const captureHistorySnapshot = useCallback(() => cloneBuilderSnapshot(
+    widgetsRef.current,
+    layoutRef.current?.length ? layoutRef.current : layout,
+    mobileLayoutRef.current?.length ? mobileLayoutRef.current : mobileLayout,
+    layoutPxRef.current?.length ? layoutPxRef.current : layoutPx,
+    layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile,
+  ), [layout, mobileLayout, layoutPx, layoutPxMobile]);
+
   const applyHistorySnapshot = useCallback((snapshot) => {
     if (!snapshot) return;
     historyApplyingRef.current = true;
@@ -1105,39 +1166,49 @@ export default function DashboardBuilder({
     );
     layoutRef.current = nextLayout;
     mobileLayoutRef.current = nextMobileLayout;
-    setWidgets(snapshot.widgets || []);
+    // History omits preview/data — reattach from live widgets or runtime cache (survives delete).
+    const restoredWidgets = mergeRuntimeWidgetData(
+      snapshot.widgets || [],
+      widgetsRef.current,
+      widgetRuntimeDataRef.current,
+    );
+    widgetsRef.current = restoredWidgets;
+    setWidgets(restoredWidgets);
     setLayout(nextLayout);
     setMobileLayout(nextMobileLayout);
     if (USE_FLOATING_BUILDER) {
-      const snapshotWidgets = snapshot.widgets || [];
-      const topLevel = snapshotWidgets.filter((widget) => isTopLevelCanvasWidget(widget));
-      const fromBoxPx = topLevel
-        .map((widget) => {
-          const box = widget.style?.boxPx;
-          if (!box || !Number.isFinite(Number(box.width))) return null;
-          return { i: String(widget.id), ...normalizeBox(box) };
-        })
-        .filter(Boolean);
-      const nextLayoutPx = fromBoxPx.length
-        ? sanitizeNestedLayoutPx(fromBoxPx)
-        : boxesFromTopLevelWidgets(
-          topLevel,
-          [],
-          nextLayout,
-          {
+      const nextLayoutPx = sanitizeNestedLayoutPx(snapshot.layoutPx || []);
+      const nextLayoutPxMobile = sanitizeNestedLayoutPx(snapshot.layoutPxMobile || []);
+      if (nextLayoutPx.length) {
+        layoutPxRef.current = nextLayoutPx;
+        setLayoutPx(nextLayoutPx);
+      } else {
+        const snapshotWidgets = snapshot.widgets || [];
+        const topLevel = snapshotWidgets.filter((widget) => isTopLevelCanvasWidget(widget));
+        const fromBoxPx = topLevel
+          .map((widget) => {
+            const box = widget.style?.boxPx;
+            if (!box || !Number.isFinite(Number(box.width))) return null;
+            return { i: String(widget.id), ...normalizeBox(box) };
+          })
+          .filter(Boolean);
+        const rebuilt = fromBoxPx.length
+          ? sanitizeNestedLayoutPx(fromBoxPx)
+          : boxesFromTopLevelWidgets(topLevel, [], nextLayout, {
             colWidth: 80,
             rowHeight: GRID_ROW_HEIGHT,
             gapX: GRID_GAP_X,
             gapY: GRID_GAP_Y,
-            canvasWidth: 1200,
-          },
-        );
-      layoutPxRef.current = nextLayoutPx;
-      setLayoutPx(nextLayoutPx);
+          });
+        layoutPxRef.current = rebuilt;
+        setLayoutPx(rebuilt);
+      }
+      layoutPxMobileRef.current = nextLayoutPxMobile;
+      setLayoutPxMobile(nextLayoutPxMobile);
     }
     setSelectedWidgetId((prev) => {
       if (!prev) return null;
-      return (snapshot.widgets || []).some((w) => String(w.id) === String(prev)) ? prev : null;
+      return restoredWidgets.some((w) => String(w.id) === String(prev)) ? prev : null;
     });
     window.setTimeout(() => {
       historyApplyingRef.current = false;
@@ -1146,17 +1217,13 @@ export default function DashboardBuilder({
 
   const captureHistoryBeforeChange = useCallback(() => {
     if (readOnly || busy || historyApplyingRef.current) return;
-    const snapshot = cloneBuilderSnapshot(
-      widgetsRef.current,
-      layoutRef.current?.length ? layoutRef.current : layout,
-      mobileLayoutRef.current?.length ? mobileLayoutRef.current : mobileLayout,
-    );
+    const snapshot = captureHistorySnapshot();
     const past = historyPastRef.current;
     if (past.length && past[past.length - 1].fingerprint === snapshot.fingerprint) return;
     historyPastRef.current = [...past.slice(-(HISTORY_LIMIT - 1)), snapshot];
     historyFutureRef.current = [];
     refreshHistoryFlags();
-  }, [readOnly, busy, layout, mobileLayout, refreshHistoryFlags]);
+  }, [readOnly, busy, captureHistorySnapshot, refreshHistoryFlags]);
 
   const markHistoryGroupedEdit = useCallback(() => {
     if (!historyGroupActiveRef.current) {
@@ -1173,33 +1240,25 @@ export default function DashboardBuilder({
     if (readOnly || busy || historyApplyingRef.current) return;
     const past = historyPastRef.current;
     if (!past.length) return;
-    const current = cloneBuilderSnapshot(
-      widgetsRef.current,
-      layoutRef.current?.length ? layoutRef.current : layout,
-      mobileLayoutRef.current?.length ? mobileLayoutRef.current : mobileLayout,
-    );
+    const current = captureHistorySnapshot();
     const previous = past[past.length - 1];
     historyPastRef.current = past.slice(0, -1);
     historyFutureRef.current = [current, ...historyFutureRef.current].slice(0, HISTORY_LIMIT);
     applyHistorySnapshot(previous);
     refreshHistoryFlags();
-  }, [readOnly, busy, layout, applyHistorySnapshot, refreshHistoryFlags]);
+  }, [readOnly, busy, captureHistorySnapshot, applyHistorySnapshot, refreshHistoryFlags]);
 
   const handleRedo = useCallback(() => {
     if (readOnly || busy || historyApplyingRef.current) return;
     const future = historyFutureRef.current;
     if (!future.length) return;
-    const current = cloneBuilderSnapshot(
-      widgetsRef.current,
-      layoutRef.current?.length ? layoutRef.current : layout,
-      mobileLayoutRef.current?.length ? mobileLayoutRef.current : mobileLayout,
-    );
+    const current = captureHistorySnapshot();
     const next = future[0];
     historyFutureRef.current = future.slice(1);
     historyPastRef.current = [...historyPastRef.current, current].slice(-HISTORY_LIMIT);
     applyHistorySnapshot(next);
     refreshHistoryFlags();
-  }, [readOnly, busy, layout, applyHistorySnapshot, refreshHistoryFlags]);
+  }, [readOnly, busy, captureHistorySnapshot, applyHistorySnapshot, refreshHistoryFlags]);
 
   const canUndo = useMemo(() => historyPastRef.current.length > 0, [historyTick]);
   const canRedo = useMemo(() => historyFutureRef.current.length > 0, [historyTick]);
@@ -1349,6 +1408,8 @@ export default function DashboardBuilder({
         0,
         Math.floor(node.getBoundingClientRect?.().width || node.clientWidth || 0),
       );
+      // Window resize can briefly report 0 — keep last good width so the canvas never blanks.
+      if (measured < 200) return;
       setContainerWidth((prev) => (Math.abs(prev - measured) <= 1 ? prev : measured));
     };
 
@@ -1382,7 +1443,7 @@ export default function DashboardBuilder({
     return () => window.cancelAnimationFrame(raf);
   }, [readOnly, isPhoneView, busy, widgets.length, liveGridMeasure.measureWidth]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!readOnly || typeof window === "undefined") return undefined;
     const mq = window.matchMedia("(max-width: 767px)");
     const apply = () => setIsPhoneView(mq.matches);
@@ -1392,13 +1453,16 @@ export default function DashboardBuilder({
   }, [readOnly]);
 
   const mapWidgetRow = (row, idx) => {
+    const chartConfig = row?.chart_config && typeof row.chart_config === "object" ? row.chart_config : {};
+    const hybridMode = chartConfig.is_hybrid === true || row.type === "hybrid";
     const rawType =
       row.type === "section"
         ? "container"
         : row.type === "count" || row.type === "sum"
           ? "kpi"
-          : row.type;
-    const chartConfig = row?.chart_config && typeof row.chart_config === "object" ? row.chart_config : {};
+          : row.type === "hybrid"
+            ? "table"
+            : row.type;
     const loadedTitle = String(row.title || "").trim();
     const normalizedTitle =
       rawType === "container" && (loadedTitle === "Widget" || loadedTitle === "Section")
@@ -1426,10 +1490,19 @@ export default function DashboardBuilder({
       emptyText: row?.chart_config?.emptyText || "Click edit and add query",
       tableSearchEnabled: chartConfig.table_search_enabled === true,
       tableSearchPlaceholder: String(chartConfig.table_search_placeholder || "").trim(),
-      tableSearchPosition: chartConfig.table_search_position === "left" ? "left" : "right",
+      tableSearchPosition: normalizeTableSearchPosition(chartConfig.table_search_position),
+      tableSearchWidth: normalizeTableSearchWidth(chartConfig.table_search_width),
       tableColumnSortEnabled: chartConfig.table_column_sort_enabled === true,
       tableExportEnabled: chartConfig.table_export_enabled === true,
-      dataSource: row?.chart_config?.data_source || "ims_postgresql",
+      dataSource: hybridMode ? "hybrid" : (chartConfig.data_source || "ims_postgresql"),
+      chart_config: {
+        ...chartConfig,
+        is_hybrid: hybridMode,
+        hybrid_external_source: chartConfig.hybrid_external_source
+          || (String(chartConfig.data_source || "").toLowerCase() === "erp_mssql" ? "erp_mssql"
+            : String(chartConfig.data_source || "").toLowerCase() === "hrms_mssql" ? "hrms_mssql"
+              : "erp_mssql"),
+      },
       audienceScope: row?.audience_scope || "global",
       targetUserIds: Array.isArray(row?.target_user_ids) ? row.target_user_ids : [],
       sectionId: chartConfig.section_id ?? row.sectionId ?? row.containerId ?? null,
@@ -1505,8 +1578,13 @@ export default function DashboardBuilder({
           desktop: Array.isArray(res?.layout_blueprint?.desktop) ? res.layout_blueprint.desktop : [],
           mobile: Array.isArray(res?.layout_blueprint?.mobile) ? res.layout_blueprint.mobile : [],
         };
+        layoutPxBlueprintRef.current = {
+          desktop: sanitizeNestedLayoutPx(Array.isArray(res?.layout_px) ? res.layout_px : []),
+          mobile: sanitizeNestedLayoutPx(Array.isArray(res?.layout_px_mobile) ? res.layout_px_mobile : []),
+        };
       } else {
         layoutBlueprintRef.current = { desktop: [], mobile: [] };
+        layoutPxBlueprintRef.current = { desktop: [], mobile: [] };
       }
       const loadedCanvasWidth = Number(res?.canvas_width);
       const nextDesignWidth = Number.isFinite(loadedCanvasWidth) && loadedCanvasWidth >= 200
@@ -1524,10 +1602,20 @@ export default function DashboardBuilder({
               return { id: String(widget.id), data: null, error: null };
             }
             try {
-              const response = await previewWidget(widget.query, {
-                dbSource: widget.dataSource || "ims_postgresql",
-                filters,
-              });
+              let response;
+              if (isWidgetHybridMode(widget)) {
+                response = await hybridPreviewWidget({
+                  mssql_query: widget.chart_config?.hybrid_mssql_query || "",
+                  pg_query: widget.query || "",
+                  db_source: resolveHybridExternalDbSource(widget),
+                  filters,
+                });
+              } else {
+                response = await previewWidget(widget.query, {
+                  dbSource: widget.dataSource || "ims_postgresql",
+                  filters,
+                });
+              }
               return { id: String(widget.id), data: response?.data || [], error: null };
             } catch (error) {
               return { id: String(widget.id), data: [], error: error?.message || "Preview failed." };
@@ -1697,19 +1785,31 @@ export default function DashboardBuilder({
       if (USE_FLOATING_BUILDER) {
         const topLevelHydrated = hydratedWithLayout.filter((widget) => isTopLevelCanvasWidget(widget));
         // Always merge API layout_px with per-widget boxPx so live never falls back to grid packing.
-        const nextLayoutPx = mergeLayoutPxFromWidgets(
+        const mergedLayoutPx = mergeLayoutPxFromWidgets(
           Array.isArray(res?.layout_px) ? res.layout_px : [],
           topLevelHydrated,
         );
+        const visibleTopIds = new Set(topLevelHydrated.map((widget) => String(widget.id)));
+        // Live: keep original designer coords in state; display packing happens in resolvedLayoutPx
+        // so re-packs always start from the blueprint (stable c1→c2→c3 order).
+        // Builder: keep absolute designer coords untouched.
+        const nextLayoutPx = mergedLayoutPx.filter((box) => visibleTopIds.has(String(box.i)));
         layoutPxRef.current = nextLayoutPx;
         setLayoutPx(nextLayoutPx);
         const rawMobilePx = Array.isArray(res?.layout_px_mobile) ? res.layout_px_mobile : [];
-        const nextMobilePx = sanitizeNestedLayoutPx(rawMobilePx);
+        const sanitizedMobilePx = sanitizeNestedLayoutPx(rawMobilePx);
+        const nextMobilePx = sanitizedMobilePx.filter((box) => visibleTopIds.has(String(box.i)));
         layoutPxMobileRef.current = nextMobilePx;
         setLayoutPxMobile(nextMobilePx);
         phoneLayoutCustomizedRef.current = nextMobilePx.length > 0;
         if (!designCanvasWidthRef.current) {
-          const bounds = contentBoundsPx(nextLayoutPx, 0);
+          // Prefer full blueprint bounds for pack width (incl. hidden widgets).
+          const bounds = contentBoundsPx(
+            layoutPxBlueprintRef.current?.desktop?.length
+              ? layoutPxBlueprintRef.current.desktop
+              : (Array.isArray(res?.layout_px) ? res.layout_px : nextLayoutPx),
+            0,
+          );
           if (bounds.width >= 200) {
             designCanvasWidthRef.current = bounds.width;
             setDesignCanvasWidth(bounds.width);
@@ -1720,7 +1820,12 @@ export default function DashboardBuilder({
             // Nested: keep child boxPx from chart_config / parent nested_layout_px
             return widget;
           }
-          const matched = nextLayoutPx.find((item) => String(item.i) === String(widget.id));
+          // Prefer original saved box from full blueprint so live packing has stable sizes/order.
+          const blueprintBox = (layoutPxBlueprintRef.current?.desktop || []).find(
+            (item) => String(item.i) === String(widget.id),
+          );
+          const matched = blueprintBox
+            || nextLayoutPx.find((item) => String(item.i) === String(widget.id));
           if (!matched) return widget;
           const { left, top, width, height } = matched;
           return {
@@ -1779,33 +1884,38 @@ export default function DashboardBuilder({
 
   const canvasWidgets = useMemo(() => {
     const pool = readOnly ? widgets : hydrateContainerNestedLayouts(widgets);
-    const usePhoneFloating = USE_FLOATING_BUILDER && (isPhoneBuilderMode || (readOnly && isPhoneView));
-    const usePhoneNestedGrid = !USE_FLOATING_BUILDER && (isPhoneBuilderMode || (readOnly && isPhoneView));
+    const usePhoneFloating = isPhoneBuilderMode || (readOnly && isPhoneView);
     const withNested = readOnly || isPhoneBuilderMode || usePhoneFloating
       ? pool.map((widget) => {
         if (widget.rawType !== "container") return widget;
         const sectionChildren = pool.filter(
           (child) => String(child.containerId || child.sectionId) === String(widget.id),
         );
-        if (usePhoneNestedGrid) {
-          return {
-            ...widget,
-            mobileNestedLayout: resolvePublishedPhoneNestedLayout(widget, pool),
-            sectionChildren,
-          };
-        }
         // Floating phone: prefer saved mobile nested px; else desktop nested (laptop fallback).
-        const desktopNestedPx = boxesFromChildren(
-          sectionChildren,
-          Array.isArray(widget.nestedLayoutPx) ? widget.nestedLayoutPx : [],
-        );
-        const mobileNestedPx = Array.isArray(widget.mobileNestedLayoutPx) && widget.mobileNestedLayoutPx.length
-          ? boxesFromChildren(sectionChildren, widget.mobileNestedLayoutPx)
+        const fullNestedPx = Array.isArray(widget.nestedLayoutPx) ? widget.nestedLayoutPx : [];
+        const fullMobileNestedPx = Array.isArray(widget.mobileNestedLayoutPx)
+          ? widget.mobileNestedLayoutPx
+          : [];
+        const desktopNestedPx = boxesFromChildren(sectionChildren, fullNestedPx);
+        const mobileNestedPx = fullMobileNestedPx.length
+          ? boxesFromChildren(sectionChildren, fullMobileNestedPx)
           : null;
         const nestedLayout = resolvePublishedNestedLayout(widget, pool);
-        const nestedLayoutPx = usePhoneFloating && mobileNestedPx
+        let nestedLayoutPx = usePhoneFloating && mobileNestedPx
           ? mobileNestedPx
           : desktopNestedPx;
+        // Live: pack nested holes when permission hid sibling children inside the container.
+        if (readOnly && nestedLayoutPx.length) {
+          const blueprintNested = usePhoneFloating && fullMobileNestedPx.length
+            ? fullMobileNestedPx
+            : fullNestedPx;
+          const nestedCanvasWidth = Number(widget.style?.boxPx?.width)
+            || contentBoundsPx(blueprintNested, 0).width
+            || null;
+          nestedLayoutPx = packLayoutPxGaps(nestedLayoutPx, blueprintNested, {
+            canvasWidth: nestedCanvasWidth,
+          });
+        }
         return {
           ...widget,
           nestedLayout,
@@ -1821,15 +1931,10 @@ export default function DashboardBuilder({
         return (widget.sectionChildren || []).length > 0;
       })
       : withNested;
-    if (readOnly && isPhoneView && !USE_FLOATING_BUILDER) {
-      return buildPhoneCanvasWidgets(forCanvas);
-    }
     if (readOnly) {
       return buildCanvasWidgetsWithContainers(forCanvas);
     }
-    const built = buildCanvasWidgetsWithContainers(withNested);
-    if (!isPhoneBuilderMode || USE_FLOATING_BUILDER) return built;
-    return buildPhoneCanvasWidgets(withNested);
+    return buildCanvasWidgetsWithContainers(withNested);
   }, [widgets, readOnly, isPhoneBuilderMode, isPhoneView]);
 
   const movableWidgetsForContainer = useMemo(() => {
@@ -1843,19 +1948,6 @@ export default function DashboardBuilder({
         && String(widget.id) !== String(selectedWidgetId),
     );
   }, [widgets, selectedWidgetId]);
-
-  const dropTargetContainerIds = useMemo(() => {
-    if (!draggingWidgetId) return new Set();
-    const dragged = widgets.find((entry) => String(entry.id) === String(draggingWidgetId));
-    if (!dragged || !isTopLevelCanvasWidget(dragged) || dragged.rawType === "container") {
-      return new Set();
-    }
-    return new Set(
-      widgets
-        .filter((entry) => entry.rawType === "container" && isTopLevelCanvasWidget(entry))
-        .map((entry) => String(entry.id)),
-    );
-  }, [draggingWidgetId, widgets]);
 
   const builderCanvasLayout = isPhoneBuilderMode ? mobileLayout : layout;
 
@@ -1955,81 +2047,6 @@ export default function DashboardBuilder({
     });
     return normalized;
   }, [visibleLayout, readOnly, isCanvasLocked]);
-
-  const builderLayoutForGrid = useMemo(() => {
-    if (!builderInteractionLayout?.length) return renderedLayout;
-    const patchById = new Map(builderInteractionLayout.map((item) => [String(item.i), item]));
-    return renderedLayout.map((item, idx) => {
-      const patch = patchById.get(String(item.i));
-      return patch ? normalizeLayoutItem(patch, idx, item.i) : item;
-    });
-  }, [renderedLayout, builderInteractionLayout]);
-
-  const readOnlyPhoneLayout = useMemo(() => {
-    if (!readOnly) return [];
-    const ids = new Set(publishedVisibleWidgets.map((w) => String(w.id)));
-    const liveMobile = mobileLayoutRef.current?.length ? mobileLayoutRef.current : mobileLayout;
-    const mobileSource = publishedVisibleWidgets.map((widget) => {
-      const fromGrid = liveMobile.find((item) => String(item.i) === String(widget.id));
-      const fromWidget = widget.mobileLayout && typeof widget.mobileLayout === "object"
-        ? widget.mobileLayout
-        : null;
-      // Never fall back to laptop layout for phone published view.
-      const base = fromGrid || fromWidget || { i: String(widget.id), x: 0, y: 0, w: GRID_COLS, h: 2 };
-      return {
-        i: String(widget.id),
-        x: base.x,
-        y: base.y,
-        w: base.w,
-        h: base.h,
-      };
-    });
-    const resolved = resolvePublishedPhoneLayout(
-      publishedVisibleWidgets,
-      mobileSource,
-      GRID_COLS,
-      layoutBlueprintRef.current?.mobile,
-      publishedVisibleWidgets.map((widget) => {
-        const fromGrid = (layoutRef.current?.length ? layoutRef.current : layout)
-          .find((item) => String(item.i) === String(widget.id));
-        const fromWidget = widget.layout && typeof widget.layout === "object" ? widget.layout : null;
-        const base = fromGrid || fromWidget || { i: String(widget.id), x: 0, y: 0, w: GRID_COLS, h: 2 };
-        return {
-          i: String(widget.id),
-          x: base.x,
-          y: base.y,
-          w: base.w,
-          h: base.h,
-        };
-      }),
-    );
-    return clampLayoutInBounds(
-      resolved.filter((item) => ids.has(String(item.i))),
-      GRID_COLS,
-    ).map((item, idx) => normalizeLayoutItem(item, idx, item.i, { lock: true }));
-  }, [readOnly, mobileLayout, layout, publishedVisibleWidgets]);
-
-  const activeReadOnlyLayout = useMemo(() => {
-    if (!readOnly) return [];
-    return isPhoneView ? readOnlyPhoneLayout : renderedLayout;
-  }, [readOnly, isPhoneView, readOnlyPhoneLayout, renderedLayout]);
-
-  const renderedLayouts = useMemo(() => {
-    const locked = builderLayoutForGrid.map((item, idx) =>
-      normalizeLayoutItem(item, idx, item.i || item.id, { lock: readOnly }),
-    );
-    if (readOnly) {
-      return { lg: activeReadOnlyLayout };
-    }
-    if (isPhoneBuilderMode) {
-      return { lg: locked.map((item, idx) => normalizeLayoutItem(item, idx, item.i || item.id, {})) };
-    }
-    return { lg: locked.map((item, idx) => normalizeLayoutItem(item, idx, item.i || item.id, {})) };
-  }, [builderLayoutForGrid, readOnly, widgets, layout, mobileLayout, isPhoneBuilderMode, activeReadOnlyLayout]);
-
-  const activeBreakpoints = readOnly ? { lg: 0 } : BUILDER_BREAKPOINTS;
-  const activeColsMap = readOnly ? { lg: GRID_COLS } : BUILDER_COLS_MAP;
-
 
   useEffect(() => {
     const loadDashboardOptions = async () => {
@@ -2186,15 +2203,24 @@ export default function DashboardBuilder({
   // Grid w/h are proportional (out of 12 cols) so layouts look consistent.
   const measuredCanvasWidth = Math.max(0, containerWidth || 0);
   const canvasWidth = useMemo(() => {
-    if (isPhonePreviewFrame || (readOnly && isPhoneView)) return PHONE_BUILDER_WIDTH;
+    if (isPhonePreviewFrame) return PHONE_CONTENT_WIDTH;
+    // Live phone: use real viewport/host width (edge-to-edge), not a 390 cap.
+    if (readOnly && isPhoneView) {
+      const liveWidth = liveGridMeasure.mounted ? liveGridMeasure.width : 0;
+      if (liveWidth >= 200) return liveWidth;
+      if (measuredCanvasWidth >= 200) return measuredCanvasWidth;
+      return PHONE_CONTENT_WIDTH;
+    }
     const liveWidth = liveGridMeasure.mounted ? liveGridMeasure.width : 0;
     if (liveWidth >= 200) return liveWidth;
     if (measuredCanvasWidth >= 200) return measuredCanvasWidth;
-    return Math.max(320, measuredCanvasWidth);
+    // Never return a sub-200 width — that unmounts the canvas (gridReady false → blank).
+    return Math.max(320, measuredCanvasWidth || 1200);
   }, [measuredCanvasWidth, isPhonePreviewFrame, liveGridMeasure.mounted, liveGridMeasure.width, readOnly, isPhoneView]);
-  // Live uses CSS transform scale inside SimpleBuilderCanvas — keep pixel coords unscaled.
+  // Laptop live matches builder at 1:1 (scroll). Phone still uses fixed design width.
   const floatingCanvasWidth = canvasWidth;
-  const gridReady = canvasWidth >= 200;
+  // Stay ready once we've ever had a usable width; don't unmount on resize glitches.
+  const gridReady = canvasWidth >= 200 || measuredCanvasWidth >= 200;
 
   const colWidth = Math.max(
     20,
@@ -2217,7 +2243,7 @@ export default function DashboardBuilder({
   const resolvedLayoutPx = useMemo(() => {
     if (!USE_FLOATING_BUILDER) return [];
     const desktopSource = (layoutPx?.length ? layoutPx : layoutPxRef.current) || [];
-    const desktopPx = desktopSource.length
+    let desktopPx = desktopSource.length
       ? sanitizeNestedLayoutPx(desktopSource)
       : boxesFromTopLevelWidgets(
         (widgets || []).filter((widget) => isTopLevelCanvasWidget(widget)),
@@ -2226,13 +2252,88 @@ export default function DashboardBuilder({
         floatingGridMetrics,
       );
 
+    // Live: flow-pack from original blueprint coords (not already-shifted state).
+    if (readOnly && !isPhoneFloatingView) {
+      const visibleIds = new Set(
+        (publishedVisibleWidgets || []).map((widget) => String(widget.id)),
+      );
+      const blueprint = layoutPxBlueprintRef.current?.desktop?.length
+        ? layoutPxBlueprintRef.current.desktop
+        : desktopPx;
+      // Empty containers are display-only filtered on publish. Do not treat them as
+      // permission holes — that used to reflow the whole laptop layout and break
+      // builder↔publish alignment (table/KPI left edges drifted).
+      const emptyContainerIds = new Set(
+        (widgets || [])
+          .filter((widget) => (
+            widget.rawType === "container"
+            && !visibleIds.has(String(widget.id))
+          ))
+          .map((widget) => String(widget.id)),
+      );
+      const packBlueprint = sanitizeNestedLayoutPx(blueprint).filter(
+        (box) => !emptyContainerIds.has(String(box.i)),
+      );
+      const sizeById = new Map(desktopPx.map((box) => [String(box.i), box]));
+      const sourceBoxes = packBlueprint
+        .filter((box) => visibleIds.has(String(box.i)))
+        .map((box) => {
+          const live = sizeById.get(String(box.i));
+          // Keep live width/height if present; positions come from blueprint for stable order.
+          return live
+            ? { ...box, width: live.width, height: live.height }
+            : box;
+        });
+      desktopPx = packLayoutPxGaps(sourceBoxes, packBlueprint, {
+        canvasWidth: Number(designCanvasWidthRef.current)
+          || Number(designCanvasWidth)
+          || null,
+      });
+    }
+
     // Laptop builder + live laptop: desktop layout only — never mix phone boxes.
     if (!isPhoneFloatingView) return desktopPx;
 
-    const phoneW = PHONE_BUILDER_WIDTH;
-    const savedMobile = sanitizeNestedLayoutPx(
+    const phoneW = PHONE_CONTENT_WIDTH;
+    const topLevelForPhone = (widgets || []).filter((widget) => isTopLevelCanvasWidget(widget));
+    const rawMobile = sanitizeNestedLayoutPx(
       (layoutPxMobile?.length ? layoutPxMobile : layoutPxMobileRef.current) || [],
     );
+    // Complete + clamp only when a phone layout already exists. Incomplete
+    // layout_px_mobile (laptop-added table after phone was customized) used to fall
+    // back to desktop boxPx (~640) and collapse the phone canvas fitScale.
+    // Empty mobile still falls through to scale-from-desktop below.
+    const savedMobile = rawMobile.length
+      ? ensurePhoneLayoutPx(topLevelForPhone, rawMobile, { phoneWidth: phoneW, desktopPx })
+      : [];
+    const packPhoneVisible = (boxes) => {
+      if (!readOnly) return boxes;
+      const visibleIds = new Set(
+        (publishedVisibleWidgets || []).map((widget) => String(widget.id)),
+      );
+      const blueprint = layoutPxBlueprintRef.current?.mobile?.length
+        ? layoutPxBlueprintRef.current.mobile
+        : (layoutPxBlueprintRef.current?.desktop?.length
+          ? layoutPxBlueprintRef.current.desktop
+          : boxes);
+      const sizeById = new Map(boxes.map((box) => [String(box.i), box]));
+      const sourceBoxes = sanitizeNestedLayoutPx(blueprint)
+        .filter((box) => visibleIds.has(String(box.i)))
+        .map((box) => {
+          const live = sizeById.get(String(box.i));
+          return live
+            ? { ...box, width: live.width, height: live.height }
+            : box;
+        });
+      // If blueprint has no matching visible boxes (scaled phone fallback), pack `boxes` as-is.
+      const toPack = sourceBoxes.length ? sourceBoxes : boxes.filter((box) => visibleIds.has(String(box.i)));
+      return ensurePhoneLayoutPx(
+        topLevelForPhone.filter((widget) => visibleIds.has(String(widget.id))),
+        packLayoutPxGaps(toPack, blueprint, { canvasWidth: phoneW }),
+        { phoneWidth: phoneW, desktopPx },
+      );
+    };
+
     // Phone builder: phone canvas as designed.
     if (isPhoneBuilderMode && savedMobile.length) {
       const mobileBounds = contentBoundsPx(savedMobile, 0);
@@ -2241,15 +2342,48 @@ export default function DashboardBuilder({
     }
     // Live phone: phone layout only when published/saved; else laptop scaled into phone width.
     if (readOnly && savedMobile.length) {
-      const mobileBounds = contentBoundsPx(savedMobile, 0);
-      if (mobileBounds.width <= phoneW + 48) return savedMobile;
-      return scaleLayoutPx(savedMobile, Math.max(320, mobileBounds.width), phoneW);
+      const packedMobile = packPhoneVisible(savedMobile);
+      const mobileBounds = contentBoundsPx(packedMobile, 0);
+      if (mobileBounds.width <= phoneW + 48) return packedMobile;
+      return scaleLayoutPx(packedMobile, Math.max(320, mobileBounds.width), phoneW);
     }
     const designW = Math.max(
       320,
       Number(designCanvasWidthRef.current) || contentBoundsPx(desktopPx, 0).width,
     );
-    return scaleLayoutPx(desktopPx, designW, phoneW);
+    // Live phone without saved mobile: pack desktop gaps first, then scale into phone width.
+    // (Desktop pack was skipped above because isPhoneFloatingView is true.)
+    if (readOnly) {
+      const visibleIds = new Set(
+        (publishedVisibleWidgets || []).map((widget) => String(widget.id)),
+      );
+      const blueprint = layoutPxBlueprintRef.current?.desktop?.length
+        ? layoutPxBlueprintRef.current.desktop
+        : desktopPx;
+      const sizeById = new Map(desktopPx.map((box) => [String(box.i), box]));
+      const sourceBoxes = sanitizeNestedLayoutPx(blueprint)
+        .filter((box) => visibleIds.has(String(box.i)))
+        .map((box) => {
+          const live = sizeById.get(String(box.i));
+          return live ? { ...box, width: live.width, height: live.height } : box;
+        });
+      const toPack = sourceBoxes.length
+        ? sourceBoxes
+        : desktopPx.filter((box) => visibleIds.has(String(box.i)));
+      const packedDesktop = packLayoutPxGaps(toPack, blueprint, {
+        canvasWidth: Number(designCanvasWidthRef.current) || Number(designCanvasWidth) || null,
+      });
+      return ensurePhoneLayoutPx(
+        topLevelForPhone.filter((widget) => visibleIds.has(String(widget.id))),
+        scaleLayoutPx(packedDesktop, designW, phoneW),
+        { phoneWidth: phoneW, desktopPx: packedDesktop },
+      );
+    }
+    return ensurePhoneLayoutPx(
+      topLevelForPhone,
+      scaleLayoutPx(desktopPx, designW, phoneW),
+      { phoneWidth: phoneW, desktopPx },
+    );
   }, [
     layoutPx,
     layoutPxMobile,
@@ -2259,12 +2393,16 @@ export default function DashboardBuilder({
     isPhoneFloatingView,
     isPhoneBuilderMode,
     readOnly,
+    publishedVisibleWidgets,
+    designCanvasWidth,
   ]);
 
   const handleCanvasLayoutPxChange = useCallback((nextLayoutPx, options = {}) => {
     if (readOnly) return;
-    const normalized = sanitizeNestedLayoutPx(nextLayoutPx);
+    let normalized = sanitizeNestedLayoutPx(nextLayoutPx);
     if (!normalized.length) return;
+    // Do NOT re-equalize the whole group here — canvas already clamps the edited
+    // widget only. Re-running equalizePhoneSideGutters rewrote sibling sizes.
     normalized.forEach((item) => {
       const widget = widgetsRef.current?.find((entry) => String(entry.id) === String(item.i));
       if (widget && isTopLevelCanvasWidget(widget)) {
@@ -2381,19 +2519,23 @@ export default function DashboardBuilder({
     ? Math.max(20, Math.round(activeRowHeight))
     : Math.max(24, Math.round(activeRowHeight * 0.5));
   const storedLayoutPixels = selectedWidget ? readWidgetLayoutPixels(selectedWidget) : { widthPx: null, heightPx: null };
-  const selectedFloatingBox = USE_FLOATING_BUILDER && !isPhoneLayoutMode && selectedWidget && isTopLevelCanvasWidget(selectedWidget)
+  const selectedFloatingBox = USE_FLOATING_BUILDER && selectedWidget && isTopLevelCanvasWidget(selectedWidget)
     ? (resolvedLayoutPx.find((item) => String(item.i) === String(selectedWidget.id))
-      || (selectedWidget.style?.boxPx ? normalizeBox(selectedWidget.style.boxPx) : null))
+      || (!isPhoneLayoutMode && selectedWidget.style?.boxPx ? normalizeBox(selectedWidget.style.boxPx) : null))
     : null;
-  const selectedNestedFloatingBox = USE_FLOATING_BUILDER && !isPhoneLayoutMode && selectedWidget?.containerId
+  const selectedNestedFloatingBox = USE_FLOATING_BUILDER && selectedWidget?.containerId
     ? (() => {
       const parent = widgets.find((entry) => String(entry.id) === String(selectedWidget.containerId));
-      const nestedPx = Array.isArray(parent?.nestedLayoutPx) && parent.nestedLayoutPx.length
-        ? parent.nestedLayoutPx
-        : [];
+      const nestedPx = isPhoneBuilderMode
+        ? (Array.isArray(parent?.mobileNestedLayoutPx) && parent.mobileNestedLayoutPx.length
+          ? parent.mobileNestedLayoutPx
+          : (Array.isArray(parent?.nestedLayoutPx) ? parent.nestedLayoutPx : []))
+        : (Array.isArray(parent?.nestedLayoutPx) && parent.nestedLayoutPx.length
+          ? parent.nestedLayoutPx
+          : []);
       const matched = nestedPx.find((item) => String(item.i) === String(selectedWidget.id));
       if (matched) return normalizeBox(matched);
-      if (selectedWidget.style?.boxPx) return normalizeBox(selectedWidget.style.boxPx);
+      if (!isPhoneLayoutMode && selectedWidget.style?.boxPx) return normalizeBox(selectedWidget.style.boxPx);
       return null;
     })()
     : null;
@@ -2479,8 +2621,11 @@ export default function DashboardBuilder({
         width: nextWidthPx != null ? nextWidthPx : currentBox.width,
         height: nextHeightPx != null ? nextHeightPx : currentBox.height,
       });
-      nextBox.width = Math.min(nextBox.width, PHONE_BUILDER_WIDTH - 16);
-      nextBox.left = Math.min(nextBox.left, Math.max(0, PHONE_BUILDER_WIDTH - nextBox.width - 8));
+      nextBox.width = Math.min(nextBox.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2);
+      nextBox.left = Math.min(
+        Math.max(PHONE_FRAME_INSET, nextBox.left),
+        Math.max(PHONE_FRAME_INSET, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET - nextBox.width),
+      );
       const nextPx = matched
         ? existingPx.map((item) => (
           String(item.i) === String(selectedWidget.id)
@@ -2892,9 +3037,12 @@ export default function DashboardBuilder({
         existingPx,
         defaultTopLevelBoxForType(rawType, containerPreset, PHONE_BUILDER_WIDTH),
       );
-      // Keep new phone widgets within the phone frame width.
-      box.width = Math.min(box.width, PHONE_BUILDER_WIDTH - 24);
-      box.left = Math.min(box.left, Math.max(0, PHONE_BUILDER_WIDTH - box.width - 8));
+      // Keep new phone widgets within the phone frame width + side gutter.
+      box.width = Math.min(box.width, PHONE_BUILDER_WIDTH - PHONE_FRAME_INSET * 2);
+      box.left = Math.min(
+        Math.max(PHONE_FRAME_INSET, box.left),
+        Math.max(PHONE_FRAME_INSET, PHONE_BUILDER_WIDTH - PHONE_FRAME_INSET - box.width),
+      );
       const nextPx = [...existingPx, { i: id, ...box }];
       phoneLayoutCustomizedRef.current = true;
       layoutPxMobileRef.current = nextPx;
@@ -2955,6 +3103,30 @@ export default function DashboardBuilder({
       const nextPx = [...existingPx, { i: id, ...box }];
       layoutPxRef.current = nextPx;
       setLayoutPx(nextPx);
+      // Keep phone floating layout complete even when already customized — otherwise
+      // the new widget is missing from layout_px_mobile and phone view falls back to
+      // desktop boxPx (wide tables → fitScale collapse / huge select jump).
+      if (phoneLayoutCustomizedRef.current) {
+        const phoneBox = placeNextBoxPx(
+          sanitizeNestedLayoutPx(layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile),
+          defaultTopLevelBoxForType(rawType, containerPreset, PHONE_BUILDER_WIDTH),
+        );
+        phoneBox.width = Math.min(phoneBox.width, PHONE_BUILDER_WIDTH - PHONE_FRAME_INSET * 2);
+        phoneBox.left = Math.min(
+          Math.max(PHONE_FRAME_INSET, phoneBox.left),
+          Math.max(PHONE_FRAME_INSET, PHONE_BUILDER_WIDTH - PHONE_FRAME_INSET - phoneBox.width),
+        );
+        const nextMobilePx = ensurePhoneLayoutPx(
+          [...(widgetsRef.current?.length ? widgetsRef.current : widgets), { ...temp, id }],
+          [
+            ...(layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile),
+            { i: id, ...phoneBox },
+          ],
+          { phoneWidth: PHONE_BUILDER_WIDTH, desktopPx: nextPx },
+        );
+        layoutPxMobileRef.current = nextMobilePx;
+        setLayoutPxMobile(nextMobilePx);
+      }
       setWidgets((prev) => [...prev, {
         ...temp,
         style: {
@@ -2965,7 +3137,8 @@ export default function DashboardBuilder({
       setLayout((prev) => {
         const next = [...prev, buildInitialLayoutForType(rawType, prev.length, id, containerPreset)];
         layoutRef.current = next;
-        // If phone layout was already customized, never rewrite it from laptop adds.
+        // If phone layout was already customized, never rewrite the grid from laptop adds
+        // (floating phone px was updated above).
         if (!phoneLayoutCustomizedRef.current) {
           setMobileLayout((mobilePrev) => {
             const allWidgets = [...(widgetsRef.current?.length ? widgetsRef.current : widgets), { ...temp, style: { ...defaultWidgetStyle(rawType), boxPx: box } }];
@@ -3016,8 +3189,7 @@ export default function DashboardBuilder({
     setPropertyPanelOpen(true);
   };
 
-  // Nested layout changes update widget state only — container shell size stays manual.
-  const syncContainerMainLayout = () => {};
+  // Nested layout changes update widget state; container shell height is grown by callers.
 
   const addWidgetInContainer = (containerId, rawType) => {
     captureHistoryBeforeChange();
@@ -3172,47 +3344,6 @@ export default function DashboardBuilder({
     });
 
     if (patch) {
-      syncContainerMainLayout(
-        containerId,
-        isPhoneBuilderMode ? undefined : patch.nextNested,
-        isPhoneBuilderMode ? patch.nextMobileNested : undefined,
-      );
-      if (
-        USE_FLOATING_BUILDER
-        && !isPhoneBuilderMode
-        && Array.isArray(patch.nextNestedPx)
-        && !manualSizedWidgetIdsRef.current.has(String(containerId))
-      ) {
-        const containerWidget = widgetsRef.current.find(
-          (entry) => String(entry.id) === String(containerId),
-        );
-        const titleExtra = String(containerWidget?.title || "").trim() ? 28 : 16;
-        const shellH = containerShellHeightFromNested(patch.nextNestedPx, titleExtra + 8);
-        setLayoutPx((current) => {
-          const next = sanitizeNestedLayoutPx(
-            current.map((item) => (
-              String(item.i) === String(containerId)
-                ? { ...item, height: shellH }
-                : item
-            )),
-          );
-          layoutPxRef.current = next;
-          return next;
-        });
-        setWidgets((prev) =>
-          prev.map((widget) => {
-            if (String(widget.id) !== String(containerId)) return widget;
-            const box = readWidgetBoxPx(widget);
-            return {
-              ...widget,
-              style: {
-                ...(widget.style || {}),
-                boxPx: { ...box, height: shellH },
-              },
-            };
-          }),
-        );
-      }
       setSelectedWidgetId(id);
       setPropertyPanelOpen(true);
     }
@@ -3301,7 +3432,6 @@ export default function DashboardBuilder({
       mobileLayoutRef.current = next;
       return next;
     });
-    syncContainerMainLayout(containerId, patch.nextNested, patch.nextMobileNested);
     setSelectedWidgetId(widgetId);
     setPropertyPanelOpen(true);
   };
@@ -3310,106 +3440,45 @@ export default function DashboardBuilder({
     if (!widget || !containerId) return;
     captureHistoryBeforeChange();
     const newId = `tmp_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    let patch = null;
+    const liveWidgets = widgetsRef.current?.length ? widgetsRef.current : widgets;
+    const container = liveWidgets.find((entry) => String(entry.id) === String(containerId));
+    if (!container) return;
+
+    const containerWidth = Number(container.style?.boxPx?.width)
+      || Number((layoutPxRef.current || layoutPx).find((item) => String(item.i) === String(containerId))?.width)
+      || 0;
     let clonedForPreview = null;
 
-    setWidgets((prev) => {
-      const container = prev.find((entry) => String(entry.id) === String(containerId));
-      if (!container) return prev;
-
-      if (isPhoneBuilderMode) {
-        phoneLayoutCustomizedRef.current = true;
-        const mobileNestedSource = getContainerNestedMobileSource(container, prev);
-        const sourceLayout = widget.mobileLayout
-          || widget.layout
-          || buildInitialNestedLayoutForType(widget.rawType, mobileNestedSource.length, widget.id);
-        const preservedW = Math.min(12, Math.max(1, Number(sourceLayout.w) || 12));
-        const preservedH = Math.max(1, Number(sourceLayout.h) || 2);
-        const slot = findCloneLayoutSlot(
-          mobileNestedSource,
-          { ...sourceLayout, w: preservedW, h: preservedH },
-          12,
-        );
-        const mobileNestedItem = normalizeNestedLayoutItem(
-          { x: 0, y: slot.y, w: preservedW, h: preservedH, i: newId },
-          mobileNestedSource.length,
-          newId,
-          { rawType: widget.rawType || widget.type || "kpi" },
-        );
-        const nextMobileNested = [...mobileNestedSource, mobileNestedItem];
-        const containerChildren = prev.filter((entry) => String(entry.containerId) === String(containerId));
-        const existingMobilePx = sanitizeNestedLayoutPx(
-          Array.isArray(container.mobileNestedLayoutPx) && container.mobileNestedLayoutPx.length
-            ? container.mobileNestedLayoutPx
-            : (Array.isArray(container.nestedLayoutPx) ? container.nestedLayoutPx : boxesFromChildren(containerChildren, [])),
-        );
-        const sourceBox = existingMobilePx.find((item) => String(item.i) === String(widget.id))
-          || defaultBoxForType(widget.rawType || "kpi");
-        const box = cloneBoxBeside(sourceBox, existingMobilePx);
-        const nextMobileNestedPx = [...existingMobilePx, { i: newId, ...box }];
-        patch = { nextNested: null, nextMobileNested };
-
-        const cloned = {
-          ...widget,
-          id: newId,
-          title: `${String(widget.title || "").trim() || widget.rawType || "Widget"} Copy`,
-          containerId,
-          sectionId: containerId,
-          mobileLayout: mobileNestedItem,
-          layoutLocked: true,
-          previewData: Array.isArray(widget.previewData) ? [...widget.previewData] : (Array.isArray(widget.data) ? [...widget.data] : []),
-          previewError: null,
-          deviceTarget: "both",
-          style: (() => {
-            const { layoutWidthPx: _dropW, layoutHeightPx: _dropH, boxPx: _dropBox, ...restStyle } = widget.style || {};
-            return restStyle;
-          })(),
-        };
-        clonedForPreview = cloned;
-
-        return [
-          ...prev.map((entry) => {
-            if (String(entry.id) !== String(containerId)) return entry;
-            return {
-              ...entry,
-              mobileNestedLayout: nextMobileNested,
-              mobileNestedLayoutPx: nextMobileNestedPx,
-            };
-          }),
-          cloned,
-        ];
-      }
-
-      const nestedSource = getContainerNestedSource(container, prev);
-      const mobileNestedSource = getContainerNestedMobileSource(container, prev);
-      const containerChildren = prev.filter((entry) => String(entry.containerId) === String(containerId));
-      const existingPx = sanitizeNestedLayoutPx(
-        Array.isArray(container.nestedLayoutPx) && container.nestedLayoutPx.length
-          ? container.nestedLayoutPx
-          : boxesFromChildren(containerChildren, []),
+    if (isPhoneBuilderMode) {
+      phoneLayoutCustomizedRef.current = true;
+      const mobileNestedSource = getContainerNestedMobileSource(container, liveWidgets);
+      const sourceLayout = widget.mobileLayout
+        || widget.layout
+        || buildInitialNestedLayoutForType(widget.rawType, mobileNestedSource.length, widget.id);
+      const preservedW = Math.min(12, Math.max(1, Number(sourceLayout.w) || 12));
+      const preservedH = Math.max(1, Number(sourceLayout.h) || 2);
+      const slot = findCloneLayoutSlot(
+        mobileNestedSource,
+        { ...sourceLayout, w: preservedW, h: preservedH },
+        12,
       );
-      const sourceBox = existingPx.find((item) => String(item.i) === String(widget.id))
-        || readWidgetBoxPx(widget, existingPx.length);
-      const box = cloneBoxBeside(sourceBox, existingPx);
-      const nestedPxItem = { i: newId, ...box };
-      const nextNestedPx = [...existingPx, nestedPxItem];
-
-      const phoneLocked = phoneLayoutCustomizedRef.current;
-      let nextMobileNested = mobileNestedSource;
-      let mobileNestedItem = null;
-      if (!phoneLocked) {
-        mobileNestedItem = normalizeNestedLayoutItem(
-          placeNextNestedLayoutItem(
-            mobileNestedSource,
-            buildInitialNestedLayoutForType(widget.rawType, mobileNestedSource.length, newId),
-          ),
-          mobileNestedSource.length,
-          newId,
-          { rawType: widget.rawType || widget.type || "kpi" },
-        );
-        nextMobileNested = [...mobileNestedSource, mobileNestedItem];
-      }
-      patch = { nextNested: null, nextNestedPx, nextMobileNested: phoneLocked ? null : nextMobileNested };
+      const mobileNestedItem = normalizeNestedLayoutItem(
+        { x: 0, y: slot.y, w: preservedW, h: preservedH, i: newId },
+        mobileNestedSource.length,
+        newId,
+        { rawType: widget.rawType || widget.type || "kpi" },
+      );
+      const nextMobileNested = [...mobileNestedSource, mobileNestedItem];
+      const containerChildren = liveWidgets.filter((entry) => String(entry.containerId) === String(containerId));
+      const existingMobilePx = sanitizeNestedLayoutPx(
+        Array.isArray(container.mobileNestedLayoutPx) && container.mobileNestedLayoutPx.length
+          ? container.mobileNestedLayoutPx
+          : (Array.isArray(container.nestedLayoutPx) ? container.nestedLayoutPx : boxesFromChildren(containerChildren, [])),
+      );
+      const sourceBox = existingMobilePx.find((item) => String(item.i) === String(widget.id))
+        || defaultBoxForType(widget.rawType || "kpi");
+      const box = cloneBoxInContainer(sourceBox, existingMobilePx, containerWidth || PHONE_CONTENT_WIDTH);
+      const nextMobileNestedPx = [...existingMobilePx, { i: newId, ...box }];
 
       const cloned = {
         ...widget,
@@ -3417,76 +3486,113 @@ export default function DashboardBuilder({
         title: `${String(widget.title || "").trim() || widget.rawType || "Widget"} Copy`,
         containerId,
         sectionId: containerId,
-        ...(mobileNestedItem ? { mobileLayout: mobileNestedItem } : {}),
+        mobileLayout: mobileNestedItem,
         layoutLocked: true,
         previewData: Array.isArray(widget.previewData) ? [...widget.previewData] : (Array.isArray(widget.data) ? [...widget.data] : []),
         previewError: null,
         deviceTarget: "both",
         style: (() => {
-          const { layoutWidthPx: _dropW, layoutHeightPx: _dropH, ...restStyle } = widget.style || {};
+          const { layoutWidthPx: _dropW, layoutHeightPx: _dropH, boxPx: _dropBox, ...restStyle } = widget.style || {};
           return { ...restStyle, boxPx: box };
         })(),
       };
       clonedForPreview = cloned;
 
-      return [
+      setWidgets((prev) => [
         ...prev.map((entry) => {
           if (String(entry.id) !== String(containerId)) return entry;
           return {
             ...entry,
-            nestedLayoutPx: nextNestedPx,
-            ...(phoneLocked ? {} : { mobileNestedLayout: nextMobileNested }),
+            mobileNestedLayout: nextMobileNested,
+            mobileNestedLayoutPx: nextMobileNestedPx,
           };
         }),
         cloned,
-      ];
-    });
-
-    if (patch) {
-      syncContainerMainLayout(
-        containerId,
-        isPhoneBuilderMode ? undefined : patch.nextNested,
-        isPhoneBuilderMode ? patch.nextMobileNested : undefined,
-      );
+      ]);
       setSelectedWidgetId(newId);
       setPropertyPanelOpen(true);
       if (clonedForPreview) {
-        queueMicrotask(() => handlePreview(clonedForPreview));
+        queueMicrotask(() => handlePreview(clonedForPreview, { quiet: true }));
       }
+      return;
     }
-  };
 
-  const handleNestedGridWidthDiscover = (containerId, widthPx, options = {}) => {
-    const { growOnly = false, force = false } = options;
-    const rounded = Math.round(Number(widthPx) || 0);
-    if (rounded < 40) return;
-    setWidgets((prev) =>
-      prev.map((widget) => {
-        if (String(widget.id) !== String(containerId)) return widget;
-        const existing = readNestedGridWidthPx(widget);
-        if (force) {
-          if (existing === rounded) return widget;
-          return {
-            ...widget,
-            style: {
-              ...(widget.style || {}),
-              nestedGridWidthPx: rounded,
-            },
-          };
-        }
-        if (!growOnly && existing != null) return widget;
-        if (growOnly && existing != null && rounded <= existing) return widget;
-        const nextWidth = growOnly && existing != null ? Math.max(existing, rounded) : rounded;
-        if (existing === nextWidth) return widget;
+    const nestedSource = getContainerNestedSource(container, liveWidgets);
+    const mobileNestedSource = getContainerNestedMobileSource(container, liveWidgets);
+    const containerChildren = liveWidgets.filter((entry) => String(entry.containerId) === String(containerId));
+    const existingPx = sanitizeNestedLayoutPx(
+      Array.isArray(container.nestedLayoutPx) && container.nestedLayoutPx.length
+        ? container.nestedLayoutPx
+        : boxesFromChildren(containerChildren, []),
+    );
+    const sourceBox = existingPx.find((item) => String(item.i) === String(widget.id))
+      || readWidgetBoxPx(widget, existingPx.length);
+    const box = cloneBoxInContainer(sourceBox, existingPx, containerWidth);
+    const nestedPxItem = { i: newId, ...box };
+    const nextNestedPx = [...existingPx, nestedPxItem];
+
+    const phoneLocked = phoneLayoutCustomizedRef.current;
+    let nextMobileNested = mobileNestedSource;
+    let mobileNestedItem = null;
+    let nextMobileNestedPx = null;
+    if (!phoneLocked) {
+      mobileNestedItem = normalizeNestedLayoutItem(
+        placeNextNestedLayoutItem(
+          mobileNestedSource,
+          buildInitialNestedLayoutForType(widget.rawType, mobileNestedSource.length, newId),
+        ),
+        mobileNestedSource.length,
+        newId,
+        { rawType: widget.rawType || widget.type || "kpi" },
+      );
+      nextMobileNested = [...mobileNestedSource, mobileNestedItem];
+      const existingMobilePx = sanitizeNestedLayoutPx(
+        Array.isArray(container.mobileNestedLayoutPx) && container.mobileNestedLayoutPx.length
+          ? container.mobileNestedLayoutPx
+          : existingPx,
+      );
+      nextMobileNestedPx = [...existingMobilePx, { i: newId, ...cloneBoxInContainer(sourceBox, existingMobilePx, containerWidth || PHONE_CONTENT_WIDTH) }];
+    }
+
+    const cloned = {
+      ...widget,
+      id: newId,
+      title: `${String(widget.title || "").trim() || widget.rawType || "Widget"} Copy`,
+      containerId,
+      sectionId: containerId,
+      ...(mobileNestedItem ? { mobileLayout: mobileNestedItem } : {}),
+      layoutLocked: true,
+      previewData: Array.isArray(widget.previewData) ? [...widget.previewData] : (Array.isArray(widget.data) ? [...widget.data] : []),
+      previewError: null,
+      deviceTarget: "both",
+      style: (() => {
+        const { layoutWidthPx: _dropW, layoutHeightPx: _dropH, ...restStyle } = widget.style || {};
+        return { ...restStyle, boxPx: box };
+      })(),
+    };
+    clonedForPreview = cloned;
+
+    setWidgets((prev) => [
+      ...prev.map((entry) => {
+        if (String(entry.id) !== String(containerId)) return entry;
         return {
-          ...widget,
-          style: {
-            ...(widget.style || {}),
-            nestedGridWidthPx: nextWidth,
-          },
+          ...entry,
+          nestedLayoutPx: nextNestedPx,
+          ...(phoneLocked
+            ? {}
+            : {
+              mobileNestedLayout: nextMobileNested,
+              ...(nextMobileNestedPx ? { mobileNestedLayoutPx: nextMobileNestedPx } : {}),
+            }),
         };
       }),
-    );
+      cloned,
+    ]);
+    setSelectedWidgetId(newId);
+    setPropertyPanelOpen(true);
+    if (clonedForPreview) {
+      queueMicrotask(() => handlePreview(clonedForPreview, { quiet: true }));
+    }
   };
 
   const handleNestedLayoutChange = (containerId, nextLayout, isMobile = false, options = {}) => {
@@ -3501,7 +3607,7 @@ export default function DashboardBuilder({
 
     if (isPixelLayout) {
       const normalizedPx = sanitizeNestedLayoutPx(nextLayout);
-      getLiveNestedMap(saveToPhone).set(String(containerId), normalizedPx);
+      // Do NOT write pixel boxes into the live grid nested map — that poisons publish grid fallback.
       if (options.interim) return;
       captureHistoryBeforeChange();
       const containerKey = String(containerId);
@@ -3530,33 +3636,6 @@ export default function DashboardBuilder({
             },
           };
         });
-
-        const containerForHeight = nextWidgets.find((widget) => String(widget.id) === containerKey);
-        const shouldSyncHeight = !saveToPhone
-          && !USE_FLOATING_BUILDER
-          && containerForHeight
-          && !shouldPreserveSavedLayout(containerForHeight)
-          && !manualSizedWidgetIdsRef.current.has(containerKey);
-        if (shouldSyncHeight) {
-          const contentPx = containerContentHeightPx(normalizedPx, 8);
-          const titleExtra = String(containerForHeight.title || "").trim() ? 28 : 0;
-          const autoH = resolveContainerGridHeight(
-            Math.max(2, Math.ceil((contentPx + titleExtra + 16) / GRID_ROW_HEIGHT)),
-            containerForHeight.layout?.h,
-            { locked: false },
-          );
-          const patchContainerHeight = (layoutItems) =>
-            layoutItems.map((item, idx) => (
-              String(item.i) === containerKey
-                ? normalizeLayoutItem({ ...item, h: autoH }, idx, containerKey)
-                : item
-            ));
-          setLayout((current) => {
-            const updated = patchContainerHeight(current);
-            layoutRef.current = updated;
-            return updated;
-          });
-        }
 
         return nextWidgets;
       });
@@ -3746,135 +3825,6 @@ export default function DashboardBuilder({
     );
   };
 
-  const handleBuilderLayoutChange = (currentLayout) => {
-    if (isCanvasLocked) return;
-    setBuilderInteractionLayout(
-      (currentLayout || []).map((item, idx) => normalizeLayoutItem(item, idx, item.i)),
-    );
-  };
-
-  const handleDragStart = (_layout, oldItem) => {
-    if (isCanvasLocked) return;
-    const id = oldItem?.i ? String(oldItem.i) : null;
-    draggingWidgetRef.current = id;
-    setDraggingWidgetId(id);
-  };
-
-  const handleDragStop = (nextLayout) => {
-    const draggedId = draggingWidgetRef.current;
-    draggingWidgetRef.current = null;
-    setDraggingWidgetId(null);
-    setBuilderInteractionLayout(null);
-
-    const normalizedNext = (nextLayout || []).map((l, idx) => normalizeLayoutItem(l, idx, l.i));
-    if (!draggedId || isPhoneBuilderMode) {
-      captureHistoryBeforeChange();
-      syncLayoutFromCanvas(normalizedNext);
-      return;
-    }
-
-    const draggedWidget = widgets.find((entry) => String(entry.id) === String(draggedId));
-    if (
-      !draggedWidget
-      || !isTopLevelCanvasWidget(draggedWidget)
-      || draggedWidget.rawType === "container"
-    ) {
-      captureHistoryBeforeChange();
-      syncLayoutFromCanvas(normalizedNext);
-      return;
-    }
-
-    const draggedLayout = normalizedNext.find((item) => String(item.i) === String(draggedId));
-    const containers = widgets.filter(
-      (entry) => entry.rawType === "container" && isTopLevelCanvasWidget(entry),
-    );
-    const targetContainerId = findContainerDropTarget(draggedLayout, normalizedNext, containers);
-
-    if (targetContainerId) {
-      moveWidgetIntoContainer(
-        targetContainerId,
-        draggedId,
-        normalizedNext,
-        mobileLayoutRef.current,
-      );
-      return;
-    }
-
-    captureHistoryBeforeChange();
-    syncLayoutFromCanvas(normalizedNext);
-  };
-
-  const handleResizeStart = (_layout, oldItem) => {
-    const resizedId = oldItem?.i ? String(oldItem.i) : null;
-    if (!resizedId || isPhoneBuilderMode) return;
-    const resizedWidget = widgets.find((entry) => String(entry.id) === resizedId);
-    if (resizedWidget?.rawType !== "container") return;
-    setResizingContainerId(resizedId);
-  };
-
-  const handleResizeStop = (nextLayout, oldItem, newItem) => {
-    captureHistoryBeforeChange();
-    const resizedId = newItem?.i ? String(newItem.i) : null;
-    setBuilderInteractionLayout(null);
-    setResizingContainerId(null);
-
-    let patchedLayout = nextLayout || [];
-    const resizedWidget = resizedId
-      ? widgets.find((entry) => String(entry.id) === resizedId)
-      : null;
-
-    if (resizedWidget?.rawType === "container" && resizedId) {
-      // Keep the height the user just dragged — do not snap back to auto-fit content.
-      manualSizedWidgetIdsRef.current.add(resizedId);
-      const resizedItem = patchedLayout.find((item) => String(item.i) === resizedId);
-      const shellPixels = resizedItem
-        ? mainGridLayoutToPixels(resizedItem, {
-          colWidth,
-          rowHeight: GRID_ROW_HEIGHT,
-          gapX: GRID_GAP_X,
-          gapY: GRID_GAP_Y,
-        })
-        : { widthPx: null, heightPx: null };
-      const reconciledHeightPx = shellPixels.heightPx != null
-        ? shellPixels.heightPx
-        : readWidgetLayoutPixels(resizedWidget).heightPx;
-      const shellInnerWidthPx = containerInnerNestedWidthFromShellPx(
-        resizedWidget,
-        shellPixels.widthPx ?? readWidgetLayoutPixels(resizedWidget).widthPx,
-      );
-      const nestedGridWidthPx = resolveNextNestedGridWidthPx(
-        readNestedGridWidthPx(resizedWidget),
-        shellInnerWidthPx,
-      ) ?? inferNestedGridWidthPx(resizedWidget, resizedItem || resizedWidget.layout, {
-        colWidth,
-        rowHeight: GRID_ROW_HEIGHT,
-        gapX: GRID_GAP_X,
-        gapY: GRID_GAP_Y,
-      });
-      setWidgets((prev) =>
-        prev.map((widget) => {
-          if (String(widget.id) !== resizedId) return widget;
-          const { layoutWidthPx: _dropW, ...restStyle } = widget.style || {};
-          return {
-            ...widget,
-            layout: resizedItem ? { ...(widget.layout || {}), ...resizedItem } : widget.layout,
-            layoutLocked: true,
-            style: {
-              ...restStyle,
-              ...(reconciledHeightPx != null ? { layoutHeightPx: reconciledHeightPx } : {}),
-              ...(shellPixels.widthPx != null ? { layoutWidthPx: shellPixels.widthPx } : {}),
-              nestedGridWidthPx,
-            },
-          };
-        }),
-      );
-    } else if (resizedId) {
-      manualSizedWidgetIdsRef.current.add(resizedId);
-    }
-
-    syncLayoutFromCanvas(patchedLayout, { lockResizedContainerId: resizedId });
-  };
-
   const updateWidgetLocal = (updatedWidget) => {
     if (!updatedWidget) {
       captureHistoryBeforeChange();
@@ -3893,13 +3843,14 @@ export default function DashboardBuilder({
       return;
     }
     markHistoryGroupedEdit();
+    // Style-only payloads from PropertyPanel send a small key set (id/type/style/...).
+    // Full widget objects always include query/dataSource/etc — never treat those as style-only
+    // or SQL / hybrid chart_config edits get silently discarded.
+    const STYLE_ONLY_KEYS = new Set(["id", "rawType", "type", "style", "title", "emptyText"]);
+    const updatedKeys = Object.keys(updatedWidget || {});
     const styleOnly = Boolean(updatedWidget?.style)
-      && updatedWidget.layout == null
-      && updatedWidget.mobileLayout == null
-      && updatedWidget.nestedLayout == null
-      && updatedWidget.nestedLayoutPx == null
-      && updatedWidget.mobileNestedLayout == null
-      && updatedWidget.mobileNestedLayoutPx == null;
+      && updatedKeys.length > 0
+      && updatedKeys.every((key) => STYLE_ONLY_KEYS.has(key));
 
     const commitWidgets = () => {
       setWidgets((prev) => {
@@ -3913,6 +3864,12 @@ export default function DashboardBuilder({
               ...(w.style || {}),
               ...(updatedWidget.style || {}),
             },
+            chart_config: updatedWidget.chart_config
+              ? {
+                ...(w.chart_config || {}),
+                ...updatedWidget.chart_config,
+              }
+              : w.chart_config,
             layout: updatedWidget.layout
               ? { ...(w.layout || {}), ...updatedWidget.layout }
               : w.layout,
@@ -3997,19 +3954,39 @@ export default function DashboardBuilder({
     }
   };
 
-  const handlePreview = async (widget) => {
+  const handlePreview = async (widget, options = {}) => {
+    const quiet = options?.quiet === true;
     try {
       if (!requiresDataQuery(widget.rawType) || !isConfiguredWidgetQuery(widget.query)) {
+        // Keep any existing rows (e.g. copied preview from clone) — don't force empty.
         setWidgets((prev) =>
-          prev.map((w) => (String(w.id) === String(widget.id) ? { ...w, previewData: [], previewError: null } : w)),
+          prev.map((w) => {
+            if (String(w.id) !== String(widget.id)) return w;
+            const hasRows = Array.isArray(w.previewData) && w.previewData.length > 0;
+            const hasLive = Array.isArray(w.data) && w.data.length > 0;
+            if (hasRows || hasLive) return { ...w, previewError: null };
+            return { ...w, previewData: w.previewData ?? [], previewError: null };
+          }),
         );
         return;
       }
-      setBusy(true);
-      const res = await previewWidget(widget.query, {
-        dbSource: widget.dataSource || "ims_postgresql",
-        filters,
-      });
+      if (!quiet) setBusy(true);
+
+      let res;
+      if (isWidgetHybridMode(widget)) {
+        res = await hybridPreviewWidget({
+          mssql_query: widget.chart_config?.hybrid_mssql_query || "",
+          pg_query: widget.query || "",
+          db_source: resolveHybridExternalDbSource(widget),
+          filters,
+        });
+      } else {
+        res = await previewWidget(widget.query, {
+          dbSource: widget.dataSource || "ims_postgresql",
+          filters,
+        });
+      }
+
       setWidgets((prev) =>
         prev.map((w) =>
           String(w.id) === String(widget.id)
@@ -4021,12 +3998,12 @@ export default function DashboardBuilder({
       setWidgets((prev) =>
         prev.map((w) =>
           String(w.id) === String(widget.id)
-            ? { ...w, previewData: [], previewError: err.message || "Preview failed." }
+            ? { ...w, previewError: err.message || "Preview failed." }
             : w,
         ),
       );
     } finally {
-      setBusy(false);
+      if (!quiet) setBusy(false);
     }
   };
 
@@ -4209,6 +4186,14 @@ export default function DashboardBuilder({
             saved.id,
           );
         });
+      const remapNestedPxItems = (items = []) =>
+        sanitizeNestedLayoutPx(
+          (items || []).map((item) => (
+            String(item.i) === String(widget.id) || String(item.i) === String(saved.id)
+              ? { ...item, i: String(saved.id) }
+              : item
+          )),
+        );
 
       setWidgets((prev) =>
         prev.map((w) => {
@@ -4217,6 +4202,8 @@ export default function DashboardBuilder({
               ...w,
               nestedLayout: remapNestedItems(w.nestedLayout || []),
               mobileNestedLayout: remapNestedItems(w.mobileNestedLayout || []),
+              nestedLayoutPx: remapNestedPxItems(w.nestedLayoutPx || []),
+              mobileNestedLayoutPx: remapNestedPxItems(w.mobileNestedLayoutPx || []),
             };
           }
           if (String(w.id) === String(widget.id)) {
@@ -4237,7 +4224,8 @@ export default function DashboardBuilder({
               emptyText: saved?.chart_config?.emptyText || "Click edit and add query",
               tableSearchEnabled: saved?.chart_config?.table_search_enabled === true,
               tableSearchPlaceholder: String(saved?.chart_config?.table_search_placeholder || "").trim(),
-              tableSearchPosition: saved?.chart_config?.table_search_position === "left" ? "left" : "right",
+              tableSearchPosition: normalizeTableSearchPosition(saved?.chart_config?.table_search_position),
+              tableSearchWidth: normalizeTableSearchWidth(saved?.chart_config?.table_search_width),
               tableColumnSortEnabled: saved?.chart_config?.table_column_sort_enabled === true,
               tableExportEnabled: saved?.chart_config?.table_export_enabled === true,
               dataSource: saved?.chart_config?.data_source || "ims_postgresql",
@@ -4683,11 +4671,13 @@ export default function DashboardBuilder({
           const bounds = contentBoundsPx(publishLayoutPx, 0);
           return Math.max(320, bounds.width);
         })(),
-        ...(USE_FLOATING_BUILDER && phoneLayoutCustomizedRef.current && (
-          layoutPxMobileRef.current?.length || layoutPxMobile?.length
+        ...(USE_FLOATING_BUILDER && (
+          layoutPxMobileRef.current?.length || layoutPxMobile?.length || phoneLayoutCustomizedRef.current
         ) ? {
-          layout_px_mobile: sanitizeNestedLayoutPx(
+          layout_px_mobile: ensurePhoneLayoutPx(
+            (widgets || []).filter((widget) => isTopLevelCanvasWidget(widget)),
             layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile,
+            { phoneWidth: PHONE_BUILDER_WIDTH, desktopPx: publishLayoutPx },
           ),
           canvas_width_mobile: PHONE_BUILDER_WIDTH,
         } : {}),
@@ -4699,10 +4689,6 @@ export default function DashboardBuilder({
   const handleBuilderDeviceModeChange = (nextMode) => {
     const normalizedMode = nextMode === BUILDER_DEVICE_MOBILE ? BUILDER_DEVICE_MOBILE : BUILDER_DEVICE_DESKTOP;
     if (normalizedMode === builderDeviceMode) return;
-
-    setBuilderInteractionLayout(null);
-    draggingWidgetRef.current = null;
-    setDraggingWidgetId(null);
 
     const liveLayout = (layoutRef.current?.length ? layoutRef.current : layout).map((item) => ({ ...item }));
     const liveMobileLayout = (mobileLayoutRef.current?.length ? mobileLayoutRef.current : mobileLayout).map((item) => ({ ...item }));
@@ -4741,8 +4727,13 @@ export default function DashboardBuilder({
           && existingBounds.width <= PHONE_BUILDER_WIDTH + 48;
 
         if (hasRealPhoneLayout) {
-          layoutPxMobileRef.current = existingMobilePx;
-          setLayoutPxMobile(existingMobilePx);
+          const completed = ensurePhoneLayoutPx(
+            (widgets || []).filter((widget) => isTopLevelCanvasWidget(widget)),
+            existingMobilePx,
+            { phoneWidth: PHONE_BUILDER_WIDTH, desktopPx },
+          );
+          layoutPxMobileRef.current = completed;
+          setLayoutPxMobile(completed);
           setWidgets((prev) => syncTopLevelLayoutsOnWidgets(prev, liveLayout, mergedMobile));
         } else if (desktopPx.length) {
           const designW = Math.max(
@@ -5065,6 +5056,39 @@ export default function DashboardBuilder({
     }
   };
 
+  const handleExportDashboard = () => {
+    try {
+      const config = {
+        app_key: targetAppKey,
+        dashboard_key: selectedDashboardKey,
+        dashboard_name: dashboardNameForSave,
+        widgets: widgets.map(w => {
+           const layout = renderedLayout.find(l => String(l.i) === String(w.id));
+           return normalizeWidgetForDashboardJson(w, layout || w.layout);
+        }),
+        layout_px: layoutPx,
+        layout_px_mobile: layoutPxMobile,
+        canvas_width: designCanvasWidth,
+        version: 1.1,
+        exported_at: new Date().toISOString()
+      };
+      
+      const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `dashboard_${selectedDashboardKey}_${dayjs().format('YYYYMMDD_HHmm')}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      showBuilderNotice("success", "Dashboard configuration exported successfully.");
+    } catch (err) {
+      showBuilderNotice("error", "Failed to export dashboard.");
+    }
+  };
+
   const buildContainerCloneBundle = (containerWidget) => {
     if (!containerWidget || (containerWidget.rawType !== "container" && containerWidget.rawType !== "section")) return null;
 
@@ -5095,10 +5119,18 @@ export default function DashboardBuilder({
       const mappedId = idMap.get(String(item.i)) || String(item.i);
       return { i: mappedId, ...normalizeBox(item) };
     });
+    const mobileNestedPxSource = Array.isArray(containerWidget.mobileNestedLayoutPx) && containerWidget.mobileNestedLayoutPx.length
+      ? containerWidget.mobileNestedLayoutPx
+      : nestedPxSource;
+    const nextMobileNestedLayoutPx = mobileNestedPxSource.map((item) => {
+      const mappedId = idMap.get(String(item.i)) || String(item.i);
+      return { i: mappedId, ...normalizeBox(item) };
+    });
 
     const liveDesktopLayout = layoutRef.current?.length ? layoutRef.current : layout;
     const liveMobileLayout = mobileLayoutRef.current?.length ? mobileLayoutRef.current : mobileLayout;
     const liveLayoutPx = layoutPxRef.current?.length ? layoutPxRef.current : layoutPx;
+    const liveLayoutPxMobile = layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile;
     const desktopSource =
       liveDesktopLayout.find((item) => String(item.i) === containerId)
       || containerWidget.layout
@@ -5120,11 +5152,27 @@ export default function DashboardBuilder({
       newContainerId,
     );
     let clonedDesktopLayoutPx = null;
+    let clonedMobileLayoutPx = null;
     if (USE_FLOATING_BUILDER) {
       const sourceBox = liveLayoutPx.find((item) => String(item.i) === containerId)
         || readWidgetBoxPx(containerWidget, liveLayoutPx.length);
       const box = cloneBoxBeside(sourceBox, liveLayoutPx);
       clonedDesktopLayoutPx = { i: newContainerId, ...box };
+      const mobileSourceBox = liveLayoutPxMobile.find((item) => String(item.i) === containerId)
+        || {
+          ...sourceBox,
+          width: Math.min(sourceBox.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2),
+          left: PHONE_FRAME_INSET,
+        };
+      const mobileBox = cloneBoxBeside(mobileSourceBox, liveLayoutPxMobile.length ? liveLayoutPxMobile : [mobileSourceBox]);
+      clonedMobileLayoutPx = {
+        i: newContainerId,
+        ...normalizeBox({
+          ...mobileBox,
+          width: Math.min(mobileBox.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2),
+          left: Math.max(PHONE_FRAME_INSET, Math.min(mobileBox.left, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET - Math.min(mobileBox.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2))),
+        }),
+      };
     }
 
     const clonedContainer = {
@@ -5134,6 +5182,7 @@ export default function DashboardBuilder({
       nestedLayout: nextNestedLayout,
       nestedLayoutPx: nextNestedLayoutPx,
       mobileNestedLayout: nextMobileNestedLayout,
+      mobileNestedLayoutPx: nextMobileNestedLayoutPx,
       sectionId: null,
       containerId: null,
       previewData: null,
@@ -5166,7 +5215,9 @@ export default function DashboardBuilder({
         sectionId: newContainerId,
         layout: nestedItem || child.layout,
         mobileLayout: mobileNestedItem || child.mobileLayout || nestedItem || child.layout,
-        previewData: null,
+        previewData: Array.isArray(child.previewData)
+          ? [...child.previewData]
+          : (Array.isArray(child.data) ? [...child.data] : child.previewData),
         previewError: null,
         deviceTarget: "both",
         style: {
@@ -5185,9 +5236,11 @@ export default function DashboardBuilder({
       clonedDesktopLayout,
       clonedMobileLayout,
       clonedDesktopLayoutPx,
+      clonedMobileLayoutPx,
       nextNestedLayout,
       nextMobileNestedLayout,
       nextNestedLayoutPx,
+      nextMobileNestedLayoutPx,
     };
   };
 
@@ -5200,6 +5253,7 @@ export default function DashboardBuilder({
       clonedDesktopLayout,
       clonedMobileLayout,
       clonedDesktopLayoutPx,
+      clonedMobileLayoutPx,
     } = cloneBundle;
     const newContainerId = clonedContainer.id;
     const liveMobileLayout = mobileLayoutRef.current?.length ? mobileLayoutRef.current : mobileLayout;
@@ -5212,6 +5266,15 @@ export default function DashboardBuilder({
         mobileLayoutRef.current = next;
         return next;
       });
+      if (USE_FLOATING_BUILDER && clonedMobileLayoutPx) {
+        const nextMobilePx = sanitizeNestedLayoutPx([
+          ...(layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile),
+          clonedMobileLayoutPx,
+        ]);
+        layoutPxMobileRef.current = nextMobilePx;
+        setLayoutPxMobile(nextMobilePx);
+        phoneLayoutCustomizedRef.current = true;
+      }
     } else {
       setLayout((prev) => {
         const next = [...prev, normalizeLayoutItem(clonedDesktopLayout, prev.length, newContainerId)];
@@ -5226,6 +5289,15 @@ export default function DashboardBuilder({
         layoutPxRef.current = nextPx;
         setLayoutPx(nextPx);
       }
+      if (USE_FLOATING_BUILDER && clonedMobileLayoutPx) {
+        // Always keep phone px in sync when cloning on laptop (customized or not).
+        const nextMobilePx = sanitizeNestedLayoutPx([
+          ...(layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile),
+          clonedMobileLayoutPx,
+        ]);
+        layoutPxMobileRef.current = nextMobilePx;
+        setLayoutPxMobile(nextMobilePx);
+      }
       if (liveMobileLayout.some((item) => String(item.i) === String(sourceContainerId))) {
         setMobileLayout((prev) => {
           const next = [...prev, normalizeLayoutItem(clonedMobileLayout, prev.length, newContainerId)];
@@ -5237,6 +5309,10 @@ export default function DashboardBuilder({
 
     setSelectedWidgetId(newContainerId);
     setPropertyPanelOpen(true);
+    (clonedChildren || []).forEach((child) => {
+      if (!requiresDataQuery(child.rawType)) return;
+      queueMicrotask(() => handlePreview(child, { quiet: true }));
+    });
   };
 
   const cloneContainerWithChildren = (containerWidget) => {
@@ -5416,15 +5492,54 @@ export default function DashboardBuilder({
     const isTemp = String(widget.id).startsWith("tmp_");
     const needsConfiguredQuery = requiresDataQuery(widget.rawType) && !isConfiguredWidgetQuery(widget.query);
 
-    if (USE_FLOATING_BUILDER && !isPhoneBuilderMode) {
-      const existingPx = sanitizeNestedLayoutPx(layoutPxRef.current?.length ? layoutPxRef.current : layoutPx);
+    // Floating builder (laptop + phone): always write pixel layout so the clone is visible.
+    if (USE_FLOATING_BUILDER) {
+      const isPhone = isPhoneBuilderMode;
+      const existingPx = sanitizeNestedLayoutPx(
+        isPhone
+          ? (layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile)
+          : (layoutPxRef.current?.length ? layoutPxRef.current : layoutPx),
+      );
       const sourceBox = existingPx.find((item) => String(item.i) === String(widget.id))
         || readWidgetBoxPx(widget, existingPx.length);
       const box = cloneBoxBeside(sourceBox, existingPx);
+      const phoneBox = isPhone
+        ? normalizeBox({
+          ...box,
+          width: Math.min(box.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2),
+          left: Math.max(
+            PHONE_FRAME_INSET,
+            Math.min(box.left, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET - Math.min(box.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2)),
+          ),
+        })
+        : box;
       const localId = `tmp_${Date.now()}`;
-      const nextPx = [...existingPx, { i: localId, ...box }];
-      layoutPxRef.current = nextPx;
-      setLayoutPx(nextPx);
+      const nextPx = [...existingPx, { i: localId, ...(isPhone ? phoneBox : box) }];
+      if (isPhone) {
+        phoneLayoutCustomizedRef.current = true;
+        layoutPxMobileRef.current = nextPx;
+        setLayoutPxMobile(nextPx);
+      } else {
+        layoutPxRef.current = nextPx;
+        setLayoutPx(nextPx);
+        // Keep phone store in sync when phone layout was already customized.
+        if (phoneLayoutCustomizedRef.current) {
+          const existingMobile = sanitizeNestedLayoutPx(
+            layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile,
+          );
+          const mobileClone = normalizeBox({
+            ...box,
+            width: Math.min(box.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2),
+            left: PHONE_FRAME_INSET,
+          });
+          const nextMobilePx = sanitizeNestedLayoutPx([
+            ...existingMobile,
+            { i: localId, ...cloneBoxBeside(mobileClone, existingMobile.length ? existingMobile : [mobileClone]) },
+          ]);
+          layoutPxMobileRef.current = nextMobilePx;
+          setLayoutPxMobile(nextMobilePx);
+        }
+      }
       const desktopSlot = findCloneLayoutSlot(liveDesktopLayout, desktopSource);
       const mobileSlot = findCloneLayoutSlot(liveMobileLayout, mobileSource);
       const clonedDesktopLayout = {
@@ -5444,26 +5559,10 @@ export default function DashboardBuilder({
         deviceTarget: "both",
         style: {
           ...(widget.style || {}),
-          boxPx: box,
+          ...(isPhone ? {} : { boxPx: box }),
         },
       };
 
-      if (isTemp || needsConfiguredQuery) {
-        setWidgets((prev) => [...prev, clonedLocal]);
-        setLayout((prev) => {
-          const next = [...prev, normalizeLayoutItem(clonedDesktopLayout, prev.length, localId)];
-          layoutRef.current = next;
-          return next;
-        });
-        setMobileLayout((prev) => {
-          const next = [...prev, normalizeLayoutItem(clonedMobileLayout, prev.length, localId)];
-          mobileLayoutRef.current = next;
-          return next;
-        });
-        setSelectedWidgetId(localId);
-        return;
-      }
-      // Saved widgets: fall through to API create with pixel box preserved in style.
       setWidgets((prev) => [...prev, clonedLocal]);
       setLayout((prev) => {
         const next = [...prev, normalizeLayoutItem(clonedDesktopLayout, prev.length, localId)];
@@ -5476,6 +5575,12 @@ export default function DashboardBuilder({
         return next;
       });
       setSelectedWidgetId(localId);
+      setPropertyPanelOpen(true);
+
+      if (isTemp || needsConfiguredQuery || isPhone) {
+        return;
+      }
+      // Saved laptop widgets: persist via API with pixel box preserved in style.
       try {
         setBusy(true);
         const payload = {
@@ -5528,6 +5633,15 @@ export default function DashboardBuilder({
           );
           layoutPxRef.current = remappedPx;
           setLayoutPx(remappedPx);
+          if (phoneLayoutCustomizedRef.current || (layoutPxMobileRef.current || []).some((item) => String(item.i) === String(localId))) {
+            const remappedMobilePx = sanitizeNestedLayoutPx(
+              (layoutPxMobileRef.current || []).map((item) => (
+                String(item.i) === String(localId) ? { ...item, i: String(saved.id) } : item
+              )),
+            );
+            layoutPxMobileRef.current = remappedMobilePx;
+            setLayoutPxMobile(remappedMobilePx);
+          }
           setLayout((prev) => prev.map((l, idx) => (
             String(l.i) === String(localId) ? normalizeLayoutItem({ ...l, i: String(saved.id) }, idx, saved.id) : l
           )));
@@ -5629,7 +5743,8 @@ export default function DashboardBuilder({
         emptyText: saved?.chart_config?.emptyText || "Click edit and add query",
         tableSearchEnabled: saved?.chart_config?.table_search_enabled === true,
         tableSearchPlaceholder: String(saved?.chart_config?.table_search_placeholder || "").trim(),
-        tableSearchPosition: saved?.chart_config?.table_search_position === "left" ? "left" : "right",
+        tableSearchPosition: normalizeTableSearchPosition(saved?.chart_config?.table_search_position),
+        tableSearchWidth: normalizeTableSearchWidth(saved?.chart_config?.table_search_width),
         tableColumnSortEnabled: saved?.chart_config?.table_column_sort_enabled === true,
         tableExportEnabled: saved?.chart_config?.table_export_enabled === true,
         dataSource: saved?.chart_config?.data_source || "ims_postgresql",
@@ -5657,9 +5772,12 @@ export default function DashboardBuilder({
       embedMode
         ? "min-h-0"
         : readOnly
-          ? "w-full min-h-0 min-w-0 overflow-x-hidden"
+          ? (isPhoneView
+            // Live phone: full-bleed into the side gutters (no shell letterbox).
+            ? "w-full min-h-0 min-w-0 overflow-x-hidden max-md:w-full"
+            : "w-full min-h-0 min-w-0 overflow-x-auto")
           : "flex-1 h-full min-h-0 w-full overflow-hidden"
-    } bg-[#f8fafc] font-sans`}>
+    } ${readOnly && isPhoneView ? "bg-[#f8fafc] max-md:bg-[#f8fafc]" : "bg-[#f8fafc]"} font-sans`}>
       {!readOnly && builderNotice ? (
         <div
           className={`fixed left-1/2 top-4 z-[130] w-[min(92vw,420px)] -translate-x-1/2 rounded-lg border px-4 py-3 shadow-lg ${
@@ -5678,7 +5796,9 @@ export default function DashboardBuilder({
         embedMode
           ? "w-full"
           : readOnly
-            ? "w-full flex flex-col min-w-0 overflow-x-hidden"
+            ? (isPhoneView
+              ? "w-full flex flex-col min-w-0 overflow-x-hidden"
+              : "w-full flex flex-col min-w-0 overflow-x-auto")
             : "flex-1 flex flex-col overflow-hidden min-w-0"
       }`}>
         {!readOnly && (
@@ -5889,7 +6009,7 @@ export default function DashboardBuilder({
                           }}
                           className="w-full px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wide text-slate-600 hover:bg-blue-50 hover:text-blue-700"
                         >
-                          + {t}
+                          + {t === "kpi" ? "KPI" : t.charAt(0).toUpperCase() + t.slice(1)}
                         </button>
                       ))}
                     </div>
@@ -6063,25 +6183,106 @@ export default function DashboardBuilder({
 
 
         {!readOnly && widgets.length > 0 && showWidgetsStrip && (
-          <div className="widgets-strip h-8 bg-white border-b border-slate-100 px-2 flex items-center gap-1.5 overflow-x-auto overflow-y-hidden whitespace-nowrap shrink-0">
-            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest shrink-0">
-              Widgets ({widgets.length})
-            </span>
-            {widgets.map((w, idx) => (
-              <button
-                key={`switch-${w.id}`}
-                type="button"
-                onClick={() => setSelectedWidgetId(w.id)}
-                title={widgetStripLabel(w, idx)}
-                className={`shrink-0 max-w-[170px] px-2 py-0.5 rounded-md text-[10px] font-semibold border transition-all ${
-                  String(selectedWidgetId) === String(w.id)
-                    ? "bg-blue-600 border-blue-600 text-white shadow-sm"
-                    : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
-                }`}
-              >
-                <span className="block truncate">{widgetStripLabel(w, idx)}</span>
-              </button>
-            ))}
+          <div className="widget-manager-panel bg-white border-b border-slate-200 shadow-sm shrink-0">
+            <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 p-3 bg-slate-50/50">
+              <div className="flex-1 relative">
+                <Layout size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search widgets by title, type, or query..."
+                  value={widgetsSearchQuery}
+                  onChange={(e) => setWidgetsSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all"
+                />
+                {widgetsSearchQuery && (
+                   <button 
+                     onClick={() => setWidgetsSearchQuery("")}
+                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                   >
+                     <X size={14} />
+                   </button>
+                )}
+              </div>
+              
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleExportDashboard}
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all shadow-sm"
+                >
+                  <UploadCloud size={14} />
+                  Export Dashboard
+                </button>
+                
+                <div className="h-8 w-px bg-slate-200 mx-1 hidden md:block" />
+                
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-2">
+                  {filteredWidgetsList.length} of {widgets.length} Widgets
+                </span>
+              </div>
+            </div>
+
+            <div className="max-h-[220px] overflow-y-auto custom-scrollbar p-3 pt-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                {filteredWidgetsList.map((w, idx) => (
+                  <div
+                    key={`manage-${w.id}`}
+                    onClick={() => {
+                      setSelectedWidgetId(w.id);
+                      setPropertyPanelOpen(true);
+                    }}
+                    className={`group relative flex flex-col p-2.5 rounded-xl border-2 transition-all cursor-pointer ${
+                      String(selectedWidgetId) === String(w.id)
+                        ? "bg-blue-50 border-blue-500 shadow-md ring-4 ring-blue-500/5"
+                        : "bg-white border-slate-100 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
+                          String(selectedWidgetId) === String(w.id) ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"
+                        }`}>
+                          <span className="text-[9px] font-bold">{idx + 1}</span>
+                        </div>
+                        <h4 className="text-[11px] font-bold text-slate-800 truncate uppercase tracking-tight">
+                          {widgetStripLabel(w, idx)}
+                        </h4>
+                      </div>
+                      <span className={`shrink-0 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${
+                        isWidgetHybridMode(w)
+                          ? "bg-amber-50 border-amber-200 text-amber-600"
+                          : "bg-slate-100 border-slate-200 text-slate-500"
+                      }`}>
+                        {isWidgetHybridMode(w) ? "Hybrid" : (w.rawType || w.type || "widget")}
+                      </span>
+                    </div>
+                    
+                    {w.query && (
+                      <p className="text-[9px] text-slate-400 font-mono truncate bg-slate-50 rounded px-1.5 py-1 mb-1 border border-slate-100 group-hover:text-slate-600 transition-colors">
+                        {w.query}
+                      </p>
+                    )}
+                    
+                    <div className="flex items-center justify-between mt-auto pt-1 border-t border-slate-100/50">
+                      <span className="text-[8px] font-medium text-slate-400 italic truncate max-w-[120px]">
+                        ID: {w.id}
+                      </span>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <button className="p-1 hover:bg-blue-100 rounded text-blue-600"><Pencil size={10} /></button>
+                         <button className="p-1 hover:bg-rose-100 rounded text-rose-500" onClick={(e) => { e.stopPropagation(); handleDeleteWidget(w); }}><Trash2 size={10} /></button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                {filteredWidgetsList.length === 0 && (
+                  <div className="col-span-full py-10 flex flex-col items-center justify-center text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                    <CloudOff size={24} className="mb-2 opacity-50" />
+                    <p className="text-xs font-bold uppercase tracking-widest">No widgets found matching search</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -6092,217 +6293,88 @@ export default function DashboardBuilder({
           className={`relative z-0 w-full min-w-0 ${
             embedMode
               ? "max-h-[480px] overflow-auto"
-              : readOnly
-                ? "overflow-x-hidden overflow-y-auto"
-                : "flex-1 overflow-x-auto overflow-y-auto"
-          } ${
-            readOnly
-              ? isPhoneView
-                ? "bg-transparent px-2 py-1"
-                : "bg-[#f8fafc] p-0"
-              : "bg-[#f8fafc] p-0"
+              : readOnly && isPhoneView
+                // Live phone: edge-to-edge canvas (break out of any residual parent pad).
+                ? "overflow-x-hidden overflow-y-auto bg-transparent p-0 max-md:w-full max-md:max-w-none"
+                : isPhoneBuilderMode
+                  ? "flex-1 overflow-x-hidden overflow-y-auto bg-[#f8fafc] p-0"
+                  // Builder + live laptop: same horizontal scroll (1:1 WYSIWYG).
+                  : "flex-1 overflow-x-auto overflow-y-auto bg-[#f8fafc] p-0"
           }`}
         >
           <div
-            style={readOnly ? undefined : { minHeight: "100%" }}
+            style={
+              readOnly && isPhoneView
+                ? { width: "100%", maxWidth: "100%" }
+                : readOnly
+                  ? undefined
+                  : { minHeight: "100%" }
+            }
             className={`${
               isPhonePreviewFrame
                 ? "flex justify-center py-3 w-full max-w-full"
-                : readOnly
-                  ? "w-full max-w-full"
+                : (readOnly && isPhoneView)
+                  ? "w-full max-w-none"
+                  // Live laptop grows with design width (scroll), same as builder.
                   : "w-max min-w-full"
             }`}
           >
             {gridReady ? (
             <div
-              ref={liveGridMeasure.containerRef}
-              data-dashboard-phone-frame={lockPhoneDesignWidth ? "true" : undefined}
               className={
                 isPhonePreviewFrame
-                  ? "w-[390px] max-w-full rounded-[24px] border-4 border-slate-800 bg-white shadow-xl overflow-hidden"
+                  ? "box-border w-[390px] max-w-full rounded-[24px] border-4 border-slate-800 bg-white shadow-xl overflow-hidden"
                   : (readOnly && isPhoneView)
-                    ? "w-full max-w-[390px] mx-auto overflow-hidden"
-                    : readOnly
-                      ? "w-full max-w-full"
-                      : "w-max min-w-full"
+                    // Live phone: span the full content column (into former side gutters).
+                    ? "w-full max-w-none overflow-hidden"
+                    : "w-max min-w-full"
+              }
+              style={
+                readOnly && isPhoneView
+                  ? { width: "100%", marginLeft: 0, marginRight: 0 }
+                  : undefined
               }
             >
-            {USE_FLOATING_BUILDER ? (
-              <SimpleBuilderCanvas
-                key={isPhoneFloatingView ? "floating-phone" : "floating-desktop"}
-                widgets={canvasWidgets}
-                layoutPx={resolvedLayoutPx}
-                readOnly={readOnly}
-                phoneMode={isPhoneFloatingView}
-                canvasWidth={lockPhoneDesignWidth ? PHONE_BUILDER_WIDTH : floatingCanvasWidth}
-                selectedWidgetId={readOnly ? null : selectedWidgetId}
-                onLayoutChange={readOnly ? undefined : handleCanvasLayoutPxChange}
-                onSelectWidget={readOnly ? undefined : (widgetId) => {
-                  setSelectedWidgetId(widgetId == null || widgetId === "" ? null : widgetId);
-                  if (widgetId != null && widgetId !== "") {
-                    setPropertyPanelOpen(true);
-                  }
-                }}
-                onDeleteWidget={readOnly ? undefined : handleDeleteWidget}
-                onCloneWidget={readOnly ? undefined : handleCloneWidget}
-                onNestedLayoutChange={readOnly ? () => {} : handleNestedLayoutChange}
-                onAddChildWidget={readOnly ? () => {} : addWidgetInContainer}
-                onCloneChildWidget={readOnly ? () => {} : cloneWidgetInContainer}
-                onNestedGridWidthDiscover={readOnly ? undefined : handleNestedGridWidthDiscover}
-                isDropTargetIds={dropTargetContainerIds}
-                isContainerResizingId={resizingContainerId}
-              />
-            ) : (
-            <Responsive
-              key={readOnly ? `readonly-grid-${isPhoneView ? "phone" : "desktop"}` : `builder-grid-${builderDeviceMode}`}
-              className={`layout dashboard-builder-grid${
-                readOnly
-                  ? (isPhoneView ? " dashboard-view-grid dashboard-live-phone" : " dashboard-view-grid dashboard-live-desktop")
-                  : (isPhoneBuilderMode ? " dashboard-view-grid dashboard-live-phone dashboard-phone-builder" : "")
-              }`}
-              width={canvasWidth}
-              layouts={renderedLayouts}
-              breakpoints={activeBreakpoints}
-              cols={activeColsMap}
-              rowHeight={GRID_ROW_HEIGHT}
-              onDragStart={!isCanvasLocked && !readOnly ? handleDragStart : undefined}
-              onDragStop={!isCanvasLocked && !readOnly ? handleDragStop : undefined}
-              onLayoutChange={!isCanvasLocked && !readOnly ? handleBuilderLayoutChange : undefined}
-              onResizeStart={!isCanvasLocked && !readOnly ? handleResizeStart : undefined}
-              onResizeStop={!isCanvasLocked && !readOnly ? handleResizeStop : undefined}
-              compactor={noCompactor}
-              draggableHandle={isCanvasLocked || readOnly ? undefined : ".canvas-drag-handle"}
-              isDraggable={!isCanvasLocked && !readOnly}
-              isResizable={!isCanvasLocked && !readOnly}
-              resizeHandles={!isCanvasLocked && !readOnly
-                ? (isPhoneBuilderMode ? ["s"] : ["s", "w", "e", "n", "sw", "nw", "se", "ne"])
-                : []}
-              margin={[GRID_GAP_X, GRID_GAP_Y]}
-              containerPadding={[0, 0]}
+            {/* Phone gutters are layout insets (equal L/R) — no CSS padding here. */}
+            <div
+              ref={liveGridMeasure.containerRef}
+              {...(lockPhoneDesignWidth ? { "data-dashboard-phone-frame": "true" } : {})}
+              className={
+                lockPhoneDesignWidth
+                  ? "relative box-border w-full min-w-0 overflow-hidden p-0"
+                  : "relative w-max min-w-full"
+              }
             >
-              {canvasWidgets.map((widget) => (
-                <div
-                  key={String(widget.id)}
-                  className={`${readOnly ? "" : "group"} relative ${containerCellHeightClass(widget, { readOnly, isPhoneView })} w-full max-w-full transition-all duration-150 ${widget.rawType === "container" ? "container-widget-cell " : ""}${widget.rawType === "heading" ? "heading-widget-cell " : ""}${dropTargetContainerIds.has(String(widget.id)) ? "ring-2 ring-blue-400 ring-dashed " : ""}${
-                    String(selectedWidgetId) === String(widget.id) && !(isPhoneBuilderMode && widget.rawType === "container")
-                      ? "z-20"
-                      : "z-10"
-                  }`}
-                  onMouseDown={readOnly ? undefined : (e) => {
-                    if (isCanvasLocked || showClonePanel) return;
-                    if (e.target.closest(".canvas-drag-handle, .widget-action-bar, .widget-chrome-toolbar, button, a, input, select, textarea, .react-resizable-handle")) return;
-                    if (widget.rawType === "container" && e.target.closest(".container-nested-grid")) return;
-                    e.stopPropagation();
-                    setSelectedWidgetId(widget.id);
-                    setPropertyPanelOpen(true);
-                  }}
-                  onClick={readOnly ? undefined : (e) => {
-                    if (isCanvasLocked || showClonePanel) return;
-                    if (widget.rawType === "container" && e.target.closest(".container-nested-grid")) return;
-                    e.stopPropagation();
-                    setSelectedWidgetId(widget.id);
-                    setPropertyPanelOpen(true);
-                  }}
-                >
-                  {!isCanvasLocked && !readOnly && widget.rawType !== "container" && String(selectedWidgetId) === String(widget.id) && (
-                    <div className={`absolute ${isPhoneBuilderMode ? "inset-0" : "-inset-2"} border-2 border-blue-500 rounded-[12px] pointer-events-none z-0`} />
-                  )}
-                  {!isCanvasLocked && !readOnly && widget.rawType !== "container" && isPhoneBuilderMode && String(selectedWidgetId) === String(widget.id) && (
-                    <div className="widget-chrome-toolbar absolute top-1 left-1 z-40 flex flex-row items-center gap-0.5 pointer-events-auto">
-                      <div className="canvas-drag-handle h-4 w-4 shrink-0 grid place-items-center cursor-move bg-white shadow border border-slate-200 rounded">
-                        <GripVertical size={9} className="text-slate-400 pointer-events-none" />
-                      </div>
-                      <div className="widget-action-bar flex flex-row items-center gap-0.5 shrink-0 bg-white border border-slate-200 rounded shadow-sm p-0.5">
-                        <button
-                          type="button"
-                          className="h-4 w-4 shrink-0 grid place-items-center rounded hover:bg-slate-100 text-slate-600"
-                          title="Modify"
-                          onClick={(e) => { e.stopPropagation(); setSelectedWidgetId(widget.id); }}
-                        >
-                          <Pencil size={9} />
-                        </button>
-                        <button
-                          type="button"
-                          className="h-4 w-4 shrink-0 grid place-items-center rounded hover:bg-slate-100 text-slate-600"
-                          title="Clone"
-                          onClick={(e) => { e.stopPropagation(); handleCloneWidget(widget); }}
-                        >
-                          <Copy size={9} />
-                        </button>
-                        <button
-                          type="button"
-                          className="h-4 w-4 shrink-0 grid place-items-center rounded hover:bg-rose-50 text-rose-500"
-                          title="Delete"
-                          onClick={(e) => { e.stopPropagation(); handleDeleteWidget(widget); }}
-                        >
-                          <Trash2 size={9} />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {!isCanvasLocked && !readOnly && widget.rawType !== "container" && !isPhoneBuilderMode && String(selectedWidgetId) === String(widget.id) && (
-                    <div className="widget-action-bar absolute top-2 right-2 z-40 flex items-center gap-0.5 bg-white border border-slate-200 rounded shadow-sm p-1">
-                      <button
-                        type="button"
-                        className="h-6 w-6 grid place-items-center rounded hover:bg-slate-100 text-slate-600"
-                        title="Modify"
-                        onClick={(e) => { e.stopPropagation(); setSelectedWidgetId(widget.id); }}
-                      >
-                        <Pencil size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        className="h-6 w-6 grid place-items-center rounded hover:bg-slate-100 text-slate-600"
-                        title="Clone"
-                        onClick={(e) => { e.stopPropagation(); handleCloneWidget(widget); }}
-                      >
-                        <Copy size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        className="h-6 w-6 grid place-items-center rounded hover:bg-rose-50 text-rose-500"
-                        title="Delete"
-                        onClick={(e) => { e.stopPropagation(); handleDeleteWidget(widget); }}
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  )}
-                  {!isCanvasLocked && !readOnly && widget.rawType !== "container" && !isPhoneBuilderMode && (
-                    <div
-                      className={`canvas-drag-handle absolute top-1 left-1 z-40 h-5 w-5 grid place-items-center cursor-move bg-white shadow border border-slate-200 rounded transition-all ${
-                        String(selectedWidgetId) === String(widget.id)
-                          ? "opacity-100"
-                          : "opacity-0 group-hover:opacity-100"
-                      }`}
-                    >
-                      <GripVertical size={11} className="text-slate-400 pointer-events-none" />
-                    </div>
-                  )}
-                  <WidgetRenderer
-                    widget={widget}
-                    readOnly={readOnly}
-                    designParity={readOnly}
-                    isPhoneMode={isPhoneLayoutMode}
-                    isDropTarget={!readOnly && dropTargetContainerIds.has(String(widget.id))}
-                    selectedWidgetId={readOnly ? null : selectedWidgetId}
-                    onNestedLayoutChange={readOnly ? () => {} : handleNestedLayoutChange}
-                    onSelectWidget={readOnly ? () => {} : (childId) => {
-                      setSelectedWidgetId(childId);
-                      setPropertyPanelOpen(true);
-                    }}
-                    onDeleteWidget={readOnly ? () => {} : handleDeleteWidget}
-                    onAddChildWidget={readOnly ? () => {} : addWidgetInContainer}
-                    onCloneChildWidget={readOnly ? () => {} : cloneWidgetInContainer}
-                    onCloneWidget={readOnly ? () => {} : handleCloneWidget}
-                    onNestedGridWidthDiscover={readOnly ? undefined : handleNestedGridWidthDiscover}
-                    isContainerResizing={!readOnly && String(resizingContainerId) === String(widget.id)}
-                  />
-                </div>
-              ))}
-            </Responsive>
-            )}
+            <SimpleBuilderCanvas
+              key={isPhoneFloatingView ? "floating-phone" : "floating-desktop"}
+              widgets={canvasWidgets}
+              layoutPx={resolvedLayoutPx}
+              readOnly={readOnly}
+              phoneMode={isPhoneFloatingView}
+              canvasWidth={
+                lockPhoneDesignWidth
+                  ? (isPhonePreviewFrame
+                    ? PHONE_CONTENT_WIDTH
+                    : Math.max(320, floatingCanvasWidth || PHONE_CONTENT_WIDTH))
+                  : floatingCanvasWidth
+              }
+              selectedWidgetId={readOnly ? null : selectedWidgetId}
+              onLayoutChange={readOnly ? undefined : handleCanvasLayoutPxChange}
+              onSelectWidget={readOnly ? undefined : (widgetId) => {
+                setSelectedWidgetId(widgetId == null || widgetId === "" ? null : widgetId);
+                if (widgetId != null && widgetId !== "") {
+                  setPropertyPanelOpen(true);
+                }
+              }}
+              onDeleteWidget={readOnly ? undefined : handleDeleteWidget}
+              onCloneWidget={readOnly ? undefined : handleCloneWidget}
+              onNestedLayoutChange={readOnly ? () => {} : handleNestedLayoutChange}
+              onAddChildWidget={readOnly ? () => {} : addWidgetInContainer}
+              onCloneChildWidget={readOnly ? () => {} : cloneWidgetInContainer}
+            />
             </div>
+            </div>
+
             ) : (
               <div className="w-full min-h-[240px]" aria-hidden />
             )}
@@ -6330,7 +6402,7 @@ export default function DashboardBuilder({
                       className="px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-tight bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
                     >
                       <Plus size={11} className="inline mr-1" />
-                      {t}
+                      {t === "kpi" ? "KPI" : t.charAt(0).toUpperCase() + t.slice(1)}
                     </button>
                   ))}
                 </div>

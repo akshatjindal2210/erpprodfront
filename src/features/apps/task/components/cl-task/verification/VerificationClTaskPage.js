@@ -22,6 +22,7 @@ import DeleteModal from "@/core/components/common/DeleteModal";
 
 import { clTaskService } from "@/features/apps/task/services/clTaskApi";
 import { useClTaskFilters } from "@/features/apps/task/hooks/useClTaskFilters";
+import { CL_ORG_FILTER_CLASS } from "@/features/apps/task/helpers/clTaskScopeHelper";
 import { formatDateTime, formatScheduledDate } from "@/features/apps/task/helpers/utilHelper";
 import { stripHtml } from "@/features/apps/task/helpers/clTaskFormHelper";
 import { isClTaskMissed, isClTaskDueFillable } from "@/features/apps/task/helpers/clTaskTimeHelper";
@@ -135,6 +136,9 @@ export default function VerificationClTaskPage() {
         order: "DESC",
         status: "all",
         ...(appliedSearch ? { search: appliedSearch } : {}),
+        ...(selectedDepartment ? { department_id: selectedDepartment } : {}),
+        ...(selectedDesignation ? { designation_id: selectedDesignation } : {}),
+        ...(selectedPerson ? { person_id: selectedPerson } : {}),
       });
       const body = res?.data;
       const nested = body?.data;
@@ -149,7 +153,7 @@ export default function VerificationClTaskPage() {
     } finally {
       setLoading(false);
     }
-  }, [canView, params.pageSize, appliedSearch]);
+  }, [canView, params.pageSize, appliedSearch, selectedDepartment, selectedDesignation, selectedPerson]);
 
   useEffect(() => {
     fetchTasks();
@@ -375,7 +379,10 @@ export default function VerificationClTaskPage() {
         label: "Department",
         key: "department_id",
         value: selectedDepartment || "",
+        searchable: true,
+        placeholder: "Search departments…",
         variant: "quick",
+        className: CL_ORG_FILTER_CLASS,
         options: [
           { label: "All Departments", value: "" },
           ...departmentsLists.map((d) => ({ label: d.name, value: String(d.id) })),
@@ -385,19 +392,25 @@ export default function VerificationClTaskPage() {
         label: "Designation",
         key: "designation_id",
         value: selectedDesignation || "",
+        searchable: true,
+        placeholder: "Search designations…",
         variant: "quick",
+        className: CL_ORG_FILTER_CLASS,
         options: [
           { label: "All Designations", value: "" },
           ...designationsLists.map((d) => ({ label: d.name, value: String(d.id) })),
         ],
       },
       {
-        label: "Person",
+        label: "Users",
         key: "person_id",
         value: selectedPerson || "",
+        searchable: true,
+        placeholder: "Search users…",
         variant: "quick",
+        className: CL_ORG_FILTER_CLASS,
         options: [
-          { label: "All Persons", value: "" },
+          { label: "All Users", value: "" },
           ...personOptions.map((p) => ({ label: p.name, value: String(p.id) })),
         ],
       },

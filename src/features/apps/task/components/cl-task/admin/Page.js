@@ -27,6 +27,7 @@ import { stripHtml } from "@/features/apps/task/helpers/clTaskFormHelper";
 import { formatDueTimeLabel } from "@/features/apps/task/helpers/clTaskTimeHelper";
 import { filterRowsByViewDays } from "@/core/utils/permissionDays";
 import { editTimeBlockedByAccess } from "@/core/hooks/useListDrawerHotkeys";
+import { rowMatchesPersonScope, CL_ORG_FILTER_CLASS } from "@/features/apps/task/helpers/clTaskScopeHelper";
 import ClTaskModal from "./ClTaskModal";
 const capitalize = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : "—");
 
@@ -82,6 +83,7 @@ export default function ClTaskPage() {
     departmentsLists,
     designationsLists,
     personOptions,
+    allUsers,
     clearFilters,
   } = useClTaskFilters();
 
@@ -98,6 +100,9 @@ export default function ClTaskPage() {
         sortBy: "cl_task_id",
         order: "DESC",
         ...(appliedSearch ? { search: appliedSearch } : {}),
+        ...(selectedDepartment ? { department_id: selectedDepartment } : {}),
+        ...(selectedDesignation ? { designation_id: selectedDesignation } : {}),
+        ...(selectedPerson ? { person_id: selectedPerson } : {}),
       });
       const body = response.data;
       const nested = body?.data;
@@ -112,7 +117,7 @@ export default function ClTaskPage() {
     } finally {
       setLoading(false);
     }
-  }, [canView, params.pageSize, appliedSearch]);
+  }, [canView, params.pageSize, appliedSearch, selectedDepartment, selectedDesignation, selectedPerson]);
 
   useEffect(() => {
     fetchTasks();
@@ -135,7 +140,7 @@ export default function ClTaskPage() {
       data = data.filter((r) => Number(r.designation_id) === Number(selectedDesignation));
     }
     if (selectedPerson) {
-      data = data.filter((r) => Number(r.person_id) === Number(selectedPerson));
+      data = data.filter((r) => rowMatchesPersonScope(r, selectedPerson, allUsers));
     }
     const q = String(tempSearch || "").trim();
     if (q) {
@@ -152,6 +157,7 @@ export default function ClTaskPage() {
     selectedDepartment,
     selectedDesignation,
     selectedPerson,
+    allUsers,
     viewAccess.days,
   ]);
 
@@ -270,7 +276,7 @@ export default function ClTaskPage() {
         key: "taskType",
         value: params.taskType,
         variant: "quick",
-        className: "w-[7rem] shrink-0",
+        className: "w-[7rem] md:w-[7rem] md:min-w-[7rem] md:max-w-[7rem] shrink-0",
         options: [
           { label: "All Types", value: "all" },
           { label: "Open", value: "open" },
@@ -282,7 +288,7 @@ export default function ClTaskPage() {
         key: "activeFilter",
         value: params.activeFilter,
         variant: "quick",
-        className: "w-[6.5rem] shrink-0",
+        className: "w-[6.5rem] md:w-[6.5rem] md:min-w-[6.5rem] md:max-w-[6.5rem] shrink-0",
         options: [
           { label: "All", value: "all" },
           { label: "Active", value: "active" },
@@ -293,8 +299,10 @@ export default function ClTaskPage() {
         label: "Department",
         key: "department_id",
         value: selectedDepartment || "",
+        searchable: true,
+        placeholder: "Search departments…",
         variant: "quick",
-        className: "min-w-[9.5rem] md:w-[11rem] shrink-0",
+        className: CL_ORG_FILTER_CLASS,
         options: [
           { label: "All Departments", value: "" },
           ...departmentsLists.map((d) => ({ label: d.name, value: String(d.id) })),
@@ -304,21 +312,25 @@ export default function ClTaskPage() {
         label: "Designation",
         key: "designation_id",
         value: selectedDesignation || "",
+        searchable: true,
+        placeholder: "Search designations…",
         variant: "quick",
-        className: "min-w-[9.5rem] md:w-[11rem] shrink-0",
+        className: CL_ORG_FILTER_CLASS,
         options: [
           { label: "All Designations", value: "" },
           ...designationsLists.map((d) => ({ label: d.name, value: String(d.id) })),
         ],
       },
       {
-        label: "Person",
+        label: "Users",
         key: "person_id",
         value: selectedPerson || "",
+        searchable: true,
+        placeholder: "Search users…",
         variant: "quick",
-        className: "min-w-[9.5rem] md:w-[11rem] shrink-0",
+        className: CL_ORG_FILTER_CLASS,
         options: [
-          { label: "All Persons", value: "" },
+          { label: "All Users", value: "" },
           ...personOptions.map((p) => ({ label: p.name, value: String(p.id) })),
         ],
       },
@@ -468,7 +480,28 @@ export default function ClTaskPage() {
       [
         "Person",
         "person_name",
-        (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>,
+        (v, row) => {
+          let assigneeIds = [];
+          try {
+            const raw = row.assignee_person_ids;
+            if (Array.isArray(raw)) assigneeIds = raw;
+            else if (typeof raw === "string" && raw.trim()) {
+              const p = JSON.parse(raw);
+              if (Array.isArray(p)) assigneeIds = p;
+            }
+          } catch {
+            assigneeIds = [];
+          }
+          let label = v;
+          if (!label && assigneeIds.length > 1) label = `${assigneeIds.length} people`;
+          else if (!label && assigneeIds.length === 1) label = "1 person";
+          else if (!label && row.department_id && !row.person_id) {
+            label = row.designation_name
+              ? `${row.department_name || "Dept"} · ${row.designation_name}`
+              : `${row.department_name || "Department"} · all`;
+          }
+          return <span className="text-[10px] text-slate-500 truncate" title={label || ""}>{label || "—"}</span>;
+        },
         { width: "130px" },
       ],
       [

@@ -2,7 +2,8 @@
 
 /**
  * Full-bleed canvas (builder + live).
- * Design coordinates stay as-is; a CSS scale fits them to 100% parent width.
+ * Laptop (builder + publish): 1:1 design pixels + horizontal scroll (WYSIWYG).
+ * Phone: fit to measured frame width (no CSS shrink of a wider desktop layout).
  */
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -10,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { Rnd } from "react-rnd";
 import WidgetRenderer from "./WidgetRenderer";
 import {
+  DRAG_HANDLE_CLASS,
   HANDLE_STYLES,
   resizeHandleStylesForSelection,
   selectionStyle,
@@ -18,8 +20,12 @@ import {
 import {
   boxToInlineStyle,
   boxWithId,
+  equalizePhoneSideGutters,
   layoutPxFingerprint,
   normalizeBox,
+  PHONE_CONTENT_WIDTH,
+  PHONE_FRAME_INSET,
+  phoneContentBoxesFromFrame,
   readWidgetBoxPx,
   resolveTopLevelBoxes,
   savedStyleToCss,
@@ -27,29 +33,20 @@ import {
 } from "../utils/floatingLayoutEngine";
 import { getWidgetClickUrl, navigateWidgetClickUrl, shouldIgnoreWidgetLinkClick, widgetHasClickLink } from "../utils/widgetClickLink";
 
-const CANCEL_SELECTOR = ".simple-no-drag, button, a, input, textarea, select, .simple-nested-canvas";
+// Cancel chrome buttons + nested children (parent container moves via toolbar grip only).
+const CANCEL_SELECTOR = `.simple-no-drag, button, a, input, textarea, select, .simple-nested-canvas .simple-rnd`;
 /** Extra room below content for dropping widgets in the builder (keep modest to avoid endless vertical scroll). */
 const BOTTOM_ROOM_PX = 320;
 const MIN_BUILDER_HEIGHT = 560;
 const EDGE_SCROLL_PX = 72;
 const EDGE_SCROLL_SPEED = 28;
 
-function contentOriginOf(boxes = []) {
-  if (!boxes.length) return { x: 0, y: 0 };
-  const minLeft = boxes.reduce((min, box) => Math.min(min, box.left), Infinity);
-  const minTop = boxes.reduce((min, box) => Math.min(min, box.top), Infinity);
-  return {
-    x: Number.isFinite(minLeft) ? Math.max(0, minLeft) : 0,
-    y: Number.isFinite(minTop) ? Math.max(0, minTop) : 0,
-  };
-}
-
-function contentSizeOf(boxes = [], origin = { x: 0, y: 0 }) {
+function contentSizeOf(boxes = []) {
   const maxRight = boxes.reduce((max, box) => Math.max(max, box.left + box.width), 0);
   const maxBottom = boxes.reduce((max, box) => Math.max(max, box.top + box.height), 0);
   return {
-    width: Math.max(1, maxRight - origin.x),
-    height: Math.max(1, maxBottom - origin.y),
+    width: Math.max(1, maxRight),
+    height: Math.max(1, maxBottom),
   };
 }
 
@@ -65,9 +62,6 @@ export default function SimpleBuilderCanvas({
   onNestedLayoutChange,
   onAddChildWidget,
   onCloneChildWidget,
-  onNestedGridWidthDiscover,
-  isDropTargetIds = new Set(),
-  isContainerResizingId = null,
   canvasWidth = 1200,
   phoneMode = false,
 }) {
@@ -77,28 +71,60 @@ export default function SimpleBuilderCanvas({
     return (widgets || []).filter((w) => !w.containerId && !w.sectionId);
   }, [widgets]);
 
-  const boxes = useMemo(
-    () => resolveTopLevelBoxes(topLevel, layoutPx),
+  const measureRef = useRef(null);
+  // Seed from prop so a remount/resize never flashes an empty canvas (parentWidth===0 gate).
+  const [parentWidth, setParentWidth] = useState(() => {
+    const fromProp = Number(canvasWidth);
+    return fromProp >= 200 ? Math.floor(fromProp) : 1200;
+  });
+  const [dragCanvasPad, setDragCanvasPad] = useState(0);
+  const [liveBoxes, setLiveBoxes] = useState(null);
+
+  const phoneFitWidth = useMemo(() => {
+    const frameW = Number(canvasWidth) >= 200 ? Number(canvasWidth) : PHONE_CONTENT_WIDTH;
+    return parentWidth >= 200 ? parentWidth : frameW;
+  }, [canvasWidth, parentWidth]);
+
+  // Saved designer coords (no group scale). Display may scale only when readOnly.
+  const sourceBoxes = useMemo(
+    () => {
+      if (!phoneMode) return resolveTopLevelBoxes(topLevel, layoutPx);
+      return resolveTopLevelBoxes(topLevel, layoutPx, { maxWidth: phoneFitWidth });
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [topLevel, layoutPxFingerprint(layoutPx)],
+    [topLevel, layoutPxFingerprint(layoutPx), phoneMode, phoneFitWidth],
+  );
+  const sourceBoxesRef = useRef(sourceBoxes);
+  sourceBoxesRef.current = sourceBoxes;
+
+  const boxes = useMemo(
+    () => {
+      // Laptop / desktop: never phone-clamp or equalize — keep designer coords as saved.
+      if (!phoneMode) return sourceBoxes;
+      // Live/publish may scale-to-fill. Builder keeps exact sizes (resizing one
+      // widget must not reshape siblings).
+      return phoneContentBoxesFromFrame(sourceBoxes, phoneFitWidth, { fill: readOnly });
+    },
+    [sourceBoxes, phoneMode, phoneFitWidth, readOnly],
   );
   const boxesRef = useRef(boxes);
   boxesRef.current = boxes;
   const onLayoutChangeRef = useRef(onLayoutChange);
   onLayoutChangeRef.current = onLayoutChange;
-
-  const measureRef = useRef(null);
-  const [parentWidth, setParentWidth] = useState(0);
-  const [dragCanvasPad, setDragCanvasPad] = useState(0);
   const boxesFp = useMemo(() => layoutPxFingerprint(boxes), [boxes]);
+
+  useEffect(() => {
+    setLiveBoxes(null);
+  }, [boxesFp]);
 
   const measureParent = useCallback(() => {
     const node = measureRef.current;
     if (!node) return;
-    // Phone builder lives inside a 390px frame — never measure the outer full-width host
-    // (that was scaling widgets up 3x and making everything huge).
-    const phoneFrame = node.closest("[data-dashboard-phone-frame]");
-    const host = phoneFrame || node.closest("[data-dashboard-canvas-host]") || node;
+    // Phone: measure the phone frame content box (full width). Gutters are layout insets.
+    // Laptop: measure the canvas host — never a phone frame (avoids 390px clamp on desktop).
+    const host = phoneMode
+      ? (node.closest("[data-dashboard-phone-frame]") || node)
+      : (node.closest("[data-dashboard-canvas-host]") || node);
     const w = Math.floor(
       host.clientWidth
       || host.getBoundingClientRect().width
@@ -106,17 +132,15 @@ export default function SimpleBuilderCanvas({
       || 0,
     );
     const fromProp = Number(canvasWidth) >= 200 ? Math.floor(Number(canvasWidth)) : 0;
-    let resolved = w >= 200 ? w : fromProp;
-    if (phoneMode || phoneFrame) {
-      // Lock to the phone frame / prop width — never expand to desktop host width.
-      resolved = fromProp >= 200 ? fromProp : Math.min(w || 390, 390);
+    let resolved = 0;
+    if (phoneMode) {
+      resolved = w >= 200 ? w : (fromProp >= 200 ? fromProp : PHONE_CONTENT_WIDTH);
     } else if (w >= 200) {
-      // Prefer the visible host width — never inflate past what is on screen
-      // (inflating caused horizontal scroll / layout shake on Publish → live).
       resolved = w;
     } else if (fromProp >= 200) {
       resolved = fromProp;
     }
+    // Never drop to 0 during window resize — keep last good width (avoids blank canvas).
     if (resolved >= 200) {
       setParentWidth((prev) => (Math.abs(prev - resolved) <= 1 ? prev : resolved));
     }
@@ -129,10 +153,15 @@ export default function SimpleBuilderCanvas({
   useEffect(() => {
     const node = measureRef.current;
     if (!node || typeof ResizeObserver === "undefined") return undefined;
-    const phoneFrame = node.closest("[data-dashboard-phone-frame]");
-    const host = phoneFrame || node.closest("[data-dashboard-canvas-host]") || node;
+    const host = phoneMode
+      ? (node.closest("[data-dashboard-phone-frame]") || node)
+      : (node.closest("[data-dashboard-canvas-host]") || node);
     const ro = new ResizeObserver(() => window.requestAnimationFrame(measureParent));
     ro.observe(host);
+    if (phoneMode) {
+      const frame = node.closest("[data-dashboard-phone-frame]");
+      if (frame && frame !== host) ro.observe(frame);
+    }
     window.addEventListener("resize", measureParent);
     return () => {
       ro.disconnect();
@@ -140,20 +169,13 @@ export default function SimpleBuilderCanvas({
     };
   }, [measureParent, phoneMode]);
 
-  const origin = useMemo(() => contentOriginOf(boxes), [boxes]);
-  const designSize = useMemo(() => contentSizeOf(boxes, origin), [boxes, origin]);
+  // Absolute design coords only — never shift the frame (that caused drag jumps / empty left).
+  const designSize = useMemo(() => contentSizeOf(boxes), [boxes]);
 
-  // Builder: 1:1 + scroll when content is wider than the screen.
-  // Publish/live: shrink-to-fit width so there is no giant empty horizontal scroll.
-  const useScrollLayout = !readOnly && !phoneMode;
-
-  const fitScale = useMemo(() => {
-    if (parentWidth < 200 || designSize.width < 40) return 1;
-    if (useScrollLayout) return 1;
-    // Live: shrink only when content is wider than the host — never leave a blank right strip.
-    if (designSize.width <= parentWidth) return 1;
-    return parentWidth / designSize.width;
-  }, [parentWidth, designSize.width, useScrollLayout]);
+  // Laptop builder + publish: same 1:1 coords + horizontal scroll (WYSIWYG).
+  // Phone: never CSS-scale; surface matches measured frame.
+  const useScrollLayout = !phoneMode;
+  const fitScale = 1;
 
   const designHeight = useMemo(() => {
     if (readOnly) return designSize.height;
@@ -163,54 +185,105 @@ export default function SimpleBuilderCanvas({
     return Math.max(MIN_BUILDER_HEIGHT, designSize.height + BOTTOM_ROOM_PX + dragCanvasPad);
   }, [readOnly, designSize.height, dragCanvasPad, phoneMode]);
 
-  const scaledHeight = Math.ceil(designHeight * fitScale);
+  const scaledHeight = designHeight;
 
-  // Always fill the visible host width so right-side empty band disappears.
-  // Builder may grow past it when widgets are wider (horizontal scroll).
+  const phoneFrameWidth = Number(canvasWidth) >= 200 ? Number(canvasWidth) : PHONE_CONTENT_WIDTH;
+  const safeParentWidth = parentWidth >= 200 ? parentWidth : (Number(canvasWidth) >= 200 ? Math.floor(Number(canvasWidth)) : 1200);
+  // Phone: always fill the content box (100%) — edge-to-edge.
   const surfaceWidth = phoneMode
-    ? designSize.width
-    : Math.max(designSize.width, parentWidth);
+    ? safeParentWidth
+    : Math.max(designSize.width, safeParentWidth);
+
+  const getBox = useCallback((id) => {
+    const key = String(id);
+    if (liveBoxes?.has(key)) return liveBoxes.get(key);
+    return boxes.find((b) => String(b.i) === key) || null;
+  }, [boxes, liveBoxes]);
+
+  const patchLiveBox = useCallback((id, patch) => {
+    setLiveBoxes((prev) => {
+      const map = new Map(prev || boxes.map((b) => [String(b.i), b]));
+      const cur = map.get(String(id)) || boxes.find((b) => String(b.i) === String(id));
+      if (!cur) return prev;
+      map.set(String(id), normalizeBox({ ...cur, ...patch }));
+      return map;
+    });
+  }, [boxes]);
 
   const commitCanvasBox = useCallback((id, patch) => {
-    const next = sanitizeNestedLayoutPx(
-      boxesRef.current.map((box) => {
+    const frameW = phoneMode && parentWidth >= 200
+      ? parentWidth
+      : (Number(canvasWidth) >= 200 ? Number(canvasWidth) : PHONE_CONTENT_WIDTH);
+    // Commit against saved source boxes — never against display-fitted coords.
+    let next = sanitizeNestedLayoutPx(
+      sourceBoxesRef.current.map((box) => {
         if (String(box.i) !== String(id)) return box;
-        const left = patch.left != null ? Math.max(0, Number(patch.left) + origin.x) : box.left;
-        const top = patch.top != null ? Math.max(0, Number(patch.top) + origin.y) : box.top;
+        const minLeft = phoneMode ? PHONE_FRAME_INSET : 0;
         return boxWithId(id, {
           ...box,
-          left,
-          top,
+          left: patch.left != null ? Math.max(minLeft, Number(patch.left)) : box.left,
+          top: patch.top != null ? Math.max(0, Number(patch.top)) : box.top,
           width: patch.width != null ? Math.max(40, Number(patch.width)) : box.width,
           height: patch.height != null ? Math.max(32, Number(patch.height)) : box.height,
         });
       }).filter(Boolean),
     );
-    boxesRef.current = next;
+    if (phoneMode) {
+      // Clamp only the edited widget — do not re-fit the whole group.
+      const edited = next.find((box) => String(box.i) === String(id));
+      if (edited) {
+        const [clamped] = equalizePhoneSideGutters([edited], frameW, PHONE_FRAME_INSET);
+        next = next.map((box) => (
+          String(box.i) === String(id) ? { i: String(id), ...normalizeBox(clamped) } : box
+        ));
+      }
+    }
+    sourceBoxesRef.current = next;
+    boxesRef.current = phoneMode
+      ? phoneContentBoxesFromFrame(next, frameW, { fill: false })
+      : next;
+    setLiveBoxes(null);
     setDragCanvasPad(0);
     onLayoutChangeRef.current?.(next, {});
-  }, [origin.x, origin.y]);
+  }, [phoneMode, parentWidth, canvasWidth]);
 
   const sendWidgetToBottom = useCallback((id) => {
-    const others = boxesRef.current.filter((box) => String(box.i) !== String(id));
+    const frameW = phoneMode && parentWidth >= 200
+      ? parentWidth
+      : (Number(canvasWidth) >= 200 ? Number(canvasWidth) : PHONE_CONTENT_WIDTH);
+    const others = sourceBoxesRef.current.filter((box) => String(box.i) !== String(id));
     const maxBottom = others.reduce((max, box) => Math.max(max, box.top + box.height), 0);
-    const current = boxesRef.current.find((box) => String(box.i) === String(id));
-    const next = sanitizeNestedLayoutPx(
-      boxesRef.current.map((box) => {
+    const current = sourceBoxesRef.current.find((box) => String(box.i) === String(id));
+    let next = sanitizeNestedLayoutPx(
+      sourceBoxesRef.current.map((box) => {
         if (String(box.i) !== String(id)) return box;
         return boxWithId(id, {
           ...box,
-          left: origin.x,
+          left: phoneMode ? PHONE_FRAME_INSET : Math.max(0, box.left),
           top: maxBottom + 24,
           width: current?.width ?? box.width,
           height: current?.height ?? box.height,
         });
       }).filter(Boolean),
     );
-    boxesRef.current = next;
+    if (phoneMode) {
+      const edited = next.find((box) => String(box.i) === String(id));
+      if (edited) {
+        const [clamped] = equalizePhoneSideGutters([edited], frameW, PHONE_FRAME_INSET);
+        next = next.map((box) => (
+          String(box.i) === String(id) ? { i: String(id), ...normalizeBox(clamped) } : box
+        ));
+      }
+      sourceBoxesRef.current = next;
+      boxesRef.current = phoneContentBoxesFromFrame(next, frameW, { fill: false });
+    } else {
+      sourceBoxesRef.current = next;
+      boxesRef.current = next;
+    }
+    setLiveBoxes(null);
     setDragCanvasPad(0);
     onLayoutChangeRef.current?.(next, {});
-  }, [origin.x]);
+  }, [phoneMode, parentWidth, canvasWidth]);
 
   const getScroller = useCallback(() => {
     if (!measureRef.current) return null;
@@ -240,10 +313,8 @@ export default function SimpleBuilderCanvas({
     );
   }
 
-  if (parentWidth < 200) {
-    return <div ref={measureRef} className="w-full min-h-[240px]" />;
-  }
-
+  // Always paint widgets. A temporary 0-width measure during window resize used to
+  // return an empty stub and then never recover (blank canvas until hard refresh).
   return (
     <div
       ref={measureRef}
@@ -257,7 +328,7 @@ export default function SimpleBuilderCanvas({
       <div
         className="relative origin-top-left"
         style={{
-          width: surfaceWidth,
+          width: phoneMode ? "100%" : surfaceWidth,
           height: designHeight,
           transform: `scale(${fitScale})`,
           transformOrigin: "top left",
@@ -268,6 +339,18 @@ export default function SimpleBuilderCanvas({
         }}
         onMouseDownCapture={(e) => {
           if (readOnly) return;
+          // Toolbar actions (clone/delete/edit) — do not steal the event for selection.
+          if (e.target?.closest?.("[data-simple-toolbar], .simple-widget-toolbar, .simple-no-drag, button")) {
+            return;
+          }
+          // Nested child: select it (do not select the parent container instead).
+          const nestedHost = e.target?.closest?.(".simple-nested-canvas .simple-rnd [data-widget-id]")
+            || e.target?.closest?.(".simple-nested-canvas .simple-rnd")?.querySelector?.("[data-widget-id]");
+          if (nestedHost) {
+            const nestedId = nestedHost.getAttribute("data-widget-id");
+            if (nestedId) onSelectWidget?.(nestedId);
+            return;
+          }
           const host = e.target?.closest?.("[data-widget-id]")
             || e.target?.closest?.(".simple-rnd")?.querySelector?.("[data-widget-id]");
           if (host) {
@@ -293,17 +376,11 @@ export default function SimpleBuilderCanvas({
         )}
 
         {topLevel.map((widget, idx) => {
-          const box = boxes.find((b) => String(b.i) === String(widget.id))
-            || normalizeBox(readWidgetBoxPx(widget, 0));
-          const canvasBox = {
-            ...box,
-            left: box.left - origin.x,
-            top: box.top - origin.y,
-          };
+          const box = getBox(widget.id) || normalizeBox(readWidgetBoxPx(widget, 0));
+          const canvasBox = box;
           const isSelected = !readOnly && String(selectedWidgetId) === String(widget.id);
           const isContainer = widget.rawType === "container" || widget.rawType === "section";
           const css = savedStyleToCss(widget.style || {}, { isContainer });
-          const isDropTarget = isDropTargetIds.has(String(widget.id));
           // Stable stacking (same in builder + live). Selection only boosts in builder.
           const stackZ = isSelected ? 40 : (10 + idx);
 
@@ -354,33 +431,30 @@ export default function SimpleBuilderCanvas({
 
           return (
             <Rnd
-              key={`${widget.id}:${boxesFp}`}
-              className="simple-rnd"
+              key={String(widget.id)}
+              className={`simple-rnd group${isContainer ? " simple-container-rnd" : ""}`}
               scale={fitScale}
-              default={{
-                x: canvasBox.left,
-                y: canvasBox.top,
-                width: canvasBox.width,
-                height: canvasBox.height,
-              }}
+              position={{ x: canvasBox.left, y: canvasBox.top }}
+              size={{ width: canvasBox.width, height: canvasBox.height }}
               minWidth={isContainer ? 160 : 80}
               minHeight={isContainer ? 80 : 48}
               enableResizing={HANDLE_STYLES}
               resizeHandleStyles={resizeHandleStylesForSelection(isSelected)}
+              // Containers are full of nested widgets — move only from the hover toolbar grip.
+              dragHandleClassName={isContainer ? DRAG_HANDLE_CLASS : undefined}
               cancel={CANCEL_SELECTOR}
+              bounds={phoneMode ? "parent" : undefined}
               style={{
                 ...css,
                 ...selectionStyle(isSelected, isContainer),
                 zIndex: stackZ,
-                overflow: "visible",
+                overflow: isContainer ? "hidden" : "visible",
                 display: isContainer ? "flex" : undefined,
                 flexDirection: isContainer ? "column" : undefined,
-                boxShadow: isDropTarget
-                  ? "0 0 0 2px #60a5fa"
-                  : (selectionStyle(isSelected, isContainer).boxShadow || css.boxShadow),
               }}
               onDragStart={() => onSelectWidget?.(widget.id)}
               onDrag={(e, d) => {
+                patchLiveBox(widget.id, { left: d.x, top: d.y });
                 const bottom = d.y + (Number(d.node?.offsetHeight) || canvasBox.height);
                 const needPad = Math.max(0, bottom + 400 - (designHeight - dragCanvasPad));
                 if (needPad > dragCanvasPad + 20) setDragCanvasPad(needPad);
@@ -391,6 +465,12 @@ export default function SimpleBuilderCanvas({
               }}
               onResizeStart={() => onSelectWidget?.(widget.id)}
               onResize={(_e, _dir, ref, _delta, pos) => {
+                patchLiveBox(widget.id, {
+                  left: pos.x,
+                  top: pos.y,
+                  width: ref.offsetWidth,
+                  height: ref.offsetHeight,
+                });
                 const bottom = pos.y + ref.offsetHeight;
                 const needPad = Math.max(0, bottom + 400 - (designHeight - dragCanvasPad));
                 if (needPad > dragCanvasPad + 20) setDragCanvasPad(needPad);
@@ -404,13 +484,21 @@ export default function SimpleBuilderCanvas({
                 });
               }}
             >
-              {isSelected ? (
-                <SimpleWidgetToolbar
-                  onEdit={(e) => { e.stopPropagation(); onSelectWidget?.(widget.id); }}
-                  onClone={(e) => { e.stopPropagation(); onCloneWidget?.(widget); }}
-                  onDelete={(e) => { e.stopPropagation(); onDeleteWidget?.(widget); }}
-                  onSendToBottom={(e) => { e.stopPropagation(); sendWidgetToBottom(widget.id); }}
-                />
+              {(isSelected || isContainer) ? (
+                <div
+                  className={
+                    isContainer && !isSelected
+                      ? "pointer-events-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100"
+                      : undefined
+                  }
+                >
+                  <SimpleWidgetToolbar
+                    onEdit={(e) => { e.stopPropagation(); onSelectWidget?.(widget.id); }}
+                    onClone={(e) => { e.stopPropagation(); onCloneWidget?.(widget); }}
+                    onDelete={(e) => { e.stopPropagation(); onDeleteWidget?.(widget); }}
+                    onSendToBottom={isContainer ? undefined : ((e) => { e.stopPropagation(); sendWidgetToBottom(widget.id); })}
+                  />
+                </div>
               ) : null}
               <div
                 data-widget-id={String(widget.id)}
@@ -429,9 +517,6 @@ export default function SimpleBuilderCanvas({
                   onAddChildWidget={onAddChildWidget}
                   onCloneChildWidget={onCloneChildWidget}
                   onCloneWidget={onCloneWidget}
-                  onNestedGridWidthDiscover={onNestedGridWidthDiscover}
-                  isDropTarget={isDropTarget}
-                  isContainerResizing={String(isContainerResizingId) === String(widget.id)}
                   pureSavedStyle
                   suppressChrome
                   canvasScale={1}

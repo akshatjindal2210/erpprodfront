@@ -3,7 +3,7 @@ import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import { departmentService } from "@/features/admin/services/departmentService";
 import { designationService } from "@/features/admin/services/designationService";
-import { formatTaskUserOptionLabel } from "@/features/apps/task/helpers/utilHelper";
+import { formatTaskUserOptionLabel, extractList } from "@/features/apps/task/helpers/utilHelper";
 import { isManagerDesignation, hasFullTaskReportAccess } from "@/features/apps/task/config/appConfig";
 import { userService } from "@/features/apps/task/services/userApi";
 import { REPORT_FILTER_SS, readSessionString, writeSessionString, clearSessionKeys } from "@/features/apps/task/helpers/taskListFilterSession";
@@ -53,20 +53,28 @@ export function useReportFilters(currentUser) {
       userService.getViews(),
     ])
       .then(([deptRes, desRes, userRes]) => {
-        const depts = deptRes.data || [];
-        const desigs = desRes.data || [];
-        const users = userRes.data?.data || [];
-        setDepartmentsLists(depts);
-        setDesignationsLists(desigs);
-        setAllUsers(users);
+        setDepartmentsLists(deptRes.data || []);
+        setDesignationsLists(desRes.data || []);
+        // Same extraction as Tasks page Assigned By options
+        setAllUsers(extractList(userRes));
       })
       .catch(() => toast.error("Failed to load departments/users"));
   }, []);
 
   const loggedInUser = useMemo(
-    () => allUsers.find((u) => u.id === currentUser?.id),
+    () => allUsers.find((u) => Number(u.id) === Number(currentUser?.id)),
     [allUsers, currentUser],
   );
+
+  const managerDeptId = useMemo(() => {
+    return (
+      loggedInUser?.department?.id ??
+      loggedInUser?.department_id ??
+      currentUser?.department?.id ??
+      currentUser?.department_id ??
+      null
+    );
+  }, [loggedInUser, currentUser]);
 
   const isStaff = role === "super_admin" || role === "admin";
   const hasFullReportAccess = hasFullTaskReportAccess(role);
@@ -82,15 +90,12 @@ export function useReportFilters(currentUser) {
   // Department fixed for manager only (not EA/admin)
   useEffect(() => {
     if (hasFullReportAccess) return;
-    const userDeptId = loggedInUser?.department?.id;
-    if (!userDeptId) return;
-    
-    // Use a functional update to avoid unnecessary re-renders if the value is already the same
-    setSelectedDepartment(prev => {
-      const next = String(userDeptId);
+    if (!managerDeptId) return;
+    setSelectedDepartment((prev) => {
+      const next = String(managerDeptId);
       return prev === next ? prev : next;
     });
-  }, [hasFullReportAccess, loggedInUser?.department?.id]);
+  }, [hasFullReportAccess, managerDeptId]);
 
   // Designation filter — staff only; clear stale session for others
   useEffect(() => {
@@ -98,36 +103,41 @@ export function useReportFilters(currentUser) {
     setSelectedDesignation((prev) => (prev ? "" : prev));
   }, [showDesignationDropdown]);
 
-  // Filter users on dept/role change
+  // Filter users on dept/role change (Assigned By + Assigned To share this list)
   const filteredUsers = useMemo(() => {
     if (!allUsers.length) return [];
 
-    let users = allUsers;
-
     if (hasFullReportAccess) {
+      let users = allUsers;
       if (selectedDepartment) {
         users = users.filter(
-          (u) => Number(u.department?.id) === Number(selectedDepartment),
+          (u) => Number(u.department?.id ?? u.department_id) === Number(selectedDepartment),
         );
       }
       if (selectedDesignation) {
         users = users.filter(
-          (u) => Number(u.designation?.id) === Number(selectedDesignation),
+          (u) => Number(u.designation?.id ?? u.designation_id) === Number(selectedDesignation),
         );
       }
       return users;
-    } else if (isManager) {
-      const userDeptId = loggedInUser?.department?.id;
-      users = allUsers.filter(
-        (u) =>
-          Number(u.department?.id) === Number(userDeptId) &&
-          Number(u.id) !== Number(currentUser?.id),
-      );
-      return users;
-    } else {
-      return [];
     }
-  }, [selectedDepartment, selectedDesignation, allUsers, hasFullReportAccess, isManager, loggedInUser?.department?.id, currentUser?.id]);
+
+    if (isManager) {
+      if (!managerDeptId) return [];
+      return allUsers.filter(
+        (u) => Number(u.department?.id ?? u.department_id) === Number(managerDeptId),
+      );
+    }
+
+    return [];
+  }, [
+    selectedDepartment,
+    selectedDesignation,
+    allUsers,
+    hasFullReportAccess,
+    isManager,
+    managerDeptId,
+  ]);
 
   // Reset selectedUser only after users load — avoid wiping session restore on remount
   useEffect(() => {
@@ -145,7 +155,7 @@ export function useReportFilters(currentUser) {
   useEffect(() => {
     if (!selectedAssignedBy || !selectedUser) return;
     if (String(selectedAssignedBy) === String(selectedUser)) {
-      setSelectedUser(prev => prev === "" ? prev : "");
+      setSelectedUser((prev) => (prev === "" ? prev : ""));
     }
   }, [selectedAssignedBy, selectedUser]);
 
@@ -159,13 +169,24 @@ export function useReportFilters(currentUser) {
       }));
   }, [filteredUsers, selectedAssignedBy]);
 
-  const assignedByOptions = useMemo(() => {
-    if (!(hasFullReportAccess || isManager)) return [];
-    return allUsers.map((u) => ({
-      id: u.id,
-      name: formatTaskUserOptionLabel(u),
-    }));
-  }, [allUsers, hasFullReportAccess, isManager]);
+  // Same as Tasks page Assigned By filter — full user list (assigners can be any dept).
+  // Assigned To stays department-scoped via filteredUsers / teamMemberOptions.
+  const assignedByOptions = useMemo(
+    () =>
+      allUsers.map((u) => ({
+        id: u.id,
+        name: formatTaskUserOptionLabel(u),
+      })),
+    [allUsers],
+  );
+
+  // Drop stale Assigned By only after users load
+  useEffect(() => {
+    if (!selectedAssignedBy) return;
+    if (!allUsers.length) return;
+    const exists = assignedByOptions.some((u) => String(u.id) === String(selectedAssignedBy));
+    if (!exists) setSelectedAssignedBy("");
+  }, [assignedByOptions, selectedAssignedBy, allUsers.length]);
 
   const departmentOptions = useMemo(() => {
     return departmentsLists.map((d) => ({

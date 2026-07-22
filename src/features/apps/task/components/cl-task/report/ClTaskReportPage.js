@@ -13,6 +13,7 @@ import ExportMenu from "@/core/components/common/ExportMenu";
 import { exportListPageTable, notifyListPageExportResult } from "@/core/utils/listPageExport";
 
 import { useClTaskFilters } from "@/features/apps/task/hooks/useClTaskFilters";
+import { CL_ORG_FILTER_CLASS } from "@/features/apps/task/helpers/clTaskScopeHelper";
 import { reportPanelService, defaultReportDateRange, toYmdClient } from "@/features/apps/task/services/reportApi";
 import { formatScheduledDate } from "@/features/apps/task/helpers/utilHelper";
 import TaskReportFormModal from "./TaskReportFormModal";
@@ -144,7 +145,10 @@ export default function ClTaskReportPage() {
         label: "Department",
         key: "department_id",
         value: selectedDepartment || "",
+        searchable: true,
+        placeholder: "Search departments…",
         variant: "quick",
+        className: CL_ORG_FILTER_CLASS,
         options: [
           { label: "All Departments", value: "" },
           ...departmentsLists.map((d) => ({ label: d.name, value: String(d.id) })),
@@ -154,19 +158,25 @@ export default function ClTaskReportPage() {
         label: "Designation",
         key: "designation_id",
         value: selectedDesignation || "",
+        searchable: true,
+        placeholder: "Search designations…",
         variant: "quick",
+        className: CL_ORG_FILTER_CLASS,
         options: [
           { label: "All Designations", value: "" },
           ...designationsLists.map((d) => ({ label: d.name, value: String(d.id) })),
         ],
       },
       {
-        label: "Person",
+        label: "Users",
         key: "person_id",
         value: selectedPerson || "",
+        searchable: true,
+        placeholder: "Search users…",
         variant: "quick",
+        className: CL_ORG_FILTER_CLASS,
         options: [
-          { label: "All Persons", value: "" },
+          { label: "All Users", value: "" },
           ...personOptions.map((p) => ({ label: p.name, value: String(p.id) })),
         ],
       },

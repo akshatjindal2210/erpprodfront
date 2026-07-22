@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { ImageIcon, FileText, ClipboardList, X } from "lucide-react";
 import { FILE_BASE_URL } from "@/core/utils/lib";
+import { FORM_LABEL_CLASS } from "@/core/components/common/Constants";
 
 /** Normalize DB / form value → array of meta objects or File. Legacy single object supported. */
 export function parseAttachments(raw) {
@@ -88,7 +89,7 @@ export default function ClTaskAttachmentsField({
   return (
     <div>
       {label ? (
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">{label}</p>
+        <p className={`${FORM_LABEL_CLASS} mb-1.5`}>{label}</p>
       ) : null}
 
       {canUpload && (
@@ -97,7 +98,7 @@ export default function ClTaskAttachmentsField({
           tabIndex={0}
           onClick={() => inputRef.current?.click()}
           onKeyDown={(e) => e.key === "Enter" && inputRef.current?.click()}
-          className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition-all"
+          className="border border-dashed border-slate-200 rounded-lg px-3 py-3.5 text-center cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition-all"
         >
           <input
             ref={inputRef}

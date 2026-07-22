@@ -781,7 +781,7 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
     ["Customer", "acc_name", (v) => (
       <span className="font-bold text-slate-900 text-[10px] uppercase whitespace-normal break-words leading-snug" title={v}>{v || "—"}</span>
     ), { width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" }],
-    // ["Month", "schmonth", (_v, row) => <span className="text-[10px] text-slate-600 font-medium">{schMonthLabel(row.schmonth)}</span>, { width: "100px" }],
+    ["Month", "schmonth", (_v, row) => <span className="text-[10px] text-slate-600 font-medium">{schMonthLabel(row.schmonth)}</span>, { width: "100px" }],
     ["Item Code", "item_code", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "160px" }],
     ["Cust. Item Code", "custitemcode", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "140px", copyValue: (row) => row.custitemcode || "—" }],
     ["Description", "itemdesc", (v) => <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{v || "—"}</span>, { width: "220px", wrap: true }],

@@ -1,8 +1,10 @@
 "use client";
 import { useState, useRef, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { Search, Menu, X, LogOut, Clock, KeyRound, Settings, Calendar, ChevronDown } from "lucide-react";
+import { Search, Menu, X, LogOut, Clock, KeyRound, Settings, Calendar, ChevronDown, ChevronRight } from "lucide-react";
 import { ROUTES } from "@/config/routes";
+import { getShellAppFromPathname } from "@/config/appsRegistry";
 import { useAppLogout } from "@/core/hooks/useLogout";
 import { useCanAccess } from "@/core/hooks/useCanAccess";
 import { THEME_CONFIG } from "@/config/theme";
@@ -87,33 +89,53 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
     }
   }, [hideSearch]);
 
-  const currentPage = useMemo(() => {
+  const breadcrumb = useMemo(() => {
     const getAccess = (module) => {
       const access = canAccess(module, "view");
       return access.allowed;
     };
 
+    let pageName = null;
     for (const item of NAV_REGISTRY) {
       const hasParentAccess = item.module ? getAccess(item.module) : false;
-      if (item.href === pathname && (hasParentAccess || item.module === null)) return item.name;
-      
+      if (item.href === pathname && (hasParentAccess || item.module === null)) {
+        pageName = item.name;
+        break;
+      }
+
       if (item.subItems) {
-        const sub = item.subItems.find(s => s.href === pathname);
-        if (sub && getAccess(sub.module)) return sub.name;
+        const sub = item.subItems.find((s) => s.href === pathname);
+        if (sub && getAccess(sub.module)) {
+          pageName = sub.name;
+          break;
+        }
       }
     }
-    if (pathname === ROUTES.HOME || pathname.startsWith(`${ROUTES.HOME}/`)) {
-      return "Home";
+    if (!pageName) {
+      if (pathname === ROUTES.HOME) {
+        pageName = "Home";
+      } else if (pathname?.startsWith(`${ROUTES.HOME}/`)) {
+        if (pathname === ROUTES.ACTIVITY_LOGS) {
+          pageName = "Activity Logs";
+        } else {
+          const homeLeaf = pathname.split("/").filter(Boolean).pop();
+          pageName = homeLeaf
+            ? homeLeaf.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+            : "Home";
+        }
+      } else if (pathname === ROUTES.SETTINGS || pathname?.startsWith(`${ROUTES.SETTINGS}/`)) {
+        const settingsItem = SETTINGS_NAV_REGISTRY.find((item) => item.href === pathname);
+        pageName = settingsItem?.name || "Settings";
+      } else if (pathname?.startsWith("/task/")) {
+        const taskItem = TASK_NAV_REGISTRY.find((item) => item.href === pathname);
+        pageName = taskItem?.name || "Task";
+      } else {
+        pageName = "Dashboard";
+      }
     }
-    if (pathname === ROUTES.SETTINGS || pathname.startsWith(`${ROUTES.SETTINGS}/`)) {
-      const settingsItem = SETTINGS_NAV_REGISTRY.find((item) => item.href === pathname);
-      return settingsItem?.name || "Settings";
-    }
-    if (pathname?.startsWith("/task/")) {
-      const taskItem = TASK_NAV_REGISTRY.find((item) => item.href === pathname);
-      return taskItem?.name || "Task";
-    }
-    return "Dashboard";
+
+    const app = getShellAppFromPathname(pathname);
+    return { app, pageName };
   }, [pathname, canAccess]);
 
   const searchableItems = useMemo(() => {
@@ -184,21 +206,38 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
 
   return (
     <div className="flex flex-col sticky top-0 z-[110]" data-app-top-chrome>
-      <header className={`h-12 ${THEME_CONFIG.sidebarBg} border-b ${THEME_CONFIG.sidebarBorder} px-4 flex items-center justify-between`}>
+      <header className={`h-12 ${THEME_CONFIG.sidebarBg} border-b ${THEME_CONFIG.sidebarBorder} px-4 flex items-center justify-between gap-2 min-w-0`}>
         
-        {/* LEFT: Search & Title */}
-        <div className="flex items-center gap-4">
-          <button className="lg:hidden p-1 text-slate-400" onClick={() => setSidebarOpen(true)}>
+        {/* LEFT: Menu & breadcrumbs */}
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1 overflow-hidden">
+          <button className="lg:hidden p-1 text-slate-400 shrink-0" onClick={() => setSidebarOpen(true)}>
             <Menu size={20} />
           </button>
 
-          <h1 className="text-[13px] font-bold text-white tracking-tight uppercase border-l-2 border-blue-500 pl-3 leading-none">
-            {currentPage}
-          </h1>
+          <nav
+            aria-label="Breadcrumb"
+            className="flex items-center gap-1.5 text-[13px] font-bold tracking-tight uppercase border-l-2 border-blue-500 pl-3 leading-none min-w-0 overflow-hidden"
+          >
+            <Link
+              href={breadcrumb.app.href}
+              className="text-slate-400 hover:text-white transition-colors shrink-0"
+            >
+              {breadcrumb.app.name}
+            </Link>
+            {breadcrumb.pageName &&
+            breadcrumb.pageName.toLowerCase() !== breadcrumb.app.name.toLowerCase() ? (
+              <>
+                <ChevronRight size={12} className="text-slate-500 shrink-0" strokeWidth={3} aria-hidden />
+                <span className="text-white truncate min-w-0" aria-current="page">
+                  {breadcrumb.pageName}
+                </span>
+              </>
+            ) : null}
+          </nav>
         </div>
 
         {/* RIGHT: Linear Order Container */}
-        <div className="flex items-center gap-2 md:gap-3.5">
+        <div className="flex items-center gap-2 md:gap-3.5 shrink-0">
           
           {!hideSearch && (
             <div className="hidden lg:block relative" ref={searchContainerRef}>

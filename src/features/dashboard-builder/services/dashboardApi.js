@@ -55,6 +55,25 @@ export const previewWidget = async (query, { dbSource = "ims_postgresql", filter
   });
 };
 
+export const hybridPreviewWidget = async ({
+  mssql_query,
+  pg_query,
+  db_source = "erp_mssql",
+  filters = {},
+  stage_only = false,
+} = {}) => {
+  return api(`${BASE_PATH}/widgets/hybrid-preview`, {
+    method: "POST",
+    body: {
+      mssql_query,
+      ...(pg_query ? { pg_query } : {}),
+      db_source,
+      filters,
+      stage_only: stage_only === true,
+    },
+  });
+};
+
 export const getDashboardWidgets = async (appKey = "ims", pageKey = "default", filters = {}, dashboardKey = "default") => {
   return api(`${BASE_PATH}/dashboard/widgets`, {
     method: "POST",

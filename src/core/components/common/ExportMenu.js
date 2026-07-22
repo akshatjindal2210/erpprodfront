@@ -26,6 +26,7 @@ export default function ExportMenu({
   variant = "default",
   grouped = false,
   showLabel = "auto",
+  menuAlign = "left",
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -59,8 +60,10 @@ export default function ExportMenu({
     ? `${GROUPED_BTN_CLASS} ${open ? "bg-slate-50 text-slate-800" : ""}`
     : `${LIST_PAGE_ACTION_CLASS} h-9 min-w-[96px] px-3 flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors ${buttonVariantClass}`;
 
+  const menuPositionClass = menuAlign === "right" ? "right-0 left-auto" : "left-0";
+
   return (
-    <div className={`relative shrink-0 self-stretch flex ${className}`.trim()} ref={rootRef}>
+    <div className={`relative shrink-0 flex ${className}`.trim()} ref={rootRef}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -85,7 +88,7 @@ export default function ExportMenu({
       {open ? (
         <div
           role="menu"
-          className="absolute left-0 top-full z-[120] mt-1 min-w-[128px] rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+          className={`absolute top-full z-[120] mt-1 min-w-full w-max rounded-md border border-slate-200 bg-white py-1 shadow-lg ${menuPositionClass}`}
         >
           {formats.map((fmt) => (
             <button
@@ -93,7 +96,7 @@ export default function ExportMenu({
               type="button"
               role="menuitem"
               onClick={() => handlePick(fmt.id)}
-              className="flex w-full items-center px-3 py-2 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+              className="flex w-full items-center px-3 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap"
             >
               {fmt.label}
             </button>

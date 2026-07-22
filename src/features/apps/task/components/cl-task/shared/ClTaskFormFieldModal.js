@@ -10,7 +10,7 @@ import {
   getDefaultFieldWidth,
   validateFormSchemaFields,
 } from "@/features/apps/task/helpers/clTaskFormHelper";
-import { inputBase } from "./clTaskFormUi";
+import { inputBase, textareaBase } from "./clTaskFormUi";
 import ClTaskFormOptionEditor from "./ClTaskFormOptionEditor";
 
 const GROUPS = [...new Set(CL_FORM_FIELD_TYPES.map((t) => t.group))];
@@ -216,7 +216,7 @@ export default function ClTaskFormFieldModal({ open, initialField = null, onClos
             <div>
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Suggestions</label>
               <textarea
-                className={`${inputBase} min-h-[72px] resize-y font-mono text-xs`}
+                className={`${textareaBase} font-mono text-xs`}
                 value={draft.queryOptions || ""}
                 onChange={(e) => setDraft((d) => ({ ...d, queryOptions: e.target.value }))}
                 rows={4}

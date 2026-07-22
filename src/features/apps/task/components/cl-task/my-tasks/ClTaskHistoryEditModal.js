@@ -8,7 +8,7 @@ import { formatDateTime, formatScheduledDate } from "@/features/apps/task/helper
 import ClTaskCustomFieldRenderer from "../shared/ClTaskCustomFieldRenderer";
 import ClTaskSubmissionFillsList from "../shared/ClTaskSubmissionFillsList";
 import RichTextDisplay from "../../common/RichTextDisplay";
-import { ClFormSection, ClFormLabel, inputBase } from "../shared/clTaskFormUi";
+import { ClFormSection, ClFormLabel, inputBase, textareaBase } from "../shared/clTaskFormUi";
 
 export default function ClTaskHistoryEditModal({ task, onClose, onSuccess, viewOnly = false }) {
   const [values, setValues] = useState({});
@@ -240,7 +240,7 @@ export default function ClTaskHistoryEditModal({ task, onClose, onSuccess, viewO
             <div>
               <ClFormLabel>Assignee note</ClFormLabel>
               <textarea
-                className={inputBase}
+                className={textareaBase}
                 rows={3}
                 value={personRemark}
                 disabled={readOnlyCompleted}
@@ -251,7 +251,7 @@ export default function ClTaskHistoryEditModal({ task, onClose, onSuccess, viewO
             <div>
               <ClFormLabel>Verifier note</ClFormLabel>
               <textarea
-                className={inputBase}
+                className={textareaBase}
                 rows={3}
                 value={verifierRemark}
                 disabled={readOnlyCompleted}

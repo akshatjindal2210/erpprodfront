@@ -1,34 +1,60 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Pencil, Trash2, ChevronUp, ChevronDown, LayoutTemplate } from "lucide-react";
-import { getFieldGridClass } from "@/features/apps/task/helpers/clTaskFormHelper";
-import ClTaskFormFieldModal from "./ClTaskFormFieldModal";
-import ClTaskFormFieldPreview from "./ClTaskFormFieldPreview";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
+  HelpCircle,
+  CheckSquare,
+  CircleDot,
+  List,
+  Paperclip,
+} from "lucide-react";
+import { getFieldTypeMeta, newFormField } from "@/features/apps/task/helpers/clTaskFormHelper";
+import ClTaskFormFieldEditor from "./ClTaskFormFieldEditor";
+
+const QUICK_ADD = [
+  { type: "short_text", label: "Text", icon: null },
+  { type: "checkbox", label: "Checkbox", icon: CheckSquare },
+  { type: "radio", label: "Radio", icon: CircleDot },
+  { type: "dropdown", label: "Dropdown", icon: List },
+  { type: "attachment", label: "File", icon: Paperclip },
+];
 
 export default function ClTaskFormBuilder({ fields = [], onChange }) {
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editIndex, setEditIndex] = useState(null);
+  const [editing, setEditing] = useState(null); // null | "new" | number
+  const [quickSeed, setQuickSeed] = useState(null);
 
-  const openAdd = () => {
-    setEditIndex(null);
-    setModalOpen(true);
+  const openAdd = (seedType = null) => {
+    setQuickSeed(seedType ? newFormField(seedType) : null);
+    setEditing("new");
   };
-
   const openEdit = (idx) => {
-    setEditIndex(idx);
-    setModalOpen(true);
+    setQuickSeed(null);
+    setEditing(idx);
+  };
+  const closeEditor = () => {
+    setEditing(null);
+    setQuickSeed(null);
   };
 
   const handleSave = (field) => {
-    if (editIndex == null) {
+    if (editing === "new") {
       onChange([...fields, field]);
-    } else {
-      onChange(fields.map((f, i) => (i === editIndex ? field : f)));
+    } else if (typeof editing === "number") {
+      onChange(fields.map((f, i) => (i === editing ? field : f)));
     }
+    closeEditor();
   };
 
-  const removeField = (idx) => onChange(fields.filter((_, i) => i !== idx));
+  const removeField = (idx) => {
+    onChange(fields.filter((_, i) => i !== idx));
+    if (editing === idx) closeEditor();
+    else if (typeof editing === "number" && editing > idx) setEditing(editing - 1);
+  };
 
   const moveField = (idx, dir) => {
     const next = [...fields];
@@ -36,78 +62,171 @@ export default function ClTaskFormBuilder({ fields = [], onChange }) {
     if (target < 0 || target >= next.length) return;
     [next[idx], next[target]] = [next[target], next[idx]];
     onChange(next);
+    if (editing === idx) setEditing(target);
+    else if (editing === target) setEditing(idx);
+  };
+
+  const isEditing = editing !== null;
+
+  const fieldSummary = (field) => {
+    if (field.type === "attachment") return "File upload";
+    if (field.type === "checkbox") return "Yes / No";
+    if (["dropdown", "radio", "multiselect"].includes(field.type)) {
+      const n = (field.options || []).filter(Boolean).length;
+      return n ? `${n} option${n === 1 ? "" : "s"}` : "No options yet";
+    }
+    return null;
   };
 
   return (
-    <div className="space-y-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Form fields</p>
-          <p className="text-[9px] text-slate-400">Assignee preview</p>
-        </div>
-        <button
-          type="button"
-          onClick={openAdd}
-          className="inline-flex items-center gap-1.5 shrink-0 px-2.5 py-1.5 rounded-md text-[11px] font-bold bg-indigo-600 text-white hover:bg-indigo-700"
-        >
-          <Plus size={12} /> Add Field
-        </button>
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-semibold text-slate-800">What should they fill in?</p>
+        <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+          Optional — add text, checkbox, radio, dropdown (with your own options), or file upload.
+        </p>
       </div>
 
-      {fields.length === 0 ? (
-        <div className="flex items-center justify-between gap-3 border border-dashed border-slate-200 rounded-md bg-slate-50/70 py-2.5 px-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <LayoutTemplate size={16} className="text-slate-300 shrink-0" />
-            <p className="text-[11px] text-slate-500 truncate">
-              No fields yet — assignee gets an empty form
+      {fields.length === 0 && !isEditing ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-5">
+          <div className="text-center mb-4">
+            <HelpCircle size={22} className="mx-auto text-slate-300 mb-2" />
+            <p className="text-sm text-slate-600 font-medium">No questions yet</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Start with a common type, or skip and create the task.
             </p>
           </div>
-          <button type="button" onClick={openAdd} className="shrink-0 text-[11px] font-bold text-indigo-600 hover:underline">
-            Add first field
-          </button>
+          <div className="flex flex-wrap justify-center gap-1.5 mb-3">
+            {QUICK_ADD.map(({ type, label, icon: Icon }) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => openAdd(type)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 hover:border-indigo-300 hover:text-indigo-700"
+              >
+                {Icon ? <Icon size={12} /> : null}
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => openAdd()}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700"
+            >
+              <Plus size={14} /> Add a question
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-2.5 space-y-2">
-          <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 px-0.5">
-            User preview · {fields.length} field{fields.length === 1 ? "" : "s"} · short fields share a row
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {fields.map((field, idx) => (
-              <div key={field.id} className={`relative group min-w-0 ${getFieldGridClass(field)}`}>
-                <div className="absolute top-1 right-1 z-10 flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity bg-white/95 border border-slate-200 rounded-md shadow-sm px-0.5 py-0.5">
-                  <button type="button" disabled={idx === 0} onClick={() => moveField(idx, -1)} className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30" title="Move up">
-                    <ChevronUp size={12} />
+        <ul className="space-y-2">
+          {fields.map((field, idx) =>
+            editing === idx ? (
+              <li key={field.id}>
+                <ClTaskFormFieldEditor
+                  initialField={field}
+                  onSave={handleSave}
+                  onCancel={closeEditor}
+                />
+              </li>
+            ) : (
+              <li
+                key={field.id}
+                className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      {getFieldTypeMeta(field.type).label}
+                    </span>
+                    {field.required ? (
+                      <span className="text-[10px] font-semibold text-rose-500">Required</span>
+                    ) : null}
+                    {fieldSummary(field) ? (
+                      <span className="text-[10px] text-slate-400">· {fieldSummary(field)}</span>
+                    ) : null}
+                  </div>
+                  <p className="text-sm font-medium text-slate-800 truncate mt-0.5">
+                    {field.label || "Untitled"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    disabled={idx === 0 || isEditing}
+                    onClick={() => moveField(idx, -1)}
+                    className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded-lg"
+                    title="Move up"
+                  >
+                    <ChevronUp size={14} />
                   </button>
-                  <button type="button" disabled={idx === fields.length - 1} onClick={() => moveField(idx, 1)} className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30" title="Move down">
-                    <ChevronDown size={12} />
+                  <button
+                    type="button"
+                    disabled={idx === fields.length - 1 || isEditing}
+                    onClick={() => moveField(idx, 1)}
+                    className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded-lg"
+                    title="Move down"
+                  >
+                    <ChevronDown size={14} />
                   </button>
-                  <button type="button" onClick={() => openEdit(idx)} className="p-1 text-slate-400 hover:text-indigo-600" title="Edit">
-                    <Pencil size={12} />
+                  <button
+                    type="button"
+                    disabled={isEditing}
+                    onClick={() => openEdit(idx)}
+                    className="p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-30 rounded-lg"
+                    title="Edit"
+                  >
+                    <Pencil size={14} />
                   </button>
-                  <button type="button" onClick={() => removeField(idx)} className="p-1 text-slate-400 hover:text-rose-600" title="Delete">
-                    <Trash2 size={12} />
+                  <button
+                    type="button"
+                    disabled={isEditing}
+                    onClick={() => removeField(idx)}
+                    className="p-1.5 text-slate-400 hover:text-rose-600 disabled:opacity-30 rounded-lg"
+                    title="Delete"
+                  >
+                    <Trash2 size={14} />
                   </button>
                 </div>
-                <ClTaskFormFieldPreview field={field} />
-              </div>
+              </li>
+            ),
+          )}
+        </ul>
+      )}
+
+      {editing === "new" ? (
+        <ClTaskFormFieldEditor
+          initialField={quickSeed}
+          onSave={handleSave}
+          onCancel={closeEditor}
+        />
+      ) : null}
+
+      {!isEditing && fields.length > 0 ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_ADD.map(({ type, label, icon: Icon }) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => openAdd(type)}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white text-[10px] font-semibold text-slate-600 hover:border-indigo-300 hover:text-indigo-700"
+              >
+                {Icon ? <Icon size={11} /> : null}
+                {label}
+              </button>
             ))}
           </div>
           <button
             type="button"
-            onClick={openAdd}
-            className="w-full py-1.5 rounded-md border border-dashed border-slate-200 text-[11px] font-semibold text-slate-500 hover:border-indigo-300 hover:text-indigo-600 hover:bg-white flex items-center justify-center gap-1"
+            onClick={() => openAdd()}
+            className="w-full py-2.5 rounded-xl border border-dashed border-slate-200 text-sm font-semibold text-slate-500 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50/40 flex items-center justify-center gap-1.5"
           >
-            <Plus size={12} /> Add another field
+            <Plus size={14} /> Add another question
           </button>
         </div>
-      )}
-
-      <ClTaskFormFieldModal
-        open={modalOpen}
-        initialField={editIndex != null ? fields[editIndex] : null}
-        onClose={() => setModalOpen(false)}
-        onSave={handleSave}
-      />
+      ) : null}
     </div>
   );
 }

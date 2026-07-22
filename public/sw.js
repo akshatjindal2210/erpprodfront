@@ -463,8 +463,8 @@ self.addEventListener("push", (event) => {
     external_frontend_host: meta.external_frontend_host || "",
   };
 
-  // Show notification immediately — app open/closed dono mein kaam kare.
-  // Network checks sirf delivery receipt ke liye baad mein (slow ping se block mat karo).
+  // Show the notification immediately — works whether the app is open or closed.
+  // Defer network checks to delivery receipt only (do not block on a slow ping).
   event.waitUntil(
     ensureApiConfig(notifyData)
       .then(() =>

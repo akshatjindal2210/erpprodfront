@@ -30,7 +30,7 @@ export const SCHEDULE_LIST_FILTER = {
   ALL: "all",
   PENDING: "pending",
   READY_TO_DISPATCH: "ready_to_dispatch",
-  /** Approve + Sales default: Pending + Hold + Reject */
+  /** Sales department default: Pending + Hold + Reject */
   PENDING_HOLD_REJECT: "pending_hold_reject",
   HOLD: "hold",
   PLAN: "plan",
@@ -88,7 +88,12 @@ export function canDeleteRow(row) {
  */
 export function filterScheduleItemsForPermission(items, { canAdd = false, canApprove = false } = {}) {
   const list = Array.isArray(items) ? items : [];
-  if (canAdd && canApprove) return list;
+  const withoutComplete = (row) => {
+    if (!isDbRow(row)) return true;
+    return Number(row?.is_planned) !== SCHEDULE_PLAN_STATUS.COMPLETE;
+  };
+
+  if (canAdd && canApprove) return list.filter(withoutComplete);
 
   if (canApprove && !canAdd) {
     return list.filter((row) => {
@@ -117,7 +122,7 @@ export function filterScheduleItemsForPermission(items, { canAdd = false, canApp
     });
   }
 
-  return list;
+  return list.filter(withoutComplete);
 }
 
 export function canOpenPlanModal(status) {
@@ -207,10 +212,8 @@ export function isSalesDepartmentUser(user) {
 /**
  * Default list status:
  * - Super admin → Ready to Dispatch
- * - ADD + APPROVE → Ready to Dispatch
- * - APPROVE + Sales (no ADD) → Pending / Hold / Reject
- * - ADD only → Ready to Dispatch
- * - APPROVE (not Sales) → Ready to Dispatch
+ * - Sales department → Pending / Hold / Reject
+ * - Everyone else → Ready to Dispatch
  */
 export function getDefaultScheduleStatusFilter({
   canAdd = false,
@@ -219,13 +222,14 @@ export function getDefaultScheduleStatusFilter({
   isSuperAdmin = false,
 } = {}) {
   if (isSuperAdmin) return SCHEDULE_LIST_FILTER.READY_TO_DISPATCH;
-  if (canAdd && canApprove) return SCHEDULE_LIST_FILTER.READY_TO_DISPATCH;
-  if (canApprove && isSalesDepartment && !canAdd) {
-    return SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT;
-  }
-  if (canAdd) return SCHEDULE_LIST_FILTER.READY_TO_DISPATCH;
-  if (canApprove) return SCHEDULE_LIST_FILTER.READY_TO_DISPATCH;
+  if (isSalesDepartment) return SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT;
+  if (canAdd || canApprove) return SCHEDULE_LIST_FILTER.READY_TO_DISPATCH;
   return SCHEDULE_LIST_FILTER.READY_TO_DISPATCH;
+}
+
+/** Completed items are locked — Plan / Reject no longer available. */
+export function isScheduleCompleteStatus(status) {
+  return Number(status) === SCHEDULE_PLAN_STATUS.COMPLETE;
 }
 
 /** Everyone sees all filter options; defaults differ by role. */

@@ -2,14 +2,14 @@ import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area, Legend } from "recharts";
 import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Copy, GripVertical, Pencil, Search, Trash2, X } from "lucide-react";
 import { toast } from "react-toastify";
-import ContainerNestedGrid from "./ContainerNestedGrid";
 import SimpleNestedCanvas from "./SimpleNestedCanvas";
 import ExportMenu from "@/core/components/common/ExportMenu";
 import { exportTableData } from "@/core/utils/tableExport";
 import { notifyListPageExportResult } from "@/core/utils/listPageExport";
 import { boxesFromChildren, savedStyleToCss } from "../utils/floatingLayoutEngine";
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
-import { resolveWidgetSpacingPx, readNestedGridWidthPx, spacingPxToCss, stackNestedLayoutForPhone } from "../utils/dashboardLayoutEngine";
+import { resolveWidgetSpacingPx, spacingPxToCss } from "../utils/dashboardLayoutEngine";
+import { normalizeTableSearchPosition, normalizeTableSearchWidth } from "../utils/tableToolbar.js";
 
 const resolveKpiValueFontPx = (style = {}, displayVal = "", readOnly = false, nested = false) => {
   const configured = Number(style.fontSize);
@@ -186,8 +186,15 @@ const DashboardTableView = ({
   tableSearchEnabled = false,
   tableSearchPlaceholder = "",
   tableSearchPosition = "right",
+  tableSearchWidth = 280,
   tableColumnSortEnabled = false,
   tableExportEnabled = false,
+  /** Extra classes for the action header (search + export) wrapper */
+  tableToolbarClassName = "",
+  /** Extra classes for the search input wrapper (e.g. max-w-xs, w-[260px]) */
+  tableSearchClassName = "",
+  /** Extra classes for the export control wrapper */
+  tableExportClassName = "",
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortKey, setSortKey] = useState(null);
@@ -198,8 +205,14 @@ const DashboardTableView = ({
   const showSearch = tableSearchEnabled === true;
   const showExport = tableExportEnabled === true;
   const showColumnSort = tableColumnSortEnabled === true;
-  const searchAlignLeft = tableSearchPosition === "left";
+  const searchPos = normalizeTableSearchPosition(tableSearchPosition);
+  const searchFull = searchPos === "full";
+  const searchWidthPx = normalizeTableSearchWidth(tableSearchWidth);
   const compact = nested || isPhoneMode;
+  // Phone/nested: keep search from forcing the toolbar wider than the widget shell.
+  const effectiveSearchWidth = compact && !searchFull
+    ? Math.min(searchWidthPx, 168)
+    : searchWidthPx;
   const tableVisual = resolveTableVisualStyle(style);
   const headPad = compact ? "px-2" : "px-2 sm:px-3";
   const cellPad = compact ? "px-2" : "px-2 sm:px-3";
@@ -285,6 +298,19 @@ const DashboardTableView = ({
   };
 
   const showToolbar = showSearch || showExport;
+  const toolbarJustify = searchFull && showExport
+    ? "justify-between"
+    : searchPos === "left"
+      ? "justify-start"
+      : searchPos === "center"
+        ? "justify-center"
+        : "justify-end";
+
+  const searchSizeClass = searchFull
+    ? showExport
+      ? "flex-1 min-w-[160px] w-auto max-w-none"
+      : "w-full max-w-none"
+    : "shrink-0";
 
   return (
     <div
@@ -293,36 +319,17 @@ const DashboardTableView = ({
     >
       {showToolbar && (
         <div
-          className={`shrink-0 flex gap-2 border-b px-2 py-2 mb-2 ${
-            compact
-              ? "flex-col items-stretch"
-              : `flex-col sm:flex-row sm:items-center sm:gap-3 sm:px-3 ${
-                  showSearch && showExport
-                    ? "sm:justify-between"
-                    : showSearch
-                      ? searchAlignLeft
-                        ? "sm:justify-start"
-                        : "sm:justify-end"
-                      : "sm:justify-end"
-                }`
-          }`}
+          className={`table-action-header shrink-0 flex flex-row flex-wrap items-center gap-3 border-b px-2 py-1.5 mb-2 sm:px-3 ${toolbarJustify} ${tableToolbarClassName}`.trim()}
           style={{ backgroundColor: tableVisual.bodyBg, borderColor: tableVisual.borderColor }}
         >
           {showSearch && (
             <label
-              className={`relative block min-w-0 w-full ${
-                compact
-                  ? "max-w-full"
-                  : showExport
-                    ? "sm:flex-1 sm:max-w-md"
-                    : nested
-                      ? "sm:w-[min(240px,60%)] sm:max-w-sm"
-                      : "sm:w-[min(320px,50%)] sm:max-w-md"
-              }`}
+              className={`relative block ${searchSizeClass} ${tableSearchClassName}`.trim()}
+              style={searchFull ? undefined : { width: effectiveSearchWidth, maxWidth: "100%" }}
             >
               <Search
-                size={Math.max(12, Math.min(16, Math.round(tableVisual.searchFontPx)))}
-                className="pointer-events-none absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2"
+                size={Math.max(12, Math.min(14, Math.round(tableVisual.searchFontPx)))}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
                 style={{ color: tableVisual.searchColor, opacity: 0.55 }}
                 aria-hidden
               />
@@ -333,22 +340,22 @@ const DashboardTableView = ({
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
                 placeholder={resolvedSearchPlaceholder}
-                className="w-full h-8 rounded-lg border focus:outline-none focus:ring-1 focus:ring-blue-400/40 shadow-sm"
+                className="w-full h-8 rounded-md border focus:outline-none focus:ring-1 focus:ring-blue-400/40 shadow-sm"
                 style={{
                   borderColor: tableVisual.borderColor,
                   backgroundColor: tableVisual.searchBg,
                   color: tableVisual.searchColor,
                   fontSize: `${tableVisual.searchFontPx}px`,
                   height: 32,
-                  paddingLeft: compact ? 30 : 36,
-                  paddingRight: 32,
+                  paddingLeft: 30,
+                  paddingRight: searchQuery ? 28 : 10,
                 }}
                 aria-label="Search table rows"
               />
               {searchQuery ? (
                 <button
                   type="button"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 hover:opacity-80"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 hover:opacity-80"
                   style={{ color: tableVisual.searchColor }}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -363,7 +370,7 @@ const DashboardTableView = ({
           )}
           {showExport && (
             <div
-              className={`flex shrink-0 items-center ${compact ? "w-full" : "w-full sm:w-auto sm:justify-end"}`}
+              className={`flex shrink-0 items-center ${tableExportClassName}`.trim()}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
@@ -374,11 +381,8 @@ const DashboardTableView = ({
                 label="Export"
                 variant="solid"
                 showLabel
-                className={`h-8 self-center [&_button]:!h-8 [&_button]:!min-h-8 [&_button]:!min-w-[96px] [&_button]:!px-3 [&_button]:!text-[10px] [&_button]:!rounded-lg ${
-                  compact
-                    ? "w-full [&_button]:!w-full"
-                    : "w-full sm:w-auto [&_button]:!w-full sm:[&_button]:!w-auto"
-                }`}
+                menuAlign="right"
+                className="h-8 self-center [&_button]:!h-8 [&_button]:!min-h-8 [&_button]:!min-w-0 [&_button]:!w-auto [&_button]:!px-2.5 [&_button]:!text-[10px] [&_button]:!rounded-md [&_button]:!font-semibold"
               />
             </div>
           )}
@@ -485,8 +489,6 @@ const buildBoxStyle = (style = {}, { transparentBg = false, isContainer = false,
   };
 };
 
-const USE_FLOATING_NESTED = true;
-
 const resolveContainerNestedLayoutPx = (widget, sectionChildren, isPhoneMode = false) => {
   if (isPhoneMode) {
     if (Array.isArray(widget.mobileNestedLayoutPx) && widget.mobileNestedLayoutPx.length) {
@@ -504,26 +506,6 @@ const resolveContainerNestedLayoutPx = (widget, sectionChildren, isPhoneMode = f
   return boxesFromChildren(sectionChildren, []);
 };
 
-const resolveContainerNestedLayout = (widget, sectionChildren, isPhoneMode) => {
-  if (isPhoneMode) {
-    if (Array.isArray(widget.mobileNestedLayout) && widget.mobileNestedLayout.length) {
-      return widget.mobileNestedLayout;
-    }
-    const desktopNested = Array.isArray(widget.nestedLayout) && widget.nestedLayout.length
-      ? widget.nestedLayout
-      : sectionChildren
-        .map((child) => child.layout || {})
-        .filter((item) => item && item.i);
-    return stackNestedLayoutForPhone(desktopNested);
-  }
-  if (Array.isArray(widget.nestedLayout) && widget.nestedLayout.length) {
-    return widget.nestedLayout;
-  }
-  return sectionChildren
-    .map((child) => child.layout || {})
-    .filter((item) => item && item.i);
-};
-
 const WidgetRenderer = ({
   widget,
   readOnly = false,
@@ -537,9 +519,6 @@ const WidgetRenderer = ({
   onAddChildWidget,
   onCloneChildWidget,
   onCloneWidget,
-  onNestedGridWidthDiscover,
-  isDropTarget = false,
-  isContainerResizing = false,
   pureSavedStyle = false,
   suppressChrome = false,
   onContainerShellPointerDown,
@@ -547,12 +526,20 @@ const WidgetRenderer = ({
   dragScale = 1,
 }) => {
   const useBuilderVisuals = !readOnly || designParity;
-  const data = widget.previewData || widget.data || [];
+  const previewRows = Array.isArray(widget.previewData) ? widget.previewData : null;
+  const liveRows = Array.isArray(widget.data) ? widget.data : null;
+  // Prefer non-empty preview; otherwise fall back to live data (empty [] must not hide rows).
+  const data = (previewRows?.length ? previewRows : null)
+    || (liveRows?.length ? liveRows : null)
+    || previewRows
+    || liveRows
+    || [];
   const error = widget.error || widget.previewError || null;
   const { type, title, style = {} } = widget;
   const displayTitle = String(title || "").trim();
   const isHeading = type === "heading";
   const isContainer = type === "container" || type === "section";
+  const isHybrid = type === "hybrid";
   const alignClass =
     style.contentAlign === "left"
       ? "items-start text-left"
@@ -591,13 +578,6 @@ const WidgetRenderer = ({
 
     if (isContainer) {
       const sectionChildren = Array.isArray(widget.sectionChildren) ? widget.sectionChildren : [];
-      const nestedLayout = resolveContainerNestedLayout(widget, sectionChildren, isPhoneMode);
-      const mobilePadding = {
-        top: widget.mobilePaddingTop ?? widget.style?.mobilePaddingTop ?? 8,
-        right: widget.mobilePaddingRight ?? widget.style?.mobilePaddingRight ?? 8,
-        bottom: widget.mobilePaddingBottom ?? widget.style?.mobilePaddingBottom ?? 8,
-        left: widget.mobilePaddingLeft ?? widget.style?.mobilePaddingLeft ?? 8,
-      };
       const containerShellStyle = suppressChrome
         ? { boxSizing: "border-box", width: "100%", maxWidth: "100%" }
         : buildBoxStyle(style, { isContainer: true });
@@ -672,50 +652,25 @@ const WidgetRenderer = ({
             </div>
           )}
           <div className={`min-w-0 w-full max-w-full flex-1 min-h-0 flex flex-col ${suppressChrome ? "overflow-hidden" : "overflow-hidden"}`}>
-            {USE_FLOATING_NESTED ? (
-              <SimpleNestedCanvas
-                key={`simple-nested-${widget.id}`}
-                childWidgets={sectionChildren}
-                layoutPx={resolveContainerNestedLayoutPx(widget, sectionChildren, isPhoneMode)}
-                containerId={widget.id}
-                readOnly={readOnly}
-                selectedWidgetId={selectedWidgetId}
-                fillParentHeight={suppressChrome}
-                canvasScale={canvasScale}
-                dragScale={dragScale}
-                isPhoneMode={isPhoneMode}
-                onLayoutChange={(nextLayout, options) => onNestedLayoutChange?.(widget.id, nextLayout, isPhoneMode, options)}
-                onSelectWidget={(childId) => onSelectWidget?.(childId)}
-                onDeleteWidget={onDeleteWidget}
-                onAddChildWidget={onAddChildWidget}
-                onCloneChildWidget={onCloneChildWidget}
-                isDraggingOver={isDropTarget}
-                onCanvasBackgroundClick={() => onSelectWidget?.(widget.id)}
-                onContainerShellPointerDown={onContainerShellPointerDown}
-              />
-            ) : (
-              <ContainerNestedGrid
-            key={isPhoneMode ? `phone-${widget.id}` : `desktop-${widget.id}`}
-            childWidgets={sectionChildren}
-            layout={nestedLayout}
-            containerId={widget.id}
-            nestedGridWidthPx={isPhoneMode ? null : readNestedGridWidthPx(widget)}
-            isContainerResizing={isContainerResizing}
-            onNestedGridWidthDiscover={(widthPx, options) => onNestedGridWidthDiscover?.(widget.id, widthPx, options)}
-            readOnly={readOnly}
-            selectedWidgetId={selectedWidgetId}
-            onLayoutChange={(nextLayout, options) => onNestedLayoutChange?.(widget.id, nextLayout, isPhoneMode, options)}
-            onSelectWidget={(childId) => {
-              onSelectWidget?.(childId);
-            }}
-            onDeleteWidget={onDeleteWidget}
-            onAddChildWidget={onAddChildWidget}
-            onCloneChildWidget={onCloneChildWidget}
-            isDraggingOver={isDropTarget}
-            mobilePadding={isPhoneMode ? mobilePadding : { top: 0, right: 0, bottom: 0, left: 0 }}
-            isPhoneMode={isPhoneMode}
-          />
-            )}
+            <SimpleNestedCanvas
+              key={`simple-nested-${widget.id}`}
+              childWidgets={sectionChildren}
+              layoutPx={resolveContainerNestedLayoutPx(widget, sectionChildren, isPhoneMode)}
+              containerId={widget.id}
+              readOnly={readOnly}
+              selectedWidgetId={selectedWidgetId}
+              fillParentHeight={suppressChrome}
+              canvasScale={canvasScale}
+              dragScale={dragScale}
+              isPhoneMode={isPhoneMode}
+              onLayoutChange={(nextLayout, options) => onNestedLayoutChange?.(widget.id, nextLayout, isPhoneMode, options)}
+              onSelectWidget={(childId) => onSelectWidget?.(childId)}
+              onDeleteWidget={onDeleteWidget}
+              onAddChildWidget={onAddChildWidget}
+              onCloneChildWidget={onCloneChildWidget}
+              onCanvasBackgroundClick={() => onSelectWidget?.(widget.id)}
+              onContainerShellPointerDown={onContainerShellPointerDown}
+            />
           </div>
         </div>
       );
@@ -865,7 +820,7 @@ const WidgetRenderer = ({
       );
     }
 
-    if (type === "table") {
+    if (type === "table" || type === "hybrid") {
       return (
         <DashboardTableView
           data={data}
@@ -875,7 +830,8 @@ const WidgetRenderer = ({
           title={displayTitle || widget.title || widget.description || "Dashboard Table"}
           tableSearchEnabled={widget.tableSearchEnabled === true}
           tableSearchPlaceholder={widget.tableSearchPlaceholder || ""}
-          tableSearchPosition={widget.tableSearchPosition === "left" ? "left" : "right"}
+          tableSearchPosition={widget.tableSearchPosition || "right"}
+          tableSearchWidth={widget.tableSearchWidth}
           tableColumnSortEnabled={widget.tableColumnSortEnabled === true}
           tableExportEnabled={widget.tableExportEnabled === true}
         />
@@ -1017,7 +973,7 @@ const WidgetRenderer = ({
     }
   }
   const isKpi = type === "kpi" || widget.rawType === "kpi" || widget.rawType === "count" || widget.rawType === "sum";
-  const showHeader = displayTitle && !isKpi && !isHeading && !isContainer;
+  const showHeader = displayTitle && !isKpi && !isHeading && !isContainer && !isHybrid;
 
   if (nested && pureSavedStyle) {
     const innerCss = savedStyleToCss(style);

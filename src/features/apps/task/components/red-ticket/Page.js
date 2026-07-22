@@ -9,6 +9,7 @@ import { useViewMode } from "@/core/hooks/useViewMode";
 import { useListDrawerHotkeys } from "@/core/hooks/useListDrawerHotkeys";
 import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_TEXT } from "@/features/apps/ims/helpers/listPageShellClasses";
 import { applyClientSearch, sortRowsByKey } from "@/features/apps/ims/helpers/clientListSearch";
+import { useAppliedListSearch } from "@/features/apps/ims/helpers/useAppliedListSearch";
 
 import ListPageExportToggle from "@/core/components/common/ListPageExportToggle";
 import { useListPageExport } from "@/core/hooks/useListPageExport";
@@ -183,7 +184,7 @@ export default function RedTicketPage() {
   const [allRows, setAllRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
-  const [tempSearch, setTempSearch] = useState("");
+  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -204,10 +205,12 @@ export default function RedTicketPage() {
     }
     setLoading(true);
     try {
-      // Load broad list — department / designation / person filtered on the frontend.
+      // Broad list once — dept / desig / person filtered on the frontend.
+      // Server search only when Search/Enter applies a query.
       const res = await redTicketService.getAll({
         page: 1,
         limit: params.pageSize,
+        ...(appliedSearch ? { search: appliedSearch } : {}),
       });
       const data = res.data?.data;
       const list = data?.items ?? data ?? [];
@@ -219,7 +222,7 @@ export default function RedTicketPage() {
     } finally {
       setLoading(false);
     }
-  }, [canView, params.pageSize]);
+  }, [canView, params.pageSize, appliedSearch]);
 
   useEffect(() => {
     fetchItems();
@@ -327,7 +330,10 @@ export default function RedTicketPage() {
     }
   };
 
-  const handleFilterApply = (data) => {
+  const handleFilterApply = (data = {}) => {
+    if (data.searchSubmit) {
+      applySearchFromInput();
+    }
     setSelectedDepartment(data.department_id || "");
     setSelectedDesignation(data.designation_id || "");
     setSelectedPerson(data.person_id || "");
@@ -336,7 +342,7 @@ export default function RedTicketPage() {
   };
 
   const handleReset = () => {
-    setTempSearch("");
+    resetSearch();
     clearFilters();
     setSelected(null);
     setDisplayLimit(100);
@@ -360,6 +366,9 @@ export default function RedTicketPage() {
         label: "Department",
         key: "department_id",
         value: selectedDepartment || "",
+        searchable: true,
+        placeholder: "Search departments…",
+        variant: "quick",
         options: [
           { label: "All Departments", value: "" },
           ...departmentsLists.map((d) => ({ label: d.name, value: String(d.id) })),
@@ -369,17 +378,23 @@ export default function RedTicketPage() {
         label: "Designation",
         key: "designation_id",
         value: selectedDesignation || "",
+        searchable: true,
+        placeholder: "Search designations…",
+        variant: "quick",
         options: [
           { label: "All Designations", value: "" },
           ...designationsLists.map((d) => ({ label: d.name, value: String(d.id) })),
         ],
       },
       {
-        label: "Person",
+        label: "Users",
         key: "person_id",
         value: selectedPerson || "",
+        searchable: true,
+        placeholder: "Search users…",
+        variant: "quick",
         options: [
-          { label: "All Persons", value: "" },
+          { label: "All Users", value: "" },
           ...personOptions.map((p) => ({ label: p.name, value: String(p.id) })),
         ],
       },
@@ -501,6 +516,7 @@ export default function RedTicketPage() {
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
+            searchVariant="quick"
             searchPlaceholder="Search person or description..."
             searchLabel="Filter Red Tickets"
           />

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { toast } from "react-toastify";
 import { departmentService } from "@/features/admin/services/departmentService";
 import { designationService } from "@/features/admin/services/designationService";
-import { formatTaskUserOptionLabel } from "@/features/apps/task/helpers/utilHelper";
+import { formatTaskUserOptionLabel, extractList } from "@/features/apps/task/helpers/utilHelper";
 import { userService } from "@/features/apps/task/services/userApi";
 
 function mapOptions(list) {
@@ -29,7 +29,7 @@ export function useClTaskFilters() {
       .then(([deptRes, desRes, userRes]) => {
         setDepartmentsLists(mapOptions(deptRes.data));
         setDesignationsLists(mapOptions(desRes.data));
-        setAllUsers(userRes.data?.data || []);
+        setAllUsers(extractList(userRes));
       })
       .catch(() => toast.error("Failed to load filter data"));
   }, []);

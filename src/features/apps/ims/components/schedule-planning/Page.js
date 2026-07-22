@@ -21,7 +21,7 @@ import { useSelector } from "react-redux";
 import { selectUser, selectRole } from "@/core/store/slices/authSlice";
 import { applyClientSearch, sortRowsByKey, nextSortParams } from "@/features/apps/ims/helpers/clientListSearch";
 import { schedulePlanningService } from "@/features/apps/ims/services/schedulePlanning";
-import { SCHEDULE_LIST_FILTER, SCHEDULE_PLAN_STATUS, canOpenPlanModal, SCHEDULE_REPORT_FILTER, getDefaultScheduleStatusFilter, getScheduleStatusFilterOptions, filterScheduleItemsForPermission, isSalesDepartmentUser } from "./schedulePlanStatus";
+import { SCHEDULE_LIST_FILTER, SCHEDULE_PLAN_STATUS, canOpenPlanModal, SCHEDULE_REPORT_FILTER, getDefaultScheduleStatusFilter, getScheduleStatusFilterOptions, filterScheduleItemsForPermission, isSalesDepartmentUser, isScheduleCompleteStatus } from "./schedulePlanStatus";
 import { SCHEDULE_PAGE_TABS, MONTH_FILTER_OPTIONS, currentScheduleMonthValue, SCHEDULE_REPORT_FILTER_OPTIONS, scheduleItemRowKey, scheduleSchnoKey, resolveScheduleItemdcode, canDeleteRow, scheduleItemWiseSearchParts,
   scheduleUniqueSearchParts, toUniqueScheduleRows, SCHEDULE_UNIQUE_HEADERS, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, hasScheduleComparisonMismatch, localTodayYmd, getScheduleListRowClassName, SCHEDULE_LIST_ROW_LEGEND } from "./schedulePlanningColumns";
 import SchedulePlanModal from "./SchedulePlanModal";
@@ -335,7 +335,11 @@ export default function SchedulePlanningPage() {
     };
   }, [selectedRecord, planModalOpen, modalScheduleItems, modalItemsLoading, canAddPlan, canApprovePlan]);
 
-  const canOpenPlan = Boolean(canOpenPlanModal(statusFilter) && selectedRecord);
+  const canOpenPlan = Boolean(
+    canOpenPlanModal(statusFilter) &&
+      selectedRecord &&
+      !isScheduleCompleteStatus(selectedRecord.is_planned)
+  );
 
   const deleteSchno = selectedRecord ? scheduleSchnoKey(selectedRecord) : "";
   const deleteItemdcode = useMemo(() => {
@@ -362,6 +366,10 @@ export default function SchedulePlanningPage() {
 
   const openPlanModal = useCallback(() => {
     if (!canOpenScheduleActions) return;
+    if (selectedRecord && isScheduleCompleteStatus(selectedRecord.is_planned)) {
+      toast.info("Completed items cannot be planned or rejected.");
+      return;
+    }
     if (!canOpenPlan) {
       toast.info(
         canApprovePlan && !canAddPlan
@@ -376,17 +384,32 @@ export default function SchedulePlanningPage() {
     }
     setPlanModalMode(canApprovePlan && !canAddPlan ? "authorize" : "plan");
     setPlanModalOpen(true);
-  }, [canOpenScheduleActions, canOpenPlan, isScheduleTab, canApprovePlan, canAddPlan]);
+  }, [canOpenScheduleActions, canOpenPlan, isScheduleTab, canApprovePlan, canAddPlan, selectedRecord]);
 
   const handleRowDoubleClick = useCallback(
     (_item, id) => {
       if (!canOpenScheduleActions) return;
       if (!canOpenPlanModal(statusFilter)) return;
+      const pool = isScheduleTab ? uniqueSchedules : filteredRows;
+      const idFn = isScheduleTab ? scheduleSchnoKey : scheduleItemRowKey;
+      const clicked = pool.find((row) => idFn(row) === id);
+      if (clicked && isScheduleCompleteStatus(clicked.is_planned)) {
+        toast.info("Completed items cannot be planned or rejected.");
+        return;
+      }
       setSelected(id);
       setPlanModalMode(canApprovePlan && !canAddPlan ? "authorize" : "plan");
       setPlanModalOpen(true);
     },
-    [canOpenScheduleActions, statusFilter, canApprovePlan, canAddPlan]
+    [
+      canOpenScheduleActions,
+      statusFilter,
+      canApprovePlan,
+      canAddPlan,
+      isScheduleTab,
+      uniqueSchedules,
+      filteredRows,
+    ]
   );
 
   const handleViewHistory = useCallback((row) => {
@@ -582,7 +605,7 @@ export default function SchedulePlanningPage() {
                   title={
                     canApprovePlan && !canAddPlan
                       ? "Select row(s) → Hold or Ready to Dispatch (same as Plan flow)"
-                      : "Select row(s) → Plan / Reject / Complete"
+                      : "Select row(s) → Plan / Reject"
                   }
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none"
                 />

@@ -12,7 +12,7 @@ import ClTaskCustomFieldRenderer from "../shared/ClTaskCustomFieldRenderer";
 import { ClTaskFormEntriesHeader } from "../shared/ClTaskFormEntriesView";
 import ClTaskSubmissionFillsList from "../shared/ClTaskSubmissionFillsList";
 import RichTextDisplay from "../../common/RichTextDisplay";
-import { ClFormSection, ClFormLabel, ClFormError, inputBase } from "../shared/clTaskFormUi";
+import { ClFormSection, ClFormLabel, ClFormError, inputBase, textareaBase } from "../shared/clTaskFormUi";
 
 const SCORES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
@@ -678,7 +678,7 @@ export default function ClVerificationFormModal({
 
           <ClFormSection title="User remark">
             <textarea
-              className={`${inputBase} min-h-[72px] resize-y`}
+              className={textareaBase}
               rows={3}
               value={personRemark}
               disabled={!userEditable}
@@ -764,7 +764,7 @@ export default function ClVerificationFormModal({
                   {showVerifyApprove ? "Remark (required for Reject)" : "Remark"}
                 </ClFormLabel>
                 <textarea
-                  className={`${inputBase} min-h-[72px] resize-y`}
+                  className={textareaBase}
                   rows={3}
                   value={verifierRemark}
                   disabled={!scoringEditable}

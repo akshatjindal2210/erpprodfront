@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { parseFormSchema, parseOptionsText, getFieldGridClass } from "@/features/apps/task/helpers/clTaskFormHelper";
-import { inputBase } from "./clTaskFormUi";
+import { inputBase, textareaBase } from "./clTaskFormUi";
 import SearchableSelect from "../../common/SearchableSelect";
 import ClTaskAttachmentsField, { parseAttachments } from "./ClTaskAttachmentBlock";
 
@@ -157,7 +157,7 @@ export default function ClTaskCustomFieldRenderer({ schema, values, onChange, di
 
                 {field.type === "text" && (
                   <textarea
-                    className={`${inputBase} min-h-[60px] resize-y`}
+                    className={textareaBase}
                     value={val || ""}
                     disabled={disabled}
                     placeholder={field.placeholder}

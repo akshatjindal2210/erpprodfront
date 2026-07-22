@@ -39,9 +39,9 @@ export default function RichTextEditor({
   useEffect(() => setIsClient(true), []);
 
   const surfaceClass = resizable
-    ? `${RICH_TEXT_PROSE_CLASS} min-h-full h-full px-3 py-2 text-sm`
+    ? `${RICH_TEXT_PROSE_CLASS} min-h-full h-full px-3 py-2.5 text-sm`
     : compact
-      ? `${RICH_TEXT_PROSE_CLASS} min-h-[88px] px-3 py-2 text-sm`
+      ? `${RICH_TEXT_PROSE_CLASS} min-h-[88px] px-3 py-2.5 text-sm`
       : RICH_TEXT_EDITOR_SURFACE_CLASS;
 
   const editor = useEditor({
@@ -92,7 +92,7 @@ export default function RichTextEditor({
 
   return (
     <div
-      className={`border border-slate-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-indigo-500 transition relative ${
+      className={`border border-slate-200 rounded-lg bg-white transition-all relative focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-50/80 ${
         compact ? "" : "mt-1"
       }`}
     >

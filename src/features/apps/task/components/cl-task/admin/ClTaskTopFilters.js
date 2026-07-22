@@ -1,6 +1,8 @@
 import { Plus } from "lucide-react";
 import SearchableSelect from "@/features/apps/task/components/common/SearchableSelect";
 
+const ORG_FILTER_WRAP = "w-48 shrink-0 space-y-1.5";
+
 export default function ClTaskTopFilters({
   onAdd,
   canAdd = true,
@@ -40,7 +42,7 @@ export default function ClTaskTopFilters({
 
       {/* Row 2 — filters always open, left → right */}
       <div className="flex flex-nowrap items-end gap-3 overflow-x-auto pb-0.5 custom-scrollbar">
-        <div className="w-44 shrink-0 space-y-1.5 sm:w-62">
+        <div className={ORG_FILTER_WRAP}>
           <label className="ml-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
             Department
           </label>
@@ -52,7 +54,7 @@ export default function ClTaskTopFilters({
           />
         </div>
 
-        <div className="w-44 shrink-0 space-y-1.5 sm:w-62">
+        <div className={ORG_FILTER_WRAP}>
           <label className="ml-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
             Designation
           </label>
@@ -64,15 +66,15 @@ export default function ClTaskTopFilters({
           />
         </div>
 
-        <div className="w-44 shrink-0 space-y-1.5 sm:w-62">
+        <div className={ORG_FILTER_WRAP}>
           <label className="ml-1 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-            Person
+            Users
           </label>
           <SearchableSelect
             options={personOptions}
             value={selectedPerson}
             onChange={onPersonChange}
-            placeholder="All Persons"
+            placeholder="All Users"
           />
         </div>
       </div>

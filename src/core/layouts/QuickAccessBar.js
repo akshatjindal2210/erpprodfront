@@ -492,13 +492,9 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
     updateDashboardFilterQuery,
   ]);
 
+  // Task / Settings: no empty dark spacer when quick links are hidden
   if (hideQuickLinks && !showDashboardFilters) {
-    return (
-      <nav
-        className={`h-10 md:h-9 ${THEME_CONFIG.footerBg} border-b ${THEME_CONFIG.sidebarBorder} px-4 shrink-0`}
-        aria-hidden
-      />
-    );
+    return null;
   }
 
   return (

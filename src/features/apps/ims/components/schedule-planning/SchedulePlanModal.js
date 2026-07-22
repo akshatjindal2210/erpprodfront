@@ -7,7 +7,7 @@ import Drawer from "@/core/components/ui/Drawer";
 import { filterDateToDisplay, formatDateTypingInput, parseFilterDateInput } from "@/core/utils/utilHelper";
 import { schedulePlanningService } from "@/features/apps/ims/services/schedulePlanning";
 import { getSelectedFinancialYear } from "@/features/apps/ims/helpers/financialYear";
-import { SCHEDULE_PLAN_STATUS, isDbRow, isAddWorkableStatus } from "./schedulePlanStatus";
+import { SCHEDULE_PLAN_STATUS, isDbRow, isAddWorkableStatus, isScheduleCompleteStatus } from "./schedulePlanStatus";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import ScheduleShortageModal from "./ScheduleShortageModal";
 import { scheduleItemRowKey, formatSchHeaderDate, formatPreviousPlanDates, ScheduleCustRequestCell, remarkDateToInputValue, schMonthLabel, ScheduleStatusBadge, getScheduleTargetDateRange, isScheduleTargetDateAllowed, formatScheduleTargetDateHint } from "./schedulePlanningColumns";
@@ -49,8 +49,8 @@ function ScheduleDetailsCard({ schedule, singleItem, canApprove = false, canAdd 
         : "Authorize schedule — Hold or Ready to Dispatch"
       : canAdd && !canApprove
         ? singleItem
-          ? "Plan item — Plan / Reject / Complete"
-          : "Schedule plan — Plan / Reject / Complete"
+          ? "Plan item — Plan / Reject"
+          : "Schedule plan — Plan / Reject"
         : singleItem
           ? "Item plan"
           : "Schedule plan";
@@ -355,7 +355,8 @@ function isUnchangedCompleteRow(plan) {
 
 /**
  * authorizeOnly (Approve): Ready to Dispatch + Hold only.
- * ADD mode: Plan / Reject / Complete (+ Ready/Hold if dual permission).
+ * ADD mode: Plan / Reject (+ Ready/Hold if dual permission).
+ * Complete is not offered here — completed rows are locked (read-only).
  */
 function StatusActionOptions({
   canAdd,
@@ -368,8 +369,13 @@ function StatusActionOptions({
   isImsOnly = false,
 }) {
   const st = rowStatus == null || rowStatus === "" ? null : Number(rowStatus);
+  const isComplete = st != null && isScheduleCompleteStatus(st);
   const addWorkable = st != null && isAddWorkableStatus(st);
-  const showAddActions = !authorizeOnly && canAdd && (forBulkApply || isSuperAdmin || st == null || addWorkable || isImsOnly);
+  const showAddActions =
+    !authorizeOnly &&
+    canAdd &&
+    !isComplete &&
+    (forBulkApply || isSuperAdmin || st == null || addWorkable || isImsOnly);
   const disableAddActions =
     !forBulkApply &&
     !isSuperAdmin &&
@@ -377,6 +383,14 @@ function StatusActionOptions({
     !isImsOnly &&
     !isAddWorkableStatus(st);
   const allow = (value, permitted) => Boolean(permitted) || current === value;
+
+  if (isComplete) {
+    return (
+      <option value={ROW_STATUS.COMPLETE} disabled>
+        Complete
+      </option>
+    );
+  }
 
   if (authorizeOnly || (canApprove && !canAdd && !isSuperAdmin)) {
     return (
@@ -400,9 +414,6 @@ function StatusActionOptions({
       ) : null}
       {allow(ROW_STATUS.REJECT, showAddActions) ? (
         <option value={ROW_STATUS.REJECT} disabled={disableAddActions}>Reject</option>
-      ) : null}
-      {allow(ROW_STATUS.COMPLETE, showAddActions) ? (
-        <option value={ROW_STATUS.COMPLETE} disabled={disableAddActions}>Complete</option>
       ) : null}
     </>
   );
@@ -712,10 +723,21 @@ export default function SchedulePlanModal({
       return;
     }
 
-    const toPlan = itemPlans.filter((p) => p.status === ROW_STATUS.PLAN && !isUnchangedPlanHoldOrReady(p) && effectiveDate(p));
+    const toPlan = itemPlans.filter(
+      (p) =>
+        p.status === ROW_STATUS.PLAN &&
+        !isScheduleCompleteStatus(p.row?.is_planned) &&
+        !isUnchangedPlanHoldOrReady(p) &&
+        effectiveDate(p)
+    );
     const toReady = itemPlans.filter((p) => p.status === ROW_STATUS.READY && !isUnchangedPlanHoldOrReady(p));
     const toHold = itemPlans.filter((p) => p.status === ROW_STATUS.HOLD && !isUnchangedPlanHoldOrReady(p) && effectiveDate(p));
-    const toReject = itemPlans.filter((p) => p.status === ROW_STATUS.REJECT && !isUnchangedRejectRow(p));
+    const toReject = itemPlans.filter(
+      (p) =>
+        p.status === ROW_STATUS.REJECT &&
+        !isScheduleCompleteStatus(p.row?.is_planned) &&
+        !isUnchangedRejectRow(p)
+    );
     const toComplete = itemPlans.filter((p) => p.status === ROW_STATUS.COMPLETE && !isUnchangedCompleteRow(p) && isDbRow(p.row));
 
     const missingDate = itemPlans.find(
@@ -1051,7 +1073,7 @@ export default function SchedulePlanModal({
                             {plan.row.item_code || "—"}
                           </span>
                           
-                          {/* Item Description (Muted/Chota text taaki alag dikhe) */}
+                          {/* Item description (muted / smaller text so it reads as secondary) */}
                           <span 
                             className={`block break-words text-xs text-slate-500 leading-snug ${IMS_TABLE_CELL_TEXT}`} 
                             title={plan.row.itemdesc}

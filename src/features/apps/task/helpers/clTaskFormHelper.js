@@ -6,7 +6,7 @@ export const CL_FORM_FIELD_TYPES = [
   { value: "phone", label: "Phone", group: "Basic" },
   { value: "date", label: "Date", group: "Basic" },
   { value: "time", label: "Time", group: "Basic" },
-  { value: "checkbox", label: "Yes / No", group: "Choice" },
+  { value: "checkbox", label: "Checkbox", group: "Choice" },
   { value: "radio", label: "Radio", group: "Choice" },
   { value: "dropdown", label: "Dropdown", group: "Choice" },
   { value: "multiselect", label: "Multi Select", group: "Choice" },
@@ -56,7 +56,7 @@ export function newFormField(type = "short_text") {
     width: getDefaultFieldWidth(type),
   };
   if (FIELDS_WITH_OPTIONS.includes(type)) {
-    field.options = ["Option 1"];
+    field.options = ["Option 1", "Option 2"];
   }
   return field;
 }

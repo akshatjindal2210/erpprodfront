@@ -38,6 +38,15 @@ import { SCHEDULE_PLAN_STATUS } from "@/features/apps/ims/components/schedule-pl
 import { selectUser } from "@/core/store/slices/authSlice";
 import { canCreateDirectForwardingNote } from "@/features/apps/ims/utils/imsSpecialPermissions";
 
+/** Master FUID only — never item-wise row `id` (that is a different PK). */
+function resolveMasterFuid(row) {
+  if (!row || typeof row !== "object") return null;
+  const raw = row.fuid;
+  if (raw === undefined || raw === null || raw === "") return null;
+  const n = parseInt(String(raw).trim(), 10);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 /** Search matches visible table cells (raw + formatted labels). */
 function forwardingTableSearchParts(row, reportType = "summary") {
   const parts = [];
@@ -64,9 +73,8 @@ function forwardingTableSearchParts(row, reportType = "summary") {
   };
 
   push(row.fuid);
-
   if (reportType === "item_wise") {
-    push(row.item_code, row.item_dcode, row.packing_number);
+    push(row.schno, row.item_code, row.item_dcode, row.packing_number);
     pushNum(row.box, row.box_qty, row.loose_box, row.loose_box_qty, row.total_qty);
     push(`${row.box || 0} Boxes`, `Qty: ${Number(row.box_qty || 0).toLocaleString()}`);
     push(`${row.loose_box || 0} Boxes`, `Qty: ${Number(row.loose_box_qty || 0).toLocaleString()}`);
@@ -398,9 +406,16 @@ export default function ForwardingPage() {
 
   const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
 
-  const handlePrintBill = useCallback(async () => {
-    const fuid = selectedRecord?.fuid;
-    if (!fuid || billPrinting) return;
+  const handlePrintBill = useCallback(async (rowOrEvent) => {
+    // Prefer explicit row.fuid; ignore click events; never use item-wise `id` as fuid.
+    const fuid =
+      resolveMasterFuid(rowOrEvent) ??
+      resolveMasterFuid(selectedRecord);
+    if (!fuid) {
+      toast.info("Select an Item-wise or Summary row with a valid FUID to print the master bill.");
+      return;
+    }
+    if (billPrinting) return;
     setBillPrinting(true);
     try {
       const res = await forwardingNoteService.printBill({ fuid });
@@ -412,7 +427,9 @@ export default function ForwardingPage() {
     } finally {
       setBillPrinting(false);
     }
-  }, [selectedRecord?.fuid, billPrinting]);
+  }, [selectedRecord, billPrinting]);
+
+  const canPrintMasterBill = Boolean(resolveMasterFuid(selectedRecord)) && !billPrinting;
 
   const { openEditModal, openPrintModal, openApproveModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "forwarding_note_master",
@@ -431,15 +448,9 @@ export default function ForwardingPage() {
       openModal("edit");
     }, [reportType, openModal]),
     canEditSelection: useCallback(() => reportType === "summary" && Boolean(selectedId) && !isSelectedLocked, [reportType, selectedId, isSelectedLocked]),
-    onPrint: useCallback(() => {
-      if (reportType !== "summary") return;
-      handlePrintBill();
-    }, [reportType, handlePrintBill]),
-    canPrintSelection: useCallback(
-      () => reportType === "summary" && Boolean(selectedRecord?.fuid) && !billPrinting,
-      [reportType, selectedRecord?.fuid, billPrinting]
-    ),
-    printBlockedMessage: "Select a forwarding note row with FUID to print bill (Ctrl+P).",
+    onPrint: handlePrintBill,
+    canPrintSelection: useCallback(() => canPrintMasterBill, [canPrintMasterBill]),
+    printBlockedMessage: "Select a forwarding note (Summary or Item-wise) to print the master bill (Ctrl+P).",
     printModule: "forwarding_note_master",
     printAction: "view",
     openApprove: useCallback(() => {
@@ -568,7 +579,9 @@ export default function ForwardingPage() {
       ["FUID", "fuid", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "80px" }],
     ];
 
+    // Schedule belongs on Item-wise only — one FN master can link many schedules.
     const itemCols = reportType === "item_wise" ? [
+      ["Sch No", "schno", (v) => <span className="font-bold text-slate-600 text-[11px]">{v || "—"}</span>, { width: "100px" }],
       ["Item Code", "item_code", (v) => <span className="font-bold text-blue-700 text-[11px]">{v || "—"}</span>, { width: "160px" }],
       ["Packing", "packing_number", (v) => <span className="font-bold text-slate-600 text-[11px]">{v || "—"}</span>, { width: "100px" }],
       ["Open Boxes", "box", (v, row) => (
@@ -729,9 +742,9 @@ export default function ForwardingPage() {
                     variant="outline"
                     label={billPrinting ? "…" : "Print Bill"}
                     icon={Printer}
-                    disabled={!selectedId || !selectedRecord?.fuid || billPrinting}
-                    onClick={openPrintModal}
-                    title="Print bill (Ctrl+Alt+P / Ctrl+P in app)"
+                    disabled={!canPrintMasterBill}
+                    onClick={() => handlePrintBill(selectedRecord)}
+                    title="Print full master bill for this FUID (works from Item-wise too)"
                     className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-3 border-slate-300 shadow-none shrink-0"
                   />
                   {role === "super_admin" && (

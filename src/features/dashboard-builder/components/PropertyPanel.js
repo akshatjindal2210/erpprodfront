@@ -1,12 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getTables } from "../services/dashboardApi";
+import { getTables, hybridPreviewWidget } from "../services/dashboardApi";
 import { Database, Palette, Table2, Code, Trash2, Info, Eye, Save, X, ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
 import { DASHBOARD_WIDGET_QUERY_PLACEHOLDER, getDashboardQueryRuntimeFilters } from "../utils/widgetQuery.js";
-import { EXTERNAL_MSSQL_QUERY_PLACEHOLDER, isExternalMssqlDbSource } from "../utils/dashboardDbSources.js";
+import { EXTERNAL_MSSQL_QUERY_PLACEHOLDER, isExternalMssqlDbSource, isHybridDbSource, isWidgetHybridMode, resolveHybridExternalDbSource } from "../utils/dashboardDbSources.js";
 import { APPS } from "@/config/appsRegistry";
 import { getAppNavPages } from "../utils/appNavPages";
 import { DEFAULT_WIDGET_BOX_SHADOW, STRONG_WIDGET_BOX_SHADOW } from "../utils/floatingLayoutEngine";
 import { normalizeWidgetLinkType } from "../utils/widgetClickLink";
+import {
+  normalizeTableSearchPosition,
+  normalizeTableSearchWidth,
+  TABLE_SEARCH_POSITION_OPTIONS,
+} from "../utils/tableToolbar.js";
 
 const BLOCKED_SQL = /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke)\b/i;
 const REQUIRES_SQL = new Set(["kpi", "table", "graph"]);
@@ -257,6 +262,20 @@ const PropertyPanel = ({
   const [tables, setTables] = useState([]);
   const [activeTab, setActiveTab] = useState("data");
   const [validationError, setValidationError] = useState("");
+  const [hybridStep, setHybridStep] = useState(1);
+  const [hybridExternalPreview, setHybridExternalPreview] = useState([]);
+  const [hybridColumns, setHybridColumns] = useState([]);
+  const [hybridExternalRowCount, setHybridExternalRowCount] = useState(0);
+  const [hybridLoading, setHybridLoading] = useState(false);
+  const [hybridError, setHybridError] = useState("");
+
+  useEffect(() => {
+    setHybridExternalPreview([]);
+    setHybridColumns([]);
+    setHybridExternalRowCount(0);
+    setHybridError("");
+    setHybridStep(1);
+  }, [selectedWidget.id]);
   const [tablesCollapsed, setTablesCollapsed] = useState(true);
   const [filtersCollapsed, setFiltersCollapsed] = useState(true);
   const [copiedTable, setCopiedTable] = useState("");
@@ -313,7 +332,10 @@ const PropertyPanel = ({
       setTables([]);
       return;
     }
-    getTables({ appKey, dbSource: selectedWidget.dataSource || "ims_postgresql" })
+    const tableDbSource = isHybridDbSource(selectedWidget.dataSource)
+      ? "ims_postgresql"
+      : (selectedWidget.dataSource || "ims_postgresql");
+    getTables({ appKey, dbSource: tableDbSource })
       .then((res) => setTables(res.data || []))
       .catch(() => setTables([]));
   }, [appKey, selectedWidget?.id, selectedWidget?.rawType, selectedWidget?.dataSource]);
@@ -332,6 +354,8 @@ const PropertyPanel = ({
     );
   }
   const isExternalSqlServer = isExternalMssqlDbSource(selectedWidget.dataSource);
+  const isHybrid = isWidgetHybridMode(selectedWidget);
+  const hybridExternalSource = resolveHybridExternalDbSource(selectedWidget);
 
   const flushStylePatch = useCallback(() => {
     const patchStyle = pendingStyleRef.current;
@@ -456,6 +480,52 @@ const PropertyPanel = ({
     onUpdate(updated);
   };
 
+  const handleHybridExternalPreview = async () => {
+    try {
+      setHybridLoading(true);
+      setHybridError("");
+      const current = selectedWidgetRef.current || selectedWidget;
+      const mssqlQuery = current.chart_config?.hybrid_mssql_query || "";
+      if (!mssqlQuery.trim()) {
+        setHybridError("Please enter an external query first.");
+        return;
+      }
+
+      const res = await hybridPreviewWidget({
+        mssql_query: mssqlQuery,
+        db_source: resolveHybridExternalDbSource(current),
+        filters: {},
+        stage_only: true,
+      });
+
+      const sampleRows = Array.isArray(res?.data) ? res.data : [];
+      const columns = Array.isArray(res?.columns) && res.columns.length
+        ? res.columns
+        : (sampleRows[0] ? Object.keys(sampleRows[0]) : []);
+      const externalRowCount = Number(res?.external_row_count) || sampleRows.length;
+
+      setHybridExternalPreview(sampleRows);
+      setHybridColumns(columns);
+      setHybridExternalRowCount(externalRowCount);
+
+      if (!String(current.query || "").trim()) {
+        applyWidgetPatch({
+          query: "SELECT * FROM {{temp_erp_data}}",
+          chart_config: {
+            ...(current.chart_config || {}),
+            is_hybrid: true,
+          },
+        });
+      }
+
+      setHybridStep(2);
+    } catch (err) {
+      setHybridError(err.message || "Failed to preview external data.");
+    } finally {
+      setHybridLoading(false);
+    }
+  };
+
   const handlePreview = () => {
     if (pendingStyleRef.current) flushStylePatch();
     const widget = selectedWidgetRef.current || selectedWidget;
@@ -470,7 +540,7 @@ const PropertyPanel = ({
       onPreview?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
     }
-    if (isExternalSqlServer) {
+    if (isExternalSqlServer || isHybrid) {
       setValidationError("");
       onPreview?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
@@ -495,7 +565,7 @@ const PropertyPanel = ({
       onSave?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
     }
-    if (isExternalSqlServer) {
+    if (isExternalSqlServer || isHybrid) {
       setValidationError("");
       onSave?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
@@ -504,6 +574,36 @@ const PropertyPanel = ({
     setValidationError(err);
     if (err) return;
     onSave?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
+  };
+
+  const handleDatabaseChange = (nextSource) => {
+    const currentConfig = selectedWidget.chart_config || {};
+    if (isHybridDbSource(nextSource)) {
+      const nextQuery = String(selectedWidget.query || "").trim()
+        ? selectedWidget.query
+        : "SELECT * FROM {{temp_erp_data}}";
+      applyWidgetPatch({
+        dataSource: "hybrid",
+        query: nextQuery,
+        chart_config: {
+          ...currentConfig,
+          is_hybrid: true,
+          hybrid_external_source: currentConfig.hybrid_external_source || "erp_mssql",
+        },
+      });
+      setHybridStep(1);
+      return;
+    }
+    applyWidgetPatch({
+      dataSource: nextSource,
+      query: String(selectedWidget.query || "").includes("{{temp_erp_data}}")
+        ? ""
+        : selectedWidget.query,
+      chart_config: {
+        ...currentConfig,
+        is_hybrid: false,
+      },
+    });
   };
 
   const insertTableName = (tableName) => {
@@ -670,7 +770,7 @@ const PropertyPanel = ({
                 <PanelFieldLabel>Database</PanelFieldLabel>
                 <select
                   value={selectedWidget.dataSource || "ims_postgresql"}
-                  onChange={(e) => applyWidgetPatch({ dataSource: e.target.value })}
+                  onChange={(e) => handleDatabaseChange(e.target.value)}
                   className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
                 >
                   {dbSourceOptions.map((opt) => (
@@ -930,85 +1030,286 @@ const PropertyPanel = ({
               </div>
             )}
 
-            {REQUIRES_SQL.has(selectedWidget.rawType) && <div className="space-y-2">
-              <div>
-                <PanelFieldLabel>{isExternalSqlServer ? "SQL Server Query" : "SQL Query"}</PanelFieldLabel>
-                <div className="relative">
-                  <Code size={13} className="absolute top-2.5 left-2.5 text-slate-400" />
-                  <textarea
-                  className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-2.5 py-2 pl-8 text-[10px] font-mono text-blue-100 min-h-[100px] max-h-[160px] shadow-inner custom-scrollbar leading-relaxed"
-                    placeholder={
-                      isExternalSqlServer
-                        ? EXTERNAL_MSSQL_QUERY_PLACEHOLDER
-                        : DASHBOARD_WIDGET_QUERY_PLACEHOLDER
-                    }
-                    value={selectedWidget.query || ""}
-                    onChange={(e) => {
-                      setValidationError("");
-                      handleChange("query", e.target.value);
-                    }}
-                  />
-                </div>
-                {!!validationError && <p className="mt-0.5 text-[9px] text-rose-500 font-semibold">{validationError}</p>}
-              </div>
+            {REQUIRES_SQL.has(selectedWidget.rawType) && (
+              <div className="space-y-3">
+                {isHybrid ? (
+                  <div className="space-y-4">
+                    {/* Step 1: External Source & Query */}
+                    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden shadow-sm">
+                      <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold ${hybridStep >= 1 ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"}`}>1</div>
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-700">Load ERP / HRMS data</span>
+                        </div>
+                        {hybridStep === 2 && (
+                          <button onClick={() => setHybridStep(1)} className="text-[9px] text-blue-600 font-bold hover:underline">Edit Step 1</button>
+                        )}
+                      </div>
+                      
+                      {hybridStep === 1 ? (
+                        <div className="p-3 space-y-3">
+                          <div>
+                            <PanelFieldLabel>External database</PanelFieldLabel>
+                            <select
+                              value={hybridExternalSource}
+                              onChange={(e) => applyWidgetPatch({
+                                chart_config: {
+                                  ...(selectedWidget.chart_config || {}),
+                                  hybrid_external_source: e.target.value,
+                                  is_hybrid: true,
+                                },
+                              })}
+                              className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+                            >
+                              {dbSourceOptions.filter(opt => isExternalMssqlDbSource(opt.value)).map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <PanelFieldLabel>ERP SQL (First DB)</PanelFieldLabel>
+                            <div className="relative">
+                              <Code size={13} className="absolute top-2.5 left-2.5 text-slate-400 pointer-events-none" />
+                              <textarea
+                                className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-2.5 py-2 pl-8 text-[10px] font-mono text-blue-100 min-h-[120px] max-h-[200px] shadow-inner custom-scrollbar leading-relaxed"
+                                placeholder={EXTERNAL_MSSQL_QUERY_PLACEHOLDER}
+                                value={selectedWidget.chart_config?.hybrid_mssql_query || ""}
+                                onChange={(e) => {
+                                  const current = selectedWidgetRef.current || selectedWidget;
+                                  applyWidgetPatch({
+                                    chart_config: {
+                                      ...(current.chart_config || {}),
+                                      hybrid_mssql_query: e.target.value,
+                                      is_hybrid: true,
+                                    },
+                                  });
+                                }}
+                              />
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={hybridLoading}
+                            onClick={handleHybridExternalPreview}
+                            className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-md text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm flex items-center justify-center gap-2"
+                          >
+                            {hybridLoading ? (
+                              <>
+                                <div className="h-3 w-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                Fetching...
+                              </>
+                            ) : (
+                              <>
+                                <Database size={12} />
+                                Preview ERP query
+                              </>
+                            )}
+                          </button>
+                          {hybridError && <p className="text-[9px] text-rose-500 font-semibold">{hybridError}</p>}
+                        </div>
+                      ) : (
+                        <div className="px-3 py-2 bg-emerald-50/50 border-b border-emerald-100 space-y-1.5">
+                          <p className="text-[9px] text-emerald-800 font-semibold">
+                            ERP ready → in Step 2 use{" "}
+                            <code className="bg-emerald-100 px-1 rounded font-mono font-bold">{"{{temp_erp_data}}"}</code>
+                          </p>
+                          {hybridColumns.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {hybridColumns.map((col) => (
+                                <span
+                                  key={col}
+                                  className="px-1 py-0.5 rounded bg-white border border-emerald-200 text-[8px] font-mono text-emerald-800"
+                                  title="Column from ERP result"
+                                >
+                                  {col}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {hybridExternalRowCount > 0 && (
+                            <p className="text-[8px] text-emerald-600">
+                              {hybridExternalPreview.length > 0
+                                ? `Showing ${hybridExternalPreview.length} of ${hybridExternalRowCount.toLocaleString()} ERP rows`
+                                : `${hybridExternalRowCount.toLocaleString()} ERP rows`}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
 
-              <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setFiltersCollapsed((prev) => !prev)}
-                  className="w-full flex items-center justify-between px-2.5 py-1.5 text-[9px] text-emerald-700 font-bold uppercase tracking-widest bg-emerald-50/90"
-                >
-                  <span>Available Filters ({availableFilters.length})</span>
-                  {filtersCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                </button>
-                {!filtersCollapsed && (
-                  <div className="flex flex-wrap gap-1 p-2 border-t border-slate-100">
-                    {availableFilters.map((filter) => {
-                      const isCopied = copiedFilter === filter.token;
-                      return (
+                    {/* Step 2: PostgreSQL Merge Query */}
+                    <div className={`rounded-lg border border-slate-200 bg-white overflow-hidden shadow-sm ${hybridStep < 2 ? "opacity-50 pointer-events-none" : ""}`}>
+                      <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex items-center gap-2">
+                        <div className={`h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold ${hybridStep >= 2 ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"}`}>2</div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-700">Join with PostgreSQL</span>
+                      </div>
+                      <div className="p-3 space-y-3">
+                        <div>
+                          <PanelFieldLabel>Final SQL Query (PostgreSQL)</PanelFieldLabel>
+                          <div className="relative">
+                            <Code size={13} className="absolute top-2.5 left-2.5 text-slate-400 pointer-events-none" />
+                            <textarea
+                              className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-2.5 py-2 pl-8 text-[10px] font-mono text-blue-100 min-h-[120px] max-h-[200px] shadow-inner custom-scrollbar leading-relaxed"
+                              placeholder={"-- Example:\nSELECT e.*, t.local_col\nFROM {{temp_erp_data}} e\nLEFT JOIN your_pg_table t ON t.id = e.\"Item_Code\""}
+                              value={selectedWidget.query || ""}
+                              onChange={(e) => {
+                                setValidationError("");
+                                handleChange("query", e.target.value);
+                              }}
+                            />
+                          </div>
+                        </div>
                         <button
-                          key={filter.token}
                           type="button"
-                          onClick={() => insertFilterToken(filter.token)}
-                          className="px-1.5 py-0.5 bg-slate-50 rounded text-[9px] text-slate-600 font-mono border border-emerald-100 hover:border-emerald-300 hover:text-emerald-800 inline-flex items-center gap-1"
-                          title={`${filter.label} — ${filter.hint}`}
+                          onClick={handlePreview}
+                          className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm flex items-center justify-center gap-2"
                         >
-                          {isCopied ? <Check size={10} /> : <Copy size={10} />}
-                          {filter.token}
+                          <Eye size={12} />
+                          Run merge query
                         </button>
-                      );
-                    })}
+
+                        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setFiltersCollapsed((prev) => !prev)}
+                            className="w-full flex items-center justify-between px-2.5 py-1.5 text-[9px] text-emerald-700 font-bold uppercase tracking-widest bg-emerald-50/90"
+                          >
+                            <span>Available Filters ({availableFilters.length})</span>
+                            {filtersCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                          </button>
+                          {!filtersCollapsed && (
+                            <div className="flex flex-wrap gap-1 p-2 border-t border-slate-100">
+                              {availableFilters.map((filter) => {
+                                const isCopied = copiedFilter === filter.token;
+                                return (
+                                  <button
+                                    key={filter.token}
+                                    type="button"
+                                    onClick={() => insertFilterToken(filter.token)}
+                                    className="px-1.5 py-0.5 bg-slate-50 rounded text-[9px] text-slate-600 font-mono border border-emerald-100 hover:border-emerald-300 hover:text-emerald-800 inline-flex items-center gap-1"
+                                    title={`${filter.label} — ${filter.hint}`}
+                                  >
+                                    {isCopied ? <Check size={10} /> : <Copy size={10} />}
+                                    {filter.token}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setTablesCollapsed((prev) => !prev)}
+                            className="w-full flex items-center justify-between px-2.5 py-1.5 text-[9px] text-blue-600 font-bold uppercase tracking-widest bg-blue-50/90 border-t border-slate-100"
+                          >
+                            <span>Available Tables ({tables.length})</span>
+                            {tablesCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                          </button>
+                          {!tablesCollapsed && (
+                            <div className="flex flex-wrap gap-1 p-2 border-t border-slate-100 max-h-28 overflow-y-auto custom-scrollbar">
+                              {tables.map((t) => {
+                                const isCopied = copiedTable === t;
+                                return (
+                                  <button
+                                    key={t}
+                                    type="button"
+                                    onClick={() => insertTableName(t)}
+                                    className="px-1.5 py-0.5 bg-slate-50 rounded text-[9px] text-slate-600 font-mono border border-blue-100 hover:border-blue-300 hover:text-blue-700 inline-flex items-center gap-1"
+                                    title="Add table to query"
+                                  >
+                                    {isCopied ? <Check size={9} /> : <Copy size={9} />}
+                                    {t}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setTablesCollapsed((prev) => !prev)}
-                  className="w-full flex items-center justify-between px-2.5 py-1.5 text-[9px] text-blue-600 font-bold uppercase tracking-widest bg-blue-50/90 border-t border-slate-100"
-                >
-                  <span>Available Tables ({tables.length})</span>
-                  {tablesCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                </button>
-                {!tablesCollapsed && (
-                  <div className="flex flex-wrap gap-1 p-2 border-t border-slate-100 max-h-28 overflow-y-auto custom-scrollbar">
-                    {tables.map((t) => {
-                      const isCopied = copiedTable === t;
-                      return (
-                        <button
-                          key={t}
-                          type="button"
-                          onClick={() => insertTableName(t)}
-                          className="px-1.5 py-0.5 bg-slate-50 rounded text-[9px] text-slate-600 font-mono border border-blue-100 hover:border-blue-300 hover:text-blue-700 inline-flex items-center gap-1"
-                          title="Add table to query"
-                        >
-                          {isCopied ? <Check size={9} /> : <Copy size={9} />}
-                          {t}
-                        </button>
-                      );
-                    })}
+                ) : (
+                  <div className="space-y-2">
+                    <div>
+                      <PanelFieldLabel>{isExternalSqlServer ? "SQL Server Query" : "SQL Query"}</PanelFieldLabel>
+                      <div className="relative">
+                        <Code size={13} className="absolute top-2.5 left-2.5 text-slate-400 pointer-events-none" />
+                        <textarea
+                          className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-2.5 py-2 pl-8 text-[10px] font-mono text-blue-100 min-h-[100px] max-h-[160px] shadow-inner custom-scrollbar leading-relaxed"
+                          placeholder={
+                            isExternalSqlServer
+                              ? EXTERNAL_MSSQL_QUERY_PLACEHOLDER
+                              : DASHBOARD_WIDGET_QUERY_PLACEHOLDER
+                          }
+                          value={selectedWidget.query || ""}
+                          onChange={(e) => {
+                            setValidationError("");
+                            handleChange("query", e.target.value);
+                          }}
+                        />
+                      </div>
+                      {!!validationError && <p className="mt-0.5 text-[9px] text-rose-500 font-semibold">{validationError}</p>}
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setFiltersCollapsed((prev) => !prev)}
+                        className="w-full flex items-center justify-between px-2.5 py-1.5 text-[9px] text-emerald-700 font-bold uppercase tracking-widest bg-emerald-50/90"
+                      >
+                        <span>Available Filters ({availableFilters.length})</span>
+                        {filtersCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                      </button>
+                      {!filtersCollapsed && (
+                        <div className="flex flex-wrap gap-1 p-2 border-t border-slate-100">
+                          {availableFilters.map((filter) => {
+                            const isCopied = copiedFilter === filter.token;
+                            return (
+                              <button
+                                key={filter.token}
+                                type="button"
+                                onClick={() => insertFilterToken(filter.token)}
+                                className="px-1.5 py-0.5 bg-slate-50 rounded text-[9px] text-slate-600 font-mono border border-emerald-100 hover:border-emerald-300 hover:text-emerald-800 inline-flex items-center gap-1"
+                                title={`${filter.label} — ${filter.hint}`}
+                              >
+                                {isCopied ? <Check size={10} /> : <Copy size={10} />}
+                                {filter.token}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setTablesCollapsed((prev) => !prev)}
+                        className="w-full flex items-center justify-between px-2.5 py-1.5 text-[9px] text-blue-600 font-bold uppercase tracking-widest bg-blue-50/90 border-t border-slate-100"
+                      >
+                        <span>Available Tables ({tables.length})</span>
+                        {tablesCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                      </button>
+                      {!tablesCollapsed && (
+                        <div className="flex flex-wrap gap-1 p-2 border-t border-slate-100 max-h-28 overflow-y-auto custom-scrollbar">
+                          {tables.map((t) => {
+                            const isCopied = copiedTable === t;
+                            return (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => insertTableName(t)}
+                                className="px-1.5 py-0.5 bg-slate-50 rounded text-[9px] text-slate-600 font-mono border border-blue-100 hover:border-blue-300 hover:text-blue-700 inline-flex items-center gap-1"
+                                title="Add table to query"
+                              >
+                                {isCopied ? <Check size={9} /> : <Copy size={9} />}
+                                {t}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
-            </div>}
+            )}
 
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -1018,32 +1319,30 @@ const PropertyPanel = ({
                   min={inputMinPx}
                   max={3000}
                   className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
-                    value={draftWidthPx}
-                    onChange={(e) => {
-                      const parsed = Number(e.target.value);
-                      setDraftWidthPx(e.target.value);
-                      if (Number.isFinite(parsed) && parsed >= resolvedMinWidthPx) {
-                        onPixelSizeChange?.({
-                          widthPx: parsed,
-                        });
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const parsed = Number(draftWidthPx);
-                        const next = Number.isFinite(parsed) ? Math.max(resolvedMinWidthPx, parsed) : Math.max(resolvedMinWidthPx, Number(widthPx) || resolvedMinWidthPx);
-                        setDraftWidthPx(next);
-                        onPixelSizeChange?.({ widthPx: next });
-                      }
-                    }}
-                    onBlur={() => {
+                  value={draftWidthPx}
+                  onChange={(e) => {
+                    const parsed = Number(e.target.value);
+                    setDraftWidthPx(e.target.value);
+                    if (Number.isFinite(parsed) && parsed >= resolvedMinWidthPx) {
+                      onPixelSizeChange?.({ widthPx: parsed });
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
                       const parsed = Number(draftWidthPx);
                       const next = Number.isFinite(parsed) ? Math.max(resolvedMinWidthPx, parsed) : Math.max(resolvedMinWidthPx, Number(widthPx) || resolvedMinWidthPx);
                       setDraftWidthPx(next);
                       onPixelSizeChange?.({ widthPx: next });
-                    }}
-                  />
-                </div>
+                    }
+                  }}
+                  onBlur={() => {
+                    const parsed = Number(draftWidthPx);
+                    const next = Number.isFinite(parsed) ? Math.max(resolvedMinWidthPx, parsed) : Math.max(resolvedMinWidthPx, Number(widthPx) || resolvedMinWidthPx);
+                    setDraftWidthPx(next);
+                    onPixelSizeChange?.({ widthPx: next });
+                  }}
+                />
+              </div>
               <div>
                 <PanelFieldLabel>Height</PanelFieldLabel>
                 <input
@@ -1051,32 +1350,30 @@ const PropertyPanel = ({
                   min={inputMinPx}
                   max={3000}
                   className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
-                    value={draftHeightPx}
-                    onChange={(e) => {
-                      const parsed = Number(e.target.value);
-                      setDraftHeightPx(e.target.value);
-                      if (Number.isFinite(parsed) && parsed >= resolvedMinHeightPx) {
-                        onPixelSizeChange?.({
-                          heightPx: parsed,
-                        });
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const parsed = Number(draftHeightPx);
-                        const next = Number.isFinite(parsed) ? Math.max(resolvedMinHeightPx, parsed) : Math.max(resolvedMinHeightPx, Number(heightPx) || resolvedMinHeightPx);
-                        setDraftHeightPx(next);
-                        onPixelSizeChange?.({ heightPx: next });
-                      }
-                    }}
-                    onBlur={() => {
+                  value={draftHeightPx}
+                  onChange={(e) => {
+                    const parsed = Number(e.target.value);
+                    setDraftHeightPx(e.target.value);
+                    if (Number.isFinite(parsed) && parsed >= resolvedMinHeightPx) {
+                      onPixelSizeChange?.({ heightPx: parsed });
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
                       const parsed = Number(draftHeightPx);
                       const next = Number.isFinite(parsed) ? Math.max(resolvedMinHeightPx, parsed) : Math.max(resolvedMinHeightPx, Number(heightPx) || resolvedMinHeightPx);
                       setDraftHeightPx(next);
                       onPixelSizeChange?.({ heightPx: next });
-                    }}
-                  />
-                </div>
+                    }
+                  }}
+                  onBlur={() => {
+                    const parsed = Number(draftHeightPx);
+                    const next = Number.isFinite(parsed) ? Math.max(resolvedMinHeightPx, parsed) : Math.max(resolvedMinHeightPx, Number(heightPx) || resolvedMinHeightPx);
+                    setDraftHeightPx(next);
+                    onPixelSizeChange?.({ heightPx: next });
+                  }}
+                />
+              </div>
             </div>
 
             <div>
@@ -1121,16 +1418,30 @@ const PropertyPanel = ({
                   />
                 </div>
                 <div>
-                  <PanelFieldLabel>Position</PanelFieldLabel>
+                  <PanelFieldLabel>Align</PanelFieldLabel>
                   <SegmentControl
-                    value={selectedWidget.tableSearchPosition === "left" ? "left" : "right"}
-                    options={[
-                      { value: "left", label: "Left" },
-                      { value: "right", label: "Right" },
-                    ]}
+                    value={normalizeTableSearchPosition(selectedWidget.tableSearchPosition)}
+                    options={TABLE_SEARCH_POSITION_OPTIONS}
                     onChange={(pos) => applyWidgetPatch({ tableSearchPosition: pos })}
                   />
                 </div>
+                {normalizeTableSearchPosition(selectedWidget.tableSearchPosition) !== "full" && (
+                  <div>
+                    <PanelFieldLabel>Width (px)</PanelFieldLabel>
+                    <input
+                      type="number"
+                      min={160}
+                      max={600}
+                      step={10}
+                      className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[10px] text-slate-700"
+                      value={normalizeTableSearchWidth(selectedWidget.tableSearchWidth)}
+                      onChange={(e) => applyWidgetPatch({
+                        tableSearchWidth: normalizeTableSearchWidth(e.target.value),
+                      })}
+                    />
+                    <p className="text-[8px] text-slate-400 mt-0.5">160–600px (Full align ignores width)</p>
+                  </div>
+                )}
                 <p className="text-[9px] text-slate-400">
                   Search uses body text/background colors by default. Override below if needed.
                 </p>

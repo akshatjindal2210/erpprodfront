@@ -9,17 +9,23 @@ import { extractList, mapTaskUserToOption }  from "@/features/apps/task/helpers/
 import { parseArr } from "@/features/apps/task/helpers/formArrays";
 import { compareLabelAsc } from "@/features/apps/task/helpers/sortOptions";
 import Drawer from "@/core/components/ui/Drawer";
+import {
+  OK_INPUT,
+  ERR_INPUT,
+  FORM_LABEL_CLASS,
+  FORM_ERROR_CLASS,
+  FORM_HINT_CLASS,
+} from "@/core/components/common/Constants";
 import SelectField      from "../common/SelectField";
 import SearchableSelect from "../common/SearchableSelect";
 import RichTextEditor from "../common/RichTextEditor";
 import YearlyRecurrencePicker from "../common/YearlyRecurrencePicker";
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-const base    = "w-full bg-white border rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder-slate-400 outline-none transition-all";
-const okCls   = `${base} border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100`;
-const errCls  = `${base} border-rose-300 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 bg-rose-50/30`;
-const lockCls = `${base} border-slate-100 bg-slate-50 text-slate-500 cursor-not-allowed`;
-const selCls  = "w-full appearance-none bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all pr-9";
+// ─── IMS drawer density — same height / radius as SearchableSelect ─────────────
+const okCls   = OK_INPUT;
+const errCls  = ERR_INPUT;
+const lockCls = `${OK_INPUT} !bg-slate-50 !text-slate-500 !border-slate-100 cursor-not-allowed opacity-90`;
+const selCls  = `${OK_INPUT} appearance-none pr-9`;
  
 
 // ─── Empty states ─────────────────────────────────────────────────────────────
@@ -75,16 +81,17 @@ const calcAutoReminder = (due) => {
 function FieldError({ msg }) {
   if (!msg) return null;
   return (
-    <p className="flex items-center gap-1 text-xs text-rose-500 mt-1">
-      <AlertCircle size={11} /> {msg}
+    <p className={`${FORM_ERROR_CLASS} mt-1`}>
+      <AlertCircle size={12} className="shrink-0" /> {msg}
     </p>
   );
 }
 
 function Label({ children, required }) {
   return (
-    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
-      {children}{required && <span className="text-rose-400 ml-0.5">*</span>}
+    <label className={`block mb-1 ${FORM_LABEL_CLASS}`}>
+      {children}
+      {required ? <span className="text-rose-500"> *</span> : null}
     </label>
   );
 }
@@ -147,7 +154,7 @@ function SubUserSelector({ users, value = [], onChange, disabled }) {
   return (
     <div className="space-y-2">
 
-      {/* Search input */}
+      {/* Search input — same h-9 / rounded-lg as Assign By / Assign To */}
       {!disabled && (
         <div className="relative">
           <input
@@ -160,28 +167,28 @@ function SubUserSelector({ users, value = [], onChange, disabled }) {
           />
           {/* Dropdown */}
           {open && filtered.length > 0 && (
-            <div className="absolute z-20 top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-44 overflow-y-auto">
+            <div className="absolute z-20 top-full mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-md max-h-44 overflow-y-auto">
               {filtered.map((u) => (
                 <button
                   key={u.id}
                   type="button"
                   onMouseDown={() => addUser(u)}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-indigo-50 transition-colors text-left">
-                  <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-bold text-indigo-600">
+                  className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-indigo-50/50 transition-colors text-left border-b border-slate-50 last:border-0">
+                  <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                    <span className="text-[10px] font-bold text-indigo-600">
                       {u.name.charAt(0).toUpperCase()}
                     </span>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-700 truncate">{u.name}</p>
-                    <p className="text-xs text-slate-400">{u.type}</p>
+                    <p className="text-[13px] font-medium text-slate-700 truncate">{u.name}</p>
+                    <p className="text-[11px] text-slate-400">{u.type}</p>
                   </div>
                 </button>
               ))}
             </div>
           )}
           {open && search && filtered.length === 0 && (
-            <div className="absolute z-20 top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-xs text-slate-400">
+            <div className="absolute z-20 top-full mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-md px-4 py-3 text-xs text-slate-400">
               No matching users found
             </div>
           )}
@@ -191,7 +198,7 @@ function SubUserSelector({ users, value = [], onChange, disabled }) {
       {/* Selected chips */}
       {uniqueUsers.map((su, index) => (
         <div key={`${su.user_id}-${index}`} 
-          className={`flex items-start gap-2 p-2.5 border rounded-xl group ${
+          className={`flex items-start gap-2 p-2 border rounded-lg group ${
             !su.is_active 
               ? "bg-slate-50 border-slate-200" 
               : "bg-slate-100 border-slate-200 opacity-60"
@@ -1032,46 +1039,10 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
               {/* ── ASSIGNED FIELDS ── */}
               {!isSelf && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
+                  {/* Equal columns + min-w-0 so IMS SearchableSelect can shrink side-by-side */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
                     {/* ASSIGN BY */}
-                    <div>
-                      {/* {!isEdit ? (
-                        <>
-                          <SearchableSelect
-                            label="Assign By"
-                            required
-                            options={users.map((u) => ({ id: u.id, name: `${u.name} ${u?.department?.name ? ` (${u.department.name})` : ""}` }))}
-                            value={form.assigned_by}
-                            onChange={(id) => {
-                              setForm((p) => ({
-                                ...p, assigned_by: id,
-                                assigned_by_name: users.find(u => String(u.id) === String(id))?.name ?? "",
-                                assigned_to:  String(p.assigned_to) === String(id) ? "" : p.assigned_to,
-                                sub_users:    p.sub_users.filter((s) => String(s.user_id) !== String(id)),
-                              }));
-                              setErrors((p) => ({ ...p, assigned_by: "" }));
-                            }}
-                            placeholder={fetchingMeta ? "Loading…" : "Who is assigning?"}
-                          />
-                          <FieldError msg={errors.assigned_by} />
-                        </>
-                      ) : (
-                        <div>
-                          <Label>
-                            <span className="flex items-center gap-1">
-                              <Lock size={9} className="text-slate-400" /> Assign By
-                            </span>
-                          </Label>
-                          <div className={lockCls + " flex items-center gap-2"}>
-                            <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0">
-                              <span className="text-[10px] font-bold text-slate-500">{(form.assigned_by_name || "?").charAt(0).toUpperCase()}</span>
-                            </div>
-                            <span className="truncate">{form.assigned_by_name || "—"}</span>
-                          </div>
-                        </div>
-                      )} */}
-
-                      {/* ASSIGN BY */}
+                    <div className="min-w-0 w-full">
                       {(!isEdit || canEditAssignedBy) ? (
                         <>
                           <SearchableSelect
@@ -1101,7 +1072,7 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                           <FieldError msg={errors.assigned_by} />
                         </>
                       ) : (
-                        <div>
+                        <div className="min-w-0 w-full">
                           <Label>
                             <span className="flex items-center gap-1">
                               <Lock size={9} className="text-slate-400" /> Assign By
@@ -1118,16 +1089,11 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                     </div>
 
                     {/* ASSIGN TO (L1) */}
-                    <div>
+                    <div className="min-w-0 w-full">
                       {canEditAssignment ? (
                         <>
                           <SearchableSelect
-                            label={
-                              <span className="flex items-center gap-1">
-                                <Crown size={9} className="text-amber-500" /> Assign To
-                                {isEdit && <span className="text-[9px] text-indigo-400 font-normal normal-case ml-1">(editable)</span>}
-                              </span>
-                            }
+                            label="Assign To"
                             required
                             clearable
                             options={assignedToOptions}
@@ -1153,7 +1119,7 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                           <FieldError msg={errors.assigned_to} />
                         </>
                       ) : (
-                        <div>
+                        <div className="min-w-0 w-full">
                           <Label>
                             <span className="flex items-center gap-1">
                               <Crown size={9} className="text-amber-500" /> Assign To
@@ -1172,20 +1138,28 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                   </div>
 
                   {/* Sub-users */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2 mb-1">
                       <Label>
-                        <span className="flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1.5">
                           <Users size={11} /> Add Other User
                           {form?.sub_users?.length > 0 && (
-                            <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-600 rounded-full text-[10px] font-bold">{form.sub_users.length}</span>
+                            <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-600 rounded text-[10px] font-bold">
+                              {form.sub_users.length}
+                            </span>
                           )}
                           {isEdit && !canEditAssignment && (
-                            <span className="flex items-center gap-0.5 text-slate-400 font-normal normal-case text-[10px]"><Lock size={9} /> locked</span>
+                            <span className="inline-flex items-center gap-0.5 text-slate-400 font-normal normal-case text-[10px]">
+                              <Lock size={9} /> locked
+                            </span>
                           )}
                         </span>
                       </Label>
-                      {canEditAssignment && <span className="text-[10px] text-slate-400">Optional — Assign To will approve their work</span>}
+                      {canEditAssignment && (
+                        <span className={FORM_HINT_CLASS}>
+                          Optional — Assign To will approve their work
+                        </span>
+                      )}
                     </div>
                     <SubUserSelector
                       users={subUserOptions}
@@ -1206,9 +1180,9 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                 </>
               )}
 
-              {/* Category + Due Date + Reminder */}
-              <div className={`grid ${!form.is_recurring ? "grid-cols-2" : "grid-cols-1"} gap-4`}>
-                <div>
+              {/* Category + Due Date */}
+              <div className={`grid ${!form.is_recurring ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"} gap-4 items-start`}>
+                <div className="min-w-0 w-full">
                   <SearchableSelect
                     label="Category"
                     required
@@ -1224,7 +1198,7 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                 </div>
 
                 {!form.is_recurring && (
-                  <div>
+                  <div className="min-w-0 w-full space-y-1">
                     <Label>Due Date</Label>
                     <input type="date" value={form.due_date} min={today}
                       onChange={(e) => {
@@ -1246,12 +1220,12 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
               </div>
 
               {/* Priority + Status */}
-              <div className={`grid gap-4 ${isSelf ? "grid-cols-1" : "grid-cols-2"}`}>
-                <div>
+              <div className={`grid gap-4 items-start ${isSelf ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>
+                <div className="min-w-0 w-full">
                   <SelectField label="Priority" value={form.priority} onChange={set("priority")} options={PRIORITIES} selectCls={selCls} />
                 </div>
                 {!isSelf && (
-                  <div>
+                  <div className="min-w-0 w-full">
                     <SelectField label="Status" value={form.status} onChange={set("status")} options={TASK_STATUSES_OPTIONS} selectCls={selCls} />
                   </div>
                 )}
@@ -1334,10 +1308,10 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
 
               {/* Attachments — show only on create */}
               {!isEdit && (
-                <div>
+                <div className="space-y-1">
                   <Label>Attachments</Label>
                   <div
-                    className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition-all"
+                    className="border border-dashed border-slate-200 rounded-lg px-3 py-3 text-center cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition-all"
                     onClick={() => document.getElementById("task-file-input").click()}>
                     <input
                       id="task-file-input"
@@ -1366,8 +1340,8 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                         e.target.value = "";
                       }}
                     />
-                    <p className="text-xs text-slate-400">Click to upload files</p>
-                    <p className="text-xs text-slate-300 mt-0.5">Images (JPG, PNG, GIF, WEBP) · Documents (PDF, DOC, DOCX)</p>
+                    <p className="text-xs text-slate-500 font-medium">Click to upload files</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Images (JPG, PNG, GIF, WEBP) · Documents (PDF, DOC, DOCX)</p>
                   </div>
 
                   {form.attachments.length > 0 && (

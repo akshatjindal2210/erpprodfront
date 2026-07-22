@@ -37,6 +37,12 @@ import {
 import { formatScheduledDate, formatDateTime } from "@/features/apps/task/helpers/utilHelper";
 import { toYmdClient } from "@/features/apps/task/services/reportApi";
 import { stripHtml } from "@/features/apps/task/helpers/clTaskFormHelper";
+import {
+  rowMatchesPersonScope,
+  rowMatchesDepartmentScope,
+  rowMatchesDesignationScope,
+  CL_ORG_FILTER_CLASS,
+} from "@/features/apps/task/helpers/clTaskScopeHelper";
 import ClTaskSubmitModal from "./ClTaskSubmitModal";
 import ClTaskHistoryEditModal from "./ClTaskHistoryEditModal";
 import MyClTaskCard from "./MyClTaskCard";
@@ -80,6 +86,7 @@ export default function MyClTaskPage() {
     departmentsLists,
     designationsLists,
     personOptions,
+    allUsers,
   } = useClTaskFilters();
 
   const [tab, setTab] = useState("due");
@@ -194,10 +201,10 @@ export default function MyClTaskPage() {
     // Super Admin / Admin / EA: client-side assignee filters (default = self).
     if (canFilterAll) {
       if (selectedDepartment) {
-        data = data.filter((r) => Number(r.department_id) === Number(selectedDepartment));
+        data = data.filter((r) => rowMatchesDepartmentScope(r, selectedDepartment, allUsers));
       }
       if (selectedDesignation) {
-        data = data.filter((r) => Number(r.designation_id) === Number(selectedDesignation));
+        data = data.filter((r) => rowMatchesDesignationScope(r, selectedDesignation, allUsers));
       }
       const personScope =
         selectedPerson && selectedPerson !== PERSON_ALL
@@ -206,7 +213,7 @@ export default function MyClTaskPage() {
             ? null
             : selfId;
       if (personScope != null && personScope !== "") {
-        data = data.filter((r) => Number(r.person_id) === Number(personScope));
+        data = data.filter((r) => rowMatchesPersonScope(r, personScope, allUsers));
       }
     }
 
@@ -240,6 +247,7 @@ export default function MyClTaskPage() {
     selectedDesignation,
     selectedPerson,
     selfId,
+    allUsers,
   ]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
@@ -278,7 +286,10 @@ export default function MyClTaskPage() {
         label: "Department",
         key: "department_id",
         value: selectedDepartment || "",
+        searchable: true,
+        placeholder: "Search departments…",
         variant: "quick",
+        className: CL_ORG_FILTER_CLASS,
         options: [
           { label: "All Departments", value: "" },
           ...departmentsLists.map((d) => ({ label: d.name, value: String(d.id) })),
@@ -288,19 +299,25 @@ export default function MyClTaskPage() {
         label: "Designation",
         key: "designation_id",
         value: selectedDesignation || "",
+        searchable: true,
+        placeholder: "Search designations…",
         variant: "quick",
+        className: CL_ORG_FILTER_CLASS,
         options: [
           { label: "All Designations", value: "" },
           ...designationsLists.map((d) => ({ label: d.name, value: String(d.id) })),
         ],
       },
       {
-        label: "Person",
+        label: "Users",
         key: "person_id",
         value: selectedPerson || (selfId != null ? String(selfId) : ""),
+        searchable: true,
+        placeholder: "Search users…",
         variant: "quick",
+        className: CL_ORG_FILTER_CLASS,
         options: [
-          { label: "All Persons", value: PERSON_ALL },
+          { label: "All Users", value: PERSON_ALL },
           ...personOptions.map((p) => ({ label: p.name, value: String(p.id) })),
         ],
       },

@@ -148,20 +148,22 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen, userRole, current
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${collapsed ? "md:w-[64px]" : "md:w-56"}`}
       >
-        {/* Logo */}
+        {/* Logo — click returns to portal home */}
         <div className="h-14 flex items-center justify-between px-3 border-b border-slate-100 shrink-0 overflow-hidden">
-          <div
-            className={`flex items-center gap-2 ${
+          <Link
+            href="/home"
+            title="Go to Home"
+            className={`flex items-center gap-2 min-w-0 hover:opacity-90 transition-opacity ${
               collapsed ? "md:justify-center md:w-full" : ""
             }`}
           >
-              <img src="/logo.png" alt="Logo" className="w-20 object-contain" />
+              <img src="/logo.png" alt="Home" className="w-20 object-contain" />
             {!collapsed && (
               <span className="font-bold text-lg tracking-tight text-slate-800 whitespace-nowrap">
                 TaskApp
               </span>
             )}
-          </div>
+          </Link>
 
           {/* Mobile close button */}
           <button

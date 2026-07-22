@@ -9,7 +9,7 @@ import ClTaskCustomFieldRenderer from "../shared/ClTaskCustomFieldRenderer";
 import ClTaskSubmissionFillsList from "../shared/ClTaskSubmissionFillsList";
 import RichTextDisplay from "../../common/RichTextDisplay";
 import ClTaskAttachmentsField from "../shared/ClTaskAttachmentBlock";
-import { ClFormSection, ClFormLabel, inputBase } from "../shared/clTaskFormUi";
+import { ClFormSection, ClFormLabel, textareaBase } from "../shared/clTaskFormUi";
 
 export default function ClTaskSubmitModal({ task, onClose, onSuccess }) {
   const [values, setValues] = useState({});
@@ -381,7 +381,7 @@ export default function ClTaskSubmitModal({ task, onClose, onSuccess }) {
           <ClFormSection title="Your Remark">
             <ClFormLabel>Remark (optional)</ClFormLabel>
             <textarea
-              className={`${inputBase} min-h-[72px] resize-y`}
+              className={textareaBase}
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
               placeholder="Any notes for the verifier…"

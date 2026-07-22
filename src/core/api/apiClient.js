@@ -35,11 +35,45 @@ function publicImsToastMessage(meta) {
 }
 
 /**
- * When backend attaches `ims_meta.ok = false` (internal IMS ERP API failed / no response),
- * always show a friendly warning — never raw DB/SQL text like "Database query failed."
+ * Successful responses often still carry `ims_meta.ok = false` when a secondary IMS call
+ * failed inside the same request (e.g. one hybrid widget failed while others returned rows).
+ * Only toast when the client did not get usable primary data.
  */
-function maybeToastImsUnavailable(meta) {
+function responseHasUsableData(data) {
+  if (!data || typeof data !== "object") return false;
+  if (data.success === false) return false;
+  const payload = data.data;
+  if (Array.isArray(payload)) {
+    if (!payload.length) return false;
+    // Dashboard widget payloads: toast only when no widget actually returned rows.
+    const looksLikeWidgets = payload.some(
+      (row) => row && typeof row === "object" && ("chart_config" in row || "has_query" in row || "previewData" in row),
+    );
+    if (looksLikeWidgets) {
+      return payload.some((row) => {
+        if (!row || typeof row !== "object") return false;
+        const rows = row.data;
+        return Array.isArray(rows) && rows.length > 0;
+      });
+    }
+    return true;
+  }
+  if (payload != null && typeof payload === "object") {
+    return Object.keys(payload).length > 0;
+  }
+  // Some IMS-backed endpoints put rows on `records` instead of `data`.
+  if (Array.isArray(data.records) && data.records.length > 0) return true;
+  return false;
+}
+
+/**
+ * When backend attaches `ims_meta.ok = false` (internal IMS ERP API failed / no response),
+ * show a friendly warning — never raw DB/SQL text like "Database query failed."
+ * Skip the toast when the same response already delivered usable content.
+ */
+function maybeToastImsUnavailable(meta, data = null, { requestFailed = false } = {}) {
   if (typeof window === "undefined" || !meta || meta.ok !== false) return;
+  if (!requestFailed && responseHasUsableData(data)) return;
   const msg = publicImsToastMessage(meta);
   const now = Date.now();
   if (msg === __lastImsToastMsg && now - __lastImsToastAt < IMS_TOAST_THROTTLE_MS) return;
@@ -140,7 +174,7 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
         };
       }
 
-      maybeToastImsUnavailable(data?.ims_meta);
+      maybeToastImsUnavailable(data?.ims_meta, data, { requestFailed: true });
       if (typeof window !== "undefined") {
         window.__LAST_API_ERROR__ = {
           status: res.status,
@@ -162,7 +196,7 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
       }
     }
 
-    maybeToastImsUnavailable(data?.ims_meta);
+    maybeToastImsUnavailable(data?.ims_meta, data, { requestFailed: false });
 
     return data;
   } catch (err) {

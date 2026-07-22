@@ -9,6 +9,12 @@ import { extractList, mapTaskUserToOption }  from "@/features/apps/task/helpers/
 import { parseArr } from "@/features/apps/task/helpers/formArrays";
 import { compareLabelAsc } from "@/features/apps/task/helpers/sortOptions";
 import Drawer from "@/core/components/ui/Drawer";
+import {
+  OK_INPUT,
+  ERR_INPUT,
+  FORM_LABEL_CLASS,
+  FORM_ERROR_CLASS,
+} from "@/core/components/common/Constants";
 import SelectField      from "../common/SelectField";
 import SearchableSelect from "../common/SearchableSelect";
 import { recurringTaskService } from "@/features/apps/task/services/recurringTaskApi";
@@ -16,12 +22,11 @@ import { FILE_BASE_URL } from "@/core/utils/lib";
 import RichTextEditor from "../common/RichTextEditor";
 import YearlyRecurrencePicker from "../common/YearlyRecurrencePicker";
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-const base    = "w-full bg-white border rounded-xl px-3 py-2.5 text-sm text-slate-800 placeholder-slate-400 outline-none transition-all";
-const okCls   = `${base} border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100`;
-const errCls  = `${base} border-rose-300 focus:border-rose-400 focus:ring-2 focus:ring-rose-100 bg-rose-50/30`;
-const lockCls = `${base} border-slate-100 bg-slate-50 text-slate-500 cursor-not-allowed`;
-const selCls  = "w-full appearance-none bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all pr-9";
+// ─── IMS drawer density — same height / radius as SearchableSelect ─────────────
+const okCls   = OK_INPUT;
+const errCls  = ERR_INPUT;
+const lockCls = `${OK_INPUT} !bg-slate-50 !text-slate-500 !border-slate-100 cursor-not-allowed opacity-90`;
+const selCls  = `${OK_INPUT} appearance-none pr-9`;
  
 
 // ─── Empty states ─────────────────────────────────────────────────────────────
@@ -77,16 +82,17 @@ const calcAutoReminder = (due) => {
 function FieldError({ msg }) {
   if (!msg) return null;
   return (
-    <p className="flex items-center gap-1 text-xs text-rose-500 mt-1">
-      <AlertCircle size={11} /> {msg}
+    <p className={`${FORM_ERROR_CLASS} mt-1`}>
+      <AlertCircle size={12} className="shrink-0" /> {msg}
     </p>
   );
 }
 
 function Label({ children, required }) {
   return (
-    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
-      {children}{required && <span className="text-rose-400 ml-0.5">*</span>}
+    <label className={`block mb-1 ${FORM_LABEL_CLASS}`}>
+      {children}
+      {required ? <span className="text-rose-500"> *</span> : null}
     </label>
   );
 }
@@ -1091,11 +1097,9 @@ export default function RecurringTaskModal({open, onClose, onSuccess, editTask, 
               {/* ── ASSIGNED FIELDS ── */}
               {!isSelf && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
                     {/* ASSIGN BY */}
-                    <div>
-
-                      {/* ASSIGN BY */}
+                    <div className="min-w-0 w-full">
                       {(!isEdit || canEditAssignedBy) ? (
                         <>
                           <SearchableSelect
@@ -1124,7 +1128,7 @@ export default function RecurringTaskModal({open, onClose, onSuccess, editTask, 
                           <FieldError msg={errors.assigned_by} />
                         </>
                       ) : (
-                        <div>
+                        <div className="min-w-0 w-full">
                           <Label>
                             <span className="flex items-center gap-1">
                               <Lock size={9} className="text-slate-400" /> Assign By
@@ -1141,16 +1145,11 @@ export default function RecurringTaskModal({open, onClose, onSuccess, editTask, 
                     </div>
 
                     {/* ASSIGN TO (L1) */}
-                    <div>
+                    <div className="min-w-0 w-full">
                       {canEditAssignment ? (
                         <>
                           <SearchableSelect
-                            label={
-                              <span className="flex items-center gap-1">
-                                <Crown size={9} className="text-amber-500" /> Assign To
-                                {isEdit && <span className="text-[9px] text-indigo-400 font-normal normal-case ml-1">(editable)</span>}
-                              </span>
-                            }
+                            label="Assign To"
                             required
                             clearable
                             options={assignedToOptions}
@@ -1176,7 +1175,7 @@ export default function RecurringTaskModal({open, onClose, onSuccess, editTask, 
                           <FieldError msg={errors.assigned_to} />
                         </>
                       ) : (
-                        <div>
+                        <div className="min-w-0 w-full">
                           <Label>
                             <span className="flex items-center gap-1">
                               <Crown size={9} className="text-amber-500" /> Assign To

@@ -7,7 +7,7 @@ import { REPORT_FILTER_SS, readSessionString, readQuickFilterSession } from "@/f
 export function readReportFilterStateFromSession() {
   if (typeof window === "undefined") return null;
   return {
-    activeTab: readSessionString(REPORT_FILTER_SS.activeTab, "assigned_to_me"),
+    activeTab: readSessionString(REPORT_FILTER_SS.activeTab, "all"),
     search: readSessionString(REPORT_FILTER_SS.search, ""),
     statusFilter: readSessionString(REPORT_FILTER_SS.status, "All"),
     priorityFilter: readSessionString(REPORT_FILTER_SS.priority, "All"),

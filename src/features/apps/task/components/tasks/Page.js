@@ -408,7 +408,29 @@ export default function TasksPage() {
     [],
   );
 
-  const extraFilters = useMemo(
+  const extraFilters = useMemo(() => {
+    return [
+      {
+        label: "Assigned By",
+        key: "assigned_by_id",
+        value: userFilter,
+        searchable: true,
+        placeholder: "Search users…",
+        options: [
+          { label: "All Users", value: "All" },
+          ...userOptions
+            .map(mapTaskUserToOption)
+            .filter((u) => u?.id != null && u?.name)
+            .map((u) => ({
+              label: u.name,
+              value: String(u.id),
+            })),
+        ],
+      },
+    ];
+  }, [userFilter, userOptions]);
+
+  const moreFilters = useMemo(
     () => [
       {
         label: "Status",
@@ -452,25 +474,8 @@ export default function TasksPage() {
             })),
         ],
       },
-      {
-        label: "Assigned By",
-        key: "assigned_by_id",
-        value: userFilter,
-        searchable: true,
-        placeholder: "Search users…",
-        options: [
-          { label: "All Users", value: "All" },
-          ...userOptions
-            .map(mapTaskUserToOption)
-            .filter((u) => u?.id != null && u?.name)
-            .map((u) => ({
-              label: u.name,
-              value: String(u.id),
-            })),
-        ],
-      },
     ],
-    [statusFilter, priorityFilter, categoryFilter, userFilter, categoryOptions, userOptions],
+    [statusFilter, priorityFilter, categoryFilter, categoryOptions],
   );
 
   const HEADERS = useMemo(
@@ -486,6 +491,7 @@ export default function TasksPage() {
         onEdit: openEditModal,
         onDelete: (t) => setDeleteTask(t),
         onClone: handleClone,
+        showTargetDate: true,
       }),
     [
       activeTab,
@@ -500,7 +506,7 @@ export default function TasksPage() {
     ],
   );
 
-  const exportHeaders = useMemo(() => buildTaskExportHeaders(), []);
+  const exportHeaders = useMemo(() => buildTaskExportHeaders({ showTargetDate: true }), []);
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: "Tasks",
@@ -628,6 +634,8 @@ export default function TasksPage() {
             showDate={false}
             applyExtrasOnChange
             extraFilters={extraFilters}
+            moreFilters={moreFilters}
+            moreFiltersTitle="More filters"
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by title, description…"
@@ -637,13 +645,14 @@ export default function TasksPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="shrink-0 px-3 py-2 border-b border-slate-200 bg-slate-50/80">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        <div className="shrink-0 relative z-0 px-3 py-2 border-b border-slate-200 bg-slate-50/80">
+          {/* Phone: one horizontal strip so stats never clip into the table */}
+          <div className="flex gap-2 overflow-x-auto md:grid md:grid-cols-3 lg:grid-cols-6 md:overflow-visible pb-0.5 md:pb-0">
             {STAT_CARDS.map(({ key, label, icon, bg, text, border, barColor }) => (
               <div
                 key={key}
                 onClick={() => handleStatClick(key)}
-                className={`cursor-pointer transition-all rounded-none ${statCardCls(key)}`}
+                className={`cursor-pointer transition-all rounded-none shrink-0 w-[9.5rem] md:w-auto md:min-w-0 ${statCardCls(key)}`}
               >
                 <StatCard
                   label={label}
@@ -689,7 +698,7 @@ export default function TasksPage() {
           </div>
         )}
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 relative z-10 bg-white flex flex-col overflow-hidden isolate">
           {viewMode === "card" ? (
             <div ref={cardScrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 custom-scrollbar bg-slate-50/60">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
@@ -746,7 +755,7 @@ export default function TasksPage() {
               sortDir={sortDir}
               getRowClassName={getTaskDataTableRowClassName}
               onSort={(key) => {
-                if (key === "_actions") return;
+                if (key === "_actions" || key === "reminder_date" || key === "last_remark") return;
                 setDisplayLimit(DISPLAY_CHUNK);
                 if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
                 else { setSortKey(key); setSortDir("asc"); }

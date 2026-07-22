@@ -993,7 +993,7 @@ export default function DataTable({
   // --- 4. TABLE VIEW ---
   if (viewMode === "table") { 
     return (
-      <div data-list-table-root className="relative flex flex-col flex-1 min-h-0 w-full bg-white">
+      <div data-list-table-root className="relative flex flex-col flex-1 min-h-0 w-full bg-white overflow-hidden isolate">
         {showCenterFetchOverlay && (
           <div
             className="absolute inset-0 z-[90] flex items-center justify-center bg-white/85 backdrop-blur-[1px]"
@@ -1029,7 +1029,7 @@ export default function DataTable({
                 return <col key={`${key ?? "col"}-${i}`} style={{ width: w }} />;
               })}
             </colgroup>
-            <thead className="sticky top-0 z-[60]">
+            <thead className="sticky top-0 z-[60] shadow-[0_1px_0_0_rgba(148,163,184,0.45)]">
               <tr className="bg-slate-50">
                 {showSelection && (
                   <th
@@ -1053,7 +1053,7 @@ export default function DataTable({
                         ...(stickyLeftCol ? { left: `${stickyLeft}px` } : {}),
                         ...(stickyRightCol ? { right: 0 } : {}),
                       }}
-                      className={`relative px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-tight select-none bg-slate-50 border-b border-slate-200 sticky top-0
+                      className={`relative px-3 py-2.5 sm:py-3 text-[11px] font-bold text-slate-500 uppercase tracking-tight select-none bg-slate-50 border-b border-slate-200 sticky top-0
                       ${stickyRightCol ? "border-l border-r-0" : "border-r"}
                       ${stickyLeftCol ? "z-[65]" : stickyRightCol ? "z-[66]" : "z-[55]"}`}
                     >

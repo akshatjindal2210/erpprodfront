@@ -32,7 +32,7 @@ function lastRemarkExportLabel(row) {
 /**
  * Export headers — same columns/values as the Tasks / Report table (PDF / Excel / CSV).
  */
-export function buildTaskExportHeaders() {
+export function buildTaskExportHeaders({ showTargetDate = false } = {}) {
   return [
     ["Task ID", "task_id", null, { copyValue: (row) => row.task_id ?? "" }],
     [
@@ -50,11 +50,24 @@ export function buildTaskExportHeaders() {
     ["Last Remark", "last_remark", null, { copyValue: (row) => lastRemarkExportLabel(row) }],
     ["Status", "status", null, { copyValue: (row) => statusExportLabel(row.status) }],
     ["Due Date", "due_date", null, { copyValue: (row) => formatDate(row.due_date) ?? "—" }],
+    ...(showTargetDate
+      ? [
+          [
+            "Target Date",
+            "current_target_at",
+            null,
+            {
+              copyValue: (row) =>
+                row.task_type === "self" ? "—" : formatDateTime(row.current_target_at) ?? "—",
+            },
+          ],
+        ]
+      : []),
     [
       "Reminder Date",
       "reminder_date",
       null,
-      { copyValue: (row) => formatDate(row.reminder_date ?? row.self_reminder_date) ?? "—" },
+      { copyValue: (row) => formatDateTime(row.reminder_date ?? row.self_reminder_date) ?? "—" },
     ],
     ["Category", "category_id", null, { copyValue: (row) => row.category_name || "—" }],
     [
@@ -130,6 +143,7 @@ export function buildTaskListHeaders({
   onClone,
   onReassign = null,
   showReassign = false,
+  showTargetDate = false,
 }) {
   return [
     [
@@ -202,8 +216,30 @@ export function buildTaskListHeaders({
           </span>
         );
       },
-      { width: "100px", copyValue: (row) => formatDate(row.due_date) ?? "—" },
+      { width: "120px", copyValue: (row) => formatDate(row.due_date) ?? "—" },
     ],
+    ...(showTargetDate
+      ? [
+          [
+            "Target Date",
+            "current_target_at",
+            (_v, row) =>
+              row.task_type === "self" ? (
+                <span className="text-slate-300 text-[10px]">—</span>
+              ) : (
+                <span className={`inline-flex items-center gap-0.5 text-[11px] whitespace-nowrap ${IMS_TABLE_CELL_DATE}`}>
+                  <Calendar size={9} /> {formatDateTime(row.current_target_at) ?? "—"}
+                </span>
+              ),
+            {
+              width: "150px",
+              sortable: true,
+              copyValue: (row) =>
+                row.task_type === "self" ? "—" : formatDateTime(row.current_target_at) ?? "—",
+            },
+          ],
+        ]
+      : []),
     [
       "Reminder Date",
       "reminder_date",
@@ -211,11 +247,15 @@ export function buildTaskListHeaders({
         const meta = getRowMeta(row, activeTab, currentUserId, quickFilter, statusFilter);
         return (
           <span className={`inline-flex items-center gap-0.5 text-[11px] whitespace-nowrap ${meta.reminderDateCls || IMS_TABLE_CELL_DATE}`}>
-            <Calendar size={9} /> {formatDate(row.reminder_date ?? row.self_reminder_date) ?? "—"}
+            <Calendar size={9} /> {formatDateTime(row.reminder_date ?? row.self_reminder_date) ?? "—"}
           </span>
         );
       },
-      { width: "110px", copyValue: (row) => formatDate(row.reminder_date ?? row.self_reminder_date) ?? "—" },
+      {
+        width: "150px",
+        sortable: false,
+        copyValue: (row) => formatDateTime(row.reminder_date ?? row.self_reminder_date) ?? "—",
+      },
     ],
     [
       "Category",
@@ -228,7 +268,7 @@ export function buildTaskListHeaders({
         ) : (
           <span className="text-slate-300 text-[10px]">—</span>
         ),
-      { width: "110px", copyValue: (row) => row.category_name || "—" },
+      { width: "140px", copyValue: (row) => row.category_name || "—" },
     ],
     [
       "Priority",

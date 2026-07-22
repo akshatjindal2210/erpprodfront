@@ -99,3 +99,20 @@ export function isTaskShellPath(pathname) {
 export function isTaskShell(shell, pathname) {
   return shell === APP_SHELL.TASK || isTaskShellPath(pathname);
 }
+
+/** Resolve launcher app label + home href for navbar breadcrumbs. */
+export function getShellAppFromPathname(pathname) {
+  if (isPortalShellPath(pathname)) {
+    return { id: "home", name: "Home", href: ROUTES.HOME };
+  }
+  if (isSettingsShellPath(pathname)) {
+    return { id: "settings", name: "Admin Console", href: ROUTES.SETTINGS };
+  }
+  if (isTaskShellPath(pathname)) {
+    return { id: "task", name: "Task", href: ROUTES.TASK_DASHBOARD };
+  }
+  if (pathname?.startsWith("/ims")) {
+    return { id: "ims", name: "IMS", href: ROUTES.IMS_DASHBOARD };
+  }
+  return { id: "home", name: "Home", href: ROUTES.HOME };
+}
