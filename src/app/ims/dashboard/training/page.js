@@ -1,4 +1,4 @@
-import TrainingPage from "@/features/admin/training/Page";
+import TrainingPage from "@/apps/settings/training/Page";
 import React from "react";
 
 function Page() {

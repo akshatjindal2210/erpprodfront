@@ -1,4 +1,4 @@
-import DashboardBuilder from "@/features/dashboard-builder/components/DashboardBuilder";
+import DashboardBuilder from "@/common/dashboard-builder/components/DashboardBuilder";
 
 export default function TaskDashboardPage() {
   return (

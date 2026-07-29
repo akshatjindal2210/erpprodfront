@@ -1,4 +1,4 @@
-import DailyProductionPage from "@/features/apps/ims/components/master/DailyProduction";
+import DailyProductionPage from "@/apps/ims/modules/master/DailyProduction";
 
 export default function PackingEntryPage() {
   return <DailyProductionPage />;

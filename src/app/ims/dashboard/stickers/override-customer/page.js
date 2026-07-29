@@ -1,4 +1,4 @@
-import StickerOverrideCustomerPage from "@/features/apps/ims/components/stickers/StickerOverrideCustomerPage";
+import StickerOverrideCustomerPage from "@/apps/ims/modules/stickers/StickerOverrideCustomerPage";
 
 export default function page() {
   return <StickerOverrideCustomerPage />;

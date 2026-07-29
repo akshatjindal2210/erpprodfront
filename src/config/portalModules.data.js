@@ -1,14 +1,16 @@
-/** Keep in sync with backend/src/config/portalModules.js */
+/** Keep in sync with backend/src/config/portal/portalModules.js */
 
 export const APP_GATES = {
   core: "app_core",
   ims: "app_ims",
+  // rmstore: "app_rmstore",
   task: "app_task",
 };
 
 export const APP_META = {
   core: { label: "Admin Console", permissions: true },
   ims: { label: "IMS", permissions: true },
+  // rmstore: { label: "RM Store", permissions: true },
   task: { label: "Task", permissions: true },
 };
 
@@ -42,6 +44,7 @@ export const MODULES = {
     { name: "qc_hold_material", label: "QC Hold Material" },
     { name: "schedule_planning", label: "Schedule Planning" },
   ],
+  rmstore: [],
   task: [
     { name: "cl_task_master", label: "CL Task Master" },
     { name: "cl_task", label: "CL Task" },
@@ -53,6 +56,6 @@ export const MODULES = {
   ],
 };
 
-export const PORTAL_APP_KEYS = ["core", "ims", "task"];
+export const PORTAL_APP_KEYS = ["core", "ims", /* "rmstore", */ "task"];
 
 export const SETTINGS_MODULES = ["users", "modules", "training_videos", "departments", "designations"];

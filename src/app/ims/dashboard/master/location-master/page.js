@@ -1,4 +1,4 @@
-import LocationMasterPage from '@/features/apps/ims/components/location/Page'
+import LocationMasterPage from '@/apps/ims/modules/location/Page'
 import React from 'react'
 
 function page() {

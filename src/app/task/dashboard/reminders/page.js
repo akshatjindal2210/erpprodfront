@@ -1,2 +1,2 @@
-export { default } from "@/features/apps/task/components/reminders/Page";
+export { default } from "@/apps/task/modules/reminders/Page";
 

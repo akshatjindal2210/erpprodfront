@@ -1,4 +1,4 @@
-import OutEntryPage from '@/features/apps/ims/components/out-entry/Page'
+import OutEntryPage from '@/apps/ims/modules/out-entry/Page'
 import React from 'react'
 
 function page() {

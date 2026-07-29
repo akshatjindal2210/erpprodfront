@@ -1,6 +1,6 @@
 "use client";
 
-import MyClTaskPage from "@/features/apps/task/components/cl-task/my-tasks/MyClTaskPage";
+import MyClTaskPage from "@/apps/task/modules/cl-task/my-tasks/MyClTaskPage";
 
 export default function ClTasksRoutePage() {
   return <MyClTaskPage />;

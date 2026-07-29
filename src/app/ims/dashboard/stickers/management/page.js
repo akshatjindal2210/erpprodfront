@@ -1,4 +1,4 @@
-import StickerManagementPage from "@/features/apps/ims/components/stickers/StickerManagementPage";
+import StickerManagementPage from "@/apps/ims/modules/stickers/StickerManagementPage";
 
 export default function page() {
   return <StickerManagementPage />;

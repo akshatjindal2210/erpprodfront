@@ -1,4 +1,4 @@
-import LogsPage from "@/features/apps/ims/components/log/Page";
+import LogsPage from "@/apps/ims/manage/log/Page";
 import React from "react";
 
 function page() {

@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSelector } from "react-redux";
 import { Lock } from "lucide-react";
-import { selectRole } from "@/core/store/slices/authSlice";
-import { useCanAccess } from "@/core/hooks/useCanAccess";
-import { SETTINGS_NAV_REGISTRY } from "@/features/admin/configuration/config/settingsNavRegistry";
+import { selectRole } from "@/platform/store/slices/authSlice";
+import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { SETTINGS_NAV_REGISTRY } from "@/apps/settings/configuration/config/settingsNavRegistry";
 import { ROUTES } from "@/config/routes";
 
 export default function SettingsPage() {

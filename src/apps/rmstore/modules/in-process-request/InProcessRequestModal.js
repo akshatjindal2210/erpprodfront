@@ -1,0 +1,1686 @@
+"use client";
+
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Check, Loader2, Layers, ScanLine, AlertCircle, Package, QrCode, X, ArrowDownToLine, ShieldAlert, PackageMinus } from "lucide-react";
+import { useSelector } from "react-redux";
+
+import "@/apps/ims/lib/config/inwardUi.theme.css";
+
+import { coilService } from "@/apps/rmstore/lib/services/coil";
+import { mrnService } from "@/apps/rmstore/lib/services/mrn";
+import { inProcessRequestService, IPR_REQUEST_TYPE, IPR_DOWNSTREAM } from "@/apps/rmstore/lib/services/inProcessRequest";
+import { extractCoilUid, normalizeScanInput, coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
+import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
+import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
+import Drawer from "@/ui/primitives/Drawer";
+import Snackbar from "@/ui/primitives/Snackbar";
+import RemarksTextarea from "@/ui/common/forms/RemarksTextarea";
+import TypeableSuggestField from "@/ui/common/forms/TypeableSuggestField";
+import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
+import { OK_INPUT } from "@/ui/common/Constants";
+import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
+import LaserScanField from "@/ui/common/scan/LaserScanField";
+import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
+import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
+import { prepareQrScanSession, unlockScanAudio, playScanSuccessBeep } from "@/platform/utils/global/scanFeedback";
+import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
+import StoreInRequestForm from "@/apps/rmstore/modules/in-process-request/StoreInRequestForm";
+import ApprovalStatusToggle from "@/apps/rmstore/modules/shared/ApprovalStatusToggle";
+
+const MODULE = "rm_issue_request";
+const SCANNER_ID = "rm-in-process-request-scanner";
+const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
+const INITIAL_SNACK = { open: false, variant: "success", title: "", message: "", duration: SNACK_DUR.med };
+
+/** Same accent tokens as IMS QC Hold type picker. */
+const TYPE_PICKER_ACCENT = {
+  amber: {
+    card: "border-amber-300 bg-amber-50/60 hover:border-amber-400 hover:bg-amber-50",
+    title: "text-amber-900",
+    banner: "border-amber-200 bg-amber-50 text-amber-900",
+  },
+  yellow: {
+    card: "border-yellow-300 bg-yellow-50/60 hover:border-yellow-400 hover:bg-yellow-50",
+    title: "text-yellow-900",
+    banner: "border-yellow-300 bg-yellow-50 text-yellow-900",
+  },
+  teal: {
+    card: "border-teal-300 bg-teal-50/60 hover:border-teal-400 hover:bg-teal-50",
+    title: "text-teal-900",
+    banner: "border-teal-200 bg-teal-50 text-teal-900",
+  },
+  rose: {
+    card: "border-rose-300 bg-rose-50/60 hover:border-rose-400 hover:bg-rose-50",
+    title: "text-rose-900",
+    banner: "border-rose-200 bg-rose-50 text-rose-900",
+  },
+};
+
+const REQUEST_TYPE_OPTIONS = [
+  {
+    id: IPR_REQUEST_TYPE.REJECTION,
+    title: "In-process Rejection",
+    description: "Reject from the machine",
+    accent: "rose",
+    Icon: ShieldAlert,
+  },
+  {
+    id: IPR_REQUEST_TYPE.STORE_IN,
+    title: "Store In Request",
+    description: "Return leftover coils",
+    accent: "teal",
+    Icon: ArrowDownToLine,
+  },
+  {
+    id: IPR_REQUEST_TYPE.CONSUME,
+    title: "Consume Request",
+    description: "Coils fully used up",
+    accent: "amber",
+    Icon: PackageMinus,
+  },
+];
+
+const REJECTION_TYPE_OPTIONS = [
+  {
+    id: "coil",
+    title: "Coil",
+    description: "Only the scanned coil",
+    accent: "amber",
+    Icon: Package,
+  },
+  {
+    id: "lot",
+    title: "Lot",
+    description: "Every active coil in the lot",
+    accent: "yellow",
+    Icon: Layers,
+  },
+];
+
+function fetchIprReasonSuggestions(search = "", requestType = IPR_REQUEST_TYPE.REJECTION) {
+  return inProcessRequestService
+    .getReasons({ search, request_type: requestType })
+    .then((res) => (Array.isArray(res?.data) ? res.data : []));
+}
+
+function mapCoilRow(c, extras = {}) {
+  const qty = Number(c.qty) || 0;
+  const original =
+    c.original_qty != null ? Number(c.original_qty) : qty;
+  const remaining =
+    extras.remaining_qty != null
+      ? Number(extras.remaining_qty)
+      : c.remaining_qty != null
+        ? Number(c.remaining_qty)
+        : original;
+  return {
+    coil_no_uid: c.coil_no_uid,
+    qty,
+    original_qty: original,
+    remaining_qty: remaining,
+    consumed_qty: Math.max(0, original - remaining),
+    item_code: c.item_code,
+    item_desc: c.item_desc,
+    heat_no: c.heat_no,
+    mrn_uid: c.mrn_uid,
+    mrn_no: c.mrn_no,
+    location_id: c.location_id ?? null,
+    location_no: c.location_no || null,
+    status: c.status,
+    source: extras.source || c.source || null,
+    is_seed_scan: Boolean(extras.is_seed_scan ?? c.is_seed_scan),
+  };
+}
+
+function proposedFromCoil(c, remaining) {
+  const qty = Number(remaining);
+  return {
+    temp_id: `ret-${String(c.coil_no_uid).toLowerCase()}`,
+    coil_no_uid: c.coil_no_uid,
+    from_coil_uid: c.coil_no_uid,
+    qty: Number.isFinite(qty) ? qty : 0,
+    item_code: c.item_code || null,
+    item_desc: c.item_desc || null,
+    heat_no: c.heat_no || null,
+    mrn_uid: c.mrn_uid || null,
+    mrn_no: c.mrn_no ?? null,
+  };
+}
+
+export default function InProcessRequestModal({
+  open,
+  onClose,
+  onSuccess,
+  editData = null,
+  mode = "add",
+}) {
+  const canAccess = useCanAccess();
+  const canApprove = canAccess(MODULE, "authorize").allowed;
+  const currentUser = useSelector((s) => s.auth?.user);
+  const actorName =
+    currentUser?.name || currentUser?.full_name || currentUser?.username || "You";
+
+  const isEdit = mode === "edit";
+  const isApprove = mode === "approve";
+  const isView = mode === "view";
+  const readOnly = isView;
+  const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
+
+  const [saving, setSaving] = useState(false);
+  const [requestType, setRequestType] = useState(IPR_REQUEST_TYPE.REJECTION);
+  const [requestTypePicked, setRequestTypePicked] = useState(false);
+  const [rejectionType, setRejectionType] = useState("coil");
+  const [typePicked, setTypePicked] = useState(false);
+  const [reason, setReason] = useState("");
+  const [remarks, setRemarks] = useState("");
+  const [approved, setApproved] = useState(false);
+  const [coils, setCoils] = useState([]);
+  const [proposedCoils, setProposedCoils] = useState([]);
+  const [manualLotNo, setManualLotNo] = useState("");
+  const [manualCoilId, setManualCoilId] = useState("");
+  const [loadingLot, setLoadingLot] = useState(false);
+  const [seedCoilUid, setSeedCoilUid] = useState(null);
+  /** Scanned coil held between the scan step and the Coil/Lot choice. */
+  const [pendingCoil, setPendingCoil] = useState(null);
+  const coilsRef = useRef([]);
+  coilsRef.current = coils;
+  const requestTypeRef = useRef(requestType);
+  requestTypeRef.current = requestType;
+
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [validatingCoil, setValidatingCoil] = useState(false);
+  const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
+  const [errors, setErrors] = useState({});
+
+  const { laserScan, keyboardType, showPhoneQr } = useDeviceScanSettings();
+  const showLaserUi = laserScan || isLaserScanEnabled();
+  const scanBtnCount = (showPhoneQr ? 1 : 0) + (showLaserUi ? 1 : 0);
+  const scanBtnFill = scanBtnCount > 1 ? "flex-1 basis-0 min-w-0 w-full" : "w-full";
+
+  const scanToastRef = useRef({});
+  const tryAddCoilRef = useRef(async () => {});
+  const gateScanRef = useRef(async () => {});
+  /** Camera decodes route to the scan step while it is open, else to the form. */
+  const scanGateOpenRef = useRef(false);
+  const sopAckRef = useRef(null);
+  const rejectionTypeRef = useRef(rejectionType);
+  rejectionTypeRef.current = rejectionType;
+  /** Bumped on every reset so a slow scan cannot apply to a newer session. */
+  const scanSessionRef = useRef(0);
+
+  const isStoreIn = requestType === IPR_REQUEST_TYPE.STORE_IN;
+  /** Consume is whole-coil only, so it never asks the Coil/Lot question. */
+  const isConsume = requestType === IPR_REQUEST_TYPE.CONSUME;
+  const isRejection = !isStoreIn && !isConsume;
+  /** Step 1 — pick the request type. */
+  const showRequestTypePicker = mode === "add" && !requestTypePicked;
+  /** Step 2 — scan the coil sticker that seeds the request. */
+  const showScanGate = mode === "add" && requestTypePicked && !typePicked && !pendingCoil;
+  /** Step 3 — Coil or Lot, answered once the scanned coil is known (rejection only). */
+  const showRejectionTypePicker =
+    mode === "add" && requestTypePicked && !typePicked && !!pendingCoil && isRejection;
+  const showTypePicker =
+    showRequestTypePicker || showScanGate || showRejectionTypePicker;
+  const isLotMode = isRejection && rejectionType === "lot";
+  const isCoilMode = !isLotMode;
+  /** Lot empty state = IMS Full Hold packing entry panel. */
+  const showLotEntryUi =
+    isRejection && isLotMode && !readOnly && coils.length === 0 && mode !== "view";
+  /** Coil scan panel = IMS Partial Hold scan panel (rejection + consume scan coils). */
+  const showCoilScanUi = !isStoreIn && isCoilMode && !readOnly;
+  const showApproval =
+    canApprove && !readOnly && !showTypePicker && (mode === "add" || mode === "approve");
+
+  const closeSnackbar = useCallback(() => {
+    setSnackbar((s) => ({ ...s, open: false }));
+  }, []);
+  const { showScanToast, showScanSuccess } = useScanSnackbarActions(setSnackbar, scanToastRef);
+
+  const requestLabel = isStoreIn
+    ? "Store In Request"
+    : isConsume
+      ? "Consume Request"
+      : "In-process Request";
+  const title = isView
+    ? `View ${requestLabel}`
+    : isApprove
+      ? `Approve ${requestLabel}`
+      : isEdit
+        ? `Edit ${requestLabel}`
+        : showRequestTypePicker
+          ? "New In-process Request"
+          : `New ${requestLabel}`;
+
+  /** Back to step 1 — the request-type picker. */
+  const resetTypeSelection = useCallback(() => {
+    scanSessionRef.current += 1;
+    setRequestType(IPR_REQUEST_TYPE.REJECTION);
+    setRequestTypePicked(false);
+    setRejectionType("coil");
+    setTypePicked(false);
+    setPendingCoil(null);
+  }, []);
+
+  const resetForm = useCallback(() => {
+    resetTypeSelection();
+    setReason("");
+    setRemarks("");
+    setApproved(false);
+    setCoils([]);
+    setProposedCoils([]);
+    setManualLotNo("");
+    setManualCoilId("");
+    setLoadingLot(false);
+    setSeedCoilUid(null);
+    setPendingCoil(null);
+    setErrors({});
+    setIsScannerOpen(false);
+    setSaving(false);
+    setValidatingCoil(false);
+  }, [resetTypeSelection]);
+
+  useEffect(() => {
+    if (!open) {
+      resetForm();
+      return;
+    }
+
+    if (editData?.ipr_uid && mode !== "add") {
+      setRequestType(
+        Object.values(IPR_REQUEST_TYPE).includes(editData.request_type)
+          ? editData.request_type
+          : IPR_REQUEST_TYPE.REJECTION
+      );
+      setRequestTypePicked(true);
+      setRejectionType(editData.rejection_type === "lot" ? "lot" : "coil");
+      setTypePicked(true);
+      setReason(editData.reason || "");
+      setRemarks(editData.remarks || "");
+      setApproved(isApprove ? true : Boolean(editData.approved));
+      setCoils(Array.isArray(editData.coils) ? editData.coils.map((c) => mapCoilRow(c)) : []);
+      setProposedCoils(
+        Array.isArray(editData.proposed_coils)
+          ? editData.proposed_coils.map((p, i) => ({
+              temp_id: p.temp_id || `proposed-${i + 1}`,
+              coil_no_uid: p.coil_no_uid || null,
+              from_coil_uid: p.from_coil_uid || p.coil_no_uid || null,
+              qty: Number(p.qty) || 0,
+              item_code: p.item_code || null,
+              item_desc: p.item_desc || null,
+              heat_no: p.heat_no || null,
+              mrn_uid: p.mrn_uid || null,
+              mrn_no: p.mrn_no ?? null,
+            }))
+          : []
+      );
+      setManualLotNo(
+        editData.lot_no != null
+          ? String(editData.lot_no)
+          : editData.mrn_no != null
+            ? String(editData.mrn_no)
+            : ""
+      );
+      setSeedCoilUid(editData.seed_coil_uid || null);
+      setManualCoilId("");
+      setPendingCoil(null);
+      setErrors({});
+      setIsScannerOpen(false);
+      setSaving(false);
+      return;
+    }
+
+    resetForm();
+    if (mode === "approve") setApproved(true);
+  }, [open, editData, mode, isApprove, resetForm]);
+
+  const fetchReasonsForType = useCallback(
+    (search = "") => fetchIprReasonSuggestions(search, requestType),
+    [requestType]
+  );
+
+  const applyLotCoils = (lotCoils, { seedUid = null, lotLabel = null } = {}) => {
+    const mapped = lotCoils.map((c) =>
+      mapCoilRow(c, {
+        source: "lot",
+        is_seed_scan: seedUid
+          ? String(c.coil_no_uid).toLowerCase() === String(seedUid).toLowerCase()
+          : false,
+      })
+    );
+    setCoils(mapped);
+    setSeedCoilUid(seedUid);
+    if (lotLabel != null) setManualLotNo(String(lotLabel));
+    setErrors((e) => ({ ...e, coils: undefined, scan: undefined }));
+  };
+
+  const loadLotCoilsByMrnUid = async (mrnUid) => {
+    const uid = String(mrnUid || "").trim();
+    if (!uid) return [];
+    const { data } = await fetchAllListPages(async (page, limit) => {
+      const body = await coilService.getAll({
+        page,
+        limit,
+        filters: { mrn_uid: uid, status: "active" },
+      });
+      return { data: body.data ?? [], total: body.total ?? 0 };
+    }, 500);
+    return (data || []).filter(
+      (c) => String(c.status || "active").toLowerCase() === "active" && c.coil_no_uid
+    );
+  };
+
+  /**
+   * Lot by MRN number = every MRN portal row with that mrn_no
+   * (e.g. 3701 → 3701_1 + 3701_2 + 3701_3) and all of their coils.
+   */
+  const loadLotCoilsByMrnNo = async (mrnNo) => {
+    const no = String(mrnNo ?? "").trim();
+    if (!no) return { coils: [], mrnUids: [] };
+
+    const byUid = new Map();
+    let mrnUids = [];
+
+    // 1) Coil filter by mrn_no
+    try {
+      const { data } = await fetchAllListPages(async (page, limit) => {
+        const body = await coilService.getAll({
+          page,
+          limit,
+          filters: { mrn_no: no, status: "active" },
+        });
+        return { data: body.data ?? [], total: body.total ?? 0 };
+      }, 500);
+      for (const c of data || []) {
+        if (!c?.coil_no_uid) continue;
+        if (String(c.status || "active").toLowerCase() !== "active") continue;
+        if (String(c.mrn_no ?? "").trim() !== no) continue;
+        byUid.set(String(c.coil_no_uid).toLowerCase(), c);
+      }
+    } catch {
+      /* continue */
+    }
+
+    // 2) Same as MRN Portal: find all UIDs for this mrn_no, then load each
+    try {
+      const { data: mrnRows } = await fetchAllListPages(async (page, limit) => {
+        const body = await mrnService.getAll({
+          page,
+          limit,
+          search: no,
+        });
+        return { data: body.data ?? [], total: body.total ?? 0 };
+      }, 200);
+      mrnUids = (mrnRows || [])
+        .filter((r) => String(r.mrn_no ?? r.mrnno ?? "").trim() === no && (r.uid || r.mrn_uid))
+        .map((r) => String(r.uid || r.mrn_uid).trim());
+    } catch {
+      mrnUids = [];
+    }
+
+    for (const uid of mrnUids) {
+      const coils = await loadLotCoilsByMrnUid(uid);
+      for (const c of coils) {
+        byUid.set(String(c.coil_no_uid).toLowerCase(), c);
+      }
+    }
+
+    // 3) Search fallback — never collapse to a single mrn_uid
+    if (!byUid.size) {
+      const { data } = await fetchAllListPages(async (page, limit) => {
+        const body = await coilService.getAll({
+          page,
+          limit,
+          search: no,
+          filters: { status: "active" },
+        });
+        return { data: body.data ?? [], total: body.total ?? 0 };
+      }, 500);
+      for (const c of data || []) {
+        if (!c?.coil_no_uid) continue;
+        if (String(c.mrn_no ?? "").trim() !== no) continue;
+        byUid.set(String(c.coil_no_uid).toLowerCase(), c);
+      }
+    }
+
+    const coils = [...byUid.values()];
+    if (!mrnUids.length) {
+      mrnUids = [
+        ...new Set(coils.map((c) => String(c.mrn_uid || "").trim()).filter(Boolean)),
+      ];
+    }
+    return { coils, mrnUids };
+  };
+
+  const loadLotByNumber = async (rawLotNo) => {
+    if (readOnly) return;
+    const lot = String(rawLotNo ?? manualLotNo ?? "").trim();
+    if (!lot) {
+      setErrors((e) => ({ ...e, scan: "Lot / MRN number is required." }));
+      return;
+    }
+
+    setLoadingLot(true);
+    try {
+      let full = [];
+      let mrnUids = [];
+      const byNo = await loadLotCoilsByMrnNo(lot);
+      full = byNo.coils || [];
+      mrnUids = byNo.mrnUids || [];
+
+      if (!full.length) {
+        full = await loadLotCoilsByMrnUid(lot);
+        if (full.length) mrnUids = [lot];
+      }
+
+      if (!full.length) {
+        setErrors((e) => ({ ...e, scan: `No active coils were found for lot or MRN ${lot}.` }));
+        showScanToast("error", "lot-empty", `No active coils were found for lot or MRN ${lot}.`);
+        return;
+      }
+
+      const label = full[0]?.mrn_no ?? lot;
+      applyLotCoils(full, { seedUid: null, lotLabel: label });
+      const uidHint = mrnUids.length > 1 ? ` across ${mrnUids.length} MRN lines` : "";
+      showScanSuccess("lot-ok", `Loaded ${full.length} coil(s) for MRN ${label}${uidHint}`, 2400);
+      void playScanSuccessBeep();
+    } catch (err) {
+      showScanToast("error", "lot-err", err?.message || "Could not load the lot. Please try again.");
+    } finally {
+      setLoadingLot(false);
+    }
+  };
+
+  /** Load every active coil of the scanned coil's lot. */
+  const loadLotFromCoil = async (coil) => {
+    const mrnNo =
+      coil.mrn_no != null && String(coil.mrn_no).trim() !== ""
+        ? String(coil.mrn_no).trim()
+        : null;
+    const mrnUid = String(coil.mrn_uid || "").trim();
+    if (!mrnNo && !mrnUid) {
+      showScanToast("error", "lot-mrn", "This coil is not linked to an MRN or lot.");
+      return false;
+    }
+    setLoadingLot(true);
+    try {
+      let lotCoils = [];
+      let mrnUids = [];
+      if (mrnNo) {
+        const byNo = await loadLotCoilsByMrnNo(mrnNo);
+        lotCoils = byNo.coils || [];
+        mrnUids = byNo.mrnUids || [];
+      }
+      if (!lotCoils.length && mrnUid) {
+        lotCoils = await loadLotCoilsByMrnUid(mrnUid);
+        mrnUids = [mrnUid];
+      }
+      if (!lotCoils.length) {
+        showScanToast("error", "lot-empty", "No active coils were found for this lot.");
+        return false;
+      }
+      applyLotCoils(lotCoils, {
+        seedUid: coil.coil_no_uid,
+        lotLabel: mrnNo || mrnUid,
+      });
+      const uidHint = mrnUids.length > 1 ? ` across ${mrnUids.length} MRN lines` : "";
+      showScanSuccess(
+        "lot-ok",
+        `Loaded ${lotCoils.length} coil(s) from MRN ${mrnNo || mrnUid}${uidHint}`,
+        2400
+      );
+      void playScanSuccessBeep();
+      return true;
+    } finally {
+      setLoadingLot(false);
+    }
+  };
+
+  /** Fetch a scanned sticker and confirm the coil is available. */
+  const resolveScannedCoil = async (val) => {
+    const uid = extractCoilUid(normalizeScanInput(val));
+    if (!uid) {
+      showScanToast("error", "invalid-coil", SCAN_SNACK_MSG.REJECTED);
+      return null;
+    }
+    const res = await coilService.getByUid(uid);
+    const coil = res?.data;
+    if (!coil) {
+      showScanToast("error", "coil-missing", "Coil not found. Check the UID and try again.");
+      return null;
+    }
+    const status = String(coil.status || "active").toLowerCase();
+    if (status !== "active") {
+      showScanToast("error", "coil-status", `Coil ${uid} is not available. Its current status is ${status}.`);
+      return null;
+    }
+    return coil;
+  };
+
+  /**
+   * Step 2 — the scan that seeds the request.
+   * Store In records the coil and opens the form; rejection asks Coil or Lot first.
+   */
+  const handleGateScan = async (val) => {
+    if (readOnly) return;
+    const session = scanSessionRef.current;
+    setValidatingCoil(true);
+    try {
+      const coil = await resolveScannedCoil(val);
+      if (!coil || session !== scanSessionRef.current) return;
+      const mapped = mapCoilRow(coil, { source: "scan", is_seed_scan: true });
+
+      if (requestTypeRef.current === IPR_REQUEST_TYPE.STORE_IN) {
+        setCoils([mapped]);
+        setProposedCoils([proposedFromCoil(mapped, mapped.remaining_qty)]);
+        setErrors({});
+        setTypePicked(true);
+        showScanSuccess("coil-ok", `Added ${mapped.coil_no_uid}`, 1600);
+        void playScanSuccessBeep();
+        return;
+      }
+
+      // Consume is whole-coil, so the scan goes straight to the form.
+      if (requestTypeRef.current === IPR_REQUEST_TYPE.CONSUME) {
+        setCoils([mapped]);
+        setSeedCoilUid(mapped.coil_no_uid);
+        setErrors({});
+        setTypePicked(true);
+        showScanSuccess("coil-ok", `Added ${mapped.coil_no_uid}`, 1600);
+        void playScanSuccessBeep();
+        return;
+      }
+
+      setPendingCoil(mapped);
+      setErrors({});
+      void playScanSuccessBeep();
+    } catch (err) {
+      showScanToast("error", "coil-err", err?.message || "Could not load the coil details. Please try again.");
+    } finally {
+      setValidatingCoil(false);
+    }
+  };
+
+  /** Step 3 — apply the Coil or Lot choice to the scanned coil. */
+  const selectRejectionScope = async (scope) => {
+    if (readOnly || !pendingCoil || loadingLot) return;
+    const coil = pendingCoil;
+
+    // Load the lot first — on failure the user stays here and can retry or rescan.
+    if (scope === "lot") {
+      const session = scanSessionRef.current;
+      let loaded = false;
+      try {
+        loaded = await loadLotFromCoil(coil);
+      } catch (err) {
+        showScanToast("error", "lot-err", err?.message || "Could not load the lot. Please try again.");
+      }
+      if (session !== scanSessionRef.current || !loaded) return;
+      setRejectionType("lot");
+      setTypePicked(true);
+      setPendingCoil(null);
+      return;
+    }
+
+    setRejectionType("coil");
+    setTypePicked(true);
+    setPendingCoil(null);
+    setCoils([coil]);
+    setSeedCoilUid(coil.coil_no_uid);
+    showScanSuccess("coil-ok", `Added ${coil.coil_no_uid}`, 1600);
+  };
+
+  /** Back from the Coil/Lot question to the scan step. */
+  const backToScanStep = () => {
+    if (readOnly) return;
+    scanSessionRef.current += 1;
+    setPendingCoil(null);
+    setErrors({});
+  };
+
+  const tryAddCoil = async (val) => {
+    if (readOnly) return;
+    const uid = extractCoilUid(normalizeScanInput(val));
+    if (!uid) {
+      showScanToast("error", "invalid-coil", SCAN_SNACK_MSG.REJECTED);
+      return;
+    }
+
+    const session = scanSessionRef.current;
+    setValidatingCoil(true);
+    try {
+      const res = await coilService.getByUid(uid);
+      const coil = res?.data;
+      if (!coil) {
+        showScanToast("error", "coil-missing", "Coil not found. Check the UID and try again.");
+        return;
+      }
+      if (session !== scanSessionRef.current) return;
+
+      const status = String(coil.status || "active").toLowerCase();
+      if (status !== "active") {
+        showScanToast("error", "coil-status", `Coil ${uid} is not available. Its current status is ${status}.`);
+        return;
+      }
+
+      if (rejectionTypeRef.current === "lot" && requestTypeRef.current === IPR_REQUEST_TYPE.REJECTION) {
+        await loadLotFromCoil(coil);
+        return;
+      }
+
+      if (coilsRef.current.some((c) => String(c.coil_no_uid).toLowerCase() === uid.toLowerCase())) {
+        showScanToast("error", `dup-${uid}`, `Coil ${uid} has already been added.`, 1800);
+        return;
+      }
+
+      const mapped = mapCoilRow(coil, { source: "scan", is_seed_scan: true });
+      setCoils((prev) => [...prev, mapped]);
+      if (requestTypeRef.current === IPR_REQUEST_TYPE.STORE_IN) {
+        setProposedCoils((prev) => {
+          const tempId = `ret-${String(mapped.coil_no_uid).toLowerCase()}`;
+          if (prev.some((p) => p.temp_id === tempId)) return prev;
+          return [...prev, proposedFromCoil(mapped, mapped.remaining_qty)];
+        });
+      }
+      setErrors((e) => ({ ...e, coils: undefined, scan: undefined }));
+      showScanSuccess("coil-ok", `Added ${coil.coil_no_uid}`, 1600);
+      void playScanSuccessBeep();
+    } catch (err) {
+      showScanToast("error", "coil-err", err?.message || "Could not load the coil details. Please try again.");
+    } finally {
+      setValidatingCoil(false);
+    }
+  };
+
+  tryAddCoilRef.current = tryAddCoil;
+  gateScanRef.current = handleGateScan;
+  scanGateOpenRef.current = showScanGate;
+
+  const removeCoil = (uid) => {
+    if (readOnly) return;
+    if (isLotMode) return;
+    setCoils((prev) => prev.filter((c) => c.coil_no_uid !== uid));
+    if (isStoreIn) {
+      const key = String(uid).toLowerCase();
+      setProposedCoils((prev) =>
+        prev.filter(
+          (p) =>
+            String(p.coil_no_uid || "").toLowerCase() !== key &&
+            String(p.from_coil_uid || "").toLowerCase() !== key
+        )
+      );
+    }
+  };
+
+  const handleRemainingChange = (coilUid, value) => {
+    if (readOnly || !isStoreIn) return;
+    const raw = value === "" ? NaN : Number(value);
+    setCoils((prev) =>
+      prev.map((c) => {
+        if (c.coil_no_uid !== coilUid) return c;
+        const original = Number(c.original_qty ?? c.qty) || 0;
+        const remaining = Number.isFinite(raw)
+          ? Math.max(0, Math.min(original, raw))
+          : 0;
+        return {
+          ...c,
+          remaining_qty: remaining,
+          consumed_qty: Math.max(0, original - remaining),
+          qty: remaining,
+        };
+      })
+    );
+    const tempId = `ret-${String(coilUid).toLowerCase()}`;
+    setProposedCoils((prev) => {
+      const coil = coilsRef.current.find((c) => c.coil_no_uid === coilUid);
+      const original = Number(coil?.original_qty ?? coil?.qty) || 0;
+      const remaining = Number.isFinite(raw)
+        ? Math.max(0, Math.min(original, raw))
+        : 0;
+      const others = prev.filter((p) => p.temp_id !== tempId);
+      if (remaining <= 0 || !coil) return others;
+      return [...others, proposedFromCoil({ ...coil, remaining_qty: remaining }, remaining)];
+    });
+  };
+
+  const handleAddProposedLine = () => {
+    if (readOnly || !isStoreIn) return;
+    const seed = coils[0] || {};
+    setProposedCoils((prev) => [
+      ...prev,
+      {
+        temp_id: `split-${Date.now()}`,
+        coil_no_uid: null,
+        from_coil_uid: seed.coil_no_uid || null,
+        qty: 0,
+        item_code: seed.item_code || null,
+        item_desc: seed.item_desc || null,
+        heat_no: seed.heat_no || null,
+        mrn_uid: seed.mrn_uid || null,
+        mrn_no: seed.mrn_no ?? null,
+      },
+    ]);
+  };
+
+  const handleProposedQtyChange = (tempId, value) => {
+    if (readOnly) return;
+    const qty = value === "" ? 0 : Number(value);
+    setProposedCoils((prev) =>
+      prev.map((p) =>
+        p.temp_id === tempId
+          ? { ...p, qty: Number.isFinite(qty) ? Math.max(0, qty) : 0 }
+          : p
+      )
+    );
+  };
+
+  const handleRemoveProposed = (tempId) => {
+    if (readOnly) return;
+    setProposedCoils((prev) => prev.filter((p) => p.temp_id !== tempId));
+  };
+
+  const selectRequestType = (type) => {
+    if (readOnly) return;
+    const next = REQUEST_TYPE_OPTIONS.some((o) => o.id === type)
+      ? type
+      : IPR_REQUEST_TYPE.REJECTION;
+    scanSessionRef.current += 1;
+    setRequestType(next);
+    setRequestTypePicked(true);
+    setRejectionType("coil");
+    setTypePicked(false);
+    setPendingCoil(null);
+    setCoils([]);
+    setProposedCoils([]);
+    setManualLotNo("");
+    setManualCoilId("");
+    setSeedCoilUid(null);
+    // Reasons are per request type, so never carry one across a type change.
+    setReason("");
+    setRemarks("");
+    setErrors({});
+  };
+
+  const handleChangeType = () => {
+    if (readOnly) return;
+    resetTypeSelection();
+    setCoils([]);
+    setProposedCoils([]);
+    setManualLotNo("");
+    setManualCoilId("");
+    setSeedCoilUid(null);
+    setReason("");
+    setRemarks("");
+    setErrors({});
+    setIsScannerOpen(false);
+  };
+
+  const clearLoadedLot = () => {
+    if (readOnly) return;
+    setCoils([]);
+    setProposedCoils([]);
+    setSeedCoilUid(null);
+    setManualLotNo("");
+    setErrors((e) => ({ ...e, coils: undefined, scan: undefined }));
+  };
+
+  const totalQty = useMemo(
+    () => coils.reduce((s, c) => s + (Number(c.qty) || 0), 0),
+    [coils]
+  );
+
+  const onCoilLaserScan = useCallback((code) => {
+    void tryAddCoilRef.current(code);
+  }, []);
+
+  const onGateLaserScan = useCallback((code) => {
+    void gateScanRef.current(code);
+  }, []);
+
+  const handleLaserScanRejected = useCallback(
+    ({ reason: r }) => {
+      if (r === "empty") {
+        showScanToast("error", "laser-empty-scan", SCAN_SNACK_MSG.REJECTED, 1800);
+      }
+    },
+    [showScanToast]
+  );
+
+  const startCameraScanner = () => {
+    if (readOnly || loadingLot) return;
+    void unlockScanAudio().catch(() => {});
+    setIsScannerOpen(true);
+  };
+
+  const closeScanner = () => setIsScannerOpen(false);
+
+  const handleCameraDecoded = (decodedText) => {
+    closeScanner();
+    if (scanGateOpenRef.current) {
+      void gateScanRef.current(decodedText);
+      return;
+    }
+    void tryAddCoilRef.current(decodedText);
+  };
+
+  const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
+    active: isScannerOpen,
+    elementId: SCANNER_ID,
+    onDecoded: handleCameraDecoded,
+    fps: 15,
+    qrbox: { width: 250, height: 250 },
+    onCameraFailed: (err) => {
+      const isDenied = /NotAllowed|Permission|denied/i.test(String(err?.message || err || ""));
+      showScanToast(
+        "error",
+        "camera-permission",
+        isDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
+        10000
+      );
+      closeScanner();
+    },
+  });
+
+  useEffect(() => {
+    if (!isScannerOpen) return;
+    void (async () => {
+      const prep = await prepareQrScanSession();
+      if (!prep.cameraOk) {
+        showScanToast(
+          "error",
+          "camera-list",
+          prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA,
+          4000
+        );
+        closeScanner();
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isScannerOpen]);
+
+  const validate = () => {
+    const next = {};
+    if (!String(reason || "").trim()) next.reason = "This field is required.";
+    if (!coils.length) {
+      next.scan = isStoreIn
+        ? "Scan at least one coil at the machine."
+        : isConsume
+          ? "Scan at least one consumed coil."
+          : isLotMode
+            ? "Enter a lot or MRN number, or scan one coil."
+            : "Scan at least one coil.";
+    }
+    if (isStoreIn) {
+      const returnQty = proposedCoils.reduce((s, c) => s + (Number(c.qty) || 0), 0);
+      if (returnQty <= 0) {
+        next.proposed = "Enter the remaining return quantity, or add proposed return lines.";
+      }
+      const previousQty = coils.reduce(
+        (s, c) => s + (Number(c.original_qty ?? c.qty) || 0),
+        0
+      );
+      if (returnQty > previousQty) {
+        next.proposed = "Return quantity cannot exceed the quantity previously at the machine.";
+      }
+    }
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const handleSave = async (approvedFlag) => {
+    if (readOnly || showTypePicker) return;
+    if (!sopAckRef.current?.assertAcknowledged()) return;
+    if (!validate()) {
+      showScanToast("error", "validate", "Please fix the highlighted fields.");
+      return;
+    }
+
+    const resolveApproved =
+      approvedFlag !== undefined
+        ? Boolean(approvedFlag)
+        : showApproval
+          ? Boolean(approved)
+          : mode === "add"
+            ? false
+            : undefined;
+
+    const first = coils[0] || {};
+    const scanned_coil_uids = coils.map((c) => c.coil_no_uid);
+    const coilPayload = coils.map((c) => ({
+      coil_no_uid: c.coil_no_uid,
+      qty: isStoreIn
+        ? Number(c.remaining_qty ?? c.qty) || 0
+        : Number(c.qty) || 0,
+      original_qty: Number(c.original_qty ?? c.qty) || 0,
+      remaining_qty: Number(c.remaining_qty ?? c.qty) || 0,
+      consumed_qty: Number(c.consumed_qty) || 0,
+      item_code: c.item_code,
+      item_desc: c.item_desc,
+      heat_no: c.heat_no,
+      mrn_uid: c.mrn_uid,
+      mrn_no: c.mrn_no,
+      location_id: c.location_id ?? null,
+      location_no: c.location_no || null,
+      source: c.source || (isLotMode ? "lot" : "scan"),
+      is_seed_scan: Boolean(c.is_seed_scan),
+    }));
+
+    const issuedSnapshot = isStoreIn
+      ? coils.map((c) => ({
+          coil_no_uid: c.coil_no_uid,
+          qty: Number(c.original_qty ?? c.qty) || 0,
+          original_qty: Number(c.original_qty ?? c.qty) || 0,
+          remaining_qty: Number(c.remaining_qty ?? c.qty) || 0,
+          consumed_qty: Number(c.consumed_qty) || 0,
+          item_code: c.item_code,
+          item_desc: c.item_desc,
+          heat_no: c.heat_no,
+          mrn_uid: c.mrn_uid,
+          mrn_no: c.mrn_no,
+          location_id: c.location_id ?? null,
+          location_no: c.location_no || null,
+          source: c.source || "scan",
+          is_seed_scan: Boolean(c.is_seed_scan),
+        }))
+      : undefined;
+
+    const payload = {
+      request_type: requestType,
+      rejection_type: isRejection ? rejectionType : null,
+      reason: String(reason).trim(),
+      remarks: remarks || null,
+      lot_no: manualLotNo || first.mrn_no || null,
+      mrn_uid: first.mrn_uid || null,
+      mrn_no: first.mrn_no ?? null,
+      heat_no: first.heat_no || null,
+      item_code: first.item_code || null,
+      item_desc: first.item_desc || null,
+      seed_coil_uid: seedCoilUid || null,
+      scanned_coil_uids,
+      coils: coilPayload,
+      previous_coils: issuedSnapshot,
+      proposed_coils: isStoreIn
+        ? proposedCoils
+            .filter((p) => Number(p.qty) > 0)
+            .map((p) => ({
+              temp_id: p.temp_id,
+              coil_no_uid: p.coil_no_uid || null,
+              from_coil_uid: p.from_coil_uid || p.coil_no_uid || null,
+              qty: Number(p.qty) || 0,
+              item_code: p.item_code || first.item_code || null,
+              item_desc: p.item_desc || first.item_desc || null,
+              heat_no: p.heat_no || first.heat_no || null,
+              mrn_uid: p.mrn_uid || first.mrn_uid || null,
+              mrn_no: p.mrn_no ?? first.mrn_no ?? null,
+            }))
+        : [],
+      created_by_name: actorName,
+      updated_by_name: actorName,
+      approved_by_name: actorName,
+      ...(resolveApproved !== undefined ? { approved: Boolean(resolveApproved) } : {}),
+    };
+
+    setSaving(true);
+    try {
+      let res;
+      if (isApprove && editData?.ipr_uid) {
+        res = await inProcessRequestService.approve(editData.ipr_uid, {
+          ...payload,
+          approved: resolveApproved !== undefined ? Boolean(resolveApproved) : true,
+        });
+      } else if (isEdit && editData?.ipr_uid) {
+        res = await inProcessRequestService.update(editData.ipr_uid, payload);
+      } else {
+        res = await inProcessRequestService.create({
+          ...payload,
+          approved: Boolean(resolveApproved),
+        });
+      }
+      showScanToast("success", "save-ok", res?.message || "Saved successfully.", 2800);
+      onSuccess?.();
+      onClose?.();
+    } catch (err) {
+      showScanToast(
+        "error",
+        "save-fail",
+        err?.message || "Could not save the in-process request. Please try again.",
+        4000
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const drawerDescription = showRequestTypePicker ? (
+    "Select a request type"
+  ) : showScanGate ? (
+    "Scan a coil sticker"
+  ) : showRejectionTypePicker ? (
+    "Reject this coil only, or the whole lot?"
+  ) : (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 normal-case tracking-normal font-semibold">
+      <span className="uppercase tracking-tight font-bold">
+        {isStoreIn
+          ? "Scan the coils at the machine and set the remaining quantity for Store In"
+          : isConsume
+            ? "Scan every coil that was fully used up, enter a reason, then submit"
+            : isLotMode
+              ? "Enter the lot or MRN number, or scan one coil to load all lot coils"
+              : "Scan the coil stickers, enter a reason, then submit"}
+      </span>
+      {mode === "add" && !readOnly ? (
+        <>
+          <span className="text-slate-300 font-normal" aria-hidden>
+            ·
+          </span>
+          <button
+            type="button"
+            onClick={handleChangeType}
+            className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2 font-bold"
+          >
+            Change type
+          </button>
+        </>
+      ) : null}
+    </span>
+  );
+
+  /** Banner on an already-approved request, keyed by where it went next. */
+  const downstreamNotice =
+    {
+      [IPR_DOWNSTREAM.PENDING_STORE_IN]: {
+        box: "bg-teal-50 border-teal-200",
+        icon: "text-teal-600",
+        text: "text-teal-800",
+        message:
+          "Approved and queued for Store In processing. The previous and current coil snapshots are retained.",
+      },
+      [IPR_DOWNSTREAM.PENDING_STORE_OUT]: {
+        box: "bg-rose-50 border-rose-200",
+        icon: "text-rose-500",
+        text: "text-rose-800",
+        message: "Approved and queued for Store Out as a pending removal.",
+      },
+      [IPR_DOWNSTREAM.CONSUMED]: {
+        box: "bg-amber-50 border-amber-200",
+        icon: "text-amber-600",
+        text: "text-amber-800",
+        message: "Approved — these coils are marked consumed and are no longer in stock.",
+      },
+    }[editData?.downstream] || null;
+
+  const footerContent = showTypePicker ? (
+    <div className="flex items-center justify-end gap-3 w-full flex-wrap">
+      <button type="button" onClick={onClose} className="px-5 py-2.5 text-sm font-bold text-slate-500">
+        Cancel
+      </button>
+    </div>
+  ) : (
+    <div className="flex items-center justify-end gap-3 w-full flex-wrap">
+      <button
+        type="button"
+        onClick={onClose}
+        disabled={saving}
+        className="px-5 py-2.5 text-sm font-bold text-slate-500"
+      >
+        {readOnly ? "Close" : "Cancel"}
+      </button>
+      {!readOnly && (
+        <button
+          type="button"
+          onClick={() => handleSave()}
+          disabled={saving}
+          className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-indigo-100"
+        >
+          {saving ? (
+            <>
+              <Loader2 size={18} className="animate-spin" /> Saving…
+            </>
+          ) : (
+            <>
+              <Check size={18} /> Save
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+
+  const scanControls = (tone = "amber", { gate = false } = {}) => {
+    const btnBg =
+      tone === "yellow"
+        ? "bg-yellow-600 border-yellow-700 hover:bg-yellow-700"
+        : tone === "indigo"
+          ? "bg-indigo-600 border-indigo-700 hover:bg-indigo-700"
+          : "bg-amber-600 border-amber-700 hover:bg-amber-700";
+    const borderTone =
+      tone === "yellow"
+        ? "border-yellow-100"
+        : tone === "indigo"
+          ? "border-indigo-100"
+          : "border-amber-100";
+    return (
+      <>
+        {(showPhoneQr || showLaserUi) && (
+          <div
+            className={`flex items-stretch gap-2 w-full min-w-0 p-1.5 bg-white border ${borderTone} rounded-lg`}
+          >
+            {showPhoneQr && (
+              <button
+                type="button"
+                onClick={startCameraScanner}
+                disabled={isScannerOpen || loadingLot || validatingCoil}
+                className={`h-9 px-3 ${btnBg} border text-white rounded-lg transition-all shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-60 ${scanBtnFill}`}
+              >
+                <QrCode size={14} />
+                <span className="text-[10px] font-black uppercase">
+                  {gate || isLotMode ? "Scan coil" : "QR"}
+                </span>
+              </button>
+            )}
+            {showLaserUi && (
+              <LaserScanField
+                active={open && !readOnly && (gate ? showScanGate : !showTypePicker)}
+                onScanned={gate ? onGateLaserScan : onCoilLaserScan}
+                onScanRejected={handleLaserScanRejected}
+                formatPreview={coilUidDisplayLabel}
+                compact
+                heightClass="h-9"
+                fill={scanBtnCount > 0}
+                armButtonLabel="Scan"
+                placeholder={getScanInputPlaceholder("coil")}
+              />
+            )}
+          </div>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <>
+      <Drawer
+        isOpen={open}
+        onClose={onClose}
+        onSubmit={() => {
+          if (showTypePicker || readOnly) return;
+          handleSave();
+        }}
+        title={title}
+        description={drawerDescription}
+        footer={footerContent}
+        maxWidth="max-w-3xl"
+      >
+        <div className="space-y-2 pb-1">
+          <QrScannerOverlay
+            open={isScannerOpen}
+            onClose={closeScanner}
+            readerId={SCANNER_ID}
+            hint={
+              isLotMode
+                ? "Scan any coil to identify the lot. All active coils will load."
+                : "Scanning the coil sticker QR code"
+            }
+            frameClassName="border-4 border-inward-box-scanner-frame"
+            torchSupported={torchSupported}
+            torchOn={torchOn}
+            onToggleTorch={toggleTorch}
+          />
+
+          {showRequestTypePicker ? (
+            <div className="space-y-3 py-2">
+              <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+                Select a request type
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {REQUEST_TYPE_OPTIONS.map((option) => {
+                  const cardAccent = TYPE_PICKER_ACCENT[option.accent] || TYPE_PICKER_ACCENT.rose;
+                  const Icon = option.Icon;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => selectRequestType(option.id)}
+                      className={`p-3 rounded-xl border-2 text-left transition-all active:scale-[0.98] min-w-0 h-full flex flex-col ${cardAccent.card}`}
+                    >
+                      <div className={`flex items-start gap-2 min-w-0 ${cardAccent.title}`}>
+                        <span className="inline-flex shrink-0 items-center justify-center w-8 h-8 rounded-lg bg-white/70 border border-current/10">
+                          <Icon size={16} />
+                        </span>
+                        <span className="text-xs font-black uppercase tracking-tight leading-snug break-words min-w-0 pt-1.5">
+                          {option.title}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-600 mt-2 leading-snug flex-1">
+                        {option.description}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : showScanGate ? (
+            <div className="space-y-3 py-2">
+              <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+                Scan a coil sticker
+              </p>
+              <div className="space-y-2 bg-indigo-50/40 p-2 rounded-lg border border-indigo-100 shadow-sm">
+                {scanControls("indigo", { gate: true })}
+                {keyboardType ? (
+                  <div className="flex w-full min-w-0 gap-1.5">
+                    <input
+                      type="text"
+                      value={manualCoilId}
+                      onChange={(e) => setManualCoilId(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (manualCoilId.trim()) {
+                            void handleGateScan(manualCoilId);
+                            setManualCoilId("");
+                          }
+                        }
+                      }}
+                      placeholder="Enter or paste a coil UID"
+                      className={`${OK_INPUT} flex-1 min-w-0 font-mono`}
+                    />
+                    <button
+                      type="button"
+                      disabled={validatingCoil}
+                      onClick={() => {
+                        if (manualCoilId.trim()) {
+                          void handleGateScan(manualCoilId);
+                          setManualCoilId("");
+                        }
+                      }}
+                      className="h-9 px-3 bg-indigo-600 text-white rounded-lg text-[10px] font-bold uppercase shrink-0 disabled:opacity-50"
+                    >
+                      {validatingCoil ? <Loader2 size={14} className="animate-spin" /> : "Load"}
+                    </button>
+                  </div>
+                ) : !showPhoneQr && !showLaserUi ? (
+                  <p className="text-[10px] text-slate-500 px-1">Enable scan mode in Settings.</p>
+                ) : null}
+                {validatingCoil ? (
+                  <div className="flex items-center gap-2 px-1">
+                    <Loader2 size={12} className="animate-spin text-indigo-600" />
+                    <p className="text-[9px] font-bold text-indigo-800 uppercase">Reading sticker…</p>
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={handleChangeType}
+                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
+              >
+                ← Back to request type
+              </button>
+            </div>
+          ) : showRejectionTypePicker ? (
+            <div className="space-y-3 py-2">
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-indigo-50 border border-indigo-200 min-w-0">
+                <Package size={14} className="text-indigo-600 shrink-0" />
+                <p className="text-[10px] font-bold text-indigo-900 uppercase truncate">
+                  {coilUidDisplayLabel(pendingCoil.coil_no_uid)} · MRN{" "}
+                  {pendingCoil.mrn_no ?? "—"}
+                </p>
+              </div>
+              <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+                Reject this coil or the whole lot?
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {REJECTION_TYPE_OPTIONS.map((option) => {
+                  const cardAccent = TYPE_PICKER_ACCENT[option.accent] || TYPE_PICKER_ACCENT.amber;
+                  const Icon = option.Icon;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      disabled={loadingLot}
+                      onClick={() => void selectRejectionScope(option.id)}
+                      className={`p-3 rounded-xl border-2 text-left transition-all active:scale-[0.98] min-w-0 h-full flex flex-col disabled:opacity-60 ${cardAccent.card}`}
+                    >
+                      <div className={`flex items-start gap-2 min-w-0 ${cardAccent.title}`}>
+                        <span className="inline-flex shrink-0 items-center justify-center w-8 h-8 rounded-lg bg-white/70 border border-current/10">
+                          <Icon size={16} />
+                        </span>
+                        <span className="text-xs font-black uppercase tracking-tight leading-snug break-words min-w-0 pt-1.5">
+                          {option.title}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-600 mt-2 leading-snug flex-1">
+                        {option.description}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={backToScanStep}
+                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
+              >
+                ← Scan a different coil
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2 animate-in fade-in duration-300">
+              {isEdit && editData?.approved && (
+                <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200">
+                  <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
+                  <p className="text-[11px] text-amber-700 font-medium leading-normal">
+                    Editing this authorized{" "}
+                    {isStoreIn ? "store-in request" : isConsume ? "consume request" : "rejection"}{" "}
+                    will reset its status to{" "}
+                    <span className="font-bold text-amber-900 uppercase">Pending</span>
+                    {isConsume ? " and return its coils to stock" : ""}.
+                  </p>
+                </div>
+              )}
+
+              {editData?.approved && downstreamNotice ? (
+                <div className={`flex items-start gap-2 p-2.5 rounded-lg border ${downstreamNotice.box}`}>
+                  <AlertCircle size={16} className={`mt-0.5 shrink-0 ${downstreamNotice.icon}`} />
+                  <p className={`text-[11px] font-medium leading-normal ${downstreamNotice.text}`}>
+                    {downstreamNotice.message}
+                  </p>
+                </div>
+              ) : null}
+
+              {/* IMS order: Reason first */}
+              <TypeableSuggestField
+                label="Reason"
+                required
+                value={reason}
+                onChange={(v) => setReason(v)}
+                error={errors.reason || ""}
+                readOnly={readOnly}
+                disabled={readOnly}
+                placeholder="Enter a reason or select a previous one"
+                dataField="reason"
+                fetchSuggestions={fetchReasonsForType}
+                optionLabelKey="reason"
+                optionIdKey="reason"
+                active={open && !showTypePicker}
+                onClearError={() => {
+                  if (errors.reason) setErrors((er) => ({ ...er, reason: undefined }));
+                }}
+              />
+
+              {isStoreIn ? (
+                <StoreInRequestForm
+                  readOnly={readOnly}
+                  coils={coils}
+                  proposedCoils={proposedCoils}
+                  errors={errors}
+                  manualCoilId={manualCoilId}
+                  setManualCoilId={setManualCoilId}
+                  validatingCoil={validatingCoil}
+                  showPhoneQr={showPhoneQr}
+                  showLaserUi={showLaserUi}
+                  keyboardType={keyboardType}
+                  isScannerOpen={isScannerOpen}
+                  onStartCamera={startCameraScanner}
+                  onLaserScan={onCoilLaserScan}
+                  onLaserRejected={handleLaserScanRejected}
+                  onAddManual={() => {
+                    if (manualCoilId.trim()) {
+                      void tryAddCoil(manualCoilId);
+                      setManualCoilId("");
+                    }
+                  }}
+                  onRemoveCoil={removeCoil}
+                  onRemainingChange={handleRemainingChange}
+                  onAddProposedLine={handleAddProposedLine}
+                  onProposedQtyChange={handleProposedQtyChange}
+                  onRemoveProposed={handleRemoveProposed}
+                  scanBtnFill={scanBtnFill}
+                  laserActive={open && !readOnly && !showTypePicker}
+                />
+              ) : (
+                <>
+              {/* Lot = Full Hold packing entry (only while empty) */}
+              {showLotEntryUi ? (
+                <div className="space-y-2 bg-yellow-50/40 p-2 rounded-lg border border-yellow-200 shadow-sm">
+                  <p className="text-[10px] font-bold text-yellow-900 uppercase px-0.5">
+                    Lot rejection — MRN
+                  </p>
+                  {scanControls("yellow")}
+                  <div className="flex w-full min-w-0 gap-1.5 p-1.5 bg-white border border-yellow-100 rounded-lg">
+                    <input
+                      type="text"
+                      value={manualLotNo}
+                      onChange={(e) => {
+                        setManualLotNo(e.target.value);
+                        if (errors.scan) setErrors((prev) => ({ ...prev, scan: undefined }));
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (manualLotNo.trim()) void loadLotByNumber(manualLotNo);
+                        }
+                      }}
+                      placeholder="Enter the lot or MRN number"
+                      disabled={loadingLot}
+                      className={`${OK_INPUT} flex-1 min-w-0 font-mono`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void loadLotByNumber(manualLotNo)}
+                      disabled={loadingLot || !manualLotNo.trim()}
+                      className="h-9 px-3 bg-yellow-600 text-white rounded-lg text-[10px] font-bold uppercase shrink-0 disabled:opacity-50 inline-flex items-center gap-1.5"
+                    >
+                      {loadingLot ? <Loader2 size={14} className="animate-spin" /> : null}
+                      Load
+                    </button>
+                  </div>
+                  {errors.scan ? (
+                    <p className="text-[10px] font-bold text-rose-600 px-0.5">{errors.scan}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {isLotMode && coils.length > 0 ? (
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[8px] font-bold uppercase px-1.5 py-1 rounded border leading-tight border-yellow-300 bg-yellow-50 text-yellow-900">
+                    Lot · MRN #{manualLotNo || coils[0]?.mrn_no || "—"} · {coils.length} coils
+                    {seedCoilUid ? ` · scanned ${coilUidDisplayLabel(seedCoilUid)}` : ""}
+                  </p>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={clearLoadedLot}
+                      className="text-[10px] font-bold uppercase text-slate-500 hover:text-rose-600 shrink-0"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              ) : null}
+
+              {/* Coil = Partial Hold scan panel */}
+              {showCoilScanUi ? (
+                <div className="space-y-2 bg-amber-50/30 p-2 rounded-lg border border-amber-100 shadow-sm">
+                  <div className="space-y-2 p-1.5 bg-white border border-amber-100 rounded-lg w-full min-w-0">
+                    {coils.length === 0 ? (
+                      <p className="text-[9px] font-semibold text-amber-800/80 px-0.5 leading-snug">
+                        Scan coil stickers one by one. Each scanned coil is recorded at coil level.
+                      </p>
+                    ) : null}
+                    {scanControls("amber")}
+                    {keyboardType ? (
+                      <div className="flex w-full min-w-0 gap-1.5">
+                        <input
+                          type="text"
+                          value={manualCoilId}
+                          onChange={(e) => setManualCoilId(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              if (manualCoilId.trim()) {
+                                void tryAddCoil(manualCoilId);
+                                setManualCoilId("");
+                              }
+                            }
+                          }}
+                          placeholder="Enter or paste a coil UID"
+                          className={`${OK_INPUT} flex-1 min-w-0 font-mono`}
+                        />
+                        <button
+                          type="button"
+                          disabled={validatingCoil}
+                          onClick={() => {
+                            if (manualCoilId.trim()) {
+                              void tryAddCoil(manualCoilId);
+                              setManualCoilId("");
+                            }
+                          }}
+                          className="h-9 px-3 bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase shrink-0 disabled:opacity-50"
+                        >
+                          {validatingCoil ? <Loader2 size={14} className="animate-spin" /> : "Add"}
+                        </button>
+                      </div>
+                    ) : !showPhoneQr && !showLaserUi && !keyboardType ? (
+                      <p className="text-[10px] text-slate-500 px-1">Enable scan mode in Settings.</p>
+                    ) : null}
+                  </div>
+                  {errors.scan && isCoilMode ? (
+                    <p className="text-[10px] font-bold text-rose-600 px-0.5">{errors.scan}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {loadingLot && (
+                <div className="flex items-center gap-2 px-2 py-1 bg-white border border-yellow-100 rounded-lg">
+                  <Loader2 size={12} className="animate-spin text-yellow-600" />
+                  <p className="text-[9px] font-bold text-yellow-800 uppercase">Loading lot coils…</p>
+                </div>
+              )}
+
+              {/* Coil list — same card grid as IMS scanned boxes */}
+              <div className="space-y-2">
+                <div
+                  className={`bg-white/60 rounded-lg border overflow-hidden ${
+                    isLotMode ? "border-yellow-100" : "border-amber-50"
+                  }`}
+                >
+                  <div
+                    className={`px-3 py-1.5 border-b flex justify-between items-center ${
+                      isLotMode
+                        ? "bg-yellow-100/50 border-yellow-100"
+                        : "bg-amber-100/50 border-amber-100"
+                    }`}
+                  >
+                    <span
+                      className={`text-[10px] font-bold uppercase ${
+                        isLotMode ? "text-yellow-800" : "text-amber-800"
+                      }`}
+                    >
+                      {isLotMode ? "Lot coils (recorded)" : "Scanned coils"}
+                    </span>
+                    <span
+                      className={`text-[9px] font-black uppercase ${
+                        isLotMode ? "text-yellow-800/50" : "text-amber-800/50"
+                      }`}
+                    >
+                      {coils.length} total · qty {totalQty.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="max-h-[min(40dvh,280px)] overflow-y-auto overscroll-y-contain p-2 custom-scrollbar">
+                    {coils.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {coils.map((c) => (
+                          <div
+                            key={c.coil_no_uid}
+                            className={`bg-white p-2 rounded-lg border flex items-center justify-between shadow-sm ${
+                              c.is_seed_scan ? "border-indigo-200" : "border-emerald-100"
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-black shrink-0">
+                                C
+                              </div>
+                              <div className="flex flex-col leading-tight min-w-0">
+                                <span className="text-[11px] font-mono font-black text-slate-700 truncate">
+                                  {coilUidDisplayLabel(c.coil_no_uid)}
+                                  {c.is_seed_scan ? (
+                                    <span className="ml-1 text-[8px] font-black uppercase text-indigo-600">
+                                      scanned
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="text-[8px] font-bold text-slate-400 uppercase truncate">
+                                  MRN {c.mrn_no ?? "—"} · Qty: {Number(c.qty ?? 0).toLocaleString()}
+                                  {c.item_code ? ` · ${c.item_code}` : ""}
+                                </span>
+                              </div>
+                            </div>
+                            {!readOnly && isCoilMode ? (
+                              <button
+                                type="button"
+                                onClick={() => removeCoil(c.coil_no_uid)}
+                                className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg shrink-0"
+                              >
+                                <X size={16} />
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-slate-300 py-10">
+                        <ScanLine size={32} className="opacity-20 mb-3" />
+                        <p className="text-[10px] font-black uppercase tracking-widest">
+                          {isLotMode ? "Enter a lot or MRN number above" : "Scan coils"}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+                </>
+              )}
+
+              <RemarksTextarea
+                label="Remark"
+                value={remarks}
+                onChange={(e) => setRemarks(e?.target?.value ?? e ?? "")}
+                disabled={readOnly}
+                placeholder="Enter notes (optional)"
+                rows={3}
+              />
+
+              {!readOnly && !showTypePicker ? (
+                <ApprovalStatusToggle
+                  show={showApproval}
+                  checked={approved}
+                  onChange={setApproved}
+                  pendingHint="This request will stay Pending until authorized."
+                />
+              ) : null}
+
+              {!readOnly && (
+                <ModuleSopAcknowledgment
+                  ref={sopAckRef}
+                  key={`${open}-${sopPermissionType}-ipr`}
+                  moduleSlug={MODULE}
+                  permissionType={sopPermissionType}
+                  isOpen={open}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </Drawer>
+
+      <Snackbar
+        open={snackbar.open}
+        onClose={closeSnackbar}
+        variant={snackbar.variant}
+        title={snackbar.title}
+        message={snackbar.message}
+        duration={snackbar.duration}
+      />
+    </>
+  );
+}

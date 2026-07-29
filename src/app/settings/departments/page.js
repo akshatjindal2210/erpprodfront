@@ -1,4 +1,4 @@
-import DepartmentsPage from "@/features/admin/identity/departments/Page";
+import DepartmentsPage from "@/apps/settings/identity/departments/Page";
 
 export const metadata = {
   title: "Departments | Settings",

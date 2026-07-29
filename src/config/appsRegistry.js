@@ -1,7 +1,7 @@
 import { Boxes, Home, ListTodo, Settings } from "lucide-react";
 import { ROUTES } from "@/config/routes";
 import { userHasAppAccess } from "@/config/moduleAppRegistry";
-import { getTaskHomePath } from "@/features/apps/task/config/appConfig";
+import { getTaskHomePath } from "@/apps/task/lib/config/appConfig";
 
 export const APP_SHELL = {
   PORTAL: "portal",
@@ -9,9 +9,10 @@ export const APP_SHELL = {
   STANDALONE: "standalone",
   SETTINGS: "settings",
   TASK: "task",
+  RM_STORE: "rmstore",
 };
 
-/** Top navbar 9-dot launcher — fixed order: Home → IMS → Task → Settings. */
+/** Top navbar 9-dot launcher — fixed order: Home → IMS → RM Store → Task → Settings. */
 export const APPS = [
   {
     id: "home",
@@ -32,6 +33,16 @@ export const APPS = [
     accent: "from-blue-500 to-blue-700",
     inLauncher: true,
   },
+  // {
+  //   id: "rmstore",
+  //   name: "RM Store",
+  //   subtitle: "Raw Material",
+  //   href: ROUTES.RM_STORE_DASHBOARD,
+  //   shell: APP_SHELL.RM_STORE,
+  //   icon: Warehouse,
+  //   accent: "from-teal-500 to-teal-700",
+  //   inLauncher: true,
+  // },
   {
     id: "task",
     name: "Task",
@@ -100,6 +111,18 @@ export function isTaskShell(shell, pathname) {
   return shell === APP_SHELL.TASK || isTaskShellPath(pathname);
 }
 
+export function isRmStoreShellPath(pathname) {
+  return (
+    pathname === ROUTES.RM_STORE_DASHBOARD ||
+    pathname?.startsWith(`${ROUTES.RM_STORE_DASHBOARD}/`) ||
+    pathname?.startsWith("/rmstore/")
+  );
+}
+
+export function isRmStoreShell(shell, pathname) {
+  return shell === APP_SHELL.RM_STORE || isRmStoreShellPath(pathname);
+}
+
 /** Resolve launcher app label + home href for navbar breadcrumbs. */
 export function getShellAppFromPathname(pathname) {
   if (isPortalShellPath(pathname)) {
@@ -110,6 +133,9 @@ export function getShellAppFromPathname(pathname) {
   }
   if (isTaskShellPath(pathname)) {
     return { id: "task", name: "Task", href: ROUTES.TASK_DASHBOARD };
+  }
+  if (isRmStoreShellPath(pathname)) {
+    return { id: "rmstore", name: "RM Store", href: ROUTES.RM_STORE_DASHBOARD };
   }
   if (pathname?.startsWith("/ims")) {
     return { id: "ims", name: "IMS", href: ROUTES.IMS_DASHBOARD };

@@ -1,4 +1,4 @@
-import QcHoldMaterialPage from "@/features/apps/ims/components/qc-hold-material/Page";
+import QcHoldMaterialPage from "@/apps/ims/modules/qc-hold-material/Page";
 
 export const metadata = {
   title: "QC Hold Material — IMS",

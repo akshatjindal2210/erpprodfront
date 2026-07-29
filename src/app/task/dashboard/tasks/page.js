@@ -1,2 +1,2 @@
-export { default } from "@/features/apps/task/components/tasks/Page";
+export { default } from "@/apps/task/modules/tasks/Page";
 

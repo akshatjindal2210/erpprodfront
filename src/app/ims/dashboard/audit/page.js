@@ -1,4 +1,4 @@
-import AuditPage from "@/features/apps/ims/components/audit/Page";
+import AuditPage from "@/apps/ims/modules/audit/Page";
 
 export const metadata = {
   title: "Inventory Audit — IMS",

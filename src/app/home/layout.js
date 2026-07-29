@@ -1,8 +1,8 @@
 "use client";
 
-import RootLayoutComponent from "@/core/layouts/RootLayout";
+import RootLayoutComponent from "@/platform/layouts/RootLayout";
 import { APP_SHELL } from "@/config/appsRegistry";
-import PwaInstallGate from "@/features/shared/pwa/components/PwaInstallGate";
+import PwaInstallGate from "@/common/pwa/components/PwaInstallGate";
 
 export default function HomeLayout({ children }) {
   return (

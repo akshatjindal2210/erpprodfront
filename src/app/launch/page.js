@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
-import { runManualPwaHandoff } from "@/core/utils/pwaGoogleSitesLaunch";
+import { runManualPwaHandoff } from "@/platform/utils/pwa/pwaGoogleSitesLaunch";
 
 const primaryClass =
   "w-full bg-[#1e293b] hover:bg-slate-900 text-white font-semibold py-3 rounded-xl text-sm transition-all flex items-center justify-center gap-2";

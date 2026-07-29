@@ -1,4 +1,4 @@
-import CustomerMasterPage from '@/features/apps/ims/components/master/CustomerMaster'
+import CustomerMasterPage from '@/apps/ims/modules/master/CustomerMaster'
 import React from 'react'
 
 function page() {

@@ -1,2 +1,2 @@
-export { default } from "@/features/apps/task/components/holidays/Page";
+export { default } from "@/apps/task/modules/holidays/Page";
 

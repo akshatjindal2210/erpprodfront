@@ -67,6 +67,7 @@ export function partitionModulesForUserForm(modules = []) {
   const imsModules = [];
   const coreModules = [];
   const taskModules = [];
+  const rmStoreModules = [];
   const sort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0);
 
   for (const mod of modules) {
@@ -75,12 +76,14 @@ export function partitionModulesForUserForm(modules = []) {
     if (t === "ims") imsModules.push(mod);
     else if (t === "core" && isSettingsCoreModule(mod)) coreModules.push(mod);
     else if (t === "task") taskModules.push(mod);
+    else if (t === "rmstore") rmStoreModules.push(mod);
   }
 
   return {
     imsModules: imsModules.sort(sort),
     coreModules: coreModules.sort(sort),
     taskModules: taskModules.sort(sort),
+    rmStoreModules: rmStoreModules.sort(sort),
   };
 }
 
@@ -192,11 +195,12 @@ export function moduleIdsForAppType(modules, appTypeKey) {
 
 export function getModulesForAppKey(
   appKey,
-  { imsModules = [], coreModules = [], taskModules = [] } = {}
+  { imsModules = [], coreModules = [], taskModules = [], rmStoreModules = [] } = {}
 ) {
   if (appKey === "ims") return imsModules;
   if (appKey === "core") return coreModules;
   if (appKey === "task") return taskModules;
+  if (appKey === "rmstore") return rmStoreModules;
   return [];
 }
 

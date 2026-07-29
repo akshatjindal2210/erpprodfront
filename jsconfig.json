@@ -2,8 +2,11 @@
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"],
-      "@/core/*": ["./src/core/*"],
-      "@/features/*": ["./src/features/*"]
+      "@/apps/*": ["./src/apps/*"],
+      "@/platform/*": ["./src/platform/*"],
+      "@/common/*": ["./src/common/*"],
+      "@/ui/*": ["./src/ui/*"],
+      "@/config/*": ["./src/config/*"]
     }
   }
 }

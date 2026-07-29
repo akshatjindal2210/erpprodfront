@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
-@import "../features/apps/ims/config/inwardUi.theme.css";
+@import "../apps/ims/lib/config/inwardUi.theme.css";
 
 :root {
   --background: #ffffff;

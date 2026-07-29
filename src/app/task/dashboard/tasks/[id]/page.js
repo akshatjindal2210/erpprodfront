@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
-import TaskDetailPage from "@/features/apps/task/components/tasks/SubPage";
+import TaskDetailPage from "@/apps/task/modules/tasks/SubPage";
 
 function DetailFallback() {
   return (

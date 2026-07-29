@@ -1,4 +1,4 @@
-import ForwardingPage from '@/features/apps/ims/components/forwarding-note/ForwardingPage'
+import ForwardingPage from '@/apps/ims/modules/forwarding-note/ForwardingPage'
 import React from 'react'
 
 function page() {

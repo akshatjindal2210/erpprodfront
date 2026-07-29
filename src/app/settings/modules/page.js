@@ -1,2 +1,2 @@
-export { default } from "@/features/admin/configuration/components/SettingsModulesPage";
+export { default } from "@/apps/settings/configuration/components/SettingsModulesPage";
 

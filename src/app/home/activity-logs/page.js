@@ -1,5 +1,5 @@
 "use client";
-import ActivityLogList from "@/features/shared/dashboard/components/ActivityLogList";
+import ActivityLogList from "@/common/dashboard/components/ActivityLogList";
 
 export default function ActivityLogsPage() {
   return (

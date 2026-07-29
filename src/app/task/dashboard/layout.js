@@ -1,2 +1,2 @@
-export { default } from "@/features/apps/task/layout/TaskAppLayout";
+export { default } from "@/apps/task/lib/layout/TaskAppLayout";
 

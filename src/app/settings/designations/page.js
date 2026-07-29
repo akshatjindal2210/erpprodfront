@@ -1,4 +1,4 @@
-import DesignationsPage from "@/features/admin/identity/designations/Page";
+import DesignationsPage from "@/apps/settings/identity/designations/Page";
 
 export const metadata = {
   title: "Designations | Settings",

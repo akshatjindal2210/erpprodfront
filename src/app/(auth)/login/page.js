@@ -1,4 +1,4 @@
-import UserLogin from "@/features/shared/auth/pages/Login";
+import UserLogin from "@/common/auth/pages/Login";
 import React from "react";
 
 function page() {

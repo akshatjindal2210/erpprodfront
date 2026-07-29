@@ -1,2 +1,2 @@
-export { default } from "@/features/admin/configuration/layout/SettingsAppLayout";
+export { default } from "@/apps/settings/configuration/layout/SettingsAppLayout";
 

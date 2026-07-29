@@ -1,0 +1,18 @@
+import { api } from "@/platform/api/apiClient";
+import { ENDPOINTS } from "@/apps/rmstore/lib/config/endpoints";
+
+export const issueRequestService = {
+  getAll: (params) => api(ENDPOINTS.ISSUE_REQUEST.LIST, { method: "POST", body: params }),
+  getById: (issue_uid) => api(ENDPOINTS.ISSUE_REQUEST.GET, { method: "POST", body: { issue_uid } }),
+  jobCardSummary: (job_cards, exclude_issue_uid = null) =>
+    api(ENDPOINTS.ISSUE_REQUEST.JOB_CARD_SUMMARY, {
+      method: "POST",
+      body: { job_cards, ...(exclude_issue_uid ? { exclude_issue_uid } : {}) },
+    }),
+  create: (data) => api(ENDPOINTS.ISSUE_REQUEST.CREATE, { method: "POST", body: data }),
+  update: (issue_uid, data) =>
+    api(ENDPOINTS.ISSUE_REQUEST.UPDATE, { method: "POST", body: { issue_uid, ...data } }),
+  approve: (issue_uid, data = {}) =>
+    api(ENDPOINTS.ISSUE_REQUEST.APPROVE, { method: "POST", body: { issue_uid, ...data } }),
+  delete: (issue_uid) => api(ENDPOINTS.ISSUE_REQUEST.DELETE, { method: "POST", body: { issue_uid } }),
+};

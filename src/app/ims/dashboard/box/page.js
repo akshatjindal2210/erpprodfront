@@ -1,4 +1,4 @@
-import BoxPage from '@/features/apps/ims/components/box/Page'
+import BoxPage from '@/apps/ims/modules/box/Page'
 import React from 'react'
 
 function page() {

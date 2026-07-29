@@ -1,6 +1,6 @@
 "use client";
 
-import ClTaskMasterPage from "@/features/apps/task/components/cl-task/admin/Page";
+import ClTaskMasterPage from "@/apps/task/modules/cl-task/admin/Page";
 
 export default function ClTaskMasterRoutePage() {
   return <ClTaskMasterPage />;

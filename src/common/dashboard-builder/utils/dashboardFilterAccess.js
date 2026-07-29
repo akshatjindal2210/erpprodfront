@@ -1,0 +1,22 @@
+import { getSelectedFinancialYear } from "@/platform/utils/global/financialYear";
+
+/** Only super admin may filter dashboard widgets by user; everyone else sees all data (date filters still apply). */
+export function canFilterDashboardByUser(role, user) {
+  const normalized = String(role || user?.type || "").toLowerCase().trim();
+  return normalized === "super_admin" || normalized === "super admin";
+}
+
+/** Runtime filters sent with widget preview + live dashboard queries. */
+export function buildDashboardRuntimeFilters({ searchParams, canFilterByUser, today }) {
+  const urlUserId = String(searchParams?.get("df_user") || "").trim();
+  const urlFrom = String(searchParams?.get("df_from") || "").trim();
+  const urlTo = String(searchParams?.get("df_to") || "").trim();
+  const { id: fyId } = getSelectedFinancialYear();
+
+  return {
+    fromDate: urlFrom || today,
+    toDate: urlTo || today,
+    userId: canFilterByUser ? urlUserId : "",
+    fyuid: fyId ? String(fyId).trim() : "",
+  };
+}

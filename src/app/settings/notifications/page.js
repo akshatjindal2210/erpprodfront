@@ -1,1 +1,1 @@
-export { default } from "@/features/admin/notifications/Page";
+export { default } from "@/apps/settings/notifications/Page";

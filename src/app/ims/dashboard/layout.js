@@ -1,2 +1,2 @@
-export { default } from "@/features/apps/ims/layout/ImsAppLayout";
+export { default } from "@/apps/ims/lib/layout/ImsAppLayout";
 

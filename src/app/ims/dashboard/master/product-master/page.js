@@ -1,4 +1,4 @@
-import ProductMasterPage from "@/features/apps/ims/components/master/ProductMaster";
+import ProductMasterPage from "@/apps/ims/modules/master/ProductMaster";
 import React from "react";
 
 function page() {

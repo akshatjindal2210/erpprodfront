@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { COOKIE_NAME } from "@/core/utils/lib";
+import { COOKIE_NAME } from "@/platform/utils/core/lib";
 
-const PROTECTED_PREFIXES = ["/home", "/ims", "/settings", "/task"];
+const PROTECTED_PREFIXES = ["/home", "/ims", "/rmstore", "/settings", "/task"];
 
 function isProtectedPath(pathname) {
   return PROTECTED_PREFIXES.some(
@@ -32,6 +32,10 @@ export function middleware(request) {
   const legacy = legacyDashboardRedirect(pathname, request.url);
   if (legacy) {
     return NextResponse.redirect(legacy);
+  }
+
+  if (pathname === "/rmstore" || pathname.startsWith("/rmstore/")) {
+    return NextResponse.redirect(new URL("/home", request.url));
   }
 
   const isAuthPage = pathname.startsWith("/login");
@@ -67,6 +71,7 @@ export const config = {
     "/home/:path*",
     "/dashboard/:path*",
     "/ims/:path*",
+    "/rmstore/:path*",
     "/settings/:path*",
     "/task/:path*",
   ],

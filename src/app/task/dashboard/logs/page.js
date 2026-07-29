@@ -1,2 +1,2 @@
-export { default } from "@/features/apps/task/components/logs/Page";
+export { default } from "@/apps/task/manage/logs/Page";
 
