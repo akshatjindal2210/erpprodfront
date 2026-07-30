@@ -14,6 +14,7 @@ import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global"
 import { prepareQrScanSession, unlockScanAudio } from "@/platform/utils/global/scanFeedback";
 import { extractBatchMrnUid, extractCoilUid, extractQcStickerUid, normalizeScanInput, qcStickerDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
 import { qcCheckService } from "@/apps/rmstore/lib/services/qcCheck";
+import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = {
@@ -147,17 +148,33 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
   );
 
   const openCoilFromScan = useCallback(
-    (pendingRow, remainingQueue = []) => {
+    async (pendingRow, remainingQueue = []) => {
       if (!pendingRow?.coil_no_uid) {
         showScanToast("error", "coil-missing", "The scanned coil was not found in the pending QC queue.");
         return;
       }
-      showScanSuccess(
-        "qc-ok",
-        `Scan accepted. Opening the spec check for ${pendingRow.coil_no_uid}.`,
-        SNACK_DUR.short
-      );
-      onUnlocked?.(pendingRow, remainingQueue);
+      setBusy(true);
+      try {
+        const prepareBody = pendingRow.qc_check_uid
+          ? { qc_check_uid: pendingRow.qc_check_uid }
+          : { coil_no_uid: pendingRow.coil_no_uid };
+        await qcCheckService.prepare(prepareBody);
+        showScanSuccess(
+          "qc-ok",
+          `Scan accepted. Opening the spec check for ${pendingRow.coil_no_uid}.`,
+          SNACK_DUR.short
+        );
+        onUnlocked?.(pendingRow, remainingQueue);
+      } catch (err) {
+        showScanToast(
+          "error",
+          "spec-load",
+          err?.message || "Specifications could not be loaded. Define them in RM Spec Master.",
+          SNACK_DUR.long
+        );
+      } finally {
+        setBusy(false);
+      }
     },
     [onUnlocked, showScanToast, showScanSuccess]
   );
@@ -179,7 +196,7 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
     }
     const [first, ...rest] = queue;
     // Coil-level Spec form for first; remaining open after each submit
-    openCoilFromScan(first, rest);
+    void openCoilFromScan(first, rest);
   }, [batchCoils, scannedCoils, openCoilFromScan, showScanToast]);
 
   const tryScan = useCallback(
@@ -258,7 +275,7 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
           showScanToast("error", "no-pending", `No pending QC check was found for coil ${qcUid}.`);
           return;
         }
-        openCoilFromScan(pending);
+        void openCoilFromScan(pending);
       } catch (err) {
         showScanToast("error", "scan-fail", err?.message || "Scan could not be processed. Please try again.");
       } finally {
@@ -422,17 +439,7 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
         title={title}
         description={hint}
         maxWidth="max-w-lg"
-        footer={
-          <div className="flex items-center justify-end gap-3 w-full">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2.5 text-sm font-bold text-slate-500"
-            >
-              Cancel
-            </button>
-          </div>
-        }
+        footer={<RmStoreDrawerFooter onClose={onClose} cancelOnly />}
       >
         <div className="space-y-3 pb-2">
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 space-y-2">

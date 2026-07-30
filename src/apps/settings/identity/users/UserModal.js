@@ -295,7 +295,7 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
       const next = {
         core: resolveAppAccessEnabled("core", permSource),
         ims: resolveAppAccessEnabled("ims", permSource),
-        // rmstore: resolveAppAccessEnabled("rmstore", permSource),
+        rmstore: resolveAppAccessEnabled("rmstore", permSource),
         task: resolveAppAccessEnabled("task", permSource),
       };
       setAppAccess(next);

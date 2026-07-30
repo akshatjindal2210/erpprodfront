@@ -21,6 +21,7 @@ import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import DataTable from "@/ui/primitives/DataTable";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
@@ -156,6 +157,16 @@ export default function StoreOutPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: activeSourceRows,
+        filteredRows,
+        serverFiltered: params.status !== "all" || Boolean(appliedSearch),
+      }),
+    [tempSearch, activeSourceRows, filteredRows, params.status, appliedSearch]
+  );
 
   const getRowId = useCallback(
     (row) => {
@@ -507,6 +518,8 @@ export default function StoreOutPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder={isStoreOut ? "Search by MRN, heat, or item" : "Search by coil UID, heat, or item"}
             searchLabel={isStoreOut ? "Search Store Out" : "Search Pending"}
+            searchVariant="quick"
+            applyOnSearchEnter={false}
           />
         </ListPageFilterStrip>
 
@@ -549,11 +562,12 @@ export default function StoreOutPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} — {isStoreOut ? "Store Out" : "Pending"}
-          </span>
-        </div>
+        <RmStoreListFooter
+          shown={items.length}
+          total={totalItems}
+          label={isStoreOut ? "Store Out Entries" : "Pending Entries"}
+          {...footerFilter}
+        />
       </div>
 
       <CoilScanEntryModal

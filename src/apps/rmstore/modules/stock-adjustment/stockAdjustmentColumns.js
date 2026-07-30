@@ -209,7 +209,11 @@ export const STOCK_ADJUSTMENT_HEADERS = [
   [
     "Updated At",
     "updated_at",
-    (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
+    (v, row) => (
+      <span className="text-[10px] text-slate-400 font-medium">
+        {row?.updated_by_name ? formatDateTime(v) : "—"}
+      </span>
+    ),
     { width: "150px" },
   ],
   [

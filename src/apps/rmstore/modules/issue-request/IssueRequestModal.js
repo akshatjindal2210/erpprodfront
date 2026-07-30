@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Check, Loader2, Package, Plus, Trash2, AlertCircle } from "lucide-react";
+import { Loader2, Package, Plus, Trash2, AlertCircle } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { issueRequestService } from "@/apps/rmstore/lib/services/issueRequest";
 import { productionService, productionErpHelpers } from "@/apps/rmstore/lib/services/production";
-import { coilService } from "@/apps/rmstore/lib/services/coil";
+import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import Drawer from "@/ui/primitives/Drawer";
 import RemarksTextarea from "@/ui/common/forms/RemarksTextarea";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
@@ -15,7 +15,6 @@ import ApprovalStatusToggle from "@/apps/rmstore/modules/shared/ApprovalStatusTo
 import { OK_INPUT } from "@/ui/common/Constants";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
-import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
 
 const MODULE = "rm_issue_request";
 const FIELD_ORDER = ["shift", "job_cards"];
@@ -362,67 +361,19 @@ export default function IssueRequestModal({
     const dcode = Number(rm_item_dcode);
     if (!code && !Number.isFinite(dcode)) return { pool: [], storeQty: 0 };
 
-    const itemFilter =
-      Number.isFinite(dcode) && dcode > 0 ? { item_dcode: dcode } : { item_code: code };
-
-    const fetchByArea = async (areaFilters) => {
-      const { data } = await fetchAllListPages(async (page, limit) => {
-        const body = await coilService.getAll({
-          page,
-          limit,
-          sortBy: "created_at",
-          order: "ASC",
-          filters: { status: "active", ...itemFilter, ...areaFilters },
-        });
-        return { data: body.data ?? [], total: body.total ?? 0 };
-      }, 500);
-      return data || [];
-    };
-
-    // FG stock = store-in + unassigned (coil area), FIFO by created_at
-    let [stored, unassigned] = await Promise.all([
-      fetchByArea({ stored: true }),
-      fetchByArea({ coil_area: true }),
-    ]);
-
-    // If dcode filter returned nothing, retry by RM item_code (legacy coils).
-    if (!stored.length && !unassigned.length && code && Number.isFinite(dcode) && dcode > 0) {
-      const retryFilter = { item_code: code };
-      const fetchRetry = async (areaFilters) => {
-        const { data } = await fetchAllListPages(async (page, limit) => {
-          const body = await coilService.getAll({
-            page,
-            limit,
-            sortBy: "created_at",
-            order: "ASC",
-            filters: { status: "active", ...retryFilter, ...areaFilters },
-          });
-          return { data: body.data ?? [], total: body.total ?? 0 };
-        }, 500);
-        return data || [];
-      };
-      [stored, unassigned] = await Promise.all([
-        fetchRetry({ stored: true }),
-        fetchRetry({ coil_area: true }),
-      ]);
+    try {
+      const res = await issueRequestService.availableCoils({
+        rm_item_code: code || undefined,
+        rm_item_dcode: Number.isFinite(dcode) && dcode > 0 ? dcode : undefined,
+        exclude_issue_uid: editIssueUid,
+      });
+      const pool = Array.isArray(res?.data) ? res.data : [];
+      const storeQty = Number(res?.store_qty) || pool.reduce((s, c) => s + (Number(c.qty) || 0), 0);
+      return { pool, storeQty, reservedQty: Number(res?.reserved_qty) || 0 };
+    } catch {
+      return { pool: [], storeQty: 0, reservedQty: 0 };
     }
-
-    const byUid = new Map();
-    for (const c of [...stored, ...unassigned]) {
-      const key = String(c?.coil_no_uid || "").toLowerCase();
-      if (!key) continue;
-      if (!byUid.has(key)) byUid.set(key, c);
-    }
-    const pool = [...byUid.values()].sort((a, b) => {
-      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-      if (ta !== tb) return ta - tb;
-      return Number(a.coil_uid || 0) - Number(b.coil_uid || 0);
-    });
-
-    const storeQty = pool.reduce((s, c) => s + (Number(c.qty) || 0), 0);
-    return { pool, storeQty };
-  }, []);
+  }, [editIssueUid]);
 
   /** Qty already requested for this job card in earlier issue requests. */
   const fetchIssuedSummary = useCallback(
@@ -971,7 +922,11 @@ export default function IssueRequestModal({
     try {
       let res;
       if (isApprove && editData?.issue_uid) {
-        res = await issueRequestService.approve(editData.issue_uid, payload);
+        if (statusOverride === false) {
+          res = await issueRequestService.update(editData.issue_uid, { ...payload, approved: false });
+        } else {
+          res = await issueRequestService.approve(editData.issue_uid, payload);
+        }
       } else if (isEdit && editData?.issue_uid) {
         res = await issueRequestService.update(editData.issue_uid, payload);
       } else {
@@ -996,41 +951,22 @@ export default function IssueRequestModal({
         : "New Issue Request";
 
   const footerContent = (
-    <div className="flex items-center justify-end gap-3 w-full">
-      <button
-        type="button"
-        onClick={onClose}
-        disabled={saving}
-        className="px-5 py-2.5 text-sm font-bold text-slate-500"
-      >
-        {readOnly ? "Close" : "Cancel"}
-      </button>
-      {!readOnly && (
-        <button
-          type="button"
-          onClick={() => handleSave()}
-          disabled={saving || loadingDetail}
-          className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-indigo-100"
-        >
-          {saving ? (
-            <>
-              <Loader2 size={18} className="animate-spin" /> Processing
-            </>
-          ) : (
-            <>
-              <Check size={18} /> Save
-            </>
-          )}
-        </button>
-      )}
-    </div>
+    <RmStoreDrawerFooter
+      onClose={onClose}
+      loading={saving}
+      disabled={loadingDetail}
+      readOnly={readOnly}
+      isApprove={isApprove}
+      onSave={handleSave}
+      approveLabel="Authorize"
+    />
   );
 
   return (
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={() => handleSave()}
+      onSubmit={() => handleSave(isApprove ? true : undefined)}
       title={title}
       description="Select job cards and shift. Type Dispatch Qty — FIFO coils fill (same as IMS)."
       footer={footerContent}

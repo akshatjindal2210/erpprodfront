@@ -22,8 +22,8 @@ import { selectUser, selectRole } from "@/platform/store/slices/authSlice";
 import { applyClientSearch, sortRowsByKey, nextSortParams } from "@/ui/common/list/clientListSearch";
 import { schedulePlanningService } from "@/apps/ims/lib/services/schedulePlanning";
 import { SCHEDULE_LIST_FILTER, SCHEDULE_PLAN_STATUS, canOpenPlanModal, SCHEDULE_REPORT_FILTER, getDefaultScheduleStatusFilter, getScheduleStatusFilterOptions, filterScheduleItemsForPermission, isSalesDepartmentUser, isScheduleCompleteRow, isScheduleOpenPlanRow } from "./schedulePlanStatus";
-import { SCHEDULE_PAGE_TABS, MONTH_FILTER_OPTIONS, currentScheduleMonthValue, SCHEDULE_REPORT_FILTER_OPTIONS, scheduleItemRowKey, scheduleSchnoKey, resolveScheduleItemdcode, canDeleteRow, scheduleItemWiseSearchParts,
-  scheduleUniqueSearchParts, toUniqueScheduleRows, SCHEDULE_UNIQUE_HEADERS, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, hasScheduleComparisonMismatch, localTodayYmd, getScheduleListRowClassName, SCHEDULE_LIST_ROW_LEGEND } from "./schedulePlanningColumns";
+import { SCHEDULE_PAGE_TABS, MONTH_FILTER_OPTIONS, SCHEDULE_REPORT_FILTER_OPTIONS, scheduleItemRowKey, scheduleSchnoKey, resolveScheduleItemdcode, canDeleteRow, scheduleItemWiseSearchParts,
+  scheduleUniqueSearchParts, toUniqueScheduleRows, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, hasScheduleComparisonMismatch, getScheduleListRowClassName, SCHEDULE_LIST_ROW_LEGEND } from "./schedulePlanningColumns";
 import SchedulePlanModal from "./SchedulePlanModal";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import SchedulePlanRemoveConfirmModal from "./SchedulePlanRemoveConfirmModal";
@@ -141,7 +141,7 @@ export default function SchedulePlanningPage() {
   const [tempSearch, setTempSearch] = useState("");
   const [params, setParams] = useState({ sortKey: "", sortDir: "asc" });
   const [appliedQuery, setAppliedQuery] = useState(null);
-  const [statusFilter, setStatusFilter] = useState(defaultStatusFilter);
+  const [statusFilter, setStatusFilter] = useState(SCHEDULE_LIST_FILTER.ALL);
   const [draftReportType, setDraftReportType] = useState(SCHEDULE_REPORT_FILTER.DEFAULT);
   const initialQuerySet = useRef(false);
 
@@ -161,7 +161,6 @@ export default function SchedulePlanningPage() {
     setAppliedQuery({
       reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
       status: SCHEDULE_LIST_FILTER.ALL,
-      month: currentScheduleMonthValue(),
     });
     setDraftReportType(SCHEDULE_REPORT_FILTER.DEFAULT);
     setStatusFilter(defaultStatusFilter);
@@ -521,14 +520,22 @@ export default function SchedulePlanningPage() {
     deleteBlockedMessage: "Select a schedule with saved plan data to delete.",
   });
 
-  const extraFilters = useMemo(
-    () => [
-      { label: "Month", key: "month", value: isCustomReport ? (appliedQuery?.month ?? "all") : (appliedQuery?.month ?? currentScheduleMonthValue()), options: MONTH_FILTER_OPTIONS, preserveOrder: true, disabled: !isCustomReport },
+  const extraFilters = useMemo(() => {
+    const filters = [
       { label: "Status", key: "status", value: statusFilter, options: statusFilterOptions, variant: "quick" },
       { label: "Report", key: "reportType", value: draftReportType, options: SCHEDULE_REPORT_FILTER_OPTIONS, preserveOrder: false },
-    ],
-    [appliedQuery?.month, draftReportType, isCustomReport, statusFilter, statusFilterOptions]
-  );
+    ];
+    if (isCustomReport) {
+      filters.unshift({
+        label: "Month",
+        key: "month",
+        value: appliedQuery?.month ?? "all",
+        options: MONTH_FILTER_OPTIONS,
+        preserveOrder: true,
+      });
+    }
+    return filters;
+  }, [appliedQuery?.month, draftReportType, isCustomReport, statusFilter, statusFilterOptions]);
 
   const emptyState = useMemo(() => {
     const st = String(statusFilter ?? SCHEDULE_LIST_FILTER.ALL).toLowerCase();
@@ -551,12 +558,15 @@ export default function SchedulePlanningPage() {
       },
       [SCHEDULE_LIST_FILTER.COMPLETE]: { message: "No completed schedules", subMessage: "Manual Complete or fully dispatched (balance 0) items appear here" },
       [SCHEDULE_LIST_FILTER.COMPARISON]: { message: "No ERP vs DB mismatches", subMessage: "Live ERP matches the DB snapshot saved at plan time" },
-      [SCHEDULE_LIST_FILTER.ALL]: { message: "No schedule records", subMessage: "Try a different date range or month" },
+      [SCHEDULE_LIST_FILTER.ALL]: {
+        message: isCustomReport ? "No schedules in this range" : "No schedule records",
+        subMessage: isCustomReport ? "Try a different month or date range (From / To)." : "Try a different status filter",
+      },
       [SCHEDULE_LIST_FILTER.REJECT]: { message: "No rejected schedules", subMessage: "Rejected items appear here" },
       [SCHEDULE_LIST_FILTER.HOLD]: { message: "No items on hold", subMessage: "Held schedule items appear here" },
     };
     return map[st] || { message: "No schedule items", subMessage: "Try a different status or date range" };
-  }, [statusFilter]);
+  }, [statusFilter, isCustomReport]);
 
   const isComparisonView = String(statusFilter ?? "").toLowerCase() === SCHEDULE_LIST_FILTER.COMPARISON;
 
@@ -672,7 +682,7 @@ export default function SchedulePlanningPage() {
             toDate={isCustomReport ? (appliedQuery?.toDate ?? "") : ""}
             dateDisabled={!isCustomReport}
             extraFilters={extraFilters}
-            extraFiltersBeforeDate={["month"]}
+            extraFiltersBeforeDate={isCustomReport ? ["month"] : []}
             applyOnSearchEnter={false}
             onExtraFilterChange={(key, value) => {
               if (key === "status") {
@@ -702,8 +712,11 @@ export default function SchedulePlanningPage() {
                 status: SCHEDULE_LIST_FILTER.ALL,
                 ...(isCustom
                   ? { month, fromDate: hasDate ? fromDate : "", toDate: hasDate ? toDate : "" }
-                  : { month: currentScheduleMonthValue() }),
+                  : {}),
               });
+              if (data.status != null) {
+                setStatusFilter(data.status);
+              }
               setSelected(null);
               setItemWiseSchnoFilter(null);
             }}
@@ -714,7 +727,6 @@ export default function SchedulePlanningPage() {
               setAppliedQuery({
                 reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
                 status: SCHEDULE_LIST_FILTER.ALL,
-                month: currentScheduleMonthValue(),
               });
               setSelected(null);
               setItemWiseSchnoFilter(null);

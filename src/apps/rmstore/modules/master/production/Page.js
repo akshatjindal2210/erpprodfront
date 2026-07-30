@@ -12,6 +12,7 @@ import { LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import ActionButton from "@/ui/primitives/ActionButton";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
 import DataTable from "@/ui/primitives/DataTable";
@@ -83,6 +84,15 @@ export default function ProductionMasterPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: allRows,
+        filteredRows,
+      }),
+    [tempSearch, allRows, filteredRows]
+  );
 
   const handleLoadMore = useCallback(() => {
     if (!loading && items.length < totalItems) {
@@ -218,8 +228,10 @@ export default function ProductionMasterPage() {
         { width: "150px" },
       ],
       ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Updated At", "updated_at", (v) => (
-          <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>
+      ["Updated At", "updated_at", (v, row) => (
+          <span className="text-[10px] text-slate-400 font-medium">
+            {row?.updated_by_name ? formatDateTime(v) : "—"}
+          </span>
         ),
         { width: "150px" },
       ],
@@ -246,32 +258,11 @@ export default function ProductionMasterPage() {
           <ListPageToolbarLayout
             actions={
               <>
-                <ActionButton
-                  module={MODULE}
-                  action="add"
-                  label="New"
-                  icon={Plus}
-                  onClick={openNewModal}
-                  className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
-                />
-                <ActionButton
-                  module={MODULE}
-                  action="edit"
-                  variant="outline"
-                  label="Edit"
-                  icon={Edit3}
-                  disabled={!selected}
-                  record={selectedRecord}
-                  onClick={openEditModal}
+                <ActionButton module={MODULE} action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+                <ActionButton module={MODULE} action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected} record={selectedRecord} onClick={openEditModal}
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
                 />
-                <ActionButton
-                  module={MODULE}
-                  action="authorize"
-                  variant="outline"
-                  label="Approve"
-                  icon={CheckCircle}
-                  disabled={!selected}
+                <ActionButton module={MODULE} action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected}
                   onClick={() => {
                     setEditItem(selectedRecord);
                     setModalMode("approve");
@@ -279,14 +270,7 @@ export default function ProductionMasterPage() {
                   }}
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
                 />
-                <ActionButton
-                  module={MODULE}
-                  action="delete"
-                  variant="danger"
-                  label="Delete"
-                  icon={Trash2}
-                  disabled={!selected}
-                  onClick={() => setDeleteItem(selectedRecord)}
+                <ActionButton module={MODULE} action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)}
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                 />
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
@@ -299,13 +283,7 @@ export default function ProductionMasterPage() {
               </>
             }
             viewToggle={
-              <ListPageExportToggle
-                viewMode={viewMode}
-                setMode={handleViewMode}
-                exporting={exporting}
-                disabled={loading || exportDisabled}
-                onExport={handleExport}
-              />
+              <ListPageExportToggle viewMode={viewMode} setMode={handleViewMode} exporting={exporting} disabled={loading || exportDisabled} onExport={handleExport} />
             }
           />
 
@@ -334,6 +312,8 @@ export default function ProductionMasterPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by production or RM item"
             searchLabel="Search Production"
+            searchVariant="quick"
+            applyOnSearchEnter={false}
           />
         </ListPageFilterStrip>
 
@@ -373,41 +353,30 @@ export default function ProductionMasterPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Production Mappings
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <RmStoreListFooter
+          shown={items.length}
+          total={totalItems}
+          label="Production Mappings"
+          {...footerFilter}
+        />
       </div>
 
       {modalOpen && (
-        <ProductionModal
-          open={modalOpen}
-          onClose={() => setModalOpen(false)}
+        <ProductionModal open={modalOpen} onClose={() => setModalOpen(false)}
           onSuccess={() => {
             fetchProductions();
             setSelected(null);
           }}
-          editData={editItem}
-          mode={modalMode}
+          editData={editItem} mode={modalMode}
         />
       )}
       {deleteItem && (
-        <DeleteModal
-          item={deleteItem}
-          onClose={() => setDeleteItem(null)}
+        <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)}
           onSuccess={() => {
             fetchProductions();
             setSelected(null);
           }}
-          service={productionService}
-          entityLabel="Production Mapping"
-          idKey="production_id"
-          moduleSlug={MODULE}
+          service={productionService} entityLabel="Production Mapping" idKey="production_id" moduleSlug={MODULE}
         />
       )}
     </div>

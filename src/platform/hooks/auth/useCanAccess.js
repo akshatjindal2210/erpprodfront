@@ -24,8 +24,8 @@ export const useCanAccess = () => {
     // 1. Super Admin
     if (role?.toLowerCase() === "super_admin") return FULL_ACCESS;
 
-    // 2. Default allow if no module specified (for truly public pages if any)
-    if (!module) return FULL_ACCESS;
+    // 2. Deny if no module specified (fail-closed; public pages handled by callers)
+    if (!module) return NO_ACCESS;
 
     // 3. Check App Level Access first
     const appKey = MODULE_APP_KEY[module];

@@ -10,7 +10,7 @@ export const ROUTES = {
   RM_COIL_TABLE: `${RM}/coils`,
   RM_STORE_IN: `${RM}/inventory-inward`,
   RM_QC_CHECK: `${RM}/qc-check`,
-  RM_QC_REJECTION: `${RM}/qc-rejection`,
+  RM_REJECTION: `${RM}/rm-rejection`,
   RM_ISSUE_REQUEST: `${RM}/issue-request`,
   RM_IN_PROCESS_REQUEST: `${RM}/in-process-request`,
   RM_STORE_OUT: `${RM}/out-entry`,

@@ -6,6 +6,7 @@ import { Check, Loader2, QrCode, MapPin, Package, Layers, Plus, X, Trash2, Messa
 import "@/apps/ims/lib/config/inwardUi.theme.css";
 
 import { inventoryInwardService } from "@/apps/rmstore/lib/services/inventoryInward";
+import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import { storeLocationService } from "@/apps/rmstore/lib/services/storeLocation";
 import { coilService } from "@/apps/rmstore/lib/services/coil";
 import { extractLocationNo, extractCoilUid, normalizeScanInput, coilUidDisplayLabel, locationNoDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
@@ -94,7 +95,17 @@ function buildLocationMrnBreakdown(locations) {
           c.mrn_no != null && String(c.mrn_no).trim() !== ""
             ? String(c.mrn_no).trim()
             : String(c.mrn_uid || "—").trim() || "—";
-        const cur = byMrn.get(label) || { mrnLabel: label, coilCount: 0, qty: 0 };
+        const cur = byMrn.get(label) || {
+          mrnLabel: label,
+          itemCode: null,
+          itemDesc: null,
+          heatNo: null,
+          coilCount: 0,
+          qty: 0,
+        };
+        if (!cur.itemCode && c.item_code) cur.itemCode = c.item_code;
+        if (!cur.itemDesc && c.item_desc) cur.itemDesc = c.item_desc;
+        if (!cur.heatNo && c.heat_no) cur.heatNo = c.heat_no;
         cur.coilCount += 1;
         cur.qty += qty;
         byMrn.set(label, cur);
@@ -769,32 +780,13 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
         title={drawerTitle}
         description={drawerDesc}
         footer={
-          <div className="flex items-center justify-end gap-3 w-full">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={!formReady || saving}
-              className="px-5 py-2.5 text-sm font-bold text-slate-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={!formReady || saving}
-              className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50"
-            >
-              {saving ? (
-                <>
-                  <Loader2 size={18} className="animate-spin" /> Processing
-                </>
-              ) : (
-                <>
-                  <Check size={18} /> {isEdit ? "Update" : "Save"}
-                </>
-              )}
-            </button>
-          </div>
+          <RmStoreDrawerFooter
+            onClose={onClose}
+            loading={saving}
+            disabled={!formReady}
+            onSave={handleSave}
+            saveLabel={isEdit ? "Update" : "Save"}
+          />
         }
         maxWidth="max-w-4xl"
       >
@@ -1087,8 +1079,8 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
                               {loc.coils.map((c, bi) => (
                                 <div
                                   key={`${c.coil_no_uid}-${bi}`}
-                                  title={`${c.item_code || "—"} · Heat ${c.heat_no || "—"} · Qty ${c.qty ?? "—"}`}
-                                  className="flex items-start gap-1 pl-2 pr-1 py-1 bg-inward-box-chip-bg border border-inward-box-chip-border rounded-md shadow-sm animate-in zoom-in-95 max-w-[200px]"
+                                  title={`${c.item_code || "—"} · ${c.item_desc || "—"} · Heat ${c.heat_no || "—"} · Qty ${c.qty ?? "—"}`}
+                                  className="flex items-start gap-1 pl-2 pr-1 py-1 bg-inward-box-chip-bg border border-inward-box-chip-border rounded-md shadow-sm animate-in zoom-in-95 max-w-[240px]"
                                 >
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1 flex-wrap">

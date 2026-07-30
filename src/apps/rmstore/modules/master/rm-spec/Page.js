@@ -10,6 +10,7 @@ import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import ActionButton from "@/ui/primitives/ActionButton";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
@@ -78,6 +79,15 @@ export default function RmSpecMasterPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: allRows,
+        filteredRows,
+      }),
+    [tempSearch, allRows, filteredRows]
+  );
   const selectedRecord = useMemo(
     () => filteredRows.find((u) => u.item_dcode === selected),
     [filteredRows, selected]
@@ -146,8 +156,10 @@ export default function RmSpecMasterPage() {
         { width: "150px" },
       ],
       ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Updated At", "updated_at", (v) => (
-          <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>
+      ["Updated At", "updated_at", (v, row) => (
+          <span className="text-[10px] text-slate-400 font-medium">
+            {row?.updated_by_name ? formatDateTime(v) : "—"}
+          </span>
         ),
         { width: "150px" },
       ],
@@ -229,6 +241,8 @@ export default function RmSpecMasterPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by item or specification name"
             searchLabel="Search Spec"
+            searchVariant="quick"
+            applyOnSearchEnter={false}
           />
         </ListPageFilterStrip>
 
@@ -263,11 +277,7 @@ export default function RmSpecMasterPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Items
-          </span>
-        </div>
+        <RmStoreListFooter shown={items.length} total={totalItems} label="RM Spec Items" {...footerFilter} />
       </div>
 
       {modalOpen && (

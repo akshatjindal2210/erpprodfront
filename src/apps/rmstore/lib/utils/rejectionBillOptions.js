@@ -1,4 +1,4 @@
-import { qcRejectionService } from "@/apps/rmstore/lib/services/qcRejection";
+import { rmRejectionService } from "@/apps/rmstore/lib/services/rmRejection";
 
 /** Keep first occurrence only — avoids duplicate React keys in multi-select tags. */
 export function uniqueBillNos(billNos) {
@@ -33,7 +33,7 @@ export function formatBillNosForSave(billNos) {
 
 /** Live IMS bill numbers for SearchableSelect. */
 export async function fetchBillOptions({ search = "", page = 1, limit = 50 } = {}) {
-  const res = await qcRejectionService.getBillNumbers({ search, page, limit });
+  const res = await rmRejectionService.getBillNumbers({ search, page, limit });
   const data = Array.isArray(res?.data) ? res.data : [];
   return {
     data,
@@ -47,7 +47,7 @@ export async function getBillByNo(billNo) {
   if (!label) return { data: null };
 
   try {
-    const res = await qcRejectionService.getBillNumbers({ search: label, page: 1, limit: 100 });
+    const res = await rmRejectionService.getBillNumbers({ search: label, page: 1, limit: 100 });
     const data = Array.isArray(res?.data) ? res.data : [];
     const found = data.find((row) => String(row?.bill_no ?? "").trim() === label);
     if (found) return { data: found };

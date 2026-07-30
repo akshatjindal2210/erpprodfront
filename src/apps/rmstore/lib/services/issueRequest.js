@@ -9,6 +9,15 @@ export const issueRequestService = {
       method: "POST",
       body: { job_cards, ...(exclude_issue_uid ? { exclude_issue_uid } : {}) },
     }),
+  availableCoils: ({ rm_item_code, rm_item_dcode, exclude_issue_uid = null } = {}) =>
+    api(ENDPOINTS.ISSUE_REQUEST.AVAILABLE_COILS, {
+      method: "POST",
+      body: {
+        ...(rm_item_code ? { rm_item_code } : {}),
+        ...(rm_item_dcode ? { rm_item_dcode } : {}),
+        ...(exclude_issue_uid ? { exclude_issue_uid } : {}),
+      },
+    }),
   create: (data) => api(ENDPOINTS.ISSUE_REQUEST.CREATE, { method: "POST", body: data }),
   update: (issue_uid, data) =>
     api(ENDPOINTS.ISSUE_REQUEST.UPDATE, { method: "POST", body: { issue_uid, ...data } }),

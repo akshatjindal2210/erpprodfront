@@ -69,11 +69,11 @@ export const RM_STORE_NAV_REGISTRY = [
     module: "rm_qc_check",
   },
   {
-    id: "rm-qc-rejection",
+    id: "rm-rejection",
     name: "RM Rejection",
     icon: <ShieldX size={16} />,
-    href: ROUTES.RM_QC_REJECTION,
-    module: "rm_qc_rejection",
+    href: ROUTES.RM_REJECTION,
+    module: "rm_rejection",
   },
   {
     id: "rm-issue-request",

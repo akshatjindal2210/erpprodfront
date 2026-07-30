@@ -12,6 +12,11 @@ import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
+import RmStoreListFooter, {
+  FOOTER_TEXT_CLASS,
+  formatRmStoreListFooterText,
+  rmStoreFooterFromClientFilter,
+} from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import CoilTransactionLogDetailModal from "@/apps/rmstore/modules/logs/CoilTransactionLogDetailModal";
@@ -19,7 +24,6 @@ import CoilStickerNosCell, { getCoilStickerEntries } from "@/apps/rmstore/module
 import {
   applyCoilTransactionLogView,
   COIL_TX_DISPLAY_MODES,
-  isUniquePerLogSearch,
 } from "@/apps/rmstore/lib/utils/coilTransactionLogSearch";
 import { fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
@@ -107,18 +111,38 @@ export default function CoilTransactionLogPage() {
   const journeyTyping = Boolean(String(journeyInput ?? "").trim());
   const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
   const isUniqueView = displayMode === COIL_TX_DISPLAY_MODES.UNIQUE;
-  const isUniquePerLog = hasActiveSearch && isUniquePerLogSearch(tempSearch);
 
-  const uniqueSourceLogCount = useMemo(() => {
-    if (!isUniqueView) return 0;
-    const ids = new Set(
-      filteredItems.map((r) => {
-        const raw = r?._sourceLogId ?? r?.id;
-        return String(raw ?? "").split("::")[0];
-      })
-    );
-    return ids.size;
-  }, [filteredItems, isUniqueView]);
+  const footerFilter = useMemo(
+    () => rmStoreFooterFromClientFilter({ tempSearch, sourceRows: allRows, filteredRows: filteredItems }),
+    [tempSearch, allRows, filteredItems]
+  );
+
+  const footerText = useMemo(() => {
+    const prefix = isUniqueView ? "Unique ·" : "Summary ·";
+    if (isJourneyMode && !hasActiveSearch) {
+      return formatRmStoreListFooterText({
+        shown: rows.length,
+        total: totalItems,
+        label: "Journey Matches",
+        journeyMode: true,
+        prefix,
+      });
+    }
+    return formatRmStoreListFooterText({
+      shown: rows.length,
+      total: totalItems,
+      label: isUniqueView ? "Coil Rows" : "Transaction Log Rows",
+      prefix,
+      ...footerFilter,
+    });
+  }, [
+    rows.length,
+    totalItems,
+    isUniqueView,
+    isJourneyMode,
+    hasActiveSearch,
+    footerFilter,
+  ]);
 
   const extraFilters = useMemo(
     () => [
@@ -411,6 +435,7 @@ export default function CoilTransactionLogPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by coil sticker, type, or module"
             searchLabel="Search"
+            searchVariant="quick"
             applyOnSearchEnter={false}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
@@ -451,21 +476,9 @@ export default function CoilTransactionLogPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {isUniqueView
-              ? hasActiveSearch
-                ? isUniquePerLog
-                  ? `Unique · ${rows.length} of ${totalItems} log row${totalItems !== 1 ? "s" : ""} matching search`
-                  : `Unique · ${rows.length} of ${totalItems} coil${totalItems !== 1 ? "s" : ""} from ${uniqueSourceLogCount} log${uniqueSourceLogCount !== 1 ? "s" : ""} matching search`
-                : `Unique · ${rows.length} of ${totalItems} coil row${totalItems !== 1 ? "s" : ""} from ${allRows.length} log${allRows.length !== 1 ? "s" : ""}`
-              : hasActiveSearch
-                ? `Summary · ${rows.length} of ${totalItems} match${totalItems !== 1 ? "es" : ""} (${allRows.length} loaded)`
-                : isJourneyMode
-                  ? `Summary · ${rows.length} of ${totalItems} journey matches (all DB)`
-                  : `Summary · ${rows.length} of ${totalItems} in date range`}
-          </span>
-        </div>
+        <RmStoreListFooter showLive={false}>
+          <span className={FOOTER_TEXT_CLASS}>{footerText}</span>
+        </RmStoreListFooter>
       </div>
 
       <CoilTransactionLogDetailModal

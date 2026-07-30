@@ -34,10 +34,6 @@ export function middleware(request) {
     return NextResponse.redirect(legacy);
   }
 
-  if (pathname === "/rmstore" || pathname.startsWith("/rmstore/")) {
-    return NextResponse.redirect(new URL("/home", request.url));
-  }
-
   const isAuthPage = pathname.startsWith("/login");
   const protectedPath = isProtectedPath(pathname);
 

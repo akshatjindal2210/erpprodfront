@@ -1,4 +1,3 @@
-import { buildExportFilename } from "@/platform/utils/list/tableExport";
 import { toYmdClient } from "@/apps/task/lib/services/reportApi";
 import { formatScheduledDate } from "@/apps/task/lib/helpers/utilHelper";
 import { scoreToPercent } from "@/apps/task/lib/helpers/clTaskScoreHelper";
@@ -47,6 +46,28 @@ const HEADER_STYLE = {
   font: { color: { rgb: "FFFFFFFF" }, bold: true },
   alignment: { horizontal: "center", vertical: "center", wrapText: true },
 };
+
+function styleFromArgb(fillRgb, fontRgb, { bold = true, align = "center" } = {}) {
+  const bg = fillRgb?.replace(/^FF/i, "#") || undefined;
+  const color = fontRgb?.replace(/^FF/i, "#") || undefined;
+  return {
+    ...(bg ? { backgroundColor: bg } : {}),
+    ...(color ? { color } : {}),
+    ...(bold ? { fontWeight: "bold" } : {}),
+    ...(align ? { align } : {}),
+  };
+}
+
+function applyCellStyle(cellStyle = {}) {
+  return styleFromArgb(
+    cellStyle.fill?.fgColor?.rgb,
+    cellStyle.font?.color?.rgb,
+    {
+      bold: cellStyle.font?.bold,
+      align: cellStyle.alignment?.horizontal,
+    },
+  );
+}
 
 function resolveExportScorePct(task) {
   if (task.score_pct != null && task.score_pct !== "") return Number(task.score_pct);
@@ -123,87 +144,21 @@ export function buildClReportExportRows(users = []) {
   return rows;
 }
 
-const EXPORT_COLUMNS = [
-  ["S.No.", "sno"],
-  ["Date", "scheduled_date"],
-  ["Person", "person_name"],
-  ["Department", "department_name"],
-  ["Designation", "designation_name"],
-  ["Section", "section"],
-  ["Task", "title"],
-  ["Status", "status"],
-  ["Score", "score_display"],
-  ["Attempts", "attempts"],
-  ["Weightage", "weightage"],
-];
+/** Colored score cells for the common xlsx export path. */
+export function buildClReportXlsxRowStyles({ rows = [], columns = [] }) {
+  const headerStyle = applyCellStyle(HEADER_STYLE);
+  const scoreColIdx = columns.findIndex((col) => col.label === "Score");
+  const styles = [columns.map(() => headerStyle)];
 
-/**
- * Colored Excel export for CL Task Report (score column matches UI legend).
- */
-export async function exportClTaskReportExcel({
-  users = [],
-  moduleName = "CL Task Report",
-  rangeFrom,
-  rangeTo,
-}) {
-  const XLSX = await import("xlsx-js-style");
-  const rows = buildClReportExportRows(users);
-  if (!rows.length) throw new Error("No rows to export.");
-
-  const headers = EXPORT_COLUMNS.map(([label]) => label);
-  const keys = EXPORT_COLUMNS.map(([, key]) => key);
-  const scoreColIdx = keys.indexOf("score_display");
-
-  const aoa = [];
-  if (rangeFrom && rangeTo) {
-    aoa.push([`${moduleName} · ${formatScheduledDate(rangeFrom)} → ${formatScheduledDate(rangeTo)}`]);
-    aoa.push([`Exported: ${new Date().toLocaleString()}`]);
-    aoa.push([]);
-  }
-  aoa.push(headers);
-
-  const dataStartRow = aoa.length;
   for (const row of rows) {
-    aoa.push(keys.map((key) => row[key] ?? ""));
+    const rowStyle = columns.map(() => null);
+    if (scoreColIdx >= 0 && row._task) {
+      rowStyle[scoreColIdx] = applyCellStyle(
+        SCORE_STYLES[reportScoreStyleKey(row._task)] || SCORE_STYLES.zero,
+      );
+    }
+    styles.push(rowStyle);
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
-
-  const headerRow = dataStartRow;
-  for (let c = range.s.c; c <= range.e.c; c += 1) {
-    const addr = XLSX.utils.encode_cell({ r: headerRow, c });
-    if (ws[addr]) ws[addr].s = HEADER_STYLE;
-  }
-
-  for (let r = headerRow + 1; r <= range.e.r; r += 1) {
-    const dataIdx = r - headerRow - 1;
-    const task = rows[dataIdx]?._task;
-    if (!task || scoreColIdx < 0) continue;
-    const addr = XLSX.utils.encode_cell({ r, c: scoreColIdx });
-    if (!ws[addr]) continue;
-    const styleKey = reportScoreStyleKey(task);
-    ws[addr].s = SCORE_STYLES[styleKey] || SCORE_STYLES.zero;
-  }
-
-  ws["!cols"] = [
-    { wch: 6 },
-    { wch: 12 },
-    { wch: 18 },
-    { wch: 14 },
-    { wch: 14 },
-    { wch: 10 },
-    { wch: 28 },
-    { wch: 14 },
-    { wch: 8 },
-    { wch: 10 },
-    { wch: 10 },
-  ];
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "CL Task Report".slice(0, 31));
-
-  const filename = buildExportFilename(moduleName, "xlsx");
-  XLSX.writeFile(wb, filename);
-  return { filename };
+  return styles;
 }

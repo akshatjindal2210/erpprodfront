@@ -1,3 +1,6 @@
+import writeXlsxFile from "write-excel-file/browser";
+import { formatDocDate } from "@/platform/utils/core/utilHelper";
+
 /** @typedef {{ key?: string, label: string, getValue?: (row: object) => unknown, format?: (value: unknown, row?: object) => string }} ExportColumn */
 
 /** @typedef {'csv' | 'xlsx' | 'pdf'} TableExportFormat */
@@ -22,16 +25,60 @@ function escapeCsvCell(value) {
   return s;
 }
 
-function cellText(row, column) {
-  const raw = column.getValue ? column.getValue(row) : row?.[column.key];
+const XLSX_DATE_FORMAT = "dd/mm/yyyy";
+const XLSX_NUMBER_FORMAT = "#,##0";
+
+function asXlsxNumber(value) {
+  const n = Number(value);
+  return { value: Number.isFinite(n) ? n : 0, format: XLSX_NUMBER_FORMAT };
+}
+
+function finishXlsxCell(value) {
+  if (value instanceof Date) {
+    return formatDocDate(value) || "";
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return asXlsxNumber(value);
+  }
+  return value;
+}
+
+function cellText(row, column, rowIndex) {
+  const raw = column.getValue ? column.getValue(row, rowIndex) : row?.[column.key];
   if (column.format) return column.format(raw, row);
   if (raw == null || raw === "") return "";
   return String(raw);
 }
 
-function buildMatrix(rows = [], columns = []) {
+function cellXlsxValue(row, column, rowIndex) {
+  if (typeof column.getXlsxValue === "function") {
+    return finishXlsxCell(column.getXlsxValue(row, rowIndex));
+  }
+
+  const raw = column.key != null ? row?.[column.key] : undefined;
+
+  if (column.type === "number") {
+    const n = Number(raw);
+    return asXlsxNumber(Number.isFinite(n) ? n : 0);
+  }
+  if (column.type === "date") {
+    if (!raw) return "";
+    if (column.format) return column.format(raw, row);
+    return formatDocDate(raw) || "";
+  }
+  if (typeof raw === "number" && Number.isFinite(raw)) return asXlsxNumber(raw);
+  if (typeof raw === "boolean") return raw;
+  if (raw == null || raw === "") return "";
+
+  if (column.format) return column.format(raw, row);
+  if (column.getValue) return finishXlsxCell(column.getValue(row, rowIndex));
+  return finishXlsxCell(raw);
+}
+
+function buildMatrix(rows = [], columns = [], { forXlsx = false } = {}) {
   const header = columns.map((c) => c.label);
-  const body = (rows || []).map((row) => columns.map((col) => cellText(row, col)));
+  const readCell = forXlsx ? cellXlsxValue : cellText;
+  const body = (rows || []).map((row, rowIndex) => columns.map((col) => readCell(row, col, rowIndex)));
   return { header, body };
 }
 
@@ -40,8 +87,62 @@ function downloadBlob(blob, filename) {
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+    link.remove();
+  }, 100);
+}
+
+function normalizeXlsxCellValue(value) {
+  if (value != null && typeof value === "object" && "value" in value) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return asXlsxNumber(value);
+  return value ?? "";
+}
+
+function toWriteCell(value, style) {
+  const base = normalizeXlsxCellValue(value);
+  if (!style) return base;
+  if (typeof base === "object" && base !== null && "value" in base) {
+    return { ...base, ...style };
+  }
+  return { value: base ?? "", ...style };
+}
+
+function applyRowStyles(rows, rowStyles) {
+  if (!rowStyles?.length) return rows;
+  return rows.map((row, rowIndex) => {
+    const styles = rowStyles[rowIndex];
+    if (!styles) return row;
+    return row.map((cell, colIndex) => (styles[colIndex] ? toWriteCell(cell, styles[colIndex]) : cell));
+  });
+}
+
+/** Download a single- or multi-sheet .xlsx file in the browser. */
+export async function downloadXlsxFile({ sheets, filename }) {
+  const payload = (sheets || []).map((sheet) => ({
+    sheet: String(sheet.name || "Sheet").slice(0, 31),
+    dateFormat: XLSX_DATE_FORMAT,
+    data: applyRowStyles(sheet.rows || [], sheet.rowStyles),
+  }));
+
+  if (!payload.length) throw new Error("No sheet data to export.");
+
+  const blob = payload.length === 1
+    ? await writeXlsxFile(payload[0].data, {
+      sheet: payload[0].sheet,
+      dateFormat: XLSX_DATE_FORMAT,
+    }).toBlob()
+    : await writeXlsxFile(payload, { dateFormat: XLSX_DATE_FORMAT }).toBlob();
+
+  downloadBlob(blob, filename);
+}
+
+function normalizeExportFormat(format) {
+  if (format === "excel") return "xlsx";
+  return format;
 }
 
 /** Filename-safe timestamp: 2026-06-11_14-30-45 */
@@ -88,17 +189,42 @@ function exportCsv({ rows, columns, filename, title, metaLines, includeMeta }) {
   downloadBlob(blob, filename);
 }
 
-async function exportXlsx({ rows, columns, filename, sheetName = "Report", footerRows = [], title, metaLines = [], includeMeta }) {
-  const XLSX = await import("xlsx");
-  const { header, body } = buildMatrix(rows, columns);
-  const aoa = includeMeta ? [...buildMetaAoa(title, metaLines), header, ...body] : [header, ...body];
+async function exportXlsx({
+  rows,
+  columns,
+  filename,
+  sheetName = "Report",
+  footerRows = [],
+  title,
+  metaLines = [],
+  includeMeta,
+  xlsxPreambleRows,
+  getXlsxRowStyles,
+}) {
+  const { header, body } = buildMatrix(rows, columns, { forXlsx: true });
+  let aoa = includeMeta ? [...buildMetaAoa(title, metaLines), header, ...body] : [header, ...body];
+
+  if (xlsxPreambleRows?.length) {
+    aoa = [...xlsxPreambleRows, [], ...aoa];
+  }
+
   if (footerRows?.length) {
     aoa.push([], ...footerRows);
   }
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
-  XLSX.writeFile(wb, filename);
+
+  let rowStyles = typeof getXlsxRowStyles === "function"
+    ? getXlsxRowStyles({ rows, columns, header, body })
+    : null;
+
+  if (rowStyles?.length && xlsxPreambleRows?.length) {
+    const prefix = xlsxPreambleRows.map(() => null);
+    rowStyles = [...prefix, null, ...rowStyles];
+  }
+
+  await downloadXlsxFile({
+    sheets: [{ name: sheetName, rows: aoa, rowStyles }],
+    filename,
+  });
 }
 
 function exportPdfViaPrint({ rows, columns, title, metaLines = [], footerRows = [], documentTitle, includeMeta }) {
@@ -195,8 +321,11 @@ export async function exportTableData({
   footerRows = [],
   sheetName,
   includeMeta = false,
+  xlsxPreambleRows,
+  getXlsxRowStyles,
 }) {
-  const fmt = TABLE_EXPORT_FORMATS[format];
+  const normalizedFormat = normalizeExportFormat(format);
+  const fmt = TABLE_EXPORT_FORMATS[normalizedFormat];
   if (!fmt) throw new Error(`Unsupported export format: ${format}`);
 
   const reportTitle = title ?? moduleName;
@@ -204,12 +333,12 @@ export async function exportTableData({
   const filename = buildExportFilename(moduleName, fmt.extension, exportedAt);
   const documentTitle = filename.replace(/\.[^.]+$/, "");
 
-  if (format === "csv") {
+  if (normalizedFormat === "csv") {
     exportCsv({ rows, columns, filename, title: reportTitle, metaLines, includeMeta });
-    return { filename, format };
+    return { filename, format: normalizedFormat };
   }
 
-  if (format === "xlsx") {
+  if (normalizedFormat === "xlsx") {
     await exportXlsx({
       rows,
       columns,
@@ -219,11 +348,13 @@ export async function exportTableData({
       title: reportTitle,
       metaLines,
       includeMeta,
+      xlsxPreambleRows,
+      getXlsxRowStyles,
     });
-    return { filename, format };
+    return { filename, format: normalizedFormat };
   }
 
-  if (format === "pdf") {
+  if (normalizedFormat === "pdf") {
     exportPdfViaPrint({
       rows,
       columns,
@@ -233,7 +364,7 @@ export async function exportTableData({
       documentTitle,
       includeMeta,
     });
-    return { filename, format };
+    return { filename, format: normalizedFormat };
   }
 
   throw new Error(`Export handler missing for: ${format}`);

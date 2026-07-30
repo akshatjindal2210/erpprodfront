@@ -13,6 +13,7 @@ import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import DataTable from "@/ui/primitives/DataTable";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
@@ -177,6 +178,16 @@ export default function QcCheckPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: allRows,
+        filteredRows,
+        serverFiltered: params.status !== "all" || Boolean(appliedSearch),
+      }),
+    [tempSearch, allRows, filteredRows, params.status, appliedSearch]
+  );
   const selectedRecord = useMemo(
     () => filteredRows.find((r) => rowKey(r) === selected) || null,
     [filteredRows, selected]
@@ -279,28 +290,11 @@ export default function QcCheckPage() {
 
   const headers = useMemo(
     () => [
-      [
-        "QC #",
-        "qc_check_uid",
-        (v) => (
-          <span className="font-bold text-sky-700 text-[10px]">{v != null ? v : "—"}</span>
-        ),
-        { fixed: true, width: "80px" },
-      ],
-      [
-        "Coil UID",
-        "coil_no_uid",
-        (v) => (
-          <span className="font-mono text-[10px] font-bold text-slate-800 truncate block" title={v || ""}>
-            {v || "—"}
-          </span>
-        ),
-        { width: "220px" },
-      ],
-      [
-        "Coil Count",
-        "coil_count",
-        (v, row) => (
+      ["QC #", "qc_check_uid", (v) => (<span className="font-bold text-sky-700 text-[10px]">{v != null ? v : "—"}</span>), { fixed: true, width: "80px" }],
+      ["Item Code", "item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { fixed: true, width: "200px" }],
+      ["Description", "item_desc", (v) => <span className="text-[11px] text-slate-600 truncate block">{v || "—"}</span>, { width: "220px" }],
+      ["Coil UID", "coil_no_uid", (v) => (<span className="font-mono text-[10px] font-bold text-slate-800 truncate block" title={v || ""}>{v || "—"}</span>), { width: "220px" }],
+      ["Coil Count", "coil_count", (v, row) => (
           <span className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded bg-indigo-50 text-indigo-700 text-[10px] font-black tabular-nums border border-indigo-100">
             {v != null && v !== "" ? Number(v) : row?.is_batch_pending ? 0 : 1}
           </span>
@@ -308,18 +302,11 @@ export default function QcCheckPage() {
         { width: "100px" },
       ],
       ["MRN", "mrn_no", (v) => <span className="font-bold text-slate-800 text-[10px]">{v ?? "—"}</span>, { width: "90px" }],
-      [
-        "Mode",
-        "sticker_mode",
-        (v) => {
+      ["Mode", "sticker_mode", (v) => {
           const batch = String(v || "coil").toLowerCase() === "batch";
           return (
             <span
-              className={`px-2 py-0.5 text-[9px] font-black uppercase border ${
-                batch
-                  ? "bg-violet-50 text-violet-700 border-violet-200"
-                  : "bg-slate-50 text-slate-600 border-slate-200"
-              }`}
+              className={`px-2 py-0.5 text-[9px] font-black uppercase border ${batch ? "bg-violet-50 text-violet-700 border-violet-200" : "bg-slate-50 text-slate-600 border-slate-200"}`}
             >
               {batch ? "Batch" : "Coil"}
             </span>
@@ -327,48 +314,19 @@ export default function QcCheckPage() {
         },
         { width: "90px" },
       ],
-      [
-        "Heat No.",
-        "heat_no",
-        (v) => <span className="font-mono text-[10px] font-bold text-amber-700">{v || "—"}</span>,
-        { width: "120px" },
-      ],
-      ["Item", "item_code", (v) => <span className="text-slate-700 text-[10px] uppercase">{v || "—"}</span>, { width: "120px" }],
-      [
-        "Qty",
-        "qty",
-        (v) => (
+      ["Heat No.", "heat_no", (v) => <span className="font-mono text-[10px] font-bold text-amber-700">{v || "—"}</span>, { width: "120px" }],
+      ["Qty", "qty", (v) => (
           <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
             {v != null ? Number(v).toLocaleString() : "0"}
           </span>
         ),
         { width: "90px" },
       ],
-      ["Status", "status", (v) => <StatusBadge status={v} />, { width: "140px" }],
-      [
-        "Failure Reason",
-        "failure_reason",
-        (v) => <span className="text-rose-700 text-[10px] truncate block">{v || "—"}</span>,
-        { width: "180px" },
-      ],
-      [
-        "Inspected By",
-        "inspected_by_name",
-        (v, row) => <span className="text-[10px] text-slate-500">{v || row?.inspected_by || "—"}</span>,
-        { width: "110px" },
-      ],
-      [
-        "Inspected At",
-        "inspected_at",
-        (v) => <span className="text-[10px] text-slate-400">{v ? formatDateTime(v) : "—"}</span>,
-        { width: "150px" },
-      ],
-      [
-        "Created At",
-        "created_at",
-        (v) => <span className="text-[10px] text-slate-400">{v ? formatDateTime(v) : "—"}</span>,
-        { width: "150px" },
-      ],
+      ["Status", "status", (v) => <StatusBadge status={v} />, { width: "160px" }],
+      ["Failure Reason", "failure_reason", (v) => <span className="text-rose-700 text-[10px] truncate block">{v || "—"}</span>, { width: "180px" }],
+      ["Inspected By", "inspected_by_name", (v, row) => <span className="text-[10px] text-slate-500">{v || row?.inspected_by || "—"}</span>, { width: "110px" }],
+      ["Inspected At", "inspected_at", (v) => <span className="text-[10px] text-slate-400">{v ? formatDateTime(v) : "—"}</span>, { width: "150px" }],
+      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400">{v ? formatDateTime(v) : "—"}</span>, { width: "150px" }],
     ],
     []
   );
@@ -622,6 +580,11 @@ export default function QcCheckPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by coil, MRN, heat, or item"
             searchLabel={isPendingTab ? "Search Pending" : "Search Register"}
+            searchVariant="quick"
+            applyOnSearchEnter={false}
+            {...(isPendingTab
+              ? { instantClientExtras: true, showSearchButton: false }
+              : { applyExtrasOnChange: true, showSearchButton: false })}
           />
         </ListPageFilterStrip>
 
@@ -668,11 +631,12 @@ export default function QcCheckPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} — {isPendingTab ? "Pending Work" : "QC Register"}
-          </span>
-        </div>
+        <RmStoreListFooter
+          shown={items.length}
+          total={totalItems}
+          label={isPendingTab ? "Pending Work" : "QC Register"}
+          {...footerFilter}
+        />
       </div>
 
       <QcScanGateModal

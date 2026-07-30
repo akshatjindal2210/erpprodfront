@@ -16,6 +16,7 @@ import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import DataTable from "@/ui/primitives/DataTable";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -213,6 +214,21 @@ export default function StoreInPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
+  const inwardFooterLabel = isStoreIn
+    ? "Store-In Entries"
+    : isPackingCoilView
+      ? "Unassigned Coils"
+      : "Unassigned MRNs";
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: activeSourceRows,
+        filteredRows,
+        serverFiltered: Boolean(appliedSearch),
+      }),
+    [tempSearch, activeSourceRows, filteredRows, appliedSearch]
+  );
 
   const getRowId = useCallback(
     (row) => {
@@ -288,29 +304,15 @@ export default function StoreInPage() {
   };
 
   const inMrnMeta = pipeMetaRenderers("font-bold text-slate-800 text-[10px] leading-tight");
-  const inItemMeta = pipeMetaRenderers("text-slate-600 text-[10px] font-medium leading-tight");
   const inQtyMeta = pipeMetaRenderers("text-emerald-700 text-[10px] font-bold tabular-nums leading-tight");
 
   const STORE_IN_HEADERS = [
       ["Store In UID", "in_uid", (v) => <span className="font-bold text-indigo-600 text-[10px]">{v}</span>, { fixed: true, width: "100px" }],
-      [
-        "MRN Refs",
-        "mrn_refs",
-        inMrnMeta.table,
-        { fixed: true, width: "140px", cardRender: inMrnMeta.card, copyValue: inMrnMeta.copyValue },
-      ],
-      [
-        "Heat Nos",
-        "heat_nos",
-        (v) => <span className="font-mono text-[10px] font-bold text-amber-700">{v || "—"}</span>,
-        { width: "140px" },
-      ],
-      [
-        "Item Code",
-        "item_codes",
-        inItemMeta.table,
-        { width: "160px", cardRender: inItemMeta.card, copyValue: inItemMeta.copyValue },
-      ],
+      ["MRN", "mrn_refs", inMrnMeta.table, { fixed: true, width: "140px", cardRender: inMrnMeta.card, copyValue: inMrnMeta.copyValue }],
+      ["MRN UID", "mrn_uids", inMrnMeta.table, { fixed: true, width: "160px", cardRender: inMrnMeta.card, copyValue: inMrnMeta.copyValue }],
+      ["Heat Nos", "heat_nos", (v) => <span className="font-mono text-[10px] font-bold text-amber-700">{v || "—"}</span>, { width: "140px" }],
+      ["Item Code", "item_codes", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { fixed: true, width: "140px" }],
+      ["Description", "item_descs", (v) => <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>, { width: "220px" }],
       [
         "Qty",
         "qtys",
@@ -344,7 +346,11 @@ export default function StoreInPage() {
       ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
       ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
       ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+      ["Updated At", "updated_at", (v, row) => (
+        <span className="text-[10px] text-slate-400 font-medium">
+          {row?.updated_by_name ? formatDateTime(v) : "—"}
+        </span>
+      ), { width: "150px" }],
       ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
       ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
@@ -369,13 +375,24 @@ export default function StoreInPage() {
         { width: "140px" },
       ],
       [
-        "Item Details",
+        "Item Code",
         "item_code",
         (v) => (
-          <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v || ""}>
+          <span className="text-slate-700 font-bold text-[10px] uppercase truncate" title={v || ""}>
             {v || "—"}
           </span>
         ),
+        { width: "120px" },
+      ],
+      [
+        "Description",
+        "item_desc",
+        (v) => (
+          <span className="text-slate-600 text-[10px] truncate block" title={v || ""}>
+            {v || "—"}
+          </span>
+        ),
+        { width: "200px" },
       ],
       [
         "Quantity",
@@ -422,14 +439,24 @@ export default function StoreInPage() {
         { width: "110px" },
       ],
       [
-        "Item",
+        "Item Code",
         "item_code",
         (v) => (
-          <span className="text-slate-500 text-[10px] uppercase truncate" title={v || ""}>
+          <span className="text-slate-700 font-bold text-[10px] uppercase truncate" title={v || ""}>
             {v || "—"}
           </span>
         ),
-        { width: "140px" },
+        { width: "120px" },
+      ],
+      [
+        "Description",
+        "item_desc",
+        (v) => (
+          <span className="text-slate-600 text-[10px] truncate block" title={v || ""}>
+            {v || "—"}
+          </span>
+        ),
+        { width: "180px" },
       ],
       [
         "Qty",
@@ -768,6 +795,8 @@ export default function StoreInPage() {
                   ? "Search coil UID or MRN"
                   : "Search MRN"
             }
+            searchVariant="quick"
+            applyOnSearchEnter={false}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
           />
@@ -798,18 +827,18 @@ export default function StoreInPage() {
               {...(isStoreIn ? tableHotkeyProps : {})}
               cardConfig={
                 isStoreIn
-                  ? { titleKey: "mrn_refs", badgeIndices: [8], detailKeys: ["item_codes", "qtys", "total_qty"], footerKey: "created_at" }
+                  ? { titleKey: "mrn_refs", badgeIndices: [10], detailKeys: ["mrn_uids", "item_codes", "item_descs", "qtys", "total_qty"], footerKey: "created_at" }
                   : isPackingCoilView
                     ? {
                         titleKey: "coil_no_uid",
-                        badgeIndices: [4],
-                        detailKeys: ["mrn_no", "heat_no", "item_code", "qty"],
+                        badgeIndices: [5],
+                        detailKeys: ["mrn_no", "heat_no", "item_code", "item_desc", "qty"],
                         footerKey: "created_at",
                       }
                     : {
                         titleKey: "mrn_no",
-                        badgeIndices: [5],
-                        detailKeys: ["mrn_uid", "heat_nos", "item_code", "stock_qty", "coil_count"],
+                        badgeIndices: [6],
+                        detailKeys: ["mrn_uid", "heat_nos", "item_code", "item_desc", "stock_qty", "coil_count"],
                         footerKey: "created_at",
                       }
               }
@@ -817,19 +846,12 @@ export default function StoreInPage() {
           </div>
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {isStoreIn
-              ? `Showing ${items.length} of ${totalItems} store-in entries`
-              : isPackingCoilView
-                ? `Showing ${items.length} of ${totalItems} unassigned coils`
-                : `Showing ${items.length} of ${totalItems} unassigned MRNs`}
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <RmStoreListFooter
+          shown={items.length}
+          total={totalItems}
+          label={inwardFooterLabel}
+          {...footerFilter}
+        />
       </div>
 
       <InwardModal

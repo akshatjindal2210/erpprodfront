@@ -4,11 +4,11 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { RefreshCw, X, ShieldX, Database, ClipboardList, LogOut } from "lucide-react";
 import { toast } from "react-toastify";
 
-import { qcRejectionService } from "@/apps/rmstore/lib/services/qcRejection";
+import { rmRejectionService } from "@/apps/rmstore/lib/services/rmRejection";
 import { uniqueBillNos, parseSavedBillNos, formatBillNosForSave, fetchBillOptions, getBillByNo } from "@/apps/rmstore/lib/utils/rejectionBillOptions";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import GenerateStoreOutDrawer from "@/apps/rmstore/modules/qc-rejection/GenerateStoreOutDrawer";
+import GenerateStoreOutDrawer from "@/apps/rmstore/modules/rm-rejection/GenerateStoreOutDrawer";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
@@ -24,13 +24,82 @@ import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/ui/common/list/ListPageSearchField";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 
-const MODULE = "rm_qc_rejection";
+const MODULE = "rm_rejection";
 const PAGE_TABS = { REGISTER: "register", PENDING: "pending" };
 
+const PENDING_SOURCE = {
+  QC_CHECK: "qc_check",
+  IN_PROCESS: "in_process",
+};
+
+const PENDING_TYPE_FILTER = {
+  ALL: "all",
+  QC_CHECK: "qc_check",
+  IN_PROCESS: "in_process",
+};
+
+function rowPendingTypeKey(row) {
+  if (row?.pending_source === PENDING_SOURCE.QC_CHECK) return PENDING_TYPE_FILTER.QC_CHECK;
+  if (row?.pending_source === PENDING_SOURCE.IN_PROCESS) return PENDING_TYPE_FILTER.IN_PROCESS;
+  return PENDING_TYPE_FILTER.ALL;
+}
+
+function pendingTypeDisplay(row) {
+  if (row?.pending_source === PENDING_SOURCE.QC_CHECK) {
+    return { label: "QC Check", className: "bg-sky-50 text-sky-700 border-sky-100" };
+  }
+  if (row?.pending_source === PENDING_SOURCE.IN_PROCESS) {
+    return { label: "In-Process", className: "bg-violet-50 text-violet-700 border-violet-100" };
+  }
+  return { label: "—", className: "bg-slate-50 text-slate-400 border-slate-100" };
+}
+
+function pendingCoilUids(row) {
+  const coils = Array.isArray(row?.coils) ? row.coils : [];
+  const fromCoils = coils.map((c) => String(c?.coil_no_uid || "").trim()).filter(Boolean);
+  if (fromCoils.length) return fromCoils;
+
+  const raw = String(row?.coil_no_uid || "").trim();
+  if (!raw) return [];
+  if (raw.includes(",")) {
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [raw];
+}
+
+function pendingCoilCount(row) {
+  const uids = pendingCoilUids(row);
+  return Math.max(Number(row?.coil_count) || 0, uids.length);
+}
+
+function pendingInspectorName(row) {
+  return (
+    row?.inspected_by_name ||
+    row?.inspected_by ||
+    row?.approved_by ||
+    row?.created_by ||
+    null
+  );
+}
+
+function pendingInspectedAt(row) {
+  return row?.inspected_at || row?.approved_at || row?.created_at || null;
+}
+
 function rowKey(row) {
+  if (row?.pending_source === PENDING_SOURCE.IN_PROCESS && row?.ipr_uid != null) {
+    return `ipr-${row.ipr_uid}`;
+  }
+  if (row?.pending_source === PENDING_SOURCE.QC_CHECK && row?.qc_check_uid != null) {
+    return `qc-${row.qc_check_uid}`;
+  }
   if (row?.is_virtual_pending || row?.qc_reject_uid == null) {
-    return `pending-${row?.qc_check_uid}`;
+    return `pending-${row?.qc_check_uid ?? row?.ipr_uid ?? "x"}`;
   }
   return String(row.qc_reject_uid);
 }
@@ -39,7 +108,23 @@ function isApproved(row) {
   return row?.approved === true || row?.approved === "t" || row?.approved === 1;
 }
 
-export default function QcRejectionPage() {
+function inCreatedRange(row, fromDate, toDate) {
+  const raw = row?.created_at;
+  if (!raw) return true;
+  const t = new Date(raw).getTime();
+  if (Number.isNaN(t)) return true;
+  if (fromDate) {
+    const from = new Date(`${fromDate}T00:00:00`).getTime();
+    if (t < from) return false;
+  }
+  if (toDate) {
+    const to = new Date(`${toDate}T23:59:59.999`).getTime();
+    if (t > to) return false;
+  }
+  return true;
+}
+
+export default function RmRejectionPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
   const canAddBill = useMemo(() => canAccess(MODULE, "add").allowed, [canAccess]);
@@ -54,6 +139,7 @@ export default function QcRejectionPage() {
   const [params, setParams] = useState({
     pageSize: 500,
     status: "pending",
+    pendingType: PENDING_TYPE_FILTER.ALL,
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
     sortKey: "qc_check_uid",
@@ -70,8 +156,7 @@ export default function QcRejectionPage() {
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } =
-    useAppliedListSearch();
+  const { tempSearch, setTempSearch, resetSearch } = useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
@@ -87,6 +172,7 @@ export default function QcRejectionPage() {
     setParams((prev) => ({
       ...prev,
       status: tab === PAGE_TABS.PENDING ? "pending" : "all",
+      pendingType: PENDING_TYPE_FILTER.ALL,
       sortKey: tab === PAGE_TABS.PENDING ? "qc_check_uid" : "qc_reject_uid",
       sortDir: "desc",
     }));
@@ -95,32 +181,23 @@ export default function QcRejectionPage() {
   const fetchRows = useCallback(async () => {
     setLoading(true);
     try {
-      const listStatus = isPendingTab ? "pending" : params.status === "pending" ? "all" : params.status;
-      const base = {
-        filters: {
-          ...(!isPendingTab && params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
-          ...(!isPendingTab && params.toDate && { to_date: `${params.toDate} 23:59:59` }),
-          status: listStatus,
-        },
-      };
       const { data } = await fetchAllListPages(async (page, limit) => {
-        const body = await qcRejectionService.getAll({
-          ...base,
+        const body = await rmRejectionService.getAll({
+          filters: { status: isPendingTab ? "pending" : "all" },
           page,
           limit,
-          ...(appliedSearch && { search: appliedSearch }),
         });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
       setDisplayLimit(100);
     } catch (err) {
-      toast.error(err?.message || "Could not load the QC rejections. Please try again.");
+      toast.error(err?.message || "Could not load the rejections. Please try again.");
       setAllRows([]);
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.fromDate, params.toDate, params.status, appliedSearch, isPendingTab]);
+  }, [params.pageSize, isPendingTab]);
 
   useEffect(() => {
     fetchRows();
@@ -128,21 +205,55 @@ export default function QcRejectionPage() {
 
   const filteredRows = useMemo(() => {
     let data = allRows;
+    if (isPendingTab) {
+      if (params.pendingType !== PENDING_TYPE_FILTER.ALL) {
+        data = data.filter((row) => rowPendingTypeKey(row) === params.pendingType);
+      }
+    } else {
+      if (params.status === "approved") {
+        data = data.filter((row) => isApproved(row));
+      } else if (params.status === "unauthorized") {
+        data = data.filter((row) => !isApproved(row));
+      }
+      data = data.filter((row) => inCreatedRange(row, params.fromDate, params.toDate));
+    }
     if (String(tempSearch || "").trim()) {
-      data = applyClientSearch(allRows, tempSearch, { skipSort: !!params.sortKey });
+      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+  }, [
+    allRows,
+    isPendingTab,
+    params.pendingType,
+    params.status,
+    params.fromDate,
+    params.toDate,
+    tempSearch,
+    params.sortKey,
+    params.sortDir,
+  ]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: allRows,
+        filteredRows,
+      }),
+    [tempSearch, allRows, filteredRows]
+  );
   const selectedRecord = useMemo(
     () => filteredRows.find((r) => rowKey(r) === selected) || null,
     [filteredRows, selected]
   );
 
   const canGenerateStoreOut =
-    isPendingTab && selectedRecord?.is_virtual_pending && selectedRecord?.qc_check_uid != null;
+    isPendingTab &&
+    selectedRecord?.is_virtual_pending &&
+    (selectedRecord?.pending_source === PENDING_SOURCE.QC_CHECK ||
+      selectedRecord?.pending_source === PENDING_SOURCE.IN_PROCESS);
 
   const canEditBill =
     !isPendingTab &&
@@ -174,7 +285,7 @@ export default function QcRejectionPage() {
     const payload = formatBillNosForSave(billDraftNos);
     setBillSaving(true);
     try {
-      const res = await qcRejectionService.updateBill(id, payload);
+      const res = await rmRejectionService.updateBill(id, payload);
       const saved = res?.data;
       setBillDraftNos(parseSavedBillNos(saved?.bill_no ?? payload));
       toast.success(res?.message || "Bill number saved successfully.");
@@ -195,54 +306,85 @@ export default function QcRejectionPage() {
 
   const pendingHeaders = useMemo(
     () => [
-      [
-        "QC #",
-        "qc_check_uid",
-        (v) => <span className="font-bold text-sky-700 text-[10px]">{v != null ? v : "—"}</span>,
-        { fixed: true, width: "80px" },
-      ],
-      [
-        "Coil UID",
-        "coil_no_uid",
-        (v) => <span className="font-mono text-[10px] font-bold text-slate-800">{v || "—"}</span>,
-        { width: "160px" },
-      ],
-      ["MRN", "mrn_no", (v) => <span className="font-bold text-slate-800 text-[10px]">{v ?? "—"}</span>, { width: "90px" }],
-      [
-        "Heat No.",
-        "heat_no",
-        (v) => <span className="font-mono text-[10px] font-bold text-amber-700">{v || "—"}</span>,
-        { width: "120px" },
-      ],
-      ["Item", "item_code", (v) => <span className="text-slate-700 text-[10px] uppercase">{v || "—"}</span>, { width: "140px" }],
-      [
-        "Qty",
-        "qty",
-        (v) => (
-          <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
-            {v != null ? Number(v).toLocaleString() : "0"}
+      ["Ref #", "qc_check_uid", (v, row) => (
+          <span className="font-bold text-sky-700 text-[10px]">
+            {row?.ipr_uid != null ? `IPR-${row.ipr_uid}` : v != null ? `QC-${v}` : "—"}
           </span>
         ),
         { width: "90px" },
       ],
-      [
-        "Failure Reason",
-        "failure_reason",
-        (v, row) => (
+      ["Type", "pending_type", (_v, row) => {
+          const t = pendingTypeDisplay(row);
+          return (
+            <span
+              className={`inline-flex px-2 py-0.5 text-[9px] font-black uppercase rounded-full border ${t.className}`}
+            >
+              {t.label}
+            </span>
+          );
+        },
+        { fixed: true, width: "110px" },
+      ],
+      
+      ["Coils", "coil_count", (_v, row) => (
+          <span className="font-bold tabular-nums text-[11px] text-slate-800">
+            {pendingCoilCount(row) || "—"}
+          </span>
+        ),
+        { width: "60px" },
+      ],
+      ["Coil UID", "coil_no_uid", (_v, row) => {
+          const uids = pendingCoilUids(row);
+          const label = uids.join(", ");
+          return (
+            <span
+              className="font-mono text-[10px] font-bold text-slate-800 truncate block"
+              title={label || ""}
+            >
+              {label || "—"}
+            </span>
+          );
+        },
+        { width: "180px" },
+      ],
+      ["MRN", "mrn_no", (v, row) => <span className="font-bold text-slate-800 text-[10px]">{v ?? row?.mrn_refs ?? "—"}</span>, { width: "90px" }],
+      ["Heat No.", "heat_no", (v, row) => (
+          <span className="font-mono text-[10px] font-bold text-amber-700">{v || row?.heat_nos || "—"}</span>
+        ),
+        { width: "120px" },
+      ],
+      ["Item", "item_code", (v, row) => (
+          <span className="text-slate-700 text-[10px] uppercase">{v || row?.item_codes || "—"}</span>
+        ),
+        { width: "140px" },
+      ],
+      ["Qty", "qty", (v, row) => (
+          <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
+            {Number(v ?? row?.total_qty ?? 0).toLocaleString()}
+          </span>
+        ),
+        { width: "90px" },
+      ],
+      ["Failure Reason", "failure_reason", (v, row) => (
           <span className="text-rose-700 text-[10px] truncate block">{v || row?.reason || "—"}</span>
         ),
         { width: "220px" },
       ],
-      [
-        "Inspected By",
-        "inspected_by_name",
-        (v, row) => <span className="text-[10px] text-slate-500">{v || row?.inspected_by || "—"}</span>,
-        { width: "110px" },
+      ["Inspected By", "inspected_by_name", (_v, row) => (
+          <span className="text-[10px] font-semibold text-slate-600 uppercase truncate block" title={pendingInspectorName(row) || ""}>
+            {pendingInspectorName(row) || "—"}
+          </span>
+        ),
+        { width: "120px" },
       ],
-      [
-        "Inspected At",
-        "inspected_at",
-        (v) => <span className="text-[10px] text-slate-400">{v ? formatDateTime(v) : "—"}</span>,
+      ["Inspected At", "inspected_at", (_v, row) => {
+          const at = pendingInspectedAt(row);
+          return (
+            <span className="text-[10px] text-slate-400 font-medium">
+              {at ? formatDateTime(at) : "—"}
+            </span>
+          );
+        },
         { width: "150px" },
       ],
     ],
@@ -286,13 +428,27 @@ export default function QcRejectionPage() {
   const headers = isPendingTab ? pendingHeaders : registerHeaders;
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
-    moduleName: isPendingTab ? "RM QC Rejection Pending" : "RM QC Rejection Register",
+    moduleName: isPendingTab ? "RM Rejection Pending" : "RM Rejection Register",
     rows: filteredRows,
     headers,
   });
 
   const extraFilters = useMemo(() => {
-    if (isPendingTab) return [];
+    if (isPendingTab) {
+      return [
+        {
+          label: "Type",
+          key: "pendingType",
+          value: params.pendingType,
+          preserveOrder: true,
+          options: [
+            { label: "All", value: PENDING_TYPE_FILTER.ALL },
+            { label: "QC Check", value: PENDING_TYPE_FILTER.QC_CHECK },
+            { label: "In-Process", value: PENDING_TYPE_FILTER.IN_PROCESS },
+          ],
+        },
+      ];
+    }
     return [
       {
         label: "Status",
@@ -305,7 +461,7 @@ export default function QcRejectionPage() {
         ],
       },
     ];
-  }, [isPendingTab, params.status]);
+  }, [isPendingTab, params.pendingType, params.status]);
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
@@ -363,7 +519,11 @@ export default function QcRejectionPage() {
                   Selected:{" "}
                   {selectedRecord.qc_reject_uid != null
                     ? `REJECT-${selectedRecord.qc_reject_uid}`
-                    : `QC Check #${selectedRecord.qc_check_uid}`}
+                    : selectedRecord.pending_source === PENDING_SOURCE.IN_PROCESS
+                      ? `In-Process #${selectedRecord.ipr_uid}`
+                      : selectedRecord.pending_source === PENDING_SOURCE.QC_CHECK
+                        ? `QC Check #${selectedRecord.qc_check_uid}`
+                        : "Pending"}
                 </span>
                 <button
                   type="button"
@@ -422,20 +582,31 @@ export default function QcRejectionPage() {
             fromDate={params.fromDate}
             toDate={params.toDate}
             extraFilters={extraFilters}
+            instantClientExtras={isPendingTab}
+            applyExtrasOnChange={!isPendingTab}
+            showSearchButton={false}
+            applyOnSearchEnter={false}
+            searchVariant="quick"
             onApply={(data) => {
-              applySearchFromInput();
+              setSelected(null);
+              setDisplayLimit(100);
               setParams((prev) => ({
                 ...prev,
                 fromDate: data.fromDate,
                 toDate: data.toDate,
-                ...(!isPendingTab && { status: data.approvedStatus || prev.status }),
+                ...(isPendingTab
+                  ? { pendingType: data.pendingType || PENDING_TYPE_FILTER.ALL }
+                  : { status: data.approvedStatus || prev.status }),
               }));
             }}
             onReset={() => {
               resetSearch();
+              setSelected(null);
+              setDisplayLimit(100);
               setParams({
                 pageSize: 500,
                 status: isPendingTab ? "pending" : "all",
+                pendingType: PENDING_TYPE_FILTER.ALL,
                 fromDate: dateFilterDefaults.from,
                 toDate: dateFilterDefaults.to,
                 sortKey: isPendingTab ? "qc_check_uid" : "qc_reject_uid",
@@ -482,17 +653,23 @@ export default function QcRejectionPage() {
             totalItems={totalItems}
             cardConfig={
               isPendingTab
-                ? { titleKey: "coil_no_uid", badgeIndices: [6], detailIndices: [2, 3, 4], footerKey: "inspected_at" }
+                ? {
+                    titleKey: "coil_no_uid",
+                    badgeIndices: [1],
+                    detailKeys: ["coil_count", "coil_no_uid", "mrn_no", "failure_reason"],
+                    footerKey: "inspected_at",
+                  }
                 : { titleKey: "qc_reject_uid", badgeIndices: [9], detailIndices: [1, 2, 4], footerKey: "created_at" }
             }
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems}
-          </span>
-        </div>
+        <RmStoreListFooter
+          shown={items.length}
+          total={totalItems}
+          label={isPendingTab ? "Pending Rejections" : "Register Entries"}
+          {...footerFilter}
+        />
       </div>
 
       <GenerateStoreOutDrawer

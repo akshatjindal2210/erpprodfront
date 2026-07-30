@@ -8,7 +8,8 @@ import "@/apps/ims/lib/config/inwardUi.theme.css";
 
 import { coilService } from "@/apps/rmstore/lib/services/coil";
 import { mrnService } from "@/apps/rmstore/lib/services/mrn";
-import { inProcessRequestService, IPR_REQUEST_TYPE, IPR_DOWNSTREAM } from "@/apps/rmstore/lib/services/inProcessRequest";
+import { inProcessRequestService, IPR_REQUEST_TYPE, IPR_DOWNSTREAM, IPR_REQUEST_TYPE_LABEL } from "@/apps/rmstore/lib/services/inProcessRequest";
+import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import { extractCoilUid, normalizeScanInput, coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
@@ -60,21 +61,21 @@ const TYPE_PICKER_ACCENT = {
 const REQUEST_TYPE_OPTIONS = [
   {
     id: IPR_REQUEST_TYPE.REJECTION,
-    title: "In-process Rejection",
+    title: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.REJECTION],
     description: "Reject from the machine",
     accent: "rose",
     Icon: ShieldAlert,
   },
   {
     id: IPR_REQUEST_TYPE.STORE_IN,
-    title: "Store In Request",
+    title: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.STORE_IN],
     description: "Return leftover coils",
     accent: "teal",
     Icon: ArrowDownToLine,
   },
   {
     id: IPR_REQUEST_TYPE.CONSUME,
-    title: "Consume Request",
+    title: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.CONSUME],
     description: "Coils fully used up",
     accent: "amber",
     Icon: PackageMinus,
@@ -237,11 +238,8 @@ export default function InProcessRequestModal({
   }, []);
   const { showScanToast, showScanSuccess } = useScanSnackbarActions(setSnackbar, scanToastRef);
 
-  const requestLabel = isStoreIn
-    ? "Store In Request"
-    : isConsume
-      ? "Consume Request"
-      : "In-process Request";
+  const requestLabel =
+    IPR_REQUEST_TYPE_LABEL[requestType] || IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.REJECTION];
   const title = isView
     ? `View ${requestLabel}`
     : isApprove
@@ -1024,10 +1022,17 @@ export default function InProcessRequestModal({
     try {
       let res;
       if (isApprove && editData?.ipr_uid) {
-        res = await inProcessRequestService.approve(editData.ipr_uid, {
-          ...payload,
-          approved: resolveApproved !== undefined ? Boolean(resolveApproved) : true,
-        });
+        if (approvedFlag === false) {
+          res = await inProcessRequestService.update(editData.ipr_uid, {
+            ...payload,
+            approved: false,
+          });
+        } else {
+          res = await inProcessRequestService.approve(editData.ipr_uid, {
+            ...payload,
+            approved: resolveApproved !== undefined ? Boolean(resolveApproved) : true,
+          });
+        }
       } else if (isEdit && editData?.ipr_uid) {
         res = await inProcessRequestService.update(editData.ipr_uid, payload);
       } else {
@@ -1099,7 +1104,8 @@ export default function InProcessRequestModal({
         box: "bg-rose-50 border-rose-200",
         icon: "text-rose-500",
         text: "text-rose-800",
-        message: "Approved and queued for Store Out as a pending removal.",
+        message:
+          "Approved and queued in RM Rejection Pending. Generate Store Out from the Rejection module.",
       },
       [IPR_DOWNSTREAM.CONSUMED]: {
         box: "bg-amber-50 border-amber-200",
@@ -1110,40 +1116,16 @@ export default function InProcessRequestModal({
     }[editData?.downstream] || null;
 
   const footerContent = showTypePicker ? (
-    <div className="flex items-center justify-end gap-3 w-full flex-wrap">
-      <button type="button" onClick={onClose} className="px-5 py-2.5 text-sm font-bold text-slate-500">
-        Cancel
-      </button>
-    </div>
+    <RmStoreDrawerFooter onClose={onClose} cancelOnly />
   ) : (
-    <div className="flex items-center justify-end gap-3 w-full flex-wrap">
-      <button
-        type="button"
-        onClick={onClose}
-        disabled={saving}
-        className="px-5 py-2.5 text-sm font-bold text-slate-500"
-      >
-        {readOnly ? "Close" : "Cancel"}
-      </button>
-      {!readOnly && (
-        <button
-          type="button"
-          onClick={() => handleSave()}
-          disabled={saving}
-          className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-indigo-100"
-        >
-          {saving ? (
-            <>
-              <Loader2 size={18} className="animate-spin" /> Saving…
-            </>
-          ) : (
-            <>
-              <Check size={18} /> Save
-            </>
-          )}
-        </button>
-      )}
-    </div>
+    <RmStoreDrawerFooter
+      onClose={onClose}
+      loading={saving}
+      readOnly={readOnly}
+      isApprove={isApprove}
+      onSave={handleSave}
+      approveLabel="Authorize"
+    />
   );
 
   const scanControls = (tone = "amber", { gate = false } = {}) => {
@@ -1204,7 +1186,7 @@ export default function InProcessRequestModal({
         onClose={onClose}
         onSubmit={() => {
           if (showTypePicker || readOnly) return;
-          handleSave();
+          handleSave(isApprove ? true : undefined);
         }}
         title={title}
         description={drawerDescription}

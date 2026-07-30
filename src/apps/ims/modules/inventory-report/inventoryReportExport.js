@@ -27,6 +27,7 @@ export function buildInventoryExportColumns() {
   return INVENTORY_REPORT_TABLE_COLUMNS.map(({ label, key, type }) => ({
     label,
     key,
+    type,
     format: (v) => formatInventoryTableCell(type, v),
   }));
 }

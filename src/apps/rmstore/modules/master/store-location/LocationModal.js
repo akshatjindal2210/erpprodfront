@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Check, AlertCircle, Loader2, Shield, MapPin } from "lucide-react";
+import { AlertCircle, Loader2, Shield, MapPin } from "lucide-react";
 import { toast } from "react-toastify";
 
 // Services & Components
 import { storeLocationService as locationService } from "@/apps/rmstore/lib/services/storeLocation";
 import { productionErpHelpers } from "@/apps/rmstore/lib/services/production";
+import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
@@ -149,30 +150,19 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
   };
 
   const drawerFooter = (
-    <div className="flex items-center justify-end gap-3 w-full">
-      <button type="button" onClick={onClose} disabled={loading} className="px-5 py-2.5 text-sm font-bold text-slate-500">
-        Cancel
-      </button>
-      <button
-        type="button"
-        onClick={() => handleSave()}
-        disabled={loading}
-        className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
-      >
-        {loading ? (
-          <><Loader2 size={18} className="animate-spin" /> Processing</>
-        ) : (
-          <><Check size={18} /> Save</>
-        )}
-      </button>
-    </div>
+    <RmStoreDrawerFooter
+      onClose={onClose}
+      loading={loading}
+      isApprove={isApprove}
+      onSave={handleSave}
+    />
   );
 
   return (
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={() => handleSave()}
+      onSubmit={() => handleSave(isApprove ? true : undefined)}
       title={isApprove ? "Approve Location" : isEdit ? "Edit Location" : "New Location"}
       description="Manage warehouse storage locations"
       footer={drawerFooter}

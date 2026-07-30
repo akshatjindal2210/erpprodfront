@@ -19,7 +19,8 @@ import DataTable from "@/ui/primitives/DataTable";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
-import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import { MasterSelectionBanner, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailGrid, MasterDetailKV, MasterDetailProse } from "@/apps/ims/modules/master/MasterDetailLayout";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
@@ -250,6 +251,16 @@ export default function MrnPortalPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
+
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: allRows,
+        filteredRows,
+      }),
+    [tempSearch, allRows, filteredRows]
+  );
 
   const selectedRecord = useMemo(() => {
     if (selected == null) return null;
@@ -509,6 +520,8 @@ export default function MrnPortalPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by document, lot, or MRN"
             searchLabel="MRN Search"
+            searchVariant="quick"
+            applyOnSearchEnter={false}
           />
         </ListPageFilterStrip>
 
@@ -563,7 +576,12 @@ export default function MrnPortalPage() {
           />
         </div>
 
-        <MasterListFooter shown={items.length} total={totalItems} noun="entries" />
+        <RmStoreListFooter
+          shown={items.length}
+          total={totalItems}
+          label="MRN Entries"
+          {...footerFilter}
+        />
       </div>
 
       <GlobalDetailModal

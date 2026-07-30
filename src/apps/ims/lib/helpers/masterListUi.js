@@ -63,3 +63,9 @@ export const IMS_DRAWER_BTN_PRIMARY =
 
 export const IMS_DRAWER_BTN_AMBER =
   "w-full sm:w-auto sm:min-w-[140px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-amber-700 hover:bg-amber-800 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-100 disabled:opacity-50";
+
+export const IMS_DRAWER_BTN_KEEP_PENDING =
+  "w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-50";
+
+export const IMS_DRAWER_BTN_APPROVE =
+  "w-full sm:w-auto sm:min-w-[140px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-50";

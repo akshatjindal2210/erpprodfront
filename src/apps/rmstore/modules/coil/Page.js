@@ -10,6 +10,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DataTable from "@/ui/primitives/DataTable";
@@ -109,6 +110,16 @@ export default function CoilTablePage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: allRows,
+        filteredRows,
+        serverFiltered: Boolean(appliedSearch) || Boolean(appliedJourney),
+      }),
+    [tempSearch, allRows, filteredRows, appliedSearch, appliedJourney]
+  );
   const selectedRecord = useMemo(
     () => filteredRows.find((r) => r.coil_uid === selected) || null,
     [filteredRows, selected]
@@ -265,6 +276,8 @@ export default function CoilTablePage() {
             }
             searchPlaceholder="Search by coil UID, MRN, heat, or location"
             searchLabel="Search Coil Records"
+            searchVariant="quick"
+            applyOnSearchEnter={false}
           />
         </ListPageFilterStrip>
 
@@ -311,22 +324,20 @@ export default function CoilTablePage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Coil Records
-            {isJourneyMode ? " · journey matches (all DB)" : ""}
-          </span>
-          <span className="text-[9px] text-slate-500">
-            Location:{" "}
-            <span className="text-green-900 font-bold">unassigned</span>
-            {" / "}
-            <span className="text-emerald-700 font-bold">stored</span>
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <RmStoreListFooter
+          shown={items.length}
+          total={totalItems}
+          label="Coil Records"
+          journeyMode={isJourneyMode}
+          {...footerFilter}
+          extra={
+            <>
+              Location: <span className="text-green-900 font-bold">unassigned</span>
+              {" / "}
+              <span className="text-emerald-700 font-bold">stored</span>
+            </>
+          }
+        />
       </div>
 
       {finderOpen && <CoilFinderDrawer open={finderOpen} onClose={() => setFinderOpen(false)} />}

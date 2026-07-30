@@ -441,7 +441,7 @@ const widgetStripLabel = (widget, idx) => {
 const DASHBOARD_APP_OPTIONS = [
   { value: "home", label: "Home Dashboard" },
   { value: "ims", label: "IMS Dashboard" },
-  // { value: "rmstore", label: "RM Store Dashboard" },
+  { value: "rmstore", label: "RM Store Dashboard" },
   { value: "task", label: "Task Dashboard" },
   { value: "settings", label: "Admin Console Dashboard" },
 ];

@@ -16,6 +16,7 @@ import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import DataTable from "@/ui/primitives/DataTable";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -130,6 +131,16 @@ export default function StockAdjustmentPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch: searchText,
+        sourceRows: allRows,
+        filteredRows,
+        serverFiltered: params.status !== "all" || Boolean(params.fromDate) || Boolean(params.toDate),
+      }),
+    [searchText, allRows, filteredRows, params.status, params.fromDate, params.toDate]
+  );
 
   const handleLoadMore = useCallback(() => {
     if (!loading && items.length < totalItems) {
@@ -366,6 +377,7 @@ export default function StockAdjustmentPage() {
             applyOnSearchEnter={false}
             searchPlaceholder="Search by heat, item, or remark"
             searchLabel="Search Adjustment"
+            searchVariant="quick"
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
           />
@@ -399,11 +411,12 @@ export default function StockAdjustmentPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Adjustments
-          </span>
-        </div>
+        <RmStoreListFooter
+          shown={items.length}
+          total={totalItems}
+          label="Adjustments"
+          {...footerFilter}
+        />
       </div>
 
       {modalOpen && modalMode === "print" && (

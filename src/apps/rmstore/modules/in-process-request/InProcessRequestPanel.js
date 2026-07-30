@@ -4,7 +4,14 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Eye } from "lucide-react";
 import { toast } from "react-toastify";
 
-import { inProcessRequestService, IPR_REQUEST_TYPE, IPR_DOWNSTREAM } from "@/apps/rmstore/lib/services/inProcessRequest";
+import {
+  inProcessRequestService,
+  IPR_REQUEST_TYPE,
+  IPR_DOWNSTREAM,
+  IPR_REQUEST_TYPE_LABEL,
+  IPR_REJECTION_SCOPE_LABEL,
+  IPR_REQUEST_TYPE_FILTER_OPTIONS,
+} from "@/apps/rmstore/lib/services/inProcessRequest";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import InProcessRequestModal from "@/apps/rmstore/modules/in-process-request/InProcessRequestModal";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
@@ -18,29 +25,80 @@ import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPag
 import ActionButton from "@/ui/primitives/ActionButton";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
-import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 
 const MODULE = "rm_issue_request";
 
-const isStoreInRow = (row) => row?.request_type === IPR_REQUEST_TYPE.STORE_IN;
-const isConsumeRow = (row) => row?.request_type === IPR_REQUEST_TYPE.CONSUME;
+const DOWNSTREAM_LABEL = {
+  [IPR_DOWNSTREAM.PENDING_STORE_OUT]: "Rejection Pending",
+  [IPR_DOWNSTREAM.STORE_OUT_DONE]: "Store Out Done",
+  [IPR_DOWNSTREAM.PENDING_STORE_IN]: "Store In Pending",
+  [IPR_DOWNSTREAM.CONSUMED]: "Consumed",
+};
+
+function qtyCell(v) {
+  return (
+    <span className="font-bold tabular-nums text-[11px] text-slate-800">
+      {v != null ? Number(v).toLocaleString() : "0"}
+    </span>
+  );
+}
 
 const REQUEST_TYPE_BADGE = {
   [IPR_REQUEST_TYPE.STORE_IN]: {
-    label: "Store In",
-    className: "bg-teal-50 text-teal-700 border-teal-100",
+    label: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.STORE_IN],
+    className: "bg-teal-50 text-teal-800 border-teal-200",
   },
   [IPR_REQUEST_TYPE.CONSUME]: {
-    label: "Consume",
-    className: "bg-amber-50 text-amber-700 border-amber-100",
+    label: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.CONSUME],
+    className: "bg-amber-50 text-amber-800 border-amber-200",
   },
   [IPR_REQUEST_TYPE.REJECTION]: {
-    label: "Rejection",
-    className: "bg-rose-50 text-rose-700 border-rose-100",
+    label: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.REJECTION],
+    className: "bg-rose-50 text-rose-800 border-rose-200",
   },
 };
+
+const REJECTION_SCOPE_BADGE = {
+  coil: {
+    label: IPR_REJECTION_SCOPE_LABEL.coil,
+    className: "bg-amber-50 text-amber-900 border-amber-300",
+  },
+  lot: {
+    label: IPR_REJECTION_SCOPE_LABEL.lot,
+    className: "bg-yellow-50 text-yellow-900 border-yellow-300",
+  },
+};
+
+function IprRequestTypeCell({ requestType, rejectionType, inline = false }) {
+  const type = requestType || IPR_REQUEST_TYPE.REJECTION;
+  const badge = REQUEST_TYPE_BADGE[type] || REQUEST_TYPE_BADGE[IPR_REQUEST_TYPE.REJECTION];
+  const scopeKey = rejectionType === "lot" ? "lot" : "coil";
+  const scopeBadge = REJECTION_SCOPE_BADGE[scopeKey];
+
+  return (
+    <div
+      className={`flex min-w-0 py-0.5 ${
+        inline ? "flex-row flex-wrap items-center gap-1" : "flex-col items-start gap-1"
+      }`}
+    >
+      <span
+        className={`inline-block max-w-full px-1.5 py-0.5 text-[8px] font-bold border rounded-sm leading-snug ${badge.className}`}
+      >
+        {badge.label}
+      </span>
+      {type === IPR_REQUEST_TYPE.REJECTION && (
+        <span
+          className={`inline-flex items-center px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider border rounded-sm ${scopeBadge.className}`}
+        >
+          {scopeBadge.label}
+        </span>
+      )}
+    </div>
+  );
+}
 
 const DEFAULT_PARAMS = {
   pageSize: 500,
@@ -74,8 +132,7 @@ export default function InProcessRequestPanel() {
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } =
-    useAppliedListSearch();
+  const [tempSearch, setTempSearch] = useState("");
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
@@ -89,10 +146,8 @@ export default function InProcessRequestPanel() {
     try {
       const base = {
         filters: {
-          ...(params.requestType !== "all" && { request_type: params.requestType }),
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
-          ...(params.status !== "all" && { approved: params.status === "approved" }),
         },
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
@@ -100,7 +155,6 @@ export default function InProcessRequestPanel() {
           ...base,
           page,
           limit,
-          ...(appliedSearch && { search: appliedSearch }),
         });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
@@ -112,7 +166,7 @@ export default function InProcessRequestPanel() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.fromDate, params.toDate, params.status, params.requestType, appliedSearch]);
+  }, [params.pageSize, params.fromDate, params.toDate]);
 
   useEffect(() => {
     fetchRows();
@@ -120,11 +174,17 @@ export default function InProcessRequestPanel() {
 
   const filteredRows = useMemo(() => {
     let data = allRows;
+    if (params.requestType !== "all") {
+      data = data.filter((row) => row.request_type === params.requestType);
+    }
+    if (params.status !== "all") {
+      data = data.filter((row) => row.approved === (params.status === "approved"));
+    }
     if (String(tempSearch || "").trim()) {
-      data = applyClientSearch(allRows, tempSearch, { skipSort: !!params.sortKey });
+      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+  }, [allRows, params.requestType, params.status, tempSearch, params.sortKey, params.sortDir]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -136,6 +196,17 @@ export default function InProcessRequestPanel() {
   const getSelectedRow = useCallback(
     () => filteredRows.find((u) => u.ipr_uid === selected),
     [filteredRows, selected]
+  );
+
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: allRows,
+        filteredRows,
+        serverFiltered: Boolean(params.fromDate) || Boolean(params.toDate),
+      }),
+    [tempSearch, allRows, filteredRows, params.fromDate, params.toDate, params.status, params.requestType]
   );
 
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
@@ -180,122 +251,67 @@ export default function InProcessRequestPanel() {
 
   const headers = useMemo(
     () => [
-      [
-        "IPR UID",
-        "ipr_uid",
-        (v) => <span className="font-bold text-teal-700 text-[10px]">{v}</span>,
-        { fixed: true, width: "90px" },
-      ],
-      [
-        "Request",
-        "request_type",
-        (v, row) => {
-          const badge = REQUEST_TYPE_BADGE[v] || REQUEST_TYPE_BADGE[IPR_REQUEST_TYPE.REJECTION];
-          return (
-            <div className="min-w-0">
-              <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${badge.className}`}>
-                {badge.label}
-              </span>
-              {!isStoreInRow(row) && !isConsumeRow(row) && (
-                <div className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">
-                  {row.rejection_type === "lot" ? "Lot" : "Coil"}
-                </div>
-              )}
-            </div>
-          );
-        },
-        { width: "110px" },
-      ],
-      [
-        "Item",
-        "item_code",
-        (v, row) => (
-          <div className="min-w-0">
-            <div className="text-[10px] font-bold text-slate-800 uppercase truncate">{v || "—"}</div>
-            <div className="text-[9px] text-slate-400 truncate">{row.item_desc || ""}</div>
-          </div>
+      ["IPR UID", "ipr_uid", (v) => <span className="font-bold text-teal-700 text-[10px]">{v}</span>, { fixed: true, width: "90px" }],
+      ["Type", "request_type", (_v, row) => (
+          <IprRequestTypeCell requestType={row.request_type} rejectionType={row.rejection_type} />
         ),
-        { width: "150px" },
+        { width: "138px" },
       ],
-      [
-        "MRN / Lot",
-        "mrn_no",
-        (v, row) => (
-          <span className="font-bold text-indigo-700 text-[10px] truncate block" title={row.mrn_uid || ""}>
-            {v != null ? v : row.mrn_uid || "—"}
+      ["Item Code", "item_code", (v) => (
+          <span className="font-bold text-slate-800 uppercase text-[11px] truncate block">{v || "—"}</span>
+        ),
+        { width: "120px" },
+      ],
+      ["Description", "item_desc", (v) => (
+          <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>
+            {v || "—"}
+          </span>
+        ),
+        { width: "160px" },
+      ],
+      ["MRN / Lot", "mrn_label", (v, row) => (
+          <span
+            className="font-bold text-indigo-700 text-[10px] truncate block"
+            title={row.lot_label ? `Lot ${row.lot_label}` : row.mrn_uid || ""}
+          >
+            {row.lot_label ? `Lot ${row.lot_label}` : v || row.mrn_uid || "—"}
           </span>
         ),
         { width: "110px" },
       ],
+      ["Heat No", "heat_label", (v) => (
+          <span className="text-[10px] font-semibold text-slate-700 truncate block" title={v || ""}>
+            {v || "—"}
+          </span>
+        ),
+        { width: "100px" },
+      ],
       [
-        "Details",
+        "Coil",
+        "coil_label",
+        (v) => (
+          <span className="text-[10px] font-bold text-slate-600 uppercase truncate block" title={v || ""}>
+            {v || "—"}
+          </span>
+        ),
+        { width: "120px" },
+      ],
+      [
+        "Reason",
         "reason",
         (v) => (
           <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>
             {v || "—"}
           </span>
         ),
-        { width: "170px" },
+        { width: "150px" },
       ],
-      [
-        "Issued",
-        "previous_qty",
-        (v, row) =>
-          isStoreInRow(row) ? (
-            <div className="min-w-0">
-              <span className="font-black text-slate-700 text-[11px] tabular-nums">
-                {v != null ? Number(v).toLocaleString() : "0"}
-              </span>
-              <div className="text-[8px] font-bold text-slate-400 uppercase">
-                {row.previous_coil_count ?? row.coil_count ?? 0} coils (snapshot)
-              </div>
-            </div>
-          ) : (
-            <span className="text-[10px] text-slate-300">—</span>
-          ),
-        { width: "110px" },
-      ],
-      [
-        "Used",
-        "consumed_qty",
-        (v, row) =>
-          isStoreInRow(row) || isConsumeRow(row) ? (
-            <span className="font-black text-amber-700 bg-amber-50 px-2 py-0.5 border border-amber-100 text-[11px] tabular-nums">
-              {v != null ? Number(v).toLocaleString() : "0"}
-            </span>
-          ) : (
-            <span className="text-[10px] text-slate-300">—</span>
-          ),
-        { width: "90px" },
-      ],
-      [
-        "Qty",
-        "total_qty",
-        (v, row) => (
-          <div className="min-w-0">
-            <span
-              className={`font-black px-2 py-0.5 border text-[11px] tabular-nums ${
-                isStoreInRow(row)
-                  ? "text-teal-700 bg-teal-50 border-teal-100"
-                  : isConsumeRow(row)
-                    ? "text-amber-700 bg-amber-50 border-amber-100"
-                    : "text-emerald-600 bg-emerald-50 border-emerald-100"
-              }`}
-            >
-              {v != null ? Number(v).toLocaleString() : "0"}
-            </span>
-            <div className="text-[8px] font-bold text-slate-400 uppercase mt-0.5">
-              {isStoreInRow(row) ? "Return" : isConsumeRow(row) ? "Consumed" : "Rejected"}
-            </div>
-          </div>
-        ),
-        { width: "100px" },
-      ],
+      ["Qty", "total_qty", qtyCell, { width: "80px" }],
       [
         "Coils",
         "coil_count",
         (v) => <span className="font-bold tabular-nums text-[11px]">{v ?? 0}</span>,
-        { width: "70px" },
+        { width: "65px" },
       ],
       [
         "Status",
@@ -311,36 +327,17 @@ export default function InProcessRequestPanel() {
             {v ? "● AUTHORIZED" : "○ PENDING"}
           </span>
         ),
-        { width: "120px" },
+        { width: "110px" },
       ],
       [
-        "Queue",
+        "Next Step",
         "downstream",
-        (v) => {
-          if (v === IPR_DOWNSTREAM.PENDING_STORE_OUT) {
-            return (
-              <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-rose-50 text-rose-700 border-rose-100">
-                Store Out
-              </span>
-            );
-          }
-          if (v === IPR_DOWNSTREAM.PENDING_STORE_IN) {
-            return (
-              <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-teal-50 text-teal-700 border-teal-100">
-                Store In
-              </span>
-            );
-          }
-          if (v === IPR_DOWNSTREAM.CONSUMED) {
-            return (
-              <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-100">
-                Consumed
-              </span>
-            );
-          }
-          return <span className="text-[10px] text-slate-400">—</span>;
-        },
-        { width: "100px" },
+        (v) => (
+          <span className="text-[10px] font-bold text-slate-600 uppercase">
+            {DOWNSTREAM_LABEL[v] || "—"}
+          </span>
+        ),
+        { width: "120px" },
       ],
       [
         "Created By",
@@ -382,12 +379,7 @@ export default function InProcessRequestPanel() {
         label: "Request Type",
         key: "requestType",
         value: params.requestType,
-        options: [
-          { label: "All Types", value: "all" },
-          { label: "In-process Rejection", value: IPR_REQUEST_TYPE.REJECTION },
-          { label: "Store In Request", value: IPR_REQUEST_TYPE.STORE_IN },
-          { label: "Consume Request", value: IPR_REQUEST_TYPE.CONSUME },
-        ],
+        options: IPR_REQUEST_TYPE_FILTER_OPTIONS,
       },
       {
         label: "Status",
@@ -484,16 +476,20 @@ export default function InProcessRequestPanel() {
         />
 
         {selectedRecord && (
-          <div className="flex items-center justify-between px-3 py-1.5 bg-teal-50 border border-teal-100 animate-in slide-in-from-top-1">
-            <span className="text-[10px] font-bold text-teal-700 uppercase truncate">
-              Selected: IPR #{selectedRecord.ipr_uid} ·{" "}
-              {isStoreInRow(selectedRecord)
-                ? "Store In"
-                : isConsumeRow(selectedRecord)
-                  ? "Consume"
-                  : `Rejection · ${selectedRecord.rejection_type === "lot" ? "Lot" : "Coil"}`}{" "}
-              · {selectedRecord.item_code || "—"}
-            </span>
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-teal-50 border border-teal-100 animate-in slide-in-from-top-1">
+            <div className="flex items-center gap-2 min-w-0 flex-wrap">
+              <span className="text-[10px] font-bold text-teal-800 shrink-0">
+                Selected: IPR #{selectedRecord.ipr_uid}
+              </span>
+              <IprRequestTypeCell
+                requestType={selectedRecord.request_type}
+                rejectionType={selectedRecord.rejection_type}
+                inline
+              />
+              <span className="text-[10px] font-bold text-slate-600 truncate">
+                {selectedRecord.item_code || "—"}
+              </span>
+            </div>
             <button
               type="button"
               onClick={() => setSelected(null)}
@@ -511,8 +507,11 @@ export default function InProcessRequestPanel() {
           fromDate={params.fromDate}
           toDate={params.toDate}
           extraFilters={extraFilters}
+          applyExtrasOnChange
+          showSearchButton={false}
+          applyOnSearchEnter={false}
+          searchVariant="quick"
           onApply={(data) => {
-            applySearchFromInput();
             setParams((prev) => ({
               ...prev,
               fromDate: data.fromDate,
@@ -522,7 +521,7 @@ export default function InProcessRequestPanel() {
             }));
           }}
           onReset={() => {
-            resetSearch();
+            setTempSearch("");
             setParams({
               ...DEFAULT_PARAMS,
               fromDate: dateFilterDefaults.from,
@@ -564,6 +563,12 @@ export default function InProcessRequestPanel() {
             setModalOpen(true);
           }}
           emptyMessage="No in-process requests found"
+          cardConfig={{
+            titleKey: "ipr_uid",
+            badgeIndices: [10],
+            detailKeys: ["item_code", "item_desc", "mrn_label", "heat_label", "reason", "total_qty"],
+            footerKey: "created_at",
+          }}
           {...tableHotkeyProps}
         />
         {totalItems > displayLimit && (
@@ -578,6 +583,13 @@ export default function InProcessRequestPanel() {
           </div>
         )}
       </div>
+
+      <RmStoreListFooter
+        shown={items.length}
+        total={totalItems}
+        label="In-Process Requests"
+        {...footerFilter}
+      />
 
       <InProcessRequestModal
         open={modalOpen}

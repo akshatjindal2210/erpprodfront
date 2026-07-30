@@ -11,6 +11,11 @@ import { stickerDownloadLogService } from "@/apps/rmstore/lib/services/coilLogs"
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
+import RmStoreListFooter, {
+  FOOTER_TEXT_CLASS,
+  formatRmStoreListFooterText,
+  rmStoreFooterFromClientFilter,
+} from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DataTable from "@/ui/primitives/DataTable";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
@@ -159,6 +164,10 @@ export default function CoilDownloadLogPage() {
   );
 
   const totalItems = filteredRows.length;
+  const footerFilter = useMemo(
+    () => rmStoreFooterFromClientFilter({ tempSearch, sourceRows: allRows, filteredRows }),
+    [tempSearch, allRows, filteredRows]
+  );
 
   const handleLoadMore = useCallback(() => {
     if (!loading && rows.length < totalItems) {
@@ -218,7 +227,6 @@ export default function CoilDownloadLogPage() {
     }));
   };
 
-  const hasSearch = Boolean(String(tempSearch ?? "").trim());
 
   const HEADERS = [
     ["Sticker UID", "primary_label", (v) => (
@@ -302,6 +310,7 @@ export default function CoilDownloadLogPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search the logs"
             searchLabel="Search (Coil, MRN, Customer)"
+            searchVariant="quick"
             applyOnSearchEnter={false}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
@@ -338,19 +347,14 @@ export default function CoilDownloadLogPage() {
           </div>
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {hasSearch
-              ? `Showing ${rows.length} of ${totalItems} matches (${allRows.length} loaded)`
-              : isJourneyMode
-                ? `Showing ${rows.length} of ${totalItems} journey matches (all DB)`
-                : `Showing ${rows.length} of ${totalItems} log rows in date range`}
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <RmStoreListFooter
+          shown={rows.length}
+          total={totalItems}
+          label={isJourneyMode ? "Journey Matches" : "Download Log Rows"}
+          journeyMode={isJourneyMode}
+          showLive={false}
+          {...footerFilter}
+        />
       </div>
     </div>
   );

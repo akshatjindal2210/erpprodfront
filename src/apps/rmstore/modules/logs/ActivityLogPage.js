@@ -13,6 +13,7 @@ import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
+import RmStoreListFooter from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
@@ -299,11 +300,13 @@ export default function ActivityLogPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Activity Logs
-          </span>
-        </div>
+        <RmStoreListFooter
+          shown={items.length}
+          total={totalItems}
+          label="Activity Logs"
+          isFiltered={Boolean(String(params.search || "").trim())}
+          showLive={false}
+        />
       </div>
     </div>
   );

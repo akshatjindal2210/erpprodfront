@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Upload, FileText, Trash2, Send, Loader2 } from "lucide-react";
-import * as XLSX from "xlsx";
+import { readSpreadsheetRecordsFromFile } from "@/platform/utils/list/excelWorkbook";
 import { toast } from "react-toastify";
 import Drawer from "@/ui/primitives/Drawer";
 import { holidayService } from "@/apps/task/lib/services/holidayApi";
@@ -29,26 +29,18 @@ export default function HolidayBulkUpload({ onSuccess, onOpenChange }) {
     reset();
   };
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
 
     setFile(selectedFile);
-    const reader = new FileReader();
-
-    reader.onload = (evt) => {
-      const bstr = evt.target.result;
-      const wb = XLSX.read(bstr, { type: "binary", cellDates: true });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws, {
-        raw: false,
-        dateNF: "yyyy-mm-dd",
-      });
+    try {
+      const data = await readSpreadsheetRecordsFromFile(selectedFile, { defval: "" });
       setPreviewData(data);
-    };
-
-    reader.readAsBinaryString(selectedFile);
+    } catch (err) {
+      toast.error(err.message || "Could not read file");
+      reset();
+    }
     e.target.value = "";
   };
 

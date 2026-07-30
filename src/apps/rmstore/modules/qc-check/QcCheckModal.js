@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useSelector } from "react-redux";
-import { Check, Loader2, Eye, Upload, FileText, X } from "lucide-react";
+import { Loader2, Eye, Upload, FileText, X, Shield, Check } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { qcCheckService } from "@/apps/rmstore/lib/services/qcCheck";
+import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_CLOSE, IMS_DRAWER_BTN_PRIMARY, IMS_DRAWER_BTN_APPROVE } from "@/apps/ims/lib/helpers/masterListUi";
 import Drawer from "@/ui/primitives/Drawer";
 import { OK_INPUT, ERR_INPUT } from "@/ui/common/Constants";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
@@ -223,6 +224,7 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
   const showCompareCols = isSuperAdmin || canAuthorize || isApproveMode;
 
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [detail, setDetail] = useState(null);
   const [checklist, setChecklist] = useState([]);
@@ -243,6 +245,7 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
   const load = useCallback(async () => {
     if (!row?.coil_no_uid && !row?.qc_check_uid) return;
     setLoading(true);
+    setLoadError(null);
     setErrors({});
     try {
       const status = String(row.status || "").toLowerCase();
@@ -305,8 +308,15 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
         onClose?.();
       }
     } catch (err) {
-      toast.error(err?.message || "Could not load the QC check. Please try again.");
-      onClose?.();
+      const msg = err?.message || "Could not load the QC check. Please try again.";
+      toast.error(msg);
+      if (mode === "inspect" && !row?.qc_check_uid) {
+        setLoadError(msg);
+        setDetail(null);
+        setChecklist([]);
+      } else {
+        onClose?.();
+      }
     } finally {
       setLoading(false);
     }
@@ -566,12 +576,12 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
   const isPrimarySubmit = !isPrimaryApprove && (isEditMode || allFilled);
 
   const footer = (
-    <div className="flex items-center justify-end gap-3 w-full">
+    <div className={IMS_DRAWER_FOOTER_WRAP}>
       <button
         type="button"
         onClick={onClose}
         disabled={submitting}
-        className="px-5 py-2.5 text-sm font-bold text-slate-500"
+        className={readOnly ? IMS_DRAWER_BTN_CLOSE : IMS_DRAWER_BTN_CANCEL}
       >
         {readOnly ? "Close" : "Cancel"}
       </button>
@@ -581,7 +591,7 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
           onClick={handlePrimaryAction}
           disabled={primaryDisabled}
           title="Ctrl+S"
-          className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-indigo-100"
+          className={isPrimaryApprove ? IMS_DRAWER_BTN_APPROVE : IMS_DRAWER_BTN_PRIMARY}
         >
           {submitting ? (
             <>
@@ -590,10 +600,12 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
             </>
           ) : (
             <>
-              <Check size={18} />{" "}
+              {isPrimaryApprove ? <Shield size={18} /> : <Check size={18} />}
               {!isPrimaryApprove && !isPrimarySubmit && totalCount
                 ? `Save Draft (${filledCount}/${totalCount})`
-                : "Save"}
+                : isPrimaryApprove
+                  ? "Approve"
+                  : "Save"}
             </>
           )}
         </button>
@@ -635,6 +647,14 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
       {loading ? (
         <div className="flex items-center justify-center py-12 text-slate-400 gap-2">
           <Loader2 size={18} className="animate-spin" /> Loading…
+        </div>
+      ) : loadError ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 space-y-2">
+          <p className="text-sm font-bold text-rose-800">Specifications could not be loaded</p>
+          <p className="text-[12px] text-rose-700 leading-relaxed">{loadError}</p>
+          <p className="text-[11px] text-rose-600">
+            Add or authorize the item in RM Spec Master, then scan the QC sticker again.
+          </p>
         </div>
       ) : (
         <div className="space-y-3 pb-2">

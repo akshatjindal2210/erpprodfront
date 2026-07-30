@@ -33,16 +33,18 @@ export const APPS = [
     accent: "from-blue-500 to-blue-700",
     inLauncher: true,
   },
-  // {
-  //   id: "rmstore",
-  //   name: "RM Store",
-  //   subtitle: "Raw Material",
-  //   href: ROUTES.RM_STORE_DASHBOARD,
-  //   shell: APP_SHELL.RM_STORE,
-  //   icon: Warehouse,
-  //   accent: "from-teal-500 to-teal-700",
-  //   inLauncher: true,
-  // },
+  /*
+  {
+    id: "rmstore",
+    name: "RM Store",
+    subtitle: "Raw Material",
+    href: ROUTES.RM_STORE_DASHBOARD,
+    shell: APP_SHELL.RM_STORE,
+    icon: Warehouse,
+    accent: "from-teal-500 to-teal-700",
+    inLauncher: true,
+  },
+  */
   {
     id: "task",
     name: "Task",

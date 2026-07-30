@@ -1,4 +1,4 @@
-import { buildExportFilename, TABLE_EXPORT_FORMATS } from "@/platform/utils/list/tableExport";
+import { buildExportFilename, downloadXlsxFile, TABLE_EXPORT_FORMATS } from "@/platform/utils/list/tableExport";
 import { computeLocationScoreFromCounts, formatLocationScorePct, getLocationStatusLabel, resolveBoxAccName } from "./auditScanHelpers";
 import { getAuditExecutionStatusLabel } from "./auditStatusHelpers";
 
@@ -165,33 +165,25 @@ function exportComparisonCsv(ctx, filename) {
 }
 
 async function exportComparisonXlsx(ctx, filename) {
-  const XLSX = await import("xlsx");
   const { locations, notScannedRows, extraRows, matchedRows, showLocationCol } = ctx;
   const boxCols = buildBoxColumns(showLocationCol);
-  const wb = XLSX.utils.book_new();
-
-  const summaryAoa = buildSummaryLines(ctx).map((line) => [line]);
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryAoa), "Summary");
+  const sheets = [{ name: "Summary", rows: buildSummaryLines(ctx).map((line) => [line]) }];
 
   if (!ctx.singleLocation && locations.length > 1) {
     const loc = matrixFrom(locations, LOCATION_COLUMNS);
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.aoa_to_sheet([loc.header, ...loc.body]),
-      "Locations",
-    );
+    sheets.push({ name: "Locations", rows: [loc.header, ...loc.body] });
   }
 
   const addBoxSheet = (name, rows) => {
     const m = matrixFrom(rows, boxCols);
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([m.header, ...m.body]), name.slice(0, 31));
+    sheets.push({ name, rows: [m.header, ...m.body] });
   };
 
   addBoxSheet("Missing", notScannedRows);
   addBoxSheet("Extra", extraRows);
   addBoxSheet("Matched", matchedRows);
 
-  XLSX.writeFile(wb, filename);
+  await downloadXlsxFile({ sheets, filename });
 }
 
 function escapeHtml(value) {

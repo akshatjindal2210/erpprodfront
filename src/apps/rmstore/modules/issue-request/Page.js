@@ -19,11 +19,53 @@ import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPag
 import ActionButton from "@/ui/primitives/ActionButton";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 
 const MODULE = "rm_issue_request";
+
+function parseJobCards(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/** List row — parse job_cards + stable qty fields for table/export. */
+function enrichIssueRow(row) {
+  const jobCards = parseJobCards(row?.job_cards);
+  const jobCardLabel = jobCards
+    .map((jc) => {
+      const no = String(jc?.pjobcardno || jc?.job_card_no || "").trim();
+      if (!no) return "";
+      const qty = Number(jc?.issue_qty);
+      return Number.isFinite(qty) && qty > 0 ? `${no} (${qty.toLocaleString()})` : no;
+    })
+    .filter(Boolean)
+    .join(" · ");
+
+  return {
+    ...row,
+    job_cards_parsed: jobCards,
+    job_card_label: jobCardLabel,
+    requested_qty: Number(row?.requested_qty) || 0,
+    coil_count: Number(row?.coil_count) || 0,
+  };
+}
+
+const qtyCell = (v) => (
+  <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
+    {v != null ? Number(v).toLocaleString() : "0"}
+  </span>
+);
 
 export default function IssueRequestPage() {
   const canAccess = useCanAccess();
@@ -96,9 +138,9 @@ export default function IssueRequestPage() {
   }, [fetchRows]);
 
   const filteredRows = useMemo(() => {
-    let data = allRows;
+    let data = allRows.map(enrichIssueRow);
     if (String(tempSearch || "").trim()) {
-      data = applyClientSearch(allRows, tempSearch, { skipSort: !!params.sortKey });
+      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir]);
@@ -113,6 +155,17 @@ export default function IssueRequestPage() {
   const getSelectedRow = useCallback(
     () => filteredRows.find((u) => u.issue_uid === selected),
     [filteredRows, selected]
+  );
+
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: allRows,
+        filteredRows,
+        serverFiltered: params.status !== "all" || Boolean(appliedSearch),
+      }),
+    [tempSearch, allRows, filteredRows, params.status, appliedSearch]
   );
 
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
@@ -161,70 +214,62 @@ export default function IssueRequestPage() {
         "Issue UID",
         "issue_uid",
         (v) => <span className="font-bold text-teal-700 text-[10px]">{v}</span>,
-        { fixed: true, width: "100px" },
+        { fixed: true, width: "90px" },
       ],
       [
-        "Production",
-        "production_name",
-        (v) => <span className="text-[10px] font-bold text-slate-700 truncate block">{v || "—"}</span>,
-        { width: "140px" },
+        "FG Item Code",
+        "item_code",
+        (v) => <span className="font-bold text-slate-800 uppercase text-[11px] truncate block">{v || "—"}</span>,
+        { width: "120px" },
       ],
       [
-        "RM Item",
-        "rm_item_code",
-        (v, row) => (
-          <div className="min-w-0">
-            <div className="text-[10px] font-bold text-slate-800 uppercase truncate">{v || "—"}</div>
-            <div className="text-[9px] text-slate-400 truncate">{row.rm_item_desc || ""}</div>
-          </div>
+        "FG Description",
+        "item_desc",
+        (v) => (
+          <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>
+            {v || "—"}
+          </span>
         ),
-        { width: "160px" },
+        { width: "180px" },
+      ],
+      [
+        "RM Item Code",
+        "rm_item_code",
+        (v) => <span className="font-bold text-slate-800 uppercase text-[11px] truncate block">{v || "—"}</span>,
+        { width: "120px" },
+      ],
+      [
+        "RM Description",
+        "rm_item_desc",
+        (v) => (
+          <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>
+            {v || "—"}
+          </span>
+        ),
+        { width: "180px" },
       ],
       [
         "Shift",
         "shift",
         (v) => <span className="text-[10px] font-bold text-slate-600 uppercase">{v || "—"}</span>,
-        { width: "80px" },
+        { width: "60px" },
       ],
       [
         "Job Cards",
-        "job_cards",
-        (v) => {
-          const label = Array.isArray(v)
-            ? v
-                .map((c) => c?.pjobcardno || c?.job_card_no || c)
-                .filter(Boolean)
-                .join(", ")
-            : v || "";
-          return (
-            <span className="text-[10px] text-slate-600 truncate block" title={label}>
-              {label || "—"}
-            </span>
-          );
-        },
-        { width: "140px" },
-      ],
-      [
-        "Required Qty",
-        "req_qty",
+        "job_card_label",
         (v) => (
-          <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
-            {v != null ? Number(v).toLocaleString() : "0"}
+          <span className="text-[10px] text-slate-700 truncate block font-medium" title={v || ""}>
+            {v || "—"}
           </span>
         ),
-        { width: "100px" },
+        { width: "180px" },
       ],
-      [
-        "Coil Qty",
-        "coil_qty",
-        (v) => <span className="font-bold tabular-nums text-[11px]">{v != null ? Number(v).toLocaleString() : "—"}</span>,
-        { width: "90px" },
-      ],
+      ["Qty", "requested_qty", (v) => qtyCell(v), { width: "90px" }],
       [
         "Coils",
         "coil_count",
         (v) => <span className="font-bold tabular-nums text-[11px]">{v ?? 0}</span>,
-        { width: "70px" },
+        { width: "65px" },
       ],
       [
         "Status",
@@ -240,32 +285,18 @@ export default function IssueRequestPage() {
             {v ? "● AUTHORIZED" : "○ PENDING"}
           </span>
         ),
-        { width: "120px" },
-      ],
-      [
-        "Created By",
-        "created_by_name",
-        (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>,
         { width: "110px" },
       ],
-      [
-        "Created At",
-        "created_at",
-        (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-        { width: "150px" },
-      ],
-      [
-        "Approved By",
-        "approved_by_name",
-        (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>,
-        { width: "110px" },
-      ],
-      [
-        "Approved At",
-        "approved_at",
-        (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-        { width: "150px" },
-      ],
+      ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+      ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+      ["Updated At", "updated_at", (v, row) => (
+        <span className="text-[10px] text-slate-400 font-medium">
+          {row?.updated_by_name ? formatDateTime(v) : "—"}
+        </span>
+      ), { width: "150px" }],
+      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
+      ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
     ],
     []
   );
@@ -376,7 +407,9 @@ export default function IssueRequestPage() {
           {selectedRecord && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-teal-50 border border-teal-100 animate-in slide-in-from-top-1">
               <span className="text-[10px] font-bold text-teal-700 uppercase truncate">
-                Selected: Issue #{selectedRecord.issue_uid} · {selectedRecord.rm_item_code || "—"}
+                Selected: Issue #{selectedRecord.issue_uid} · {selectedRecord.item_code || "—"} · RM{" "}
+                {selectedRecord.rm_item_code || "—"} · Qty {Number(selectedRecord.requested_qty || 0).toLocaleString()} ·{" "}
+                {selectedRecord.coil_count ?? 0} coil(s)
               </span>
               <button
                 type="button"
@@ -419,6 +452,8 @@ export default function IssueRequestPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by issue UID, item, or RM item"
             searchLabel="Search Issue Request"
+            searchVariant="quick"
+            applyOnSearchEnter={false}
           />
         </ListPageFilterStrip>
 
@@ -450,6 +485,20 @@ export default function IssueRequestPage() {
               setModalOpen(true);
             }}
             emptyMessage="No issue requests found"
+            cardConfig={{
+              titleKey: "issue_uid",
+              badgeIndices: [9],
+              detailKeys: [
+                "item_code",
+                "item_desc",
+                "rm_item_code",
+                "rm_item_desc",
+                "job_card_label",
+                "requested_qty",
+                "coil_count",
+              ],
+              footerKey: "created_at",
+            }}
             {...tableHotkeyProps}
           />
           {totalItems > displayLimit && (
@@ -464,6 +513,13 @@ export default function IssueRequestPage() {
             </div>
           )}
         </div>
+
+        <RmStoreListFooter
+          shown={items.length}
+          total={totalItems}
+          label="Issue Requests"
+          {...footerFilter}
+        />
       </div>
 
       <IssueRequestModal

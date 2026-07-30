@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 
 import { specService } from "@/apps/rmstore/lib/services/spec";
 import { productionErpHelpers } from "@/apps/rmstore/lib/services/production";
+import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
@@ -525,11 +526,17 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
       let response;
 
       if (isApprove) {
+        const finalApproved =
+          statusOverride !== null && statusOverride !== undefined
+            ? Boolean(statusOverride)
+            : canApprove
+              ? Boolean(approved)
+              : false;
         response = await specService.update(itemId, {
           source_item_dcode: sourceItemId,
           ...headerMeta,
           specs: specsPayload,
-          approved: canApprove ? Boolean(approved) : false,
+          approved: finalApproved,
         });
       } else if (isEdit) {
         response = await specService.update(itemId, {
@@ -574,28 +581,21 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
           : "New RM Spec";
 
   const footerContent = (
-    <div className="flex items-center justify-end gap-3 w-full">
-      <button type="button" onClick={onClose} disabled={loading} className="px-5 py-2.5 text-sm font-bold text-slate-500">
-        {isView ? "Close" : "Cancel"}
-      </button>
-      {isView ? null : (
-        <button
-          type="button"
-          onClick={() => handleSave()}
-          disabled={loading || loadingDetail}
-          className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
-        >
-          {loading ? <><Loader2 size={18} className="animate-spin" /> Processing</> : <><Check size={18} /> Save</>}
-        </button>
-      )}
-    </div>
+    <RmStoreDrawerFooter
+      onClose={onClose}
+      loading={loading}
+      disabled={loadingDetail}
+      readOnly={isView}
+      isApprove={isApprove}
+      onSave={handleSave}
+    />
   );
 
   return (
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={isView ? undefined : () => handleSave()}
+      onSubmit={isView ? undefined : () => handleSave(isApprove ? true : undefined)}
       title={title}
       description={
         isView

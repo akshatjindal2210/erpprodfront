@@ -123,23 +123,19 @@ const reallocateExclusiveFifoForDcode = (items, itemDcode) => {
       return !key || !claimed.has(key);
     });
     const ordered = reorderBoxesForSelection(remaining, Boolean(row?.loose_priority));
-    const selected_boxes = dispatchQty > 0 ? selectBoxesByQty(ordered, dispatchQty) : [];
-    for (const box of selected_boxes) {
+    const built = buildDispatchFromTarget(
+      { ...row, available_boxes: ordered, loose_priority: Boolean(row?.loose_priority) },
+      dispatchQty
+    );
+    for (const box of built.selected_boxes || []) {
       const key = forwardingBoxKey(box);
       if (key) claimed.add(key);
     }
-    const roundedQty = sumQty(selected_boxes);
     next[idx] = {
       ...row,
       available_boxes: fifoBoxes,
-      selected_boxes,
       fg_qty: sumQty(fifoBoxes),
-      // Keep schno + source_dispatch_qty (original balance) untouched.
-      dispatch_target: dispatchQty > 0 ? String(dispatchQty) : "",
-      dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
-      dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
-      use_system_std: false,
-      boxes_edited: true,
+      ...built,
     };
   }
   return next;
@@ -449,14 +445,6 @@ const reorderBoxesForSelection = (boxes = [], loosePriority = false) => {
   });
 };
 
-/** Std qty FIFO would allocate for a target dispatch (full boxes, may exceed target). */
-const getFifoStdForTargetQty = (item, targetQty) => {
-  const target = Number(targetQty) || 0;
-  if (target <= 0 || !item?.available_boxes?.length) return 0;
-  const ordered = reorderBoxesForSelection(item.available_boxes, item.loose_priority);
-  return sumQty(selectBoxesByQty(ordered, target));
-};
-
 /** Build row state from user target — dispatch_qty = system FIFO total sent. */
 const buildDispatchFromTarget = (item, targetQty) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
@@ -477,14 +465,13 @@ const buildDispatchFromTarget = (item, targetQty) => {
   const fifoTarget = balanceCap > 0 && target > balanceCap ? balanceCap : target;
   const selected = selectBoxesByQty(ordered, fifoTarget);
   const stdQty = sumQty(selected);
-  const systemStd = balanceCap > 0 ? getFifoStdForTargetQty(item, balanceCap) : 0;
 
   return {
     dispatch_target: String(fifoTarget),
     dispatch_qty: stdQty > 0 ? String(stdQty) : "",
     selected_boxes: selected,
     dispatch_std: stdQty > 0 ? String(stdQty) : "",
-    use_system_std: balanceCap > 0 && fifoTarget === balanceCap && stdQty === systemStd && systemStd > 0,
+    use_system_std: balanceCap > 0 && fifoTarget === balanceCap && stdQty > balanceCap,
     boxes_edited: true,
   };
 };
@@ -992,27 +979,23 @@ export default function ForwardingModal({
             return !key || !claimed.has(key);
           });
           const ordered = reorderBoxesForSelection(remaining, false);
-          const selected_boxes = dispatchQty > 0 ? selectBoxesByQty(ordered, dispatchQty) : [];
-          for (const box of selected_boxes) {
+          const built = buildDispatchFromTarget(
+            { ...itemRow, available_boxes: ordered, loose_priority: false },
+            dispatchQty
+          );
+          for (const box of built.selected_boxes || []) {
             const key = forwardingBoxKey(box);
             if (key) claimed.add(key);
           }
-          const roundedQty = sumQty(selected_boxes);
           return {
             ...itemRow,
             available_boxes: bundle.fifoBoxes || [],
-            selected_boxes,
             loose_priority: false,
             fg_qty: sumQty(bundle.fifoBoxes || []),
             erp_qty: bundle.erp_qty,
             erp_by_packing: bundle.erp_by_packing,
-            // Keep itemRow.schno + source_dispatch_qty (original balance) as-is.
-            dispatch_target: dispatchQty > 0 ? String(dispatchQty) : "",
-            dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
-            dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
-            use_system_std: roundedQty > 0 && dispatchQty > 0,
             fetching: false,
-            boxes_edited: true,
+            ...built,
           };
         });
 
@@ -1433,20 +1416,17 @@ export default function ForwardingModal({
                 const sourceQty = Number(nextItems[idx]?.source_dispatch_qty ?? 0);
                 if (sourceQty > 0) {
                   const ordered = reorderBoxesForSelection(fifoBoxes, false);
-                  const selected_boxes = selectBoxesByQty(ordered, sourceQty);
-                  const roundedQty = sumQty(selected_boxes);
+                  const built = buildDispatchFromTarget(
+                    { ...nextItems[idx], available_boxes: ordered, loose_priority: false },
+                    sourceQty
+                  );
                   nextItems = nextItems.map((item, i) =>
                     i === idx
                       ? {
                           ...item,
-                          selected_boxes,
                           loose_priority: false,
-                          dispatch_target: String(sourceQty),
-                          dispatch_qty: roundedQty > 0 ? String(roundedQty) : "",
-                          dispatch_std: roundedQty > 0 ? String(roundedQty) : "",
-                          use_system_std: roundedQty > 0 && sourceQty > 0,
-                          boxes_edited: true,
                           original_breakdowns: [],
+                          ...built,
                         }
                       : item
                   );
@@ -1641,7 +1621,9 @@ export default function ForwardingModal({
       return;
     }
     if (!/^\d+$/.test(String(val))) return;
-    updateItemRow(idx, { dispatch_target: String(val) });
+    const item = form.items[idx];
+    if (!item) return;
+    updateItemRow(idx, { dispatch_target: formatDispatchQtyInput(item, val) });
   };
 
   const handleDispatchQtyBlur = (idx) => {
@@ -1735,6 +1717,12 @@ export default function ForwardingModal({
 
       const newSelected = orderedBoxes.slice(0, newCount);
       const stdQty = sumQty(newSelected);
+      const balanceCap = Number(item.source_dispatch_qty ?? 0);
+      const fifoTarget = getItemFifoTarget(item);
+      const targetForRow =
+        balanceCap > 0
+          ? (fifoTarget > 0 ? Math.min(fifoTarget, balanceCap) : balanceCap)
+          : stdQty;
 
       let nextItems = prev.items.map((row, i) =>
         i === idx
@@ -1743,8 +1731,9 @@ export default function ForwardingModal({
               selected_boxes: newSelected,
               dispatch_qty: stdQty > 0 ? String(stdQty) : "",
               dispatch_std: stdQty > 0 ? String(stdQty) : "",
-              dispatch_target: stdQty > 0 ? String(stdQty) : "",
-              use_system_std: false,
+              dispatch_target: targetForRow > 0 ? String(targetForRow) : "",
+              use_system_std:
+                balanceCap > 0 && targetForRow === balanceCap && stdQty > balanceCap,
               boxes_edited: true,
             }
           : row
@@ -1844,6 +1833,10 @@ export default function ForwardingModal({
               itemdesc:   i.itemdesc,
               schno:      itemSchno,
               qty:        sumQty(i.selected_boxes),
+              dispatch_target: i.dispatch_target !== "" && i.dispatch_target != null
+                ? Number(i.dispatch_target)
+                : null,
+              use_system_std: Boolean(i.use_system_std),
               selected_boxes: i.selected_boxes,
             }];
           }
@@ -2366,7 +2359,11 @@ export default function ForwardingModal({
                       onBlur={() => handleDispatchQtyBlur(idx)}
                       min={0}
                       max={item.source_dispatch_qty > 0 ? item.source_dispatch_qty : item.fg_qty || undefined}
-                      title="Type qty, then Tab/click away — system FIFO total fills here"
+                      title={
+                        item.source_dispatch_qty > 0
+                          ? "Type up to balance qty — on blur system FIFO total may exceed balance (full boxes)"
+                          : "Type qty, then Tab/click away — system FIFO total fills here"
+                      }
                       className={`${OK_INPUT} text-center font-bold text-slate-700 h-[38px] text-[11px] rounded-lg border-slate-200`}
                       placeholder="0"
                     />

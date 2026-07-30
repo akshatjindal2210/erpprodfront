@@ -13,6 +13,7 @@ import { LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import ActionButton from "@/ui/primitives/ActionButton";
 import PrintActionButton from "@/ui/primitives/PrintActionButton";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
@@ -90,6 +91,15 @@ export default function LocationMasterPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: allRows,
+        filteredRows,
+      }),
+    [tempSearch, allRows, filteredRows]
+  );
 
   const handleLoadMore = useCallback(() => {
     if (!loading && items.length < totalItems) {
@@ -206,7 +216,11 @@ export default function LocationMasterPage() {
     ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
     ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
     ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-    ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+    ["Updated At", "updated_at", (v, row) => (
+      <span className="text-[10px] text-slate-400 font-medium">
+        {row?.updated_by_name ? formatDateTime(v) : "—"}
+      </span>
+    ), { width: "150px" }],
     ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
     ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
@@ -287,6 +301,8 @@ export default function LocationMasterPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by rack, ledger, or item"
             searchLabel="Search Locations"
+            searchVariant="quick"
+            applyOnSearchEnter={false}
           />
         </ListPageFilterStrip>
 
@@ -318,15 +334,7 @@ export default function LocationMasterPage() {
             />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Locations
-          </span>
-          <div className="flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <RmStoreListFooter shown={items.length} total={totalItems} label="Locations" {...footerFilter} />
       </div>
 
       {modalOpen && (

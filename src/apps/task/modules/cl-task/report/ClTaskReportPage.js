@@ -10,7 +10,7 @@ import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPag
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ExportMenu from "@/ui/common/list/ExportMenu";
-import { exportListPageTable, notifyListPageExportResult } from "@/platform/utils/list/listPageExport";
+import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 
 import { useClTaskFilters } from "@/apps/task/lib/hooks/useClTaskFilters";
 import { CL_ORG_FILTER_CLASS } from "@/apps/task/lib/helpers/clTaskScopeHelper";
@@ -21,7 +21,7 @@ import { StatCard } from "@/apps/task/lib/common";
 import TaskReportFormModal from "./TaskReportFormModal";
 import ReportBookingCalendar, { SCORE_CELL_TONES } from "./ReportBookingCalendar";
 import ScoreFormulaPanel, { ScoreFormulaTrigger } from "./ScoreFormulaPanel";
-import { buildClReportExportRows, exportClTaskReportExcel } from "./reportExcelExport";
+import { buildClReportExportRows, buildClReportXlsxRowStyles } from "./reportExcelExport";
 import { FILTER_DATE_RANGE_MAX_DAYS, FILTER_DATE_RANGE_MAX_YEARS, filterDateRangeDayCount, parseFilterDateInput } from "@/platform/utils/core/utilHelper";
 
 const REPORT_STAT_CARDS = [
@@ -72,7 +72,6 @@ export default function ClTaskReportPage() {
   /** Quick search — filters already-loaded rows on the client only. */
   const [quickSearch, setQuickSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
   const [data, setData] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
   const [scoreFormulaOpen, setScoreFormulaOpen] = useState(false);
@@ -475,42 +474,19 @@ export default function ClTaskReportPage() {
     [],
   );
 
-  const exportDisabled = !exportRows.length;
-
-  const handleExport = useCallback(
-    async (format) => {
-      if (!exportRows.length) {
-        toast.info("No rows to export.");
-        return;
-      }
-      setExporting(true);
-      try {
-        if (format === "xlsx") {
-          const { filename } = await exportClTaskReportExcel({
-            users: filteredUsers,
-            moduleName: "CL Task Report",
-            rangeFrom,
-            rangeTo,
-          });
-          toast.success(`Downloaded ${filename} (colored scores)`);
-          return;
-        }
-        const { filename } = await exportListPageTable({
-          moduleName: "CL Task Report",
-          headers: exportHeaders,
-          rows: exportRows,
-          format,
-        });
-        const { message } = notifyListPageExportResult(format, filename);
-        toast.success(message);
-      } catch (err) {
-        toast.error(err?.message || "Export failed.");
-      } finally {
-        setExporting(false);
-      }
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "CL Task Report",
+    rows: exportRows,
+    headers: exportHeaders,
+    getXlsxRowStyles: buildClReportXlsxRowStyles,
+    xlsxPreambleRows: () => {
+      if (!rangeFrom || !rangeTo) return undefined;
+      return [
+        [`CL Task Report · ${formatScheduledDate(rangeFrom)} → ${formatScheduledDate(rangeTo)}`],
+        [`Exported: ${new Date().toLocaleString()}`],
+      ];
     },
-    [exportRows, exportHeaders, filteredUsers, rangeFrom, rangeTo],
-  );
+  });
 
   const summaryStats = useMemo(() => {
     if (loading && !summary) {

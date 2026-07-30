@@ -7,15 +7,26 @@ import { exportListPageTable, notifyListPageExportResult } from "@/platform/util
 /**
  * Export exactly what the list table shows (pass filtered rows, not paginated slice).
  */
-export function useListPageExport({ moduleName, rows = [], headers, onExport }) {
+export function useListPageExport({
+  moduleName,
+  rows = [],
+  headers,
+  onExport,
+  xlsxPreambleRows,
+  getXlsxRowStyles,
+}) {
   const [exporting, setExporting] = useState(false);
   const headersRef = useRef(headers);
   headersRef.current = headers;
+  const xlsxPreambleRef = useRef(xlsxPreambleRows);
+  xlsxPreambleRef.current = xlsxPreambleRows;
+  const getXlsxRowStylesRef = useRef(getXlsxRowStyles);
+  getXlsxRowStylesRef.current = getXlsxRowStyles;
 
   const handleExport = useCallback(
     async (format) => {
       let exportRows = rows;
-      
+
       setExporting(true);
       try {
         if (typeof onExport === "function") {
@@ -27,11 +38,17 @@ export function useListPageExport({ moduleName, rows = [], headers, onExport }) 
           return;
         }
 
+        const preamble = typeof xlsxPreambleRef.current === "function"
+          ? xlsxPreambleRef.current()
+          : xlsxPreambleRef.current;
+
         const { filename } = await exportListPageTable({
           moduleName,
           headers: headersRef.current,
           rows: exportRows,
           format,
+          xlsxPreambleRows: preamble,
+          getXlsxRowStyles: getXlsxRowStylesRef.current,
         });
         const { message } = notifyListPageExportResult(format, filename);
         toast.success(message);
@@ -41,7 +58,7 @@ export function useListPageExport({ moduleName, rows = [], headers, onExport }) 
         setExporting(false);
       }
     },
-    [moduleName, rows, onExport]
+    [moduleName, rows, onExport],
   );
 
   return {

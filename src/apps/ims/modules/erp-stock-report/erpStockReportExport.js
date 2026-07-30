@@ -38,13 +38,19 @@ export function stockDiffCellClass(value) {
   return "text-amber-700 font-black";
 }
 
-export const exportErpStockReport = createModuleExporter({
-  moduleName: "ERP Stock Report",
-  columns: ERP_STOCK_REPORT_TABLE_COLUMNS.map(({ label, key, type }) => ({
+export function buildErpStockExportColumns() {
+  return ERP_STOCK_REPORT_TABLE_COLUMNS.map(({ label, key, type }) => ({
     label,
     key,
+    // diff is numeric (DB − ERP); export as number so Excel SUM works
+    type: type === "diff" ? "number" : type,
     format: (v) => formatErpStockTableCell(type, v),
-  })),
+  }));
+}
+
+export const exportErpStockReport = createModuleExporter({
+  moduleName: "ERP Stock Report",
+  columns: buildErpStockExportColumns(),
   includeMeta: false,
 });
 

@@ -215,7 +215,7 @@ export default function ActivityLogList({ appType = null, title = "Recent Activi
           <div className="w-px h-6 bg-slate-200 mx-1" />
 
           <button
-            onClick={() => handleExport("excel")}
+            onClick={() => handleExport("xlsx")}
             disabled={exporting || logs.length === 0}
             className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl hover:bg-emerald-100 transition-all disabled:opacity-50"
             title="Export to Excel"

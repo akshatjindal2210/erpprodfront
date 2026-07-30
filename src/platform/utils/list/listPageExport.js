@@ -1,4 +1,4 @@
-import { getCellPlainText } from "@/platform/utils/list/dataTableCellSelection";
+import { getCellPlainText, getCellXlsxValue } from "@/platform/utils/list/dataTableCellSelection";
 import { exportTableData } from "@/platform/utils/list/tableExport";
 
 const SKIP_HEADER_KEYS = new Set(["_row"]);
@@ -17,11 +17,19 @@ export function buildExportColumnsFromHeaders(headers = []) {
     .map((header) => ({
       label: String(header[0] ?? ""),
       getValue: (row, rowIndex) => getCellPlainText(row, header, rowIndex),
+      getXlsxValue: (row, rowIndex) => getCellXlsxValue(row, header, rowIndex),
     }));
 }
 
 /** Export current filtered table rows (WYSIWYG — same as visible table data). */
-export async function exportListPageTable({ moduleName, headers, rows = [], format }) {
+export async function exportListPageTable({
+  moduleName,
+  headers,
+  rows = [],
+  format,
+  xlsxPreambleRows,
+  getXlsxRowStyles,
+}) {
   const columns = buildExportColumnsFromHeaders(headers);
   if (!columns.length) {
     throw new Error("No exportable columns.");
@@ -32,6 +40,8 @@ export async function exportListPageTable({ moduleName, headers, rows = [], form
     columns,
     moduleName,
     includeMeta: false,
+    xlsxPreambleRows,
+    getXlsxRowStyles,
   });
 }
 

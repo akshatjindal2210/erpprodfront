@@ -16,6 +16,7 @@ import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_NUMBER, IMS_TA
 import { buildInventoryFilterOptionsFromRows, computeInventoryTotals, EMPTY_FILTERS, filterInventoryRows, hasActiveInventoryFilters, normalizeMultiFilterIds } from "@/apps/rmstore/modules/inventory-report/inventoryReportClient";
 import { notifyListPageExportResult } from "@/platform/utils/list/listPageExport";
 import { exportInventoryReport, formatInventoryTableCell, INVENTORY_REPORT_TABLE_COLUMNS } from "@/apps/rmstore/modules/inventory-report/inventoryReportExport";
+import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 
 const LOAD_LIMIT = 10000;
 const TABLE_RENDER_CHUNK = 150;
@@ -81,6 +82,17 @@ export default function InventoryReportPage() {
   const totals = useMemo(() => computeInventoryTotals(filteredRows), [filteredRows]);
   const hasActiveFilters = useMemo(() => hasActiveInventoryFilters(filters), [filters]);
   const tableHasMore = displayRows.length < sortedRows.length;
+
+  const footerFilter = useMemo(
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch: "",
+        sourceRows: allRows,
+        filteredRows,
+        serverFiltered: hasActiveFilters,
+      }),
+    [allRows, filteredRows, hasActiveFilters]
+  );
 
   const loadAllRows = useCallback(async () => {
     const gen = ++loadGenRef.current;
@@ -459,6 +471,13 @@ export default function InventoryReportPage() {
               ],
               className: "rounded-none border border-slate-200 shadow-none",
             }}
+          />
+          <RmStoreListFooter
+            shown={displayRows.length}
+            total={sortedRows.length}
+            label="Inventory Rows"
+            showLive={false}
+            {...footerFilter}
           />
           <div className="shrink-0 border-t border-indigo-200 bg-indigo-50/80 px-2 py-1.5 sm:border-t-2 sm:px-3 sm:py-2.5">
             <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-wide sm:tracking-widest text-indigo-700 mb-1 sm:mb-2 leading-tight">

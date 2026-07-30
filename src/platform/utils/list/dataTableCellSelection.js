@@ -101,6 +101,28 @@ export function getCellPlainText(item, header, rowIndex) {
   return formatExportCellValue(value);
 }
 
+/** Raw cell value for Excel — keeps numbers as numbers so SUM works. */
+export function getCellXlsxValue(item, header, rowIndex) {
+  if (!header || !item) return "";
+  const [, key, , options] = header;
+  const value = item[key];
+
+  if (options?.exportType === "number" || options?.xlsxNumber) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "boolean") return value;
+
+  if (options?.copyValue && typeof options.copyValue === "function") {
+    const custom = options.copyValue(item, value, rowIndex);
+    if (typeof custom === "number" && Number.isFinite(custom)) return custom;
+    if (typeof custom === "boolean") return custom;
+  }
+
+  return getCellPlainText(item, header, rowIndex);
+}
+
 /** TSV for clipboard (Excel / Sheets friendly) */
 export function buildClipboardFromCellSet(data, headers, cellSet) {
   if (!cellSet?.size) return "";

@@ -20,7 +20,36 @@ export const IPR_DOWNSTREAM = {
   PENDING_STORE_OUT: "pending_store_out",
   PENDING_STORE_IN: "pending_store_in",
   CONSUMED: "consumed",
+  STORE_OUT_DONE: "store_out_done",
 };
+
+/** Same labels in filter dropdown, table Type column, and modal. */
+export const IPR_REQUEST_TYPE_LABEL = {
+  [IPR_REQUEST_TYPE.REJECTION]: "In-process Rejection",
+  [IPR_REQUEST_TYPE.STORE_IN]: "Store In Request",
+  [IPR_REQUEST_TYPE.CONSUME]: "Consume Request",
+};
+
+export const IPR_REJECTION_SCOPE_LABEL = {
+  coil: "Coil",
+  lot: "Lot",
+};
+
+export const IPR_REQUEST_TYPE_FILTER_OPTIONS = [
+  { label: "All Types", value: "all" },
+  {
+    label: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.REJECTION],
+    value: IPR_REQUEST_TYPE.REJECTION,
+  },
+  {
+    label: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.STORE_IN],
+    value: IPR_REQUEST_TYPE.STORE_IN,
+  },
+  {
+    label: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.CONSUME],
+    value: IPR_REQUEST_TYPE.CONSUME,
+  },
+];
 
 const E = ENDPOINTS.IN_PROCESS_REQUEST;
 
