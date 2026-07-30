@@ -21,19 +21,19 @@ import { useSelector } from "react-redux";
 import { selectUser, selectRole } from "@/platform/store/slices/authSlice";
 import { applyClientSearch, sortRowsByKey, nextSortParams } from "@/ui/common/list/clientListSearch";
 import { schedulePlanningService } from "@/apps/ims/lib/services/schedulePlanning";
-import { SCHEDULE_LIST_FILTER, SCHEDULE_PLAN_STATUS, canOpenPlanModal, SCHEDULE_REPORT_FILTER, getDefaultScheduleStatusFilter, getScheduleStatusFilterOptions, filterScheduleItemsForPermission, isSalesDepartmentUser, isScheduleCompleteRow, isScheduleOpenPlanRow } from "./schedulePlanStatus";
+import { SCHEDULE_LIST_FILTER, canOpenPlanModal, SCHEDULE_REPORT_FILTER, getDefaultScheduleStatusFilter, getScheduleStatusFilterOptions, filterScheduleItemsForPermission, isSalesDepartmentUser, isScheduleCompleteRow } from "./schedulePlanStatus";
 import { SCHEDULE_PAGE_TABS, MONTH_FILTER_OPTIONS, SCHEDULE_REPORT_FILTER_OPTIONS, scheduleItemRowKey, scheduleSchnoKey, resolveScheduleItemdcode, canDeleteRow, scheduleItemWiseSearchParts,
-  scheduleUniqueSearchParts, toUniqueScheduleRows, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, hasScheduleComparisonMismatch, getScheduleListRowClassName, SCHEDULE_LIST_ROW_LEGEND } from "./schedulePlanningColumns";
+  scheduleUniqueSearchParts, toUniqueScheduleRows, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, getScheduleListRowClassName, SCHEDULE_LIST_ROW_LEGEND } from "./schedulePlanningColumns";
 import SchedulePlanModal from "./SchedulePlanModal";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import SchedulePlanRemoveConfirmModal from "./SchedulePlanRemoveConfirmModal";
 import { MasterRefreshButton } from "../../lib/helpers/masterListUi";
 
-function buildScheduleListFilters(query) {
+function buildScheduleListFilters(query, status = SCHEDULE_LIST_FILTER.ALL) {
   const reportType = String(query?.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT).toLowerCase();
   const body = {
     reportType,
-    status: SCHEDULE_LIST_FILTER.ALL,
+    status: String(status ?? SCHEDULE_LIST_FILTER.ALL).toLowerCase(),
   };
 
   if (reportType === SCHEDULE_REPORT_FILTER.CUSTOM) {
@@ -47,62 +47,6 @@ function buildScheduleListFilters(query) {
   }
 
   return body;
-}
-
-function matchesFrontendStatusFilter(row, status) {
-  const st = String(status ?? SCHEDULE_LIST_FILTER.ALL).toLowerCase();
-  if (st === SCHEDULE_LIST_FILTER.ALL) return true;
-  if (st === SCHEDULE_LIST_FILTER.COMPARISON) return hasScheduleComparisonMismatch(row);
-
-  const codes =
-    row?.status_label === "Partial" && Array.isArray(row?._items) && row._items.length
-      ? row._items.map((i) => {
-          const n = Number(i?.is_planned);
-          return Number.isFinite(n) ? n : SCHEDULE_PLAN_STATUS.PENDING;
-        })
-      : (() => {
-          if (row?.is_planned == null || row?.is_planned === "") {
-            return [SCHEDULE_PLAN_STATUS.PENDING];
-          }
-          const n = Number(row.is_planned);
-          return [Number.isFinite(n) ? n : SCHEDULE_PLAN_STATUS.PENDING];
-        })();
-
-  const has = (pred) => codes.some(pred);
-
-  if (st === SCHEDULE_LIST_FILTER.PENDING) {
-    return has((c) => c === SCHEDULE_PLAN_STATUS.PENDING);
-  }
-  if (st === SCHEDULE_LIST_FILTER.READY_TO_DISPATCH) {
-    return has((c) => c === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH);
-  }
-  if (st === SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT) {
-    return has(
-      (c) =>
-        c === SCHEDULE_PLAN_STATUS.PENDING ||
-        c === SCHEDULE_PLAN_STATUS.HOLD ||
-        c === SCHEDULE_PLAN_STATUS.REJECT
-    );
-  }
-  if (st === SCHEDULE_LIST_FILTER.PLAN) {
-    if (row?.status_label === "Partial" && Array.isArray(row?._items) && row._items.length) {
-      return row._items.some(isScheduleOpenPlanRow);
-    }
-    return isScheduleOpenPlanRow(row);
-  }
-  if (st === SCHEDULE_LIST_FILTER.COMPLETE) {
-    if (row?.status_label === "Partial" && Array.isArray(row?._items) && row._items.length) {
-      return row._items.some(isScheduleCompleteRow);
-    }
-    return isScheduleCompleteRow(row);
-  }
-  if (st === SCHEDULE_LIST_FILTER.REJECT) {
-    return has((c) => c === SCHEDULE_PLAN_STATUS.REJECT);
-  }
-  if (st === SCHEDULE_LIST_FILTER.HOLD) {
-    return has((c) => c === SCHEDULE_PLAN_STATUS.HOLD);
-  }
-  return true;
 }
 
 export default function SchedulePlanningPage() {
@@ -176,7 +120,7 @@ export default function SchedulePlanningPage() {
     }
     setLoading(true);
     try {
-      const res = await schedulePlanningService.list(buildScheduleListFilters(appliedQuery));
+      const res = await schedulePlanningService.list(buildScheduleListFilters(appliedQuery, statusFilter));
       setRows(Array.isArray(res?.data) ? res.data : []);
       setDisplayLimit(100);
       if (!res?.success) {
@@ -188,7 +132,7 @@ export default function SchedulePlanningPage() {
     } finally {
       setLoading(false);
     }
-  }, [appliedQuery]);
+  }, [appliedQuery, statusFilter]);
 
   useEffect(() => {
     if (appliedQuery) void fetchData();
@@ -220,12 +164,7 @@ export default function SchedulePlanningPage() {
     setDisplayLimit(100);
   }, [tempSearch, pageTab]);
 
-  const frontendFilteredRows = useMemo(
-    () => rows.filter((row) => matchesFrontendStatusFilter(row, statusFilter)),
-    [rows, statusFilter]
-  );
-
-  const uniqueSchedulesAll = useMemo(() => toUniqueScheduleRows(frontendFilteredRows), [frontendFilteredRows]);
+  const uniqueSchedulesAll = useMemo(() => toUniqueScheduleRows(rows), [rows]);
   const uniqueSchedules = useMemo(() => {
     const q = String(tempSearch || "").trim();
     let data = uniqueSchedulesAll;
@@ -238,13 +177,13 @@ export default function SchedulePlanningPage() {
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
     let data = itemWiseSchnoFilter
-      ? frontendFilteredRows.filter((row) => scheduleSchnoKey(row) === itemWiseSchnoFilter)
-      : [...frontendFilteredRows];
+      ? rows.filter((row) => scheduleSchnoKey(row) === itemWiseSchnoFilter)
+      : [...rows];
     if (q) {
       data = applyClientSearch(data, tempSearch, { getParts: scheduleItemWiseSearchParts, skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [frontendFilteredRows, itemWiseSchnoFilter, tempSearch, params.sortKey, params.sortDir]);
+  }, [rows, itemWiseSchnoFilter, tempSearch, params.sortKey, params.sortDir]);
 
   const drillToItemWise = useCallback((scheduleRow) => {
     const schno = scheduleSchnoKey(scheduleRow);

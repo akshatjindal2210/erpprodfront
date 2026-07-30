@@ -441,13 +441,9 @@ export function toUniqueScheduleRows(records) {
 
 export function ScheduleStatusBadge({ row }) {
   const isPartial = row?.status_label === "Partial" || row?.is_planned == null;
-  const resolvedCode = isPartial
-    ? null
-    : resolveScheduleDisplayStatus(row);
+  const resolvedCode = isPartial ? null : resolveScheduleDisplayStatus(row);
 
-  const label = isPartial
-    ? "Partial"
-    : statusLabel(resolvedCode);
+  const label = isPartial ? "Partial" : statusLabel(resolvedCode);
 
   let className = "bg-slate-50 text-slate-600 border-slate-200";
   if (isPartial) className = "bg-slate-50 text-slate-600 border-slate-200";

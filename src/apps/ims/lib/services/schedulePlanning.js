@@ -80,11 +80,11 @@ export const schedulePlanningService = {
       body: finYearBody(body),
     }),
 
-  /** Dispatch-plan helper — no fin_year_id required. Caller must pass permission_module + permission_action. */
+  /** Today Dispatch Plan — pass fin_year_id for Complete tab month scope. */
   dispatchHelper: (body = {}) =>
     api(ENDPOINTS.SCHEDULE_PLANNING.DISPATCH_HELPER, {
       method: "POST",
-      body,
+      body: finYearBody(body),
     }),
 
   /** Current-month Plan/Hold lines for one customer (FN item picker). Passes fin_year for IMS merge. */
