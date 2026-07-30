@@ -25,8 +25,16 @@ function isFilterValueActive(v) {
   return String(v).trim().toLowerCase() !== "all";
 }
 
+function resolveExtraFilterVariant(filter, { showInstantExtras = false, applyExtrasOnChange = false, isQuickSearch = false } = {}) {
+  if (filter?.variant === "quick" || filter?.variant === "server") return filter.variant;
+  if (showInstantExtras) return "quick";
+  if (applyExtrasOnChange && isQuickSearch) return "quick";
+  return "server";
+}
+
 function StaticSearchableFilter({
   filter,
+  filterVariant,
   value,
   disabled,
   onValueChange,
@@ -87,7 +95,7 @@ function StaticSearchableFilter({
     <SearchableSelect
       key={`${filter.key}-${options.length}`}
       variant="toolbar"
-      filterVariant={resolveExtraFilterVariant(filter) === "quick" ? "quick" : "server"}
+      filterVariant={filterVariant === "quick" ? "quick" : "server"}
       className="w-full min-w-0"
       label={filter.label}
       placeholder={filter.placeholder || `Search ${filter.label || ""}…`}
@@ -177,14 +185,13 @@ export default function DateRangeFilter({
   const isQuickSearch = searchVariant === "quick";
   const hasSearchField = onSearchChange !== undefined;
 
-  const resolveExtraFilterVariant = useCallback(
-    (filter) => {
-      if (filter?.variant === "quick" || filter?.variant === "server") return filter.variant;
-      if (showInstantExtras) return "quick";
-      if (applyExtrasOnChange && isQuickSearch) return "quick";
-      return "server";
-    },
+  const extraFilterVariantContext = useMemo(
+    () => ({ showInstantExtras, applyExtrasOnChange, isQuickSearch }),
     [showInstantExtras, applyExtrasOnChange, isQuickSearch],
+  );
+  const getExtraFilterVariant = useCallback(
+    (filter) => resolveExtraFilterVariant(filter, extraFilterVariantContext),
+    [extraFilterVariantContext],
   );
   /** Date ranges or server-backed extra filters keep Apply/Reset; client-only extras do not. */
   const showActionButtons = Boolean(showDate) || (extraFilterCount > 0 && !showInstantExtras);
@@ -300,7 +307,7 @@ export default function DateRangeFilter({
           placeholder={filter.placeholder ?? ""}
           value={filter.value}
           onChange={filter.onChange}
-          variant={filter.variant || resolveExtraFilterVariant(filter)}
+          variant={filter.variant || getExtraFilterVariant(filter)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -322,6 +329,7 @@ export default function DateRangeFilter({
       >
         <StaticSearchableFilter
           filter={filter}
+          filterVariant={getExtraFilterVariant(filter)}
           value={localExtras[filter.key] ?? filter.value ?? ""}
           disabled={Boolean(filter.disabled)}
           onValueChange={(v) => applyExtraValue(filter, v)}
@@ -336,7 +344,7 @@ export default function DateRangeFilter({
             : filter.className || "md:min-w-[10.5rem] md:flex-1 md:max-w-[14rem]"
         }`.trim()}
       >
-        <label className={`${listPageFilterLabelClass(resolveExtraFilterVariant(filter))} ${stacked ? "" : "max-md:hidden"}`}>
+        <label className={`${listPageFilterLabelClass(getExtraFilterVariant(filter))} ${stacked ? "" : "max-md:hidden"}`}>
           {filter.label}
         </label>
         <select
@@ -345,7 +353,7 @@ export default function DateRangeFilter({
           onChange={(e) => applyExtraValue(filter, e.target.value)}
           className={`${
             [
-              listPageFilterBoxClass(resolveExtraFilterVariant(filter)),
+              listPageFilterBoxClass(getExtraFilterVariant(filter)),
               LIST_PAGE_FILTER_VALUE_CLASS,
               "cursor-pointer appearance-none outline-none pr-7 md:pr-8",
             ].join(" ")
