@@ -209,7 +209,7 @@ export function isSalesDepartmentUser(user) {
   return name === "sales" || name.includes("sales");
 }
 
-/** Default list filter: Sales + Authorize → Hold/Reject; else Ready to Dispatch. */
+/** Default: Sales + Authorize → Hold/Reject; else Ready to Dispatch. */
 export function getDefaultScheduleStatusFilter({
   canAdd = false,
   canApprove = false,
@@ -264,7 +264,9 @@ export function isScheduleOpenPlanRow(row) {
 /** Status badge / row color — Complete when manual Complete or balance 0. */
 export function resolveScheduleDisplayStatus(row) {
   if (isScheduleCompleteRow(row)) return SCHEDULE_PLAN_STATUS.COMPLETE;
-  return Number(row?.db_is_planned ?? row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
+  const st = Number(row?.db_is_planned ?? row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
+  if (st === SCHEDULE_PLAN_STATUS.PENDING) return SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH;
+  return st;
 }
 
 /** Everyone sees all filter options; defaults differ by role. */
