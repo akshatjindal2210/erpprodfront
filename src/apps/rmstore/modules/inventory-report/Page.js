@@ -301,7 +301,7 @@ export default function InventoryReportPage() {
                   <div className="min-w-0 hidden md:block">
                     <h1 className="text-sm font-bold text-slate-800 leading-tight">RM Inventory</h1>
                     <p className="text-[10px] text-slate-500 font-medium truncate">
-                      Total Stock = In Store + Unassigned Area
+                      Total Stock = In Store + Unassigned · Shop Floor shown separately
                     </p>
                   </div>
                 </div>
@@ -464,6 +464,8 @@ export default function InventoryReportPage() {
                 "item_desc",
                 "customer_name",
                 "location_details",
+                "total_stock_qty",
+                "shop_floor_qty",
                 "in_store_qty",
                 "unassigned_qty",
                 "pending_qc_qty",
@@ -489,7 +491,7 @@ export default function InventoryReportPage() {
                 </span>
               ) : null}
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-1 sm:gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 sm:gap-3">
               <div className="rounded-md sm:rounded-lg border border-slate-200 bg-white px-1.5 py-1 sm:px-3 sm:py-2 shadow-sm min-w-0">
                 <p className="text-[7px] sm:text-[9px] font-bold uppercase text-slate-500 tracking-wide leading-tight">
                   Total Stock
@@ -498,7 +500,18 @@ export default function InventoryReportPage() {
                   {formatQty(totals.total_stock_qty)}
                 </p>
                 <p className="hidden sm:block text-[8px] text-slate-400 font-medium mt-0.5">
-                  In store + unassigned
+                  In store + unassigned only
+                </p>
+              </div>
+              <div className="rounded-md sm:rounded-lg border border-blue-200 bg-white px-1.5 py-1 sm:px-3 sm:py-2 shadow-sm min-w-0">
+                <p className="text-[7px] sm:text-[9px] font-bold uppercase text-blue-700 tracking-wide leading-tight">
+                  Shop Floor
+                </p>
+                <p className="text-[9px] sm:text-lg font-black text-blue-800 tabular-nums leading-none whitespace-nowrap overflow-x-auto max-w-full [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  {formatQty(totals.shop_floor_qty)}
+                </p>
+                <p className="hidden sm:block text-[8px] text-slate-400 font-medium mt-0.5">
+                  Issued at machine · not in stock
                 </p>
               </div>
               <div className="rounded-md sm:rounded-lg border border-emerald-200 bg-white px-1.5 py-1 sm:px-3 sm:py-2 shadow-sm min-w-0">

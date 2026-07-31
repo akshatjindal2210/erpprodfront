@@ -1,3 +1,4 @@
+// import { Boxes, Home, ListTodo, Settings, Warehouse } from "lucide-react";
 import { Boxes, Home, ListTodo, Settings } from "lucide-react";
 import { ROUTES } from "@/config/routes";
 import { userHasAppAccess } from "@/config/moduleAppRegistry";

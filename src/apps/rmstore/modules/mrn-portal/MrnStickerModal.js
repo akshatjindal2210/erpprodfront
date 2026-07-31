@@ -5,7 +5,7 @@
  * Left detail cards + right breakdown; after generate → Saved cards + PRINT ALL / Re-Print.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Layers, Box, User, ClipboardList, Printer, Eye, X, RefreshCw, CheckCircle2, Upload, FileText } from "lucide-react";
+import { Loader2, Layers, Box, User, ClipboardList, Printer, Eye, X, RefreshCw, CheckCircle2, Upload, FileText, Save } from "lucide-react";
 import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
 
@@ -153,6 +153,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const [tab, setTab] = useState(TABS.DETAILS);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [detail, setDetail] = useState(null);
   const [heatNo, setHeatNo] = useState("");
@@ -220,27 +221,77 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     setDlTracking({});
   }, [buildCoilQtys]);
 
+  const hasSavedDoc = useCallback((path) => Boolean(String(path || "").trim()), []);
+
+  const applyDraftInputs = useCallback((data) => {
+    const draft = data?.sticker_draft;
+    const hasDraft = draft && typeof draft === "object" && Object.keys(draft).length > 0;
+    if (!hasDraft) {
+      applyFreshInputs(data);
+      return;
+    }
+    const editable = data?.qty_editable !== false;
+    const autoCalc = data?.qty_auto_calc !== false;
+    const count = Math.max(1, Number(draft.coil_count) || 1);
+    setCoilCount(count);
+    const qtys = Array.isArray(draft.coil_qtys) ? draft.coil_qtys : [];
+    if (qtys.length === count) {
+      setCoilQtys(qtys.map((q) => roundQty3(Number(q) || 0)));
+    } else if (autoCalc || !editable) {
+      const total = Number.isFinite(Number(draft.total_qty))
+        ? roundQty3(Number(draft.total_qty))
+        : roundQty3(Number(data?.it_recp_qty) || 0);
+      setCoilQtys(buildCoilQtys(count, total, { autoCalc }));
+    } else {
+      setCoilQtys(Array.from({ length: count }, () => ""));
+    }
+    setHeatNo(draft.heat_no || "");
+    setRemarks(draft.remarks || "");
+    setTcFile(null);
+    setRmtcFile(null);
+    setDlTracking({});
+  }, [applyFreshInputs, buildCoilQtys]);
+
+  const hasTcDocument = useMemo(
+    () => tcFile instanceof File || hasSavedDoc(detail?.tc_file_path),
+    [tcFile, detail?.tc_file_path, hasSavedDoc]
+  );
+  const hasRmtcDocument = useMemo(
+    () => rmtcFile instanceof File || hasSavedDoc(detail?.rmtc_file_path),
+    [rmtcFile, detail?.rmtc_file_path, hasSavedDoc]
+  );
+
   const loadDetail = useCallback(async () => {
-    if (!mrnId) return;
+    const uid = mrnId || sourceRow?.uid;
+    if (!uid) return;
     setLoading(true);
     try {
-      const res = await mrnService.getDetail(mrnId);
+      const res = await mrnService.getDetail(uid);
       const data = res?.data ?? null;
       setDetail(data);
-      if ((data?.coils || []).length === 0) applyFreshInputs(data);
-      else {
+      if ((data?.coils || []).length > 0) {
         setCoilCount(data.coils.length);
         setCoilQtys(data.coils.map((c) => roundQty3(c.qty)));
         setHeatNo(data.coils[0]?.heat_no || "");
         setRemarks(data.coils[0]?.remarks || "");
+      } else if (data?.has_sticker_draft || data?.sticker_draft) {
+        applyDraftInputs(data);
+      } else {
+        applyFreshInputs(data);
       }
     } catch (err) {
-      toast.error(err?.message || "Could not load the MRN. Please try again.");
-      setDetail(null);
+      if (sourceRow && (err?.status === 404 || /not found/i.test(String(err?.message || "")))) {
+        const hydrated = hydrateFromSourceRow(sourceRow);
+        setDetail(hydrated);
+        applyFreshInputs(hydrated);
+      } else {
+        toast.error(err?.message || "Could not load the MRN. Please try again.");
+        setDetail(null);
+      }
     } finally {
       setLoading(false);
     }
-  }, [mrnId, applyFreshInputs]);
+  }, [mrnId, sourceRow, applyFreshInputs, applyDraftInputs]);
 
   useEffect(() => {
     if (!open) {
@@ -249,9 +300,11 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       setPreviewOpen(false);
       setPreviewHtml("");
       setDlTracking({});
+      setSavingDraft(false);
       return;
     }
-    if (mrnId) {
+    const uid = mrnId || sourceRow?.uid;
+    if (uid) {
       loadDetail();
       return;
     }
@@ -394,7 +447,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
 
   const validateBeforeGenerate = () => {
     if (!validateBeforePreview()) return false;
-    if (!tcFile || !rmtcFile) {
+    if (!hasTcDocument || !hasRmtcDocument) {
       toast.error("Both the TC and RMTC documents are required.");
       setTab(TABS.DETAILS);
       return false;
@@ -527,6 +580,54 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     }
   };
 
+  const handleSaveDraft = async () => {
+    const uid = resolvedUid || sourceRow?.uid || detail?.uid;
+    if (!uid) {
+      toast.error("MRN UID is required to save a draft.");
+      return;
+    }
+    if (alreadyGenerated) {
+      toast.info("Stickers have already been generated for this MRN.");
+      return;
+    }
+    if (!validateQtyInputs()) return;
+    setSavingDraft(true);
+    try {
+      const source = sourceRow || detail;
+      const res = await mrnService.saveStickerDraft({
+        uid,
+        sourceRow: source,
+        heat_no: heatNo.trim(),
+        coil_count: Math.max(1, Number(coilCount) || 1),
+        total_qty: targetQty,
+        coil_qtys: coilQtys.map((q) => roundQty3(Number(q) || 0)),
+        remarks: remarks || "",
+        tcFile,
+        rmtcFile,
+      });
+      toast.success(res?.message || "Draft saved successfully.");
+      setDetail((prev) => ({
+        ...(prev || {}),
+        ...source,
+        uid,
+        has_sticker_draft: true,
+        sticker_draft: res?.data?.sticker_draft ?? prev?.sticker_draft,
+        tc_file_path: res?.data?.tc_file_path ?? prev?.tc_file_path ?? null,
+        tc_file_name: res?.data?.tc_file_name ?? prev?.tc_file_name ?? null,
+        rmtc_file_path: res?.data?.rmtc_file_path ?? prev?.rmtc_file_path ?? null,
+        rmtc_file_name: res?.data?.rmtc_file_name ?? prev?.rmtc_file_name ?? null,
+        status: "draft",
+      }));
+      setTcFile(null);
+      setRmtcFile(null);
+      onSuccess?.();
+    } catch (err) {
+      toast.error(err?.message || "Could not save the draft. Please try again.");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!validateBeforeGenerate()) return;
     setGenerating(true);
@@ -545,18 +646,33 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       const newUid = res?.data?.uid ?? uid;
       if (!newUid) throw new Error("The stickers were generated but the MRN ID is missing.");
       let uploadedDocs = null;
-      try {
-        const upRes = await mrnService.uploadDocs({ uid: newUid, tcFile, rmtcFile });
-        uploadedDocs = upRes?.data || null;
-      } catch (upErr) {
+      const needsDocUpload = tcFile instanceof File || rmtcFile instanceof File;
+      if (needsDocUpload) {
+        try {
+          const upRes = await mrnService.uploadDocs({
+            uid: newUid,
+            tcFile,
+            rmtcFile,
+            requireBoth: false,
+          });
+          uploadedDocs = upRes?.data || null;
+        } catch (upErr) {
+          try {
+            await mrnService.delete(newUid);
+          } catch {
+            /* ignore rollback errors */
+          }
+          throw new Error(
+            upErr?.message || "Could not upload the documents, so the stickers were rolled back."
+          );
+        }
+      } else if (!hasSavedDoc(detail?.tc_file_path) || !hasSavedDoc(detail?.rmtc_file_path)) {
         try {
           await mrnService.delete(newUid);
         } catch {
           /* ignore rollback errors */
         }
-        throw new Error(
-          upErr?.message || "Could not upload the documents, so the stickers were rolled back."
-        );
+        throw new Error("Both the TC and RMTC documents are required.");
       }
       toast.success(res?.message || "Stickers generated successfully.");
       setPreviewOpen(false);
@@ -690,8 +806,22 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                   onChange={(e) => handleCoilCountChange(e.target.value)}
                 />
               </div>
-              <SimpleFileInput label="TC Document" required file={tcFile} onChange={setTcFile} />
-              <SimpleFileInput label="RMTC Document" required file={rmtcFile} onChange={setRmtcFile} />
+              <SimpleFileInput
+                label="TC Document"
+                required
+                file={tcFile}
+                onChange={setTcFile}
+                savedPath={detail?.tc_file_path}
+                savedName={detail?.tc_file_name}
+              />
+              <SimpleFileInput
+                label="RMTC Document"
+                required
+                file={rmtcFile}
+                onChange={setRmtcFile}
+                savedPath={detail?.rmtc_file_path}
+                savedName={detail?.rmtc_file_name}
+              />
               <div className="space-y-1 min-w-0">
                 <FormLabel className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter ml-0">
                   Remarks
@@ -1103,8 +1233,18 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                     <>
                       <button
                         type="button"
+                        onClick={() => void handleSaveDraft()}
+                        disabled={generating || savingDraft || previewLoading}
+                        className="bg-white border border-sky-300 hover:bg-sky-50 disabled:opacity-50 text-sky-800 px-2 sm:px-4 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-sm touch-manipulation flex-1 sm:flex-initial min-h-[34px]"
+                      >
+                        {savingDraft ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Save size={14} className="shrink-0" />}
+                        <span className="lg:hidden">Draft</span>
+                        <span className="hidden lg:inline">SAVE DRAFT</span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={handlePreview}
-                        disabled={generating || previewLoading}
+                        disabled={generating || savingDraft || previewLoading}
                         className="bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 text-slate-800 px-2 sm:px-4 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-sm touch-manipulation flex-1 sm:flex-initial min-h-[34px]"
                       >
                         {previewLoading ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Eye size={14} className="shrink-0" />}
@@ -1114,7 +1254,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                       <button
                         type="button"
                         onClick={handleGenerate}
-                        disabled={generating || !qtyMatches}
+                        disabled={generating || savingDraft || !qtyMatches}
                         className="bg-slate-900 hover:bg-black disabled:bg-slate-400 text-white px-2 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-md touch-manipulation flex-1 sm:flex-initial min-h-[34px]"
                       >
                         {generating ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Printer size={14} className="shrink-0" />}

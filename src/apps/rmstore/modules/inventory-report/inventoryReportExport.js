@@ -11,6 +11,7 @@ export const INVENTORY_REPORT_TABLE_COLUMNS = [
   { label: "Supplier", key: "customer_name", type: "text" },
   { label: "Location Details (Coils Count)", key: "location_details", type: "text" },
   { label: "Total Stock", key: "total_stock_qty", type: "number" },
+  { label: "Shop Floor", key: "shop_floor_qty", type: "number" },
   { label: "In Store", key: "in_store_qty", type: "number" },
   { label: "Unassigned Area", key: "unassigned_qty", type: "number" },
   { label: "Pending QC", key: "pending_qc_qty", type: "number" },

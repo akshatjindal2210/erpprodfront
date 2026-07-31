@@ -133,16 +133,21 @@ const BADGE_TONES = {
 };
 
 /** Compact info chip — same idea as FN Sch / Balance badges (not input fields). */
-function InfoBadge({ label, value, tone = "slate", loading = false, title }) {
+function InfoBadge({ label, value, tone = "slate", loading = false, title, numeric = true }) {
+  const display = loading
+    ? "…"
+    : numeric
+      ? Number(value || 0).toLocaleString()
+      : value || "—";
   return (
     <span
       title={title}
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wide tabular-nums shadow-sm ${
-        BADGE_TONES[tone] || BADGE_TONES.slate
-      }`}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wide shadow-sm ${
+        numeric ? "tabular-nums" : ""
+      } ${BADGE_TONES[tone] || BADGE_TONES.slate}`}
     >
       <span className="opacity-80 font-bold">{label}</span>
-      <span>{loading ? "…" : Number(value || 0).toLocaleString()}</span>
+      <span>{display}</span>
     </span>
   );
 }
@@ -1057,6 +1062,15 @@ export default function IssueRequestModal({
                       </span>
                       {row.pjobcardno ? (
                         <>
+                          {row.macname ? (
+                            <InfoBadge
+                              label="Machine"
+                              value={row.macname}
+                              tone="slate"
+                              numeric={false}
+                              title="Production machine for this job card"
+                            />
+                          ) : null}
                           <InfoBadge
                             label="Plan"
                             value={balance.plan}

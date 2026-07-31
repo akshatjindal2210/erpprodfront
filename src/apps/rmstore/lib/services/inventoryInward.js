@@ -3,6 +3,7 @@ import { ENDPOINTS } from "@/apps/rmstore/lib/config/endpoints";
 
 export const inventoryInwardService = {
   getAll: (params) => api(ENDPOINTS.INVENTORY_INWARDS.LIST, { method: "POST", body: params }),
+  getPendingList: (params) => api(ENDPOINTS.INVENTORY_INWARDS.PENDING_LIST, { method: "POST", body: params }),
   getPackingAreaList: (params) => api(ENDPOINTS.INVENTORY_INWARDS.PACKING_AREA_LIST, { method: "POST", body: params }),
   getCoilArea: (params) => api(ENDPOINTS.INVENTORY_INWARDS.COIL_AREA, { method: "POST", body: params }),
   getById: (in_uid) => api(ENDPOINTS.INVENTORY_INWARDS.GET, { method: "POST", body: { in_uid } }),

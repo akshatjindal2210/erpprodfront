@@ -2,6 +2,7 @@ import { sortSelectRowsAsc } from "@/platform/utils/form/sortSelectOptions";
 
 export const EMPTY_INVENTORY_TOTALS = {
   total_stock_qty: 0,
+  shop_floor_qty: 0,
   in_store_qty: 0,
   unassigned_qty: 0,
   pending_qc_qty: 0,
@@ -232,6 +233,7 @@ export function computeInventoryTotals(rows = []) {
   return (rows || []).reduce(
     (acc, row) => {
       acc.total_stock_qty += safeQty(row?.total_stock_qty);
+      acc.shop_floor_qty += safeQty(row?.shop_floor_qty);
       acc.in_store_qty += safeQty(row?.in_store_qty);
       acc.unassigned_qty += safeQty(row?.unassigned_qty);
       acc.pending_qc_qty += safeQty(row?.pending_qc_qty);

@@ -85,7 +85,7 @@ export default function SchedulePlanningPage() {
   const [tempSearch, setTempSearch] = useState("");
   const [params, setParams] = useState({ sortKey: "", sortDir: "asc" });
   const [appliedQuery, setAppliedQuery] = useState(null);
-  const [statusFilter, setStatusFilter] = useState(SCHEDULE_LIST_FILTER.ALL);
+  const [statusFilter, setStatusFilter] = useState(SCHEDULE_LIST_FILTER.READY_TO_DISPATCH);
   const [draftReportType, setDraftReportType] = useState(SCHEDULE_REPORT_FILTER.DEFAULT);
   const initialQuerySet = useRef(false);
 
@@ -483,17 +483,19 @@ export default function SchedulePlanningPage() {
         message: "No Plan items",
         subMessage: "Planned / Running with remaining balance appear here",
       },
+      /* commnet line pending for ready to dispacth purpose
       [SCHEDULE_LIST_FILTER.PENDING]: {
         message: "No Pending items",
         subMessage: "IMS schedules not yet authorized",
       },
+      */
       [SCHEDULE_LIST_FILTER.READY_TO_DISPATCH]: {
         message: "No Ready to Dispatch items",
         subMessage: "Authorized — waiting to be planned",
       },
       [SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT]: {
-        message: "No Pending / Hold / Reject items",
-        subMessage: "Authorize queue — Pending, Hold, or Reject",
+        message: "No Hold / Reject items",
+        subMessage: "Hold or Reject schedules appear here",
       },
       [SCHEDULE_LIST_FILTER.COMPLETE]: { message: "No completed schedules", subMessage: "Manual Complete or fully dispatched (balance 0) items appear here" },
       [SCHEDULE_LIST_FILTER.COMPARISON]: { message: "No ERP vs DB mismatches", subMessage: "Live ERP matches the DB snapshot saved at plan time" },

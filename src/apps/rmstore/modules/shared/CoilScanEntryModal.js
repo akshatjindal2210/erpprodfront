@@ -1,30 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import {
-  Check,
-  CheckCircle2,
-  ChevronRight,
-  Loader2,
-  Plus,
-  ScanLine,
-  Camera,
-  MapPin,
-  X,
-  AlertCircle,
-  QrCode,
-} from "lucide-react";
+import { Check, CheckCircle2, ChevronRight, Loader2, Plus, ScanLine, Camera, MapPin, X, QrCode, LogOut, ClipboardList } from "lucide-react";
 
 import "@/apps/ims/lib/config/inwardUi.theme.css";
 
 import { coilService } from "@/apps/rmstore/lib/services/coil";
 import { outEntryService } from "@/apps/rmstore/lib/services/outEntry";
-import {
-  extractCoilUid,
-  extractBatchMrnUid,
-  normalizeScanInput,
-  coilUidDisplayLabel,
-} from "@/apps/rmstore/lib/helpers/qrScan";
+import { rmRejectionService } from "@/apps/rmstore/lib/services/rmRejection";
+import { extractCoilUid, extractBatchMrnUid, normalizeScanInput, coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import Drawer from "@/ui/primitives/Drawer";
@@ -37,12 +21,47 @@ import LaserScanField from "@/ui/common/scan/LaserScanField";
 import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
 import { prepareQrScanSession, unlockScanAudio, playScanSuccessBeep } from "@/platform/utils/global/scanFeedback";
+import { parseSeedCoilUids } from "@/apps/rmstore/modules/out-entry/pendingOutRows";
+
+const STORE_OUT_KIND = {
+  MRN: "store_out",
+  JOB_CARD: "job_card",
+};
+
+function jobCardSelectKey(row) {
+  if (row?.issue_uid == null) return "";
+  return `${row.issue_uid}::${String(row.pjobcardno || "").trim()}`;
+}
+
+function parseJobCardSelectKey(key) {
+  const raw = String(key || "").trim();
+  const sep = raw.indexOf("::");
+  if (sep < 0) return null;
+  return {
+    issue_uid: Number(raw.slice(0, sep)),
+    pjobcardno: raw.slice(sep + 2),
+  };
+}
+
+function mapPendingJobCardOption(row) {
+  const jcKey = jobCardSelectKey(row);
+  const jcNo = String(row?.pjobcardno || "").trim();
+  const mac = String(row?.macname || "").trim();
+  return {
+    ...row,
+    jc_key: jcKey,
+    jc_label: jcNo ? `JC ${jcNo}` : `Issue #${row?.issue_uid ?? "—"}`,
+    jc_sub: [mac, row?.rm_item_code || row?.item_code || ""].filter(Boolean).join(" · "),
+  };
+}
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "success", title: "", message: "", duration: SNACK_DUR.med };
 
 function coilLocationLabel(c) {
-  return c?.location_no || (c?.location_id != null ? `ID ${c.location_id}` : "No location");
+  if (c?.location_no) return String(c.location_no);
+  if (c?.location_id != null) return `Location ID ${c.location_id}`;
+  return "Coil Area — not on rack";
 }
 
 function coilLocationDetail(c) {
@@ -53,12 +72,140 @@ function coilLocationDetail(c) {
   return bits.length ? `${base} · ${bits.join(" · ")}` : base;
 }
 
+function rejectionLocationSummary(coils = []) {
+  if (!coils.length) return "—";
+  const labels = [...new Set(coils.map((c) => coilLocationDetail(c)).filter(Boolean))];
+  return labels.join(" · ") || "—";
+}
+
+function parseSeedCoilUidList(seed) {
+  const raw = seed?.coil_uids ?? seed?.coil_no_uids ?? seed?.coil_no_uid;
+  if (Array.isArray(raw)) return raw.map((u) => String(u).trim()).filter(Boolean);
+  if (typeof raw === "string") {
+    return raw
+      .split(",")
+      .map((u) => u.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 function locationRowLabel(loc) {
-  const base = loc?.location_no || (loc?.location_id != null ? `ID ${loc.location_id}` : "No location");
+  const base =
+    loc?.location_no ||
+    (loc?.location_id != null ? `Location ID ${loc.location_id}` : "Coil Area — not on rack");
   const bits = [];
   if (loc?.rack_no != null && String(loc.rack_no).trim() !== "") bits.push(`Rack ${loc.rack_no}`);
   if (loc?.row_no != null && String(loc.row_no).trim() !== "") bits.push(`Row ${loc.row_no}`);
   return bits.length ? `${base} · ${bits.join(" · ")}` : base;
+}
+
+async function fetchRejectionCoilUids(rejectId, seed = {}) {
+  const uids = new Set(parseSeedCoilUidList(seed));
+  try {
+    const regRes = await rmRejectionService.getById(rejectId);
+    const reg = regRes?.data;
+    for (const c of reg?.coils || []) {
+      const uid = String(c?.coil_no_uid || "").trim();
+      if (uid) uids.add(uid);
+    }
+    if (!uids.size && reg?.coil_no_uid) {
+      for (const uid of parseSeedCoilUidList({ coil_no_uid: reg.coil_no_uid })) {
+        uids.add(uid);
+      }
+    }
+  } catch {
+    /* register lookup optional */
+  }
+  for (const status of ["rejected", "active"]) {
+    if (uids.size) break;
+    try {
+      const res = await coilService.getAll({
+        filters: { qc_reject_uid: rejectId, status },
+        limit: 5000,
+      });
+      for (const c of res?.data ?? []) {
+        const uid = String(c?.coil_no_uid || "").trim();
+        if (uid) uids.add(uid);
+      }
+    } catch {
+      /* try next status */
+    }
+  }
+  return [...uids];
+}
+
+function mrnItemCodeLabel(plan) {
+  if (!plan) return "—";
+  if (plan.item_code) return String(plan.item_code);
+  if (plan.item_dcode != null && String(plan.item_dcode).trim() !== "") {
+    return String(plan.item_dcode);
+  }
+  const fromCoil =
+    (plan.coils || []).find((c) => c?.item_code)?.item_code ||
+    (plan.coils || []).find((c) => c?.item_dcode)?.item_dcode;
+  return fromCoil ? String(fromCoil) : "—";
+}
+
+function enrichMrnPlan(plan) {
+  if (!plan) return null;
+  const coils = plan.coils || [];
+  const locations = plan.locations?.length ? plan.locations : buildLocationsFromCoils(coils);
+  const heatFromCoils = [...new Set(coils.map((c) => c.heat_no).filter(Boolean))].join(", ");
+  const accFromCoils = coils.find((c) => c?.acc_name)?.acc_name || null;
+  const seedItem = plan.item_code || plan.item_codes || null;
+  const itemCode = mrnItemCodeLabel({ ...plan, item_code: seedItem, coils });
+  return {
+    ...plan,
+    locations,
+    item_code: itemCode !== "—" ? itemCode : seedItem ? String(seedItem) : null,
+    heat_nos: plan.heat_nos || plan.heat_no || heatFromCoils || null,
+    acc_name: plan.acc_name || accFromCoils || null,
+    mrn_no: plan.mrn_no || plan.mrn_refs || plan.mrn_uid || null,
+    coil_count: plan.coil_count ?? coils.length,
+    total_qty:
+      plan.total_qty ??
+      coils.reduce((sum, c) => sum + (Number(c.qty) || 0), 0),
+  };
+}
+
+async function fetchCoilsDetailed(uids = []) {
+  const fetched = [];
+  for (const uid of uids) {
+    try {
+      const res = await coilService.getByUid(uid);
+      if (res?.data) fetched.push(res.data);
+    } catch {
+      /* skip missing */
+    }
+  }
+  return fetched;
+}
+
+function buildLocationsFromCoils(coils = []) {
+  const locMap = new Map();
+  for (const c of coils) {
+    const key = c.location_id != null ? String(c.location_id) : "none";
+    if (!locMap.has(key)) {
+      locMap.set(key, {
+        location_id: c.location_id ?? null,
+        location_no: c.location_no || coilLocationLabel(c),
+        rack_no: c.rack_no || null,
+        row_no: c.row_no || null,
+        coils: [],
+      });
+    }
+    locMap.get(key).coils.push(c);
+  }
+  return [...locMap.values()];
+}
+
+function locationKeysFromPlan(plan) {
+  return new Set(
+    (plan?.locations || []).map((loc, idx) =>
+      loc.location_id != null ? String(loc.location_id) : `loc-${idx}`
+    )
+  );
 }
 
 /**
@@ -81,9 +228,12 @@ export default function CoilScanEntryModal({
 }) {
   const isOutMode = mode === "out";
   const isEdit = isOutMode && editItem?.out_uid != null;
+  const isRejectionEdit =
+    isEdit && String(editItem?.entry_type || "").toLowerCase() === "rm_rejection";
 
   const [saving, setSaving] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
+  const [storeOutKind, setStoreOutKind] = useState(null);
   const [remarks, setRemarks] = useState("");
   const [reason, setReason] = useState("");
   const [coils, setCoils] = useState([]);
@@ -91,20 +241,32 @@ export default function CoilScanEntryModal({
   coilsRef.current = coils;
 
   const [selectedMrnUid, setSelectedMrnUid] = useState("");
+  const [selectedJobCardKey, setSelectedJobCardKey] = useState("");
+  const [selectedJobCardMeta, setSelectedJobCardMeta] = useState(null);
   const [mrnPlan, setMrnPlan] = useState(null);
   const [isConfirmed, setIsConfirmed] = useState(false);
   /** Batch-wise MRN: coil scans blocked until batch QC sticker is scanned. */
   const [batchUnlocked, setBatchUnlocked] = useState(false);
   const [fetchingMrn, setFetchingMrn] = useState(false);
   const [expandedLocations, setExpandedLocations] = useState(() => new Set());
-  const [mrnDetailsOpen, setMrnDetailsOpen] = useState(false);
-
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [validatingCoil, setValidatingCoil] = useState(false);
   const [laserCaptureMode, setLaserCaptureMode] = useState(null);
   const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
 
   const { laserScan, keyboardType, showPhoneQr } = useDeviceScanSettings();
+
+  const showTypePicker =
+    isOutMode && !isEdit && !seedFromCoil && storeOutKind == null;
+
+  const isRejectionOut =
+    isRejectionEdit ||
+    String(seedFromCoil?.entry_type || "").toLowerCase() === "rm_rejection" ||
+    String(mrnPlan?.mrn_no || "").toLowerCase().startsWith("rejection");
+
+  const isJobCardOut = storeOutKind === STORE_OUT_KIND.JOB_CARD || Boolean(selectedJobCardKey || selectedJobCardMeta);
+
+  const mrnItemCode = mrnItemCodeLabel(mrnPlan);
   const scanBtnCount = (showPhoneQr ? 1 : 0) + (laserScan ? 1 : 0);
   const scanBtnFill = scanBtnCount > 1 ? "flex-1 basis-0 min-w-0 w-full" : "w-full";
 
@@ -129,16 +291,18 @@ export default function CoilScanEntryModal({
     setReason("");
     setCoils([]);
     setSelectedMrnUid("");
+    setSelectedJobCardKey("");
+    setSelectedJobCardMeta(null);
     setMrnPlan(null);
     setIsConfirmed(false);
     setBatchUnlocked(false);
     setFetchingMrn(false);
     setExpandedLocations(new Set());
-    setMrnDetailsOpen(false);
     setIsScannerOpen(false);
     setSaving(false);
     setValidatingCoil(false);
     setLoadingEdit(false);
+    setStoreOutKind(null);
     if (laserScan || isLaserScanEnabled()) {
       laserCaptureModeRef.current = "coil";
       setLaserCaptureMode("coil");
@@ -161,18 +325,13 @@ export default function CoilScanEntryModal({
           return null;
         }
         setSelectedMrnUid(uid);
-        setMrnPlan(plan);
+        const enriched = enrichMrnPlan(plan);
+        setMrnPlan(enriched);
         setIsConfirmed(true);
         const isBatch = String(plan.sticker_mode || "").toLowerCase() === "batch";
         // Coil-wise: unlock immediately. Batch-wise: only after batch QC sticker (or edit load).
         setBatchUnlocked(!isBatch || fromBatchSticker === true);
-        setExpandedLocations(
-          new Set(
-            (plan.locations || []).map((loc, idx) =>
-              loc.location_id != null ? String(loc.location_id) : `loc-${idx}`
-            )
-          )
-        );
+        setExpandedLocations(locationKeysFromPlan(enriched));
         if (!keepScanned) setCoils([]);
         return plan;
       } catch (err) {
@@ -184,6 +343,124 @@ export default function CoilScanEntryModal({
     },
     [showScanToast]
   );
+
+  const loadJobCardFromRow = useCallback(
+    async (row) => {
+      const uids = parseSeedCoilUids(row);
+      if (!uids.length) {
+        showScanToast("error", "jc-empty", "No coils pending for this job card.");
+        return false;
+      }
+      const fetched = await fetchCoilsDetailed(uids);
+      if (!fetched.length) {
+        showScanToast("error", "seed-empty", "Could not load coils for this job card.");
+        return false;
+      }
+
+      setStoreOutKind(STORE_OUT_KIND.JOB_CARD);
+      setSelectedJobCardKey(jobCardSelectKey(row));
+      setSelectedJobCardMeta(mapPendingJobCardOption(row));
+      setCoils([]);
+
+      const mrnUids = [...new Set(fetched.map((c) => String(c.mrn_uid || "").trim()).filter(Boolean))];
+      const first = fetched[0] || {};
+      const enriched = enrichMrnPlan({
+        mrn_uid: mrnUids.length === 1 ? mrnUids[0] : null,
+        mrn_no: mrnUids.length === 1 ? first.mrn_no || mrnUids[0] : "Multi MRN",
+        sticker_mode: "coil",
+        coil_count: fetched.length,
+        total_qty: fetched.reduce((s, c) => s + (Number(c.qty) || 0), 0),
+        coils: fetched,
+      });
+
+      setIsConfirmed(true);
+      setBatchUnlocked(true);
+      setMrnPlan(enriched);
+      setExpandedLocations(locationKeysFromPlan(enriched));
+      showScanSuccess(
+        mrnUids.length === 1 ? "seed-jc" : "seed-jc-multi",
+        `Job card ${row?.pjobcardno || ""}: ${fetched.length} coil(s) at listed locations — scan each one.`,
+        mrnUids.length === 1 ? 2800 : 3200
+      );
+      return true;
+    },
+    [showScanToast, showScanSuccess]
+  );
+
+  const loadRejectionPlan = useCallback(
+    async (qcRejectUid, seed = {}, { keepScanned = false } = {}) => {
+      const rejectId = Number(qcRejectUid);
+      if (!rejectId) return null;
+
+      let registerMeta = null;
+      try {
+        const regRes = await rmRejectionService.getById(rejectId);
+        registerMeta = regRes?.data ?? null;
+      } catch {
+        /* optional */
+      }
+
+      const uids = await fetchRejectionCoilUids(rejectId, {
+        ...seed,
+        coil_no_uid: seed?.coil_no_uid ?? registerMeta?.coil_no_uid,
+        coil_uids: seed?.coil_uids ?? registerMeta?.coils?.map((c) => c.coil_no_uid),
+      });
+
+      const fetched = uids.length ? await fetchCoilsDetailed(uids) : [];
+      if (!fetched.length && !Number(seed.coil_count)) {
+        showScanToast("error", "rej-empty", "No coils were found for this rejection register.");
+        return null;
+      }
+
+      const enriched = enrichMrnPlan({
+        mrn_uid: null,
+        mrn_no: seed.mrn_refs
+          ? String(seed.mrn_refs)
+          : registerMeta?.mrn_refs
+            ? String(registerMeta.mrn_refs)
+            : `Rejection #${rejectId}`,
+        qc_reject_uid: rejectId,
+        reason: seed.reason ?? registerMeta?.reason ?? null,
+        rejection_remarks:
+          seed.rejection_remarks ?? seed.remarks ?? registerMeta?.remarks ?? null,
+        sticker_mode: "coil",
+        coil_count: Number(seed.coil_count) || registerMeta?.coil_count || fetched.length,
+        total_qty:
+          Number(seed.total_qty ?? seed.qty) ||
+          Number(registerMeta?.total_qty) ||
+          fetched.reduce((s, c) => s + (Number(c.qty) || 0), 0),
+        item_codes:
+          seed.item_codes ?? seed.item_code ?? registerMeta?.item_codes ?? null,
+        heat_nos: seed.heat_nos ?? seed.heat_no ?? registerMeta?.heat_nos ?? null,
+        mrn_refs: seed.mrn_refs ?? registerMeta?.mrn_refs ?? null,
+        coils: fetched,
+      });
+
+      setIsConfirmed(true);
+      setBatchUnlocked(true);
+      setMrnPlan(enriched);
+      setExpandedLocations(locationKeysFromPlan(enriched));
+      if (!keepScanned) setCoils([]);
+      return enriched;
+    },
+    [showScanToast]
+  );
+
+  const fetchPendingJobCardRow = useCallback(async (jcKey) => {
+    const parsed = parseJobCardSelectKey(jcKey);
+    if (!parsed) return null;
+    const body = await outEntryService.getPendingList({
+      page: 1,
+      limit: 100,
+      filters: { pending_type: "job_card" },
+      search: String(parsed.issue_uid),
+    });
+    return (body.data ?? []).find(
+      (r) =>
+        Number(r.issue_uid) === parsed.issue_uid &&
+        String(r.pjobcardno || "").trim() === parsed.pjobcardno
+    );
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -203,23 +480,37 @@ export default function CoilScanEntryModal({
           setRemarks(data?.remarks || "");
           const loaded = Array.isArray(data?.coils) ? data.coils : [];
           setCoils(loaded);
+
+          if (String(data?.entry_type || editItem?.entry_type || "").toLowerCase() === "rm_rejection") {
+            const totalQty = loaded.reduce((s, c) => s + (Number(c.qty) || 0), 0);
+            const enriched = await loadRejectionPlan(
+              data?.qc_reject_uid ?? editItem?.qc_reject_uid,
+              {
+                coil_count: data?.coil_count ?? loaded.length,
+                total_qty: data?.total_qty ?? totalQty,
+                item_codes: data?.item_codes,
+                heat_nos: data?.heat_nos,
+                mrn_refs: data?.mrn_refs,
+              },
+              { keepScanned: true }
+            );
+            if (cancelled) return;
+            if (enriched) setCoils(loaded);
+            return;
+          }
+
           const mrnUid = String(loaded[0]?.mrn_uid || "").trim();
           if (mrnUid) {
             const planRes = await outEntryService.getStoredMrnDetail({ mrn_uid: mrnUid });
             if (cancelled) return;
             const plan = planRes?.data;
             if (plan?.coils?.length) {
+              const enriched = enrichMrnPlan(plan);
               setSelectedMrnUid(mrnUid);
-              setMrnPlan(plan);
+              setMrnPlan(enriched);
               setIsConfirmed(true);
               setBatchUnlocked(true);
-              setExpandedLocations(
-                new Set(
-                  (plan.locations || []).map((loc, idx) =>
-                    loc.location_id != null ? String(loc.location_id) : `loc-${idx}`
-                  )
-                )
-              );
+              setExpandedLocations(locationKeysFromPlan(enriched));
             }
           }
         } catch (err) {
@@ -232,8 +523,26 @@ export default function CoilScanEntryModal({
         return;
       }
 
-      // New Store Out seeded from Pending row — load full MRN plan
+      // New Store Out seeded from Pending row
       if (isOutMode) {
+        const seedUids = parseSeedCoilUids(seedFromCoil);
+        if (seedUids.length) {
+          setLoadingEdit(true);
+          try {
+            if (cancelled) return;
+            await loadJobCardFromRow({
+              issue_uid: seedFromCoil?.issue_uid,
+              pjobcardno: seedFromCoil?.pjobcardno,
+              macname: seedFromCoil?.macname,
+              coil_uids: seedUids,
+              coil_no_uids: seedFromCoil?.coil_no_uids ?? seedUids.join(", "),
+            });
+          } finally {
+            if (!cancelled) setLoadingEdit(false);
+          }
+          return;
+        }
+
         const seedMrn = String(seedFromCoil?.mrn_uid || "").trim();
         if (seedMrn) {
           setLoadingEdit(true);
@@ -251,6 +560,20 @@ export default function CoilScanEntryModal({
           } finally {
             if (!cancelled) setLoadingEdit(false);
           }
+          return;
+        }
+
+        if (
+          String(seedFromCoil?.entry_type || "").toLowerCase() === "rm_rejection" &&
+          seedFromCoil?.qc_reject_uid != null
+        ) {
+          setLoadingEdit(true);
+          try {
+            await loadRejectionPlan(seedFromCoil.qc_reject_uid, seedFromCoil);
+          } finally {
+            if (!cancelled) setLoadingEdit(false);
+          }
+          return;
         }
       }
     };
@@ -259,7 +582,7 @@ export default function CoilScanEntryModal({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isEdit, editItem?.out_uid, seedFromCoil?.mrn_uid, seedFromCoil?.coil_no_uid]);
+  }, [open, isEdit, editItem?.out_uid, seedFromCoil?.mrn_uid, seedFromCoil?.coil_uids, seedFromCoil?.coil_no_uids, seedFromCoil?.qc_reject_uid, seedFromCoil?.entry_type]);
 
   const scannedUidSet = useMemo(
     () => new Set(coils.map((c) => String(c.coil_no_uid).toLowerCase())),
@@ -275,6 +598,14 @@ export default function CoilScanEntryModal({
   const requiredQty = Number(mrnPlan?.total_qty) || 0;
   const isFulfillmentComplete = requiredCount > 0 && scannedCount >= requiredCount;
   const isBatchMode = String(mrnPlan?.sticker_mode || "").toLowerCase() === "batch";
+  const planLocations = useMemo(
+    () => mrnPlan?.locations?.length ? mrnPlan.locations : buildLocationsFromCoils(mrnPlan?.coils || []),
+    [mrnPlan]
+  );
+  const rejectionPickCoils = useMemo(
+    () => (isRejectionOut ? mrnPlan?.coils || [] : []),
+    [isRejectionOut, mrnPlan]
+  );
 
   const tryAddCoilUid = async (uid) => {
     if (coilsRef.current.some((c) => String(c.coil_no_uid).toLowerCase() === uid.toLowerCase())) {
@@ -314,48 +645,53 @@ export default function CoilScanEntryModal({
       }
 
       const status = String(coil.status || "active").toLowerCase();
-      if (status !== "active") {
+      const rejectUid = editItem?.qc_reject_uid ?? mrnPlanRef.current?.qc_reject_uid;
+      const isRejectionScan =
+        isRejectionEdit ||
+        String(mrnPlanRef.current?.mrn_no || "").toLowerCase().startsWith("rejection");
+
+      if (isRejectionScan) {
+        if (status !== "active" && status !== "rejected") {
+          showScanToast("error", "coil-status", `Coil ${uid} is not available. Its current status is ${status}.`);
+          return;
+        }
+        if (
+          status === "rejected" &&
+          rejectUid != null &&
+          String(coil.qc_reject_uid) !== String(rejectUid)
+        ) {
+          showScanToast("error", "coil-reject", `Coil ${uid} belongs to a different rejection register entry.`);
+          return;
+        }
+      } else if (status !== "active") {
         showScanToast("error", "coil-status", `Coil ${uid} is not available. Its current status is ${status}.`);
         return;
       }
 
-      if (mode === "out" && !coil.location_id) {
-        showScanToast("error", "coil-not-stored", "This coil is not in store. Store Out requires stored coils.");
+      if (mode === "out" && !coil.location_id && !isRejectionScan) {
+        const inConfirmedPlan = livePlanMap.has(uid.toLowerCase());
+        if (!inConfirmedPlan) {
+          showScanToast("error", "coil-not-stored", "This coil is not in store. Store Out requires stored coils.");
+          return;
+        }
+      }
+
+      if (isRejectionScan) {
+        setCoils((prev) => [...prev, coil]);
+        showScanSuccess("coil-ok", `Added ${coil.coil_no_uid} · @ ${coilLocationDetail(coil)}`, 1800);
+        void playScanSuccessBeep();
         return;
       }
 
       if (isOutMode) {
         const coilMrn = String(coil.mrn_uid || "").trim();
         if (!isConfirmedRef.current) {
-          if (!coilMrn) {
-            showScanToast("error", "coil-no-mrn", "This coil has no MRN, so Store Out cannot be started.");
-            return;
-          }
-          const plan = await loadMrnPlan(coilMrn, { keepScanned: true });
-          if (!plan) return;
-          if (String(plan.sticker_mode || "").toLowerCase() === "batch") {
-            showScanToast(
-              "error",
-              "need-batch",
-              "Batch MRN loaded. Scan the batch QC sticker first, then scan each coil.",
-              3200
-            );
-            return;
-          }
-          const planCoil = (plan.coils || []).find(
-            (c) => String(c.coil_no_uid).toLowerCase() === uid.toLowerCase()
+          showScanToast(
+            "error",
+            "need-confirm",
+            "Select and confirm MRN or job card before scanning coils.",
+            3200
           );
-          if (!planCoil) {
-            showScanToast("error", "coil-not-in-plan", "This coil is not part of the MRN store plan.");
-            return;
-          }
-          setCoils((prev) => [...prev, planCoil]);
-          showScanSuccess(
-            "coil-ok",
-            `Added ${planCoil.coil_no_uid} · @ ${coilLocationDetail(planCoil)}`,
-            1800
-          );
-          void playScanSuccessBeep();
           return;
         }
 
@@ -363,7 +699,7 @@ export default function CoilScanEntryModal({
         const planMap = new Map(
           (plan?.coils || []).map((c) => [String(c.coil_no_uid).toLowerCase(), c])
         );
-        if (plan && coilMrn && coilMrn !== String(plan.mrn_uid)) {
+        if (plan && plan.mrn_uid != null && coilMrn && coilMrn !== String(plan.mrn_uid)) {
           showScanToast(
             "error",
             "wrong-mrn",
@@ -398,30 +734,28 @@ export default function CoilScanEntryModal({
     if (isOutMode) {
       const batchMrn = extractBatchMrnUid(raw);
       if (batchMrn) {
-        if (isConfirmedRef.current && String(mrnPlanRef.current?.mrn_uid) === batchMrn) {
-          setBatchUnlocked(true);
-          showScanSuccess(
-            "batch-ok",
-            batchUnlockedRef.current
-              ? "This batch is already unlocked. Scan each coil now."
-              : "Batch unlocked. Scan each coil now.",
-            2200
+        if (!isConfirmedRef.current) {
+          showScanToast(
+            "error",
+            "need-confirm",
+            "Confirm MRN or job card before scanning batch or coils.",
+            3200
           );
           return;
         }
-        if (isConfirmedRef.current && String(mrnPlanRef.current?.mrn_uid) !== batchMrn) {
+        if (String(mrnPlanRef.current?.mrn_uid) !== batchMrn) {
           showScanToast("error", "batch-other", "This batch sticker belongs to a different MRN.");
           return;
         }
-        const plan = await loadMrnPlan(batchMrn, { fromBatchSticker: true });
-        if (plan) {
-          showScanSuccess(
-            "batch-loaded",
-            `Batch MRN ${plan.mrn_no ?? batchMrn} unlocked. Scan all ${plan.coil_count} coils.`,
-            2800
-          );
-          void playScanSuccessBeep();
-        }
+        setBatchUnlocked(true);
+        showScanSuccess(
+          "batch-ok",
+          batchUnlockedRef.current
+            ? "This batch is already unlocked. Scan each coil now."
+            : "Batch unlocked. Scan each coil now.",
+          2200
+        );
+        void playScanSuccessBeep();
         return;
       }
     }
@@ -442,6 +776,25 @@ export default function CoilScanEntryModal({
       return;
     }
     await loadMrnPlan(selectedMrnUid);
+  };
+
+  const handleConfirmJobCard = async () => {
+    if (!selectedJobCardKey) {
+      showScanToast("error", "need-jc", "Select a job card first.");
+      return;
+    }
+    setLoadingEdit(true);
+    try {
+      const row = await fetchPendingJobCardRow(selectedJobCardKey);
+      if (!row) {
+        showScanToast("error", "jc-missing", "Job card not found or no longer pending.");
+        return;
+      }
+      const ok = await loadJobCardFromRow(row);
+      if (!ok) return;
+    } finally {
+      setLoadingEdit(false);
+    }
   };
 
   const removeCoil = (uid) => {
@@ -475,7 +828,11 @@ export default function CoilScanEntryModal({
     [showScanToast]
   );
 
-  const laserScanActive = open && Boolean(laserCaptureMode) && (laserScan || isLaserScanEnabled());
+  const laserScanActive =
+    open &&
+    Boolean(laserCaptureMode) &&
+    (laserScan || isLaserScanEnabled()) &&
+    (!isOutMode || isConfirmed);
 
   const startCameraScanner = () => {
     void unlockScanAudio().catch(() => {});
@@ -524,12 +881,28 @@ export default function CoilScanEntryModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isScannerOpen]);
 
-  const buildPayload = (scan_complete) => ({
-    coils: coils.map((c) => ({ coil_no_uid: c.coil_no_uid })),
-    remarks: remarks || null,
-    ...(requireReason ? { reason: String(reason).trim() } : {}),
-    ...(isOutMode ? { scan_complete } : {}),
-  });
+  const buildPayload = (scan_complete) => {
+    const rejectUid =
+      editItem?.qc_reject_uid ?? seedFromCoil?.qc_reject_uid ?? mrnPlanRef.current?.qc_reject_uid ?? null;
+    const isRejectionOut =
+      isRejectionEdit ||
+      String(seedFromCoil?.entry_type || "").toLowerCase() === "rm_rejection" ||
+      rejectUid != null;
+    const isJobCardOutPayload =
+      storeOutKind === STORE_OUT_KIND.JOB_CARD ||
+      Boolean(selectedJobCardKey || selectedJobCardMeta);
+
+    return {
+      coils: coils.map((c) => ({ coil_no_uid: c.coil_no_uid })),
+      remarks: remarks || null,
+      ...(requireReason ? { reason: String(reason).trim() } : {}),
+      ...(isOutMode ? { scan_complete } : {}),
+      ...(isOutMode && isRejectionOut
+        ? { entry_type: "rm_rejection", qc_reject_uid: rejectUid }
+        : {}),
+      ...(isOutMode && !isRejectionOut && isJobCardOutPayload ? { entry_type: "job_card" } : {}),
+    };
+  };
 
   const persist = async (scan_complete) => {
     if (requireReason && !String(reason || "").trim()) {
@@ -580,32 +953,32 @@ export default function CoilScanEntryModal({
     }
   };
 
-  const handleSaveDraft = async () => {
+  const handleSave = async () => {
     if (!isOutMode) {
       await persist(true);
       return;
     }
-    await persist(false);
-  };
-
-  const handleSubmit = async () => {
-    await persist(true);
+    await persist(isFulfillmentComplete);
   };
 
   const drawerTitle =
     title ||
     (isOutMode
-      ? isEdit
-        ? "Edit Store Out"
-        : "New Store Out Entry"
+      ? showTypePicker
+        ? "New Store Out Entry"
+        : isEdit
+          ? "Edit Store Out"
+          : "New Store Out Entry"
       : "Scan Coils");
 
   const drawerDescription =
     description ||
     (isOutMode
-      ? isEdit
-        ? `OUT-${editItem.out_uid} · select an MRN, scan the coils, then submit`
-        : "Select an MRN, scan the coils, then submit"
+      ? showTypePicker
+        ? "Select out type"
+        : isEdit
+          ? `OUT-${editItem.out_uid} · select an MRN, scan the coils, then submit`
+          : "Select an MRN, scan the coils, then submit"
       : undefined);
 
   const scanControls = (
@@ -700,18 +1073,33 @@ export default function CoilScanEntryModal({
     </>
   );
 
-  const draftLabel =
-    requiredCount > 0 ? `Save Draft (${scannedCount}/${requiredCount})` : `Save Draft (${scannedCount})`;
+  const saveButtonLabel =
+    requiredCount > 0
+      ? `Save draft (${scannedCount}/${requiredCount})`
+      : scannedCount > 0
+        ? `Save draft (${scannedCount})`
+        : "Save draft";
 
   return (
     <>
       <Drawer
         isOpen={open}
         onClose={onClose}
-        onSubmit={isOutMode ? handleSaveDraft : handleSaveDraft}
+        onSubmit={() => void handleSave()}
         title={drawerTitle}
         description={drawerDescription}
         footer={
+          showTypePicker ? (
+            <div className="flex items-center justify-end gap-3 w-full">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2 text-sm font-bold text-slate-500"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
           <div className="flex items-center justify-end gap-3 w-full flex-wrap">
             <button
               type="button"
@@ -722,33 +1110,31 @@ export default function CoilScanEntryModal({
               Cancel
             </button>
             {isOutMode ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => void handleSubmit()}
-                  disabled={saving || loadingEdit || !coils.length || !isFulfillmentComplete}
-                  className="min-w-[120px] px-5 py-2 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-40"
-                  title={
-                    !isFulfillmentComplete
-                      ? `Scan all coils (${scannedCount}/${requiredCount}) before submitting.`
-                      : undefined
-                  }
-                >
-                  {saving ? "…" : "Submit"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleSaveDraft()}
-                  disabled={saving || loadingEdit || !coils.length}
-                  className="min-w-[140px] px-6 py-2 text-sm font-bold text-white bg-red-600 shadow-red-100 hover:bg-red-700 rounded-xl shadow-lg disabled:bg-slate-300 transition-all active:scale-95 flex items-center justify-center gap-2"
-                >
-                  {saving ? <Loader2 size={18} className="animate-spin" /> : draftLabel}
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={
+                  saving ||
+                  loadingEdit ||
+                  !coils.length ||
+                  (!isConfirmed && !isEdit)
+                }
+                className="min-w-[140px] px-6 py-2 text-sm font-bold text-white bg-red-600 shadow-red-100 hover:bg-red-700 rounded-xl shadow-lg disabled:bg-slate-300 transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" /> Processing…
+                  </>
+                ) : isFulfillmentComplete ? (
+                  "Submit"
+                ) : (
+                  saveButtonLabel
+                )}
+              </button>
             ) : (
               <button
                 type="button"
-                onClick={() => void handleSaveDraft()}
+                onClick={() => void handleSave()}
                 disabled={saving}
                 className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50"
               >
@@ -764,6 +1150,7 @@ export default function CoilScanEntryModal({
               </button>
             )}
           </div>
+          )
         }
         maxWidth={isOutMode ? "max-w-5xl" : "max-w-3xl"}
       >
@@ -779,20 +1166,105 @@ export default function CoilScanEntryModal({
             onToggleTorch={toggleTorch}
           />
 
-          {loadingEdit && (
+          {showTypePicker ? (
+            <div className="space-y-2 py-1">
+              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wide px-0.5">
+                Select out type
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStoreOutKind(STORE_OUT_KIND.MRN)}
+                  className="p-2.5 rounded-lg border border-indigo-200 bg-indigo-50/60 hover:border-indigo-400 text-left transition-colors min-w-0"
+                >
+                  <div className="flex items-center gap-2 text-indigo-800">
+                    <LogOut size={14} className="shrink-0" />
+                    <span className="text-[11px] font-black uppercase tracking-tight">Store Out (MRN)</span>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStoreOutKind(STORE_OUT_KIND.JOB_CARD)}
+                  className="p-2.5 rounded-lg border border-teal-200 bg-teal-50/60 hover:border-teal-400 text-left transition-colors min-w-0"
+                >
+                  <div className="flex items-center gap-2 text-teal-800">
+                    <ClipboardList size={14} className="shrink-0" />
+                    <span className="text-[11px] font-black uppercase tracking-tight">Job Card</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {loadingEdit && !showTypePicker && (
             <div className="flex items-center justify-center gap-2 py-8 text-slate-500 text-sm">
               <Loader2 size={18} className="animate-spin" />{" "}
               {isEdit ? "Loading draft…" : "Loading MRN coils…"}
             </div>
           )}
 
-          {!loadingEdit && isOutMode && (
-            <div className="space-y-3 animate-in fade-in duration-300">
-              {/* MRN select — IMS FUID-style */}
-              <div className="rounded-lg border border-slate-200 bg-white p-2.5 space-y-2">
-                <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
-                  <div className="flex-1 min-w-0">
+          {!loadingEdit && isOutMode && !showTypePicker && (
+            <div className="space-y-2 animate-in fade-in duration-300">
+              {!isRejectionOut && storeOutKind === STORE_OUT_KIND.JOB_CARD ? (
+              <div className="space-y-2 min-w-0 w-full">
+                <div className="flex flex-col sm:flex-row sm:items-end gap-2 min-w-0 w-full">
+                  <div className="flex-1 min-w-0 w-full">
                     <SearchableSelect
+                      className="min-w-0 w-full"
+                      label="Job Card"
+                      value={selectedJobCardKey}
+                      onChange={(v) => {
+                        setSelectedJobCardKey(v != null ? String(v) : "");
+                        setSelectedJobCardMeta(null);
+                        if (isConfirmed) {
+                          setIsConfirmed(false);
+                          setMrnPlan(null);
+                          setCoils([]);
+                          setExpandedLocations(new Set());
+                        }
+                      }}
+                      fetchService={async (params) => {
+                        const body = await outEntryService.getPendingList({
+                          ...params,
+                          filters: { pending_type: "job_card" },
+                        });
+                        return {
+                          ...body,
+                          data: (body.data ?? []).map(mapPendingJobCardOption),
+                        };
+                      }}
+                      getByIdService={async (id) => {
+                        const row = await fetchPendingJobCardRow(id);
+                        return row ? { data: mapPendingJobCardOption(row) } : { data: null };
+                      }}
+                      dataKey="jc_key"
+                      labelKey="jc_label"
+                      subLabelKey="jc_sub"
+                      listHintKey="pending_coil_count"
+                      listHintLabel="Coils"
+                      required
+                      disabled={isConfirmed && !isEdit}
+                      placeholder="Search by job card, issue UID, or item"
+                    />
+                  </div>
+                  {!isConfirmed && (
+                    <button
+                      type="button"
+                      onClick={() => void handleConfirmJobCard()}
+                      disabled={loadingEdit || !selectedJobCardKey}
+                      className="h-9 w-full sm:w-auto sm:min-w-[5.5rem] shrink-0 px-4 bg-indigo-600 text-white font-bold text-[11px] rounded-lg disabled:opacity-60 whitespace-nowrap sm:self-end"
+                    >
+                      {loadingEdit ? "…" : "Confirm"}
+                    </button>
+                  )}
+                </div>
+              </div>
+              ) : !isRejectionOut ? (
+              <div className="space-y-2 min-w-0 w-full">
+                <div className="flex flex-col sm:flex-row sm:items-end gap-2 min-w-0 w-full">
+                  <div className="flex-1 min-w-0 w-full">
+                    <SearchableSelect
+                      className="min-w-0 w-full"
                       label="MRN (batch)"
                       value={selectedMrnUid}
                       onChange={(v) => {
@@ -801,6 +1273,7 @@ export default function CoilScanEntryModal({
                           setIsConfirmed(false);
                           setMrnPlan(null);
                           setCoils([]);
+                          setExpandedLocations(new Set());
                         }
                       }}
                       fetchService={(params) => outEntryService.getStoredMrns(params)}
@@ -810,7 +1283,7 @@ export default function CoilScanEntryModal({
                             ? {
                                 mrn_uid: res.data.mrn_uid,
                                 mrn_no: res.data.mrn_no,
-                                item_code: res.data.item_code,
+                                item_code: mrnItemCodeLabel(res.data),
                                 coil_count: res.data.coil_count,
                                 sticker_mode: res.data.sticker_mode,
                               }
@@ -818,12 +1291,12 @@ export default function CoilScanEntryModal({
                         }))
                       }
                       dataKey="mrn_uid"
-                      labelKey="mrn_uid"
+                      labelKey="mrn_no"
                       subLabelKey="item_code"
                       listHintKey="coil_count"
                       listHintLabel="Coils"
                       required
-                      disabled={isConfirmed && isEdit}
+                      disabled={isConfirmed && !isEdit}
                       placeholder="Search by MRN or item"
                     />
                   </div>
@@ -837,104 +1310,172 @@ export default function CoilScanEntryModal({
                       {fetchingMrn ? "…" : "Confirm"}
                     </button>
                   )}
-                  {isConfirmed && !isEdit && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsConfirmed(false);
-                        setMrnPlan(null);
-                        setCoils([]);
-                        setExpandedLocations(new Set());
-                      }}
-                      className="h-9 w-full sm:w-auto shrink-0 px-3 text-[11px] font-bold text-indigo-600 hover:underline sm:self-end"
-                    >
-                      Change MRN
-                    </button>
-                  )}
                 </div>
-                {!isConfirmed && (
-                  <p className="text-[10px] text-slate-500 px-0.5">
-                    Select an MRN and confirm, or scan a coil or batch sticker to load the locations.
-                  </p>
-                )}
               </div>
+              ) : null}
 
               {mrnPlan && isConfirmed && (
                 <>
-                  {/* MRN details collapsible */}
+                  {/* MRN details — always expanded after confirm */}
                   <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-                    <button
-                      type="button"
-                      aria-expanded={mrnDetailsOpen}
-                      onClick={() => setMrnDetailsOpen((o) => !o)}
-                      className="w-full px-2.5 py-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-left hover:bg-slate-50 transition-colors border-b border-slate-100 min-h-[40px]"
-                    >
+                    <div className="w-full px-2.5 py-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-100 min-h-[40px]">
                       <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wide min-w-0 flex-1">
-                        MRN Details
+                        {isRejectionOut
+                          ? "Rejection Details"
+                          : isJobCardOut
+                            ? "Job Card Details"
+                            : "MRN Details"}
                       </span>
                       <span
                         className={`shrink-0 px-2 py-0.5 text-[8px] font-black uppercase border ${
-                          isBatchMode
-                            ? "bg-amber-50 text-amber-800 border-amber-200"
-                            : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          isRejectionOut
+                            ? "bg-rose-50 text-rose-700 border-rose-200"
+                            : isBatchMode
+                              ? "bg-amber-50 text-amber-800 border-amber-200"
+                              : "bg-emerald-50 text-emerald-700 border-emerald-200"
                         }`}
                       >
-                        {isBatchMode ? "Batch-wise stickers" : "Coil-wise stickers"}
+                        {isRejectionOut
+                          ? "RM Rejection"
+                          : isBatchMode
+                            ? "Batch-wise stickers"
+                            : "Coil-wise stickers"}
                       </span>
-                      <ChevronRight
-                        className={`text-slate-400 shrink-0 ml-auto transition-transform ${mrnDetailsOpen ? "rotate-90" : ""}`}
-                        size={16}
-                      />
-                    </button>
-                    {mrnDetailsOpen && (
-                      <div className="px-2.5 pb-2">
-                        <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-3 gap-y-2 pt-2 text-[11px] leading-snug">
-                          <div className="min-w-0">
-                            <dt className="text-[8px] font-bold text-slate-400 uppercase">MRN</dt>
-                            <dd className="font-semibold text-slate-800">{mrnPlan.mrn_no ?? mrnPlan.mrn_uid}</dd>
-                          </div>
-                          <div className="min-w-0">
-                            <dt className="text-[8px] font-bold text-slate-400 uppercase">Item</dt>
-                            <dd className="font-semibold text-slate-800 break-words">{mrnPlan.item_code || "—"}</dd>
-                          </div>
-                          <div className="min-w-0">
-                            <dt className="text-[8px] font-bold text-slate-400 uppercase">Heat</dt>
-                            <dd className="font-semibold text-slate-800 break-words">{mrnPlan.heat_nos || "—"}</dd>
-                          </div>
-                          <div className="min-w-0">
-                            <dt className="text-[8px] font-bold text-slate-400 uppercase">Supplier</dt>
-                            <dd className="font-semibold text-slate-800 break-words">{mrnPlan.acc_name || "—"}</dd>
-                          </div>
-                          <div className="min-w-0">
-                            <dt className="text-[8px] font-bold text-slate-400 uppercase">Locations</dt>
-                            <dd
-                              className="font-semibold text-slate-800 break-words"
-                              title={(mrnPlan.locations || []).map((loc) => locationRowLabel(loc)).join(", ")}
-                            >
-                              {(mrnPlan.locations || []).map((loc) => locationRowLabel(loc)).join(", ") || "—"}
-                            </dd>
-                          </div>
-                        </dl>
-                      </div>
-                    )}
+                    </div>
+                    <div className="px-2.5 pb-2">
+                      <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-3 gap-y-2 pt-2 text-[11px] leading-snug">
+                        {isRejectionOut ? (
+                          <>
+                            <div className="min-w-0">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Rejection</dt>
+                              <dd className="font-semibold text-slate-800">
+                                #{mrnPlan.qc_reject_uid ?? "—"}
+                              </dd>
+                            </div>
+                            <div className="min-w-0">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Item</dt>
+                              <dd className="font-semibold text-slate-800 break-words">{mrnItemCodeLabel(mrnPlan)}</dd>
+                            </div>
+                            <div className="min-w-0">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Heat</dt>
+                              <dd className="font-semibold text-slate-800 break-words">{mrnPlan.heat_nos || "—"}</dd>
+                            </div>
+                            <div className="min-w-0">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Reject Reason</dt>
+                              <dd className="font-semibold text-rose-700 break-words">{mrnPlan.reason || "—"}</dd>
+                            </div>
+                            <div className="min-w-0 sm:col-span-2">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Store At</dt>
+                              <dd className="font-semibold text-slate-800 break-words whitespace-pre-wrap">
+                                {mrnPlan.rejection_remarks || "—"}
+                              </dd>
+                            </div>
+                            <div className="min-w-0">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Coils</dt>
+                              <dd className="font-semibold text-slate-800 tabular-nums">{requiredCount}</dd>
+                            </div>
+                            <div className="min-w-0 sm:col-span-2 lg:col-span-1">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Pick from</dt>
+                              <dd
+                                className="font-semibold text-indigo-700 break-words"
+                                title={rejectionLocationSummary(rejectionPickCoils)}
+                              >
+                                {rejectionLocationSummary(rejectionPickCoils)}
+                              </dd>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                        {isJobCardOut ? (
+                          <>
+                            <div className="min-w-0">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Job Card</dt>
+                              <dd className="font-semibold text-slate-800 break-words">
+                                {selectedJobCardMeta?.jc_label ?? "—"}
+                              </dd>
+                            </div>
+                            <div className="min-w-0">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Issue #</dt>
+                              <dd className="font-semibold text-slate-800">{selectedJobCardMeta?.issue_uid ?? "—"}</dd>
+                            </div>
+                            <div className="min-w-0">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Machine</dt>
+                              <dd className="font-semibold text-slate-800 break-words uppercase">
+                                {selectedJobCardMeta?.macname || seedFromCoil?.macname || "—"}
+                              </dd>
+                            </div>
+                            <div className="min-w-0">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">RM Item</dt>
+                              <dd className="font-semibold text-slate-800 break-words">
+                                {selectedJobCardMeta?.rm_item_code || selectedJobCardMeta?.jc_sub || "—"}
+                              </dd>
+                            </div>
+                          </>
+                        ) : null}
+                        <div className="min-w-0">
+                          <dt className="text-[8px] font-bold text-slate-400 uppercase">MRN</dt>
+                          <dd className="font-semibold text-slate-800">{mrnPlan.mrn_no ?? mrnPlan.mrn_uid ?? "—"}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-[8px] font-bold text-slate-400 uppercase">Item</dt>
+                          <dd className="font-semibold text-slate-800 break-words">{mrnItemCodeLabel(mrnPlan)}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-[8px] font-bold text-slate-400 uppercase">Heat</dt>
+                          <dd className="font-semibold text-slate-800 break-words">{mrnPlan.heat_nos || "—"}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-[8px] font-bold text-slate-400 uppercase">Supplier</dt>
+                          <dd className="font-semibold text-slate-800 break-words">{mrnPlan.acc_name || "—"}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-[8px] font-bold text-slate-400 uppercase">Locations</dt>
+                          <dd
+                            className="font-semibold text-slate-800 break-words"
+                            title={planLocations.map((loc) => locationRowLabel(loc)).join(", ")}
+                          >
+                            {planLocations.map((loc) => locationRowLabel(loc)).join(", ") || "—"}
+                          </dd>
+                        </div>
+                          </>
+                        )}
+                      </dl>
+                    </div>
                   </div>
 
                   {/* Item / qty / scanned — IMS strip + location rows */}
                   <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-                    <div className="w-full px-2.5 py-1.5 flex items-center justify-between gap-2 border-b border-slate-100 min-h-[40px]">
+                    <button
+                      type="button"
+                      aria-expanded={expandedLocations.size > 0}
+                      aria-label={expandedLocations.size > 0 ? "Collapse location list" : "Expand location list"}
+                      onClick={() => {
+                        const locs = planLocations;
+                        setExpandedLocations((prev) =>
+                          prev.size === 0
+                            ? new Set(
+                                locs.map((loc, idx) =>
+                                  loc.location_id != null ? String(loc.location_id) : `loc-${idx}`
+                                )
+                              )
+                            : new Set()
+                        );
+                      }}
+                      className="w-full px-2.5 py-1.5 flex items-center justify-between gap-2 text-left hover:bg-slate-50 transition-colors border-b border-slate-100 min-h-[40px]"
+                    >
                       <div className="flex flex-1 min-w-0 items-center gap-2 sm:gap-3 flex-wrap">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wide shrink-0">
-                            Item Code
+                            Item code
                           </span>
-                          <span className="text-[11px] font-semibold text-slate-800 truncate">
-                            {mrnPlan.item_code || "—"}
+                          <span className="text-[11px] font-semibold text-slate-800 truncate" title={mrnItemCode}>
+                            {mrnItemCode}
                           </span>
                         </div>
                         <span className="text-slate-300 shrink-0 select-none hidden sm:inline">·</span>
                         <div className="flex items-center gap-1.5 min-w-0">
                           <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wide shrink-0">
-                            Total Qty to Dispatch
+                            Total qty to dispatch
                           </span>
                           <span className="text-[11px] font-semibold text-slate-800 tabular-nums">
                             {requiredQty.toLocaleString()}
@@ -952,20 +1493,25 @@ export default function CoilScanEntryModal({
                         <span className="text-slate-300 shrink-0 select-none hidden md:inline">·</span>
                         <div className="hidden md:flex items-center gap-1.5 min-w-0">
                           <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wide shrink-0">
-                            Scanned Qty
+                            Scanned qty
                           </span>
                           <span className="text-[11px] font-semibold text-indigo-700 tabular-nums">
                             {scannedQty.toLocaleString()} / {requiredQty.toLocaleString()}
                           </span>
                         </div>
                       </div>
-                    </div>
+                      <ChevronRight
+                        size={16}
+                        className={`text-slate-400 shrink-0 transition-transform ${expandedLocations.size > 0 ? "rotate-90" : ""}`}
+                      />
+                    </button>
 
-                    <div className="px-2 pb-2 pt-1.5 space-y-1.5 max-h-[260px] overflow-y-auto custom-scrollbar">
+                    <div className="px-2 pb-2 pt-1.5 space-y-1.5 max-h-[220px] overflow-y-auto custom-scrollbar">
                       <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wide mb-1 px-0.5">
-                        Coil locations, showing where each coil is stored
+                        Coil locations — where each coil is stored
                       </p>
-                      {(mrnPlan.locations || []).map((loc, lidx) => {
+                      {(planLocations || []).length ? (
+                        (planLocations || []).map((loc, lidx) => {
                         const locKey =
                           loc.location_id != null ? String(loc.location_id) : `loc-${lidx}`;
                         const isLocOpen = expandedLocations.has(locKey);
@@ -1028,12 +1574,17 @@ export default function CoilScanEntryModal({
                             )}
                           </div>
                         );
-                      })}
+                      })
+                      ) : (
+                        <p className="text-[10px] text-slate-400 italic px-1 py-2">
+                          No stored locations found for this selection.
+                        </p>
+                      )}
                     </div>
                   </div>
 
-                  {/* YOUR SCANNED PROGRESS */}
-                  <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100 shadow-sm">
+                  {/* Scanned progress — IMS style */}
+                  <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-2 text-indigo-600 min-w-0">
                         <CheckCircle2 size={16} className="shrink-0" />
@@ -1136,21 +1687,9 @@ export default function CoilScanEntryModal({
                             ))}
                           </div>
                         ) : (
-                          <div className="h-full flex flex-col items-center justify-center text-slate-300 py-12">
-                            <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 border-2 border-dashed border-slate-200">
-                              <ScanLine size={32} className="opacity-20" />
-                            </div>
-                            <p className="text-[10px] font-black uppercase tracking-widest">
-                              Ready for Scanning
-                            </p>
-                            <p className="text-[8px] font-bold text-slate-400 mt-1 uppercase text-center px-4">
-                              Scan coils for MRN {mrnPlan.mrn_no ?? mrnPlan.mrn_uid}
-                              {isBatchMode
-                                ? batchUnlocked
-                                  ? " · scan each coil"
-                                  : " · scan batch QC sticker first"
-                                : ""}
-                            </p>
+                          <div className="py-8 text-center text-slate-300">
+                            <ScanLine size={24} className="mx-auto opacity-20 mb-2" />
+                            <p className="text-[9px] font-bold uppercase tracking-wide">Ready for scanning</p>
                           </div>
                         )}
                       </div>
@@ -1159,38 +1698,21 @@ export default function CoilScanEntryModal({
                 </>
               )}
 
-              {!isConfirmed && (
-                <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100 shadow-sm">
-                  <div className="flex items-center gap-2 text-indigo-600 min-w-0 px-1">
-                    <CheckCircle2 size={16} className="shrink-0" />
-                    <span className="text-[11px] font-black uppercase tracking-widest">
-                      Quick Scan to Start
-                    </span>
-                  </div>
-                  <div className="space-y-2 p-1.5 bg-white border border-indigo-100 rounded-lg w-full min-w-0">
-                    {scanControls}
-                  </div>
-                </div>
-              )}
-
               <div className="min-w-0">
                 <RemarksTextarea
                   label="Security Remarks"
                   value={remarks}
                   onChange={(e) => setRemarks(e?.target?.value ?? e ?? "")}
-                  placeholder="Driver name, vehicle details, seal number, escort"
-                  rows={3}
+                  placeholder="Driver, vehicle, seal"
+                  rows={2}
                 />
               </div>
 
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
-                <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
-                <p className="text-[11px] text-amber-800 font-medium leading-normal">
-                  {isConfirmed
-                    ? `Scan all required coils for this MRN before submitting. Scans are saved as a draft, and inventory is not updated until this store-out entry is authorized.`
-                    : `Select an MRN, or scan a coil or batch sticker, to see where each coil is stored, then scan. Inventory is not updated until the entry is authorized.`}
+              {!isConfirmed ? (
+                <p className="text-[10px] text-slate-500 px-0.5">
+                  Confirm selection to view coil locations and enable scanning.
                 </p>
-              </div>
+              ) : null}
             </div>
           )}
 

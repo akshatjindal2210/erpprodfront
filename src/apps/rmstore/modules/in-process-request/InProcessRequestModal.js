@@ -8,8 +8,9 @@ import "@/apps/ims/lib/config/inwardUi.theme.css";
 
 import { coilService } from "@/apps/rmstore/lib/services/coil";
 import { mrnService } from "@/apps/rmstore/lib/services/mrn";
-import { inProcessRequestService, IPR_REQUEST_TYPE, IPR_DOWNSTREAM, IPR_REQUEST_TYPE_LABEL } from "@/apps/rmstore/lib/services/inProcessRequest";
+import { inProcessRequestService, IPR_REQUEST_TYPE, IPR_DOWNSTREAM, IPR_REQUEST_TYPE_LABEL, IPR_REJECTION_SCOPE_LABEL } from "@/apps/rmstore/lib/services/inProcessRequest";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
+import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CLOSE, IMS_DRAWER_BTN_APPROVE } from "@/apps/ims/lib/helpers/masterListUi";
 import { extractCoilUid, normalizeScanInput, coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
@@ -27,6 +28,7 @@ import { prepareQrScanSession, unlockScanAudio, playScanSuccessBeep } from "@/pl
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
 import StoreInRequestForm from "@/apps/rmstore/modules/in-process-request/StoreInRequestForm";
+import ConsumeRequestForm from "@/apps/rmstore/modules/in-process-request/ConsumeRequestForm";
 import ApprovalStatusToggle from "@/apps/rmstore/modules/shared/ApprovalStatusToggle";
 
 const MODULE = "rm_issue_request";
@@ -76,7 +78,7 @@ const REQUEST_TYPE_OPTIONS = [
   {
     id: IPR_REQUEST_TYPE.CONSUME,
     title: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.CONSUME],
-    description: "Coils fully used up",
+    description: "Scan shop-floor coils — full use by default",
     accent: "amber",
     Icon: PackageMinus,
   },
@@ -85,14 +87,14 @@ const REQUEST_TYPE_OPTIONS = [
 const REJECTION_TYPE_OPTIONS = [
   {
     id: "coil",
-    title: "Coil",
+    title: IPR_REJECTION_SCOPE_LABEL.coil,
     description: "Only the scanned coil",
     accent: "amber",
     Icon: Package,
   },
   {
     id: "lot",
-    title: "Lot",
+    title: IPR_REJECTION_SCOPE_LABEL.lot,
     description: "Every active coil in the lot",
     accent: "yellow",
     Icon: Layers,
@@ -107,8 +109,44 @@ function fetchIprReasonSuggestions(search = "", requestType = IPR_REQUEST_TYPE.R
 
 function mapCoilRow(c, extras = {}) {
   const qty = Number(c.qty) || 0;
-  const original =
-    c.original_qty != null ? Number(c.original_qty) : qty;
+  const original = c.original_qty != null ? Number(c.original_qty) : qty;
+
+  if (extras.forConsume) {
+    const consumed =
+      extras.consumed_qty != null
+        ? Number(extras.consumed_qty)
+        : c.consumed_qty != null
+          ? Number(c.consumed_qty)
+          : original;
+    const used = Number.isFinite(consumed) ? Math.max(0, Math.min(original, consumed)) : original;
+    const remaining = Math.max(0, original - used);
+    const partialDefault =
+      extras.partial_qty != null
+        ? Boolean(extras.partial_qty)
+        : c.partial_qty != null
+          ? Boolean(c.partial_qty)
+          : used < original;
+    return {
+      coil_no_uid: c.coil_no_uid,
+      qty: original,
+      original_qty: original,
+      consumed_qty: used,
+      remaining_qty: remaining,
+      partial_qty: partialDefault,
+      item_code: c.item_code,
+      item_desc: c.item_desc,
+      heat_no: c.heat_no,
+      mrn_uid: c.mrn_uid,
+      mrn_no: c.mrn_no,
+      location_id: c.location_id ?? null,
+      location_no: c.location_no || null,
+      out_uid: c.out_uid ?? null,
+      status: c.status,
+      source: extras.source || c.source || null,
+      is_seed_scan: Boolean(extras.is_seed_scan ?? c.is_seed_scan),
+    };
+  }
+
   const remaining =
     extras.remaining_qty != null
       ? Number(extras.remaining_qty)
@@ -128,6 +166,7 @@ function mapCoilRow(c, extras = {}) {
     mrn_no: c.mrn_no,
     location_id: c.location_id ?? null,
     location_no: c.location_no || null,
+    out_uid: c.out_uid ?? null,
     status: c.status,
     source: extras.source || c.source || null,
     is_seed_scan: Boolean(extras.is_seed_scan ?? c.is_seed_scan),
@@ -216,8 +255,13 @@ export default function InProcessRequestModal({
   const isRejection = !isStoreIn && !isConsume;
   /** Step 1 — pick the request type. */
   const showRequestTypePicker = mode === "add" && !requestTypePicked;
-  /** Step 2 — scan the coil sticker that seeds the request. */
-  const showScanGate = mode === "add" && requestTypePicked && !typePicked && !pendingCoil;
+  /** Step 2 — scan seed coil (rejection only). Store In / Consume go straight to the form. */
+  const showScanGate =
+    mode === "add" &&
+    requestTypePicked &&
+    !typePicked &&
+    !pendingCoil &&
+    isRejection;
   /** Step 3 — Coil or Lot, answered once the scanned coil is known (rejection only). */
   const showRejectionTypePicker =
     mode === "add" && requestTypePicked && !typePicked && !!pendingCoil && isRejection;
@@ -228,8 +272,8 @@ export default function InProcessRequestModal({
   /** Lot empty state = IMS Full Hold packing entry panel. */
   const showLotEntryUi =
     isRejection && isLotMode && !readOnly && coils.length === 0 && mode !== "view";
-  /** Coil scan panel = IMS Partial Hold scan panel (rejection + consume scan coils). */
-  const showCoilScanUi = !isStoreIn && isCoilMode && !readOnly;
+  /** Rejection coil scan only — Store In / Consume use dedicated forms. */
+  const showCoilScanUi = !isStoreIn && !isConsume && isCoilMode && !readOnly;
   const showApproval =
     canApprove && !readOnly && !showTypePicker && (mode === "add" || mode === "approve");
 
@@ -296,7 +340,15 @@ export default function InProcessRequestModal({
       setReason(editData.reason || "");
       setRemarks(editData.remarks || "");
       setApproved(isApprove ? true : Boolean(editData.approved));
-      setCoils(Array.isArray(editData.coils) ? editData.coils.map((c) => mapCoilRow(c)) : []);
+      setCoils(
+        Array.isArray(editData.coils)
+          ? editData.coils.map((c) =>
+              mapCoilRow(c, {
+                forConsume: editData.request_type === IPR_REQUEST_TYPE.CONSUME,
+              })
+            )
+          : []
+      );
       setProposedCoils(
         Array.isArray(editData.proposed_coils)
           ? editData.proposed_coils.map((p, i) => ({
@@ -534,7 +586,7 @@ export default function InProcessRequestModal({
     }
   };
 
-  /** Fetch a scanned sticker and confirm the coil is available. */
+  /** Fetch scanned coil — Store In / Consume require coils out at the machine. */
   const resolveScannedCoil = async (val) => {
     const uid = extractCoilUid(normalizeScanInput(val));
     if (!uid) {
@@ -548,6 +600,22 @@ export default function InProcessRequestModal({
       return null;
     }
     const status = String(coil.status || "active").toLowerCase();
+    const reqType = requestTypeRef.current;
+    const needsOut =
+      reqType === IPR_REQUEST_TYPE.STORE_IN || reqType === IPR_REQUEST_TYPE.CONSUME;
+
+    if (needsOut) {
+      if (status !== "out") {
+        showScanToast(
+          "error",
+          "coil-status",
+          `Coil ${uid} is not on the shop floor (status: ${status}). Only issued-out coils can be scanned.`
+        );
+        return null;
+      }
+      return coil;
+    }
+
     if (status !== "active") {
       showScanToast("error", "coil-status", `Coil ${uid} is not available. Its current status is ${status}.`);
       return null;
@@ -656,7 +724,20 @@ export default function InProcessRequestModal({
       if (session !== scanSessionRef.current) return;
 
       const status = String(coil.status || "active").toLowerCase();
-      if (status !== "active") {
+      const reqType = requestTypeRef.current;
+      const needsOut =
+        reqType === IPR_REQUEST_TYPE.STORE_IN || reqType === IPR_REQUEST_TYPE.CONSUME;
+
+      if (needsOut) {
+        if (status !== "out") {
+          showScanToast(
+            "error",
+            "coil-status",
+            `Coil ${uid} is not on the shop floor (status: ${status}).`
+          );
+          return;
+        }
+      } else if (status !== "active") {
         showScanToast("error", "coil-status", `Coil ${uid} is not available. Its current status is ${status}.`);
         return;
       }
@@ -671,15 +752,8 @@ export default function InProcessRequestModal({
         return;
       }
 
-      const mapped = mapCoilRow(coil, { source: "scan", is_seed_scan: true });
+      const mapped = mapCoilRow(coil, { source: "scan", is_seed_scan: true, forConsume: true });
       setCoils((prev) => [...prev, mapped]);
-      if (requestTypeRef.current === IPR_REQUEST_TYPE.STORE_IN) {
-        setProposedCoils((prev) => {
-          const tempId = `ret-${String(mapped.coil_no_uid).toLowerCase()}`;
-          if (prev.some((p) => p.temp_id === tempId)) return prev;
-          return [...prev, proposedFromCoil(mapped, mapped.remaining_qty)];
-        });
-      }
       setErrors((e) => ({ ...e, coils: undefined, scan: undefined }));
       showScanSuccess("coil-ok", `Added ${coil.coil_no_uid}`, 1600);
       void playScanSuccessBeep();
@@ -698,16 +772,6 @@ export default function InProcessRequestModal({
     if (readOnly) return;
     if (isLotMode) return;
     setCoils((prev) => prev.filter((c) => c.coil_no_uid !== uid));
-    if (isStoreIn) {
-      const key = String(uid).toLowerCase();
-      setProposedCoils((prev) =>
-        prev.filter(
-          (p) =>
-            String(p.coil_no_uid || "").toLowerCase() !== key &&
-            String(p.from_coil_uid || "").toLowerCase() !== key
-        )
-      );
-    }
   };
 
   const handleRemainingChange = (coilUid, value) => {
@@ -728,53 +792,43 @@ export default function InProcessRequestModal({
         };
       })
     );
-    const tempId = `ret-${String(coilUid).toLowerCase()}`;
-    setProposedCoils((prev) => {
-      const coil = coilsRef.current.find((c) => c.coil_no_uid === coilUid);
-      const original = Number(coil?.original_qty ?? coil?.qty) || 0;
-      const remaining = Number.isFinite(raw)
-        ? Math.max(0, Math.min(original, raw))
-        : 0;
-      const others = prev.filter((p) => p.temp_id !== tempId);
-      if (remaining <= 0 || !coil) return others;
-      return [...others, proposedFromCoil({ ...coil, remaining_qty: remaining }, remaining)];
-    });
   };
 
-  const handleAddProposedLine = () => {
-    if (readOnly || !isStoreIn) return;
-    const seed = coils[0] || {};
-    setProposedCoils((prev) => [
-      ...prev,
-      {
-        temp_id: `split-${Date.now()}`,
-        coil_no_uid: null,
-        from_coil_uid: seed.coil_no_uid || null,
-        qty: 0,
-        item_code: seed.item_code || null,
-        item_desc: seed.item_desc || null,
-        heat_no: seed.heat_no || null,
-        mrn_uid: seed.mrn_uid || null,
-        mrn_no: seed.mrn_no ?? null,
-      },
-    ]);
-  };
-
-  const handleProposedQtyChange = (tempId, value) => {
-    if (readOnly) return;
-    const qty = value === "" ? 0 : Number(value);
-    setProposedCoils((prev) =>
-      prev.map((p) =>
-        p.temp_id === tempId
-          ? { ...p, qty: Number.isFinite(qty) ? Math.max(0, qty) : 0 }
-          : p
-      )
+  const handleUsedQtyChange = (coilUid, value) => {
+    if (readOnly || !isConsume) return;
+    const raw = value === "" ? NaN : Number(value);
+    setCoils((prev) =>
+      prev.map((c) => {
+        if (c.coil_no_uid !== coilUid) return c;
+        const original = Number(c.original_qty ?? c.qty) || 0;
+        const used = Number.isFinite(raw) ? Math.max(0, Math.min(original, raw)) : original;
+        return {
+          ...c,
+          partial_qty: true,
+          consumed_qty: used,
+          remaining_qty: Math.max(0, original - used),
+        };
+      })
     );
   };
 
-  const handleRemoveProposed = (tempId) => {
-    if (readOnly) return;
-    setProposedCoils((prev) => prev.filter((p) => p.temp_id !== tempId));
+  const handlePartialToggle = (coilUid, enabled) => {
+    if (readOnly || !isConsume) return;
+    setCoils((prev) =>
+      prev.map((c) => {
+        if (c.coil_no_uid !== coilUid) return c;
+        const original = Number(c.original_qty ?? c.qty) || 0;
+        if (!enabled) {
+          return {
+            ...c,
+            partial_qty: false,
+            consumed_qty: original,
+            remaining_qty: 0,
+          };
+        }
+        return { ...c, partial_qty: true };
+      })
+    );
   };
 
   const selectRequestType = (type) => {
@@ -786,7 +840,12 @@ export default function InProcessRequestModal({
     setRequestType(next);
     setRequestTypePicked(true);
     setRejectionType("coil");
-    setTypePicked(false);
+    setTypePicked(next === IPR_REQUEST_TYPE.STORE_IN || next === IPR_REQUEST_TYPE.CONSUME);
+    if (next === IPR_REQUEST_TYPE.CONSUME && canApprove) {
+      setApproved(true);
+    } else if (next === IPR_REQUEST_TYPE.CONSUME) {
+      setApproved(false);
+    }
     setPendingCoil(null);
     setCoils([]);
     setProposedCoils([]);
@@ -903,22 +962,33 @@ export default function InProcessRequestModal({
       next.scan = isStoreIn
         ? "Scan at least one coil at the machine."
         : isConsume
-          ? "Scan at least one consumed coil."
+          ? "Scan at least one coil."
           : isLotMode
             ? "Enter a lot or MRN number, or scan one coil."
             : "Scan at least one coil.";
     }
     if (isStoreIn) {
-      const returnQty = proposedCoils.reduce((s, c) => s + (Number(c.qty) || 0), 0);
-      if (returnQty <= 0) {
-        next.proposed = "Enter the remaining return quantity, or add proposed return lines.";
+      for (const c of coils) {
+        const orig = Number(c.original_qty ?? c.qty) || 0;
+        const rem = Number(c.remaining_qty ?? c.qty) || 0;
+        if (rem > orig) {
+          next.proposed = "Return qty cannot exceed issued qty on any coil.";
+          break;
+        }
       }
-      const previousQty = coils.reduce(
-        (s, c) => s + (Number(c.original_qty ?? c.qty) || 0),
-        0
-      );
-      if (returnQty > previousQty) {
-        next.proposed = "Return quantity cannot exceed the quantity previously at the machine.";
+    }
+    if (isConsume) {
+      for (const c of coils) {
+        const orig = Number(c.original_qty ?? c.qty) || 0;
+        const used = Number(c.consumed_qty ?? orig) || 0;
+        if (used <= 0) {
+          next.qty = "Enter used qty for partial coils.";
+          break;
+        }
+        if (used > orig) {
+          next.qty = "Used qty cannot exceed issued qty on any coil.";
+          break;
+        }
       }
     }
     setErrors(next);
@@ -944,43 +1014,61 @@ export default function InProcessRequestModal({
 
     const first = coils[0] || {};
     const scanned_coil_uids = coils.map((c) => c.coil_no_uid);
-    const coilPayload = coils.map((c) => ({
-      coil_no_uid: c.coil_no_uid,
-      qty: isStoreIn
-        ? Number(c.remaining_qty ?? c.qty) || 0
-        : Number(c.qty) || 0,
-      original_qty: Number(c.original_qty ?? c.qty) || 0,
-      remaining_qty: Number(c.remaining_qty ?? c.qty) || 0,
-      consumed_qty: Number(c.consumed_qty) || 0,
-      item_code: c.item_code,
-      item_desc: c.item_desc,
-      heat_no: c.heat_no,
-      mrn_uid: c.mrn_uid,
-      mrn_no: c.mrn_no,
-      location_id: c.location_id ?? null,
-      location_no: c.location_no || null,
-      source: c.source || (isLotMode ? "lot" : "scan"),
-      is_seed_scan: Boolean(c.is_seed_scan),
-    }));
+    const coilPayload = coils.map((c) => {
+      const original = Number(c.original_qty ?? c.qty) || 0;
+      const remaining = Number(c.remaining_qty ?? 0) || 0;
+      const consumed = isStoreIn
+        ? Math.max(0, original - remaining)
+        : isConsume
+          ? Number(c.consumed_qty ?? original) || 0
+          : Number(c.qty) || 0;
+      return {
+        coil_no_uid: c.coil_no_uid,
+        qty: isStoreIn ? remaining : isConsume ? consumed : Number(c.qty) || 0,
+        original_qty: original,
+        remaining_qty: isConsume ? Math.max(0, original - consumed) : remaining,
+        consumed_qty: consumed,
+        item_code: c.item_code,
+        item_desc: c.item_desc,
+        heat_no: c.heat_no,
+        mrn_uid: c.mrn_uid,
+        mrn_no: c.mrn_no,
+        location_id: c.location_id ?? null,
+        location_no: c.location_no || null,
+        out_uid: c.out_uid ?? null,
+        source: c.source || (isLotMode ? "lot" : "scan"),
+        is_seed_scan: Boolean(c.is_seed_scan),
+      };
+    });
 
-    const issuedSnapshot = isStoreIn
-      ? coils.map((c) => ({
-          coil_no_uid: c.coil_no_uid,
-          qty: Number(c.original_qty ?? c.qty) || 0,
-          original_qty: Number(c.original_qty ?? c.qty) || 0,
-          remaining_qty: Number(c.remaining_qty ?? c.qty) || 0,
-          consumed_qty: Number(c.consumed_qty) || 0,
-          item_code: c.item_code,
-          item_desc: c.item_desc,
-          heat_no: c.heat_no,
-          mrn_uid: c.mrn_uid,
-          mrn_no: c.mrn_no,
-          location_id: c.location_id ?? null,
-          location_no: c.location_no || null,
-          source: c.source || "scan",
-          is_seed_scan: Boolean(c.is_seed_scan),
-        }))
-      : undefined;
+    const snapshotLine = (c) => {
+      const original = Number(c.original_qty ?? c.qty) || 0;
+      const remaining = Number(c.remaining_qty ?? 0) || 0;
+      const consumed = isConsume
+        ? Number(c.consumed_qty ?? original) || 0
+        : isStoreIn
+          ? Math.max(0, original - remaining)
+          : Number(c.qty) || 0;
+      return {
+        coil_no_uid: c.coil_no_uid,
+        qty: original,
+        original_qty: original,
+        remaining_qty: isConsume ? Math.max(0, original - consumed) : remaining,
+        consumed_qty: consumed,
+        item_code: c.item_code,
+        item_desc: c.item_desc,
+        heat_no: c.heat_no,
+        mrn_uid: c.mrn_uid,
+        mrn_no: c.mrn_no,
+        location_id: c.location_id ?? null,
+        location_no: c.location_no || null,
+        out_uid: c.out_uid ?? null,
+        source: c.source || "scan",
+        is_seed_scan: Boolean(c.is_seed_scan),
+      };
+    };
+
+    const issuedSnapshot = isStoreIn || isConsume ? coils.map(snapshotLine) : undefined;
 
     const payload = {
       request_type: requestType,
@@ -998,19 +1086,9 @@ export default function InProcessRequestModal({
       coils: coilPayload,
       previous_coils: issuedSnapshot,
       proposed_coils: isStoreIn
-        ? proposedCoils
-            .filter((p) => Number(p.qty) > 0)
-            .map((p) => ({
-              temp_id: p.temp_id,
-              coil_no_uid: p.coil_no_uid || null,
-              from_coil_uid: p.from_coil_uid || p.coil_no_uid || null,
-              qty: Number(p.qty) || 0,
-              item_code: p.item_code || first.item_code || null,
-              item_desc: p.item_desc || first.item_desc || null,
-              heat_no: p.heat_no || first.heat_no || null,
-              mrn_uid: p.mrn_uid || first.mrn_uid || null,
-              mrn_no: p.mrn_no ?? first.mrn_no ?? null,
-            }))
+        ? coils
+            .filter((c) => (Number(c.remaining_qty ?? c.qty) || 0) > 0)
+            .map((c) => proposedFromCoil(c, c.remaining_qty))
         : [],
       created_by_name: actorName,
       updated_by_name: actorName,
@@ -1056,6 +1134,32 @@ export default function InProcessRequestModal({
     }
   };
 
+  const canReceiveStoreIn =
+    Boolean(editData?.ipr_uid) &&
+    editData?.request_type === IPR_REQUEST_TYPE.STORE_IN &&
+    editData?.approved === true &&
+    editData?.downstream === IPR_DOWNSTREAM.PENDING_STORE_IN;
+
+  const handleReceiveStoreIn = async () => {
+    if (!editData?.ipr_uid || saving) return;
+    setSaving(true);
+    try {
+      const res = await inProcessRequestService.completeStoreIn(editData.ipr_uid);
+      showScanToast("success", "receive-ok", res?.message || "Store-in received.", 3200);
+      onSuccess?.();
+      onClose?.();
+    } catch (err) {
+      showScanToast(
+        "error",
+        "receive-fail",
+        err?.message || "Could not receive the store-in request.",
+        4000
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const drawerDescription = showRequestTypePicker ? (
     "Select a request type"
   ) : showScanGate ? (
@@ -1066,9 +1170,9 @@ export default function InProcessRequestModal({
     <span className="inline-flex flex-wrap items-center gap-x-1.5 normal-case tracking-normal font-semibold">
       <span className="uppercase tracking-tight font-bold">
         {isStoreIn
-          ? "Scan the coils at the machine and set the remaining quantity for Store In"
+          ? "Scan issued (out) coils, set return qty, then submit — used qty is consumed, remainder is store in"
           : isConsume
-            ? "Scan every coil that was fully used up, enter a reason, then submit"
+            ? "Enter reason, scan coils, then save with remark"
             : isLotMode
               ? "Enter the lot or MRN number, or scan one coil to load all lot coils"
               : "Scan the coil stickers, enter a reason, then submit"}
@@ -1098,7 +1202,14 @@ export default function InProcessRequestModal({
         icon: "text-teal-600",
         text: "text-teal-800",
         message:
-          "Approved and queued for Store In processing. The previous and current coil snapshots are retained.",
+          "Authorized and queued in Store In Pending. Receive when ready — same coil updates with return qty in Unassigned Area (no new coil record).",
+      },
+      [IPR_DOWNSTREAM.STORE_IN_DONE]: {
+        box: "bg-teal-50 border-teal-200",
+        icon: "text-teal-600",
+        text: "text-teal-800",
+        message:
+          "Received — same coil is back in Unassigned Area with return qty. Consume (if any) was recorded separately.",
       },
       [IPR_DOWNSTREAM.PENDING_STORE_OUT]: {
         box: "bg-rose-50 border-rose-200",
@@ -1111,12 +1222,28 @@ export default function InProcessRequestModal({
         box: "bg-amber-50 border-amber-200",
         icon: "text-amber-600",
         text: "text-amber-800",
-        message: "Approved — these coils are marked consumed and are no longer in stock.",
+        message:
+          "Authorized — used qty consumed. Any balance remains on shop floor for a separate Store In request.",
       },
     }[editData?.downstream] || null;
 
   const footerContent = showTypePicker ? (
     <RmStoreDrawerFooter onClose={onClose} cancelOnly />
+  ) : canReceiveStoreIn && readOnly ? (
+    <div className={IMS_DRAWER_FOOTER_WRAP}>
+      <button type="button" onClick={onClose} disabled={saving} className={IMS_DRAWER_BTN_CLOSE}>
+        Close
+      </button>
+      <button
+        type="button"
+        onClick={() => void handleReceiveStoreIn()}
+        disabled={saving}
+        className={IMS_DRAWER_BTN_APPROVE}
+      >
+        {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
+        Receive to Unassigned Area
+      </button>
+    </div>
   ) : (
     <RmStoreDrawerFooter
       onClose={onClose}
@@ -1355,7 +1482,7 @@ export default function InProcessRequestModal({
                     {isStoreIn ? "store-in request" : isConsume ? "consume request" : "rejection"}{" "}
                     will reset its status to{" "}
                     <span className="font-bold text-amber-900 uppercase">Pending</span>
-                    {isConsume ? " and return its coils to stock" : ""}.
+                    {isConsume ? " and coils return to shop floor (out)" : ""}.
                   </p>
                 </div>
               )}
@@ -1393,7 +1520,6 @@ export default function InProcessRequestModal({
                 <StoreInRequestForm
                   readOnly={readOnly}
                   coils={coils}
-                  proposedCoils={proposedCoils}
                   errors={errors}
                   manualCoilId={manualCoilId}
                   setManualCoilId={setManualCoilId}
@@ -1413,9 +1539,33 @@ export default function InProcessRequestModal({
                   }}
                   onRemoveCoil={removeCoil}
                   onRemainingChange={handleRemainingChange}
-                  onAddProposedLine={handleAddProposedLine}
-                  onProposedQtyChange={handleProposedQtyChange}
-                  onRemoveProposed={handleRemoveProposed}
+                  scanBtnFill={scanBtnFill}
+                  laserActive={open && !readOnly && !showTypePicker}
+                />
+              ) : isConsume ? (
+                <ConsumeRequestForm
+                  readOnly={readOnly}
+                  coils={coils}
+                  errors={errors}
+                  manualCoilId={manualCoilId}
+                  setManualCoilId={setManualCoilId}
+                  validatingCoil={validatingCoil}
+                  showPhoneQr={showPhoneQr}
+                  showLaserUi={showLaserUi}
+                  keyboardType={keyboardType}
+                  isScannerOpen={isScannerOpen}
+                  onStartCamera={startCameraScanner}
+                  onLaserScan={onCoilLaserScan}
+                  onLaserRejected={handleLaserScanRejected}
+                  onAddManual={() => {
+                    if (manualCoilId.trim()) {
+                      void tryAddCoil(manualCoilId);
+                      setManualCoilId("");
+                    }
+                  }}
+                  onRemoveCoil={removeCoil}
+                  onPartialToggle={handlePartialToggle}
+                  onUsedQtyChange={handleUsedQtyChange}
                   scanBtnFill={scanBtnFill}
                   laserActive={open && !readOnly && !showTypePicker}
                 />
@@ -1637,7 +1787,11 @@ export default function InProcessRequestModal({
                   show={showApproval}
                   checked={approved}
                   onChange={setApproved}
-                  pendingHint="This request will stay Pending until authorized."
+                  pendingHint={
+                    isConsume
+                      ? "Stay pending until authorized — then scanned coils are consumed."
+                      : "This request will stay Pending until authorized."
+                  }
                 />
               ) : null}
 

@@ -134,18 +134,43 @@ export function hasActivityLogDetails(data) {
   return getActivityLogSections(data).length > 0;
 }
 
+function formatObjectRef(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const ref =
+    value.coil_no_uid ??
+    value.box_uid ??
+    value.box_no_uid ??
+    value.uid ??
+    value.id;
+  if (ref != null && String(ref).trim() !== "") return String(ref).trim();
+  return null;
+}
+
 export function formatActivityLogValue(value) {
   if (value === true || value === 1 || value === "1") return "Yes";
   if (value === false || value === 0 || value === "0") return "No";
   if (value == null || value === "") return "—";
-  if (Array.isArray(value)) return value.join(", ");
+  if (Array.isArray(value)) {
+    if (!value.length) return "—";
+    const parts = value
+      .map((item) => {
+        if (item == null || item === "") return null;
+        if (typeof item === "object") return formatObjectRef(item);
+        const text = String(item).trim();
+        return text && text !== "[object Object]" ? text : null;
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join(", ");
+    return `${value.length} item(s)`;
+  }
   if (typeof value === "object") {
     if (value.from !== undefined || value.to !== undefined) {
       return `${formatActivityLogValue(value.from)} → ${formatActivityLogValue(value.to)}`;
     }
-    return "—";
+    return formatObjectRef(value) || "—";
   }
-  return String(value);
+  const text = String(value);
+  return text === "[object Object]" ? "—" : text;
 }
 
 /** Module/Entity REF: entity_id, else log_data.ref. */

@@ -85,15 +85,23 @@ export default function RmStoreListFooter({
       : null;
 
   return (
-    <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 shrink-0">
-      {children ?? <span className={FOOTER_TEXT_CLASS}>{countText}</span>}
-      {extra ? <span className="text-[9px] text-slate-500 text-left">{extra}</span> : null}
-      {showLive ? (
-        <div className="flex items-center gap-2 shrink-0 sm:ml-auto">
-          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
-          <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-        </div>
-      ) : null}
+    <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 shrink-0">
+      <div className="flex flex-col gap-1 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-2">
+        {children ?? <span className={FOOTER_TEXT_CLASS}>{countText}</span>}
+        {extra ? (
+          <span className="text-[9px] text-slate-500 text-center justify-self-center px-1">{extra}</span>
+        ) : (
+          <span className="hidden sm:block" aria-hidden />
+        )}
+        {showLive ? (
+          <div className="flex items-center gap-2 shrink-0 sm:justify-self-end">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
+            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
+          </div>
+        ) : (
+          <span className="hidden sm:block" aria-hidden />
+        )}
+      </div>
     </div>
   );
 }

@@ -77,14 +77,38 @@ export const mrnService = {
     });
   },
 
-  /** Separate TC + RMTC upload after generate — both required. */
-  uploadDocs: async ({ uid, tcFile, rmtcFile }) => {
+  /** Save in-progress sticker form without generating coils (optional TC/RMTC upload). */
+  saveStickerDraft: async ({ uid, sourceRow, heat_no, coil_count, total_qty, coil_qtys, remarks, tcFile, rmtcFile }) => {
+    const rowUid = uid || sourceRow?.uid;
+    const form = new FormData();
+    const body = {
+      ...mrnSourceBody(sourceRow || { uid: rowUid }),
+      uid: rowUid,
+      heat_no: heat_no ?? "",
+      coil_count,
+      total_qty,
+      coil_qtys: JSON.stringify(coil_qtys ?? []),
+      remarks: remarks ?? "",
+    };
+    Object.entries(body).forEach(([key, value]) => {
+      if (value != null && value !== "") form.append(key, String(value));
+    });
+    if (tcFile instanceof File) form.append("tc", tcFile);
+    if (rmtcFile instanceof File) form.append("rmtc", rmtcFile);
+    return postMultipart(ENDPOINTS.MRN.SAVE_STICKER_DRAFT, form);
+  },
+
+  /** TC + RMTC upload — both required on MRN after merge; pass only changed files when one already saved. */
+  uploadDocs: async ({ uid, tcFile, rmtcFile, requireBoth = true }) => {
     if (!uid) throw new Error("uid required for document upload");
-    if (!tcFile || !rmtcFile) throw new Error("Both TC and RMTC documents are required");
+    if (requireBoth && (!tcFile || !rmtcFile)) throw new Error("Both TC and RMTC documents are required");
+    if (!tcFile && !rmtcFile) return { success: true, data: { uid } };
     const form = new FormData();
     form.append("uid", String(uid));
-    form.append("tc", tcFile);
-    form.append("rmtc", rmtcFile);
+    if (requireBoth) form.append("require_both", "true");
+    else form.append("require_both", "false");
+    if (tcFile instanceof File) form.append("tc", tcFile);
+    if (rmtcFile instanceof File) form.append("rmtc", rmtcFile);
     return postMultipart(ENDPOINTS.MRN.UPLOAD_DOCS, form);
   },
 };

@@ -30,7 +30,7 @@ export const SCHEDULE_LIST_FILTER = {
   ALL: "all",
   PENDING: "pending",
   READY_TO_DISPATCH: "ready_to_dispatch",
-  /** Sales department default: Pending + Hold + Reject */
+  /** Sales default: Hold + Reject */
   PENDING_HOLD_REJECT: "pending_hold_reject",
   HOLD: "hold",
   PLAN: "plan",
@@ -42,9 +42,9 @@ export const SCHEDULE_LIST_FILTER = {
 /** All status filters available to everyone (defaults differ by role). */
 export const SCHEDULE_STATUS_FILTER_OPTIONS = [
   { value: SCHEDULE_LIST_FILTER.ALL, label: "All" },
-  { value: SCHEDULE_LIST_FILTER.PENDING, label: "Pending" },
+  // { value: SCHEDULE_LIST_FILTER.PENDING, label: "Pending" }, // hidden — default is Ready to Dispatch
   { value: SCHEDULE_LIST_FILTER.READY_TO_DISPATCH, label: "Ready to Dispatch" },
-  { value: SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT, label: "Pending / Hold / Reject" },
+  { value: SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT, label: "Hold / Reject" },
   { value: SCHEDULE_LIST_FILTER.PLAN, label: "Plan" },
   { value: SCHEDULE_LIST_FILTER.HOLD, label: "Hold" },
   { value: SCHEDULE_LIST_FILTER.REJECT, label: "Reject" },
@@ -209,21 +209,16 @@ export function isSalesDepartmentUser(user) {
   return name === "sales" || name.includes("sales");
 }
 
-/**
- * Default list status:
- * - Super admin → Ready to Dispatch
- * - Sales department → Pending / Hold / Reject
- * - Everyone else → Ready to Dispatch
- */
+/** Default list filter: Sales + Authorize → Hold/Reject; else Ready to Dispatch. */
 export function getDefaultScheduleStatusFilter({
   canAdd = false,
   canApprove = false,
   isSalesDepartment = false,
   isSuperAdmin = false,
 } = {}) {
-  if (isSuperAdmin) return SCHEDULE_LIST_FILTER.READY_TO_DISPATCH;
-  if (isSalesDepartment) return SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT;
-  if (canAdd || canApprove) return SCHEDULE_LIST_FILTER.READY_TO_DISPATCH;
+  void canAdd;
+  void isSuperAdmin;
+  if (isSalesDepartment && canApprove) return SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT;
   return SCHEDULE_LIST_FILTER.READY_TO_DISPATCH;
 }
 

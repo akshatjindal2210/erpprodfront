@@ -165,15 +165,26 @@ function renderMrnQtyCell(v) {
   );
 }
 
-function renderMrnStickerStatus(v) {
+function renderMrnStickerStatus(v, row) {
   const generated = v === "generated";
+  const draft = v === "draft" || row?.has_sticker_draft === true;
+  if (generated) {
+    return (
+      <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-emerald-50 text-emerald-600 border-emerald-100">
+        ● GENERATED
+      </span>
+    );
+  }
+  if (draft) {
+    return (
+      <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-sky-50 text-sky-700 border-sky-200">
+        ● DRAFT
+      </span>
+    );
+  }
   return (
-    <span
-      className={`px-2 py-0.5 text-[9px] font-black uppercase border ${
-        generated ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"
-      }`}
-    >
-      {generated ? "● GENERATED" : "○ PENDING"}
+    <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-600 border-amber-100">
+      ○ PENDING
     </span>
   );
 }
@@ -291,7 +302,7 @@ export default function MrnPortalPage() {
       setStickerMrnId(uid);
       setStickerSourceRow(selectedRecord);
     } else {
-      setStickerMrnId(null);
+      setStickerMrnId(selectedRecord.uid || null);
       setStickerSourceRow(selectedRecord);
     }
     setStickerModalOpen(true);

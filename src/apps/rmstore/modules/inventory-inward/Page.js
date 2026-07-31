@@ -5,7 +5,6 @@ import { Plus, RefreshCw, Trash2, X, Warehouse, PackageOpen, Locate, List, Boxes
 import { toast } from "react-toastify";
 
 import { inventoryInwardService } from "@/apps/rmstore/lib/services/inventoryInward";
-import { inProcessRequestService } from "@/apps/rmstore/lib/services/inProcessRequest";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import InwardModal from "./InwardModal";
@@ -93,22 +92,8 @@ export default function StoreInPage() {
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
   const [finderOpen, setFinderOpen] = useState(false);
-  const [pendingStoreInReturns, setPendingStoreInReturns] = useState([]);
 
   const isPackingCoilView = !isStoreIn && packingView === PACKING_VIEWS.COILS;
-
-  const fetchPendingStoreInReturns = useCallback(async () => {
-    try {
-      const res = await inProcessRequestService.getPendingStoreIn();
-      setPendingStoreInReturns(Array.isArray(res?.data) ? res.data : []);
-    } catch {
-      setPendingStoreInReturns([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isStoreIn) fetchPendingStoreInReturns();
-  }, [isStoreIn, fetchPendingStoreInReturns]);
 
   const fetchInwards = useCallback(async () => {
     setLoading(true);
@@ -694,45 +679,6 @@ export default function StoreInPage() {
             </div>
           )}
 
-          {isStoreIn && pendingStoreInReturns.length > 0 && (
-            <div className="px-3 py-2 bg-teal-50 border border-teal-100 space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-black uppercase text-teal-800">
-                  Pending Store In Requests ({pendingStoreInReturns.length})
-                </span>
-                <button
-                  type="button"
-                  onClick={fetchPendingStoreInReturns}
-                  className="text-[9px] font-bold uppercase text-teal-600 hover:text-teal-900"
-                >
-                  Refresh
-                </button>
-              </div>
-              <div className="max-h-28 overflow-y-auto space-y-1 custom-scrollbar">
-                {pendingStoreInReturns.map((r) => (
-                  <div
-                    key={r.ipr_uid}
-                    className="flex items-center justify-between gap-2 bg-white border border-teal-100 rounded px-2 py-1.5"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-bold text-teal-900 truncate">
-                        IPR #{r.ipr_uid} · {r.item_code || "—"} · MRN {r.mrn_no ?? "—"}
-                      </div>
-                      <div className="text-[9px] text-slate-500 tabular-nums">
-                        Issued {Number(r.previous_qty || 0).toLocaleString()} · Used{" "}
-                        {Number(r.consumed_qty || 0).toLocaleString()} · Return{" "}
-                        {Number(r.total_qty || 0).toLocaleString()}
-                        <span className="ml-1 text-slate-400">(original quantity unchanged)</span>
-                      </div>
-                    </div>
-                    <span className="shrink-0 px-2 py-0.5 text-[8px] font-black uppercase border bg-teal-50 text-teal-700 border-teal-100">
-                      Process
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>

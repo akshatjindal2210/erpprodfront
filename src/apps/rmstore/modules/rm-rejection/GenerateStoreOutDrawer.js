@@ -60,7 +60,7 @@ function Info({ label, value, mono }) {
 }
 
 /**
- * Pending RM Rejection → review details → Submit creates Store Out (type RM Rejection).
+ * Pending RM Rejection → review details → Save creates register entry (Store Out after authorize).
  * Supports QC fail rows and approved in-process rejection rows.
  */
 export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }) {
@@ -134,7 +134,7 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
           remarks: remarks.trim() || undefined,
         });
       }
-      toast.success(res?.message || "Store Out created successfully.");
+      toast.success(res?.message || "Saved to RM Rejection register.");
       onSuccess?.();
       onClose?.();
     } catch (err) {
@@ -154,7 +154,7 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
       loading={submitting}
       disabled={loading || (!isQc && !isIpr)}
       onSave={handleSubmit}
-      saveLabel="Submit Store Out"
+      saveLabel="Save to Register"
       loadingLabel="Saving…"
     />
   );
@@ -164,8 +164,8 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
     : `Generate Store Out — QC #${row?.qc_check_uid || ""}`;
 
   const drawerDescription = isIpr
-    ? "Review the in-process rejection (coil or lot), then submit to create Store Out (RM Rejection)."
-    : "Review why this coil failed QC, then submit to create a Store Out (type RM Rejection).";
+    ? "Review the in-process rejection, then save to RM Rejection register. Authorize to queue Store Out."
+    : "Review why this coil failed QC, then save to RM Rejection register. Authorize to queue Store Out.";
 
   return (
     <Drawer
@@ -264,14 +264,14 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
           </div>
 
           <div className="space-y-0.5">
-            <FormLabel>Store Out Remarks</FormLabel>
+            <FormLabel>Remarks</FormLabel>
             <textarea
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               rows={2}
               disabled={submitting}
               className={`${OK_INPUT} text-[11px] h-auto min-h-[44px] py-1.5 resize-none rounded-md`}
-              placeholder="Enter remarks for this Store Out (optional)"
+              placeholder="Enter remarks for this rejection (optional)"
             />
           </div>
         </div>
@@ -329,14 +329,14 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
           </div>
 
           <div className="space-y-0.5">
-            <FormLabel>Store Out Remarks</FormLabel>
+            <FormLabel>Remarks</FormLabel>
             <textarea
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               rows={2}
               disabled={submitting}
               className={`${OK_INPUT} text-[11px] h-auto min-h-[44px] py-1.5 resize-none rounded-md`}
-              placeholder="Enter remarks for this Store Out (optional)"
+              placeholder="Enter remarks for this rejection (optional)"
             />
           </div>
         </div>
