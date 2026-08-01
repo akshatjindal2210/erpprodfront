@@ -74,7 +74,6 @@ export const MODULES = {
   ],
 };
 
-// export const PORTAL_APP_KEYS = ["core", "ims", "rmstore", "task"];
-export const PORTAL_APP_KEYS = ["core", "ims", "task"]; // rmstore — not live yet
+export const PORTAL_APP_KEYS = ["core", "ims", /* "rmstore", */ "task"];
 
 export const SETTINGS_MODULES = ["users", "modules", "training_videos", "departments", "designations"];

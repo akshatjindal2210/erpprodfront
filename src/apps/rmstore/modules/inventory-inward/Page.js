@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw, Trash2, X, Warehouse, PackageOpen, Locate, List, Boxes, Edit3 } from "lucide-react";
+import { Plus, RefreshCw, Trash2, X, Warehouse, PackageOpen, Locate, List, Boxes, Edit3, CheckCircle, ClipboardList } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { inventoryInwardService } from "@/apps/rmstore/lib/services/inventoryInward";
+import { inProcessRequestService } from "@/apps/rmstore/lib/services/inProcessRequest";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import InwardModal from "./InwardModal";
@@ -28,10 +29,16 @@ import { pipeMetaRenderers } from "@/apps/ims/lib/helpers/pipeMetaDisplay";
 import LocationFinderDrawer from "@/apps/rmstore/modules/store-location/LocationFinderDrawer";
 
 const MODULE = "rm_inventory_inwards";
+const IPR_MODULE = "rm_issue_request";
 
 const PAGE_TABS = {
   STORE_IN: "store_in",
   PACKING_AREA: "coil_area",
+};
+
+const STORE_IN_VIEWS = {
+  ENTRIES: "entries",
+  PENDING: "pending",
 };
 
 const PACKING_VIEWS = {
@@ -42,9 +49,15 @@ const PACKING_VIEWS = {
 export default function StoreInPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
+  const canReceiveStoreIn = useMemo(
+    () => canAccess(IPR_MODULE, "authorize").allowed || canAccess(MODULE, "authorize").allowed,
+    [canAccess]
+  );
 
   const [pageTab, setPageTab] = useState(PAGE_TABS.PACKING_AREA);
+  const [storeInView, setStoreInView] = useState(STORE_IN_VIEWS.ENTRIES);
   const isStoreIn = pageTab === PAGE_TABS.STORE_IN;
+  const isStoreInPending = isStoreIn && storeInView === STORE_IN_VIEWS.PENDING;
 
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
@@ -83,6 +96,7 @@ export default function StoreInPage() {
 
   const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
+  const [pendingStoreInRows, setPendingStoreInRows] = useState([]);
   const [mrnRows, setMrnRows] = useState([]);
   const [coilRows, setCoilRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
@@ -123,6 +137,20 @@ export default function StoreInPage() {
       setLoading(false);
     }
   }, [params.pageSize, params.fromDate, params.toDate, params.status, appliedSearch]);
+
+  const fetchPendingStoreIn = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await inProcessRequestService.getPendingStoreIn();
+      setPendingStoreInRows(Array.isArray(res?.data) ? res.data : []);
+      setDisplayLimit(100);
+    } catch (err) {
+      toast.error(err?.message || "Could not load pending store-in returns. Please try again.");
+      setPendingStoreInRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const fetchPackingByMrn = useCallback(async () => {
     setLoading(true);
@@ -172,12 +200,19 @@ export default function StoreInPage() {
   }, [coilParams.pageSize, coilParams.sortKey, coilParams.sortDir, packingFilterMrn, appliedSearch]);
 
   useEffect(() => {
-    if (isStoreIn) fetchInwards();
+    if (isStoreInPending) fetchPendingStoreIn();
+    else if (isStoreIn) fetchInwards();
     else if (isPackingCoilView) fetchPackingCoils();
     else fetchPackingByMrn();
-  }, [isStoreIn, isPackingCoilView, fetchInwards, fetchPackingByMrn, fetchPackingCoils]);
+  }, [isStoreIn, isStoreInPending, isPackingCoilView, fetchInwards, fetchPendingStoreIn, fetchPackingByMrn, fetchPackingCoils]);
 
-  const activeSourceRows = isStoreIn ? allRows : isPackingCoilView ? coilRows : mrnRows;
+  const activeSourceRows = isStoreInPending
+    ? pendingStoreInRows
+    : isStoreIn
+      ? allRows
+      : isPackingCoilView
+        ? coilRows
+        : mrnRows;
   const activeSortKey = isStoreIn
     ? params.sortKey
     : isPackingCoilView
@@ -199,11 +234,13 @@ export default function StoreInPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
-  const inwardFooterLabel = isStoreIn
-    ? "Store-In Entries"
-    : isPackingCoilView
-      ? "Unassigned Coils"
-      : "Unassigned MRNs";
+  const inwardFooterLabel = isStoreInPending
+    ? "Pending Store In (from Machine)"
+    : isStoreIn
+      ? "Store-In Entries"
+      : isPackingCoilView
+        ? "Unassigned Coils"
+        : "Unassigned MRNs";
   const footerFilter = useMemo(
     () =>
       rmStoreFooterFromClientFilter({
@@ -217,11 +254,12 @@ export default function StoreInPage() {
 
   const getRowId = useCallback(
     (row) => {
+      if (isStoreInPending) return row.ipr_uid;
       if (isStoreIn) return row.in_uid;
       if (isPackingCoilView) return row.coil_uid;
       return row.mrn_uid;
     },
-    [isStoreIn, isPackingCoilView]
+    [isStoreIn, isStoreInPending, isPackingCoilView]
   );
 
   const selectedRecord = useMemo(
@@ -259,12 +297,34 @@ export default function StoreInPage() {
 
   const handleTabChange = (tab) => {
     setPageTab(tab);
+    setStoreInView(STORE_IN_VIEWS.ENTRIES);
     setPackingView(PACKING_VIEWS.SUMMARY);
     setPackingFilterMrn("");
     setSelected(null);
     resetSearch();
     setDisplayLimit(100);
   };
+
+  const handleStoreInViewChange = (view) => {
+    setStoreInView(view);
+    setSelected(null);
+    resetSearch();
+    setDisplayLimit(100);
+  };
+
+  const handleReceivePendingStoreIn = useCallback(async () => {
+    if (!selectedRecord?.ipr_uid) return;
+    try {
+      const res = await inProcessRequestService.completeStoreIn(selectedRecord.ipr_uid);
+      toast.success(res?.message || "Store-in received to Unassigned Area.");
+      setSelected(null);
+      await fetchPendingStoreIn();
+    } catch (err) {
+      toast.error(err?.message || "Could not receive the store-in request.");
+    }
+  }, [selectedRecord, fetchPendingStoreIn]);
+
+  const canReceivePendingStoreIn = Boolean(isStoreInPending && selectedRecord?.ipr_uid);
 
   const handlePackingViewChange = (view) => {
     setPackingView(view);
@@ -283,7 +343,8 @@ export default function StoreInPage() {
   };
 
   const handleRefresh = () => {
-    if (isStoreIn) fetchInwards();
+    if (isStoreInPending) fetchPendingStoreIn();
+    else if (isStoreIn) fetchInwards();
     else if (isPackingCoilView) fetchPackingCoils();
     else fetchPackingByMrn();
   };
@@ -338,6 +399,47 @@ export default function StoreInPage() {
       ), { width: "150px" }],
       ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
       ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+  ];
+
+  const PENDING_STORE_IN_HEADERS = [
+    ["IPR UID", "ipr_uid", (v) => <span className="font-bold text-teal-700 text-[10px]">{v}</span>, { fixed: true, width: "90px" }],
+    ["Item Code", "item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "120px" }],
+    ["Description", "item_desc", (v) => <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>, { width: "160px" }],
+    ["Coil", "coil_label", (v) => <span className="font-mono text-[10px] font-bold text-slate-700 truncate block" title={v || ""}>{v || "—"}</span>, { width: "140px" }],
+    [
+      "Return Qty",
+      "balance_qty",
+      (v, row) => (
+        <span className="font-black text-teal-700 text-[11px] tabular-nums">
+          {Number(v ?? row?.total_qty ?? 0).toLocaleString()}
+        </span>
+      ),
+      { width: "90px" },
+    ],
+    [
+      "Consumed",
+      "consumed_qty",
+      (v) => (
+        <span className="font-bold text-amber-700 text-[11px] tabular-nums">
+          {v != null ? Number(v).toLocaleString() : "—"}
+        </span>
+      ),
+      { width: "90px" },
+    ],
+    ["Coils", "coil_count", (v) => <span className="font-bold tabular-nums text-[11px]">{v ?? 0}</span>, { width: "70px" }],
+    ["Reason", "reason", (v) => <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>, { width: "120px" }],
+    [
+      "Status",
+      "downstream",
+      () => (
+        <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-teal-50 text-teal-700 border-teal-200">
+          ● PENDING RECEIVE
+        </span>
+      ),
+      { width: "140px" },
+    ],
+    ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
+    ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 
   const PACKING_BY_MRN_HEADERS = [
@@ -471,25 +573,29 @@ export default function StoreInPage() {
       ],
   ];
 
-  const headers = isStoreIn
-    ? STORE_IN_HEADERS
-    : isPackingCoilView
-      ? PACKING_BY_COIL_HEADERS
-      : PACKING_BY_MRN_HEADERS;
+  const headers = isStoreInPending
+    ? PENDING_STORE_IN_HEADERS
+    : isStoreIn
+      ? STORE_IN_HEADERS
+      : isPackingCoilView
+        ? PACKING_BY_COIL_HEADERS
+        : PACKING_BY_MRN_HEADERS;
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
-    moduleName: isStoreIn
-      ? "RM Store In"
-      : isPackingCoilView
-        ? "RM Unassigned Coils"
-        : "RM Unassigned",
+    moduleName: isStoreInPending
+      ? "RM Pending Store In"
+      : isStoreIn
+        ? "RM Store In"
+        : isPackingCoilView
+          ? "RM Unassigned Coils"
+          : "RM Unassigned",
     rows: filteredRows,
     headers,
   });
 
   const extraFilters = useMemo(
     () =>
-      isStoreIn
+      isStoreIn && !isStoreInPending
         ? [{
             label: "Status",
             key: "approvedStatus",
@@ -501,7 +607,7 @@ export default function StoreInPage() {
             ],
           }]
         : [],
-    [isStoreIn, params.status]
+    [isStoreIn, isStoreInPending, params.status]
   );
 
   const handleSort = (key) => {
@@ -544,7 +650,17 @@ export default function StoreInPage() {
               />
             }
             subTabs={
-              !isStoreIn ? (
+              isStoreIn ? (
+                <ImsSegmentedTabs
+                  className="mr-2"
+                  active={storeInView}
+                  onChange={handleStoreInViewChange}
+                  tabs={[
+                    { id: STORE_IN_VIEWS.ENTRIES, label: "Entries", icon: Warehouse },
+                    { id: STORE_IN_VIEWS.PENDING, label: "Pending", icon: ClipboardList },
+                  ]}
+                />
+              ) : !isStoreIn ? (
                 <ImsSegmentedTabs
                   className="mr-2"
                   active={packingView}
@@ -584,10 +700,11 @@ export default function StoreInPage() {
                   label="New"
                   icon={Plus}
                   onClick={openNewModal}
+                  disabled={isStoreInPending}
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                 />
 
-                {isStoreIn && (
+                {isStoreIn && !isStoreInPending && (
                   <>
                     <ActionButton
                       module={MODULE}
@@ -611,6 +728,18 @@ export default function StoreInPage() {
                       className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                     />
                   </>
+                )}
+
+                {isStoreInPending && (
+                  <button
+                    type="button"
+                    disabled={!canReceivePendingStoreIn || !canReceiveStoreIn}
+                    onClick={() => void handleReceivePendingStoreIn()}
+                    className="h-9 px-4 border border-teal-300 bg-teal-50 text-teal-800 hover:bg-teal-100 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shadow-none shrink-0 disabled:opacity-50"
+                  >
+                    <CheckCircle size={14} />
+                    Receive
+                  </button>
                 )}
 
                 <div className="hidden sm:block w-px h-6 bg-slate-200 mx-1 shrink-0" />
@@ -639,7 +768,9 @@ export default function StoreInPage() {
             <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
               <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
                 Selected:{" "}
-                {isStoreIn
+                {isStoreInPending
+                  ? `IPR #${selectedRecord.ipr_uid} · Return ${Number(selectedRecord.balance_qty ?? selectedRecord.total_qty ?? 0).toLocaleString()} · ${selectedRecord.coil_count ?? 0} coil(s)`
+                  : isStoreIn
                   ? selectedRecord.mrn_refs || `IN-${selectedRecord.in_uid}`
                   : isPackingCoilView
                     ? `${selectedRecord.coil_no_uid}${
@@ -683,7 +814,7 @@ export default function StoreInPage() {
 
         <ListPageFilterStrip>
           <DateRangeFilter
-            showDate={isStoreIn}
+            showDate={isStoreIn && !isStoreInPending}
             fromDate={params.fromDate}
             toDate={params.toDate}
             extraFilters={extraFilters}

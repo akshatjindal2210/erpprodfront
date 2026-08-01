@@ -7,7 +7,7 @@ import Drawer from "@/ui/primitives/Drawer";
 import { filterDateToDisplay, formatDateTypingInput, parseFilterDateInput, editFilterDateInput, joinFilterDateSegments, splitFilterDateSegments } from "@/platform/utils/core/utilHelper";
 import { schedulePlanningService } from "@/apps/ims/lib/services/schedulePlanning";
 import { getSelectedFinancialYear } from "@/platform/utils/global/financialYear";
-import { SCHEDULE_PLAN_STATUS, isDbRow, isAddWorkableStatus, isScheduleCompleteStatus } from "./schedulePlanStatus";
+import { SCHEDULE_PLAN_STATUS, isDbRow, isAddWorkableStatus, isScheduleCompleteStatus, normalizeScheduleStatus } from "./schedulePlanStatus";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import ScheduleShortageModal from "./ScheduleShortageModal";
 import { scheduleItemRowKey, formatSchHeaderDate, formatPreviousPlanDates, ScheduleCustRequestCell, remarkDateToInputValue, schMonthLabel, ScheduleStatusBadge, getScheduleTargetDateRange, isScheduleTargetDateAllowed, formatScheduleTargetDateHint } from "./schedulePlanningColumns";
@@ -16,7 +16,7 @@ import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_PRIMARY }
 
 const ROW_STATUS = {
   UNCHANGED: "unchanged",
-  PENDING: "pending",
+  // PENDING: "pending", // removed — default Ready to Dispatch
   PLAN: "plan",
   READY: "ready",
   HOLD: "hold",
@@ -312,12 +312,11 @@ function previousActionDatePlaceholder(row) {
 }
 
 function defaultActionForRow(row, modalMode, { canAdd = false, canApprove = false } = {}) {
-  const st = Number(row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
+  const st = normalizeScheduleStatus(row?.is_planned ?? SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH);
   const authorizeMode = modalMode === "authorize" || (canApprove && !canAdd);
 
   if (authorizeMode) {
     if (st === SCHEDULE_PLAN_STATUS.HOLD) return ROW_STATUS.HOLD;
-    // Pending / Reject / etc. → Ready to Dispatch (approve)
     return ROW_STATUS.READY;
   }
 
@@ -332,12 +331,6 @@ function defaultActionForRow(row, modalMode, { canAdd = false, canApprove = fals
     if (canAdd) return ROW_STATUS.PLAN;
     if (canApprove) return ROW_STATUS.READY;
     return ROW_STATUS.PLAN;
-  }
-  // Pending (0) / IMS-only — APPROVE: Ready; ADD cannot plan until Ready
-  if (!isDbRow(row) || st === SCHEDULE_PLAN_STATUS.PENDING) {
-    if (canApprove) return ROW_STATUS.READY;
-    if (canAdd) return ROW_STATUS.PLAN; // may fail until Ready — still show Plan
-    return ROW_STATUS.READY;
   }
   return canApprove ? ROW_STATUS.READY : ROW_STATUS.PLAN;
 }
@@ -665,10 +658,6 @@ export default function SchedulePlanModal({
         // Keep typed/global date only — never copy previous saved date into value.
         return { ...plan, status, reason: "", actionDate: plan.actionDate || globalTargetDate || "" };
       }
-      if (status === ROW_STATUS.PENDING) {
-        if (isDbRow(plan.row)) return plan;
-        return { ...plan, status, reason: "", actionDate: "" };
-      }
       return { ...plan, status, reason: "", actionDate: plan.actionDate || globalTargetDate || "" };
     },
     [globalRejectReason, globalTargetDate]
@@ -826,7 +815,7 @@ export default function SchedulePlanModal({
       let completed = 0;
 
       for (const plan of itemPlans) {
-        if (plan.status === ROW_STATUS.UNCHANGED || plan.status === ROW_STATUS.PENDING) continue;
+        if (plan.status === ROW_STATUS.UNCHANGED) continue;
 
         const totalQty = Number(plan.row.totalqty ?? plan.row.total_qty ?? 0);
         const itemRemark = plan.remark?.trim() || null;
@@ -845,9 +834,9 @@ export default function SchedulePlanModal({
 
         if (plan.status === ROW_STATUS.REJECT) {
           if (!canAdd && !isSuperAdmin) throw new Error("ADD permission required to Reject.");
-          const st = Number(plan.row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
+          const st = normalizeScheduleStatus(plan.row?.is_planned ?? SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH);
           if (!isSuperAdmin && !isAddWorkableStatus(st) && st !== SCHEDULE_PLAN_STATUS.REJECT) {
-            throw new Error("Mark Ready to Dispatch first, then Reject.");
+            throw new Error("Cannot Reject from current status.");
           }
           if (isUnchangedRejectRow(plan)) continue;
           const res = await schedulePlanningService.reject({
@@ -875,10 +864,6 @@ export default function SchedulePlanModal({
           readied += 1;
         } else if (plan.status === ROW_STATUS.PLAN) {
           if (!canAdd && !isSuperAdmin) throw new Error("ADD permission required for Plan.");
-          const st = Number(plan.row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
-          if (!isSuperAdmin && !isAddWorkableStatus(st)) {
-            throw new Error("Ready to Dispatch required first — then Plan.");
-          }
           if (isUnchangedPlanHoldOrReady(plan)) continue;
           const date = effectiveDate(plan);
           if (!date) continue;
@@ -891,7 +876,7 @@ export default function SchedulePlanModal({
           planned += 1;
         } else if (plan.status === ROW_STATUS.COMPLETE) {
           if (!canAdd && !isSuperAdmin) throw new Error("ADD permission required to Complete.");
-          const st = Number(plan.row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
+          const st = normalizeScheduleStatus(plan.row?.is_planned ?? SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH);
           if (
             !isSuperAdmin &&
             st !== SCHEDULE_PLAN_STATUS.COMPLETE &&
@@ -1095,7 +1080,6 @@ export default function SchedulePlanModal({
                   const isPlan = plan.status === ROW_STATUS.PLAN;
                   const isReady = plan.status === ROW_STATUS.READY;
                   const isComplete = plan.status === ROW_STATUS.COMPLETE;
-                  const isPending = plan.status === ROW_STATUS.PENDING;
                   const isImsOnly = !isDbRow(plan.row);
                   const dateRange = rowDateRange(plan.row);
                   const datePlaceholder = previousActionDatePlaceholder(plan.row);
@@ -1156,7 +1140,6 @@ export default function SchedulePlanModal({
                               : isReady ? "text-cyan-700 font-bold"
                               : isPlan ? "text-indigo-700 font-bold"
                               : isComplete ? "text-emerald-700 font-bold"
-                              : isPending ? "text-amber-600 font-bold"
                               : isUnchanged ? "text-slate-500"
                               : "text-slate-500"
                           }`}
@@ -1177,13 +1160,11 @@ export default function SchedulePlanModal({
                           <span className={`${IMS_TABLE_CELL_TEXT} text-slate-500 px-1`}>
                             Skip — pick Hold or Ready
                           </span>
-                        ) : isPending || isComplete || isReady ? (
+                        ) : isComplete || isReady ? (
                           <span className={`${IMS_TABLE_CELL_TEXT} text-slate-600 px-1`}>
                             {isReady
                               ? "No date — use Remark only"
-                              : isComplete
-                                ? "No date needed for complete"
-                                : "Not required for pending"}
+                              : "No date needed for complete"}
                           </span>
                         ) : isReject ? (
                           <div className="space-y-1">

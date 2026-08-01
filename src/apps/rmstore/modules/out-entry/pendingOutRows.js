@@ -27,6 +27,7 @@ export function pendingRowId(row) {
   if (!row || typeof row !== "object") return "pending-unknown";
   const type = String(row.pending_type || "").toLowerCase();
   if (type === PENDING_TYPE.JOB_CARD) {
+    if (row.out_uid != null) return `jc-draft-${row.out_uid}`;
     return `jc-${row.issue_uid ?? "x"}-${String(row.pjobcardno || "").trim()}`;
   }
   if (type === PENDING_TYPE.REJECTION) {

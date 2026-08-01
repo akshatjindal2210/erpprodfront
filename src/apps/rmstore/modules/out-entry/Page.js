@@ -479,9 +479,10 @@ export default function StoreOutPage() {
         (_v, row) => {
           const type = String(row?.pending_type || "").toLowerCase();
           if (type === PENDING_TYPE.JOB_CARD) {
+            const outPart = row.out_uid ? ` · OUT-${row.out_uid}` : "";
             return (
               <span className="font-bold text-indigo-700 text-[11px]">
-                JC {row.pjobcardno || "—"}
+                JC {row.pjobcardno || "—"}{outPart}
               </span>
             );
           }
@@ -643,7 +644,13 @@ export default function StoreOutPage() {
     const type = String(selectedRecord.pending_type || "").toLowerCase();
     if (type === PENDING_TYPE.JOB_CARD) {
       const machinePart = selectedRecord.macname ? ` · ${selectedRecord.macname}` : "";
-      return `Issue #${selectedRecord.issue_uid} · JC ${selectedRecord.pjobcardno}${machinePart} · ${selectedRecord.pending_coil_count ?? 0} coil(s) · Qty ${Number(selectedRecord.pending_qty || 0).toLocaleString()}`;
+      const outPart = selectedRecord.out_uid ? ` · OUT-${selectedRecord.out_uid}` : "";
+      const statusPart = selectedRecord.out_uid
+        ? isRowScanComplete(selectedRecord)
+          ? " · PENDING AUTH"
+          : " · SCAN"
+        : "";
+      return `Issue #${selectedRecord.issue_uid} · JC ${selectedRecord.pjobcardno}${machinePart}${outPart} · ${selectedRecord.pending_coil_count ?? 0} coil(s) · Qty ${Number(selectedRecord.pending_qty || 0).toLocaleString()}${statusPart}`;
     }
     if (type === PENDING_TYPE.BATCH) {
       return `Batch MRN ${selectedRecord.mrn_no ?? selectedRecord.mrn_uid} · ${selectedRecord.coil_count ?? 0} coils`;
@@ -916,9 +923,11 @@ export default function StoreOutPage() {
           setEditItem(null);
           setSeedFromCoil(null);
         }}
-        onSuccess={() => {
-          fetchOuts();
-          fetchPendingAll();
+        onSuccess={async (data) => {
+          await Promise.all([fetchOuts(), fetchPendingAll()]);
+          if (data?.out_uid) {
+            setSelected(`jc-draft-${data.out_uid}`);
+          }
         }}
         mode="out"
         editItem={editItem}

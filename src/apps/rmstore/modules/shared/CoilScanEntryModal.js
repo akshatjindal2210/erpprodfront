@@ -669,9 +669,15 @@ export default function CoilScanEntryModal({
       }
 
       if (mode === "out" && !coil.location_id && !isRejectionScan) {
+        const isJobCardOut =
+          storeOutKind === STORE_OUT_KIND.JOB_CARD || Boolean(selectedJobCardMeta);
         const inConfirmedPlan = livePlanMap.has(uid.toLowerCase());
-        if (!inConfirmedPlan) {
+        if (!isJobCardOut && !inConfirmedPlan) {
           showScanToast("error", "coil-not-stored", "This coil is not in store. Store Out requires stored coils.");
+          return;
+        }
+        if (isJobCardOut && !inConfirmedPlan) {
+          showScanToast("error", "coil-not-jc", "This coil is not assigned to the selected job card.");
           return;
         }
       }
@@ -708,7 +714,15 @@ export default function CoilScanEntryModal({
           return;
         }
         if (plan && !planMap.has(uid.toLowerCase())) {
-          showScanToast("error", "not-in-mrn", "This coil is not part of the selected MRN store plan.");
+          const isJobCardOut =
+            storeOutKind === STORE_OUT_KIND.JOB_CARD || Boolean(selectedJobCardMeta);
+          showScanToast(
+            "error",
+            "not-in-plan",
+            isJobCardOut
+              ? "This coil is not assigned to the selected job card."
+              : "This coil is not part of the selected MRN store plan."
+          );
           return;
         }
         coil = planMap.get(uid.toLowerCase()) || coil;
@@ -891,6 +905,7 @@ export default function CoilScanEntryModal({
     const isJobCardOutPayload =
       storeOutKind === STORE_OUT_KIND.JOB_CARD ||
       Boolean(selectedJobCardKey || selectedJobCardMeta);
+    const jcMeta = selectedJobCardMeta || seedFromCoil || {};
 
     return {
       coils: coils.map((c) => ({ coil_no_uid: c.coil_no_uid })),
@@ -900,7 +915,13 @@ export default function CoilScanEntryModal({
       ...(isOutMode && isRejectionOut
         ? { entry_type: "rm_rejection", qc_reject_uid: rejectUid }
         : {}),
-      ...(isOutMode && !isRejectionOut && isJobCardOutPayload ? { entry_type: "job_card" } : {}),
+      ...(isOutMode && !isRejectionOut && isJobCardOutPayload
+        ? {
+            entry_type: "job_card",
+            ...(jcMeta.issue_uid != null ? { issue_uid: jcMeta.issue_uid } : {}),
+            ...(jcMeta.pjobcardno ? { pjobcardno: jcMeta.pjobcardno } : {}),
+          }
+        : {}),
     };
   };
 

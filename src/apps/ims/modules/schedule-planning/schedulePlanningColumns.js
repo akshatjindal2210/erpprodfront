@@ -364,14 +364,11 @@ export function scheduleUniqueSearchParts(row) {
 function pickScheduleStatusFromItems(items = []) {
   if (!items.length) {
     return {
-      is_planned: SCHEDULE_PLAN_STATUS.PENDING,
-      status_label: statusLabel(SCHEDULE_PLAN_STATUS.PENDING),
+      is_planned: SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH,
+      status_label: statusLabel(SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH),
     };
   }
-  const codes = items.map((i) => {
-    if (!isDbRow(i)) return SCHEDULE_PLAN_STATUS.PENDING;
-    return resolveScheduleDisplayStatus(i);
-  });
+  const codes = items.map((i) => resolveScheduleDisplayStatus(i));
   const unique = [...new Set(codes)];
   if (unique.length === 1) {
     const code = unique[0];
@@ -442,14 +439,11 @@ export function toUniqueScheduleRows(records) {
 export function ScheduleStatusBadge({ row }) {
   const isPartial = row?.status_label === "Partial" || row?.is_planned == null;
   const resolvedCode = isPartial ? null : resolveScheduleDisplayStatus(row);
-
   const label = isPartial ? "Partial" : statusLabel(resolvedCode);
 
   let className = "bg-slate-50 text-slate-600 border-slate-200";
   if (isPartial) className = "bg-slate-50 text-slate-600 border-slate-200";
-  else if (resolvedCode === SCHEDULE_PLAN_STATUS.PENDING) {
-    className = "bg-amber-50 text-amber-700 border-amber-200";
-  } else if (resolvedCode === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH) {
+  else if (resolvedCode === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH) {
     className = "bg-cyan-50 text-cyan-700 border-cyan-200";
   } else if (resolvedCode === SCHEDULE_PLAN_STATUS.PLANNED) {
     className = "bg-indigo-50 text-indigo-700 border-indigo-200";
@@ -463,9 +457,8 @@ export function ScheduleStatusBadge({ row }) {
     className = "bg-orange-50 text-orange-700 border-orange-200";
   }
 
-  const isPending = resolvedCode === SCHEDULE_PLAN_STATUS.PENDING;
   const isReadyToDispatch = resolvedCode === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH;
-  const prefix = isPartial || (isPending && !isDbRow(row)) ? "○ " : "● ";
+  const prefix = isPartial ? "○ " : "● ";
   const title = isPartial ? "Items in this schedule have different statuses" : undefined;
   return (
     <span
@@ -473,14 +466,14 @@ export function ScheduleStatusBadge({ row }) {
       className={`px-2 py-0.5 text-[9px] font-black uppercase border w-fit ${className}`}
     >
       {prefix}
-      {isReadyToDispatch ? "Ready to Dispatch" : isPending ? "Pending" : label}
+      {isReadyToDispatch ? "Ready to Dispatch" : label}
     </span>
   );
 }
 
 /** Simple status row colors. */
 export const SCHEDULE_LIST_ROW_LEGEND = [
-  { swatch: "bg-amber-50 border border-amber-200 shadow-[inset_3px_0_0_0_#f59e0b]", label: "Pending" },
+  // { swatch: "bg-amber-50 border border-amber-200 shadow-[inset_3px_0_0_0_#f59e0b]", label: "Pending" }, // removed
   { swatch: "bg-cyan-50 border border-cyan-200 shadow-[inset_3px_0_0_0_#06b6d4]", label: "Ready to Dispatch" },
   { swatch: "bg-indigo-50 border border-indigo-200 shadow-[inset_3px_0_0_0_#6366f1]", label: "Plan" },
   { swatch: "bg-orange-50 border border-orange-200 shadow-[inset_3px_0_0_0_#f97316]", label: "Hold" },
@@ -499,9 +492,6 @@ export function getScheduleListRowClassName(row) {
 
   const status = resolveScheduleDisplayStatus(row);
 
-  if (status === SCHEDULE_PLAN_STATUS.PENDING) {
-    return "[&_td]:bg-amber-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#f59e0b]";
-  }
   if (status === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH) {
     return "[&_td]:bg-cyan-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#06b6d4]";
   }
@@ -558,7 +548,7 @@ const SCHEDULE_COMPARE_FIELD_LABELS = {
 };
 
 export function hasScheduleComparisonMismatch(row, { ignoreCustomer = true } = {}) {
-  if (row?.comparison?.missing_ims) return true;
+  if (row?.comparison?.missing_ims) return false;
   const fields = row?.comparison?.fields || {};
   return Object.entries(fields).some(([key, f]) => {
     if (ignoreCustomer && (key === "acc_name" || key === "acc_code")) return false;
@@ -567,19 +557,16 @@ export function hasScheduleComparisonMismatch(row, { ignoreCustomer = true } = {
 }
 
 function renderScheduleCompareCell(row, field, opts = {}) {
-  if (row?.comparison?.missing_ims) {
-    const dbVal = row?.comparison?.fields?.[field]?.local ?? row?.[field];
-    return (
-      <CompareErpDbLines
-        erpText="—"
-        dbText={formatComparePlain(dbVal, opts)}
-        mismatch
-      />
-    );
-  }
   const cmp = row?.comparison?.fields?.[field];
   if (!cmp) {
-    return <span className="text-[10px] text-slate-400" title="No saved DB snapshot for this field">—</span>;
+    const erpText = formatComparePlain(row?.[field], opts);
+    return (
+      <CompareErpDbLines
+        erpText={erpText}
+        dbText="—"
+        mismatch={false}
+      />
+    );
   }
   const ignoreMismatch = field === "acc_name" || field === "acc_code";
   return (
@@ -592,27 +579,27 @@ function renderScheduleCompareCell(row, field, opts = {}) {
 }
 
 function renderScheduleErpParty(_v, row) {
-  if (row?.comparison?.missing_ims) {
+  const cmp = row?.comparison?.fields?.acc_name;
+  if (cmp) {
     return (
       <CompareErpDbLines
-        erpText="—"
-        dbText={formatComparePlain(row?.acc_name ?? row?.comparison?.fields?.acc_name?.local)}
-        mismatch
+        erpText={formatComparePlain(cmp.ims)}
+        dbText={formatComparePlain(cmp.local)}
+        mismatch={false}
       />
     );
   }
-  const name = row?.comparison?.fields?.acc_name?.ims ?? row?.acc_name ?? "—";
+  const name = row?.acc_name ?? "—";
   return (
-    <span className="font-bold text-slate-900 text-[10px] uppercase break-words leading-snug" title={name}>
-      {name}
-    </span>
+    <CompareErpDbLines
+      erpText={formatComparePlain(name)}
+      dbText="—"
+      mismatch={false}
+    />
   );
 }
 
 function renderScheduleMismatchSummary(_v, row) {
-  if (row?.comparison?.missing_ims) {
-    return <span className="text-[9px] font-bold uppercase text-rose-700">Not in ERP</span>;
-  }
   const fields = row?.comparison?.fields || {};
   const keys = Object.keys(fields).filter(
     (k) => k !== "acc_name" && k !== "acc_code" && fields[k]?.mismatch
@@ -630,10 +617,6 @@ function renderScheduleGroupMismatch(_v, row) {
   if (!items.length) return <span className="text-[10px] text-slate-400">—</span>;
   const labels = new Set();
   for (const item of items) {
-    if (item?.comparison?.missing_ims) {
-      labels.add("Not in ERP");
-      continue;
-    }
     const fields = item?.comparison?.fields || {};
     for (const [k, f] of Object.entries(fields)) {
       if (k !== "acc_name" && k !== "acc_code" && f?.mismatch) {

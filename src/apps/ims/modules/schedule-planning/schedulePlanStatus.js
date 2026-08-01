@@ -1,12 +1,12 @@
 /**
  * ims_schedule_plan.is_planned codes.
  *
- * 0 = Pending (IMS default / not yet authorized)
- * 7 = Ready to Dispatch (approve step)
+ * 0 = legacy DB code (display as Ready to Dispatch — Pending step removed)
+ * 7 = Ready to Dispatch
  * 1 = Planned … 6 = Hold (unchanged)
  */
 export const SCHEDULE_PLAN_STATUS = {
-  PENDING: 0,
+  PENDING: 0, // legacy — normalizeScheduleStatus maps to READY_TO_DISPATCH
   PLANNED: 1,
   RUNNING: 2,
   COMPLETE: 3,
@@ -17,7 +17,7 @@ export const SCHEDULE_PLAN_STATUS = {
 };
 
 export const SCHEDULE_PLAN_STATUS_LABEL = {
-  0: "Pending",
+  0: "Ready to Dispatch", // legacy code 0 — Pending removed from UI
   1: "Planned",
   2: "Running",
   3: "Complete",
@@ -63,7 +63,16 @@ export const SCHEDULE_REPORT_FILTER_OPTIONS = [
 ];
 
 export function statusLabel(code) {
-  return SCHEDULE_PLAN_STATUS_LABEL[Number(code)] ?? "Pending";
+  return SCHEDULE_PLAN_STATUS_LABEL[normalizeScheduleStatus(code)] ?? "Ready to Dispatch";
+}
+
+/** IMS-only / legacy Pending (0) → Ready to Dispatch (7). Pending step removed. */
+export function normalizeScheduleStatus(status) {
+  if (status == null || status === "") return SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH;
+  const s = Number(status);
+  if (!Number.isFinite(s)) return SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH;
+  if (s === SCHEDULE_PLAN_STATUS.PENDING) return SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH;
+  return s;
 }
 
 /** Row saved in our DB (has plan_id). */
@@ -83,8 +92,8 @@ export function canDeleteRow(row) {
 
 /**
  * Modal rows by permission:
- * - APPROVE → Pending / Ready / Planned / Running / Reject / Hold
- * - ADD → Ready / Planned / Running (Plan after approve Ready)
+ * - APPROVE → Ready / Planned / Running / Reject / Hold
+ * - ADD → Ready / Planned / Running
  */
 export function filterScheduleItemsForPermission(items, { canAdd = false, canApprove = false } = {}) {
   const list = Array.isArray(items) ? items : [];
@@ -98,9 +107,8 @@ export function filterScheduleItemsForPermission(items, { canAdd = false, canApp
   if (canApprove && !canAdd) {
     return list.filter((row) => {
       if (!isDbRow(row)) return true;
-      const st = Number(row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
+      const st = normalizeScheduleStatus(row?.is_planned);
       return (
-        st === SCHEDULE_PLAN_STATUS.PENDING ||
         st === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH ||
         st === SCHEDULE_PLAN_STATUS.PLANNED ||
         st === SCHEDULE_PLAN_STATUS.RUNNING ||
@@ -113,7 +121,7 @@ export function filterScheduleItemsForPermission(items, { canAdd = false, canApp
   if (canAdd && !canApprove) {
     return list.filter((row) => {
       if (!isDbRow(row)) return true;
-      const st = Number(row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
+      const st = normalizeScheduleStatus(row?.is_planned);
       return (
         st === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH ||
         st === SCHEDULE_PLAN_STATUS.PLANNED ||
@@ -128,7 +136,7 @@ export function filterScheduleItemsForPermission(items, { canAdd = false, canApp
 export function canOpenPlanModal(status) {
   const s = String(status ?? SCHEDULE_LIST_FILTER.READY_TO_DISPATCH).toLowerCase();
   return [
-    SCHEDULE_LIST_FILTER.PENDING,
+    // SCHEDULE_LIST_FILTER.PENDING, // removed — default Ready to Dispatch
     SCHEDULE_LIST_FILTER.READY_TO_DISPATCH,
     SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT,
     SCHEDULE_LIST_FILTER.PLAN,
@@ -140,7 +148,7 @@ export function canOpenPlanModal(status) {
 
 /** ADD can Plan / Reject / Complete from Ready / Planned / Running. */
 export function isAddWorkableStatus(status) {
-  const s = Number(status);
+  const s = normalizeScheduleStatus(status);
   return (
     s === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH ||
     s === SCHEDULE_PLAN_STATUS.PLANNED ||
@@ -173,9 +181,8 @@ export function isHoldDueOrPast(row, todayYmd) {
 
 export function canHoldFromStatus(status) {
   if (status == null || status === "") return true;
-  const s = Number(status);
+  const s = normalizeScheduleStatus(status);
   return [
-    SCHEDULE_PLAN_STATUS.PENDING,
     SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH,
     SCHEDULE_PLAN_STATUS.PLANNED,
     SCHEDULE_PLAN_STATUS.RUNNING,
@@ -186,9 +193,8 @@ export function canHoldFromStatus(status) {
 
 export function canReadyFromStatus(status) {
   if (status == null || status === "") return true;
-  const s = Number(status);
+  const s = normalizeScheduleStatus(status);
   return [
-    SCHEDULE_PLAN_STATUS.PENDING,
     SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH,
     SCHEDULE_PLAN_STATUS.HOLD,
     SCHEDULE_PLAN_STATUS.REJECT,
@@ -238,14 +244,10 @@ export function scheduleBalanceQty(row) {
 
 /** balance_qty <= 0 → Complete (Plan / Running / Ready). Manual Complete bhi. */
 export function isScheduleCompleteRow(row) {
-  const st = Number(row?.db_is_planned ?? row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
+  const st = normalizeScheduleStatus(row?.db_is_planned ?? row?.is_planned);
   const bal = scheduleBalanceQty(row);
   if (st === SCHEDULE_PLAN_STATUS.COMPLETE) return true;
-  if (
-    st === SCHEDULE_PLAN_STATUS.REJECT ||
-    st === SCHEDULE_PLAN_STATUS.HOLD ||
-    st === SCHEDULE_PLAN_STATUS.PENDING
-  ) {
+  if (st === SCHEDULE_PLAN_STATUS.REJECT || st === SCHEDULE_PLAN_STATUS.HOLD) {
     return false;
   }
   if (bal != null && bal <= 0) return true;
@@ -254,7 +256,7 @@ export function isScheduleCompleteRow(row) {
 
 /** Plan tab: Plan/Running + balance_qty > 0. */
 export function isScheduleOpenPlanRow(row) {
-  const st = Number(row?.db_is_planned ?? row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
+  const st = normalizeScheduleStatus(row?.db_is_planned ?? row?.is_planned);
   const bal = scheduleBalanceQty(row);
   if (!(st === SCHEDULE_PLAN_STATUS.PLANNED || st === SCHEDULE_PLAN_STATUS.RUNNING)) return false;
   if (bal == null) return true;
@@ -264,9 +266,7 @@ export function isScheduleOpenPlanRow(row) {
 /** Status badge / row color — Complete when manual Complete or balance 0. */
 export function resolveScheduleDisplayStatus(row) {
   if (isScheduleCompleteRow(row)) return SCHEDULE_PLAN_STATUS.COMPLETE;
-  const st = Number(row?.db_is_planned ?? row?.is_planned ?? SCHEDULE_PLAN_STATUS.PENDING);
-  if (st === SCHEDULE_PLAN_STATUS.PENDING) return SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH;
-  return st;
+  return normalizeScheduleStatus(row?.db_is_planned ?? row?.is_planned ?? SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH);
 }
 
 /** Everyone sees all filter options; defaults differ by role. */

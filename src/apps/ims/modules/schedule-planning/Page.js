@@ -23,7 +23,7 @@ import { applyClientSearch, sortRowsByKey, nextSortParams } from "@/ui/common/li
 import { schedulePlanningService } from "@/apps/ims/lib/services/schedulePlanning";
 import { SCHEDULE_LIST_FILTER, canOpenPlanModal, SCHEDULE_REPORT_FILTER, getDefaultScheduleStatusFilter, getScheduleStatusFilterOptions, filterScheduleItemsForPermission, isSalesDepartmentUser, isScheduleCompleteRow } from "./schedulePlanStatus";
 import { SCHEDULE_PAGE_TABS, MONTH_FILTER_OPTIONS, SCHEDULE_REPORT_FILTER_OPTIONS, scheduleItemRowKey, scheduleSchnoKey, resolveScheduleItemdcode, canDeleteRow, scheduleItemWiseSearchParts,
-  scheduleUniqueSearchParts, toUniqueScheduleRows, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, getScheduleListRowClassName, SCHEDULE_LIST_ROW_LEGEND } from "./schedulePlanningColumns";
+  scheduleUniqueSearchParts, toUniqueScheduleRows, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, getScheduleListRowClassName, SCHEDULE_LIST_ROW_LEGEND, hasScheduleComparisonMismatch } from "./schedulePlanningColumns";
 import SchedulePlanModal from "./SchedulePlanModal";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import SchedulePlanRemoveConfirmModal from "./SchedulePlanRemoveConfirmModal";
@@ -164,7 +164,20 @@ export default function SchedulePlanningPage() {
     setDisplayLimit(100);
   }, [tempSearch, pageTab]);
 
-  const uniqueSchedulesAll = useMemo(() => toUniqueScheduleRows(rows), [rows]);
+  const isComparisonStatus =
+    String(statusFilter ?? "").toLowerCase() === SCHEDULE_LIST_FILTER.COMPARISON;
+
+  const uniqueSchedulesAll = useMemo(() => {
+    let list = toUniqueScheduleRows(rows);
+    if (isComparisonStatus) {
+      list = list.filter((row) => {
+        const items = row._items ?? [];
+        if (!items.length) return hasScheduleComparisonMismatch(row);
+        return items.some((item) => hasScheduleComparisonMismatch(item));
+      });
+    }
+    return list;
+  }, [rows, isComparisonStatus]);
   const uniqueSchedules = useMemo(() => {
     const q = String(tempSearch || "").trim();
     let data = uniqueSchedulesAll;
@@ -179,11 +192,14 @@ export default function SchedulePlanningPage() {
     let data = itemWiseSchnoFilter
       ? rows.filter((row) => scheduleSchnoKey(row) === itemWiseSchnoFilter)
       : [...rows];
+    if (isComparisonStatus) {
+      data = data.filter((row) => hasScheduleComparisonMismatch(row));
+    }
     if (q) {
       data = applyClientSearch(data, tempSearch, { getParts: scheduleItemWiseSearchParts, skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [rows, itemWiseSchnoFilter, tempSearch, params.sortKey, params.sortDir]);
+  }, [rows, itemWiseSchnoFilter, tempSearch, params.sortKey, params.sortDir, isComparisonStatus]);
 
   const drillToItemWise = useCallback((scheduleRow) => {
     const schno = scheduleSchnoKey(scheduleRow);
@@ -491,7 +507,7 @@ export default function SchedulePlanningPage() {
       */
       [SCHEDULE_LIST_FILTER.READY_TO_DISPATCH]: {
         message: "No Ready to Dispatch items",
-        subMessage: "Authorized — waiting to be planned",
+        subMessage: "Ready for Plan / Reject / Hold",
       },
       [SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT]: {
         message: "No Hold / Reject items",
@@ -509,7 +525,7 @@ export default function SchedulePlanningPage() {
     return map[st] || { message: "No schedule items", subMessage: "Try a different status or date range" };
   }, [statusFilter, isCustomReport]);
 
-  const isComparisonView = String(statusFilter ?? "").toLowerCase() === SCHEDULE_LIST_FILTER.COMPARISON;
+  const isComparisonView = isComparisonStatus;
 
   const scheduleHeaders = useMemo(
     () => (isComparisonView ? buildScheduleUniqueComparisonHeaders({ onDrillToItems: drillToItemWise }) : buildScheduleUniqueHeaders({ onDrillToItems: drillToItemWise })),
