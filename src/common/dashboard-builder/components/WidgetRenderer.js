@@ -10,18 +10,31 @@ import { boxesFromChildren, savedStyleToCss } from "../utils/floatingLayoutEngin
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
 import { resolveWidgetSpacingPx, spacingPxToCss } from "../utils/dashboardLayoutEngine";
 import { normalizeTableSearchPosition, normalizeTableSearchWidth } from "../utils/tableToolbar.js";
+import {
+  DASHBOARD_TABLE_BODY_BG,
+  DASHBOARD_TABLE_HEADER_BG,
+  DASHBOARD_WIDGET_BG,
+} from "../utils/dashboardBuilderTheme";
 
 const resolveKpiValueFontPx = (style = {}, displayVal = "", readOnly = false, nested = false) => {
   const configured = Number(style.fontSize);
   const textLen = String(displayVal || "").length;
-  if (nested) {
-    if (Number.isFinite(configured) && configured >= 8) {
-      let size = configured;
+  if (Number.isFinite(configured) && configured >= 8) {
+    // Publish: always honour saved font size (no auto-shrink).
+    if (readOnly) return configured;
+    let size = configured;
+    if (nested) {
       if (textLen > 14) size = Math.min(size, 16);
       else if (textLen > 10) size = Math.min(size, 22);
       else if (textLen > 6) size = Math.min(size, 28);
       return Math.max(8, Math.min(size, 48));
     }
+    if (textLen > 14) size = Math.min(size, 12);
+    else if (textLen > 10) size = Math.min(size, 14);
+    else if (textLen > 6 && size > 20) size = 20;
+    return Math.max(12, size);
+  }
+  if (nested) {
     let nestedBase = 14;
     if (textLen > 10) nestedBase = 11;
     else if (textLen > 6) nestedBase = 12;
@@ -153,15 +166,18 @@ const sortTableRows = (rows = [], column = "", direction = "asc") => {
 const resolveTableVisualStyle = (style = {}) => {
   const headerColor = style.tableHeaderColor || style.color || "#64748b";
   const bodyColor = style.tableBodyColor || style.color || "#475569";
-  const headerBg = style.tableHeaderBg || (style.bg ? `${style.bg}ee` : "#f8fafc");
-  const bodyBg = style.tableBodyBg || style.bg || "#ffffff";
+  const headerBg = style.tableHeaderBg || (style.bg ? `${style.bg}ee` : DASHBOARD_TABLE_HEADER_BG);
+  const bodyBg = style.tableBodyBg || style.bg || DASHBOARD_TABLE_BODY_BG;
   const borderColor = style.tableBorderColor || "#e2e8f0";
-  const rowHoverBg = style.tableRowHoverBg || "#f8fafc";
+  const rowHoverBg = style.tableRowHoverBg || DASHBOARD_TABLE_HEADER_BG;
   const headerFontPx = Math.max(8, Number(style.tableHeaderFontSize) || 9);
   const bodyFontPx = Math.max(8, Number(style.tableBodyFontSize) || Number(style.fontSize) || 10);
   const searchFontPx = Math.max(8, Number(style.tableSearchFontSize) || bodyFontPx);
   const searchColor = style.tableSearchColor || bodyColor;
   const searchBg = style.tableSearchBg || bodyBg;
+  const cellPadX = Math.max(0, Number.isFinite(Number(style.tableCellPaddingX)) ? Number(style.tableCellPaddingX) : 8);
+  const cellPadY = Math.max(0, Number.isFinite(Number(style.tableCellPaddingY)) ? Number(style.tableCellPaddingY) : 6);
+  const toolbarGap = Math.max(0, Number.isFinite(Number(style.tableToolbarGap)) ? Number(style.tableToolbarGap) : 12);
   return {
     headerColor,
     bodyColor,
@@ -174,6 +190,9 @@ const resolveTableVisualStyle = (style = {}) => {
     searchFontPx,
     searchColor,
     searchBg,
+    cellPadX,
+    cellPadY,
+    toolbarGap,
   };
 };
 
@@ -214,14 +233,18 @@ const DashboardTableView = ({
     ? Math.min(searchWidthPx, 168)
     : searchWidthPx;
   const tableVisual = resolveTableVisualStyle(style);
-  const headPad = compact ? "px-2" : "px-2 sm:px-3";
-  const cellPad = compact ? "px-2" : "px-2 sm:px-3";
   const headTextClass = compact
     ? "text-[8px] leading-tight"
     : "text-[8px] sm:text-[9px]";
   const bodyTextClass = compact
     ? "text-[9px] leading-snug"
     : "text-[9px] sm:text-[10px]";
+  const cellPadStyle = {
+    paddingLeft: `${compact ? Math.min(tableVisual.cellPadX, 8) : tableVisual.cellPadX}px`,
+    paddingRight: `${compact ? Math.min(tableVisual.cellPadX, 8) : tableVisual.cellPadX}px`,
+    paddingTop: `${compact ? Math.min(tableVisual.cellPadY, 6) : tableVisual.cellPadY}px`,
+    paddingBottom: `${compact ? Math.min(tableVisual.cellPadY, 6) : tableVisual.cellPadY}px`,
+  };
 
   const displayRows = useMemo(() => {
     const filtered = showSearch
@@ -319,8 +342,12 @@ const DashboardTableView = ({
     >
       {showToolbar && (
         <div
-          className={`table-action-header shrink-0 flex flex-row flex-wrap items-center gap-3 border-b px-2 py-1.5 mb-2 sm:px-3 ${toolbarJustify} ${tableToolbarClassName}`.trim()}
-          style={{ backgroundColor: tableVisual.bodyBg, borderColor: tableVisual.borderColor }}
+          className={`table-action-header shrink-0 flex flex-row flex-wrap items-center border-b px-2 py-1.5 mb-2 sm:px-3 ${toolbarJustify} ${tableToolbarClassName}`.trim()}
+          style={{
+            backgroundColor: tableVisual.bodyBg,
+            borderColor: tableVisual.borderColor,
+            gap: `${tableVisual.toolbarGap}px`,
+          }}
         >
           {showSearch && (
             <label
@@ -400,12 +427,13 @@ const DashboardTableView = ({
               {keys.map((col) => (
                 <th
                   key={col}
-                  className={`${headPad} py-1.5 sm:py-2 text-left font-bold uppercase tracking-wide sm:tracking-widest border-b align-top whitespace-nowrap sm:whitespace-normal ${headTextClass}`}
+                  className={`text-left font-bold uppercase tracking-wide sm:tracking-widest border-b align-top whitespace-nowrap sm:whitespace-normal ${headTextClass}`}
                   style={{
                     color: tableVisual.headerColor,
                     borderColor: tableVisual.borderColor,
                     fontSize: `${tableVisual.headerFontPx}px`,
                     backgroundColor: tableVisual.headerBg,
+                    ...cellPadStyle,
                   }}
                 >
                   {showColumnSort ? (
@@ -445,11 +473,12 @@ const DashboardTableView = ({
                 {keys.map((col) => (
                   <td
                     key={col}
-                    className={`${cellPad} py-1 sm:py-1.5 break-words align-top font-medium ${bodyTextClass}`}
+                    className={`break-words align-top font-medium ${bodyTextClass}`}
                     style={{
                       color: tableVisual.bodyColor,
                       fontSize: `${tableVisual.bodyFontPx}px`,
                       borderBottom: `1px solid ${tableVisual.borderColor}`,
+                      ...cellPadStyle,
                     }}
                   >
                     {formatDisplayValue(row[col])}
@@ -476,17 +505,30 @@ const buildBoxStyle = (style = {}, { transparentBg = false, isContainer = false,
   const padding = resolveWidgetSpacingPx(style, "padding", padFallback);
   const margin = resolveWidgetSpacingPx(style, "margin", defaultMar);
   const borderRadius = Number.isFinite(Number(style.borderRadius)) ? Math.max(0, Number(style.borderRadius)) : 6;
+  const fontWeight = style.fontWeight && style.fontWeight !== "inherit" ? style.fontWeight : undefined;
   return {
     boxSizing: "border-box",
-    backgroundColor: transparentBg ? "transparent" : (style.bg || "#ffffff"),
+    backgroundColor: transparentBg ? "transparent" : (style.bg || DASHBOARD_WIDGET_BG),
     color: style.color || "#334155",
     borderRadius: `${borderRadius}px`,
     fontFamily: style.fontFamily || "inherit",
+    ...(fontWeight ? { fontWeight } : {}),
     padding: spacingPxToCss(padding),
     margin: isContainer ? "0" : spacingPxToCss(margin),
     width: isContainer ? "100%" : undefined,
     maxWidth: isContainer ? "100%" : undefined,
   };
+};
+
+const resolveContentGapPx = (style = {}, fallback = 4) => {
+  if (Number.isFinite(Number(style.contentGap))) return Math.max(0, Number(style.contentGap));
+  return fallback;
+};
+
+const resolveTitleFontPx = (style = {}, fallback = 11) => {
+  if (Number.isFinite(Number(style.titleFontSize))) return Math.max(8, Number(style.titleFontSize));
+  if (Number.isFinite(Number(style.fontSize))) return Math.max(8, Math.min(14, Number(style.fontSize)));
+  return fallback;
 };
 
 const resolveContainerNestedLayoutPx = (widget, sectionChildren, isPhoneMode = false) => {
@@ -525,7 +567,7 @@ const WidgetRenderer = ({
   canvasScale = 1,
   dragScale = 1,
 }) => {
-  const useBuilderVisuals = !readOnly || designParity;
+  const useBuilderVisuals = !readOnly && !pureSavedStyle;
   const previewRows = Array.isArray(widget.previewData) ? widget.previewData : null;
   const liveRows = Array.isArray(widget.data) ? widget.data : null;
   // Prefer non-empty preview; otherwise fall back to live data (empty [] must not hide rows).
@@ -552,6 +594,12 @@ const WidgetRenderer = ({
       : style.emptyTextPosition === "bottom"
         ? "justify-end pb-2"
         : "justify-center";
+  const contentFlexAlignClass =
+    style.contentAlign === "left"
+      ? "items-start justify-start"
+      : style.contentAlign === "right"
+        ? "items-end justify-end"
+        : "items-center justify-center";
   const headingFontPx = Number.isFinite(Number(style.fontSize)) && Number(style.fontSize) >= 12
     ? Number(style.fontSize)
     : (useBuilderVisuals ? 16 : 18);
@@ -568,7 +616,11 @@ const WidgetRenderer = ({
         <div className={`flex w-full items-start py-0 ${headingAlign}`}>
           <h2
             className="font-extrabold tracking-tight leading-none w-full m-0"
-            style={{ color: style.color || "#0f172a", fontSize: `${headingFontPx}px` }}
+            style={{
+              color: style.color || "#0f172a",
+              fontSize: `${headingFontPx}px`,
+              ...(style.fontWeight && style.fontWeight !== "inherit" ? { fontWeight: style.fontWeight } : {}),
+            }}
           >
             {title || widget.description || "Dashboard Heading"}
           </h2>
@@ -579,10 +631,23 @@ const WidgetRenderer = ({
     if (isContainer) {
       const sectionChildren = Array.isArray(widget.sectionChildren) ? widget.sectionChildren : [];
       const containerShellStyle = suppressChrome
-        ? { boxSizing: "border-box", width: "100%", maxWidth: "100%" }
+        ? {
+          boxSizing: "border-box",
+          width: "100%",
+          maxWidth: "100%",
+          height: "100%",
+          maxHeight: "100%",
+          overflow: "hidden",
+          borderRadius: Number.isFinite(Number(style.borderRadius))
+            ? `${Number(style.borderRadius)}px`
+            : "8px",
+        }
         : buildBoxStyle(style, { isContainer: true });
       if (isPhoneMode) {
         containerShellStyle.padding = "0px";
+        if (!readOnly) {
+          containerShellStyle.overflow = "visible";
+        }
       }
 
       const containerShellHeightClass = suppressChrome
@@ -593,7 +658,7 @@ const WidgetRenderer = ({
         <div
           className={`group relative flex flex-col items-start w-full h-full max-w-full min-w-0 ${
             readOnly && isPhoneMode ? "" : "min-h-0"
-          } ${containerShellHeightClass} ${suppressChrome ? "overflow-hidden" : "overflow-hidden"}`}
+          } ${containerShellHeightClass} ${isPhoneMode && !readOnly ? "overflow-visible" : "overflow-hidden"}`}
           style={containerShellStyle}
         >
           {!readOnly && !nested && !suppressChrome && (
@@ -651,7 +716,7 @@ const WidgetRenderer = ({
               ) : null}
             </div>
           )}
-          <div className={`min-w-0 w-full max-w-full flex-1 min-h-0 flex flex-col ${suppressChrome ? "overflow-hidden" : "overflow-hidden"}`}>
+          <div className={`min-w-0 w-full max-w-full flex-1 min-h-0 flex flex-col ${isPhoneMode && !readOnly ? "overflow-visible" : "overflow-hidden"}`}>
             <SimpleNestedCanvas
               key={`simple-nested-${widget.id}`}
               childWidgets={sectionChildren}
@@ -694,10 +759,12 @@ const WidgetRenderer = ({
 
     if (error) {
       return (
-        <div className="flex flex-col items-center justify-center h-full p-4 text-center gap-2">
-          <AlertCircle className="text-rose-500" size={24} />
+        <div className="flex flex-col items-center justify-center h-full p-3 text-center gap-2 overflow-auto">
+          <AlertCircle className="text-rose-500 shrink-0" size={22} />
           <span className="text-xs font-bold text-rose-600 uppercase tracking-tight">Query Error</span>
-          <p className="text-[10px] opacity-80 line-clamp-3">{error}</p>
+          <p className="text-[10px] text-rose-700/90 whitespace-pre-wrap break-words leading-relaxed max-w-full">
+            {error}
+          </p>
         </div>
       );
     }
@@ -845,22 +912,26 @@ const WidgetRenderer = ({
       const displayVal = val != null && val !== "" ? formatDisplayValue(val) : "—";
       const valueFontPx = resolveKpiValueFontPx(style, displayVal, !useBuilderVisuals, nested);
       const labelFontPx = resolveKpiLabelFontPx(style);
+      const contentGapPx = resolveContentGapPx(style, nested ? 2 : 4);
+      const fontWeight = style.fontWeight && style.fontWeight !== "inherit" ? style.fontWeight : undefined;
       const labelStyle = {
         fontSize: `${labelFontPx}px`,
         lineHeight: 1.05,
         color: style.color || "#64748b",
+        ...(fontWeight ? { fontWeight } : {}),
+        marginBottom: isTop ? undefined : undefined,
       };
       // Nested KPI: fit cell; horizontal align follows contentAlign (do not hardcode items-center).
       const kpiShellClass = nested
-        ? `flex flex-col justify-center h-full w-full min-h-0 min-w-0 gap-0 overflow-visible ${alignClass}`
-        : `flex flex-col justify-center h-full w-full min-h-0 min-w-0 gap-0 overflow-visible ${alignClass}`;
+        ? `flex flex-col justify-center h-full w-full min-h-0 min-w-0 overflow-visible ${alignClass}`
+        : `flex flex-col justify-center h-full w-full min-h-0 min-w-0 overflow-visible ${alignClass}`;
       const kpiTextAlign =
         style.contentAlign === "left" ? "text-left" : style.contentAlign === "right" ? "text-right" : "text-center";
       return (
-        <div className={kpiShellClass}>
+        <div className={kpiShellClass} style={{ gap: `${contentGapPx}px` }}>
           {label && isTop && (
             <div
-              className={`font-semibold px-0.5 leading-tight shrink-0 whitespace-normal break-words ${kpiTextAlign}${nested ? "" : " truncate"}`}
+              className={`font-semibold px-0.5 leading-tight shrink-0 whitespace-normal break-words ${kpiTextAlign}${nested || readOnly ? "" : " truncate"}`}
               style={labelStyle}
             >
               {label}
@@ -873,6 +944,7 @@ const WidgetRenderer = ({
               fontSize: `${valueFontPx}px`,
               lineHeight: 1,
               overflow: "visible",
+              ...(fontWeight ? { fontWeight } : {}),
             }}
             title={String(displayVal)}
           >
@@ -880,7 +952,7 @@ const WidgetRenderer = ({
           </div>
           {label && !isTop && (
             <div
-              className={`font-semibold px-0.5 leading-tight mt-0.5 shrink-0 whitespace-normal break-words ${kpiTextAlign}${nested ? "" : " truncate"}`}
+              className={`font-semibold px-0.5 leading-tight shrink-0 whitespace-normal break-words ${kpiTextAlign}${nested || readOnly ? "" : " truncate"}`}
               style={labelStyle}
             >
               {label}
@@ -930,17 +1002,27 @@ const WidgetRenderer = ({
     if (!isHeading) {
       const isKpiChrome = type === "kpi" || widget.rawType === "kpi" || widget.rawType === "count" || widget.rawType === "sum";
       const showTitle = Boolean(displayTitle) && !isKpiChrome;
+      const titleFontPx = resolveTitleFontPx(style);
+      const contentGapPx = resolveContentGapPx(style, 4);
+      const fontWeight = style.fontWeight && style.fontWeight !== "inherit" ? style.fontWeight : undefined;
       const titleEl = showTitle ? (
         <div
           className={`shrink-0 px-2 pt-1.5 pb-0.5 text-[11px] font-bold uppercase tracking-widest truncate flex ${titleAlignClass}`}
-          style={{ color: style.color || "#334155", fontSize: style.fontSize ? `${Math.min(14, Number(style.fontSize) || 11)}px` : undefined }}
+          style={{
+            color: style.color || "#334155",
+            fontSize: `${titleFontPx}px`,
+            ...(fontWeight ? { fontWeight } : {}),
+          }}
           title={displayTitle}
         >
           <span className="truncate w-full">{displayTitle}</span>
         </div>
       ) : null;
       return (
-        <div className={`h-full w-full min-h-0 flex flex-col overflow-hidden${nested && !readOnly ? " pointer-events-none" : ""}`}>
+        <div
+          className={`h-full w-full min-h-0 flex flex-col overflow-hidden${nested && !readOnly ? " pointer-events-none" : ""}`}
+          style={showTitle ? { gap: `${contentGapPx}px` } : undefined}
+        >
           {titlePosition === "top" ? titleEl : null}
           <div className="min-h-0 flex-1 overflow-hidden">
             {renderContent()}
@@ -964,7 +1046,12 @@ const WidgetRenderer = ({
     outerStyle.border = "none";
   }
   if (nested && !isContainer) {
-    outerStyle.padding = "0px";
+    // Keep user padding for nested widgets when explicitly set; otherwise stay flush in container.
+    const hasExplicitPad = ["padding", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]
+      .some((key) => Number.isFinite(Number(style?.[key])));
+    if (!hasExplicitPad) {
+      outerStyle.padding = "0px";
+    }
     outerStyle.overflow = "visible";
     if (!readOnly) {
       outerStyle.backgroundColor = "transparent";
@@ -978,10 +1065,12 @@ const WidgetRenderer = ({
   if (nested && pureSavedStyle) {
     const innerCss = savedStyleToCss(style);
     const showTitle = Boolean(displayTitle) && !isKpi;
+    const titleFontPx = resolveTitleFontPx(style, 10);
+    const contentGapPx = resolveContentGapPx(style, 4);
     const titleEl = showTitle ? (
       <div
         className={`shrink-0 px-1 pb-0.5 text-[10px] font-bold uppercase tracking-widest truncate flex ${titleAlignClass}`}
-        style={{ color: style.color || "#334155" }}
+        style={{ color: style.color || "#334155", fontSize: `${titleFontPx}px` }}
         title={displayTitle}
       >
         <span className="truncate w-full">{displayTitle}</span>
@@ -997,10 +1086,11 @@ const WidgetRenderer = ({
           boxShadow: "none",
           margin: 0,
           padding: innerCss.padding ?? 0,
+          ...(showTitle ? { gap: `${contentGapPx}px` } : {}),
         }}
       >
         {titlePosition === "top" ? titleEl : null}
-        <div className="flex-1 min-h-0 w-full overflow-hidden flex items-center justify-center">
+        <div className={`flex-1 min-h-0 w-full overflow-hidden flex ${contentFlexAlignClass}`}>
           {renderContent()}
         </div>
         {titlePosition === "bottom" ? titleEl : null}
@@ -1009,6 +1099,12 @@ const WidgetRenderer = ({
   }
 
   if (nested) {
+    const nestedTitleFontPx = resolveTitleFontPx(style, 10);
+    const nestedTitleStyle = {
+      fontSize: `${nestedTitleFontPx}px`,
+      color: style.color || "#64748b",
+      ...(style.fontWeight && style.fontWeight !== "inherit" ? { fontWeight: style.fontWeight } : {}),
+    };
     return (
       <div
         className={`h-full w-full min-h-[64px] flex flex-col overflow-visible${
@@ -1019,18 +1115,18 @@ const WidgetRenderer = ({
         {showHeader && titlePosition === "top" && (
           <div
             className={`shrink-0 border-b border-slate-100/80 font-bold flex items-center ${titleAlignClass}`}
-            style={{ fontSize: style.fontSize ? `${style.fontSize}px` : "10px", color: style.color || "#64748b" }}
+            style={nestedTitleStyle}
           >
             <span className="truncate w-full">{displayTitle}</span>
           </div>
         )}
-        <div className="flex-1 min-h-[48px] w-full overflow-visible flex items-center justify-center">
+        <div className={`flex-1 min-h-[48px] w-full overflow-visible flex ${contentFlexAlignClass}`}>
           {renderContent()}
         </div>
         {showHeader && titlePosition === "bottom" && (
           <div
             className={`shrink-0 border-t border-slate-100/80 font-bold flex items-center ${titleAlignClass}`}
-            style={{ fontSize: style.fontSize ? `${style.fontSize}px` : "10px", color: style.color || "#64748b" }}
+            style={nestedTitleStyle}
           >
             <span className="truncate w-full">{displayTitle}</span>
           </div>
@@ -1038,6 +1134,14 @@ const WidgetRenderer = ({
       </div>
     );
   }
+
+  const chromeTitleFontPx = resolveTitleFontPx(style, 10);
+  const chromeTitleStyle = {
+    fontSize: `${chromeTitleFontPx}px`,
+    color: style.color || "#64748b",
+    backgroundColor: style.bg ? `${style.bg}cc` : "rgba(248,250,252,0.8)",
+    ...(style.fontWeight && style.fontWeight !== "inherit" ? { fontWeight: style.fontWeight } : {}),
+  };
 
   return (
     <div
@@ -1051,11 +1155,7 @@ const WidgetRenderer = ({
       {showHeader && titlePosition === "top" && (
         <div
           className={`shrink-0 border-b border-slate-100/80 font-bold flex items-center ${titleAlignClass}`}
-          style={{
-            fontSize: style.fontSize ? `${style.fontSize}px` : "10px",
-            color: style.color || "#64748b",
-            backgroundColor: style.bg ? `${style.bg}cc` : "rgba(248,250,252,0.8)",
-          }}
+          style={chromeTitleStyle}
         >
           <span className="truncate w-full">{displayTitle}</span>
         </div>
@@ -1064,11 +1164,7 @@ const WidgetRenderer = ({
       {showHeader && titlePosition === "bottom" && (
         <div
           className={`shrink-0 border-t border-slate-100/80 font-bold flex items-center ${titleAlignClass}`}
-          style={{
-            fontSize: style.fontSize ? `${style.fontSize}px` : "10px",
-            color: style.color || "#64748b",
-            backgroundColor: style.bg ? `${style.bg}cc` : "rgba(248,250,252,0.8)",
-          }}
+          style={chromeTitleStyle}
         >
           <span className="truncate w-full">{displayTitle}</span>
         </div>

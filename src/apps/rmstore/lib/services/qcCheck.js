@@ -21,6 +21,7 @@ async function postMultipart(endpoint, formData) {
 export const qcCheckService = {
   getAll: (params) => api(ENDPOINTS.QC_CHECK.LIST, { method: "POST", body: params }),
   getById: (qc_check_uid) => api(ENDPOINTS.QC_CHECK.GET, { method: "POST", body: { qc_check_uid } }),
+  getByHelper: (qc_check_uid, permissions = {}) => api(ENDPOINTS.QC_CHECK.HELPER, { method: "POST", body: { qc_check_uid, ...permissions } }),
   prepare: (body) => api(ENDPOINTS.QC_CHECK.PREPARE, { method: "POST", body }),
   approve: async ({ qc_check_uid, remarks, failure_reason, overall_result, items } = {}) => {
     if (items == null && (remarks == null || remarks === undefined) && failure_reason == null && overall_result == null) {
@@ -52,13 +53,15 @@ export const qcCheckService = {
   delete: (qc_check_uid) =>
     api(ENDPOINTS.QC_CHECK.DELETE, { method: "POST", body: { qc_check_uid } }),
   /** Submit with optional per-spec document files (`doc_<spec_id>`). is_draft saves without approval queue. */
-  submit: async ({ qc_check_uid, coil_no_uid, remarks, failure_reason, items, is_draft = false }) => {
+  submit: async ({ qc_check_uid, coil_no_uid, remarks, failure_reason, overall_result, items, is_draft = false, is_batch_qc = false }) => {
     const form = new FormData();
     if (qc_check_uid != null) form.append("qc_check_uid", String(qc_check_uid));
     if (coil_no_uid != null) form.append("coil_no_uid", String(coil_no_uid));
     if (remarks != null) form.append("remarks", String(remarks));
     if (failure_reason != null) form.append("failure_reason", String(failure_reason));
+    if (overall_result != null) form.append("overall_result", String(overall_result));
     if (is_draft) form.append("is_draft", "true");
+    if (is_batch_qc) form.append("is_batch_qc", "true");
     form.append(
       "items",
       JSON.stringify(

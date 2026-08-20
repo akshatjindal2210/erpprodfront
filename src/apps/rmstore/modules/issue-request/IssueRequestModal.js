@@ -1,20 +1,26 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Loader2, Package, Plus, Trash2, AlertCircle } from "lucide-react";
 import { toast } from "react-toastify";
+import { Loader2, Package, Plus, Trash2, AlertCircle } from "lucide-react";
+import { notify } from "@/apps/rmstore/lib/utils/notify";
 
 import { issueRequestService } from "@/apps/rmstore/lib/services/issueRequest";
-import { productionService, productionErpHelpers } from "@/apps/rmstore/lib/services/production";
+import { productionErpHelpers } from "@/apps/rmstore/lib/services/production";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import Drawer from "@/ui/primitives/Drawer";
-import RemarksTextarea from "@/ui/common/forms/RemarksTextarea";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import ApprovalStatusToggle from "@/apps/rmstore/modules/shared/ApprovalStatusToggle";
 import { OK_INPUT } from "@/ui/common/Constants";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
+import { useSelector } from "react-redux";
+import { selectUser } from "@/platform/store/slices/authSlice";
+import { normalizeRmItems } from "@/apps/rmstore/modules/master/production/productionRmHelpers";
+import { issueRmSelectionMode } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
+import { ISSUE_REQUEST_MACHINE_JOB_CARD_LOCK } from "@/apps/rmstore/lib/config/app.config";
 
 const MODULE = "rm_issue_request";
 const FIELD_ORDER = ["shift", "job_cards"];
@@ -31,6 +37,8 @@ const emptyRow = () => ({
   itemdesc: "",
   planqty: 0,
   macname: "",
+  part_weight: 0,
+  rm_weight: 0,
   issue_qty: "",
   /** User-typed target while editing Dispatch Qty (FIFO runs on blur). */
   issue_target: "",
@@ -38,6 +46,7 @@ const emptyRow = () => ({
   rm_item_code: "",
   rm_item_dcode: null,
   rm_item_desc: "",
+  mapped_rm_items: [],
   store_qty: 0,
   issued_qty: 0,
   issued_count: 0,
@@ -48,43 +57,225 @@ const emptyRow = () => ({
   mappingError: "",
 });
 
+function buildRmOptions(mappedItems = [], mode = "mapped", allItems = []) {
+  const mapped = Array.isArray(mappedItems) ? mappedItems : [];
+  if (mode === "all") {
+    const all = Array.isArray(allItems) ? allItems : [];
+    return all.length ? all : mapped;
+  }
+  if (mode === "mapped") return mapped;
+  return mapped.length ? [mapped[0]] : [];
+}
+
+function mapErpRmItems(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((r) => ({
+      rm_item_dcode: r.id ?? r.itemdcode ?? r.item_dcode ?? null,
+      rm_item_code: r.item_code ?? r.itemcode ?? "",
+      rm_item_desc: r.itemdesc ?? r.item_desc ?? "",
+    }))
+    .filter((r) => r.rm_item_dcode != null || r.rm_item_code);
+}
+
+function rmToSelectRow(rm) {
+  if (!rm) return null;
+  return {
+    id: rmOptionKey(rm),
+    item_code: rm.rm_item_code || "",
+    itemdesc: rm.rm_item_desc || "",
+    sub: rm.rm_item_desc || "",
+    _rm: rm,
+  };
+}
+
+function fetchRmWireOptions(rmOpts, params = {}, { mappedItems = [] } = {}) {
+  const search = String(params.search || "").trim().toLowerCase();
+  const mappedKeys = new Set((mappedItems || []).map((m) => rmOptionKey(m)));
+  const mappedOrder = (mappedItems || []).map((m) => rmOptionKey(m));
+  let rows = (rmOpts || []).map(rmToSelectRow).filter(Boolean);
+  rows = rows.map((r) => ({
+    ...r,
+    _isMapped: mappedKeys.has(String(r.id)),
+  }));
+  if (search) {
+    rows = rows.filter((r) =>
+      [r.item_code, r.itemdesc, r.sub].some((v) => String(v || "").toLowerCase().includes(search))
+    );
+  }
+  // Mapped RM wires first (production order), then all others.
+  rows.sort((a, b) => {
+    if (a._isMapped !== b._isMapped) return a._isMapped ? -1 : 1;
+    if (a._isMapped && b._isMapped) {
+      return mappedOrder.indexOf(String(a.id)) - mappedOrder.indexOf(String(b.id));
+    }
+    return 0;
+  });
+  return Promise.resolve({
+    data: rows,
+    total: rows.length,
+    page: 1,
+    limit: rows.length || 1,
+  });
+}
+
+function getRmWireById(rmOpts, id) {
+  const rm = (rmOpts || []).find((r) => rmOptionKey(r) === String(id));
+  return Promise.resolve(rmToSelectRow(rm));
+}
+
+function rmListHasKey(list, key) {
+  const k = String(key || "").trim();
+  if (!k) return false;
+  return (list || []).some((rm) => rmOptionKey(rm) === k);
+}
+
+/** Super Admin only — per-row palette so mapped RM wires link visually to their job card row. */
+const SUPER_ADMIN_ROW_RM_COLORS = [
+  { rowBorder: "border-l-4 border-l-indigo-500", chip: "bg-indigo-50 text-indigo-900 border border-indigo-200", dot: "bg-indigo-500", soft: "#eef2ff", accent: "#6366f1" },
+  { rowBorder: "border-l-4 border-l-emerald-500", chip: "bg-emerald-50 text-emerald-900 border border-emerald-200", dot: "bg-emerald-500", soft: "#ecfdf5", accent: "#10b981" },
+  { rowBorder: "border-l-4 border-l-amber-500", chip: "bg-amber-50 text-amber-900 border border-amber-200", dot: "bg-amber-500", soft: "#fffbeb", accent: "#f59e0b" },
+  { rowBorder: "border-l-4 border-l-violet-500", chip: "bg-violet-50 text-violet-900 border border-violet-200", dot: "bg-violet-500", soft: "#f5f3ff", accent: "#8b5cf6" },
+  { rowBorder: "border-l-4 border-l-cyan-500", chip: "bg-cyan-50 text-cyan-900 border border-cyan-200", dot: "bg-cyan-500", soft: "#ecfeff", accent: "#06b6d4" },
+];
+
+function getSuperAdminRowRmColor(idx) {
+  return SUPER_ADMIN_ROW_RM_COLORS[Number(idx) % SUPER_ADMIN_ROW_RM_COLORS.length];
+}
+
+function isRmMappedForItems(rm, mappedItems = []) {
+  const key = rmOptionKey(rm);
+  return (mappedItems || []).some((m) => rmOptionKey(m) === key);
+}
+
+function rmOptionKey(rm) {
+  return String(rm?.rm_item_dcode ?? rm?.rm_item_code ?? "");
+}
+
 /** Trim float artifacts from subtracted quantities. */
 const roundQty = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
 
-/** Plan vs already-issued balance for a job card. */
+/**
+ * Remaining RM that can still be issued on this JC.
+ * Cap = RM weight − already issued (previous issue requests).
+ */
+function remainingRmMax(row) {
+  const rm = Number(row?.rm_weight);
+  if (!Number.isFinite(rm) || rm <= 0) return null;
+  const issued = Number(row?.issued_qty || 0) || 0;
+  return Math.max(0, roundQty(rm - issued));
+}
+
+/** RM weight cap reached — no further coils may be selected. */
+function isRmFullyIssued(row) {
+  const rm = Number(row?.rm_weight);
+  if (!Number.isFinite(rm) || rm <= 0) return false;
+  return remainingRmMax(row) <= 0;
+}
+
+/** Plan / RM balance for badges. When RM weight exists, Pending = remaining required RM. */
 function rowBalance(row) {
   const plan = Number(row?.planqty || 0) || 0;
   const issued = Number(row?.issued_qty || 0) || 0;
+  const rmWeight = Number(row?.rm_weight || 0) || 0;
+  const rmMax = remainingRmMax(row);
+  if (rmMax != null) {
+    const overBy = rmWeight > 0 ? roundQty(issued - rmWeight) : 0;
+    return {
+      plan,
+      issued,
+      pending: overBy > 1e-9 ? overBy : rmMax,
+      over: overBy > 1e-9,
+      rmCap: true,
+    };
+  }
   const pending = roundQty(plan - issued);
-  return { plan, issued, pending, over: plan > 0 && pending < 0 };
+  return { plan, issued, pending, over: plan > 0 && pending < 0, rmCap: false };
 }
 
+/** Coil-area / no location — used only for FIFO tie-break (stored first). */
+function isUnassignedCoil(c) {
+  return c?.location_id == null || String(c?.location_no || "").toLowerCase() === "unassigned";
+}
+
+/** Packing # analogue: prefer mrn_uid, fall back to mrn_no. */
+function mrnGroupKey(c) {
+  const uid = String(c?.mrn_uid || "").trim();
+  if (uid) return uid;
+  const no = c?.mrn_no;
+  if (no != null && String(no).trim() !== "") return `no:${String(no).trim()}`;
+  return "N/A";
+}
+
+/** Display packing label — mrn_uid is the IMS packing # equivalent. */
+function mrnGroupLabel(c) {
+  const uid = String(c?.mrn_uid || "").trim();
+  if (uid) return uid;
+  if (c?.mrn_no != null && String(c.mrn_no).trim() !== "") return String(c.mrn_no);
+  return "N/A";
+}
+
+/**
+ * FIFO like IMS boxes: packing (mrn_uid) → stored before unassigned → created_at → coil_uid.
+ */
+function sortCoilsFifo(coils = []) {
+  return [...(coils || [])].sort((a, b) => {
+    const keyA = mrnGroupKey(a);
+    const keyB = mrnGroupKey(b);
+    const rawNoA = a?.mrn_no != null && String(a.mrn_no).trim() !== "" ? Number(a.mrn_no) : NaN;
+    const rawNoB = b?.mrn_no != null && String(b.mrn_no).trim() !== "" ? Number(b.mrn_no) : NaN;
+    if (Number.isFinite(rawNoA) && Number.isFinite(rawNoB) && rawNoA !== rawNoB) return rawNoA - rawNoB;
+    if (keyA !== keyB) return keyA.localeCompare(keyB, undefined, { numeric: true });
+
+    const looseA = isUnassignedCoil(a) ? 1 : 0;
+    const looseB = isUnassignedCoil(b) ? 1 : 0;
+    if (looseA !== looseB) return looseA - looseB;
+
+    const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    if (ta !== tb) return ta - tb;
+    return Number(a?.coil_uid || 0) - Number(b?.coil_uid || 0);
+  });
+}
+
+/**
+ * Whole-coil FIFO fill to cover targetQty.
+ * May overshoot (e.g. need 751, 100kg coils → 800). Typed dispatch is capped separately.
+ */
 function pickCoilsFifo(pool, targetQty, excludeUids) {
   const exclude = new Set([...excludeUids].map((u) => String(u).toLowerCase()));
-  const sorted = [...(pool || [])]
-    .filter((c) => c?.coil_no_uid && !exclude.has(String(c.coil_no_uid).toLowerCase()))
-    .sort((a, b) => {
-      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-      if (ta !== tb) return ta - tb;
-      return Number(a.coil_uid || 0) - Number(b.coil_uid || 0);
-    });
+  const sorted = sortCoilsFifo(pool || []).filter(
+    (c) => c?.coil_no_uid && !exclude.has(String(c.coil_no_uid).toLowerCase())
+  );
 
   const storeQty = sorted.reduce((s, c) => s + (Number(c.qty) || 0), 0);
-  if (!(Number(targetQty) > 0)) {
+  const target = Number(targetQty);
+  if (!(target > 0)) {
     return { picked: [], pickedQty: 0, storeQty, available: sorted };
   }
 
   const picked = [];
   let pickedQty = 0;
   for (const c of sorted) {
-    if (pickedQty >= Number(targetQty)) break;
+    if (pickedQty >= target) break;
     picked.push(c);
     pickedQty += Number(c.qty) || 0;
   }
   return { picked, pickedQty, storeQty, available: sorted };
 }
 
+/** Cap typed dispatch at remaining required RM; empty/invalid → "". */
+function resolveDispatchTarget(raw, maxQty) {
+  if (raw === "" || raw == null) return { target: "", capped: false };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return { target: "", capped: false };
+  const max = Number(maxQty);
+  if (Number.isFinite(max) && max >= 0 && n > max + 1e-9) {
+    return { target: max > 0 ? String(max) : "", capped: true, max };
+  }
+  return { target: String(n), capped: false };
+}
+
+/** First N coils in FIFO order (no RM hard ceiling — overshoot via whole coils is OK). */
 function pickCoilsByCount(pool, count, excludeUids) {
   const { available, storeQty } = pickCoilsFifo(pool, 0, excludeUids);
   const n = Math.max(0, Math.min(Number(count) || 0, available.length));
@@ -93,12 +284,101 @@ function pickCoilsByCount(pool, count, excludeUids) {
   return { picked, pickedQty, storeQty, available };
 }
 
+/**
+ * FIFO seed: default to 1 coil in FIFO order; user may add more via + or Dispatch Qty.
+ */
+function seedCoilsForRow(row, fifoPool, excludeUids) {
+  if (!fifoPool?.length) {
+    return { picked: [], pickedQty: 0, storeQty: 0 };
+  }
+  const remain = remainingRmMax(row);
+  if (remain != null && remain <= 0) {
+    const { storeQty } = pickCoilsByCount(fifoPool, 0, excludeUids);
+    return { picked: [], pickedQty: 0, storeQty };
+  }
+  return pickCoilsByCount(fifoPool, 1, excludeUids);
+}
+
+/** IMS: FIFO at MRN — count per MRN; which coil UIDs inside an MRN do not matter. */
+function mrnCoilCountMap(coils = []) {
+  const counts = new Map();
+  for (const c of coils || []) {
+    const k = mrnGroupKey(c);
+    if (!k || k === "N/A") continue;
+    counts.set(k, (counts.get(k) || 0) + 1);
+  }
+  return counts;
+}
+
+function mrnCountMapsEqual(a, b) {
+  if (a.size !== b.size) return false;
+  for (const [k, v] of a) {
+    if (b.get(k) !== v) return false;
+  }
+  return true;
+}
+
+/**
+ * Selected coils must match FIFO MRN quotas for targetQty (cover / dispatch).
+ * Within an MRN any coil is OK — totals may differ from the canonical FIFO pick.
+ */
+function assertMrnLevelFifo(pool, selectedCoils, targetQty, excludeUids = new Set()) {
+  const exclude = new Set([...(excludeUids || [])].map((u) => String(u).toLowerCase()));
+  const poolByUid = new Map(
+    (pool || [])
+      .filter((c) => c?.coil_no_uid && !exclude.has(String(c.coil_no_uid).toLowerCase()))
+      .map((c) => [String(c.coil_no_uid).toLowerCase(), c])
+  );
+  const enriched = [];
+  for (const c of selectedCoils || []) {
+    const uid = String(c?.coil_no_uid || "").toLowerCase();
+    if (!uid || !poolByUid.has(uid)) return false;
+    const full = poolByUid.get(uid);
+    enriched.push({
+      ...full,
+      ...c,
+      qty: c.qty ?? full.qty,
+      mrn_uid: c.mrn_uid || full.mrn_uid,
+      mrn_no: c.mrn_no ?? full.mrn_no,
+    });
+  }
+  const { picked } = pickCoilsFifo(pool, targetQty, excludeUids || new Set());
+  if (enriched.length !== picked.length) return false;
+  if (!mrnCountMapsEqual(mrnCoilCountMap(picked), mrnCoilCountMap(enriched))) return false;
+  const selectedQty = enriched.reduce((s, c) => s + (Number(c.qty) || 0), 0);
+  const target = Number(targetQty) || 0;
+  // Must cover typed/required dispatch; whole-coil overshoot above target is OK
+  if (target > 0 && selectedQty + 1e-9 < target) return false;
+  return true;
+}
+
+/**
+ * Coil + ceiling: remaining required RM (whole-coil overshoot past this is the last add).
+ * Not limited by current typed dispatch — user can click + to raise qty.
+ */
+function coilAddCoverNeed(row) {
+  const remain = remainingRmMax(row);
+  if (remain != null) return remain;
+  return null;
+}
+
+/**
+ * FIFO / API cover target: remaining required when coil total overshot (IMS display = send qty).
+ */
+function dispatchCoverQty(row) {
+  const issueQty = Number(row?.issue_qty) || Number(row?.issue_target) || 0;
+  const remain = remainingRmMax(row);
+  if (remain != null && issueQty > remain + 1e-9) return remain;
+  return issueQty;
+}
+
 function mapPickedCoils(picked) {
   return (picked || []).map((c) => ({
     coil_no_uid: c.coil_no_uid,
     qty: c.qty,
     item_code: c.item_code,
     heat_no: c.heat_no,
+    mrn_uid: c.mrn_uid ?? null,
     mrn_no: c.mrn_no,
     location_no: c.location_no || null,
     location_id: c.location_id ?? null,
@@ -108,6 +388,25 @@ function mapPickedCoils(picked) {
 
 function rowCoilQty(row) {
   return (row?.coils || []).reduce((s, c) => s + (Number(c.qty) || 0), 0);
+}
+
+/**
+ * Group selected FIFO coils by MRN (packing analogue).
+ * Order follows first appearance in the FIFO pick list.
+ */
+function groupSelectedCoilsByMrn(coils = []) {
+  const groups = [];
+  const groupMap = new Map();
+  for (const c of coils || []) {
+    const key = mrnGroupKey(c);
+    if (!groupMap.has(key)) {
+      const g = { key, label: mrnGroupLabel(c), coils: [] };
+      groupMap.set(key, g);
+      groups.push(g);
+    }
+    groupMap.get(key).coils.push(c);
+  }
+  return groups;
 }
 
 function sameRmItem(a, b) {
@@ -122,6 +421,10 @@ function sameRmItem(a, b) {
   return Boolean(ca && cb && ca === cb);
 }
 
+function machineKey(name) {
+  return String(name || "").trim().toUpperCase();
+}
+
 const MICRO_LABEL = "text-[10px] font-bold uppercase tracking-wide text-slate-600 block ml-1";
 
 const BADGE_TONES = {
@@ -132,12 +435,19 @@ const BADGE_TONES = {
   slate: "bg-slate-100 border-slate-300 text-slate-600",
 };
 
+/** Keep small decimals (e.g. part_weight 0.0001) — default toLocaleString rounds to 3 dp. */
+function formatExactNumber(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString(undefined, { maximumFractionDigits: 20 });
+}
+
 /** Compact info chip — same idea as FN Sch / Balance badges (not input fields). */
 function InfoBadge({ label, value, tone = "slate", loading = false, title, numeric = true }) {
   const display = loading
     ? "…"
     : numeric
-      ? Number(value || 0).toLocaleString()
+      ? formatExactNumber(value || 0)
       : value || "—";
   return (
     <span
@@ -151,7 +461,6 @@ function InfoBadge({ label, value, tone = "slate", loading = false, title, numer
     </span>
   );
 }
-
 
 export default function IssueRequestModal({
   open,
@@ -189,6 +498,40 @@ export default function IssueRequestModal({
     () => ({ permission_module: MODULE, permission_action: "view" }),
     []
   );
+
+  const user = useSelector(selectUser);
+  const rmSelectionMode = issueRmSelectionMode(user);
+  const [allRmWireItems, setAllRmWireItems] = useState([]);
+  const [loadingAllRmWire, setLoadingAllRmWire] = useState(false);
+
+  useEffect(() => {
+    if (!open || rmSelectionMode !== "all") {
+      setAllRmWireItems([]);
+      setLoadingAllRmWire(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingAllRmWire(true);
+    (async () => {
+      try {
+        const res = await productionErpHelpers.getRmItemsViews({
+          ...helperPerms,
+          page: 1,
+          limit: 5000,
+        });
+        if (!cancelled) {
+          setAllRmWireItems(mapErpRmItems(res?.data));
+        }
+      } catch {
+        if (!cancelled) setAllRmWireItems([]);
+      } finally {
+        if (!cancelled) setLoadingAllRmWire(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, rmSelectionMode, helperPerms]);
 
   const totals = useMemo(() => {
     const issueQty = rows.reduce((s, r) => s + (Number(r.issue_qty) || 0), 0);
@@ -271,13 +614,14 @@ export default function IssueRequestModal({
           count,
           excludedUidsForRow(i, next)
         );
+        const sendQty = pickedQty > 0 ? String(pickedQty) : want > 0 ? "" : null;
         next = next.map((r, j) =>
           j === i
             ? {
                 ...r,
                 fifoPool: r.fifoPool?.length ? r.fifoPool : next[changedIdx]?.fifoPool || [],
-                issue_qty: pickedQty > 0 ? String(pickedQty) : want > 0 ? "" : r.issue_qty,
-                issue_target: pickedQty > 0 ? String(pickedQty) : want > 0 ? "" : r.issue_target,
+                issue_qty: sendQty != null ? sendQty : r.issue_qty,
+                issue_target: sendQty != null ? sendQty : r.issue_target,
                 store_qty: storeQty,
                 coils: mapPickedCoils(picked),
               }
@@ -302,39 +646,77 @@ export default function IssueRequestModal({
   );
 
   const applyFifoToRow = useCallback(
-    (idx, nextIssueQty, currentRows = rowsRef.current) => {
+    (idx, nextIssueQty, currentRows = rowsRef.current, { silent } = {}) => {
+      const notices = [];
       const row = currentRows[idx];
-      if (!row) return currentRows;
+      if (!row) return { rows: currentRows, notices };
+
+      const rmMax = remainingRmMax(row);
+      const typed = Number(nextIssueQty);
+      const prevIssue = Number(row.issue_qty) || 0;
+      const { target, capped, max } = resolveDispatchTarget(nextIssueQty, rmMax);
+      // Don't warn when re-blurring an already-applied whole-coil overshoot (e.g. 609 on max 575)
+      if (
+        !silent &&
+        capped &&
+        !(Number.isFinite(typed) && Math.abs(typed - prevIssue) <= 1e-9 && prevIssue > 0)
+      ) {
+        notices.push({
+          type: "warning",
+          message:
+            `Dispatch qty cannot exceed required RM (${formatExactNumber(max)}).` +
+            (Number(row.issued_qty) > 0
+              ? ` Already issued ${formatExactNumber(row.issued_qty)} of ${formatExactNumber(row.rm_weight)}.`
+              : ""),
+        });
+      }
+
+      // Cover target ≤ remaining required; whole coils may overshoot
       const { picked, pickedQty, storeQty } = pickCoilsFifo(
         row.fifoPool,
-        nextIssueQty,
+        target,
         excludedUidsForRow(idx, currentRows)
       );
+
+      const want = Number(target);
+      if (!silent && want > 0 && pickedQty > 0 && pickedQty + 1e-9 < want) {
+        notices.push({
+          type: "info",
+          message: `Only ${pickedQty.toLocaleString()} qty available in FIFO coils.`,
+        });
+      }
+
+      const sendQty =
+        pickedQty > 0
+          ? String(pickedQty)
+          : target === "" || target === "0"
+            ? ""
+            : String(target);
+
+      // IMS-style: after apply, field shows what we are actually sending
       const updated = currentRows.map((r, i) =>
         i === idx
           ? {
               ...r,
-              issue_qty:
-                pickedQty > 0
-                  ? String(pickedQty)
-                  : nextIssueQty === "" || nextIssueQty === "0"
-                    ? ""
-                    : String(nextIssueQty),
-              issue_target:
-                pickedQty > 0
-                  ? String(pickedQty)
-                  : nextIssueQty === "" || nextIssueQty === "0"
-                    ? ""
-                    : String(nextIssueQty),
+              issue_qty: sendQty,
+              issue_target: sendQty,
               store_qty: storeQty,
               coils: mapPickedCoils(picked),
             }
           : r
       );
-      return rebalanceSharedRmRows(idx, updated);
+      return { rows: rebalanceSharedRmRows(idx, updated), notices };
     },
     [excludedUidsForRow, rebalanceSharedRmRows]
   );
+
+  const flushNotices = useCallback((notices) => {
+    for (const n of notices || []) {
+      if (n.type === "warning") toast.warning(n.message);
+      else if (n.type === "info") toast.info(n.message);
+      else toast(n.message);
+    }
+  }, []);
 
   const applyCoilCountToRow = useCallback(
     (idx, count, currentRows = rowsRef.current) => {
@@ -345,12 +727,14 @@ export default function IssueRequestModal({
         count,
         excludedUidsForRow(idx, currentRows)
       );
+      // IMS-style: coil +/− sets the qty we are sending
+      const sendQty = pickedQty > 0 ? String(pickedQty) : "";
       const updated = currentRows.map((r, i) =>
         i === idx
           ? {
               ...r,
-              issue_qty: pickedQty > 0 ? String(pickedQty) : "",
-              issue_target: pickedQty > 0 ? String(pickedQty) : "",
+              issue_qty: sendQty,
+              issue_target: sendQty,
               store_qty: storeQty,
               coils: mapPickedCoils(picked),
             }
@@ -406,54 +790,21 @@ export default function IssueRequestModal({
     const dcode = Number(itemdcode);
     const code = String(itemCode || "").trim();
 
-    // 1) Exact FG item_dcode (preferred) — approved first
-    if (Number.isFinite(dcode) && dcode > 0) {
-      const approvedRes = await productionService.getAll({
-        page: 1,
-        limit: 20,
-        filters: { item_dcode: dcode, approved: true },
+    try {
+      const res = await issueRequestService.productionMapping({
+        itemdcode: Number.isFinite(dcode) && dcode > 0 ? dcode : undefined,
+        item_code: code || undefined,
       });
-      const approved = approvedRes?.data?.[0];
-      if (approved) return { prod: approved, reason: null };
-
-      const anyRes = await productionService.getAll({
-        page: 1,
-        limit: 5,
-        filters: { item_dcode: dcode },
-      });
-      if (anyRes?.data?.[0]) {
-        return {
-          prod: null,
-          reason: `A production mapping for ${code || dcode} exists but is not approved.`,
-        };
+      if (res?.data) return { prod: res.data, reason: null };
+    } catch (err) {
+      const msg = err?.message || "";
+      if (/not approved/i.test(msg)) {
+        return { prod: null, reason: msg };
       }
-    }
-
-    // 2) Fallback: match by FG item_code (approved)
-    if (code) {
-      const searchRes = await productionService.getAll({
-        page: 1,
-        limit: 50,
-        search: code,
-        filters: { approved: true },
-      });
-      const match = (searchRes?.data || []).find(
-        (p) => String(p.item_code || "").trim().toUpperCase() === code.toUpperCase()
-      );
-      if (match) return { prod: match, reason: null };
-
-      const anySearch = await productionService.getAll({
-        page: 1,
-        limit: 50,
-        search: code,
-      });
-      const pending = (anySearch?.data || []).find(
-        (p) => String(p.item_code || "").trim().toUpperCase() === code.toUpperCase()
-      );
-      if (pending) {
+      if (err?.status === 404 || /no production/i.test(msg)) {
         return {
           prod: null,
-          reason: `A production mapping for ${code} exists but is not approved.`,
+          reason: msg || `No production-to-RM mapping exists for item ${code || itemdcode || "—"}. Map it in the Production master first.`,
         };
       }
     }
@@ -464,17 +815,17 @@ export default function IssueRequestModal({
     };
   }, []);
 
-  const resolveMappingAndFifo = useCallback(
-    async (idx, baseRow) => {
+  const applyProductionMapping = useCallback(
+    async (idx, baseRow, { resetIssue = true } = {}) => {
       setRows((prev) =>
         prev.map((r, i) =>
           i === idx
             ? {
                 ...r,
                 ...baseRow,
-                issued_qty: 0,
-                issued_count: 0,
-                loadingIssued: true,
+                issued_qty: resetIssue ? 0 : r.issued_qty,
+                issued_count: resetIssue ? 0 : r.issued_count,
+                loadingIssued: resetIssue,
                 loadingFifo: true,
                 mappingError: "",
               }
@@ -482,12 +833,18 @@ export default function IssueRequestModal({
         )
       );
 
-      const issuedPromise = fetchIssuedSummary(baseRow.pjobcardno, baseRow.planqty);
+      const issuedPromise = resetIssue
+        ? fetchIssuedSummary(baseRow.pjobcardno, baseRow.planqty)
+        : Promise.resolve({
+            issued_qty: rowsRef.current[idx]?.issued_qty || 0,
+            issued_count: rowsRef.current[idx]?.issued_count || 0,
+          });
 
-      let production_id = null;
-      let rm_item_code = "";
-      let rm_item_dcode = null;
-      let rm_item_desc = "";
+      let production_id = baseRow.production_id ?? null;
+      let rm_item_code = baseRow.rm_item_code || "";
+      let rm_item_dcode = baseRow.rm_item_dcode ?? null;
+      let rm_item_desc = baseRow.rm_item_desc || "";
+      let mapped_rm_items = [];
       let mappingError = "";
 
       try {
@@ -501,12 +858,53 @@ export default function IssueRequestModal({
           if (!prod) {
             mappingError = reason || "No approved production-to-RM mapping exists for this item.";
           } else {
+            mapped_rm_items = normalizeRmItems(prod);
             production_id = prod.production_id;
-            rm_item_code = prod.rm_item_code || "";
-            rm_item_dcode = prod.rm_item_dcode ?? null;
-            rm_item_desc = prod.rm_item_desc || "";
-            if (!rm_item_code && !rm_item_dcode) {
-              mappingError = "The production mapping has no RM item.";
+            const rmOpts = buildRmOptions(mapped_rm_items, rmSelectionMode, allRmWireItems);
+            const presetKey = rmOptionKey({
+              rm_item_dcode: resetIssue ? null : baseRow.rm_item_dcode,
+              rm_item_code: resetIssue ? "" : baseRow.rm_item_code,
+            });
+            if (rmSelectionMode === "all") {
+              const mappedFirst = mapped_rm_items[0] || null;
+              if (
+                !resetIssue &&
+                presetKey &&
+                (rmListHasKey(rmOpts, presetKey) || baseRow.rm_item_code || baseRow.rm_item_dcode)
+              ) {
+                const picked = rmListHasKey(rmOpts, presetKey)
+                  ? rmOpts.find((r) => rmOptionKey(r) === presetKey)
+                  : {
+                      rm_item_code: baseRow.rm_item_code || "",
+                      rm_item_dcode: baseRow.rm_item_dcode ?? null,
+                      rm_item_desc: baseRow.rm_item_desc || "",
+                    };
+                rm_item_code = picked?.rm_item_code || "";
+                rm_item_dcode = picked?.rm_item_dcode ?? null;
+                rm_item_desc = picked?.rm_item_desc || "";
+              } else if (mappedFirst) {
+                // Super Admin: pre-select first production-mapped RM (same default as normal users).
+                rm_item_code = mappedFirst.rm_item_code || "";
+                rm_item_dcode = mappedFirst.rm_item_dcode ?? null;
+                rm_item_desc = mappedFirst.rm_item_desc || "";
+              } else {
+                rm_item_code = "";
+                rm_item_dcode = null;
+                rm_item_desc = "";
+              }
+            } else {
+              const picked =
+                (!resetIssue && presetKey && rmListHasKey(rmOpts, presetKey)
+                  ? rmOpts.find((r) => rmOptionKey(r) === presetKey)
+                  : null) ||
+                rmOpts[0] ||
+                {};
+              rm_item_code = picked.rm_item_code || "";
+              rm_item_dcode = picked.rm_item_dcode ?? null;
+              rm_item_desc = picked.rm_item_desc || "";
+              if (!rm_item_code && !rm_item_dcode) {
+                mappingError = "The production mapping has no RM item.";
+              }
             }
           }
         }
@@ -514,11 +912,10 @@ export default function IssueRequestModal({
         mappingError = err?.message || "Could not resolve the production mapping. Please try again.";
       }
 
-      let fifoPool = [];
-      let store_qty = 0;
+      let fifoPool = resetIssue ? [] : rowsRef.current[idx]?.fifoPool || [];
+      let store_qty = resetIssue ? 0 : rowsRef.current[idx]?.store_qty || 0;
       if (!mappingError && (rm_item_code || rm_item_dcode)) {
         try {
-          // Reuse pool already loaded on another row for the same RM (keeps counts in sync).
           const sibling = rowsRef.current.find(
             (r, i) =>
               i !== idx &&
@@ -540,8 +937,35 @@ export default function IssueRequestModal({
       }
 
       const issued = await issuedPromise;
+      const priorCoils = resetIssue ? [] : rowsRef.current[idx]?.coils || [];
 
       setRows((prev) => {
+        const enrichedCoils =
+          !resetIssue && priorCoils.length && fifoPool.length
+            ? (() => {
+                const byUid = new Map(
+                  fifoPool.map((c) => [String(c.coil_no_uid || "").toLowerCase(), c])
+                );
+                return priorCoils.map((c) => {
+                  const full = byUid.get(String(c.coil_no_uid || "").toLowerCase());
+                  if (!full) return c;
+                  return {
+                    ...c,
+                    qty: c.qty ?? full.qty,
+                    heat_no: c.heat_no || full.heat_no,
+                    mrn_uid: c.mrn_uid ?? full.mrn_uid ?? null,
+                    mrn_no: c.mrn_no ?? full.mrn_no,
+                    item_code: c.item_code || full.item_code,
+                    location_no: c.location_no || full.location_no || null,
+                    location_id: c.location_id ?? full.location_id ?? null,
+                    created_at: c.created_at || full.created_at,
+                  };
+                });
+              })()
+            : resetIssue
+              ? []
+              : priorCoils;
+
         const withRow = prev.map((r, i) =>
           i === idx
             ? {
@@ -551,26 +975,158 @@ export default function IssueRequestModal({
                 rm_item_code,
                 rm_item_dcode,
                 rm_item_desc,
+                mapped_rm_items,
                 fifoPool,
                 store_qty,
-                issued_qty: issued.issued_qty,
-                issued_count: issued.issued_count,
+                issued_qty: resetIssue ? issued.issued_qty : (r.issued_qty ?? issued.issued_qty),
+                issued_count: resetIssue ? issued.issued_count : (r.issued_count ?? issued.issued_count),
                 loadingIssued: false,
                 loadingFifo: false,
                 mappingError,
-                issue_qty: "",
-                coils: [],
+                ...(resetIssue
+                  ? { issue_qty: "", issue_target: "", coils: [] }
+                  : { coils: enrichedCoils }),
               }
-            : // Push shared pool onto same-RM siblings
-              sameRmItem(r, { rm_item_code, rm_item_dcode }) && fifoPool.length
-                ? { ...r, fifoPool }
-                : r
+            : sameRmItem(r, { rm_item_code, rm_item_dcode }) && fifoPool.length
+              ? { ...r, fifoPool }
+              : r
         );
+
+        if (resetIssue && !mappingError && fifoPool.length > 0) {
+          const rowForSeed = withRow[idx];
+          const { picked, pickedQty, storeQty } = seedCoilsForRow(
+            rowForSeed,
+            fifoPool,
+            excludedUidsForRow(idx, withRow)
+          );
+          const seeded = withRow.map((r, i) =>
+            i === idx
+              ? {
+                  ...r,
+                  issue_qty: pickedQty > 0 ? String(pickedQty) : "",
+                  issue_target: pickedQty > 0 ? String(pickedQty) : "",
+                  store_qty: storeQty,
+                  coils: mapPickedCoils(picked),
+                }
+              : r
+          );
+          return rebalanceSharedRmRows(idx, seeded);
+        }
+
         return rebalanceSharedRmRows(idx, withRow);
       });
     },
-    [fetchIssuedSummary, findProductionMapping, loadFifoPool, rebalanceSharedRmRows]
+    [
+      excludedUidsForRow,
+      fetchIssuedSummary,
+      findProductionMapping,
+      loadFifoPool,
+      rebalanceSharedRmRows,
+      rmSelectionMode,
+      allRmWireItems,
+    ]
   );
+
+  const resolveMappingAndFifo = useCallback(
+    (idx, baseRow) => applyProductionMapping(idx, baseRow, { resetIssue: true }),
+    [applyProductionMapping]
+  );
+
+  const applyRmSelection = useCallback(
+    async (idx, picked) => {
+      if (!picked || readOnly) return;
+
+      setRows((prev) =>
+        prev.map((r, i) =>
+          i === idx
+            ? {
+                ...r,
+                rm_item_dcode: picked.rm_item_dcode ?? null,
+                rm_item_code: picked.rm_item_code || "",
+                rm_item_desc: picked.rm_item_desc || "",
+                loadingFifo: true,
+                mappingError: "",
+                coils: [],
+                issue_qty: "",
+                issue_target: "",
+              }
+            : r
+        )
+      );
+
+      let fifoPool = [];
+      let store_qty = 0;
+      let mappingError = "";
+      try {
+        const loaded = await loadFifoPool({
+          rm_item_code: picked.rm_item_code,
+          rm_item_dcode: picked.rm_item_dcode,
+        });
+        fifoPool = loaded.pool;
+        store_qty = loaded.storeQty;
+      } catch (err) {
+        mappingError = err?.message || "Could not load coils for the selected RM.";
+      }
+
+      setRows((prev) => {
+        const withRow = prev.map((r, i) =>
+          i === idx
+            ? {
+                ...r,
+                fifoPool,
+                store_qty,
+                loadingFifo: false,
+                mappingError,
+              }
+            : sameRmItem(r, {
+                  rm_item_code: picked.rm_item_code,
+                  rm_item_dcode: picked.rm_item_dcode,
+                }) && fifoPool.length
+              ? { ...r, fifoPool }
+              : r
+        );
+        if (!mappingError && fifoPool.length > 0) {
+          const rowForSeed = withRow[idx];
+          const { picked, pickedQty, storeQty } = seedCoilsForRow(
+            rowForSeed,
+            fifoPool,
+            excludedUidsForRow(idx, withRow)
+          );
+          const seeded = withRow.map((r, i) =>
+            i === idx
+              ? {
+                  ...r,
+                  coils: mapPickedCoils(picked),
+                  store_qty: storeQty,
+                  issue_qty: pickedQty > 0 ? String(pickedQty) : "",
+                  issue_target: pickedQty > 0 ? String(pickedQty) : "",
+                }
+              : r
+          );
+          return rebalanceSharedRmRows(idx, seeded);
+        }
+        return rebalanceSharedRmRows(idx, withRow);
+      });
+    },
+    [excludedUidsForRow, loadFifoPool, readOnly, rebalanceSharedRmRows]
+  );
+
+  const handleRmChange = useCallback(
+    (idx, rmKey) => {
+      const row = rowsRef.current[idx];
+      if (!row || readOnly || rmSelectionMode === "first" || !rmKey) return;
+      const opts = buildRmOptions(row.mapped_rm_items, rmSelectionMode, allRmWireItems);
+      const picked = opts.find((r) => rmOptionKey(r) === String(rmKey));
+      if (!picked) return;
+      void applyRmSelection(idx, picked);
+    },
+    [applyRmSelection, readOnly, rmSelectionMode, allRmWireItems]
+  );
+
+  const applyProductionMappingRef = useRef(applyProductionMapping);
+  useEffect(() => {
+    applyProductionMappingRef.current = applyProductionMapping;
+  }, [applyProductionMapping]);
 
   useEffect(() => {
     let cancelled = false;
@@ -582,6 +1138,7 @@ export default function IssueRequestModal({
       setErrors({});
       setEditingIssueIdx(null);
       setSaving(false);
+      setLoadingDetail(false);
       return;
     }
 
@@ -602,7 +1159,8 @@ export default function IssueRequestModal({
         const d = res?.data || editData;
         setShift(String(d.shift || "A").toUpperCase() === "B" ? "B" : "A");
         setRemarks(d.remarks || "");
-        setApproved(isApprove ? true : false);
+        // Approve drawer defaults ON; view/edit show the saved status
+        setApproved(isApprove ? true : Boolean(d.approved));
 
         const cards = Array.isArray(d.job_cards) ? d.job_cards : [];
         if (cards.length) {
@@ -615,6 +1173,8 @@ export default function IssueRequestModal({
             itemdesc: jc.itemdesc || jc.item_desc || "",
             planqty: Number(jc.planqty || 0) || 0,
             macname: jc.macname || "",
+            part_weight: Number(jc.part_weight || 0) || 0,
+            rm_weight: Number(jc.rm_weight || 0) || 0,
             issue_qty: jc.issue_qty != null ? String(jc.issue_qty) : "",
             issue_target: jc.issue_qty != null ? String(jc.issue_qty) : "",
             production_id: jc.production_id ?? null,
@@ -641,10 +1201,22 @@ export default function IssueRequestModal({
                   prev.map((r) => {
                     const hit = byJc.get(String(r.pjobcardno || "").toUpperCase());
                     if (!hit) return r;
+                    const issued_qty = Number(hit.issued_qty || 0) || 0;
+                    // View: keep saved issue_qty as-is (no rewrite). Edit: restore typed cover ≤ remaining.
+                    let issue_target = r.issue_target || r.issue_qty || "";
+                    if (!isView) {
+                      const rm = Number(r.rm_weight) || 0;
+                      const remain = rm > 0 ? Math.max(0, roundQty(rm - issued_qty)) : null;
+                      const coilQty = Number(r.issue_qty) || 0;
+                      if (remain != null && coilQty > remain + 1e-9) {
+                        issue_target = String(remain);
+                      }
+                    }
                     return {
                       ...r,
-                      issued_qty: Number(hit.issued_qty || 0) || 0,
+                      issued_qty,
                       issued_count: Number(hit.request_count || 0) || 0,
+                      issue_target,
                     };
                   })
                 );
@@ -652,43 +1224,14 @@ export default function IssueRequestModal({
               .catch(() => {});
           }
 
-          // Refresh FIFO pools in background for edit
-          hydrated.forEach((row, idx) => {
-            if (row.rm_item_code || row.rm_item_dcode) {
-              void loadFifoPool({
-                rm_item_code: row.rm_item_code,
-                rm_item_dcode: row.rm_item_dcode,
-              }).then(({ pool, storeQty }) => {
-                if (cancelled) return;
-                const byUid = new Map(
-                  (pool || []).map((c) => [String(c.coil_no_uid || "").toLowerCase(), c])
-                );
-                setRows((prev) =>
-                  prev.map((r, i) => {
-                    if (i !== idx) return r;
-                    return {
-                      ...r,
-                      fifoPool: pool,
-                      store_qty: storeQty,
-                      coils: (r.coils || []).map((c) => {
-                        const full = byUid.get(String(c.coil_no_uid || "").toLowerCase());
-                        if (!full) return c;
-                        return {
-                          ...c,
-                          qty: c.qty ?? full.qty,
-                          heat_no: c.heat_no || full.heat_no,
-                          mrn_no: c.mrn_no ?? full.mrn_no,
-                          item_code: c.item_code || full.item_code,
-                          location_no: c.location_no || full.location_no || null,
-                          created_at: c.created_at || full.created_at,
-                        };
-                      }),
-                    };
-                  })
-                );
-              });
-            }
-          });
+          // Edit/approve: reload production master mappings + FIFO pool (keep saved coils/qty)
+          if (!isView) {
+            hydrated.forEach((row, idx) => {
+              if (row.pjobcardno) {
+                void applyProductionMappingRef.current(idx, row, { resetIssue: false }); // ✅ ref use karo
+              }
+            });
+          }
         } else {
           // Legacy single mapping → one row
           setRows([
@@ -699,6 +1242,8 @@ export default function IssueRequestModal({
               itemdcode: d.item_dcode || "",
               itemdesc: d.item_desc || "",
               planqty: Number(d.requested_qty || 0) || 0,
+              part_weight: Number(d.part_weight || 0) || 0,
+              rm_weight: Number(d.rm_weight || 0) || 0,
               issue_qty: d.requested_qty != null ? String(d.requested_qty) : "",
               issue_target: d.requested_qty != null ? String(d.requested_qty) : "",
               production_id: d.production_id ?? null,
@@ -720,7 +1265,7 @@ export default function IssueRequestModal({
     return () => {
       cancelled = true;
     };
-  }, [open, editIssueUid, isApprove, loadFifoPool]);
+  }, [open, editIssueUid, isApprove, isView]);
 
   const fetchJobCards = useCallback(
     async (params = {}) =>
@@ -738,7 +1283,7 @@ export default function IssueRequestModal({
     [helperPerms]
   );
 
-  const handleJcChange = (idx, id, raw) => {
+  const handleJcChange = async (idx, id, raw) => {
     if (readOnly) return;
     if (!id) {
       setRows((prev) => {
@@ -767,14 +1312,46 @@ export default function IssueRequestModal({
       toast.error(`Job card ${id} has already been selected.`);
       return;
     }
+
+    let detail = raw && typeof raw === "object" ? raw : null;
+    if (!detail?.item_code || !detail?.macname || !(Number(detail?.rm_weight) > 0)) {
+      try {
+        const full = await getJobCardById(id);
+        if (full) detail = { ...full, ...(detail || {}) };
+      } catch {
+        // keep whatever we already have from the picker
+      }
+    }
+
+    const machine = String(detail?.macname || "").trim();
+    if (ISSUE_REQUEST_MACHINE_JOB_CARD_LOCK && machine) {
+      const mk = machineKey(machine);
+      const jk = machineKey(id);
+      const hit = rowsRef.current.find(
+        (r, i) =>
+          i !== idx &&
+          machineKey(r.macname) === mk &&
+          machineKey(r.pjobcardno) &&
+          machineKey(r.pjobcardno) !== jk
+      );
+      if (hit) {
+        toast.error(
+          `Machine ${machine} can only run one job card at a time. It is already assigned to job card ${hit.pjobcardno} on this request.`
+        );
+        return;
+      }
+    }
+
     const base = {
-      pjobcardno: String(raw?.pjobcardno || id),
-      pldt: raw?.pldt ?? null,
-      item_code: raw?.item_code || "",
-      itemdcode: raw?.itemdcode ?? raw?.item_dcode ?? "",
-      itemdesc: raw?.itemdesc || raw?.item_desc || "",
-      planqty: Number(raw?.planqty || 0) || 0,
-      macname: raw?.macname || "",
+      pjobcardno: String(detail?.pjobcardno || id),
+      pldt: detail?.pldt ?? null,
+      item_code: detail?.item_code || "",
+      itemdcode: detail?.itemdcode ?? detail?.item_dcode ?? "",
+      itemdesc: detail?.itemdesc || detail?.item_desc || "",
+      planqty: Number(detail?.planqty || 0) || 0,
+      macname: machine,
+      part_weight: Number(detail?.part_weight || 0) || 0,
+      rm_weight: Number(detail?.rm_weight || 0) || 0,
       issue_qty: "",
       coils: [],
     };
@@ -782,6 +1359,7 @@ export default function IssueRequestModal({
     if (errors.job_cards) setErrors((prev) => ({ ...prev, job_cards: "" }));
   };
 
+  // FUTURE (Dispatch Qty UI): keep these handlers — uncomment the Dispatch Qty input in the row grid.
   const handleIssueQtyFocus = (idx) => {
     if (readOnly) return;
     setEditingIssueIdx(idx);
@@ -809,32 +1387,47 @@ export default function IssueRequestModal({
   const handleIssueQtyBlur = (idx) => {
     setEditingIssueIdx((cur) => (cur === idx ? null : cur));
     if (readOnly) return;
-    setRows((prev) => {
-      const row = prev[idx];
-      if (!row) return prev;
-      const raw =
-        row.issue_target === "" || row.issue_target == null
-          ? ""
-          : String(row.issue_target);
-      return applyFifoToRow(idx, raw, prev);
-    });
+    const prev = rowsRef.current;
+    const row = prev[idx];
+    if (!row) return;
+    const raw =
+      row.issue_target === "" || row.issue_target == null ? "" : String(row.issue_target);
+    const { rows: next, notices } = applyFifoToRow(idx, raw, prev);
+    setRows(next);
+    flushNotices(notices);
   };
 
   const handleCoilChange = (idx, action) => {
     if (readOnly) return;
-    setRows((prev) => {
-      const row = prev[idx];
-      if (!row || row.mappingError) return prev;
-      const { availableCount, selectedCount } = getRowAvailability(idx, prev);
-      const nextCount = action === "add" ? selectedCount + 1 : selectedCount - 1;
-      if (nextCount < 0 || nextCount > availableCount) return prev;
-      return applyCoilCountToRow(idx, nextCount, prev);
-    });
+    const prev = rowsRef.current;
+    const row = prev[idx];
+    if (!row || row.mappingError || isRmFullyIssued(row)) return;
+    const { availableCount, selectedCount } = getRowAvailability(idx, prev);
+    const nextCount = action === "add" ? selectedCount + 1 : selectedCount - 1;
+    const remain = remainingRmMax(row);
+    const minCount = remain != null && remain > 0 ? 1 : 0;
+    if (nextCount < minCount || nextCount > availableCount) return;
+    if (action === "add") {
+      const need = coilAddCoverNeed(row);
+      if (need != null && rowCoilQty(row) >= need - 1e-9) {
+        toast.warning(
+          `Required RM is already covered (${formatExactNumber(need)} remaining max).`
+        );
+        return;
+      }
+    }
+    setRows(applyCoilCountToRow(idx, nextCount, prev));
   };
 
   const canAddCoil = (idx) => {
+    const row = rows[idx];
     const { availableCount, selectedCount } = getRowAvailability(idx, rows);
-    return !readOnly && !rows[idx]?.mappingError && selectedCount < availableCount;
+    if (readOnly || row?.mappingError || isRmFullyIssued(row) || selectedCount >= availableCount) {
+      return false;
+    }
+    const need = coilAddCoverNeed(row);
+    if (need != null && rowCoilQty(row) >= need - 1e-9) return false;
+    return true;
   };
 
   const addRow = () => {
@@ -861,18 +1454,60 @@ export default function IssueRequestModal({
     const validRows = rows.filter((r) => r.pjobcardno);
     if (!validRows.length) next.job_cards = "Add at least one job card.";
     else {
+      const machineToJc = new Map();
       for (const r of validRows) {
+        if (ISSUE_REQUEST_MACHINE_JOB_CARD_LOCK) {
+          const mk = machineKey(r.macname);
+          if (mk) {
+            const jk = machineKey(r.pjobcardno);
+            const prev = machineToJc.get(mk);
+            if (prev && prev !== jk) {
+              next.job_cards = `Machine ${r.macname} can only run one job card at a time.`;
+              break;
+            }
+            if (!prev) machineToJc.set(mk, jk);
+          }
+        }
         if (r.mappingError) {
           next.job_cards = r.mappingError;
           break;
         }
-        if (!(Number(r.issue_qty) > 0)) {
-          next.job_cards = `Enter the issue quantity for job card ${r.pjobcardno}.`;
+        if (isRmFullyIssued(r)) {
+          next.job_cards = `Required RM weight already issued for job card ${r.pjobcardno}. No further coils can be selected.`;
+          break;
+        }
+        if (!(r.rm_item_code || r.rm_item_dcode)) {
+          next.job_cards = `Select RM wire for job card ${r.pjobcardno}.`;
+          break;
+        }
+        const issueQty = Number(r.issue_qty);
+        if (!(issueQty > 0)) {
+          next.job_cards = `Enter issue quantity for job card ${r.pjobcardno}.`;
           break;
         }
         if (!r.coils?.length) {
-          next.job_cards = `No FIFO coils are available for job card ${r.pjobcardno}.`;
+          next.job_cards = `Select coils for job card ${r.pjobcardno}.`;
           break;
+        }
+        const coilQty = rowCoilQty(r);
+        if (Math.abs(coilQty - issueQty) > 0.001) {
+          next.job_cards = `Issue quantity must match coil total for job card ${r.pjobcardno}.`;
+          break;
+        }
+        // FIFO quotas for cover/dispatch; issue_qty (coil total) may overshoot
+        const coverQty = dispatchCoverQty(r);
+        if (r.fifoPool?.length) {
+          const idx = rows.indexOf(r);
+          const fifoOk = assertMrnLevelFifo(
+            r.fifoPool,
+            r.coils,
+            coverQty > 0 ? coverQty : issueQty,
+            excludedUidsForRow(idx, rows)
+          );
+          if (!fifoOk) {
+            next.job_cards = `Coils for job card ${r.pjobcardno} must follow MRN FIFO. Please refresh and try again.`;
+            break;
+          }
         }
       }
     }
@@ -887,7 +1522,7 @@ export default function IssueRequestModal({
     const next = validate();
     if (Object.keys(next).length) {
       setErrors(next);
-      toast.error("Please fix the highlighted fields before saving.");
+      toast.error("Please fix the highlighted fields.");
       focusFirstError(next, FIELD_ORDER, (key) =>
         formRef.current?.querySelector(`[data-field="${key}"]`)
       );
@@ -917,8 +1552,20 @@ export default function IssueRequestModal({
           itemdesc: r.itemdesc,
           planqty: r.planqty,
           macname: r.macname,
+          part_weight: r.part_weight,
+          rm_weight: r.rm_weight,
+          production_id: r.production_id ?? null,
+          rm_item_dcode: r.rm_item_dcode ?? null,
+          rm_item_code: r.rm_item_code || null,
+          rm_item_desc: r.rm_item_desc || null,
+          dispatch_qty: dispatchCoverQty(r),
           issue_qty: Number(r.issue_qty),
-          coils: (r.coils || []).map((c) => ({ coil_no_uid: c.coil_no_uid })),
+          coils: (r.coils || []).map((c) => ({
+            coil_no_uid: c.coil_no_uid,
+            qty: c.qty,
+            mrn_uid: c.mrn_uid ?? null,
+            mrn_no: c.mrn_no ?? null,
+          })),
         })),
       ...(approvedFlag !== undefined ? { approved: approvedFlag } : {}),
     };
@@ -937,7 +1584,7 @@ export default function IssueRequestModal({
       } else {
         res = await issueRequestService.create(payload);
       }
-      toast.success(res?.message || "Saved successfully.");
+      notify(res, "Saved successfully.");
       onSuccess?.();
       onClose?.();
     } catch (err) {
@@ -967,13 +1614,27 @@ export default function IssueRequestModal({
     />
   );
 
+  const drawerDescription = isView
+    ? "View job cards, FIFO coils, and approval status."
+    : isApprove
+      ? "Review details, then Keep Pending or Authorize. Coils stay reserved either way."
+      : isEdit
+        ? "Edit job cards and Dispatch Qty. Saving an authorized request resets it to Pending."
+        : ISSUE_REQUEST_MACHINE_JOB_CARD_LOCK
+          ? "Each machine can run one job card at a time until Store Out is authorized. Coil qty is reserved now; Store Out can scan any coil from the same MRN."
+          : "Coil qty is reserved now; Store Out can scan any coil from the same MRN.";
+
   return (
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={() => handleSave(isApprove ? true : undefined)}
+      onSubmit={
+        readOnly || saving || loadingDetail
+          ? undefined
+          : () => handleSave(isApprove ? true : undefined)
+      }
       title={title}
-      description="Select job cards and shift. Type Dispatch Qty — FIFO coils fill (same as IMS)."
+      description={drawerDescription}
       footer={footerContent}
       maxWidth="max-w-6xl"
     >
@@ -1036,18 +1697,42 @@ export default function IssueRequestModal({
               const live = getRowAvailability(idx, rows);
               const availableCount = live.availableCount;
               const selectedCount = live.selectedCount;
-              const displayStoreQty = live.storeQty;
+              const displayStoreQty = Math.max(0, roundQty((Number(live.storeQty) || 0) - rowCoilQty(row)));
               const balance = rowBalance(row);
+              // Whole-coil overshoot above remaining RM is allowed — don't warn on that.
+              // Only warn when there is no RM cap and issue exceeds plan pending.
               const overIssue =
-                balance.plan > 0 && Number(row.issue_qty) > 0
+                !balance.rmCap && balance.plan > 0 && Number(row.issue_qty) > 0
                   ? roundQty(Number(row.issue_qty) - Math.max(0, balance.pending))
                   : 0;
               const pendingTone =
-                balance.plan <= 0
-                  ? "slate"
-                  : balance.over || balance.pending <= 0
+                balance.rmCap
+                  ? balance.over || balance.pending <= 0
                     ? "rose"
-                    : "emerald";
+                    : "emerald"
+                  : balance.plan <= 0
+                    ? "slate"
+                    : balance.over || balance.pending <= 0
+                      ? "rose"
+                      : "emerald";
+              const remainRm = remainingRmMax(row);
+              const rmComplete = isRmFullyIssued(row);
+              const hasJobCard = Boolean(row.pjobcardno);
+              const rmOpts = buildRmOptions(row.mapped_rm_items, rmSelectionMode, allRmWireItems);
+              const selectedRmKey = rmOptionKey(row);
+              const rmValue = rmListHasKey(rmOpts, selectedRmKey) ? selectedRmKey : "";
+              const rowRmColor = rmSelectionMode === "all" ? getSuperAdminRowRmColor(idx) : null;
+              const selectedRmIsMapped = isRmMappedForItems(
+                { rm_item_code: row.rm_item_code, rm_item_dcode: row.rm_item_dcode },
+                row.mapped_rm_items
+              );
+              const rmDisabled =
+                readOnly ||
+                !hasJobCard ||
+                row.loadingFifo ||
+                (rmSelectionMode === "all" && loadingAllRmWire) ||
+                (rmSelectionMode !== "all" && !rmOpts.length) ||
+                rmSelectionMode === "first";
 
               return (
                 <div
@@ -1077,6 +1762,22 @@ export default function IssueRequestModal({
                             tone="indigo"
                             title="Planned qty on this job card"
                           />
+                          {row.part_weight > 0 ? (
+                            <InfoBadge
+                              label="Part Wt"
+                              value={row.part_weight}
+                              tone="slate"
+                              title="Part weight from ERP"
+                            />
+                          ) : null}
+                          {row.rm_weight > 0 ? (
+                            <InfoBadge
+                              label="RM Wt"
+                              value={row.rm_weight}
+                              tone="slate"
+                              title="RM weight from ERP"
+                            />
+                          ) : null}
                           <InfoBadge
                             label="Issued"
                             value={balance.issued}
@@ -1095,7 +1796,11 @@ export default function IssueRequestModal({
                             value={balance.over ? -balance.pending : Math.max(0, balance.pending)}
                             tone={pendingTone}
                             loading={row.loadingIssued}
-                            title="Plan qty minus qty already issued"
+                            title={
+                              balance.rmCap
+                                ? "Remaining RM weight (RM Wt − already issued)"
+                                : "Plan qty minus qty already issued"
+                            }
                           />
                         </>
                       ) : null}
@@ -1111,9 +1816,9 @@ export default function IssueRequestModal({
                     )}
                   </div>
 
-                  {/* Input row — FN style: Job Card · Item · FG · Dispatch Qty · Coils · Std Qty */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-12 gap-2 items-end">
-                    <div className="col-span-2 sm:col-span-4 lg:col-span-3 min-w-0 text-[11px]">
+                  {/* Job Card → RM item (Production Master mapping, permission-based) */}
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-12 sm:gap-2 items-end w-full">
+                    <div className="min-w-0 text-[11px] sm:col-span-4">
                       <SearchableSelect
                         label="Job Card"
                         value={row.pjobcardno}
@@ -1122,6 +1827,7 @@ export default function IssueRequestModal({
                         getByIdService={getJobCardById}
                         dataKey="id"
                         labelKey="label"
+                        selectedLabelKey="label"
                         subLabelKey="sub"
                         required
                         disabled={readOnly}
@@ -1130,23 +1836,70 @@ export default function IssueRequestModal({
                       />
                     </div>
 
-                    <div className="col-span-1 sm:col-span-2 lg:col-span-1 space-y-0.5 min-w-0">
-                      <label className={MICRO_LABEL}>Item</label>
-                      <div className="bg-slate-700 text-white text-center font-black h-[38px] flex items-center justify-center rounded-lg shadow-sm text-[11px] px-1 truncate">
-                        {row.item_code || "—"}
-                      </div>
+                    <div className="min-w-0 text-[11px] sm:col-span-4">
+                        <SearchableSelect
+                          label={rmSelectionMode === "all" && rmValue ? "" : "RM Wire"}
+                          value={rmValue}
+                          onChange={(id) => handleRmChange(idx, id)}
+                          fetchService={(params) =>
+                            fetchRmWireOptions(rmOpts, params, { mappedItems: row.mapped_rm_items })
+                          }
+                          getByIdService={(id) => getRmWireById(rmOpts, id)}
+                          dataKey="id"
+                          labelKey="item_code"
+                          subLabelKey="sub"
+                          disabled={rmDisabled}
+                          getOptionStyle={
+                            rmSelectionMode === "all"
+                              ? (item) =>
+                                  item._isMapped
+                                    ? {
+                                        backgroundColor: rowRmColor.soft,
+                                        borderLeft: `3px solid ${rowRmColor.accent}`,
+                                      }
+                                    : undefined
+                              : undefined
+                          }
+                          getOptionClassName={
+                            rmSelectionMode === "all"
+                              ? (item) => (item._isMapped ? "font-semibold" : "opacity-80")
+                              : undefined
+                          }
+                          placeholder={
+                          !hasJobCard
+                            ? "Select job card first"
+                            : row.loadingFifo || loadingAllRmWire
+                              ? "Loading…"
+                              : rmSelectionMode === "all"
+                                ? "Search RM wire…"
+                                : rmOpts.length
+                                  ? "Search RM wire…"
+                                  : "No RM mapping"
+                        }
+                        preserveApiOrder
+                        showDuplicateSubLabel
+                        selectedLabelKey="sub"
+                        emptyMessage={
+                          !hasJobCard
+                            ? "Select a job card first"
+                            : loadingAllRmWire
+                              ? "Loading RM wires…"
+                              : row.mappingError ||
+                                (rmSelectionMode === "all"
+                                  ? "No RM wires found"
+                                  : "No RM items in production mapping")
+                        }
+                        />
                     </div>
 
-                    <div className="col-span-1 sm:col-span-2 lg:col-span-2 space-y-0.5 min-w-0">
-                      <label
-                        className={`${MICRO_LABEL} ${
-                          Number(displayStoreQty) > 0 ? "text-emerald-600" : "text-rose-600"
-                        }`}
-                      >
-                        FG Stock
+                    {/* Left / Coils / Qty — always 3-up; on desktop sit in remaining 4 cols */}
+                    <div className="grid grid-cols-3 gap-2 min-w-0 sm:col-span-4">
+                    <div className="space-y-0.5 min-w-0">
+                      <label className={`${MICRO_LABEL} ${Number(displayStoreQty) > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                        Left
                       </label>
                       <div
-                        title="Store-in + unassigned area (remaining for this row)"
+                        title="Stock left after coils selected on this row (and other rows on the same RM)"
                         className={`text-white text-center font-black h-[38px] flex items-center justify-center rounded-lg shadow-sm text-xs tabular-nums ${
                           Number(displayStoreQty) > 0 ? "bg-emerald-600" : "bg-rose-500"
                         }`}
@@ -1159,44 +1912,67 @@ export default function IssueRequestModal({
                       </div>
                     </div>
 
-                    <div className="col-span-1 sm:col-span-2 lg:col-span-2 space-y-0.5 min-w-0">
+                  {/* FUTURE: uncomment Dispatch Qty — also set Job Card wrapper to col-span-3 (now col-span-5).
+                    <div className="col-span-2 space-y-0.5 min-w-0">
                       <label className={MICRO_LABEL}>Dispatch Qty</label>
                       <input
                         type="number"
                         min="0"
+                        max={remainingRmMax(row) != null ? remainingRmMax(row) : undefined}
                         step="any"
                         value={
-                          editingIssueIdx === idx
-                            ? row.issue_target ?? ""
-                            : row.issue_qty ?? ""
+                          readOnly
+                            ? row.issue_qty || ""
+                            : editingIssueIdx === idx
+                              ? row.issue_target ?? ""
+                              : row.issue_target || row.issue_qty || ""
                         }
                         onFocus={() => handleIssueQtyFocus(idx)}
                         onChange={(e) => handleIssueQtyChange(idx, e.target.value)}
                         onBlur={() => handleIssueQtyBlur(idx)}
                         disabled={readOnly || !row.pjobcardno || !!row.mappingError}
-                        title="Type qty, then Tab/click away — FIFO coils fill and Std Qty updates"
+                        title={
+                          remainingRmMax(row) != null
+                            ? `Type up to ${formatExactNumber(remainingRmMax(row))} required. After apply, field shows actual send qty (whole coils may overshoot).`
+                            : "Enter quantity, then leave the field to apply FIFO"
+                        }
                         className={`${OK_INPUT} text-center font-bold text-slate-700 h-[38px] text-[11px] rounded-lg border-slate-200`}
                         placeholder="0"
                       />
                     </div>
+                  */}
 
-                    <div className="col-span-1 sm:col-span-2 lg:col-span-2 space-y-0.5">
+                    <div className="space-y-0.5 min-w-0">
                       <label className={MICRO_LABEL}>Coils</label>
-                      <div className="flex items-center justify-between gap-1 h-[38px] px-1.5 border border-slate-200 rounded-lg bg-white shadow-sm">
+                      <div className="flex items-center justify-between gap-0.5 h-[38px] px-1 border border-slate-200 rounded-lg bg-white shadow-sm">
                         <button
                           type="button"
                           onClick={() => handleCoilChange(idx, "remove")}
-                          disabled={readOnly || selectedCount <= 0}
-                          className="w-7 h-7 flex items-center justify-center text-rose-500 hover:bg-rose-50 rounded-md transition-all disabled:opacity-30 font-black text-lg border border-rose-50"
+                          disabled={
+                            readOnly ||
+                            rmComplete ||
+                            selectedCount <= 0 ||
+                            (selectedCount <= 1 && remainRm != null && remainRm > 0)
+                          }
+                          title={
+                            rmComplete
+                              ? "Required RM already issued"
+                              : selectedCount <= 0
+                                ? "No coils selected"
+                                : selectedCount <= 1 && remainRm > 0
+                                  ? "Minimum 1 coil while RM is pending"
+                                  : "Remove last FIFO coil"
+                          }
+                          className="w-6 h-6 shrink-0 flex items-center justify-center text-rose-500 hover:bg-rose-50 rounded-md transition-all disabled:opacity-30 font-black text-base border border-rose-50"
                         >
                           -
                         </button>
-                        <div className="flex flex-col items-center justify-center min-w-[40px]">
-                          <span className="text-[11px] font-black text-slate-700 leading-none">
+                        <div className="flex flex-col items-center justify-center min-w-0 flex-1">
+                          <span className="text-[10px] font-black text-slate-700 leading-none">
                             {selectedCount}
                           </span>
-                          <div className="h-[1px] w-3 bg-slate-200 my-0.5" />
-                          <span className="text-[11px] font-bold text-slate-400 leading-none">
+                          <div className="h-[1px] w-2 bg-slate-200 my-0.5" />
+                          <span className="text-[10px] font-bold text-slate-400 leading-none">
                             {availableCount}
                           </span>
                         </div>
@@ -1205,31 +1981,36 @@ export default function IssueRequestModal({
                           onClick={() => handleCoilChange(idx, "add")}
                           disabled={!canAddCoil(idx)}
                           title={
-                            !canAddCoil(idx)
-                              ? availableCount <= 0
-                                ? "No FG coils (store + unassigned) in the FIFO pool"
-                                : "All available FIFO coils are already selected"
-                              : "Add the next FIFO coil"
+                            rmComplete
+                              ? "Required RM already issued"
+                              : !canAddCoil(idx)
+                                ? availableCount <= 0
+                                  ? "No coils available"
+                                  : remainRm != null && rowCoilQty(row) >= remainRm - 1e-9
+                                    ? "Required RM already covered"
+                                    : "All available coils are selected"
+                                : "Add next FIFO coil"
                           }
-                          className="w-7 h-7 flex items-center justify-center text-indigo-500 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-30 font-black text-lg border border-indigo-50"
+                          className="w-6 h-6 shrink-0 flex items-center justify-center text-indigo-500 hover:bg-indigo-50 rounded-md transition-all disabled:opacity-30 font-black text-base border border-indigo-50"
                         >
                           +
                         </button>
                       </div>
                     </div>
 
-                    <div className="col-span-1 sm:col-span-2 lg:col-span-2 space-y-0.5 min-w-0">
-                      <label className={`${MICRO_LABEL} text-indigo-600`}>Std Qty</label>
+                    <div className="space-y-0.5 min-w-0">
+                      <label className={`${MICRO_LABEL} text-indigo-600`}>Qty</label>
                       <div
-                        title="FIFO coil total after Dispatch Qty / coil + −"
+                        title="Reserved coil total — Store Out may scan any coil from the same MRN"
                         className="bg-indigo-600 text-white text-center font-black h-[38px] flex items-center justify-center rounded-lg shadow-sm text-xs tabular-nums"
                       >
                         {rowCoilQty(row).toLocaleString()}
                       </div>
                     </div>
-                  </div>
+                    </div>
+                    </div>
 
-                  {(row.itemdesc || row.macname || row.rm_item_code) && (
+                  {/* {(row.itemdesc || row.macname || row.rm_item_code) && (
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-slate-500 px-0.5">
                       {row.itemdesc ? <span className="truncate max-w-full">{row.itemdesc}</span> : null}
                       {row.macname ? (
@@ -1239,7 +2020,7 @@ export default function IssueRequestModal({
                         <span className="font-bold text-indigo-600">RM: {row.rm_item_code}</span>
                       ) : null}
                     </div>
-                  )}
+                  )} */}
 
                   {overIssue > 0 && (
                     <p className="text-[10px] font-bold text-amber-600 px-0.5">
@@ -1252,53 +2033,93 @@ export default function IssueRequestModal({
                     <p className="text-[10px] font-bold text-rose-500 px-0.5">{row.mappingError}</p>
                   )}
 
-                  {selectedCount > 0 && (
-                    <div className="mt-0.5 border border-slate-100 rounded-md overflow-x-auto">
-                      <table className="w-full min-w-[320px] text-xs">
-                        <thead className="bg-slate-50 border-b border-slate-100">
-                          <tr>
-                            <th className="px-2 py-1 text-left font-black text-slate-400 uppercase">#</th>
-                            <th className="px-2 py-1 text-left font-black text-slate-400 uppercase">Coil</th>
-                            <th className="px-2 py-1 text-left font-black text-slate-400 uppercase">Heat</th>
-                            <th className="px-2 py-1 text-left font-black text-slate-400 uppercase">MRN</th>
-                            <th className="px-2 py-1 text-left font-black text-slate-400 uppercase">Location</th>
-                            <th className="px-2 py-1 text-right font-black text-slate-400 uppercase">Qty</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                          {(row.coils || []).map((c, cIdx) => (
-                            <tr key={c.coil_no_uid || cIdx} className="hover:bg-slate-50/30 transition-colors">
-                              <td className="px-2 py-1 font-bold text-slate-400 tabular-nums">{cIdx + 1}</td>
-                              <td className="px-2 py-1 font-mono font-bold text-indigo-700 break-all">
-                                {c.coil_no_uid || "—"}
-                              </td>
-                              <td className="px-2 py-1 font-bold text-amber-700">{c.heat_no || "—"}</td>
-                              <td className="px-2 py-1 font-bold text-slate-600">{c.mrn_no ?? "—"}</td>
-                              <td className="px-2 py-1 font-bold text-emerald-700">
-                                {c.location_no || (c.location_id == null ? "Unassigned" : "—")}
-                              </td>
-                              <td className="px-2 py-1 text-right font-black text-slate-700 tabular-nums">
-                                {Number(c.qty || 0).toLocaleString()}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot className="bg-slate-50 border-t border-slate-100">
-                          <tr>
-                            <td
-                              colSpan={5}
-                              className="px-2 py-1.5 text-right font-black uppercase text-slate-500 text-[10px]"
-                            >
-                              Total ({selectedCount} coil{selectedCount === 1 ? "" : "s"})
-                            </td>
-                            <td className="px-2 py-1.5 text-right font-black text-indigo-700 tabular-nums">
-                              {rowCoilQty(row).toLocaleString()}
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
+                  {rmComplete && !row.mappingError && (
+                    <p className="text-[10px] font-bold text-rose-600 px-0.5">
+                      Required RM weight ({formatExactNumber(row.rm_weight)}) is already issued
+                      {balance.over
+                        ? ` — over by ${formatExactNumber(balance.pending)}`
+                        : ""}
+                      . No coils can be selected.
+                    </p>
                   )}
+
+                  {/* Reserved coils by MRN — Store Out scans these same coil UIDs. */}
+                  {selectedCount > 0 && (() => {
+                    const mrnGroups = groupSelectedCoilsByMrn(row.coils || []);
+                    return (
+                      <div className="mt-1.5 border border-slate-100 rounded-md overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 border-b border-slate-100">
+                            <tr>
+                              <th className="px-2 py-1 text-left font-black text-slate-400 uppercase">
+                                MRN UID
+                              </th>
+                              <th className="px-2 py-1 text-center font-black text-slate-400 uppercase">
+                                Coils
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {mrnGroups.map(({ key, label, coils }) => (
+                              <tr key={key} className="hover:bg-slate-50/30 transition-colors">
+                                <td className="px-2 py-1 font-bold text-slate-600">#{label}</td>
+                                <td className="px-2 py-1 text-center text-indigo-600 font-black tabular-nums">
+                                  {coils.length}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
+
+                  {/* FUTURE: old breakdown with coil qty + ERP stock qty (replace active table above if needed).
+                  {selectedCount > 0 && (() => {
+                    const mrnGroups = groupSelectedCoilsByMrn(row.coils || []);
+                    const showErpStock = !readOnly && Array.isArray(row.fifoPool) && row.fifoPool.length > 0;
+                    const poolQtyForMrn = (pool, mrnKey) =>
+                      (pool || [])
+                        .filter((c) => mrnGroupKey(c) === mrnKey)
+                        .reduce((s, c) => s + (Number(c.qty) || 0), 0);
+                    return (
+                      <div className="mt-1.5 border border-slate-100 rounded-md overflow-x-auto">
+                        <table className="w-full min-w-[280px] text-xs">
+                          <thead className="bg-slate-50 border-b border-slate-100">
+                            <tr>
+                              <th className="px-2 py-1 text-left font-black text-slate-400 uppercase">MRN UID</th>
+                              <th className="px-2 py-1 text-center font-black text-slate-400 uppercase">Coils</th>
+                              <th className="px-2 py-1 text-right font-black text-slate-400 uppercase">Total</th>
+                              {showErpStock ? (
+                                <th className="px-2 py-1 text-right font-black text-yellow-500 uppercase">ERP Stock</th>
+                              ) : null}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {mrnGroups.map(({ key, label, coils }) => {
+                              const totalQty = coils.reduce((s, c) => s + (Number(c.qty) || 0), 0);
+                              const n = coils.length;
+                              return (
+                                <tr key={key}>
+                                  <td className="px-2 py-1 font-bold text-slate-600">#{label}</td>
+                                  <td className="px-2 py-1 text-center text-indigo-600 font-bold">
+                                    {n} coil{n === 1 ? "" : "s"} · {totalQty.toLocaleString()} qty
+                                  </td>
+                                  <td className="px-2 py-1 text-right font-black tabular-nums">{totalQty.toLocaleString()}</td>
+                                  {showErpStock ? (
+                                    <td className="px-2 py-1 text-right font-bold tabular-nums">
+                                      {poolQtyForMrn(row.fifoPool, key).toLocaleString()}
+                                    </td>
+                                  ) : null}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
+                  */}
                 </div>
               );
             })}
@@ -1324,21 +2145,53 @@ export default function IssueRequestModal({
           )}
         </div>
 
-        <RemarksTextarea
+        <FormTextarea
+          label="Remarks"
           value={remarks}
           onChange={(e) => setRemarks(e?.target?.value ?? e ?? "")}
           placeholder="Enter remarks (optional)"
           disabled={readOnly}
         />
 
-        {!readOnly ? (
+        {/* Add: draft/authorize toggle. Approve: footer Keep Pending / Authorize. View: status only. */}
+        {isView ? (
+          <div
+            className={`p-3 rounded-xl border flex items-center gap-3 ${
+              approved
+                ? "bg-emerald-50 border-emerald-200"
+                : "bg-slate-50 border-slate-200"
+            }`}
+          >
+            <AlertCircle
+              size={16}
+              className={approved ? "text-emerald-600 shrink-0" : "text-slate-400 shrink-0"}
+            />
+            <div>
+              <p className="text-xs font-bold text-slate-700">Approval Status</p>
+              <p
+                className={`text-[9px] uppercase font-bold tracking-tight ${
+                  approved ? "text-emerald-700" : "text-slate-400"
+                }`}
+              >
+                {approved ? "Authorized" : "Draft / Pending"}
+              </p>
+            </div>
+          </div>
+        ) : isApprove ? (
+          <div className="p-3 bg-slate-50 rounded-lg border border-dashed border-slate-200 flex items-center gap-2">
+            <AlertCircle size={16} className="text-slate-400 shrink-0" />
+            <p className="text-[10px] text-slate-500 italic">
+              Use Keep Pending to save as draft, or Authorize to approve for Store Out.
+            </p>
+          </div>
+        ) : (
           <ApprovalStatusToggle
             show={showApproval}
             checked={approved}
             onChange={setApproved}
             pendingHint="This issue request will stay Pending until authorized."
           />
-        ) : null}
+        )}
 
         {!readOnly && (
           <ModuleSopAcknowledgment

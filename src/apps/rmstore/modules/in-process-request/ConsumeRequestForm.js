@@ -11,6 +11,7 @@ import { getScanInputPlaceholder } from "@/platform/utils/device/deviceScanSetti
 /** Consume — IMS-style scan panel + scanned coil grid. Toggle per coil for partial used qty. */
 export default function ConsumeRequestForm({
   readOnly = false,
+  isEdit = false,
   coils = [],
   errors = {},
   manualCoilId = "",
@@ -45,12 +46,13 @@ export default function ConsumeRequestForm({
 
   return (
     <div className="space-y-2">
-      {!readOnly ? (
+      {!readOnly && (coils.length === 0 || isEdit) ? (
         <div className="space-y-2 bg-indigo-50/30 p-2 rounded-lg border border-indigo-100 shadow-sm">
           <div className="space-y-2 p-1.5 bg-white border border-indigo-100 rounded-lg w-full min-w-0">
             {coils.length === 0 ? (
               <p className="text-[9px] font-semibold text-indigo-800/80 px-0.5 leading-snug">
-                Scan shop-floor coils one by one. Full qty is consumed by default.
+                Scan issued coils and record used qty. Full coil use = full qty consumed. Partial use →
+                balance auto-queues in Store In Pending.
               </p>
             ) : null}
             {(showPhoneQr || showLaserUi) && (
@@ -136,9 +138,7 @@ export default function ConsumeRequestForm({
                 return (
                   <div
                     key={c.coil_no_uid}
-                    className={`bg-white p-2 rounded-lg border flex flex-col gap-2 shadow-sm transition-all ${
-                      partial ? "border-indigo-200 hover:border-indigo-300" : "border-emerald-100 hover:border-emerald-300"
-                    }`}
+                    className={`bg-white p-2 rounded-lg border flex flex-col gap-2 shadow-sm transition-all ${partial ? "border-indigo-200 hover:border-indigo-300" : "border-emerald-100 hover:border-emerald-300"}`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -189,7 +189,7 @@ export default function ConsumeRequestForm({
                                 : "bg-slate-300"
                             }`}
                           />
-                          <span className="text-[8px] font-bold uppercase text-slate-500">Less qty</span>
+                          <span className="text-[8px] font-bold uppercase text-slate-500">Left Over</span>
                         </label>
                         {partial ? (
                           <input
@@ -203,7 +203,7 @@ export default function ConsumeRequestForm({
                             className={`${OK_INPUT} h-8 w-24 text-[11px] tabular-nums`}
                           />
                         ) : (
-                          <span className="text-[8px] font-bold uppercase text-emerald-600">Full consume</span>
+                          <span className="text-[8px] font-bold uppercase text-emerald-600">Full Consume</span>
                         )}
                       </div>
                     ) : partial || used < issued ? (
@@ -213,7 +213,7 @@ export default function ConsumeRequestForm({
                         {balance > 0 ? (
                           <span className="text-slate-400 font-semibold normal-case">
                             {" "}
-                            · {balance.toLocaleString()} on shop floor
+                            · {balance.toLocaleString()} → Store In Pending on submit
                           </span>
                         ) : null}
                       </div>

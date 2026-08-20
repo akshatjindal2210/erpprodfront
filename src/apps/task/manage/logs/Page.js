@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { RefreshCcw, Activity, Layers } from "lucide-react";
+import { RefreshCcw, Activity } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { activityLogService } from "@/common/services/activityLogService";
@@ -17,7 +17,8 @@ import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
-import { formatActivityLogValue, getActivityLogSections, getActivityLogMoreSections, hasActivityLogDetails, resolveActivityLogRef } from "@/platform/utils/core/activityLogDisplay";
+import { formatActivityLogValue, getActivityLogSections, getActivityLogMoreSections, hasActivityLogDetails } from "@/platform/utils/core/activityLogDisplay";
+import ActivityLogModuleEntityCell from "@/ui/common/list/ActivityLogModuleEntityCell";
 
 export default function LogsPage() {
   const canAccess = useCanAccess();
@@ -143,14 +144,8 @@ export default function LogsPage() {
       );
     }, { width: "110px", align: "center" }],
 
-    ["Module / Entity", "module", (v, row) => (
-      <div className="flex flex-col leading-tight min-w-[140px]">
-        <div className="flex items-center gap-1">
-          <Layers size={10} className="text-slate-500 shrink-0" />
-          <span className={`capitalize ${IMS_TABLE_CELL_TEXT}`}>{v?.replace(/_/g, " ") || "—"}</span>
-        </div>
-        <span className="text-[9px] text-indigo-500 font-mono ml-3">REF: {resolveActivityLogRef(row) || "—"}</span>
-      </div>
+    ["Module / Entity", "module", (_v, row) => (
+      <ActivityLogModuleEntityCell row={row} appType="task" />
     ), { width: "180px" }],
 
     ["Details", "log_data", (v, row) => {

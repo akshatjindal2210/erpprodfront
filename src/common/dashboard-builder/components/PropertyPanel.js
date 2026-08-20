@@ -37,6 +37,52 @@ function normalizeHexColor(value, fallback = "#3b82f6") {
   return fallback;
 }
 
+/** Resizable SQL editor — drag corner to grow; Expand opens a taller workspace. */
+function QuerySqlEditor({
+  value = "",
+  onChange,
+  placeholder = "",
+  minHeight = 140,
+  defaultMaxHeight = 280,
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const maxHeight = expanded ? "70vh" : defaultMaxHeight;
+  return (
+    <div className="relative">
+      <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          className="rounded bg-slate-700/90 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-slate-100 hover:bg-slate-600"
+          title={expanded ? "Collapse editor" : "Expand editor for long queries"}
+        >
+          {expanded ? "Collapse" : "Expand"}
+        </button>
+      </div>
+      <Code size={13} className="absolute top-2.5 left-2.5 text-slate-400 pointer-events-none z-[1]" />
+      <textarea
+        className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-2.5 py-2 pl-8 pr-16 text-[10px] font-mono text-blue-100 shadow-inner custom-scrollbar leading-relaxed resize-y"
+        style={{ minHeight, maxHeight, height: expanded ? maxHeight : undefined }}
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+        spellCheck={false}
+      />
+    </div>
+  );
+}
+
+function QueryErrorBanner({ message }) {
+  const text = String(message || "").trim();
+  if (!text) return null;
+  return (
+    <div className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-2 text-[10px] text-rose-700 space-y-1">
+      <p className="font-bold uppercase tracking-widest text-rose-600">Query error</p>
+      <p className="font-medium whitespace-pre-wrap break-words leading-relaxed">{text}</p>
+    </div>
+  );
+}
+
 const COLOR_PRESETS = [
   "#0f172a", "#334155", "#64748b", "#94a3b8",
   "#ffffff", "#fecaca", "#fed7aa", "#fef08a",
@@ -520,7 +566,8 @@ const PropertyPanel = ({
 
       setHybridStep(2);
     } catch (err) {
-      setHybridError(err.message || "Failed to preview external data.");
+      const message = String(err?.message || err?.payload?.message || "Failed to preview external data.").trim();
+      setHybridError(message);
     } finally {
       setHybridLoading(false);
     }
@@ -1068,24 +1115,22 @@ const PropertyPanel = ({
                           </div>
                           <div>
                             <PanelFieldLabel>ERP SQL (First DB)</PanelFieldLabel>
-                            <div className="relative">
-                              <Code size={13} className="absolute top-2.5 left-2.5 text-slate-400 pointer-events-none" />
-                              <textarea
-                                className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-2.5 py-2 pl-8 text-[10px] font-mono text-blue-100 min-h-[120px] max-h-[200px] shadow-inner custom-scrollbar leading-relaxed"
-                                placeholder={EXTERNAL_MSSQL_QUERY_PLACEHOLDER}
-                                value={selectedWidget.chart_config?.hybrid_mssql_query || ""}
-                                onChange={(e) => {
-                                  const current = selectedWidgetRef.current || selectedWidget;
-                                  applyWidgetPatch({
-                                    chart_config: {
-                                      ...(current.chart_config || {}),
-                                      hybrid_mssql_query: e.target.value,
-                                      is_hybrid: true,
-                                    },
-                                  });
-                                }}
-                              />
-                            </div>
+                            <QuerySqlEditor
+                              value={selectedWidget.chart_config?.hybrid_mssql_query || ""}
+                              placeholder={EXTERNAL_MSSQL_QUERY_PLACEHOLDER}
+                              minHeight={140}
+                              defaultMaxHeight={320}
+                              onChange={(e) => {
+                                const current = selectedWidgetRef.current || selectedWidget;
+                                applyWidgetPatch({
+                                  chart_config: {
+                                    ...(current.chart_config || {}),
+                                    hybrid_mssql_query: e.target.value,
+                                    is_hybrid: true,
+                                  },
+                                });
+                              }}
+                            />
                           </div>
                           <button
                             type="button"
@@ -1105,7 +1150,7 @@ const PropertyPanel = ({
                               </>
                             )}
                           </button>
-                          {hybridError && <p className="text-[9px] text-rose-500 font-semibold">{hybridError}</p>}
+                          {hybridError && <QueryErrorBanner message={hybridError} />}
                         </div>
                       ) : (
                         <div className="px-3 py-2 bg-emerald-50/50 border-b border-emerald-100 space-y-1.5">
@@ -1146,18 +1191,17 @@ const PropertyPanel = ({
                       <div className="p-3 space-y-3">
                         <div>
                           <PanelFieldLabel>Final SQL Query (PostgreSQL)</PanelFieldLabel>
-                          <div className="relative">
-                            <Code size={13} className="absolute top-2.5 left-2.5 text-slate-400 pointer-events-none" />
-                            <textarea
-                              className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-2.5 py-2 pl-8 text-[10px] font-mono text-blue-100 min-h-[120px] max-h-[200px] shadow-inner custom-scrollbar leading-relaxed"
-                              placeholder={"-- Example:\nSELECT e.*, t.local_col\nFROM {{temp_erp_data}} e\nLEFT JOIN your_pg_table t ON t.id = e.\"Item_Code\""}
-                              value={selectedWidget.query || ""}
-                              onChange={(e) => {
-                                setValidationError("");
-                                handleChange("query", e.target.value);
-                              }}
-                            />
-                          </div>
+                          <QuerySqlEditor
+                            value={selectedWidget.query || ""}
+                            placeholder={"-- Example:\nSELECT e.*, t.local_col\nFROM {{temp_erp_data}} e\nLEFT JOIN your_pg_table t ON t.id = e.\"Item_Code\""}
+                            minHeight={140}
+                            defaultMaxHeight={320}
+                            onChange={(e) => {
+                              setValidationError("");
+                              applyWidgetPatch({ query: e.target.value, previewError: null });
+                            }}
+                          />
+                          <QueryErrorBanner message={selectedWidget.previewError || validationError} />
                         </div>
                         <button
                           type="button"
@@ -1231,23 +1275,21 @@ const PropertyPanel = ({
                   <div className="space-y-2">
                     <div>
                       <PanelFieldLabel>{isExternalSqlServer ? "SQL Server Query" : "SQL Query"}</PanelFieldLabel>
-                      <div className="relative">
-                        <Code size={13} className="absolute top-2.5 left-2.5 text-slate-400 pointer-events-none" />
-                        <textarea
-                          className="w-full bg-slate-900 border-none focus:ring-2 focus:ring-blue-500/20 rounded-md px-2.5 py-2 pl-8 text-[10px] font-mono text-blue-100 min-h-[100px] max-h-[160px] shadow-inner custom-scrollbar leading-relaxed"
-                          placeholder={
-                            isExternalSqlServer
-                              ? EXTERNAL_MSSQL_QUERY_PLACEHOLDER
-                              : DASHBOARD_WIDGET_QUERY_PLACEHOLDER
-                          }
-                          value={selectedWidget.query || ""}
-                          onChange={(e) => {
-                            setValidationError("");
-                            handleChange("query", e.target.value);
-                          }}
-                        />
-                      </div>
-                      {!!validationError && <p className="mt-0.5 text-[9px] text-rose-500 font-semibold">{validationError}</p>}
+                      <QuerySqlEditor
+                        value={selectedWidget.query || ""}
+                        placeholder={
+                          isExternalSqlServer
+                            ? EXTERNAL_MSSQL_QUERY_PLACEHOLDER
+                            : DASHBOARD_WIDGET_QUERY_PLACEHOLDER
+                        }
+                        minHeight={140}
+                        defaultMaxHeight={360}
+                        onChange={(e) => {
+                          setValidationError("");
+                          applyWidgetPatch({ query: e.target.value, previewError: null });
+                        }}
+                      />
+                      <QueryErrorBanner message={validationError || selectedWidget.previewError} />
                     </div>
 
                     <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
@@ -1574,6 +1616,39 @@ const PropertyPanel = ({
                     onChange={(e) => handleChange("style.tableBodyFontSize", Math.max(8, Math.min(28, Number(e.target.value) || 10)))}
                   />
                 </div>
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Cell pad X (px)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={32}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                    value={selectedWidget.style?.tableCellPaddingX ?? 8}
+                    onChange={(e) => handleChange("style.tableCellPaddingX", Math.max(0, Math.min(32, Number(e.target.value) || 0)))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Cell pad Y (px)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={24}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                    value={selectedWidget.style?.tableCellPaddingY ?? 6}
+                    onChange={(e) => handleChange("style.tableCellPaddingY", Math.max(0, Math.min(24, Number(e.target.value) || 0)))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-semibold text-slate-500 mb-1">Toolbar gap (px)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={32}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                    value={selectedWidget.style?.tableToolbarGap ?? 12}
+                    onChange={(e) => handleChange("style.tableToolbarGap", Math.max(0, Math.min(32, Number(e.target.value) || 0)))}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1816,6 +1891,50 @@ const PropertyPanel = ({
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Font Weight</label>
+                <select
+                  value={selectedWidget.style?.fontWeight || "inherit"}
+                  onChange={(e) => handleChange("style.fontWeight", e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                >
+                  <option value="inherit">Default</option>
+                  <option value="400">Regular</option>
+                  <option value="500">Medium</option>
+                  <option value="600">Semibold</option>
+                  <option value="700">Bold</option>
+                  <option value="800">Extra Bold</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Content Gap (px)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={48}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                  value={selectedWidget.style?.contentGap ?? (selectedWidget.rawType === "kpi" ? 2 : 4)}
+                  onChange={(e) => handleChange("style.contentGap", Math.max(0, Math.min(48, Number(e.target.value) || 0)))}
+                  title="Space between title and content, or KPI label and value"
+                />
+              </div>
+            </div>
+
+            {(selectedWidget.rawType === "table" || selectedWidget.rawType === "graph") && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Title Font Size (px)</label>
+                <input
+                  type="number"
+                  min={8}
+                  max={28}
+                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                  value={selectedWidget.style?.titleFontSize ?? Math.min(14, Number(selectedWidget.style?.fontSize) || 11)}
+                  onChange={(e) => handleChange("style.titleFontSize", Math.max(8, Math.min(28, Number(e.target.value) || 11)))}
+                />
+              </div>
+            )}
+
             {selectedWidget.rawType === "kpi" && (
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Label Size (px)</label>
@@ -1944,6 +2063,7 @@ const PropertyPanel = ({
       </div>
 
       <div className="p-2 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90 space-y-1.5 z-10 shrink-0">
+        <QueryErrorBanner message={selectedWidget.previewError || validationError || hybridError} />
         <button
           type="button"
           onClick={handlePreview}

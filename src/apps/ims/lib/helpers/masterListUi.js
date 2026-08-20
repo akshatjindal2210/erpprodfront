@@ -48,24 +48,24 @@ export function MasterRefreshButton({ loading, onClick, className = "" }) {
   );
 }
 
-/** IMS drawer footer — same as Location / Stock Adjustment modals. */
+/** IMS drawer footer — always one row (Cancel ghost + primary), right-aligned. */
 export const IMS_DRAWER_FOOTER_WRAP =
-  "flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 sm:gap-3 w-full";
+  "flex flex-row flex-nowrap items-center justify-end gap-3 w-full";
 
 export const IMS_DRAWER_BTN_CANCEL =
-  "w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 rounded-xl bg-white disabled:opacity-50 transition-colors";
+  "shrink-0 px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-800 transition-all disabled:opacity-50 bg-transparent border-0";
 
 export const IMS_DRAWER_BTN_CLOSE =
-  "w-full sm:w-auto px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 border border-slate-200 rounded-xl hover:bg-slate-200 transition-colors disabled:opacity-50";
+  "shrink-0 px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-800 transition-all disabled:opacity-50 bg-transparent border-0";
 
 export const IMS_DRAWER_BTN_PRIMARY =
-  "w-full sm:w-auto sm:min-w-[160px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:bg-indigo-400";
+  "shrink-0 min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all inline-flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50 disabled:bg-indigo-400";
 
 export const IMS_DRAWER_BTN_AMBER =
-  "w-full sm:w-auto sm:min-w-[140px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-amber-700 hover:bg-amber-800 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-100 disabled:opacity-50";
+  "shrink-0 min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-amber-700 hover:bg-amber-800 rounded-xl transition-all inline-flex items-center justify-center gap-2 shadow-lg shadow-amber-100 disabled:opacity-50";
 
 export const IMS_DRAWER_BTN_KEEP_PENDING =
-  "w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-50";
+  "shrink-0 px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-50";
 
 export const IMS_DRAWER_BTN_APPROVE =
-  "w-full sm:w-auto sm:min-w-[140px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-50";
+  "shrink-0 min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all inline-flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-50";

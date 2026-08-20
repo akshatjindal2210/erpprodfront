@@ -22,9 +22,10 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
+import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 
-const MODULE = "rm_issue_request";
+const MODULE = "rm_in_process_request";
 
 const DOWNSTREAM_LABEL = {
   [IPR_DOWNSTREAM.PENDING_STORE_OUT]: "Rejection Pending",
@@ -32,6 +33,7 @@ const DOWNSTREAM_LABEL = {
   [IPR_DOWNSTREAM.PENDING_STORE_IN]: "Store In Pending",
   [IPR_DOWNSTREAM.STORE_IN_DONE]: "Store In Done",
   [IPR_DOWNSTREAM.CONSUMED]: "Consumed",
+  [IPR_DOWNSTREAM.TRANSFER_PENDING]: "Transfer Pending",
 };
 
 function qtyCell(v) {
@@ -204,9 +206,9 @@ export default function InProcessRequestPage() {
   }, [selectedRecord, fetchRows]);
 
   const canReceiveSelected =
-    selectedRecord?.request_type === IPR_REQUEST_TYPE.STORE_IN &&
     selectedRecord?.approved === true &&
-    selectedRecord?.downstream === IPR_DOWNSTREAM.PENDING_STORE_IN;
+    selectedRecord?.downstream === IPR_DOWNSTREAM.PENDING_STORE_IN &&
+    (selectedRecord?.request_type === IPR_REQUEST_TYPE.STORE_IN || selectedRecord?.request_type === IPR_REQUEST_TYPE.CONSUME);
 
   const headers = useMemo(
     () => [
@@ -215,7 +217,7 @@ export default function InProcessRequestPage() {
       ["Item Code", "item_code", (v) => (
           <span className="font-bold text-slate-800 uppercase text-[11px] truncate block">{v || "—"}</span>
         ),
-        { width: "120px" },
+        { width: "180px" },
       ],
       ["Description", "item_desc", (v) => (
           <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>
@@ -224,12 +226,12 @@ export default function InProcessRequestPage() {
         ),
         { width: "160px" },
       ],
-      ["MRN / Lot", "mrn_label", (v, row) => (
+      ["MRN UID", "mrn_uid", (v, row) => (
           <span
             className="font-bold text-indigo-700 text-[10px] truncate block"
-            title={row.lot_label ? `Lot ${row.lot_label}` : row.mrn_uid || ""}
+            title={row.lot_label ? `Lot ${row.lot_label}` : v || ""}
           >
-            {row.lot_label ? `Lot ${row.lot_label}` : v || row.mrn_uid || "—"}
+            {row.lot_label ? `Lot ${row.lot_label}` : v || "—"}
           </span>
         ),
         { width: "110px" },
@@ -262,6 +264,29 @@ export default function InProcessRequestPage() {
         { width: "150px" },
       ],
       ["Qty", "total_qty", qtyCell, { width: "80px" }],
+      ["Consumed", "consumed_qty", qtyCell, { width: "80px" }],
+      ["Balance", "balance_qty", qtyCell, { width: "80px" }],
+      [
+        "Balance Status",
+        "balance_status",
+        (v) => {
+          const label = v || "—";
+          const cls =
+            label === "Full"
+              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+              : label === "Balance"
+                ? "bg-amber-50 text-amber-800 border-amber-200"
+                : label === "Rejected"
+                  ? "bg-rose-50 text-rose-800 border-rose-200"
+                  : "bg-slate-50 text-slate-600 border-slate-200";
+          return (
+            <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${cls}`}>
+              {label}
+            </span>
+          );
+        },
+        { width: "120px", align: "center" },
+      ],
       [
         "Coils",
         "coil_count",
@@ -282,7 +307,7 @@ export default function InProcessRequestPage() {
             {v ? "● AUTHORIZED" : "○ PENDING"}
           </span>
         ),
-        { width: "110px" },
+        { width: "150px" },
       ],
       [
         "Next Step",
@@ -432,33 +457,22 @@ export default function InProcessRequestPage() {
           />
 
           {selectedRecord && (
-            <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-teal-50 border border-teal-100 animate-in slide-in-from-top-1">
-              <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                <span className="text-[10px] font-bold text-teal-800 shrink-0">
-                  Selected: IPR #{selectedRecord.ipr_uid}
-                </span>
+            <MasterSelectionBanner onClear={() => setSelected(null)}>
+              <span className="flex items-center gap-2 flex-wrap normal-case">
+                <span className="text-indigo-800">Selected: IPR #{selectedRecord.ipr_uid}</span>
                 <IprRequestTypeCell row={selectedRecord} inline />
-                <span className="text-[10px] font-bold text-slate-600 truncate">
-                  {selectedRecord.item_code || "—"}
-                </span>
-                {canReceiveSelected ? (
+                <span className="text-slate-600 truncate">{selectedRecord.item_code || "—"}</span>
+                {canReceiveSelected && (
                   <button
                     type="button"
                     onClick={() => void handleReceiveStoreIn()}
-                    className="text-[10px] font-bold uppercase text-teal-700 bg-teal-100 border border-teal-200 px-2 py-0.5 rounded hover:bg-teal-200"
+                    className="text-[9px] font-black uppercase text-indigo-700 bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded hover:bg-indigo-200 transition-colors"
                   >
                     Receive to Unassigned Area
                   </button>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="text-teal-400 hover:text-teal-700 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear
-              </button>
-            </div>
+                )}
+              </span>
+            </MasterSelectionBanner>
           )}
         </ListPageToolbar>
 
@@ -468,9 +482,9 @@ export default function InProcessRequestPage() {
             fromDate={params.fromDate}
             toDate={params.toDate}
             extraFilters={extraFilters}
-            applyExtrasOnChange
-            showSearchButton={false}
+            showSearchButton
             applyOnSearchEnter={false}
+            applyExtrasOnChange={false}
             searchVariant="quick"
             onApply={(data) => {
               setParams((prev) => ({

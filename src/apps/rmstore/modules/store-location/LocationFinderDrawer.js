@@ -5,22 +5,22 @@ import { Loader2, ScanLine, CameraOff, MapPin, Info, QrCode, Layers } from "luci
 import Drawer from "@/ui/primitives/Drawer";
 import Snackbar from "@/ui/primitives/Snackbar";
 import { storeLocationService } from "@/apps/rmstore/lib/services/storeLocation";
-import { coilService } from "@/apps/rmstore/lib/services/coil";
+import { coilHelperContext, lookupCoilByUid, lookupCoils } from "@/apps/rmstore/lib/helpers/coilLookup";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
 import { extractLocationNo, extractCoilUid, locationNoDisplayLabel, coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
 import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
-import { playScanSuccessBeep, prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
 import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
 import LaserScanField from "@/ui/common/scan/LaserScanField";
 import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
+import CoilFinderPlacementSection, { coilFinderHeaderTone } from "@/apps/rmstore/modules/coil/CoilFinderPlacementSection";
+import { playScanSuccessBeep, prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "info", title: "", message: "", duration: SNACK_DUR.med };
 const LOCATION_FINDER_SCANNER_ID = "rm-location-finder-scanner-reader";
-const MODULE = "rm_inventory_inwards";
 
 function formatLocationNo(loc) {
   if (!loc) return "—";
@@ -48,7 +48,7 @@ function pickLocationFromList(list, locationNo) {
   );
 }
 
-export default function LocationFinderDrawer({ open, onClose }) {
+export default function LocationFinderDrawer({ open, onClose, permissionModule = "rm_inventory_inwards" }) {
   const [loading, setLoading] = useState(false);
   const [locationData, setLocationData] = useState(null);
   const [coilData, setCoilData] = useState(null);
@@ -76,13 +76,16 @@ export default function LocationFinderDrawer({ open, onClose }) {
   const loadCoilsForLocation = async (locationId) => {
     if (!locationId) return [];
     try {
-      const res = await coilService.getAll({
-        filters: { location_id: Number(locationId) },
-        page: 1,
-        limit: 200,
-        sortBy: "coil_uid",
-        order: "DESC",
-      });
+      const res = await lookupCoils(
+        {
+          filters: { location_id: Number(locationId) },
+          page: 1,
+          limit: 200,
+          sortBy: "coil_uid",
+          order: "DESC",
+        },
+        coilHelperContext(permissionModule, "view")
+      );
       return Array.isArray(res?.data) ? res.data : [];
     } catch {
       return [];
@@ -95,7 +98,7 @@ export default function LocationFinderDrawer({ open, onClose }) {
     if (/^\d+$/.test(locationNo)) {
       const byId = await storeLocationService.getViews({
         id: Number(locationNo),
-        permission_module: MODULE,
+        permission_module: permissionModule,
         permission_action: "view",
       });
       if (byId?.data) matched = normalizeLoc(byId.data);
@@ -112,7 +115,7 @@ export default function LocationFinderDrawer({ open, onClose }) {
     if (!matched) {
       const listRes = await storeLocationService.getViews({
         search: locationNo,
-        permission_module: MODULE,
+        permission_module: permissionModule,
         permission_action: "view",
         page: 1,
         limit: 50,
@@ -127,7 +130,7 @@ export default function LocationFinderDrawer({ open, onClose }) {
     if (!matched) {
       const filterRes = await storeLocationService.getViews({
         filters: { location_no: locationNo },
-        permission_module: MODULE,
+        permission_module: permissionModule,
         permission_action: "view",
         page: 1,
         limit: 10,
@@ -156,8 +159,7 @@ export default function LocationFinderDrawer({ open, onClose }) {
     try {
       // IMS-style: scan coil → show where it is stored
       if (coilUid) {
-        const coilRes = await coilService.getByUid(coilUid);
-        const coil = coilRes?.data;
+        const coil = await lookupCoilByUid(coilUid, coilHelperContext(permissionModule, "view"));
         if (!coil) {
           showScanToast("error", "coil-not-found", "Coil not found. Check the UID and try again.");
           return;
@@ -165,7 +167,6 @@ export default function LocationFinderDrawer({ open, onClose }) {
         setCoilData(coil);
 
         if (!coil.location_id) {
-          showScanToast("warning", "no-loc", "This coil is unassigned and not stored yet.", 3500);
           void playScanSuccessBeep();
           return;
         }
@@ -180,19 +181,30 @@ export default function LocationFinderDrawer({ open, onClose }) {
         if (!loc?.location_id) {
           const viewsRes = await storeLocationService.getViews({
             id: Number(coil.location_id),
-            permission_module: MODULE,
+            permission_module: permissionModule,
             permission_action: "view",
           });
           loc = viewsRes?.data ? normalizeLoc(viewsRes.data) : null;
         }
 
         if (!loc?.location_id) {
-          showScanToast("error", "loc-missing", "Saved location was not found in the location list.");
-          return;
+          const hasEmbedded =
+            String(coil.location_no || "").trim() || coil.rack_no != null || coil.row_no != null;
+          if (hasEmbedded) {
+            loc = normalizeLoc({
+              location_id: coil.location_id,
+              location_no: coil.location_no,
+              rack_no: coil.rack_no,
+              row_no: coil.row_no,
+            });
+          }
         }
 
-        setLocationData(loc);
-        setCoilsAtLoc(await loadCoilsForLocation(loc.location_id));
+        if (loc?.location_id) {
+          setLocationData(loc);
+          setCoilsAtLoc(await loadCoilsForLocation(loc.location_id));
+        }
+
         void playScanSuccessBeep();
         return;
       }
@@ -276,6 +288,8 @@ export default function LocationFinderDrawer({ open, onClose }) {
     return locationNoDisplayLabel(raw);
   };
 
+  const coilHeaderTone = coilData ? coilFinderHeaderTone(coilData) : null;
+
   return (
     <>
       <Drawer
@@ -305,7 +319,7 @@ export default function LocationFinderDrawer({ open, onClose }) {
                     ref={keyboardInputRef}
                     placeholder={getScanInputPlaceholder()}
                     onEnter={handleScanEnter}
-                    className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    className="w-full h-11 min-h-11 pl-10 pr-4 bg-white border border-slate-200 rounded-xl text-sm font-mono text-slate-900 placeholder:text-slate-500 placeholder:opacity-100 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                 </div>
               )}
@@ -344,14 +358,14 @@ export default function LocationFinderDrawer({ open, onClose }) {
               <p className="text-xs font-medium text-slate-500">Please wait…</p>
             </div>
           ) : locationData || coilData ? (
-            <div className="space-y-4 animate-in slide-in-from-bottom-2 duration-300">
+            <div className="space-y-4">
               {coilData && (
-                <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-2.5">
-                  <p className="text-[11px] font-semibold text-indigo-700 mb-1 flex items-center gap-1">
+                <div className={`rounded-xl border px-3 py-2.5 ${coilHeaderTone.shell}`}>
+                  <p className={`text-[11px] font-semibold mb-1 flex items-center gap-1 ${coilHeaderTone.kicker}`}>
                     <Layers size={12} /> Coil
                   </p>
-                  <p className="text-sm font-bold font-mono text-slate-900">{coilData.coil_no_uid}</p>
-                  <p className="text-[11px] text-slate-600 mt-0.5">
+                  <p className={`text-sm font-bold font-mono ${coilHeaderTone.title}`}>{coilData.coil_no_uid}</p>
+                  <p className={`text-[11px] mt-0.5 ${coilHeaderTone.meta}`}>
                     {coilData.item_code || "—"}
                     {coilData.heat_no ? ` · Heat ${coilData.heat_no}` : ""}
                     {coilData.qty != null ? ` · Qty ${Number(coilData.qty).toLocaleString()}` : ""}
@@ -359,60 +373,35 @@ export default function LocationFinderDrawer({ open, onClose }) {
                 </div>
               )}
 
+              {coilData ? (
+                <CoilFinderPlacementSection coil={coilData} locationData={locationData} />
+              ) : locationData ? (
+                <CoilFinderPlacementSection locationData={locationData} />
+              ) : null}
+
               {locationData ? (
-                <>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                    <p className="text-xs font-semibold text-slate-800">Location found</p>
-                    <p className="text-[11px] text-slate-600 mt-0.5 leading-snug">RM store rack / row details.</p>
+                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <p className="text-[11px] font-bold text-slate-700 uppercase">Coils here</p>
+                    <span className="text-[10px] font-bold text-slate-500">{coilsAtLoc.length}</span>
                   </div>
-
-                  <div className="grid grid-cols-1 gap-3">
-                    <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm shadow-emerald-50/50">
-                      <p className="text-[11px] text-emerald-600 font-medium mb-1">Location No.</p>
-                      <p className="text-2xl font-bold text-emerald-900 leading-none font-mono tracking-tight">
-                        {formatLocationNo(locationData)}
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm shadow-emerald-50/50">
-                        <p className="text-[11px] text-emerald-600 font-medium mb-1">Rack</p>
-                        <p className="text-2xl font-bold text-emerald-900 leading-none font-mono">{locationData.rack_no || "—"}</p>
-                      </div>
-                      <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm shadow-emerald-50/50">
-                        <p className="text-[11px] text-emerald-600 font-medium mb-1">Row</p>
-                        <p className="text-2xl font-bold text-emerald-900 leading-none font-mono">{locationData.row_no || "—"}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                      <p className="text-[11px] font-bold text-slate-700 uppercase">Coils here</p>
-                      <span className="text-[10px] font-bold text-slate-500">{coilsAtLoc.length}</span>
-                    </div>
-                    {coilsAtLoc.length === 0 ? (
-                      <p className="px-3 py-4 text-[11px] text-slate-400">No coils are stored at this location.</p>
-                    ) : (
-                      <ul className="max-h-48 overflow-y-auto divide-y divide-slate-100">
-                        {coilsAtLoc.map((c) => (
-                          <li key={c.coil_no_uid || c.coil_uid} className="px-3 py-2">
-                            <p className="text-[11px] font-mono font-bold text-slate-800">{c.coil_no_uid}</p>
-                            <p className="text-[10px] text-slate-500">
-                              {c.item_code || "—"}
-                              {c.qty != null ? ` · ${Number(c.qty).toLocaleString()}` : ""}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
-                  <p className="text-xs font-semibold text-amber-800">Not stored yet</p>
-                  <p className="text-[11px] text-amber-700 mt-0.5">This coil is unassigned — not linked to a location yet.</p>
+                  {coilsAtLoc.length === 0 ? (
+                    <p className="px-3 py-4 text-[11px] text-slate-400">No coils are stored at this location.</p>
+                  ) : (
+                    <ul className="max-h-48 overflow-y-auto divide-y divide-slate-100">
+                      {coilsAtLoc.map((c) => (
+                        <li key={c.coil_no_uid || c.coil_uid} className="px-3 py-2">
+                          <p className="text-[11px] font-mono font-bold text-slate-800">{c.coil_no_uid}</p>
+                          <p className="text-[10px] text-slate-500">
+                            {c.item_code || "—"}
+                            {c.qty != null ? ` · ${Number(c.qty).toLocaleString()}` : ""}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-              )}
+              ) : null}
             </div>
           ) : (
             !cameraOn && (

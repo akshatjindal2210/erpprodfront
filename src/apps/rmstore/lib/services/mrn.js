@@ -45,6 +45,10 @@ async function postMultipart(endpoint, formData) {
 
 export const mrnService = {
   getAll: (params) => api(ENDPOINTS.MRN.LIST, { method: "POST", body: params }),
+  /** Stock Adjustment gate — MRN search (Add) or lot search (Old). */
+  searchErp: (params) => api(ENDPOINTS.MRN.ERP_SEARCH, { method: "POST", body: params }),
+  /** Stock Adjustment Old gate — FY lot suggestions. */
+  listErpLots: (params) => api(ENDPOINTS.MRN.ERP_LOTS, { method: "POST", body: params }),
   generate: (data) => api(ENDPOINTS.MRN.GENERATE, { method: "POST", body: data }),
   delete: (uid) => api(ENDPOINTS.MRN.DELETE, { method: "POST", body: { uid } }),
   getDetail: (uid) => api(ENDPOINTS.MRN.DETAIL, { method: "POST", body: { uid } }),
@@ -91,7 +95,7 @@ export const mrnService = {
       remarks: remarks ?? "",
     };
     Object.entries(body).forEach(([key, value]) => {
-      if (value != null && value !== "") form.append(key, String(value));
+      if (value != null && (key === "remarks" || value !== "")) form.append(key, String(value));
     });
     if (tcFile instanceof File) form.append("tc", tcFile);
     if (rmtcFile instanceof File) form.append("rmtc", rmtcFile);

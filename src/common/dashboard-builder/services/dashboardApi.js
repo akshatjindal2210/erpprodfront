@@ -4,7 +4,10 @@ import { externalMssqlRequestedData, isExternalMssqlDbSource } from "../utils/da
 const BASE_PATH = "/dashboard";
 
 export const getTables = async ({ appKey = "ims", dbSource = "ims_postgresql" } = {}) => {
-  return await api(`${BASE_PATH}/tables?app=${encodeURIComponent(appKey)}&db_source=${encodeURIComponent(dbSource)}`);
+  return api(`${BASE_PATH}/tables`, {
+    method: "POST",
+    body: { app_key: appKey, db_source: dbSource },
+  });
 };
 
 export const listWidgets = async (appKey = "ims", pageKey = "default", dashboardKey = "default") => {
@@ -22,17 +25,22 @@ export const createWidget = async (payload) => {
 };
 
 export const updateWidget = async (id, payload) => {
-  return api(`${BASE_PATH}/widgets/${id}`, {
-    method: "PUT",
-    body: payload,
+  return api(`${BASE_PATH}/widgets/update`, {
+    method: "POST",
+    body: { ...payload, id },
   });
 };
 
 export const deleteWidget = async (id, { appKey = "ims", pageKey = "default", dashboardKey = "default" } = {}) => {
-  return api(`${BASE_PATH}/widgets/${id}?app=${encodeURIComponent(appKey)}&page_key=${encodeURIComponent(pageKey)}&dashboard_key=${encodeURIComponent(dashboardKey)}`, {
-    method: "DELETE",
-  },
-  );
+  return api(`${BASE_PATH}/widgets/delete`, {
+    method: "POST",
+    body: {
+      id,
+      app_key: appKey,
+      page_key: pageKey,
+      dashboard_key: dashboardKey,
+    },
+  });
 };
 
 export const previewWidget = async (query, { dbSource = "ims_postgresql", filters = {} } = {}) => {

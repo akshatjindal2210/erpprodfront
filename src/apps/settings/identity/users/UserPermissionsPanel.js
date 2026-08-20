@@ -262,6 +262,7 @@ export default function UserPermissionsPanel({
   userRole,
   imsSpecialPermissionsSection = null,
   taskSpecialPermissionsSection = null,
+  rmstoreSpecialPermissionsSection = null,
 }) {
   const isSuperAdmin = userRole === "super_admin";
   const activeMeta = APP_ACCESS[activePermTab];
@@ -409,6 +410,12 @@ export default function UserPermissionsPanel({
         {(enabled || isSuperAdmin) && activePermTab === "task" && taskSpecialPermissionsSection ? (
           <div className="border-t border-slate-100 px-3 py-4 bg-slate-50/40">
             {taskSpecialPermissionsSection}
+          </div>
+        ) : null}
+
+        {(enabled || isSuperAdmin) && activePermTab === "rmstore" && rmstoreSpecialPermissionsSection ? (
+          <div className="border-t border-slate-100 px-3 py-4 bg-slate-50/40">
+            {rmstoreSpecialPermissionsSection}
           </div>
         ) : null}
       </div>

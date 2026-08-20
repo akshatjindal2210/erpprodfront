@@ -13,9 +13,10 @@ import { inventoryReportService } from "@/apps/rmstore/lib/services/inventoryRep
 import { sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { sortSelectRowsAsc } from "@/platform/utils/form/sortSelectOptions";
 import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
-import { buildInventoryFilterOptionsFromRows, computeInventoryTotals, EMPTY_FILTERS, filterInventoryRows, hasActiveInventoryFilters, normalizeMultiFilterIds } from "@/apps/rmstore/modules/inventory-report/inventoryReportClient";
+import { buildInventoryFilterOptionsFromRows, EMPTY_FILTERS, filterInventoryRows, formatCoilUidTooltip, hasActiveInventoryFilters, normalizeMultiFilterIds } from "@/apps/rmstore/modules/inventory-report/inventoryReportClient";
+import { computeInventoryTotals, INVENTORY_FOOTER_CARDS, INVENTORY_FOOTER_TONE, INVENTORY_QTY_META, INVENTORY_REPORT_RULES, INVENTORY_REPORT_TABLE_COLUMNS, formatInventoryTableCell } from "@/apps/rmstore/modules/inventory-report/inventoryReport.config";
 import { notifyListPageExportResult } from "@/platform/utils/list/listPageExport";
-import { exportInventoryReport, formatInventoryTableCell, INVENTORY_REPORT_TABLE_COLUMNS } from "@/apps/rmstore/modules/inventory-report/inventoryReportExport";
+import { exportInventoryReport } from "@/apps/rmstore/modules/inventory-report/inventoryReportExport";
 import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 
 const LOAD_LIMIT = 10000;
@@ -23,6 +24,35 @@ const TABLE_RENDER_CHUNK = 150;
 
 function filterLabel(label, count) {
   return `${label} (${Number(count) || 0})`;
+}
+
+/** Body + card tint — Issuable, QC Pending, RM Rejection only (no header colors). */
+const COLUMN_TONE = {
+  issuable_qty: {
+    cell: "bg-emerald-50 text-emerald-950 group-hover:bg-emerald-100/80",
+    cardValue: "text-emerald-800 font-black tabular-nums",
+    cardBadge:
+      "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-200 tabular-nums",
+  },
+  pending_qc_qty: {
+    cell: "bg-orange-50 text-orange-950 group-hover:bg-orange-100/80",
+    cardValue: "text-orange-900 font-bold tabular-nums",
+  },
+  pending_reject_qty: {
+    cell: "bg-red-50 text-red-950 group-hover:bg-red-100/80",
+    cardValue: "text-red-800 font-bold tabular-nums",
+  },
+};
+
+function renderQtyCell(type, value, { title } = {}) {
+  return (
+    <span
+      className={`block w-full font-semibold tabular-nums ${title ? "cursor-help" : ""} ${tableCellClass(type)}`}
+      title={title}
+    >
+      {formatInventoryTableCell(type, value)}
+    </span>
+  );
 }
 
 function tableCellClass(type) {
@@ -181,35 +211,63 @@ export default function InventoryReportPage() {
                   ? "120px"
                   : "110px";
 
-      const render =
-        key === "location_details"
-          ? (v, row) => {
-              const loc =
-                v != null && String(v).trim() !== "" && String(v).trim() !== "—"
-                  ? String(v).trim()
-                  : "—";
-              const coils = Array.isArray(row?.stock_coil_nos)
-                ? row.stock_coil_nos.map((b) => String(b || "").trim()).filter(Boolean)
-                : [];
-              const countRaw = Number(row?.stock_coil_count);
-              const count = Number.isFinite(countRaw) ? countRaw : coils.length;
-              const tip = coils.length
-                ? coils.join(", ")
-                : count
-                  ? `${count.toLocaleString()} coil(s)`
-                  : undefined;
-              return (
-                <span className={`${tableCellClass("text")} cursor-default`} title={tip}>
-                  {loc}
-                  {count ? (
-                    <span className="text-slate-500 font-semibold"> ({count.toLocaleString()})</span>
-                  ) : null}
-                </span>
-              );
-            }
-          : (v) => <span className={tableCellClass(type)}>{formatInventoryTableCell(type, v)}</span>;
+      const tone = COLUMN_TONE[key];
+      const isNumber = type === "number";
 
-      return [label, key, render, { ...(index === 0 ? { fixed: true } : {}), width }];
+      let render;
+      if (key === "location_details") {
+        render = (v, row) => {
+          const display =
+            v != null && String(v).trim() !== "" && String(v).trim() !== "—"
+              ? String(v).trim()
+              : "—";
+          const tip = formatCoilUidTooltip("Issuable coils", row?.issuable_coil_uids);
+          return (
+            <span className={`${tableCellClass("text")} ${tip ? "cursor-help" : ""}`} title={tip}>
+              {display}
+            </span>
+          );
+        };
+      } else if (isNumber) {
+        const qtyMeta = INVENTORY_QTY_META[key];
+        const uidField = qtyMeta?.uidField;
+        const uidLabel = qtyMeta?.tooltip || "Coils";
+        render = (v, row) => {
+          const tip = uidField
+            ? formatCoilUidTooltip(uidLabel, row?.[uidField])
+            : undefined;
+          return tone ? (
+            renderQtyCell(type, v, { title: tip })
+          ) : (
+            <span
+              className={`block w-full tabular-nums ${tip ? "cursor-help" : ""} ${tableCellClass(type)}`}
+              title={tip}
+            >
+              {formatInventoryTableCell(type, v)}
+            </span>
+          );
+        };
+      } else {
+        render = (v) => <span className={tableCellClass(type)}>{formatInventoryTableCell(type, v)}</span>;
+      }
+
+      return [
+        label,
+        key,
+        render,
+        {
+          ...(index === 0 ? { fixed: true } : {}),
+          width,
+          ...(isNumber ? { align: "right" } : {}),
+          ...(tone
+            ? {
+                cellClass: tone.cell,
+                ...(tone.cardValue ? { cardValueClass: tone.cardValue } : {}),
+                ...(tone.cardBadge ? { cardBadgeClass: tone.cardBadge } : {}),
+              }
+            : {}),
+        },
+      ];
     });
   }, []);
 
@@ -284,7 +342,7 @@ export default function InventoryReportPage() {
       item: filterLabel("Item", filterOptions.items.length),
       customer: filterLabel("Supplier", filterOptions.customers.length),
       location: filterLabel("Store Location", filterOptions.locations.length),
-      packing: filterLabel("MRN", filterOptions.packings.length),
+      packing: filterLabel("MRN UID", filterOptions.packings.length),
     }),
     [filterOptions]
   );
@@ -301,7 +359,7 @@ export default function InventoryReportPage() {
                   <div className="min-w-0 hidden md:block">
                     <h1 className="text-sm font-bold text-slate-800 leading-tight">RM Inventory</h1>
                     <p className="text-[10px] text-slate-500 font-medium truncate">
-                      Total Stock = In Store + Unassigned · Shop Floor shown separately
+                      {INVENTORY_REPORT_RULES.pageSubtitle}
                     </p>
                   </div>
                 </div>
@@ -456,8 +514,8 @@ export default function InventoryReportPage() {
             totalItems={sortedRows.length}
             getRowId={(row, i) => String(row?.id ?? row?.mrn_no ?? `r-${i}`)}
             cardConfig={{
-              titleKey: "mrn_no",
-              badgeIndices: [6],
+              titleKey: "mrn_uid",
+              badgeIndices: ["issuable_qty"],
               detailKeys: [
                 "doc_dt",
                 "item_code",
@@ -465,9 +523,10 @@ export default function InventoryReportPage() {
                 "customer_name",
                 "location_details",
                 "total_stock_qty",
-                "shop_floor_qty",
+                "issuable_qty",
                 "in_store_qty",
                 "unassigned_qty",
+                "shop_floor_qty",
                 "pending_qc_qty",
                 "pending_reject_qty",
               ],
@@ -491,65 +550,24 @@ export default function InventoryReportPage() {
                 </span>
               ) : null}
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 sm:gap-3">
-              <div className="rounded-md sm:rounded-lg border border-slate-200 bg-white px-1.5 py-1 sm:px-3 sm:py-2 shadow-sm min-w-0">
-                <p className="text-[7px] sm:text-[9px] font-bold uppercase text-slate-500 tracking-wide leading-tight">
-                  Total Stock
-                </p>
-                <p className="text-[9px] sm:text-lg font-black text-slate-800 tabular-nums leading-none whitespace-nowrap overflow-x-auto max-w-full [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                  {formatQty(totals.total_stock_qty)}
-                </p>
-                <p className="hidden sm:block text-[8px] text-slate-400 font-medium mt-0.5">
-                  In store + unassigned only
-                </p>
-              </div>
-              <div className="rounded-md sm:rounded-lg border border-blue-200 bg-white px-1.5 py-1 sm:px-3 sm:py-2 shadow-sm min-w-0">
-                <p className="text-[7px] sm:text-[9px] font-bold uppercase text-blue-700 tracking-wide leading-tight">
-                  Shop Floor
-                </p>
-                <p className="text-[9px] sm:text-lg font-black text-blue-800 tabular-nums leading-none whitespace-nowrap overflow-x-auto max-w-full [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                  {formatQty(totals.shop_floor_qty)}
-                </p>
-                <p className="hidden sm:block text-[8px] text-slate-400 font-medium mt-0.5">
-                  Issued at machine · not in stock
-                </p>
-              </div>
-              <div className="rounded-md sm:rounded-lg border border-emerald-200 bg-white px-1.5 py-1 sm:px-3 sm:py-2 shadow-sm min-w-0">
-                <p className="text-[7px] sm:text-[9px] font-bold uppercase text-emerald-700 tracking-wide leading-tight">
-                  In Store
-                </p>
-                <p className="text-[9px] sm:text-lg font-black text-emerald-800 tabular-nums leading-none whitespace-nowrap overflow-x-auto max-w-full [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                  {formatQty(totals.in_store_qty)}
-                </p>
-                <p className="hidden sm:block text-[8px] text-slate-400 font-medium mt-0.5">On rack / shelf</p>
-              </div>
-              <div className="rounded-md sm:rounded-lg border border-amber-200 bg-white px-1.5 py-1 sm:px-3 sm:py-2 shadow-sm min-w-0">
-                <p className="text-[7px] sm:text-[9px] font-bold uppercase text-amber-700 tracking-wide leading-tight">
-                  Unassigned Area
-                </p>
-                <p className="text-[9px] sm:text-lg font-black text-amber-800 tabular-nums leading-none whitespace-nowrap overflow-x-auto max-w-full [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                  {formatQty(totals.unassigned_qty)}
-                </p>
-                <p className="hidden sm:block text-[8px] text-slate-400 font-medium mt-0.5">Not on rack yet</p>
-              </div>
-              <div className="rounded-md sm:rounded-lg border border-sky-200 bg-white px-1.5 py-1 sm:px-3 sm:py-2 shadow-sm min-w-0">
-                <p className="text-[7px] sm:text-[9px] font-bold uppercase text-sky-700 tracking-wide leading-tight">
-                  Pending QC
-                </p>
-                <p className="text-[9px] sm:text-lg font-black text-sky-800 tabular-nums leading-none whitespace-nowrap overflow-x-auto max-w-full [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                  {formatQty(totals.pending_qc_qty)}
-                </p>
-                <p className="hidden sm:block text-[8px] text-slate-400 font-medium mt-0.5">QC not finished</p>
-              </div>
-              <div className="rounded-md sm:rounded-lg border border-rose-200 bg-white px-1.5 py-1 sm:px-3 sm:py-2 shadow-sm min-w-0">
-                <p className="text-[7px] sm:text-[9px] font-bold uppercase text-rose-700 tracking-wide leading-tight">
-                  Pending Rejection
-                </p>
-                <p className="text-[9px] sm:text-lg font-black text-rose-800 tabular-nums leading-none whitespace-nowrap overflow-x-auto max-w-full [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                  {formatQty(totals.pending_reject_qty)}
-                </p>
-                <p className="hidden sm:block text-[8px] text-slate-400 font-medium mt-0.5">Rejected / failed QC</p>
-              </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1 sm:gap-3">
+              {INVENTORY_FOOTER_CARDS.map(({ key, label, hint, tone }) => {
+                const styles = INVENTORY_FOOTER_TONE[tone] || INVENTORY_FOOTER_TONE.slate;
+                return (
+                  <div
+                    key={key}
+                    className={`rounded-md sm:rounded-lg border px-1.5 py-1 sm:px-3 sm:py-2 shadow-sm min-w-0 ${styles.wrap}`}
+                  >
+                    <p className={`text-[7px] sm:text-[9px] font-bold uppercase tracking-wide leading-tight ${styles.label}`}>
+                      {label}
+                    </p>
+                    <p className={`text-[9px] sm:text-lg font-black tabular-nums leading-none whitespace-nowrap overflow-x-auto max-w-full [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden ${styles.value}`}>
+                      {formatQty(totals[key])}
+                    </p>
+                    <p className={`hidden sm:block text-[8px] font-medium mt-0.5 ${styles.hint}`}>{hint}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

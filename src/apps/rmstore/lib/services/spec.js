@@ -7,4 +7,5 @@ export const specService = {
   create: (data) => api(ENDPOINTS.SPEC.CREATE, { method: "POST", body: data }),
   update: (item_dcode, data) => api(ENDPOINTS.SPEC.UPDATE, { method: "POST", body: { item_dcode, ...data } }),
   delete: (item_dcode) => api(ENDPOINTS.SPEC.DELETE, { method: "POST", body: { item_dcode } }),
+  getHeaderValues: (field, params = {}) => api(ENDPOINTS.SPEC.HEADER_HELPER, { method: "POST", body: { field, ...params } }),
 };

@@ -7,7 +7,7 @@ import { toast } from "react-toastify";
 import { qcHoldMaterialService } from "@/apps/ims/lib/services/qcHoldMaterial";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
-import RemarksTextarea from "@/ui/common/forms/RemarksTextarea";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import LaserScanField from "@/ui/common/scan/LaserScanField";
 import Snackbar from "@/ui/primitives/Snackbar";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
@@ -1672,7 +1672,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
                       }
                     }}
                   />
-                  <RemarksTextarea
+                  <FormTextarea
                     label="Remark"
                     value={submitForm.remarks}
                     onChange={(e) => handleApproveFieldChange("remarks", e.target.value)}
@@ -1767,7 +1767,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
                       }
                     }}
                   />
-                  <RemarksTextarea
+                  <FormTextarea
                     label="Remark"
                     value={submitForm.remarks}
                     onChange={(e) => setSubmitForm((prev) => ({ ...prev, remarks: e.target.value }))}
@@ -2030,7 +2030,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
                 </div>
               )}
 
-              <RemarksTextarea
+              <FormTextarea
                 label="Remark"
                 value={form.remarks}
                 onChange={(e) => setForm((prev) => ({ ...prev, remarks: e.target.value }))}

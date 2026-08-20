@@ -36,7 +36,7 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
   const isTask = isTaskShell(shell, pathname);
   const isRmStore = isRmStoreShell(shell, pathname);
   const hideNav = isPortal || shell === APP_SHELL.STANDALONE;
-  const hideQuickLinks = hideNav || isSettings || isTask || isRmStore;
+  const hideQuickLinks = hideNav || isSettings || isTask;
   const sidebarNav = useMemo(() => {
     if (isSettings) return SETTINGS_NAV_REGISTRY;
     if (isTask) {
@@ -122,6 +122,15 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
 
   const contentMargin = collapsed ? "md:ml-14" : "md:ml-56";
 
+  // Full-bleed only on dashboard home widgets — list pages under /…/dashboard/… keep outer padding.
+  const isDashboardHome =
+    pathname === "/home" ||
+    pathname === "/ims/dashboard" ||
+    pathname === "/task/dashboard" ||
+    pathname === "/rmstore/dashboard" ||
+    pathname === "/settings/dashboard" ||
+    pathname === "/settings/dashboard-builder";
+
   return (
     <div className={`imp-panel-no-select flex h-screen ${THEME_CONFIG.sidebarBg} overflow-hidden font-sans`}>
       <Sidebar
@@ -145,8 +154,8 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
 
         <main className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#f0f4f8]">
           <div className="w-full flex-1 flex flex-col min-h-0 overflow-hidden bg-[#f0f4f8]">
-            <div className={`mx-auto animate-in fade-in slide-in-from-bottom-2 duration-500 flex-1 flex flex-col min-h-0 w-full min-w-0 overflow-y-auto overflow-x-hidden ${
-              pathname?.includes("/dashboard") ? "p-0 md:p-2" : "p-2 md:p-2"
+            <div className={`mx-auto flex-1 flex flex-col min-h-0 w-full min-w-0 overflow-y-auto overflow-x-hidden ${
+              isDashboardHome ? "p-0" : "p-2"
             }`}>
               {accessState?.hasPageAccess ? (
                 children

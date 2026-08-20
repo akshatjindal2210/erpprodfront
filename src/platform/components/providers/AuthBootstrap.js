@@ -36,12 +36,7 @@ export default function AuthBootstrap({ children }) {
   if (!isLoginPage && !user && !sessionReady) {
     return (
       <div className="relative flex flex-col items-center justify-center min-h-screen bg-[#f8fafc]">
-        <FormPanelLoader
-          label="Loading..."
-          hint="Please wait."
-          minHeight="min-h-screen"
-          className="border-0 rounded-none bg-transparent w-full"
-        />
+        <FormPanelLoader fullScreen />
         {showRetry && (
           <div className="absolute bottom-12 text-center animate-in slide-in-from-bottom-2 duration-500 px-6 max-w-sm">
             <p className="text-[11px] text-amber-700 font-semibold leading-relaxed">{SESSION_SLOW_MESSAGE}</p>

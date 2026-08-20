@@ -222,7 +222,7 @@ Base: `backend/src/apps/dashboard/` — mounted at **`/api/dashboard`**.
 | File | Job |
 |------|-----|
 | `routes/index.js` | Builder APIs = Super Admin; live APIs = logged-in user. |
-| `controllers/dashboard.controller.js` | Tables/columns, widget CRUD, preview, hybrid preview, save draft, publish, clone, live widgets. |
+| `controllers/dashboard.controller.js` | Tables, widget CRUD, preview, hybrid preview, save draft, publish, clone, live widgets. |
 | `models/dashboardConfig.model.js` | `mst_dashboard_configs` upsert / list / audience. |
 | `utils/dashboardJsonSchema.js` | Document normalize; `tmp_*` → `w_*` remap (including mobile nested px). |
 | `utils/queryExecutor.js` | Widget SELECT (Postgres / MSSQL / Hybrid). |
@@ -234,10 +234,12 @@ App body parser (`backend/src/index.js`): CORS first, then `express.json` / urle
 
 ### Main APIs
 
+All dashboard routes are **POST** (body params; no GET / PUT / DELETE).
+
 **Super Admin (builder)**
 
-- `GET /tables`, `GET /columns/:table`
-- `POST /widgets/list`, `POST /widgets`, `PUT /widgets/:id`, `DELETE /widgets/:id`
+- `POST /tables`
+- `POST /widgets/list`, `POST /widgets`, `POST /widgets/update`, `POST /widgets/delete`
 - `POST /widgets/preview`, `POST /widgets/hybrid-preview`
 - `POST /configs/save-draft`, `/publish`, `/unpublish`, `/delete`, `/clone-users`, `/list`, `/rename`
 

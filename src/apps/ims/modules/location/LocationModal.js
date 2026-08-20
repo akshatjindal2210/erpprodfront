@@ -11,10 +11,14 @@ import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { ERR_INPUT, OK_INPUT, FormLabel } from "@/ui/common/Constants";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
 
 const FIELD_ORDER = ["rack_no", "shelf_no", "total_capacity"];
+
+const FIELD_INPUT_CLASS =
+  "min-h-9 h-9 sm:h-[38px] text-sm sm:text-[11px] rounded-lg border-slate-200 text-slate-900 placeholder:text-slate-500 placeholder:opacity-100";
 
 const INITIAL_FORM = {
   rack_no: "",
@@ -213,7 +217,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
               value={form.rack_no} 
               onChange={(e) => handleInputChange("rack_no", e.target.value)} 
               placeholder="e.g. 48" 
-              className={`${errors.rack_no ? ERR_INPUT : OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200`}
+              className={`${errors.rack_no ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`}
             />
             {errors.rack_no && <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold"><AlertCircle size={10}/>{errors.rack_no}</p>}
           </div>
@@ -225,7 +229,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
               value={form.shelf_no}
               onChange={(e) => handleInputChange("shelf_no", e.target.value.toUpperCase())}
               placeholder="e.g. A"
-              className={`${errors.shelf_no ? ERR_INPUT : OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200 uppercase`}
+              className={`${errors.shelf_no ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS} uppercase`}
             />
             {errors.shelf_no && <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold"><AlertCircle size={10}/>{errors.shelf_no}</p>}
           </div>
@@ -238,7 +242,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
               min={1}
               value={form.total_capacity} 
               onChange={(e) => handleInputChange("total_capacity", e.target.value)} 
-              className={`${errors.total_capacity ? ERR_INPUT : OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200`}
+              className={`${errors.total_capacity ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`}
             />
             {errors.total_capacity && (
               <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold">
@@ -298,16 +302,13 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
           </div>
         )}
 
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Location Details</label>
-          <textarea 
-            rows={2}
-            value={form.location_description} 
-            onChange={(e) => handleInputChange("location_description", e.target.value)} 
-            placeholder="Special instructions..." 
-            className={`${OK_INPUT} text-[11px] rounded-lg border-slate-200 resize-none py-2`}
-          />
-        </div>
+        <FormTextarea
+          label="Location Details"
+          rows={3}
+          value={form.location_description}
+          onChange={(e) => handleInputChange("location_description", e?.target?.value ?? e ?? "")}
+          placeholder="Enter special instructions (optional)"
+        />
 
         <div className="h-px bg-slate-100" />
 

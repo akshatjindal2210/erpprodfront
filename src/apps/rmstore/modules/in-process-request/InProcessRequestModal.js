@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Check, Loader2, Layers, ScanLine, AlertCircle, Package, QrCode, X, ArrowDownToLine, ShieldAlert, PackageMinus } from "lucide-react";
+import { Check, Loader2, Layers, ScanLine, AlertCircle, Package, QrCode, X, ShieldAlert, Upload, FileText, Trash2 as TrashIcon } from "lucide-react";
 import { useSelector } from "react-redux";
 
 import "@/apps/ims/lib/config/inwardUi.theme.css";
 
-import { coilService } from "@/apps/rmstore/lib/services/coil";
+import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
+import { coilHelperContext, lookupCoilByUid, lookupCoils } from "@/apps/rmstore/lib/helpers/coilLookup";
 import { mrnService } from "@/apps/rmstore/lib/services/mrn";
 import { inProcessRequestService, IPR_REQUEST_TYPE, IPR_DOWNSTREAM, IPR_REQUEST_TYPE_LABEL, IPR_REJECTION_SCOPE_LABEL } from "@/apps/rmstore/lib/services/inProcessRequest";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
@@ -16,7 +18,7 @@ import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import Drawer from "@/ui/primitives/Drawer";
 import Snackbar from "@/ui/primitives/Snackbar";
-import RemarksTextarea from "@/ui/common/forms/RemarksTextarea";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import TypeableSuggestField from "@/ui/common/forms/TypeableSuggestField";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { OK_INPUT } from "@/ui/common/Constants";
@@ -29,14 +31,36 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
 import StoreInRequestForm from "@/apps/rmstore/modules/in-process-request/StoreInRequestForm";
 import ConsumeRequestForm from "@/apps/rmstore/modules/in-process-request/ConsumeRequestForm";
+import UpdateCoilStatusForm from "@/apps/rmstore/modules/in-process-request/UpdateCoilStatusForm";
 import ApprovalStatusToggle from "@/apps/rmstore/modules/shared/ApprovalStatusToggle";
+import { isCoilEligibleForIprRejection, iprRejectionIneligibleMessage, iprRejectionPendingStoreInMessage, findRejectionCoilsBlockedByPendingStoreIn, filterCoilsForRejectionLot } from "@/apps/rmstore/lib/utils/iprRejectionEligibility";
+import { isIssuedToShopFloor, isSaMinusWriteOff } from "@/apps/rmstore/lib/utils/saMinusInventory";
+import { canSubmitInProcessRejection } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
 
-const MODULE = "rm_issue_request";
+const MODULE = "rm_in_process_request";
 const SCANNER_ID = "rm-in-process-request-scanner";
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "success", title: "", message: "", duration: SNACK_DUR.med };
 
-/** Same accent tokens as IMS QC Hold type picker. */
+function iprShopFloorScanError(coil, uid) {
+  if (isSaMinusWriteOff(coil)) {
+    return `Coil ${uid} was removed by stock adjustment and is not on the shop floor.`;
+  }
+  const status = String(coil?.status || "active").toLowerCase();
+  return `Coil ${uid} is not on the shop floor (status: ${status}). Only issued-out coils can be scanned.`;
+}
+
+function resolveDocUrl(noteOrPath) {
+  const raw = String(noteOrPath || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw) || raw.startsWith("blob:")) return raw;
+  let path = raw.replace(/^\/+/, "").replace(/\\/g, "/");
+  if (path.startsWith("rmstore/")) path = `uploads/${path}`;
+  if (path.startsWith("uploads/")) return `${String(FILE_BASE_URL || "").replace(/\/$/, "")}/${path}`;
+  return "";
+}
+
+/** Same accent tokens as IMS QC Pending  type picker. */
 const TYPE_PICKER_ACCENT = {
   amber: {
     card: "border-amber-300 bg-amber-50/60 hover:border-amber-400 hover:bg-amber-50",
@@ -58,29 +82,32 @@ const TYPE_PICKER_ACCENT = {
     title: "text-rose-900",
     banner: "border-rose-200 bg-rose-50 text-rose-900",
   },
+  indigo: {
+    card: "border-indigo-300 bg-indigo-50/60 hover:border-indigo-400 hover:bg-indigo-50",
+    title: "text-indigo-900",
+    banner: "border-indigo-200 bg-indigo-50 text-indigo-900",
+  },
 };
 
-const REQUEST_TYPE_OPTIONS = [
+const IPR_FLOW = {
+  REJECTION: "rejection",
+  UPDATE_STATUS: "update_status",
+};
+
+const FLOW_OPTIONS = [
   {
-    id: IPR_REQUEST_TYPE.REJECTION,
-    title: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.REJECTION],
+    id: IPR_FLOW.REJECTION,
+    title: "In-process Rejection",
     description: "Reject from the machine",
     accent: "rose",
     Icon: ShieldAlert,
   },
   {
-    id: IPR_REQUEST_TYPE.STORE_IN,
-    title: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.STORE_IN],
-    description: "Return leftover coils",
-    accent: "teal",
-    Icon: ArrowDownToLine,
-  },
-  {
-    id: IPR_REQUEST_TYPE.CONSUME,
-    title: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.CONSUME],
-    description: "Scan shop-floor coils — full use by default",
-    accent: "amber",
-    Icon: PackageMinus,
+    id: IPR_FLOW.UPDATE_STATUS,
+    title: "Update Coil Status",
+    description: "Full consume or leftover — updates immediately",
+    accent: "indigo",
+    Icon: Layers,
   },
 ];
 
@@ -95,7 +122,7 @@ const REJECTION_TYPE_OPTIONS = [
   {
     id: "lot",
     title: IPR_REJECTION_SCOPE_LABEL.lot,
-    description: "Every active coil in the lot",
+    description: "Every rejectable coil in the lot (store or shop floor)",
     accent: "yellow",
     Icon: Layers,
   },
@@ -110,6 +137,29 @@ function fetchIprReasonSuggestions(search = "", requestType = IPR_REQUEST_TYPE.R
 function mapCoilRow(c, extras = {}) {
   const qty = Number(c.qty) || 0;
   const original = c.original_qty != null ? Number(c.original_qty) : qty;
+
+  if (extras.forStoreIn) {
+    const shopQty = Number(c.qty) || 0;
+    const remaining = c.remaining_qty != null ? Number(c.remaining_qty) : shopQty;
+    return {
+      coil_no_uid: c.coil_no_uid,
+      qty: remaining,
+      original_qty: shopQty,
+      remaining_qty: remaining,
+      consumed_qty: Math.max(0, shopQty - remaining),
+      item_code: c.item_code,
+      item_desc: c.item_desc,
+      heat_no: c.heat_no,
+      mrn_uid: c.mrn_uid,
+      mrn_no: c.mrn_no,
+      location_id: c.location_id ?? null,
+      location_no: c.location_no || null,
+      out_uid: c.out_uid ?? null,
+      status: c.status,
+      source: extras.source || c.source || "scan",
+      is_seed_scan: Boolean(extras.is_seed_scan ?? c.is_seed_scan),
+    };
+  }
 
   if (extras.forConsume) {
     const consumed =
@@ -206,14 +256,21 @@ export default function InProcessRequestModal({
   const isView = mode === "view";
   const readOnly = isView;
   const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
+  const coilCtx = useMemo(
+    () => coilHelperContext(MODULE, isApprove ? "authorize" : isEdit ? "edit" : readOnly ? "view" : "add"),
+    [isApprove, isEdit, readOnly]
+  );
 
   const [saving, setSaving] = useState(false);
+  const [requestFlow, setRequestFlow] = useState(IPR_FLOW.REJECTION);
+  const [requestFlowPicked, setRequestFlowPicked] = useState(false);
   const [requestType, setRequestType] = useState(IPR_REQUEST_TYPE.REJECTION);
   const [requestTypePicked, setRequestTypePicked] = useState(false);
   const [rejectionType, setRejectionType] = useState("coil");
   const [typePicked, setTypePicked] = useState(false);
   const [reason, setReason] = useState("");
   const [remarks, setRemarks] = useState("");
+  const [attachments, setAttachments] = useState([]);
   const [approved, setApproved] = useState(false);
   const [coils, setCoils] = useState([]);
   const [proposedCoils, setProposedCoils] = useState([]);
@@ -223,10 +280,19 @@ export default function InProcessRequestModal({
   const [seedCoilUid, setSeedCoilUid] = useState(null);
   /** Scanned coil held between the scan step and the Coil/Lot choice. */
   const [pendingCoil, setPendingCoil] = useState(null);
+  /** Update Coil Status — full consume (default) or leftover with consumed qty. */
+  const [consumeMode, setConsumeMode] = useState("full");
+  const [leftoverConsumedQty, setLeftoverConsumedQty] = useState("");
   const coilsRef = useRef([]);
   coilsRef.current = coils;
   const requestTypeRef = useRef(requestType);
   requestTypeRef.current = requestType;
+  const requestFlowRef = useRef(requestFlow);
+  requestFlowRef.current = requestFlow;
+
+  const isRejectionScanContext = () =>
+    requestFlowRef.current === IPR_FLOW.REJECTION ||
+    requestTypeRef.current === IPR_REQUEST_TYPE.REJECTION;
 
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [validatingCoil, setValidatingCoil] = useState(false);
@@ -252,30 +318,57 @@ export default function InProcessRequestModal({
   const isStoreIn = requestType === IPR_REQUEST_TYPE.STORE_IN;
   /** Consume is whole-coil only, so it never asks the Coil/Lot question. */
   const isConsume = requestType === IPR_REQUEST_TYPE.CONSUME;
-  const isRejection = !isStoreIn && !isConsume;
-  /** Step 1 — pick the request type. */
-  const showRequestTypePicker = mode === "add" && !requestTypePicked;
-  /** Step 2 — scan seed coil (rejection only). Store In / Consume go straight to the form. */
+  const isTransfer = requestType === IPR_REQUEST_TYPE.TRANSFER;
+  const isRejection = requestType === IPR_REQUEST_TYPE.REJECTION;
+
+  const isRejectionFlow = requestFlow === IPR_FLOW.REJECTION;
+  const isUpdateStatusFlow = requestFlow === IPR_FLOW.UPDATE_STATUS;
+
+  /** Step 0 — Flow picker (Rejection vs Update Status). */
+  const showRequestFlowPicker = mode === "add" && !requestFlowPicked;
+
+  /** Step 1 — scan seed coil. Both flows start with scan. */
   const showScanGate =
     mode === "add" &&
-    requestTypePicked &&
-    !typePicked &&
+    requestFlowPicked &&
     !pendingCoil &&
-    isRejection;
-  /** Step 3 — Coil or Lot, answered once the scanned coil is known (rejection only). */
+    !typePicked;
+
+  /** Step 2 — Coil or Lot (rejection flow only, AFTER scan). */
   const showRejectionTypePicker =
-    mode === "add" && requestTypePicked && !typePicked && !!pendingCoil && isRejection;
+    mode === "add" &&
+    requestFlowPicked &&
+    isRejectionFlow &&
+    !!pendingCoil &&
+    !typePicked;
+
   const showTypePicker =
-    showRequestTypePicker || showScanGate || showRejectionTypePicker;
-  const isLotMode = isRejection && rejectionType === "lot";
+    showRequestFlowPicker ||
+    showScanGate ||
+    showRejectionTypePicker;
+
+  const visibleFlowOptions = useMemo(
+    () =>
+      FLOW_OPTIONS.filter(
+        (opt) =>
+          opt.id !== IPR_FLOW.REJECTION || canSubmitInProcessRejection(currentUser)
+      ),
+    [currentUser]
+  );
+
+  const isLotMode = isRejectionFlow && rejectionType === "lot";
   const isCoilMode = !isLotMode;
   /** Lot empty state = IMS Full Hold packing entry panel. */
   const showLotEntryUi =
-    isRejection && isLotMode && !readOnly && coils.length === 0 && mode !== "view";
+    isRejectionFlow && isLotMode && !readOnly && coils.length === 0 && mode !== "view";
   /** Rejection coil scan only — Store In / Consume use dedicated forms. */
-  const showCoilScanUi = !isStoreIn && !isConsume && isCoilMode && !readOnly;
+  const showCoilScanUi = isRejectionFlow && isCoilMode && !readOnly && (coils.length === 0 || isEdit);
   const showApproval =
-    canApprove && !readOnly && !showTypePicker && (mode === "add" || mode === "approve");
+    canApprove &&
+    !readOnly &&
+    !showTypePicker &&
+    isRejectionFlow &&
+    (mode === "add" || mode === "approve");
 
   const closeSnackbar = useCallback(() => {
     setSnackbar((s) => ({ ...s, open: false }));
@@ -283,31 +376,41 @@ export default function InProcessRequestModal({
   const { showScanToast, showScanSuccess } = useScanSnackbarActions(setSnackbar, scanToastRef);
 
   const requestLabel =
-    IPR_REQUEST_TYPE_LABEL[requestType] || IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.REJECTION];
+    requestType === IPR_REQUEST_TYPE.REJECTION
+      ? "In-process Rejection"
+      : IPR_REQUEST_TYPE_LABEL[requestType] || "In-process Request";
+
   const title = isView
     ? `View ${requestLabel}`
     : isApprove
       ? `Approve ${requestLabel}`
       : isEdit
         ? `Edit ${requestLabel}`
-        : showRequestTypePicker
+        : showRequestFlowPicker
           ? "New In-process Request"
-          : `New ${requestLabel}`;
+          : showScanGate
+            ? `New ${isRejectionFlow ? "Rejection" : "Coil Status Update"}`
+            : `New ${requestLabel}`;
 
-  /** Back to step 1 — the request-type picker. */
-  const resetTypeSelection = useCallback(() => {
+  /** Back to step 0 — the flow picker. */
+  const resetFlowSelection = useCallback(() => {
     scanSessionRef.current += 1;
+    setRequestFlow(IPR_FLOW.REJECTION);
+    setRequestFlowPicked(false);
     setRequestType(IPR_REQUEST_TYPE.REJECTION);
     setRequestTypePicked(false);
     setRejectionType("coil");
     setTypePicked(false);
     setPendingCoil(null);
+    setConsumeMode("full");
+    setLeftoverConsumedQty("");
   }, []);
 
   const resetForm = useCallback(() => {
-    resetTypeSelection();
+    resetFlowSelection();
     setReason("");
     setRemarks("");
+    setAttachments([]);
     setApproved(false);
     setCoils([]);
     setProposedCoils([]);
@@ -320,7 +423,7 @@ export default function InProcessRequestModal({
     setIsScannerOpen(false);
     setSaving(false);
     setValidatingCoil(false);
-  }, [resetTypeSelection]);
+  }, [resetFlowSelection]);
 
   useEffect(() => {
     if (!open) {
@@ -329,6 +432,9 @@ export default function InProcessRequestModal({
     }
 
     if (editData?.ipr_uid && mode !== "add") {
+      const flow = editData.request_type === IPR_REQUEST_TYPE.REJECTION ? IPR_FLOW.REJECTION : IPR_FLOW.UPDATE_STATUS;
+      setRequestFlow(flow);
+      setRequestFlowPicked(true);
       setRequestType(
         Object.values(IPR_REQUEST_TYPE).includes(editData.request_type)
           ? editData.request_type
@@ -339,12 +445,14 @@ export default function InProcessRequestModal({
       setTypePicked(true);
       setReason(editData.reason || "");
       setRemarks(editData.remarks || "");
+      setAttachments(Array.isArray(editData.attachments) ? editData.attachments : []);
       setApproved(isApprove ? true : Boolean(editData.approved));
       setCoils(
         Array.isArray(editData.coils)
           ? editData.coils.map((c) =>
               mapCoilRow(c, {
                 forConsume: editData.request_type === IPR_REQUEST_TYPE.CONSUME,
+                forStoreIn: editData.request_type === IPR_REQUEST_TYPE.STORE_IN,
               })
             )
           : []
@@ -374,6 +482,17 @@ export default function InProcessRequestModal({
       setSeedCoilUid(editData.seed_coil_uid || null);
       setManualCoilId("");
       setPendingCoil(null);
+      if (editData.request_type === IPR_REQUEST_TYPE.CONSUME && Array.isArray(editData.coils) && editData.coils.length) {
+        const first = editData.coils[0];
+        const original = Number(first.original_qty ?? first.qty) || 0;
+        const used = Number(first.consumed_qty ?? original) || 0;
+        const partial = Boolean(first.partial_qty) || (used > 0 && used < original);
+        setConsumeMode(partial ? "leftover" : "full");
+        setLeftoverConsumedQty(partial ? String(used) : "");
+      } else {
+        setConsumeMode("full");
+        setLeftoverConsumedQty("");
+      }
       setErrors({});
       setIsScannerOpen(false);
       setSaving(false);
@@ -382,7 +501,11 @@ export default function InProcessRequestModal({
 
     resetForm();
     if (mode === "approve") setApproved(true);
-  }, [open, editData, mode, isApprove, resetForm]);
+    if (mode === "add" && !canSubmitInProcessRejection(currentUser)) {
+      setRequestFlow(IPR_FLOW.UPDATE_STATUS);
+      setRequestFlowPicked(true);
+    }
+  }, [open, editData, mode, isApprove, resetForm, currentUser]);
 
   const fetchReasonsForType = useCallback(
     (search = "") => fetchIprReasonSuggestions(search, requestType),
@@ -404,20 +527,38 @@ export default function InProcessRequestModal({
     setErrors((e) => ({ ...e, coils: undefined, scan: undefined }));
   };
 
+  const finalizeLotCoilsForRejection = async (coils) => {
+    const { kept, blocked } = await filterCoilsForRejectionLot(coils, lookupCoilByUid, coilCtx);
+    if (blocked.length) {
+      showScanToast(
+        "info",
+        "lot-store-in-skip",
+        `${blocked.length} coil(s) skipped — ${blocked[0].message}`,
+        6000
+      );
+    }
+    return kept;
+  };
+
   const loadLotCoilsByMrnUid = async (mrnUid) => {
     const uid = String(mrnUid || "").trim();
     if (!uid) return [];
+    const editIprUid = editData?.ipr_uid ?? null;
     const { data } = await fetchAllListPages(async (page, limit) => {
-      const body = await coilService.getAll({
-        page,
-        limit,
-        filters: { mrn_uid: uid, status: "active" },
-      });
+      const body = await lookupCoils(
+        {
+          page,
+          limit,
+          filters: { mrn_uid: uid },
+        },
+        coilCtx
+      );
       return { data: body.data ?? [], total: body.total ?? 0 };
     }, 500);
-    return (data || []).filter(
-      (c) => String(c.status || "active").toLowerCase() === "active" && c.coil_no_uid
+    const eligible = (data || []).filter(
+      (c) => c.coil_no_uid && isCoilEligibleForIprRejection(c, { editIprUid })
     );
+    return finalizeLotCoilsForRejection(eligible);
   };
 
   /**
@@ -434,17 +575,21 @@ export default function InProcessRequestModal({
     // 1) Coil filter by mrn_no
     try {
       const { data } = await fetchAllListPages(async (page, limit) => {
-        const body = await coilService.getAll({
-          page,
-          limit,
-          filters: { mrn_no: no, status: "active" },
-        });
+        const body = await lookupCoils(
+          {
+            page,
+            limit,
+            filters: { mrn_no: no },
+          },
+          coilCtx
+        );
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, 500);
+      const editIprUid = editData?.ipr_uid ?? null;
       for (const c of data || []) {
         if (!c?.coil_no_uid) continue;
-        if (String(c.status || "active").toLowerCase() !== "active") continue;
         if (String(c.mrn_no ?? "").trim() !== no) continue;
+        if (!isCoilEligibleForIprRejection(c, { editIprUid })) continue;
         byUid.set(String(c.coil_no_uid).toLowerCase(), c);
       }
     } catch {
@@ -477,23 +622,28 @@ export default function InProcessRequestModal({
 
     // 3) Search fallback — never collapse to a single mrn_uid
     if (!byUid.size) {
+      const editIprUid = editData?.ipr_uid ?? null;
       const { data } = await fetchAllListPages(async (page, limit) => {
-        const body = await coilService.getAll({
-          page,
-          limit,
-          search: no,
-          filters: { status: "active" },
-        });
+        const body = await lookupCoils(
+          {
+            page,
+            limit,
+            search: no,
+          },
+          coilCtx
+        );
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, 500);
       for (const c of data || []) {
         if (!c?.coil_no_uid) continue;
         if (String(c.mrn_no ?? "").trim() !== no) continue;
+        if (!isCoilEligibleForIprRejection(c, { editIprUid })) continue;
         byUid.set(String(c.coil_no_uid).toLowerCase(), c);
       }
     }
 
-    const coils = [...byUid.values()];
+    const rawCoils = [...byUid.values()];
+    const coils = await finalizeLotCoilsForRejection(rawCoils);
     if (!mrnUids.length) {
       mrnUids = [
         ...new Set(coils.map((c) => String(c.mrn_uid || "").trim()).filter(Boolean)),
@@ -506,7 +656,7 @@ export default function InProcessRequestModal({
     if (readOnly) return;
     const lot = String(rawLotNo ?? manualLotNo ?? "").trim();
     if (!lot) {
-      setErrors((e) => ({ ...e, scan: "Lot / MRN number is required." }));
+      setErrors((e) => ({ ...e, scan: "Lot / MRN UID is required." }));
       return;
     }
 
@@ -514,25 +664,28 @@ export default function InProcessRequestModal({
     try {
       let full = [];
       let mrnUids = [];
-      const byNo = await loadLotCoilsByMrnNo(lot);
-      full = byNo.coils || [];
-      mrnUids = byNo.mrnUids || [];
 
-      if (!full.length) {
-        full = await loadLotCoilsByMrnUid(lot);
-        if (full.length) mrnUids = [lot];
+      // Prioritize mrn_uid for the specific lot
+      full = await loadLotCoilsByMrnUid(lot);
+      if (full.length) {
+        mrnUids = [lot];
+      } else {
+        // Fallback to mrn_no
+        const byNo = await loadLotCoilsByMrnNo(lot);
+        full = byNo.coils || [];
+        mrnUids = byNo.mrnUids || [];
       }
 
       if (!full.length) {
-        setErrors((e) => ({ ...e, scan: `No active coils were found for lot or MRN ${lot}.` }));
-        showScanToast("error", "lot-empty", `No active coils were found for lot or MRN ${lot}.`);
+        setErrors((e) => ({ ...e, scan: `No active coils were found for lot or MRN UID ${lot}.` }));
+        showScanToast("error", "lot-empty", `No active coils were found for lot or MRN UID ${lot}.`);
         return;
       }
 
-      const label = full[0]?.mrn_no ?? lot;
+      const label = full[0]?.mrn_uid ?? full[0]?.mrn_no ?? lot;
       applyLotCoils(full, { seedUid: null, lotLabel: label });
       const uidHint = mrnUids.length > 1 ? ` across ${mrnUids.length} MRN lines` : "";
-      showScanSuccess("lot-ok", `Loaded ${full.length} coil(s) for MRN ${label}${uidHint}`, 2400);
+      showScanSuccess("lot-ok", `Loaded ${full.length} coil(s) for MRN UID ${label}${uidHint}`, 2400);
       void playScanSuccessBeep();
     } catch (err) {
       showScanToast("error", "lot-err", err?.message || "Could not load the lot. Please try again.");
@@ -543,40 +696,48 @@ export default function InProcessRequestModal({
 
   /** Load every active coil of the scanned coil's lot. */
   const loadLotFromCoil = async (coil) => {
+    const mrnUid = String(coil.mrn_uid || "").trim();
     const mrnNo =
       coil.mrn_no != null && String(coil.mrn_no).trim() !== ""
         ? String(coil.mrn_no).trim()
         : null;
-    const mrnUid = String(coil.mrn_uid || "").trim();
-    if (!mrnNo && !mrnUid) {
-      showScanToast("error", "lot-mrn", "This coil is not linked to an MRN or lot.");
+
+    if (!mrnUid && !mrnNo) {
+      showScanToast("error", "lot-mrn", "This coil is not linked to an MRN UID or lot.");
       return false;
     }
+
     setLoadingLot(true);
     try {
       let lotCoils = [];
       let mrnUids = [];
-      if (mrnNo) {
+
+      // Prioritize mrn_uid for the specific lot
+      if (mrnUid) {
+        lotCoils = await loadLotCoilsByMrnUid(mrnUid);
+        mrnUids = [mrnUid];
+      }
+
+      // Fallback to mrn_no if no coils found for uid or no uid present
+      if (!lotCoils.length && mrnNo) {
         const byNo = await loadLotCoilsByMrnNo(mrnNo);
         lotCoils = byNo.coils || [];
         mrnUids = byNo.mrnUids || [];
       }
-      if (!lotCoils.length && mrnUid) {
-        lotCoils = await loadLotCoilsByMrnUid(mrnUid);
-        mrnUids = [mrnUid];
-      }
+
       if (!lotCoils.length) {
-        showScanToast("error", "lot-empty", "No active coils were found for this lot.");
+        showScanToast("error", "lot-empty", "No rejectable coils were found for this lot.");
         return false;
       }
+
       applyLotCoils(lotCoils, {
         seedUid: coil.coil_no_uid,
-        lotLabel: mrnNo || mrnUid,
+        lotLabel: mrnUid || mrnNo,
       });
       const uidHint = mrnUids.length > 1 ? ` across ${mrnUids.length} MRN lines` : "";
       showScanSuccess(
         "lot-ok",
-        `Loaded ${lotCoils.length} coil(s) from MRN ${mrnNo || mrnUid}${uidHint}`,
+        `Loaded ${lotCoils.length} coil(s) from MRN UID ${mrnUid || mrnNo}${uidHint}`,
         2400
       );
       void playScanSuccessBeep();
@@ -593,24 +754,31 @@ export default function InProcessRequestModal({
       showScanToast("error", "invalid-coil", SCAN_SNACK_MSG.REJECTED);
       return null;
     }
-    const res = await coilService.getByUid(uid);
-    const coil = res?.data;
+    const coil = await lookupCoilByUid(uid, coilCtx);
     if (!coil) {
       showScanToast("error", "coil-missing", "Coil not found. Check the UID and try again.");
       return null;
     }
     const status = String(coil.status || "active").toLowerCase();
     const reqType = requestTypeRef.current;
+
+    if (isRejectionScanContext()) {
+      if (!isCoilEligibleForIprRejection(coil, { editIprUid: editData?.ipr_uid ?? null })) {
+        showScanToast("error", "coil-status", iprRejectionIneligibleMessage(coil));
+        return null;
+      }
+      return coil;
+    }
+
     const needsOut =
-      reqType === IPR_REQUEST_TYPE.STORE_IN || reqType === IPR_REQUEST_TYPE.CONSUME;
+      reqType === IPR_REQUEST_TYPE.STORE_IN ||
+      reqType === IPR_REQUEST_TYPE.CONSUME ||
+      reqType === IPR_REQUEST_TYPE.TRANSFER ||
+      requestFlowRef.current === IPR_FLOW.UPDATE_STATUS;
 
     if (needsOut) {
-      if (status !== "out") {
-        showScanToast(
-          "error",
-          "coil-status",
-          `Coil ${uid} is not on the shop floor (status: ${status}). Only issued-out coils can be scanned.`
-        );
+      if (!isIssuedToShopFloor(coil)) {
+        showScanToast("error", "coil-status", iprShopFloorScanError(coil, uid));
         return null;
       }
       return coil;
@@ -634,25 +802,31 @@ export default function InProcessRequestModal({
     try {
       const coil = await resolveScannedCoil(val);
       if (!coil || session !== scanSessionRef.current) return;
-      const mapped = mapCoilRow(coil, { source: "scan", is_seed_scan: true });
+      const reqType = requestTypeRef.current;
 
-      if (requestTypeRef.current === IPR_REQUEST_TYPE.STORE_IN) {
-        setCoils([mapped]);
-        setProposedCoils([proposedFromCoil(mapped, mapped.remaining_qty)]);
-        setErrors({});
+      const mapped = mapCoilRow(coil, {
+        source: "scan",
+        is_seed_scan: true,
+        ...(isUpdateStatusFlow || reqType === IPR_REQUEST_TYPE.CONSUME
+          ? { forConsume: true }
+          : reqType === IPR_REQUEST_TYPE.STORE_IN
+            ? { forStoreIn: true }
+            : {}),
+      });
+
+      if (isUpdateStatusFlow) {
+        setRequestType(IPR_REQUEST_TYPE.CONSUME);
+        setRequestTypePicked(true);
         setTypePicked(true);
-        showScanSuccess("coil-ok", `Added ${mapped.coil_no_uid}`, 1600);
-        void playScanSuccessBeep();
-        return;
-      }
-
-      // Consume is whole-coil, so the scan goes straight to the form.
-      if (requestTypeRef.current === IPR_REQUEST_TYPE.CONSUME) {
+        setApproved(true);
+        setConsumeMode("full");
+        setLeftoverConsumedQty("");
         setCoils([mapped]);
         setSeedCoilUid(mapped.coil_no_uid);
+        setPendingCoil(null);
+        setReason("Coil status update");
         setErrors({});
-        setTypePicked(true);
-        showScanSuccess("coil-ok", `Added ${mapped.coil_no_uid}`, 1600);
+        showScanSuccess("coil-ok", `Loaded ${mapped.coil_no_uid}`, 1600);
         void playScanSuccessBeep();
         return;
       }
@@ -696,7 +870,7 @@ export default function InProcessRequestModal({
     showScanSuccess("coil-ok", `Added ${coil.coil_no_uid}`, 1600);
   };
 
-  /** Back from the Coil/Lot question to the scan step. */
+  /** Back from the sub-type choice to the scan step. */
   const backToScanStep = () => {
     if (readOnly) return;
     scanSessionRef.current += 1;
@@ -715,8 +889,7 @@ export default function InProcessRequestModal({
     const session = scanSessionRef.current;
     setValidatingCoil(true);
     try {
-      const res = await coilService.getByUid(uid);
-      const coil = res?.data;
+      const coil = await lookupCoilByUid(uid, coilCtx);
       if (!coil) {
         showScanToast("error", "coil-missing", "Coil not found. Check the UID and try again.");
         return;
@@ -725,21 +898,52 @@ export default function InProcessRequestModal({
 
       const status = String(coil.status || "active").toLowerCase();
       const reqType = requestTypeRef.current;
-      const needsOut =
-        reqType === IPR_REQUEST_TYPE.STORE_IN || reqType === IPR_REQUEST_TYPE.CONSUME;
 
-      if (needsOut) {
-        if (status !== "out") {
+      if (isRejectionScanContext()) {
+        if (coil.pending_store_in_ipr_uid) {
           showScanToast(
             "error",
-            "coil-status",
-            `Coil ${uid} is not on the shop floor (status: ${status}).`
+            "store-in-pending",
+            iprRejectionPendingStoreInMessage(coil)
           );
           return;
         }
-      } else if (status !== "active") {
-        showScanToast("error", "coil-status", `Coil ${uid} is not available. Its current status is ${status}.`);
-        return;
+        if (!isCoilEligibleForIprRejection(coil, { editIprUid: editData?.ipr_uid ?? null })) {
+          showScanToast("error", "coil-status", iprRejectionIneligibleMessage(coil));
+          return;
+        }
+      } else {
+        const needsOut =
+          reqType === IPR_REQUEST_TYPE.STORE_IN || reqType === IPR_REQUEST_TYPE.CONSUME;
+
+        if (needsOut) {
+          if (!isIssuedToShopFloor(coil)) {
+            showScanToast("error", "coil-status", iprShopFloorScanError(coil, uid));
+            return;
+          }
+          if (reqType === IPR_REQUEST_TYPE.STORE_IN) {
+            if (coil.pending_store_in_ipr_uid) {
+              showScanToast(
+                "error",
+                "store-in-pending",
+                `Coil ${uid} is already in Store In Pending (IPR #${coil.pending_store_in_ipr_uid}). Partial consume balance is queued automatically.`
+              );
+              return;
+            }
+            const shopQty = Number(coil.qty) || 0;
+            if (shopQty <= 0) {
+              showScanToast(
+                "error",
+                "coil-qty",
+                `Coil ${uid} has no qty on the shop floor. Use Consume to record usage first.`
+              );
+              return;
+            }
+          }
+        } else if (status !== "active") {
+          showScanToast("error", "coil-status", `Coil ${uid} is not available. Its current status is ${status}.`);
+          return;
+        }
       }
 
       if (rejectionTypeRef.current === "lot" && requestTypeRef.current === IPR_REQUEST_TYPE.REJECTION) {
@@ -752,7 +956,15 @@ export default function InProcessRequestModal({
         return;
       }
 
-      const mapped = mapCoilRow(coil, { source: "scan", is_seed_scan: true, forConsume: true });
+      const mapped = mapCoilRow(coil, {
+        source: "scan",
+        is_seed_scan: true,
+        ...(reqType === IPR_REQUEST_TYPE.CONSUME
+          ? { forConsume: true }
+          : reqType === IPR_REQUEST_TYPE.STORE_IN
+            ? { forStoreIn: true }
+            : {}),
+      });
       setCoils((prev) => [...prev, mapped]);
       setErrors((e) => ({ ...e, coils: undefined, scan: undefined }));
       showScanSuccess("coil-ok", `Added ${coil.coil_no_uid}`, 1600);
@@ -774,24 +986,53 @@ export default function InProcessRequestModal({
     setCoils((prev) => prev.filter((c) => c.coil_no_uid !== uid));
   };
 
-  const handleRemainingChange = (coilUid, value) => {
-    if (readOnly || !isStoreIn) return;
-    const raw = value === "" ? NaN : Number(value);
+  const handleConsumeModeChange = (mode) => {
+    if (readOnly || !isUpdateStatusFlow) return;
+    setConsumeMode(mode);
     setCoils((prev) =>
       prev.map((c) => {
-        if (c.coil_no_uid !== coilUid) return c;
         const original = Number(c.original_qty ?? c.qty) || 0;
-        const remaining = Number.isFinite(raw)
-          ? Math.max(0, Math.min(original, raw))
-          : 0;
+        if (mode === "full") {
+          return {
+            ...c,
+            partial_qty: false,
+            consumed_qty: original,
+            remaining_qty: 0,
+          };
+        }
+        const raw = leftoverConsumedQty === "" ? NaN : Number(leftoverConsumedQty);
+        const used = Number.isFinite(raw) ? Math.max(0, Math.min(original, raw)) : 0;
         return {
           ...c,
-          remaining_qty: remaining,
-          consumed_qty: Math.max(0, original - remaining),
-          qty: remaining,
+          partial_qty: true,
+          consumed_qty: used,
+          remaining_qty: Math.max(0, original - used),
         };
       })
     );
+    if (errors.qty) setErrors((e) => ({ ...e, qty: undefined }));
+  };
+
+  const handleLeftoverConsumedQtyChange = (value) => {
+    if (readOnly || !isUpdateStatusFlow) return;
+    const coil = coils[0];
+    const original = Number(coil?.original_qty ?? coil?.qty) || 0;
+    const raw = value === "" ? NaN : Number(value);
+    const clamped = value === "" ? "" : String(Number.isFinite(raw) ? Math.max(0, Math.min(original, raw)) : 0);
+    setLeftoverConsumedQty(clamped);
+    setCoils((prev) =>
+      prev.map((c) => {
+        const orig = Number(c.original_qty ?? c.qty) || 0;
+        const used = clamped === "" ? 0 : Number(clamped) || 0;
+        return {
+          ...c,
+          partial_qty: true,
+          consumed_qty: used,
+          remaining_qty: Math.max(0, orig - used),
+        };
+      })
+    );
+    if (errors.qty) setErrors((e) => ({ ...e, qty: undefined }));
   };
 
   const handleUsedQtyChange = (coilUid, value) => {
@@ -831,36 +1072,23 @@ export default function InProcessRequestModal({
     );
   };
 
-  const selectRequestType = (type) => {
+  const selectRequestFlow = (flow) => {
     if (readOnly) return;
-    const next = REQUEST_TYPE_OPTIONS.some((o) => o.id === type)
-      ? type
-      : IPR_REQUEST_TYPE.REJECTION;
-    scanSessionRef.current += 1;
-    setRequestType(next);
-    setRequestTypePicked(true);
-    setRejectionType("coil");
-    setTypePicked(next === IPR_REQUEST_TYPE.STORE_IN || next === IPR_REQUEST_TYPE.CONSUME);
-    if (next === IPR_REQUEST_TYPE.CONSUME && canApprove) {
-      setApproved(true);
-    } else if (next === IPR_REQUEST_TYPE.CONSUME) {
-      setApproved(false);
+    setRequestFlow(flow);
+    setRequestFlowPicked(true);
+
+    if (flow === IPR_FLOW.REJECTION) {
+      setRequestType(IPR_REQUEST_TYPE.REJECTION);
+      setRequestTypePicked(true);
+    } else {
+      setRequestType(IPR_REQUEST_TYPE.CONSUME);
+      setRequestTypePicked(false);
     }
-    setPendingCoil(null);
-    setCoils([]);
-    setProposedCoils([]);
-    setManualLotNo("");
-    setManualCoilId("");
-    setSeedCoilUid(null);
-    // Reasons are per request type, so never carry one across a type change.
-    setReason("");
-    setRemarks("");
-    setErrors({});
   };
 
-  const handleChangeType = () => {
+  const backToFlowStep = () => {
     if (readOnly) return;
-    resetTypeSelection();
+    resetFlowSelection();
     setCoils([]);
     setProposedCoils([]);
     setManualLotNo("");
@@ -871,6 +1099,8 @@ export default function InProcessRequestModal({
     setErrors({});
     setIsScannerOpen(false);
   };
+
+  const handleChangeType = backToFlowStep;
 
   const clearLoadedLot = () => {
     if (readOnly) return;
@@ -893,6 +1123,29 @@ export default function InProcessRequestModal({
   const onGateLaserScan = useCallback((code) => {
     void gateScanRef.current(code);
   }, []);
+
+  const handleFilePick = (e) => {
+    if (readOnly) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    if (isRejectionFlow) {
+      const invalid = files.filter((f) => !f.type.startsWith("image/"));
+      if (invalid.length) {
+        showScanToast("error", "photo-only", "Rejection requires photos only (JPEG, PNG, WebP). PDFs are not allowed.", 4000);
+        e.target.value = "";
+        return;
+      }
+    }
+
+    setAttachments((prev) => [...prev, ...files]);
+    e.target.value = "";
+  };
+
+  const removeFile = (idx) => {
+    if (readOnly) return;
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const handleLaserScanRejected = useCallback(
     ({ reason: r }) => {
@@ -957,38 +1210,90 @@ export default function InProcessRequestModal({
 
   const validate = () => {
     const next = {};
-    if (!String(reason || "").trim()) next.reason = "This field is required.";
+    if (!isUpdateStatusFlow && !String(reason || "").trim()) next.reason = "This field is required.";
     if (!coils.length) {
       next.scan = isStoreIn
         ? "Scan at least one coil at the machine."
         : isConsume
-          ? "Scan at least one coil."
+          ? "Scan a coil to update its status."
           : isLotMode
-            ? "Enter a lot or MRN number, or scan one coil."
+            ? "Enter a lot or MRN UID, or scan one coil."
             : "Scan at least one coil.";
     }
     if (isStoreIn) {
       for (const c of coils) {
         const orig = Number(c.original_qty ?? c.qty) || 0;
         const rem = Number(c.remaining_qty ?? c.qty) || 0;
+        if (rem <= 0) {
+          next.proposed = "Store-in qty must be greater than 0 for each coil.";
+          break;
+        }
         if (rem > orig) {
-          next.proposed = "Return qty cannot exceed issued qty on any coil.";
+          next.proposed = "Store-in qty cannot exceed shop-floor qty on any coil.";
           break;
         }
       }
     }
     if (isConsume) {
       for (const c of coils) {
+        /*
         const orig = Number(c.original_qty ?? c.qty) || 0;
         const used = Number(c.consumed_qty ?? orig) || 0;
         if (used <= 0) {
-          next.qty = "Enter used qty for partial coils.";
+          next.qty = isUpdateStatusFlow
+            ? "Enter consumed qty (must be greater than 0)."
+            : "Enter used qty for partial coils.";
           break;
         }
         if (used > orig) {
-          next.qty = "Used qty cannot exceed issued qty on any coil.";
+          next.qty = isUpdateStatusFlow
+            ? "Consumed qty cannot exceed total coil qty."
+            : "Used qty cannot exceed issued qty on any coil.";
           break;
         }
+        if (isUpdateStatusFlow && consumeMode === "leftover" && leftoverConsumedQty === "") {
+          next.qty = "Enter consumed qty for leftover.";
+          break;
+        }
+        */
+        const orig = Number(c.original_qty ?? c.qty) || 0;
+        const used = Number(c.consumed_qty ?? orig) || 0;
+        const isLeftoverUpdateStatus = isUpdateStatusFlow && consumeMode === "leftover";
+
+        if (isLeftoverUpdateStatus) {
+          // 0 is valid here — it means nothing was consumed (full store-in).
+          if (leftoverConsumedQty === "") {
+            next.qty = "Enter consumed qty for leftover.";
+            break;
+          }
+          if (used < 0 || used > orig) {
+            next.qty = "Consumed qty cannot exceed total coil qty.";
+            break;
+          }
+        } else {
+          if (used <= 0) {
+            next.qty = isUpdateStatusFlow
+              ? "Enter consumed qty (must be greater than 0)."
+              : "Enter used qty for partial coils.";
+            break;
+          }
+          if (used > orig) {
+            next.qty = isUpdateStatusFlow
+              ? "Consumed qty cannot exceed total coil qty."
+              : "Used qty cannot exceed issued qty on any coil.";
+            break;
+          }
+        }
+      }
+    }
+    if (isRejectionFlow && !readOnly) {
+      const hasImage = attachments.some(
+        (a) =>
+          (typeof a === "string" && /\.(jpe?g|png|webp|gif)$/i.test(a)) ||
+          (a instanceof File && a.type.startsWith("image/"))
+      );
+      if (!hasImage) {
+        next.attachments = "At least one photo is required for rejection (JPEG, PNG, or WebP).";
       }
     }
     setErrors(next);
@@ -1006,11 +1311,23 @@ export default function InProcessRequestModal({
     const resolveApproved =
       approvedFlag !== undefined
         ? Boolean(approvedFlag)
-        : showApproval
-          ? Boolean(approved)
-          : mode === "add"
+        : mode === "add" && isUpdateStatusFlow
+          ? true
+          : mode === "add" && isRejectionFlow
             ? false
-            : undefined;
+            : showApproval
+              ? Boolean(approved)
+              : mode === "add"
+                ? false
+                : undefined;
+
+    if (isRejectionFlow && resolveApproved === true && coils.length) {
+      const blocked = await findRejectionCoilsBlockedByPendingStoreIn(coils, lookupCoilByUid, coilCtx);
+      if (blocked.length) {
+        showScanToast("error", "store-in-pending", blocked[0].message);
+        return;
+      }
+    }
 
     const first = coils[0] || {};
     const scanned_coil_uids = coils.map((c) => c.coil_no_uid);
@@ -1073,7 +1390,7 @@ export default function InProcessRequestModal({
     const payload = {
       request_type: requestType,
       rejection_type: isRejection ? rejectionType : null,
-      reason: String(reason).trim(),
+      reason: String(reason || (isUpdateStatusFlow ? "Coil status update" : "")).trim(),
       remarks: remarks || null,
       lot_no: manualLotNo || first.mrn_no || null,
       mrn_uid: first.mrn_uid || null,
@@ -1090,6 +1407,7 @@ export default function InProcessRequestModal({
             .filter((c) => (Number(c.remaining_qty ?? c.qty) || 0) > 0)
             .map((c) => proposedFromCoil(c, c.remaining_qty))
         : [],
+      existing_attachments: attachments.filter((a) => typeof a === "string"),
       created_by_name: actorName,
       updated_by_name: actorName,
       approved_by_name: actorName,
@@ -1099,25 +1417,36 @@ export default function InProcessRequestModal({
     setSaving(true);
     try {
       let res;
+      const formData = new FormData();
+      Object.keys(payload).forEach((key) => {
+        if (payload[key] !== undefined) {
+          if (typeof payload[key] === "object" && payload[key] !== null) {
+            formData.append(key, JSON.stringify(payload[key]));
+          } else {
+            formData.append(key, payload[key]);
+          }
+        }
+      });
+
+      if (attachments.length) {
+        attachments.forEach((file) => {
+          if (file instanceof File) {
+            formData.append("attachments", file);
+          }
+        });
+      }
+
       if (isApprove && editData?.ipr_uid) {
         if (approvedFlag === false) {
-          res = await inProcessRequestService.update(editData.ipr_uid, {
-            ...payload,
-            approved: false,
-          });
+          res = await inProcessRequestService.update(editData.ipr_uid, formData);
         } else {
-          res = await inProcessRequestService.approve(editData.ipr_uid, {
-            ...payload,
-            approved: resolveApproved !== undefined ? Boolean(resolveApproved) : true,
-          });
+          formData.set("approved", resolveApproved !== undefined ? String(Boolean(resolveApproved)) : "true");
+          res = await inProcessRequestService.approve(editData.ipr_uid, formData);
         }
       } else if (isEdit && editData?.ipr_uid) {
-        res = await inProcessRequestService.update(editData.ipr_uid, payload);
+        res = await inProcessRequestService.update(editData.ipr_uid, formData);
       } else {
-        res = await inProcessRequestService.create({
-          ...payload,
-          approved: Boolean(resolveApproved),
-        });
+        res = await inProcessRequestService.create(formData);
       }
       showScanToast("success", "save-ok", res?.message || "Saved successfully.", 2800);
       onSuccess?.();
@@ -1136,9 +1465,9 @@ export default function InProcessRequestModal({
 
   const canReceiveStoreIn =
     Boolean(editData?.ipr_uid) &&
-    editData?.request_type === IPR_REQUEST_TYPE.STORE_IN &&
     editData?.approved === true &&
-    editData?.downstream === IPR_DOWNSTREAM.PENDING_STORE_IN;
+    editData?.downstream === IPR_DOWNSTREAM.PENDING_STORE_IN &&
+    (editData?.request_type === IPR_REQUEST_TYPE.STORE_IN || editData?.request_type === IPR_REQUEST_TYPE.CONSUME);
 
   const handleReceiveStoreIn = async () => {
     if (!editData?.ipr_uid || saving) return;
@@ -1160,23 +1489,29 @@ export default function InProcessRequestModal({
     }
   };
 
-  const drawerDescription = showRequestTypePicker ? (
-    "Select a request type"
+  const drawerDescription = showRequestFlowPicker ? (
+    "Select a request flow"
   ) : showScanGate ? (
-    "Scan a coil sticker"
+    `Scan a coil sticker to ${isRejectionFlow ? "reject" : "update status"}`
   ) : showRejectionTypePicker ? (
     "Reject this coil only, or the whole lot?"
   ) : (
     <span className="inline-flex flex-wrap items-center gap-x-1.5 normal-case tracking-normal font-semibold">
       <span className="uppercase tracking-tight font-bold">
         {isStoreIn
-          ? "Scan issued (out) coils, set return qty, then submit — used qty is consumed, remainder is store in"
-          : isConsume
-            ? "Enter reason, scan coils, then save with remark"
-            : isLotMode
-              ? "Enter the lot or MRN number, or scan one coil to load all lot coils"
-              : "Scan the coil stickers, enter a reason, then submit"}
-      </span>
+          ? "Scan shop-floor coils"
+          : isConsume && isUpdateStatusFlow
+            ? isApprove
+              ? "Review Full Consume or Left Over, then Keep Pending or Authorize"
+              : "Choose Full Consume or Left Over, add remarks, then save. Authorize from the list when ready."
+            : isConsume
+              ? "Scan shop-floor coils"
+              : isTransfer
+              ? "Update coil status to Transfer"
+              : isLotMode
+                ? "Enter the lot or MRN UID, or scan one coil to load all lot coils"
+                : "Scan the coil stickers, enter a reason, then submit"}
+          </span>
       {mode === "add" && !readOnly ? (
         <>
           <span className="text-slate-300 font-normal" aria-hidden>
@@ -1187,7 +1522,7 @@ export default function InProcessRequestModal({
             onClick={handleChangeType}
             className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2 font-bold"
           >
-            Change type
+            Change flow
           </button>
         </>
       ) : null}
@@ -1202,7 +1537,7 @@ export default function InProcessRequestModal({
         icon: "text-teal-600",
         text: "text-teal-800",
         message:
-          "Authorized and queued in Store In Pending. Receive when ready — same coil updates with return qty in Unassigned Area (no new coil record).",
+          "Submitted and queued in Unassigned → Pending. Receive there to put coils back in Unassigned Area.",
       },
       [IPR_DOWNSTREAM.STORE_IN_DONE]: {
         box: "bg-teal-50 border-teal-200",
@@ -1222,8 +1557,13 @@ export default function InProcessRequestModal({
         box: "bg-amber-50 border-amber-200",
         icon: "text-amber-600",
         text: "text-amber-800",
-        message:
-          "Authorized — used qty consumed. Any balance remains on shop floor for a separate Store In request.",
+        message: "Authorized — entire coil qty consumed.",
+      },
+      [IPR_DOWNSTREAM.TRANSFER_PENDING]: {
+        box: "bg-indigo-50 border-indigo-200",
+        icon: "text-indigo-600",
+        text: "text-indigo-800",
+        message: "Authorized — transfer request recorded (pending implementation).",
       },
     }[editData?.downstream] || null;
 
@@ -1252,6 +1592,7 @@ export default function InProcessRequestModal({
       isApprove={isApprove}
       onSave={handleSave}
       approveLabel="Authorize"
+      saveLabel="Save"
     />
   );
 
@@ -1336,20 +1677,20 @@ export default function InProcessRequestModal({
             onToggleTorch={toggleTorch}
           />
 
-          {showRequestTypePicker ? (
-            <div className="space-y-3 py-2">
+          {showRequestFlowPicker ? (
+            <div className="space-y-3 py-2 animate-in fade-in duration-300">
               <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">
-                Select a request type
+                Select a request flow
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {REQUEST_TYPE_OPTIONS.map((option) => {
-                  const cardAccent = TYPE_PICKER_ACCENT[option.accent] || TYPE_PICKER_ACCENT.rose;
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {visibleFlowOptions.map((option) => {
+                  const cardAccent = TYPE_PICKER_ACCENT[option.accent] || TYPE_PICKER_ACCENT.indigo;
                   const Icon = option.Icon;
                   return (
                     <button
                       key={option.id}
                       type="button"
-                      onClick={() => selectRequestType(option.id)}
+                      onClick={() => selectRequestFlow(option.id)}
                       className={`p-3 rounded-xl border-2 text-left transition-all active:scale-[0.98] min-w-0 h-full flex flex-col ${cardAccent.card}`}
                     >
                       <div className={`flex items-start gap-2 min-w-0 ${cardAccent.title}`}>
@@ -1371,8 +1712,17 @@ export default function InProcessRequestModal({
           ) : showScanGate ? (
             <div className="space-y-3 py-2">
               <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">
-                Scan a coil sticker
+                Scan a coil sticker to {isRejectionFlow ? "reject" : "update status"}
               </p>
+              {isRejectionFlow ? (
+                <p className="text-[10px] text-slate-500 px-0.5 leading-snug">
+                  Only coils in store or on shop floor can be rejected. Consumed or already returned coils cannot be scanned.
+                </p>
+              ) : (
+                <p className="text-[10px] text-slate-500 px-0.5 leading-snug">
+                  Only coils currently on the shop floor (issued via Job Card Store Out) can be scanned here.
+                </p>
+              )}
               <div className="space-y-2 bg-indigo-50/40 p-2 rounded-lg border border-indigo-100 shadow-sm">
                 {scanControls("indigo", { gate: true })}
                 {keyboardType ? (
@@ -1419,21 +1769,23 @@ export default function InProcessRequestModal({
               </div>
               <button
                 type="button"
-                onClick={handleChangeType}
+                onClick={backToFlowStep}
                 className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
               >
-                ← Back to request type
+                ← Back to request flow
               </button>
             </div>
           ) : showRejectionTypePicker ? (
             <div className="space-y-3 py-2">
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-indigo-50 border border-indigo-200 min-w-0">
-                <Package size={14} className="text-indigo-600 shrink-0" />
-                <p className="text-[10px] font-bold text-indigo-900 uppercase truncate">
-                  {coilUidDisplayLabel(pendingCoil.coil_no_uid)} · MRN{" "}
-                  {pendingCoil.mrn_no ?? "—"}
-                </p>
-              </div>
+              {pendingCoil && (
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-indigo-50 border border-indigo-200 min-w-0">
+                  <Package size={14} className="text-indigo-600 shrink-0" />
+                  <p className="text-[10px] font-bold text-indigo-900 uppercase truncate">
+                    {coilUidDisplayLabel(pendingCoil.coil_no_uid)} · MRN UID{" "}
+                    {pendingCoil.mrn_uid || "—"}
+                  </p>
+                </div>
+              )}
               <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">
                 Reject this coil or the whole lot?
               </p>
@@ -1496,7 +1848,36 @@ export default function InProcessRequestModal({
                 </div>
               ) : null}
 
-              {/* IMS order: Reason first */}
+              {isRejectionFlow && readOnly && attachments.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Rejection Photos</p>
+                  <div className={`grid gap-1.5 ${attachments.length <= 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+                    {attachments.map((file, idx) => {
+                      const name = typeof file === "string" ? file.split("/").pop() : file?.name || `File ${idx + 1}`;
+                      const href = typeof file === "string" ? resolveDocUrl(file) : "";
+                      const isImage = /\.(png|jpe?g|webp|gif)$/i.test(String(name || ""));
+                      const imgClass =
+                        attachments.length <= 1
+                          ? "w-full max-h-36 sm:max-h-44 object-contain bg-slate-50"
+                          : "w-full h-24 sm:h-28 object-cover bg-slate-50";
+                      return (
+                        <div key={idx} className="rounded border border-slate-200 overflow-hidden bg-white min-w-0">
+                          {href && isImage ? (
+                            <FilePreviewLink href={href} fileName={name} className="block" title={name}>
+                              <img src={href} alt={name} className={imgClass} />
+                            </FilePreviewLink>
+                          ) : (
+                            <p className="px-1.5 py-1 text-[9px] font-medium text-slate-600 truncate">{name}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Reason — rejection and legacy request types only */}
+              {!isUpdateStatusFlow ? (
               <TypeableSuggestField
                 label="Reason"
                 required
@@ -1505,20 +1886,26 @@ export default function InProcessRequestModal({
                 error={errors.reason || ""}
                 readOnly={readOnly}
                 disabled={readOnly}
-                placeholder="Enter a reason or select a previous one"
+                placeholder="Reason"
                 dataField="reason"
                 fetchSuggestions={fetchReasonsForType}
                 optionLabelKey="reason"
                 optionIdKey="reason"
                 active={open && !showTypePicker}
+                comboboxShell
+                portalMenu
+                heightClass="h-9"
+                menuZIndex={10050}
                 onClearError={() => {
                   if (errors.reason) setErrors((er) => ({ ...er, reason: undefined }));
                 }}
               />
+              ) : null}
 
               {isStoreIn ? (
                 <StoreInRequestForm
                   readOnly={readOnly}
+                  isEdit={isEdit}
                   coils={coils}
                   errors={errors}
                   manualCoilId={manualCoilId}
@@ -1538,13 +1925,23 @@ export default function InProcessRequestModal({
                     }
                   }}
                   onRemoveCoil={removeCoil}
-                  onRemainingChange={handleRemainingChange}
                   scanBtnFill={scanBtnFill}
                   laserActive={open && !readOnly && !showTypePicker}
+                />
+              ) : isConsume && isUpdateStatusFlow ? (
+                <UpdateCoilStatusForm
+                  coil={coils[0] || null}
+                  consumeMode={consumeMode}
+                  onConsumeModeChange={handleConsumeModeChange}
+                  consumedQty={leftoverConsumedQty}
+                  onConsumedQtyChange={handleLeftoverConsumedQtyChange}
+                  errors={errors}
+                  readOnly={readOnly}
                 />
               ) : isConsume ? (
                 <ConsumeRequestForm
                   readOnly={readOnly}
+                  isEdit={isEdit}
                   coils={coils}
                   errors={errors}
                   manualCoilId={manualCoilId}
@@ -1569,13 +1966,23 @@ export default function InProcessRequestModal({
                   scanBtnFill={scanBtnFill}
                   laserActive={open && !readOnly && !showTypePicker}
                 />
+              ) : isTransfer ? (
+                <div className="space-y-4">
+                  <div className="flex items-start gap-2 p-2.5 rounded-lg bg-indigo-50 border border-indigo-200">
+                    <QrCode size={16} className="text-indigo-500 mt-0.5 shrink-0" />
+                    <p className="text-[11px] text-indigo-700 font-medium leading-normal">
+                      Coil transfer is coming soon. For now, you can record the transfer request.
+                    </p>
+                  </div>
+                  {/* Reuse coil list display below */}
+                </div>
               ) : (
                 <>
               {/* Lot = Full Hold packing entry (only while empty) */}
               {showLotEntryUi ? (
                 <div className="space-y-2 bg-yellow-50/40 p-2 rounded-lg border border-yellow-200 shadow-sm">
                   <p className="text-[10px] font-bold text-yellow-900 uppercase px-0.5">
-                    Lot rejection — MRN
+                    Lot rejection — MRN UID
                   </p>
                   {scanControls("yellow")}
                   <div className="flex w-full min-w-0 gap-1.5 p-1.5 bg-white border border-yellow-100 rounded-lg">
@@ -1592,7 +1999,7 @@ export default function InProcessRequestModal({
                           if (manualLotNo.trim()) void loadLotByNumber(manualLotNo);
                         }
                       }}
-                      placeholder="Enter the lot or MRN number"
+                      placeholder="Enter the lot or MRN UID"
                       disabled={loadingLot}
                       className={`${OK_INPUT} flex-1 min-w-0 font-mono`}
                     />
@@ -1615,7 +2022,7 @@ export default function InProcessRequestModal({
               {isLotMode && coils.length > 0 ? (
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-[8px] font-bold uppercase px-1.5 py-1 rounded border leading-tight border-yellow-300 bg-yellow-50 text-yellow-900">
-                    Lot · MRN #{manualLotNo || coils[0]?.mrn_no || "—"} · {coils.length} coils
+                    Lot · MRN UID {manualLotNo || coils[0]?.mrn_uid || "—"} · {coils.length} coils
                     {seedCoilUid ? ` · scanned ${coilUidDisplayLabel(seedCoilUid)}` : ""}
                   </p>
                   {!readOnly && (
@@ -1742,7 +2149,7 @@ export default function InProcessRequestModal({
                                   ) : null}
                                 </span>
                                 <span className="text-[8px] font-bold text-slate-400 uppercase truncate">
-                                  MRN {c.mrn_no ?? "—"} · Qty: {Number(c.qty ?? 0).toLocaleString()}
+                                  MRN UID {c.mrn_uid || "—"} · Qty: {Number(c.qty ?? 0).toLocaleString()}
                                   {c.item_code ? ` · ${c.item_code}` : ""}
                                 </span>
                               </div>
@@ -1763,7 +2170,7 @@ export default function InProcessRequestModal({
                       <div className="h-full flex flex-col items-center justify-center text-slate-300 py-10">
                         <ScanLine size={32} className="opacity-20 mb-3" />
                         <p className="text-[10px] font-black uppercase tracking-widest">
-                          {isLotMode ? "Enter a lot or MRN number above" : "Scan coils"}
+                          {isLotMode ? "Enter a lot or MRN UID above" : "Scan coils"}
                         </p>
                       </div>
                     )}
@@ -1773,25 +2180,86 @@ export default function InProcessRequestModal({
                 </>
               )}
 
-              <RemarksTextarea
+              <FormTextarea
                 label="Remark"
                 value={remarks}
                 onChange={(e) => setRemarks(e?.target?.value ?? e ?? "")}
                 disabled={readOnly}
-                placeholder="Enter notes (optional)"
+                placeholder="Notes (optional)"
                 rows={3}
               />
 
-              {!readOnly && !showTypePicker ? (
+              {isRejectionFlow && !readOnly && (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    {isRejectionFlow ? "Rejection Photos" : "Documents"}
+                    {isRejectionFlow && !readOnly ? <span className="text-rose-500"> *</span> : null}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-1 gap-2">
+                    
+                    {!readOnly && (
+                      <label className="flex flex-col items-center justify-center p-3 rounded-lg border-2 border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 cursor-pointer transition-all gap-1">
+                        <Upload size={16} className="text-slate-400" />
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">
+                          {isRejectionFlow ? "Upload Photos" : "Upload Documents"}
+                        </span>
+                        <input
+                          type="file"
+                          multiple
+                          accept={isRejectionFlow ? "image/jpeg,image/png,image/webp,image/gif" : ".pdf,.png,.jpg,.jpeg,.webp"}
+                          onChange={handleFilePick}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
+
+                    {attachments.map((file, idx) => {
+                      const isExisting = typeof file === "string";
+                      const name = isExisting ? file.split("/").pop() : file.name;
+                      return (
+                        <div key={idx} className="flex items-center justify-between p-2 rounded-lg border border-indigo-100 bg-indigo-50/30 group">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText size={14} className="text-indigo-600 shrink-0" />
+                            {isExisting ? (
+                              <FilePreviewLink
+                                href={resolveDocUrl(file)}
+                                fileName={name}
+                                className="text-[10px] font-bold text-indigo-700 truncate hover:underline"
+                                title={name}
+                              >
+                                {name}
+                              </FilePreviewLink>
+                            ) : (
+                              <span className="text-[10px] font-bold text-slate-700 truncate" title={name}>
+                                {name}
+                              </span>
+                            )}
+                          </div>
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              onClick={() => removeFile(idx)}
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-all opacity-0 group-hover:opacity-100"
+                            >
+                              <TrashIcon size={14} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {errors.attachments ? (
+                    <p className="text-[10px] font-bold text-rose-600">{errors.attachments}</p>
+                  ) : null}
+                </div>
+              )}
+
+              {!readOnly && !showTypePicker && isRejectionFlow ? (
                 <ApprovalStatusToggle
                   show={showApproval}
                   checked={approved}
                   onChange={setApproved}
-                  pendingHint={
-                    isConsume
-                      ? "Stay pending until authorized — then scanned coils are consumed."
-                      : "This request will stay Pending until authorized."
-                  }
+                  pendingHint="This rejection will stay Pending until authorized."
                 />
               ) : null}
 

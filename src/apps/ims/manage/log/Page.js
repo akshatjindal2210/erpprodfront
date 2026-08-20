@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { RefreshCcw, Activity, Globe, Clock, Shield, User, Layers, X } from "lucide-react";
+import { RefreshCcw, Activity } from "lucide-react";
 import { toast } from "react-toastify";
 import dayjs from "dayjs";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
@@ -25,6 +25,7 @@ import {
   getActivityLogMoreSections,
   hasActivityLogDetails,
 } from "@/platform/utils/core/activityLogDisplay";
+import ActivityLogModuleEntityCell from "@/ui/common/list/ActivityLogModuleEntityCell";
 
 export default function LogsPage() {
   const canAccess = useCanAccess();
@@ -140,15 +141,9 @@ export default function LogsPage() {
       }, { width: '100px', align: 'center' }
     ],
 
-    ["Module / Entity", "module", (v, row) => (
-        <div className="flex flex-col leading-tight min-w-[140px]">
-          <div className="flex items-center gap-1">
-            <Layers size={10} className="text-slate-500 shrink-0" />
-            <span className={`capitalize ${IMS_TABLE_CELL_TEXT}`}>{v?.replace(/_/g, ' ')}</span>
-          </div>
-          <span className="text-[9px] text-indigo-500 font-mono ml-3">REF: {row.entity_id || '—'}</span>
-        </div>
-      ), { width: '180px' }
+    ["Module / Entity", "module", (_v, row) => (
+      <ActivityLogModuleEntityCell row={row} appType="ims" />
+    ), { width: '180px' }
     ],
 
     ["Details", "log_data", (v, row) => {

@@ -1,3 +1,6 @@
+import { ROUTES as RM_ROUTES } from "@/apps/rmstore/lib/utils/routes";
+import { ROUTES as IMS_ROUTES } from "@/apps/ims/lib/utils/routes";
+
 const SKIP_KEYS = new Set([
   "success",
   "action",
@@ -185,4 +188,90 @@ export function resolveActivityLogRef(row) {
 
 export function renderActivityLogFields(data) {
   return renderBlock(data);
+}
+
+// ─── Activity log REF → module list page (navigation only, no URL params) ───
+
+const TASK_BASE = "/task/dashboard";
+
+function normalizeActivityModuleKey(module) {
+  return String(module ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+const RMSTORE_MODULE_ROUTES = {
+  rm_production_master: RM_ROUTES.RM_PRODUCTION_MASTER,
+  rm_spec_master: RM_ROUTES.RM_SPEC_MASTER,
+  rm_store_location_master: RM_ROUTES.RM_STORE_LOCATION_MASTER,
+  rm_mrn_portal: RM_ROUTES.RM_MRN_PORTAL,
+  mrn_portal: RM_ROUTES.RM_MRN_PORTAL,
+  rm_coils: RM_ROUTES.RM_COIL_TABLE,
+  rm_inventory_inwards: RM_ROUTES.RM_STORE_IN,
+  inventory_inward: RM_ROUTES.RM_STORE_IN,
+  inventory_inwards: RM_ROUTES.RM_STORE_IN,
+  rm_qc_check: RM_ROUTES.RM_QC_CHECK,
+  qc_check: RM_ROUTES.RM_QC_CHECK,
+  rm_rejection: RM_ROUTES.RM_REJECTION,
+  rm_out_entry: RM_ROUTES.RM_STORE_OUT,
+  out_entry: RM_ROUTES.RM_STORE_OUT,
+  rm_issue_request: RM_ROUTES.RM_ISSUE_REQUEST,
+  issue_request: RM_ROUTES.RM_ISSUE_REQUEST,
+  rm_in_process_request: RM_ROUTES.RM_IN_PROCESS_REQUEST,
+  in_process_request: RM_ROUTES.RM_IN_PROCESS_REQUEST,
+  rm_stock_adjustment: RM_ROUTES.RM_STOCK_ADJUSTMENT,
+  stock_adjustment: RM_ROUTES.RM_STOCK_ADJUSTMENT,
+  rm_inventory_report: RM_ROUTES.RM_INVENTORY_REPORT,
+};
+
+const IMS_MODULE_ROUTES = {
+  product_master: IMS_ROUTES.PRODUCT_MASTER,
+  customer_master: IMS_ROUTES.CUSTOMER_MASTER,
+  customer_item_code: IMS_ROUTES.CUSTOMER_ITEM_CODE,
+  packing_standard: IMS_ROUTES.PACKING_STANDARD,
+  packing_entry: IMS_ROUTES.PACKING_ENTRY,
+  location_master: IMS_ROUTES.LOCATION_MASTER,
+  boxes: IMS_ROUTES.BOX_TABLE,
+  box: IMS_ROUTES.BOX_TABLE,
+  inventory_inwards: IMS_ROUTES.INVENTORY_INWARD,
+  inventory_inward: IMS_ROUTES.INVENTORY_INWARD,
+  forwarding_note_master: IMS_ROUTES.FORWARDING_NOTE,
+  out_entry: IMS_ROUTES.OUT_ENTRY,
+  ims_out_entry: IMS_ROUTES.OUT_ENTRY,
+  stock_adjustment: IMS_ROUTES.STOCK_ADJUSTMENT,
+  ims_stock_adjustment: IMS_ROUTES.STOCK_ADJUSTMENT,
+  change_override_customer: IMS_ROUTES.STICKER_OVERRIDE,
+  qc_hold_material: IMS_ROUTES.QC_HOLD_MATERIAL,
+  schedule_planning: IMS_ROUTES.SCHEDULE_PLANNING,
+  inventory_report: IMS_ROUTES.ANALYTICS,
+  erp_stock_report: IMS_ROUTES.ERP_STOCK_REPORT,
+  audit: IMS_ROUTES.AUDIT,
+};
+
+const TASK_MODULE_ROUTES = {
+  cl_task_master: `${TASK_BASE}/cl-task`,
+  cl_task: `${TASK_BASE}/cl-tasks`,
+  cl_tasks: `${TASK_BASE}/cl-tasks`,
+  cl_task_verification: `${TASK_BASE}/cl-task/verification`,
+  task_report: `${TASK_BASE}/cl-task/report`,
+  red_ticket: `${TASK_BASE}/red-ticket`,
+  category: `${TASK_BASE}/category`,
+  holiday: `${TASK_BASE}/holidays`,
+  holidays: `${TASK_BASE}/holidays`,
+  tasks: `${TASK_BASE}/tasks`,
+  recurring_task: `${TASK_BASE}/recurring-task`,
+};
+
+function moduleRouteMap(appType) {
+  const app = String(appType ?? "").trim().toLowerCase();
+  if (app === "rmstore") return RMSTORE_MODULE_ROUTES;
+  if (app === "ims") return IMS_MODULE_ROUTES;
+  if (app === "task") return TASK_MODULE_ROUTES;
+  return null;
+}
+
+export function resolveActivityLogEntityHref(appType, module) {
+  const key = normalizeActivityModuleKey(module);
+  return moduleRouteMap(appType)?.[key] ?? null;
 }

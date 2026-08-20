@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { AlertCircle, Loader2, Shield, MapPin } from "lucide-react";
 import { toast } from "react-toastify";
+import { AlertCircle, Shield, MapPin } from "lucide-react";
+import { notify } from "@/apps/rmstore/lib/utils/notify";
 
-// Services & Components
 import { storeLocationService as locationService } from "@/apps/rmstore/lib/services/storeLocation";
 import { productionErpHelpers } from "@/apps/rmstore/lib/services/production";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
@@ -12,11 +12,15 @@ import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { ERR_INPUT, OK_INPUT, FormLabel } from "@/ui/common/Constants";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
 
 const MODULE = "rm_store_location_master";
 const FIELD_ORDER = ["rack_no", "row_no", "total_capacity"];
+
+const FIELD_INPUT_CLASS =
+  "min-h-9 h-9 sm:h-[38px] text-sm sm:text-[11px] rounded-lg border-slate-200 text-slate-900 placeholder:text-slate-500 placeholder:opacity-100";
 
 const INITIAL_FORM = {
   rack_no: "",
@@ -46,6 +50,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
   const [errors, setErrors] = useState({});
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     let timeoutId;
@@ -57,7 +62,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
           location_description: editData.location_description || "",
           total_capacity: editData.total_capacity || "",
           item_dcode: editData.item_dcode != null ? String(editData.item_dcode) : "",
-          approved: isApprove ? true : false,
+          approved: isApprove,
         });
       } else {
         setForm(INITIAL_FORM);
@@ -80,7 +85,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
     if (k === "row_no") {
       finalValue = String(value || "").replace(/[^A-Za-z]+/g, "").toUpperCase();
     }
-    if (["total_capacity"].includes(k) && value !== "") {
+    if (k === "total_capacity" && value !== "") {
       const num = parseInt(value, 10);
       finalValue = isNaN(num) || num < 0 ? "" : num.toString();
     }
@@ -101,6 +106,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
   };
 
   const handleSave = async (statusOverride = null) => {
+    if (savingRef.current || loading) return;
     const e = validate();
     if (Object.keys(e).length) {
       setErrors(e);
@@ -111,12 +117,15 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
       return;
     }
     if (!sopAckRef.current?.assertAcknowledged()) return;
+    if ((isEdit || isApprove) && !editData?.location_id) {
+      toast.error("The location is missing. Close and reopen the row.");
+      return;
+    }
+    savingRef.current = true;
     setLoading(true);
 
     try {
       let finalApproved = form.approved;
-      
-      // logic override for buttons
       if (statusOverride !== null) {
         finalApproved = statusOverride;
       } else if (isEdit && editData?.approved) {
@@ -138,13 +147,14 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
         : locationService.create(payload);
       
       const response = await request;
-      toast.success(response?.message || "Saved successfully.");
+      notify(response, "Saved successfully.");
       
       onSuccess();
       onClose();
     } catch (err) {
       toast.error(err?.message || "Could not save the location. Please try again.");
     } finally {
+      savingRef.current = false;
       setLoading(false);
     }
   };
@@ -163,7 +173,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
       isOpen={open}
       onClose={onClose}
       onSubmit={() => handleSave(isApprove ? true : undefined)}
-      title={isApprove ? "Approve Location" : isEdit ? "Edit Location" : "New Location"}
+      title={isApprove ? "Approve Store Location" : isEdit ? "Edit Store Location" : "New Store Location"}
       description="Manage warehouse storage locations"
       footer={drawerFooter}
       maxWidth="max-w-4xl"
@@ -174,7 +184,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
           <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
             <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
             <p className="text-[11px] text-amber-700 font-medium leading-normal">
-              Editing this authorized location will reset its status to <span className="font-bold text-amber-900 uppercase">Pending</span>. It will require re-approval.
+              Editing this authorized location will reset its status to <span className="font-bold text-amber-900 uppercase">Pending</span>. It will require re-authorization.
             </p>
           </div>
         )}
@@ -187,7 +197,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
               value={form.rack_no} 
               onChange={(e) => handleInputChange("rack_no", e.target.value)} 
               placeholder="e.g. 48" 
-              className={`${errors.rack_no ? ERR_INPUT : OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200`}
+              className={`${errors.rack_no ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`}
             />
             {errors.rack_no && <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold"><AlertCircle size={10}/>{errors.rack_no}</p>}
           </div>
@@ -197,9 +207,9 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
             <input 
               data-field="row_no"
               value={form.row_no}
-              onChange={(e) => handleInputChange("row_no", e.target.value.toUpperCase())}
+              onChange={(e) => handleInputChange("row_no", e.target.value)}
               placeholder="e.g. A"
-              className={`${errors.row_no ? ERR_INPUT : OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200 uppercase`}
+              className={`${errors.row_no ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS} uppercase`}
             />
             {errors.row_no && <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold"><AlertCircle size={10}/>{errors.row_no}</p>}
           </div>
@@ -212,7 +222,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
               min={1}
               value={form.total_capacity} 
               onChange={(e) => handleInputChange("total_capacity", e.target.value)} 
-              className={`${errors.total_capacity ? ERR_INPUT : OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200`}
+              className={`${errors.total_capacity ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`}
             />
             {errors.total_capacity && (
               <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold">
@@ -237,7 +247,6 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
           preserveApiOrder
         />
 
-        {/* QR code block (shown above location details when editing/approving) */}
         {(isEdit || isApprove) && editData?.qr_code && (
           <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3">
             <div className="p-2 bg-white rounded-lg border border-slate-200">
@@ -250,20 +259,16 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
           </div>
         )}
 
-        <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-500 uppercase tracking-wide ml-1">Location Details</label>
-          <textarea 
-            rows={2}
-            value={form.location_description} 
-            onChange={(e) => handleInputChange("location_description", e.target.value)} 
-            placeholder="Enter special instructions (optional)" 
-            className={`${OK_INPUT} text-[11px] rounded-lg border-slate-200 resize-none py-2`}
-          />
-        </div>
+        <FormTextarea
+          label="Location Details"
+          rows={3}
+          value={form.location_description}
+          onChange={(e) => handleInputChange("location_description", e?.target?.value ?? e ?? "")}
+          placeholder="Enter special instructions (optional)"
+        />
 
         <div className="h-px bg-slate-100" />
 
-        {/* ── Approval Status ── */}
         {showApproval ? (
           <div className={`p-3 rounded-xl border transition-all flex items-center justify-between ${form.approved ? "bg-emerald-600 border-emerald-700 shadow-sm" : "bg-slate-50 border-slate-200"}`}>
             <div className="flex items-center gap-3">

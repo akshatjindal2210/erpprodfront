@@ -5,8 +5,9 @@ import dayjs from "dayjs";
 import { HelpCircle, Info, ChevronDown, BookOpen, Loader2, VideoOff, Keyboard, Tag, RefreshCw } from "lucide-react";
 import FilterDateInput from "@/ui/common/date/FilterDateInput";
 import { useSelector } from "react-redux";
-import { QUICK_LINKS_CONFIG } from "@/apps/ims/lib/config/quickLinks";
+import { getQuickLinksForPathname } from "@/config/quickAccess";
 import { NAV_REGISTRY } from "@/apps/ims/lib/config/navRegistry";
+import { RM_STORE_NAV_REGISTRY } from "@/apps/rmstore/lib/config/navRegistry";
 import { THEME_CONFIG } from "@/config/theme";
 import Drawer from "@/ui/primitives/Drawer";
 import { trainingVideoService } from "@/apps/settings/lib/services/trainingService";
@@ -352,8 +353,10 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
     ];
   }, [isPwa, isSuperAdmin]);
 
+  const isRmStorePath = pathname?.startsWith("/rmstore/");
+  const navRegistry = isRmStorePath ? RM_STORE_NAV_REGISTRY : NAV_REGISTRY;
   const currentModule = useMemo(() => {
-    for (const item of NAV_REGISTRY) {
+    for (const item of navRegistry) {
       if (item.href === pathname) return item;
       if (item.subItems) {
         const sub = item.subItems.find(s => s.href === pathname);
@@ -361,15 +364,15 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
       }
     }
     return null;
-  }, [pathname]);
+  }, [pathname, navRegistry]);
 
   const filteredQuickLinks = useMemo(() => {
-    return QUICK_LINKS_CONFIG.filter(link => {
+    return getQuickLinksForPathname(pathname).filter((link) => {
       if (!link.module) return true;
       const access = canAccess(link.module, "view");
       return typeof access === "object" ? access.allowed : !!access;
     });
-  }, [canAccess]);
+  }, [pathname, canAccess]);
 
   const fetchVideos = useCallback(async () => {
     const slug = currentModule?.module;

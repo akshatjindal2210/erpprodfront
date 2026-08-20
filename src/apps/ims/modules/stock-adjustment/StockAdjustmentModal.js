@@ -9,7 +9,7 @@ import { stockAdjustmentService } from "@/apps/ims/lib/services/stockAdjustment"
 import { masterService } from "@/apps/ims/lib/services/master";
 import { fetchItemScopedLedgerById } from "@/apps/ims/lib/helpers/packingEntryCustomerSelect";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
-import RemarksTextarea from "@/ui/common/forms/RemarksTextarea";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
@@ -456,7 +456,7 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
           </div>
         </div>
 
-        <RemarksTextarea
+        <FormTextarea
           label="Adjustment Reason"
           labelIcon={<MessageSquareQuote size={12} className="text-indigo-500" />}
           labelClassName={MODAL_LABEL_CLASS}

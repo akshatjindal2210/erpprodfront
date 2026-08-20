@@ -13,7 +13,7 @@ const LABELS = {
   sticker_creation: "Sticker creation",
   customer_override: "Customer override",
   stock_adjustment: "Stock adjustment",
-  qc_hold_material: "QC Hold",
+  qc_hold_material: "QC Pending ",
   mrn_sticker_render: "MRN sticker print",
   mrn_sticker_render_qc: "MRN QC sticker print",
   mrn_sticker_render_bulk: "MRN bulk print",

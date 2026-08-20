@@ -18,6 +18,8 @@ function getDisplayLabel(item, labelKey) {
 }
 
 export default function SearchableSelect({ value, onChange, fetchService, getByIdService, dataKey = "id", labelKey = "name", subLabelKey = "", 
+  /** When set, closed trigger shows this field instead of labelKey (dropdown rows still use labelKey). */
+  selectedLabelKey = "",
   error = "", required = false, disabled = false, placeholder = "Search...", label = "", className = "", helperText = "",
   /** Optional: show this field under each dropdown row (e.g. item D-Code for disambiguation). */
   listHintKey = "", listHintLabel = "D-Code",
@@ -76,6 +78,21 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   getOptionClassName,
   /** Return true to block selecting an option (still shown in list). */
   isOptionDisabled,
+  /**
+   * Pre-resolved option when value is known but getByIdService may not find it
+   * (e.g. supplier prefilled from ERP MRN before ledger master sync).
+   */
+  resolvedOption = null,
+  /** Optional inline styles on the trigger shell (e.g. spec color background). */
+  triggerStyle = null,
+  /** Optional per-row dropdown style — return { backgroundColor, ... }. */
+  getOptionStyle = null,
+  /** When true, `subLabelKey` row text uses semibold/bold styling. */
+  subLabelBold = false,
+  /** Allow typing values not in the list (single-select only). Commits on each keystroke. */
+  allowFreeText = false,
+  /** Convert typed/displayed text to uppercase immediately (does not wait for blur). */
+  uppercase = false,
 }) {
   const isToolbar = variant === "toolbar";
   const toolbarTone = filterVariant === "quick" ? "quick" : "server";
@@ -152,14 +169,22 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   const showAllRow = multiple && showAllOption && (!searchText.trim() || items.length > 0);
   const listIndexOffset = showAllRow ? 1 : 0;
 
+  const resolvedSelectedLabelKey = selectedLabelKey || labelKey;
+
+  const normalizeInput = useCallback((v) => {
+    const text = toSearchText(v);
+    return uppercase ? text.toUpperCase() : text;
+  }, [uppercase]);
+
   const getSearchTextFromSelection = useCallback((sel) => {
     if (multiple) {
       if (showTags || compactMulti) return "";
       const labels = (sel || []).map(s => getDisplayLabel(s, labelKey)).filter(Boolean).join(", ");
       return labels || (sel?.length > 0 ? `${sel.length} items selected` : "");
     }
-    return sel ? (labelOnlyDisplay ? getDisplayLabel(sel, labelKey) : toSearchText(sel[labelKey])) : "";
-  }, [multiple, showTags, compactMulti, labelKey, labelOnlyDisplay]);
+    const raw = sel ? (labelOnlyDisplay ? getDisplayLabel(sel, resolvedSelectedLabelKey) : toSearchText(sel[resolvedSelectedLabelKey])) : "";
+    return normalizeInput(raw);
+  }, [multiple, showTags, compactMulti, labelKey, labelOnlyDisplay, resolvedSelectedLabelKey, normalizeInput]);
 
   // 1. Position Calculation — viewport coords for fixed portal (works inside Drawer scroll-lock)
   const calcPosition = useCallback(() => {
@@ -366,6 +391,13 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           }
         });
     } else {
+      if (allowFreeText) {
+        if (!open) {
+          setSearch(value != null && value !== "" ? normalizeInput(value) : "");
+        }
+        return;
+      }
+
       // Non-multiple: value should be a single ID (integer or string)
       if (!value || (Array.isArray(value) && value.length === 0) || typeof value === "object") { 
         setSelected(null); 
@@ -379,13 +411,29 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         return;
       }
 
+      const seeded =
+        resolvedOption &&
+        typeof resolvedOption === "object" &&
+        resolvedOption[dataKey] != null &&
+        String(resolvedOption[dataKey]) === String(value)
+          ? resolvedOption
+          : null;
+      if (seeded) {
+        setSelected(seeded);
+        if (!open) {
+          const label = getDisplayLabel(seeded, resolvedSelectedLabelKey);
+          setSearch(labelOnlyDisplay ? label : label || toSearchText(seeded[resolvedSelectedLabelKey]) || String(value));
+        }
+        return;
+      }
+
       getByIdServiceRef.current(value).then((res) => {
         const item = res?.data || res;
         if (item?.[dataKey]) {
           setSelected(item);
           if (!open) {
-            const label = getDisplayLabel(item, labelKey);
-            setSearch(labelOnlyDisplay ? label : label || toSearchText(item[labelKey]) || String(value));
+            const label = getDisplayLabel(item, resolvedSelectedLabelKey);
+            setSearch(labelOnlyDisplay ? label : label || toSearchText(item[resolvedSelectedLabelKey]) || String(value));
           }
         }
       }).catch(() => {
@@ -395,13 +443,13 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       });
     }
   // Re-resolve when getById changes (e.g. schedule catalog finished loading on edit).
-  }, [value, dataKey, labelKey, labelOnlyDisplay, multiple, open, getByIdService]);
+  }, [value, dataKey, labelKey, labelOnlyDisplay, multiple, open, getByIdService, resolvedOption, getSearchTextFromSelection, resolvedSelectedLabelKey, allowFreeText, normalizeInput]);
 
-  // 5. Click Outside logic
+  // 5. Click Outside logic — capture phase so sibling inputs' stopPropagation still closes this dropdown
   useEffect(() => {
     const handleClickOutside = (e) => {
       const dd = dropdownRef.current;
-      const portals = document.querySelectorAll("#searchable-portal");
+      const portals = document.querySelectorAll(".searchable-select-dropdown");
       const clickedInAnyPortal = Array.from(portals).some((el) => el.contains(e.target));
       if (
         triggerRef.current &&
@@ -410,12 +458,16 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         !clickedInAnyPortal
       ) {
         setOpen(false);
-        setSearch(getSearchTextFromSelection(selected));
+        if (allowFreeText && !multiple) {
+          setSearch(value != null && value !== "" ? normalizeInput(value) : "");
+        } else {
+          setSearch(getSearchTextFromSelection(selected));
+        }
       }
     };
-    if (open) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open, selected, getSearchTextFromSelection]);
+    if (open) document.addEventListener("mousedown", handleClickOutside, true);
+    return () => document.removeEventListener("mousedown", handleClickOutside, true);
+  }, [open, selected, getSearchTextFromSelection, allowFreeText, multiple, value, normalizeInput]);
 
   const getVisibleSelectableItems = useCallback(() => {
     return items.filter((item) => {
@@ -448,7 +500,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     const rowLabel = getDisplayLabel(item, labelKey) || (labelOnlyDisplay ? "" : toSearchText(item[labelKey]));
     if (labelOnlyDisplay && !rowLabel) return null;
     const subLabelText =
-      !labelOnlyDisplay && subLabelKey && item[subLabelKey] != null
+      subLabelKey && item[subLabelKey] != null
         ? String(item[subLabelKey]).trim()
         : "";
     const labelMatchesSub =
@@ -456,12 +508,13 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       subLabelText.toLowerCase() === String(item[labelKey] ?? "").trim().toLowerCase();
     const showSubLabel =
       subLabelText !== "" && (showDuplicateSubLabel || !labelMatchesSub);
-    const rowTitleClass = showSubLabel ? dropdownRowTitleWithDescClass : dropdownRowLabelClass;
+    const rowTitleClass =
+      showSubLabel && !subLabelBold ? dropdownRowTitleWithDescClass : dropdownRowLabelClass;
 
-    const extraOptionClass =
-      typeof getOptionClassName === "function" ? String(getOptionClassName(item) || "").trim() : "";
-    const optionDisabled =
-      typeof isOptionDisabled === "function" ? Boolean(isOptionDisabled(item)) : false;
+    const extraOptionClass = typeof getOptionClassName === "function" ? String(getOptionClassName(item) || "").trim() : "";
+    const optionStyle = typeof getOptionStyle === "function" ? getOptionStyle(item) || undefined : undefined;
+    const hasCustomOptionStyle = Boolean(optionStyle?.backgroundColor);
+    const optionDisabled = typeof isOptionDisabled === "function" ? Boolean(isOptionDisabled(item)) : false;
 
     return (
       <li
@@ -472,12 +525,17 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         }}
         onMouseEnter={() => !("ontouchstart" in window) && setActiveIndex(idx)}
         aria-disabled={optionDisabled || undefined}
+        style={optionStyle}
         className={`px-3 py-2 border-b border-slate-50 last:border-0 transition-colors flex flex-col ${
           optionDisabled
             ? "cursor-not-allowed opacity-80"
-            : activeIndex === idx
-              ? "cursor-pointer bg-indigo-50/50"
-              : "cursor-pointer hover:bg-slate-50"
+            : hasCustomOptionStyle
+              ? activeIndex === idx
+                ? "cursor-pointer ring-1 ring-inset ring-indigo-300"
+                : "cursor-pointer"
+              : activeIndex === idx
+                ? "cursor-pointer bg-indigo-50/50"
+                : "cursor-pointer hover:bg-slate-50"
         } ${extraOptionClass}`}
       >
         <div className="flex items-center justify-between">
@@ -494,7 +552,17 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           </div>
         </div>
         {showSubLabel ? (
-          <span className={`${dropdownRowSubLabelClass} whitespace-normal break-words`}>{subLabelText}</span>
+          <span
+            className={`${
+              subLabelBold
+                ? isToolbar
+                  ? "text-[12px] font-bold text-slate-800 leading-snug"
+                  : "text-[12px] font-bold text-slate-800 leading-snug mt-0.5"
+                : dropdownRowSubLabelClass
+            } whitespace-normal break-words`}
+          >
+            {subLabelText}
+          </span>
         ) : null}
         {!labelOnlyDisplay && listHintKey && item[listHintKey] != null && item[listHintKey] !== "" ? (
           <span className="text-[11px] font-mono text-slate-500 font-normal tracking-tight">
@@ -566,7 +634,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       inputRef.current?.focus();
     } else {
       setSelected(item);
-      setSearch(getDisplayLabel(item, labelKey) || (labelOnlyDisplay ? "" : toSearchText(item[labelKey])));
+      setSearch(normalizeInput(getDisplayLabel(item, resolvedSelectedLabelKey) || (labelOnlyDisplay ? "" : toSearchText(item[resolvedSelectedLabelKey]))));
       onChange(item[dataKey], item);
       setOpen(false);
     }
@@ -604,7 +672,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           e.preventDefault();
           setLastFetchedQuery(null);
           lastFetchedQueryRef.current = null;
-          setSearch(e.key);
+          setSearch(normalizeInput(e.key));
           calcPosition();
           setOpen(true);
           return;
@@ -673,7 +741,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   const dropdownEl = open && dropPos.width > 0 ? (
     <div
       ref={dropdownRef}
-      id="searchable-portal"
+      className="searchable-select-dropdown"
       style={
         usePortal
           ? {
@@ -784,6 +852,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       )}
       <div 
         ref={triggerRef} 
+        style={triggerStyle || undefined}
         className={`w-full min-w-0 ${triggerShellClass} ${triggerRadius} flex items-center gap-1.5 sm:gap-2 ${
           multiTagsMode ? "overflow-visible" : "overflow-hidden"
         } ${
@@ -868,9 +937,12 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
             value={searchText}
             onMouseDown={(e) => e.stopPropagation()}
             onChange={(e) => {
-              const next = e.target.value;
+              const next = normalizeInput(e.target.value);
               fetchSeqRef.current += 1;
               setSearch(next);
+              if (allowFreeText && !multiple) {
+                onChange(next, next ? { [dataKey]: next, [labelKey]: next } : null);
+              }
               if (!open) {
                 setOpen(true);
                 calcPosition();
@@ -889,13 +961,13 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
             disabled={disabled}
             autoComplete="off"
             className={`min-w-[4.5rem] flex-1 self-center bg-transparent outline-none ${
-              multiTagsMode ? "h-6 leading-6" : "truncate"
-            } ${isToolbar ? LIST_PAGE_FILTER_VALUE_CLASS : "text-sm font-normal text-slate-800"} placeholder:text-slate-400`}
+              multiTagsMode ? "min-h-7 leading-normal py-0.5" : "truncate min-h-7"
+            } ${isToolbar ? LIST_PAGE_FILTER_VALUE_CLASS : "text-sm font-normal text-slate-800"} placeholder:text-slate-400${uppercase ? " uppercase" : ""}`}
           />
         </div>
 
         <div className="flex shrink-0 items-center self-center gap-1 border-l border-slate-100 pl-1.5 sm:pl-2">
-          {(searchText || (multiple && selected?.length > 0)) && !disabled && (
+          {(searchText || (allowFreeText && value)) && !disabled && (
             <button type="button" onClick={handleClear} className="text-slate-300 hover:text-rose-500 transition-colors">
               <X size={14} />
             </button>

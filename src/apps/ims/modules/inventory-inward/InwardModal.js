@@ -13,7 +13,7 @@ import FormPanelLoader            from "@/ui/common/system/FormPanelLoader";
 import ModuleSopAcknowledgment    from "@/ui/common/system/ModuleSopAcknowledgment";
 import Snackbar                   from "@/ui/primitives/Snackbar";
 import SearchableSelect           from "@/ui/common/forms/SearchableSelect";
-import RemarksTextarea            from "@/ui/common/forms/RemarksTextarea";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { useCanAccess }           from "@/platform/hooks/auth/useCanAccess";
 import { useDeviceScanSettings }  from "@/platform/hooks/scan/useDeviceScanSettings";
 import LaserScanField from "@/ui/common/scan/LaserScanField";
@@ -1614,8 +1614,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         </div>
 
         {/* ── Remarks ── */}
-        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm min-w-0">
-          <RemarksTextarea
+          <FormTextarea
             label="Remarks / Note"
             labelIcon={<MessageSquare size={14} className="text-inward-loc-label" />}
             value={form.remarks}
@@ -1623,7 +1622,6 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
             placeholder={MSG.REMARKS_PLACEHOLDER}
             rows={4}
           />
-        </div>
 
         {/* {locations.length > 0 && locationPackingSummary.length > 0 && (
           <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">

@@ -434,7 +434,7 @@ export default function LocationFinderDrawer({ open, onClose }) {
             <p className="text-xs font-medium text-slate-500">Please wait…</p>
           </div>
         ) : boxData ? (
-          <div className="space-y-4 animate-in slide-in-from-bottom-2 duration-300">
+            <div className="space-y-4">
             <div className={`p-3 rounded-xl border ${getFinderBoxCardShellClass(boxData)}`}>
               <FinderQcHoldBanner box={boxData} />
               <div className="flex items-start gap-2">

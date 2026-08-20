@@ -5,14 +5,18 @@
  * Left detail cards + right breakdown; after generate → Saved cards + PRINT ALL / Re-Print.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Layers, Box, User, ClipboardList, Printer, Eye, X, RefreshCw, CheckCircle2, Upload, FileText, Save } from "lucide-react";
+import { Loader2, Layers, Box, User, ClipboardList, Printer, Eye, X, RefreshCw, CheckCircle2, Upload, FileText, Save, AlertTriangle } from "lucide-react";
 import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
+import { notify } from "@/apps/rmstore/lib/utils/notify";
 
 import Drawer from "@/ui/primitives/Drawer";
 import { FormLabel, OK_INPUT, MODAL_INPUT_CLASS } from "@/ui/common/Constants";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { mrnService } from "@/apps/rmstore/lib/services/mrn";
-import { formatCoilNoUid, splitQtyAcrossCoils, equalSplitQtyAcrossCoils, roundQty3, QTY_EPS } from "@/apps/rmstore/lib/helpers/coilUid";
+import { specService } from "@/apps/rmstore/lib/services/spec";
+import { specColorInputStyle } from "@/apps/rmstore/modules/master/rm-spec/specHeaderUi";
+import { formatCoilNoUid, parseCoilNoUidMeta, splitQtyAcrossCoils, equalSplitQtyAcrossCoils, roundQty3, QTY_EPS } from "@/apps/rmstore/lib/helpers/coilUid";
 import { printFromBackendHtml } from "@/apps/ims/lib/utils/printHtmlDocument";
 import { getBoxNoUidPrefix } from "@/platform/utils/global";
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
@@ -21,8 +25,12 @@ import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 
 const TABS = { DETAILS: "details", BREAKDOWN: "breakdown" };
 const BATCH_QC_DL_KEY = "__batch_qc__";
-const STICKER_PREVIEW_W_PX = (100 / 25.4) * 96;
-const STICKER_PREVIEW_H_PX = (150 / 25.4) * 96;
+
+/** Sticker / sticker-stand size — change these two; keep in sync with coilStickerDesign.js */
+const RM_STICKER_WIDTH_MM = 65;
+const RM_STICKER_HEIGHT_MM = 85;
+const STICKER_PREVIEW_W_PX = (RM_STICKER_WIDTH_MM / 25.4) * 96;
+const STICKER_PREVIEW_H_PX = (RM_STICKER_HEIGHT_MM / 25.4) * 96;
 
 function resolveUploadUrl(noteOrPath) {
   const raw = String(noteOrPath || "").trim();
@@ -44,6 +52,27 @@ function formatQty(v) {
   return Number.isFinite(n) ? n.toLocaleString() : "—";
 }
 
+/** Heat No. — uppercase alphanumeric (e.g. 7H26F62191). */
+function sanitizeHeatNo(raw) {
+  return String(raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function SpecHeaderColorBadge({ label, color }) {
+  const value = String(color || "").trim();
+  const style = value ? specColorInputStyle(value) : undefined;
+  return (
+    <div
+      className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg text-[10px] sm:text-[11px] font-bold border shrink-0 text-left min-w-[96px] bg-white border-slate-200 text-slate-800 shadow-sm"
+      style={style}
+    >
+      <p className="text-[8px] uppercase font-bold opacity-70 mb-0.5">{label}</p>
+      <span className="block text-[10px] md:text-[11px] font-black tracking-wide uppercase">
+        {value || "—"}
+      </span>
+    </div>
+  );
+}
+
 /** IMS-style read-only meta: label above value, no FormLabel overflow in narrow cards. */
 function DetailField({ label, children, className = "" }) {
   return (
@@ -54,6 +83,28 @@ function DetailField({ label, children, className = "" }) {
       {children}
     </div>
   );
+}
+
+function parseStickerDraft(raw) {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return typeof raw === "object" ? raw : null;
+}
+
+function resolveMrnRemarks(data) {
+  const fromCoil = data?.coils?.[0]?.remarks;
+  if (fromCoil != null && String(fromCoil).trim() !== "") return String(fromCoil);
+  if (data?.remarks != null && String(data.remarks).trim() !== "") return String(data.remarks);
+  const draft = parseStickerDraft(data?.sticker_draft);
+  if (draft?.remarks != null && String(draft.remarks).trim() !== "") return String(draft.remarks);
+  return "";
 }
 
 function hydrateFromSourceRow(row) {
@@ -107,7 +158,7 @@ function SimpleFileInput({ label, required, file, onChange, disabled, savedPath,
       >
         {label}
       </FormLabel>
-      <div className={`flex items-center gap-1.5 h-9 px-2.5 border border-slate-200 rounded-lg bg-white min-w-0 ${disabled && !previewUrl ? "opacity-50" : ""}`}>
+      <div className={`flex items-center gap-1.5 h-9 px-2.5 border border-slate-200 rounded-lg bg-white min-w-0 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 ${disabled && !previewUrl ? "opacity-50" : ""}`}>
         <FileText size={14} className={`shrink-0 ${previewUrl ? "text-emerald-600" : "text-slate-500"}`} />
         {disabled ? (
           nameNode
@@ -119,7 +170,7 @@ function SimpleFileInput({ label, required, file, onChange, disabled, savedPath,
               <input
                 type="file"
                 accept=".pdf,.png,.jpg,.jpeg,.webp"
-                className="hidden"
+                className="sr-only"
                 onChange={(e) => {
                   onChange?.(e.target.files?.[0] || null);
                   e.target.value = "";
@@ -136,7 +187,7 @@ function SimpleFileInput({ label, required, file, onChange, disabled, savedPath,
             <input
               type="file"
               accept=".pdf,.png,.jpg,.jpeg,.webp"
-              className="hidden"
+              className="sr-only"
               onChange={(e) => {
                 onChange?.(e.target.files?.[0] || null);
                 e.target.value = "";
@@ -166,6 +217,9 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [specInfo, setSpecInfo] = useState(null);
+  const [specChecked, setSpecChecked] = useState(false);
+  const [drawerCloneKey, setDrawerCloneKey] = useState(0);
   const [previewLayout, setPreviewLayout] = useState({
     scale: 1,
     w: STICKER_PREVIEW_W_PX,
@@ -221,11 +275,29 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     setDlTracking({});
   }, [buildCoilQtys]);
 
+  const loadSpecForItem = useCallback(async (itemDcode) => {
+    const code = itemDcode != null ? Number(itemDcode) : NaN;
+    if (!Number.isFinite(code) || code <= 0) {
+      setSpecInfo(null);
+      setSpecChecked(true);
+      return;
+    }
+    setSpecChecked(false);
+    try {
+      const res = await specService.getByItem(code);
+      setSpecInfo(res?.data ?? null);
+    } catch {
+      setSpecInfo(null);
+    } finally {
+      setSpecChecked(true);
+    }
+  }, []);
+
   const hasSavedDoc = useCallback((path) => Boolean(String(path || "").trim()), []);
 
   const applyDraftInputs = useCallback((data) => {
-    const draft = data?.sticker_draft;
-    const hasDraft = draft && typeof draft === "object" && Object.keys(draft).length > 0;
+    const draft = parseStickerDraft(data?.sticker_draft);
+    const hasDraft = draft && Object.keys(draft).length > 0;
     if (!hasDraft) {
       applyFreshInputs(data);
       return;
@@ -245,8 +317,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     } else {
       setCoilQtys(Array.from({ length: count }, () => ""));
     }
-    setHeatNo(draft.heat_no || "");
-    setRemarks(draft.remarks || "");
+    setHeatNo(sanitizeHeatNo(draft.heat_no || ""));
+    setRemarks(draft.remarks || data?.remarks || "");
     setTcFile(null);
     setRmtcFile(null);
     setDlTracking({});
@@ -272,8 +344,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       if ((data?.coils || []).length > 0) {
         setCoilCount(data.coils.length);
         setCoilQtys(data.coils.map((c) => roundQty3(c.qty)));
-        setHeatNo(data.coils[0]?.heat_no || "");
-        setRemarks(data.coils[0]?.remarks || "");
+        setHeatNo(sanitizeHeatNo(data.coils[0]?.heat_no || data?.heat_no || ""));
+        setRemarks(resolveMrnRemarks(data));
       } else if (data?.has_sticker_draft || data?.sticker_draft) {
         applyDraftInputs(data);
       } else {
@@ -297,10 +369,13 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     if (!open) {
       setTab(TABS.DETAILS);
       setDetail(null);
+      setSpecInfo(null);
+      setSpecChecked(false);
       setPreviewOpen(false);
       setPreviewHtml("");
       setDlTracking({});
       setSavingDraft(false);
+      setDrawerCloneKey(0);
       return;
     }
     const uid = mrnId || sourceRow?.uid;
@@ -314,17 +389,58 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       applyFreshInputs(hydrated);
       setLoading(false);
     }
-  }, [open, mrnId, sourceRow, loadDetail, applyFreshInputs]);
+  }, [open, mrnId, sourceRow, loadDetail, applyFreshInputs, drawerCloneKey]);
+
+  useEffect(() => {
+    if (!open || !detail?.item_dcode) {
+      if (open && detail && !detail.item_dcode) {
+        setSpecInfo(null);
+        setSpecChecked(true);
+      }
+      return;
+    }
+    loadSpecForItem(detail.item_dcode);
+  }, [open, detail?.item_dcode, drawerCloneKey, loadSpecForItem]);
 
   const generatedCoils = detail?.coils || [];
   const alreadyGenerated = detail?.sticker_generated === true || generatedCoils.length > 0;
+
+  const specMissing = useMemo(() => {
+    if (!specChecked || alreadyGenerated) return false;
+    const code = detail?.item_dcode != null ? Number(detail.item_dcode) : NaN;
+    if (!Number.isFinite(code) || code <= 0) return true;
+    return !specInfo;
+  }, [specChecked, alreadyGenerated, detail?.item_dcode, specInfo]);
+
+  const specNotApproved = useMemo(() => {
+    if (!specChecked || alreadyGenerated || specMissing) return false;
+    return specInfo?.approved !== true && specInfo?.approval_status !== "authorized";
+  }, [specChecked, alreadyGenerated, specMissing, specInfo]);
+
+  const getSpecValidationError = useCallback(() => {
+    if (alreadyGenerated) return null;
+    const code = detail?.item_dcode != null ? Number(detail.item_dcode) : NaN;
+    if (!Number.isFinite(code) || code <= 0) {
+      return "Cannot generate stickers because the RM item is missing on this MRN. Add the item and create RM Spec Master first.";
+    }
+    if (!specChecked) {
+      return "Checking RM specifications… please try again in a moment.";
+    }
+    if (specMissing) {
+      return `Cannot generate stickers because no RM Spec Master exists for item ${detail?.item_desc || code}. Create the specifications first.`;
+    }
+    if (specNotApproved) {
+      return `Cannot generate stickers because RM specifications for item ${detail?.item_desc || code} exist but are not authorized. Approve all spec lines first.`;
+    }
+    return null;
+  }, [alreadyGenerated, detail?.item_dcode, detail?.item_code, specChecked, specMissing, specNotApproved]);
 
   const previewRows = useMemo(() => {
     if (alreadyGenerated) {
       return generatedCoils.map((c) => ({
         coil_no_uid: c.coil_no_uid,
         qty: roundQty3(c.qty),
-        index: c.coil_index,
+        index: c.coil_index ?? parseCoilNoUidMeta(c.coil_no_uid).index,
         heat_no: c.heat_no,
         location_id: c.location_id,
         in_uid: c.in_uid,
@@ -356,7 +472,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       const availW = area.clientWidth;
       const availH = area.clientHeight;
       if (availW <= 0 || availH <= 0) return;
-      const s = Math.min(1, availW / STICKER_PREVIEW_W_PX, availH / STICKER_PREVIEW_H_PX);
+      const pad = 24;
+      const s = Math.min(2.6, (availW - pad) / STICKER_PREVIEW_W_PX, (availH - pad) / STICKER_PREVIEW_H_PX);
       const scale = Number.isFinite(s) && s > 0 ? s : 1;
       setPreviewLayout({
         scale,
@@ -377,6 +494,12 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const qtyMatches = Math.abs(qtySum - targetQty) <= QTY_EPS;
   const qtyDiff = roundQty3(qtySum - targetQty);
   const unit = detail?.it_unit || "KGS";
+  const qtyMismatchLabel = useMemo(() => {
+    if (qtyMatches || alreadyGenerated) return "";
+    return qtyDiff > 0
+      ? `Coil sum ${formatQty(qtySum)} exceeds MRN total ${formatQty(targetQty)} by ${formatQty(Math.abs(qtyDiff))} ${unit}`
+      : `Coil sum ${formatQty(qtySum)} is short of MRN total ${formatQty(targetQty)} by ${formatQty(Math.abs(qtyDiff))} ${unit}`;
+  }, [qtyMatches, alreadyGenerated, qtyDiff, qtySum, targetQty, unit]);
 
   const handleCoilCountChange = (raw) => {
     const n = Math.max(1, Number(raw) || 1);
@@ -398,7 +521,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       if (raw === "") next[idx] = "";
       else {
         const n = Number(raw);
-        next[idx] = Number.isFinite(n) ? Math.max(0, Math.round(n)) : "";
+        next[idx] = Number.isFinite(n) ? Math.max(1, Math.round(n)) : "";
       }
       return next;
     });
@@ -424,8 +547,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       setTab(TABS.BREAKDOWN);
       return false;
     }
-    if (coilQtys.some((q) => !Number.isFinite(Number(q)) || Number(q) < 0)) {
-      toast.error("Each coil quantity must be 0 or more.");
+    if (coilQtys.some((q) => !Number.isFinite(Number(q)) || Number(q) < 1)) {
+      toast.error("Each coil quantity must be at least 1. Zero is not allowed.");
       setTab(TABS.BREAKDOWN);
       return false;
     }
@@ -437,8 +560,20 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       toast.info("Stickers have already been generated for this MRN.");
       return false;
     }
-    if (!String(heatNo || "").trim()) {
+    const heat = String(heatNo || "").trim();
+    if (!heat) {
       toast.error("Heat number is required.");
+      setTab(TABS.DETAILS);
+      return false;
+    }
+    if (!/^[A-Z0-9]+$/.test(heat)) {
+      toast.error("Heat number must contain uppercase letters and numbers only.");
+      setTab(TABS.DETAILS);
+      return false;
+    }
+    const specErr = getSpecValidationError();
+    if (specErr) {
+      toast.error(specErr);
       setTab(TABS.DETAILS);
       return false;
     }
@@ -455,6 +590,32 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     return true;
   };
 
+  /** All fields required for Generate — used by Ctrl+S (generate if ready, else draft). */
+  const isReadyToGenerate = useMemo(() => {
+    if (alreadyGenerated) return false;
+    const heat = String(heatNo || "").trim();
+    if (!heat || !/^[A-Z0-9]+$/.test(heat)) return false;
+    if (getSpecValidationError()) return false;
+    if (!Number.isFinite(targetQty) || targetQty <= 0) return false;
+    if (!fillQtysAuto && coilQtys.some((q) => q === "" || q == null || !Number.isFinite(Number(q)))) {
+      return false;
+    }
+    if (!qtyMatches) return false;
+    if (coilQtys.some((q) => !Number.isFinite(Number(q)) || Number(q) < 1)) return false;
+    if (!hasTcDocument || !hasRmtcDocument) return false;
+    return true;
+  }, [
+    alreadyGenerated,
+    heatNo,
+    getSpecValidationError,
+    targetQty,
+    fillQtysAuto,
+    coilQtys,
+    qtyMatches,
+    hasTcDocument,
+    hasRmtcDocument,
+  ]);
+
   const handlePreview = async () => {
     if (!validateBeforePreview()) return;
     setTab(TABS.BREAKDOWN);
@@ -463,10 +624,13 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     setPreviewHtml("");
     try {
       const res = await mrnService.previewSticker({
+        uid: detail.uid || detail.mrn_uid || null,
+        mrn_uid: detail.uid || detail.mrn_uid || null,
         mrn_no: detail.mrn_no,
         serial_no: detail.serial_no,
         mrn_dt: detail.mrn_dt,
         acc_name: detail.acc_name,
+        item_dcode: detail.item_dcode,
         item_code: detail.item_code,
         item_desc: detail.item_desc,
         it_unit: detail.it_unit,
@@ -500,7 +664,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     }
   };
 
-  /** QC sticker — same coil design; batch = one for MRN, coil-wise = one per coil. */
+  /** QC sticker — same 85×65 mm size as the coil sticker. */
   const handleDownloadQc = async (coil_no_uid = null) => {
     const uid = resolvedUid || detail?.uid;
     if (!generatedCoils.length) return;
@@ -590,7 +754,10 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       toast.info("Stickers have already been generated for this MRN.");
       return;
     }
-    if (!validateQtyInputs()) return;
+    if (!Number.isFinite(targetQty) || targetQty <= 0) {
+      toast.error("The MRN quantity is missing or invalid.");
+      return;
+    }
     setSavingDraft(true);
     try {
       const source = sourceRow || detail;
@@ -605,7 +772,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         tcFile,
         rmtcFile,
       });
-      toast.success(res?.message || "Draft saved successfully.");
+      notify(res, "Draft saved successfully.");
       setDetail((prev) => ({
         ...(prev || {}),
         ...source,
@@ -621,6 +788,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       setTcFile(null);
       setRmtcFile(null);
       onSuccess?.();
+      setDrawerCloneKey((k) => k + 1);
+      onClose?.();
     } catch (err) {
       toast.error(err?.message || "Could not save the draft. Please try again.");
     } finally {
@@ -674,7 +843,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         }
         throw new Error("Both the TC and RMTC documents are required.");
       }
-      toast.success(res?.message || "Stickers generated successfully.");
+      notify(res, "Stickers generated successfully.");
       setPreviewOpen(false);
       setTab(TABS.BREAKDOWN);
       const generatedMode = res?.data?.sticker_mode || stickerMode;
@@ -701,12 +870,23 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         tc_file_name: nextDetail?.tc_file_name || uploadedDocs?.tc_file_name || tcFile?.name || null,
         rmtc_file_path: nextDetail?.rmtc_file_path || uploadedDocs?.rmtc_file_path || null,
         rmtc_file_name: nextDetail?.rmtc_file_name || uploadedDocs?.rmtc_file_name || rmtcFile?.name || null,
+        remarks: nextDetail?.remarks || remarks || null,
       });
+      setRemarks(nextDetail?.remarks || remarks || "");
       onSuccess?.();
     } catch (err) {
       toast.error(err?.message || "Could not generate the stickers. Please try again.");
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleShortcutSave = () => {
+    if (alreadyGenerated || generating || savingDraft) return;
+    if (isReadyToGenerate) {
+      void handleGenerate();
+    } else {
+      void handleSaveDraft();
     }
   };
 
@@ -732,6 +912,12 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
               {detail.item_desc || "—"}
             </p>
           </DetailField>
+          <DetailField label="Total Qty">
+            <p className="text-[11px] lg:text-sm font-bold text-slate-700 leading-none tabular-nums">
+              {formatQty(alreadyGenerated ? detail.it_recp_qty : targetQty)}{" "}
+              <span className="text-[9px] opacity-60 uppercase font-bold">{unit}</span>
+            </p>
+          </DetailField>
         </div>
       </div>
 
@@ -752,11 +938,25 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
               {detail.acc_name || "—"}
             </p>
           </DetailField>
-          <DetailField label="Lot No.">
+        
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:gap-y-2.5">
+            <DetailField label="Bill No.">
+              <p className="text-[11px] lg:text-sm font-mono font-bold text-slate-700 leading-none break-all">
+                {detail.bill_no || "—"}
+              </p>
+            </DetailField>
+            <DetailField label="Bill Date.">
+              <p className="text-[11px] lg:text-sm font-mono font-bold text-slate-700 leading-none break-all">
+                {formatDocDate(detail.bill_dt) || "—"}
+              </p>
+            </DetailField>
+          </div>
+          
+          {/* <DetailField label="Lot No.">
             <p className="text-[11px] lg:text-sm font-mono font-bold text-slate-700 leading-none break-all">
               {detail.it_lot_no || "—"}
             </p>
-          </DetailField>
+          </DetailField> */}
         </div>
       </div>
 
@@ -783,10 +983,12 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
               </div>
             ) : (
               <input
-                className={`mt-0.5 ${OK_INPUT} ${MODAL_INPUT_CLASS} font-mono font-bold`}
+                className={`mt-0.5 ${OK_INPUT} ${MODAL_INPUT_CLASS} font-mono font-bold !text-slate-900 uppercase`}
                 value={heatNo}
-                onChange={(e) => setHeatNo(e.target.value)}
+                onChange={(e) => setHeatNo(sanitizeHeatNo(e.target.value))}
                 placeholder="Enter the heat number"
+                autoCapitalize="characters"
+                spellCheck={false}
               />
             )}
           </div>
@@ -801,7 +1003,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                   type="number"
                   min={1}
                   step={1}
-                  className={`mt-0.5 ${OK_INPUT} ${MODAL_INPUT_CLASS} font-bold tabular-nums`}
+                  className={`mt-0.5 ${OK_INPUT} ${MODAL_INPUT_CLASS} font-bold tabular-nums !text-slate-900`}
                   value={coilCount}
                   onChange={(e) => handleCoilCountChange(e.target.value)}
                 />
@@ -822,16 +1024,13 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                 savedPath={detail?.rmtc_file_path}
                 savedName={detail?.rmtc_file_name}
               />
-              <div className="space-y-1 min-w-0">
-                <FormLabel className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter ml-0">
-                  Remarks
-                </FormLabel>
-                <textarea
-                  className={`${OK_INPUT} ${MODAL_INPUT_CLASS} h-auto min-h-[48px] py-2 resize-none`}
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                />
-              </div>
+              <FormTextarea
+                label="Remarks"
+                labelClassName="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter"
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                rows={2}
+              />
             </>
           ) : (
             <div className="space-y-2">
@@ -872,27 +1071,23 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
           </span>
         </div>
         <div className="p-2.5 sm:p-3 lg:p-4 grid grid-cols-2 gap-x-3 gap-y-2 sm:gap-y-2.5">
-          <DetailField label="Serial">
-            <p className="text-[11px] lg:text-sm font-bold text-slate-700 leading-none tabular-nums">
-              {detail.serial_no ?? "—"}
-            </p>
-          </DetailField>
-          <DetailField label="Total Qty">
-            <p className="text-[11px] lg:text-sm font-bold text-slate-700 leading-none tabular-nums">
-              {formatQty(alreadyGenerated ? detail.it_recp_qty : targetQty)}{" "}
-              <span className="text-[9px] opacity-60 uppercase font-bold">{unit}</span>
-            </p>
-          </DetailField>
           <DetailField label="MRN Date">
             <p className="text-[11px] lg:text-sm font-bold text-slate-700 leading-none">
               {formatDocDate(detail.mrn_dt) || "—"}
             </p>
           </DetailField>
+          <DetailField label="MRN UID">
+            <p className="text-[11px] lg:text-sm font-bold text-indigo-700 leading-none truncate font-mono">
+              {detail.uid || detail.mrn_uid || "—"}
+            </p>
+          </DetailField>
+          {/* FUTURE: show MRN No. again if needed
           <DetailField label="MRN No.">
             <p className="text-[11px] lg:text-sm font-bold text-slate-700 leading-none truncate">
               #{detail.mrn_no ?? "—"}
             </p>
           </DetailField>
+          */}
         </div>
       </div>
 
@@ -959,11 +1154,23 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   /* ─── Breakdown table (IMS columns) ─── */
   const breakdownPanel = (
     <div className="w-full min-w-0 flex flex-col flex-1 h-full min-h-0 overflow-hidden">
-      <div className="px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center gap-1.5 min-w-0 shrink-0">
+      <div className="px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center gap-2 min-w-0 shrink-0">
         <div className="flex items-center gap-1.5 lg:gap-2 min-w-0 flex-1">
           <Box className="w-4 h-4 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-600" aria-hidden />
           <span className="text-[10px] sm:text-[11px] lg:text-sm font-black uppercase tracking-tight text-slate-800 truncate">Breakdown</span>
         </div>
+        {!alreadyGenerated ? (
+          <div className="flex flex-col items-end gap-0.5 shrink-0 text-right">
+            <span className={`text-[9px] sm:text-[10px] font-black uppercase tabular-nums ${qtyMatches ? "text-emerald-700" : "text-rose-600"}`}>
+              Sum {formatQty(qtySum)} / {formatQty(targetQty)} {unit}
+            </span>
+            {!qtyMatches ? (
+              <span className="text-[9px] font-bold uppercase text-rose-600">
+                {qtyDiff > 0 ? `Higher by ${formatQty(Math.abs(qtyDiff))}` : `Lower by ${formatQty(Math.abs(qtyDiff))}`}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="flex-1 h-full min-h-0 overflow-y-auto p-0 lg:p-1">
         {!previewRows.length ? (
@@ -979,7 +1186,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th className="sticky left-0 top-0 z-[30] bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-600 border-r border-slate-200">#</th>
                     <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">Coil</th>
-                    <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">MRN</th>
+                    <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">MRN UID</th>
+                    {/* FUTURE: add <th>MRN No.</th> if needed */}
                     <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">Qty</th>
                     <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">QC</th>
                     <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">Status</th>
@@ -999,22 +1207,30 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                           {row.index}
                         </td>
                         <td className="px-2 py-1.5 lg:px-3 text-[10px] lg:text-xs font-bold min-w-0 max-w-[200px]">
-                          <span className={`break-all ${alreadyGenerated ? "text-blue-700" : "text-slate-800"}`}>{row.coil_no_uid}</span>
+                          <span className={`break-all font-bold ${alreadyGenerated ? "text-blue-700" : "text-slate-900"}`}>{row.coil_no_uid}</span>
                         </td>
+                        <td className="px-2 py-1.5 lg:px-3 text-[10px] lg:text-[13px] font-bold text-indigo-700 font-mono tabular-nums whitespace-nowrap">
+                          {detail?.uid || detail?.mrn_uid || "—"}
+                          {/* FUTURE: also show MRN No. — {" "}
+                          <span className="text-slate-500 font-sans">#{detail?.mrn_no ?? "—"}</span>
+                          */}
+                        </td>
+                        {/* FUTURE: separate MRN No. column
                         <td className="px-2 py-1.5 lg:px-3 text-[10px] lg:text-[13px] font-bold text-slate-700 tabular-nums whitespace-nowrap">
-                          {detail?.mrn_no ?? "—"}
+                          #{detail?.mrn_no ?? "—"}
                         </td>
+                        */}
                         <td className="px-2 py-1.5 lg:px-3">
                           {row.preview && !alreadyGenerated && canEditQty ? (
                             <input
                               type="number"
                               step={1}
-                              className="w-24 h-8 border border-slate-300 px-2 text-[11px] font-bold tabular-nums rounded"
+                              className="w-24 h-8 border border-slate-300 px-2 text-[11px] font-bold tabular-nums rounded bg-white !text-slate-900 placeholder:text-slate-400"
                               value={coilQtys[idx] ?? ""}
                               onChange={(e) => handleQtyEdit(idx, e.target.value)}
                             />
                           ) : (
-                            <span className="text-[10px] lg:text-[13px] font-bold text-slate-800 tabular-nums whitespace-nowrap">
+                            <span className="text-[10px] lg:text-[13px] font-bold text-slate-900 tabular-nums whitespace-nowrap">
                               {formatQty(row.qty)} {unit}
                             </span>
                           )}
@@ -1093,7 +1309,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     >
       <div
         className="bg-white rounded-t-xl sm:rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-200"
-        style={{ width: "min(calc(100mm + 2.5rem), calc(100vw - 1rem))", maxHeight: "92dvh" }}
+        style={{ width: "min(52rem, calc(100vw - 1.5rem))", maxHeight: "92dvh" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2 px-2.5 sm:px-4 py-2 border-b border-slate-200 bg-slate-50 shrink-0">
@@ -1102,14 +1318,14 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
               Sticker preview
             </h2>
             <p className="text-[9px] sm:text-[11px] text-slate-500 font-medium mt-0.5">
-              {`Coil 1 of ${coilCount} · print layout (100 mm x 150 mm)`}
+              {`Coil 1 of ${coilCount} · print layout (${RM_STICKER_WIDTH_MM} mm x ${RM_STICKER_HEIGHT_MM} mm)`}
             </p>
           </div>
           <button type="button" onClick={() => setPreviewOpen(false)} disabled={previewLoading} className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-100" aria-label="Close">
             <X size={18} />
           </button>
         </div>
-        <div ref={previewAreaRef} className="flex flex-1 min-h-[calc(150mm+2rem)] max-h-[calc(92dvh-3.25rem)] justify-center items-center p-4 sm:p-5 bg-slate-200/80 overflow-hidden">
+        <div ref={previewAreaRef} className="flex flex-1 max-h-[calc(92dvh-3.25rem)] justify-center items-center p-5 sm:p-8 bg-slate-200/80 overflow-hidden" style={{ minHeight: "min(70dvh, 28rem)" }}>
           {previewLoading ? (
             <div className="flex flex-col items-center gap-2 text-slate-600">
               <Loader2 className="animate-spin w-8 h-8" />
@@ -1149,7 +1365,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         }
         onClose?.();
       }}
-      onSubmit={!alreadyGenerated && qtyMatches && !generating ? handleGenerate : undefined}
+      onSubmit={!alreadyGenerated && !generating && !savingDraft ? handleShortcutSave : undefined}
       title="Sticker Control"
       maxWidth="max-w-full xl:max-w-7xl"
       noPadding
@@ -1165,12 +1381,19 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         ) : (
           <>
             {/* Header — IMS pattern */}
-            <div className="shrink-0 z-20 bg-white border-b px-2 md:px-4 py-1.5 sm:py-2 md:py-3 flex flex-col md:flex-row items-stretch md:items-center gap-1.5 sm:gap-2 md:gap-3 shadow-sm w-full max-w-full min-w-0">
+            <div className="shrink-0 z-20 bg-white border-b shadow-sm w-full max-w-full min-w-0">
+            <div className="px-2 md:px-4 py-1.5 sm:py-2 md:py-3 flex flex-col md:flex-row items-stretch md:items-center gap-1.5 sm:gap-2 md:gap-3">
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full md:flex-1 min-w-0 pb-1 -mb-1">
                 <div className="px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-[11px] md:text-xs font-bold border shrink-0 text-left min-w-[96px] bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-100">
-                  <p className="text-[8px] uppercase font-bold opacity-70 mb-0.5">MRN No.</p>
-                  <span className="block text-[10px] md:text-[11px] font-black tracking-wide">#{detail.mrn_no ?? "—"}</span>
+                  <p className="text-[8px] uppercase font-bold opacity-70 mb-0.5">MRN UID</p>
+                  <span className="block text-[10px] md:text-[11px] font-black tracking-wide">{detail.uid || "—"}</span>
                 </div>
+                {specInfo ? (
+                  <>
+                    <SpecHeaderColorBadge label="Condition Color" color={specInfo.condition_color} />
+                    <SpecHeaderColorBadge label="Grade Color" color={specInfo.grade_color} />
+                  </>
+                ) : null}
               </div>
 
               <div className="flex items-center gap-1.5 flex-wrap w-full md:w-auto shrink-0 justify-end border-t md:border-t-0 pt-2 md:pt-0 min-w-0">
@@ -1254,7 +1477,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                       <button
                         type="button"
                         onClick={handleGenerate}
-                        disabled={generating || savingDraft || !qtyMatches}
+                        disabled={generating || savingDraft}
                         className="bg-slate-900 hover:bg-black disabled:bg-slate-400 text-white px-2 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-md touch-manipulation flex-1 sm:flex-initial min-h-[34px]"
                       >
                         {generating ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Printer size={14} className="shrink-0" />}
@@ -1264,6 +1487,25 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                     </>
                   )}
                 </div>
+            </div>
+            {!alreadyGenerated && (specMissing || specNotApproved) ? (
+              <div className="flex items-start gap-2 px-2 md:px-4 py-2 bg-amber-50 border-t border-amber-200 text-amber-950">
+                <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-600" aria-hidden />
+                <p className="text-[10px] sm:text-[11px] font-medium leading-snug">
+                  <span className="font-black uppercase tracking-tight">Warning:</span>{" "}
+                  {getSpecValidationError() || "No RM Spec Master exists for this item. Create the specifications before generating stickers."}
+                </p>
+              </div>
+            ) : null}
+            {!alreadyGenerated && !qtyMatches && qtyMismatchLabel ? (
+              <div className="flex items-start gap-2 px-2 md:px-4 py-2 bg-rose-50 border-t border-rose-200 text-rose-950">
+                <AlertTriangle size={16} className="shrink-0 mt-0.5 text-rose-600" aria-hidden />
+                <p className="text-[10px] sm:text-[11px] font-medium leading-snug">
+                  <span className="font-black uppercase tracking-tight">Quantity mismatch:</span>{" "}
+                  {qtyMismatchLabel}
+                </p>
+              </div>
+            ) : null}
             </div>
 
             {/* Mobile tabs */}

@@ -21,7 +21,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
 import { isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import LaserScanField from "@/ui/common/scan/LaserScanField";
-import RemarksTextarea from "@/ui/common/forms/RemarksTextarea";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { detectQrType, parseBoxScanRaw, parseStickerScan, boxNoUidDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
 import { prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
 import { createScanBatchQueue } from "@/apps/ims/lib/helpers/scanBatchQueue";
@@ -2449,7 +2449,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               </div>
             </div>
 
-            <RemarksTextarea
+            <FormTextarea
               label="Security Remarks"
               value={form.remarks}
               onChange={(e) => handleChange("remarks", e.target.value)}
@@ -2945,7 +2945,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
             )}
 
             <div className="min-w-0">
-              <RemarksTextarea
+              <FormTextarea
                 label="Security Remarks"
                 value={form.remarks}
                 onChange={(e) => handleChange("remarks", e.target.value)}

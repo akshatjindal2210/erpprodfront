@@ -17,9 +17,10 @@ import DataTable from "@/ui/primitives/DataTable";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
+import { applyClientSearch } from "@/ui/common/list/clientListSearch";
 import CoilFinderDrawer from "./CoilFinderDrawer";
 import { COIL_CARD_CONFIG, COIL_HEADERS } from "./coilColumns";
-import { getCoilRowClassName, CoilTableColorLegend } from "./coilTableVisuals";
+import { getCoilRowClassName, CoilTableColorLegend, getCoilClientSearchParts } from "./coilTableVisuals";
 
 const MODULE = "rm_coils";
 const PAGE_SIZE = 200;
@@ -148,15 +149,26 @@ export default function CoilTablePage() {
     [rows, selected]
   );
 
+  const filteredRows = useMemo(() => {
+    const q = String(tempSearch ?? "").trim();
+    if (!q) return rows;
+    return applyClientSearch(rows, tempSearch, {
+      getParts: getCoilClientSearchParts,
+      skipSort: Boolean(params.sortKey),
+    });
+  }, [rows, tempSearch, params.sortKey]);
+
+  const quickSearchActive = Boolean(String(tempSearch ?? "").trim());
+
   const footerFilter = useMemo(
     () =>
       rmStoreFooterFromClientFilter({
-        tempSearch: "",
+        tempSearch,
         sourceRows: rows,
-        filteredRows: rows,
-        serverFiltered: Boolean(appliedSearch) || Boolean(journey),
+        filteredRows,
+        serverFiltered: Boolean(appliedSearch) || Boolean(journey) || hasDateRange,
       }),
-    [rows, appliedSearch, journey]
+    [rows, filteredRows, tempSearch, appliedSearch, journey, hasDateRange]
   );
 
   const handleFilterApply = (data) => {
@@ -167,7 +179,11 @@ export default function CoilTablePage() {
       return;
     }
     setAppliedJourney("");
-    setParams((prev) => ({ ...prev, fromDate: data.fromDate, toDate: data.toDate }));
+    setParams((prev) => ({
+      ...prev,
+      fromDate: data?.fromDate ?? prev.fromDate,
+      toDate: data?.toDate ?? prev.toDate,
+    }));
   };
 
   const handleReset = () => {
@@ -184,7 +200,7 @@ export default function CoilTablePage() {
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: "Coil Records",
-    rows,
+    rows: filteredRows,
     headers: COIL_HEADERS,
   });
 
@@ -250,7 +266,7 @@ export default function CoilTablePage() {
               {
                 type: "text",
                 label: "Journey",
-                placeholder: "MRN, coil no, or item code",
+                placeholder: "MRN, coil no, item, job card, or machine",
                 value: journeyInput,
                 onChange: setJourneyInput,
                 onEnter: () => setAppliedJourney(String(journeyInput ?? "").trim()),
@@ -260,18 +276,19 @@ export default function CoilTablePage() {
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            onSearchEnter={() => handleFilterApply({ fromDate: params.fromDate, toDate: params.toDate })}
-            searchPlaceholder="Coil UID, MRN, heat, item…"
-            searchLabel="Search Coil Records"
+            searchPlaceholder="Coil UID, MRN, heat, item, job card, machine…"
+            searchLabel="Quick Search"
             searchVariant="quick"
+            showSearchButton
             applyOnSearchEnter
+            applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
           <DataTable
             headers={COIL_HEADERS}
-            data={rows}
+            data={filteredRows}
             loading={loading || loadingMore}
             viewMode={viewMode}
             allowCopy
@@ -291,17 +308,29 @@ export default function CoilTablePage() {
             getRowId={(row) => row.coil_uid}
             getRowClassName={getCoilRowClassName}
             onLoadMore={loadMore}
-            hasMore={rows.length < total}
-            totalItems={total}
-            emptyMessage={journey ? "No coils match this journey" : "No coil records for this date range"}
-            emptySubMessage={journey ? "Try MRN, coil no, heat, or item code" : "Set dates and click Search"}
+            hasMore={!quickSearchActive && rows.length < total}
+            totalItems={quickSearchActive ? filteredRows.length : total}
+            emptyMessage={
+              quickSearchActive
+                ? "No coils match quick search"
+                : journey
+                  ? "No coils match this journey"
+                  : "No coil records for this date range"
+            }
+            emptySubMessage={
+              quickSearchActive
+                ? "Try coil no, MRN, heat, item, job card, or machine"
+                : journey
+                  ? "Try MRN, coil no, item, job card, or machine"
+                  : "Set dates and click Search"
+            }
             cardConfig={COIL_CARD_CONFIG}
           />
         </div>
 
         <RmStoreListFooter
-          shown={rows.length}
-          total={total}
+          shown={filteredRows.length}
+          total={quickSearchActive ? filteredRows.length : total}
           label="Coil Records"
           journeyMode={Boolean(journey)}
           {...footerFilter}

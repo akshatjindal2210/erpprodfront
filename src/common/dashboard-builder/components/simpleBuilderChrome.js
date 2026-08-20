@@ -2,6 +2,7 @@
 
 import React from "react";
 import { GripVertical, Pencil, Trash2, Copy, ArrowDownToLine } from "lucide-react";
+import { DASHBOARD_CONTAINER_BG, DASHBOARD_WIDGET_BG, DASHBOARD_WIDGET_BORDER, resolveDashboardThemeBg, resolvePublishWidgetBorder, shadowForPublish } from "../utils/dashboardBuilderTheme";
 
 export const HANDLE_STYLES = {
   top: true,
@@ -18,8 +19,8 @@ export const HANDLE_STYLES = {
 export const DRAG_HANDLE_CLASS = "simple-drag-handle";
 
 const RESIZE_HANDLE_STYLE = {
-  width: "12px",
-  height: "12px",
+  width: "10px",
+  height: "10px",
   background: "#3b82f6",
   border: "2px solid #fff",
   borderRadius: "2px",
@@ -27,14 +28,14 @@ const RESIZE_HANDLE_STYLE = {
 };
 
 export const RESIZE_HANDLE_STYLES = {
-  top: { ...RESIZE_HANDLE_STYLE, width: "28px", height: "10px", top: "-1px", left: "50%", marginLeft: "-14px", cursor: "ns-resize" },
-  right: { ...RESIZE_HANDLE_STYLE, width: "10px", height: "28px", right: "-1px", top: "50%", marginTop: "-14px", cursor: "ew-resize" },
-  bottom: { ...RESIZE_HANDLE_STYLE, width: "28px", height: "10px", bottom: "-1px", left: "50%", marginLeft: "-14px", cursor: "ns-resize" },
-  left: { ...RESIZE_HANDLE_STYLE, width: "10px", height: "28px", left: "-1px", top: "50%", marginTop: "-14px", cursor: "ew-resize" },
-  topRight: { ...RESIZE_HANDLE_STYLE, top: "-1px", right: "-1px", cursor: "nesw-resize" },
-  bottomRight: { ...RESIZE_HANDLE_STYLE, bottom: "-1px", right: "-1px", cursor: "nwse-resize" },
-  bottomLeft: { ...RESIZE_HANDLE_STYLE, bottom: "-1px", left: "-1px", cursor: "nesw-resize" },
-  topLeft: { ...RESIZE_HANDLE_STYLE, top: "-1px", left: "-1px", cursor: "nwse-resize" },
+  top: { ...RESIZE_HANDLE_STYLE, width: "24px", height: "8px", top: "2px", left: "50%", marginLeft: "-12px", cursor: "ns-resize" },
+  right: { ...RESIZE_HANDLE_STYLE, width: "8px", height: "24px", right: "2px", top: "50%", marginTop: "-12px", cursor: "ew-resize" },
+  bottom: { ...RESIZE_HANDLE_STYLE, width: "24px", height: "8px", bottom: "2px", left: "50%", marginLeft: "-12px", cursor: "ns-resize" },
+  left: { ...RESIZE_HANDLE_STYLE, width: "8px", height: "24px", left: "2px", top: "50%", marginTop: "-12px", cursor: "ew-resize" },
+  topRight: { ...RESIZE_HANDLE_STYLE, top: "2px", right: "2px", cursor: "nesw-resize" },
+  bottomRight: { ...RESIZE_HANDLE_STYLE, bottom: "2px", right: "2px", cursor: "nwse-resize" },
+  bottomLeft: { ...RESIZE_HANDLE_STYLE, bottom: "2px", left: "2px", cursor: "nesw-resize" },
+  topLeft: { ...RESIZE_HANDLE_STYLE, top: "2px", left: "2px", cursor: "nwse-resize" },
 };
 
 /** Hide handles without disableResizing — that can break Rnd pointer hit-testing. */
@@ -56,11 +57,74 @@ export function resizeHandleStylesForSelection(isSelected) {
 export function selectionStyle(isSelected, isContainer = false) {
   if (!isSelected) return {};
   return {
-    outline: "2px solid #3b82f6",
-    outlineOffset: 0,
-    borderRadius: isContainer ? 8 : 6,
-    boxShadow: "0 0 0 1px rgba(59, 130, 246, 0.25)",
+    borderRadius: isContainer ? 10 : 6,
   };
+}
+
+/** Builder-only shell so widgets/containers are visually distinct on the canvas. */
+export function builderWidgetShellClass(widget = {}, isContainer = false) {
+  if (isContainer) {
+    return "bg-slate-100/90 border-2 border-dashed border-slate-300";
+  }
+  const raw = String(widget.rawType || widget.type || "").toLowerCase();
+  if (raw === "heading") return "bg-transparent border border-transparent";
+  return "bg-white border border-slate-200 shadow-sm";
+}
+
+/** Shared widget card shell — identical in builder preview + publish (WYSIWYG). */
+export function parityWidgetBodyShellStyle(style = {}, { isContainer = false, nested = false, publish = false } = {}) {
+  const s = style && typeof style === "object" ? style : {};
+  const css = {};
+  const savedBg = resolveDashboardThemeBg(s.bg, null);
+  if (savedBg && !isContainer) css.backgroundColor = savedBg;
+  if (isContainer && savedBg) css.backgroundColor = savedBg;
+  if (Number.isFinite(Number(s.borderRadius))) css.borderRadius = `${Number(s.borderRadius)}px`;
+  if (s.border && !(publish && isContainer)) {
+    const border = publish ? resolvePublishWidgetBorder(s.border) : s.border;
+    if (border) css.border = border;
+  }
+  if (publish && isContainer) css.border = "none";
+  if (!publish && s.boxShadow && s.boxShadow !== "none") css.boxShadow = s.boxShadow;
+  if (publish) css.boxShadow = shadowForPublish(s.boxShadow);
+  const pad = Number.isFinite(Number(s.padding)) ? Number(s.padding) : null;
+  if (pad != null) css.padding = `${pad}px`;
+  if (isContainer) {
+    return {
+      ...css,
+      backgroundColor: css.backgroundColor || DASHBOARD_CONTAINER_BG,
+    };
+  }
+  if (nested) {
+    const resolvedBorder = publish
+      ? resolvePublishWidgetBorder(s.border)
+      : (css.border || DASHBOARD_WIDGET_BORDER);
+    return {
+      ...css,
+      backgroundColor: css.backgroundColor || DASHBOARD_WIDGET_BG,
+      border: publish ? (resolvedBorder || "none") : (resolvedBorder || DASHBOARD_WIDGET_BORDER),
+      boxShadow: publish ? "none" : (css.boxShadow || "inset 0 0 0 1px rgba(15, 23, 42, 0.06)"),
+    };
+  }
+  const resolvedBorder = publish
+    ? resolvePublishWidgetBorder(s.border)
+    : (css.border || DASHBOARD_WIDGET_BORDER);
+  return {
+    ...css,
+    backgroundColor: css.backgroundColor || DASHBOARD_WIDGET_BG,
+    border: publish ? (resolvedBorder || "none") : (resolvedBorder || DASHBOARD_WIDGET_BORDER),
+    boxShadow: publish ? "none" : (css.boxShadow || "0 1px 2px rgba(15, 23, 42, 0.06)"),
+  };
+}
+
+export function builderWidgetTypeLabel(widget = {}, isContainer = false) {
+  if (isContainer) return "Container";
+  const raw = String(widget.rawType || widget.type || "widget").toLowerCase();
+  if (raw === "kpi" || raw === "count" || raw === "sum") return "KPI";
+  if (raw === "graph" || raw === "bar" || raw === "line" || raw === "pie" || raw === "area") return "Chart";
+  if (raw === "hybrid") return "Hybrid";
+  if (raw === "heading") return "Heading";
+  if (raw === "table") return "Table";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 /** Do not stopPropagation on the toolbar root — that blocks react-rnd drag.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { RefreshCw, X, ShieldX, Database, ClipboardList, LogOut, CheckCircle, Trash2, Eye } from "lucide-react";
+import { RefreshCw, X, ShieldX, Database, ClipboardList, LogOut, Trash2, Eye } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { rmRejectionService } from "@/apps/rmstore/lib/services/rmRejection";
@@ -10,12 +10,12 @@ import { uniqueBillNos, parseSavedBillNos, formatBillNosForSave, fetchBillOption
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import GenerateStoreOutDrawer from "@/apps/rmstore/modules/rm-rejection/GenerateStoreOutDrawer";
-import ApproveRejectionDrawer from "@/apps/rmstore/modules/rm-rejection/ApproveRejectionDrawer";
 import ViewRejectionDrawer from "@/apps/rmstore/modules/rm-rejection/ViewRejectionDrawer";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
+import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import DataTable from "@/ui/primitives/DataTable";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
@@ -25,6 +25,7 @@ import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
+import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/ui/common/list/ListPageSearchField";
 import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
@@ -44,15 +45,18 @@ const PENDING_TYPE_FILTER = {
   ALL: "all",
   QC_CHECK: "qc_check",
   IN_PROCESS: "in_process",
-  AWAITING_AUTHORIZATION: "awaiting_authorization",
   AWAITING_STORE_OUT: "awaiting_store_out",
   AWAITING_BILL: "awaiting_bill",
 };
 
 function rowPendingTypeKey(row) {
   if (row?.pending_source === PENDING_SOURCE.AWAITING_BILL) return PENDING_TYPE_FILTER.AWAITING_BILL;
-  if (row?.pending_source === PENDING_SOURCE.AWAITING_STORE_OUT) return PENDING_TYPE_FILTER.AWAITING_STORE_OUT;
-  if (row?.pending_source === PENDING_SOURCE.AWAITING_AUTHORIZATION) return PENDING_TYPE_FILTER.AWAITING_AUTHORIZATION;
+  if (
+    row?.pending_source === PENDING_SOURCE.AWAITING_STORE_OUT ||
+    row?.pending_source === PENDING_SOURCE.AWAITING_AUTHORIZATION
+  ) {
+    return PENDING_TYPE_FILTER.AWAITING_STORE_OUT;
+  }
   if (row?.pending_source === PENDING_SOURCE.QC_CHECK) return PENDING_TYPE_FILTER.QC_CHECK;
   if (row?.pending_source === PENDING_SOURCE.IN_PROCESS) return PENDING_TYPE_FILTER.IN_PROCESS;
   return PENDING_TYPE_FILTER.ALL;
@@ -62,10 +66,10 @@ function pendingTypeDisplay(row) {
   if (row?.pending_source === PENDING_SOURCE.AWAITING_BILL) {
     return { label: "Awaiting Bill", className: "bg-indigo-50 text-indigo-700 border-indigo-100" };
   }
-  if (row?.pending_source === PENDING_SOURCE.AWAITING_AUTHORIZATION) {
-    return { label: "Pending Authorization", className: "bg-amber-50 text-amber-800 border-amber-100" };
-  }
-  if (row?.pending_source === PENDING_SOURCE.AWAITING_STORE_OUT) {
+  if (
+    row?.pending_source === PENDING_SOURCE.AWAITING_STORE_OUT ||
+    row?.pending_source === PENDING_SOURCE.AWAITING_AUTHORIZATION
+  ) {
     return { label: "Store Out Pending", className: "bg-orange-50 text-orange-700 border-orange-100" };
   }
   if (row?.pending_source === PENDING_SOURCE.QC_CHECK) {
@@ -168,39 +172,8 @@ function rowKey(row) {
   return String(row.qc_reject_uid);
 }
 
-function isApproved(row) {
-  return row?.approved === true || row?.approved === "t" || row?.approved === 1;
-}
-
-function inCreatedRange(row, fromDate, toDate) {
-  const raw = row?.created_at;
-  if (!raw) return true;
-  const t = new Date(raw).getTime();
-  if (Number.isNaN(t)) return true;
-  if (fromDate) {
-    const from = new Date(`${fromDate}T00:00:00`).getTime();
-    if (t < from) return false;
-  }
-  if (toDate) {
-    const to = new Date(`${toDate}T23:59:59.999`).getTime();
-    if (t > to) return false;
-  }
-  return true;
-}
-
 function isStoreOutApproved(row) {
   return row?.store_out_approved === true || row?.store_out_approved === "t" || row?.store_out_approved === 1;
-}
-
-function isAwaitingAuthorizationRow(row) {
-  if (row?.qc_reject_uid == null || row?.is_virtual_pending) return false;
-  if (
-    row?.pending_source === PENDING_SOURCE.AWAITING_AUTHORIZATION ||
-    row?.pending_type === PENDING_TYPE_FILTER.AWAITING_AUTHORIZATION
-  ) {
-    return true;
-  }
-  return registerStage(row).label === "Pending Authorization";
 }
 
 function isStoreOutStartedRow(row) {
@@ -214,22 +187,16 @@ function registerStage(row) {
   if (isStoreOutApproved(row)) {
     return { label: "Awaiting Bill", className: "bg-indigo-50 text-indigo-700 border-indigo-100" };
   }
-  if (isApproved(row)) {
-    if (isStoreOutStartedRow(row)) {
-      return { label: "Store Out In Progress", className: "bg-orange-50 text-orange-700 border-orange-100" };
-    }
-    return { label: "Store Out Pending", className: "bg-orange-50 text-orange-700 border-orange-100" };
+  if (isStoreOutStartedRow(row)) {
+    return { label: "Store Out In Progress", className: "bg-orange-50 text-orange-700 border-orange-100" };
   }
-  if (!isApproved(row)) {
-    return { label: "Pending Authorization", className: "bg-amber-50 text-amber-800 border-amber-100" };
-  }
+  return { label: "Store Out Pending", className: "bg-orange-50 text-orange-700 border-orange-100" };
 }
 
 export default function RmRejectionPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
   const canAddBill = useMemo(() => canAccess(MODULE, "add").allowed, [canAccess]);
-  const canAuthorize = useMemo(() => canAccess(MODULE, "authorize"), [canAccess]);
 
   const [pageTab, setPageTab] = useState(PAGE_TABS.PENDING);
   const isPendingTab = pageTab === PAGE_TABS.PENDING;
@@ -258,12 +225,11 @@ export default function RmRejectionPage() {
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const { tempSearch, setTempSearch, resetSearch } = useAppliedListSearch();
+  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
   const [storeOutDrawerOpen, setStoreOutDrawerOpen] = useState(false);
-  const [approveDrawerOpen, setApproveDrawerOpen] = useState(false);
   const [viewDrawerOpen, setViewDrawerOpen] = useState(false);
   const [viewRow, setViewRow] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
@@ -290,7 +256,16 @@ export default function RmRejectionPage() {
       const { data } = await fetchAllListPages(async (page, limit) => {
         const body = isPendingTab
           ? await rmRejectionService.getPendingList({ page, limit })
-          : await rmRejectionService.getAll({ page, limit });
+          : await rmRejectionService.getAll({
+              page,
+              limit,
+              ...(appliedSearch && { search: appliedSearch }),
+              filters: {
+                ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
+                ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
+                ...(params.registerStage === "complete" && { register_complete: true }),
+              },
+            });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
@@ -301,7 +276,14 @@ export default function RmRejectionPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, isPendingTab]);
+  }, [
+    params.pageSize,
+    isPendingTab,
+    params.fromDate,
+    params.toDate,
+    params.registerStage,
+    appliedSearch,
+  ]);
 
   useEffect(() => {
     fetchRows();
@@ -314,11 +296,8 @@ export default function RmRejectionPage() {
         data = data.filter((row) => rowPendingTypeKey(row) === params.pendingType);
       }
     } else {
-      data = data.filter((row) => inCreatedRange(row, params.fromDate, params.toDate));
       const stage = String(params.registerStage || "all").toLowerCase();
-      if (stage === "complete") {
-        data = data.filter((row) => String(row?.bill_no || "").trim());
-      } else if (stage === "incomplete") {
+      if (stage === "incomplete") {
         data = data.filter((row) => !String(row?.bill_no || "").trim());
       }
     }
@@ -331,8 +310,6 @@ export default function RmRejectionPage() {
     isPendingTab,
     params.pendingType,
     params.registerStage,
-    params.fromDate,
-    params.toDate,
     tempSearch,
     params.sortKey,
     params.sortDir,
@@ -346,8 +323,11 @@ export default function RmRejectionPage() {
         tempSearch,
         sourceRows: allRows,
         filteredRows,
+        serverFiltered:
+          !isPendingTab &&
+          (params.registerStage !== "all" || Boolean(appliedSearch)),
       }),
-    [tempSearch, allRows, filteredRows]
+    [tempSearch, allRows, filteredRows, isPendingTab, params.registerStage, appliedSearch]
   );
   const selectedRecord = useMemo(
     () => filteredRows.find((r) => rowKey(r) === selected) || null,
@@ -360,28 +340,15 @@ export default function RmRejectionPage() {
     (selectedRecord?.pending_source === PENDING_SOURCE.QC_CHECK ||
       selectedRecord?.pending_source === PENDING_SOURCE.IN_PROCESS);
 
-  const canApproveRegister = isAwaitingAuthorizationRow(selectedRecord);
-
-  const approveDisabledReason = useMemo(() => {
-    if (!selectedRecord) return "Select a Pending Authorization row (REJECT-#)";
-    if (!isAwaitingAuthorizationRow(selectedRecord)) {
-      return "Approve is only for Pending Authorization rows";
-    }
-    return "";
-  }, [selectedRecord]);
-
-  const handleOpenApproveDrawer = () => {
-    if (!canApproveRegister) return;
-    setApproveDrawerOpen(true);
-  };
+  const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
 
   const handleOpenViewDrawer = (row = selectedRecord) => {
-    if (!row?.qc_reject_uid) return;
+    if (!row) return;
     setViewRow(row);
     setViewDrawerOpen(true);
   };
 
-  const canViewRegister = !isPendingTab && selectedRecord?.qc_reject_uid != null;
+  const canViewRow = selectedRecord != null;
 
   const canDeleteRegister = useMemo(() => {
     if (isPendingTab) return false;
@@ -403,22 +370,53 @@ export default function RmRejectionPage() {
     return "";
   }, [isPendingTab, selectedRecord]);
 
-  const canEditBill =
-    canAddBill &&
-    selectedRecord?.qc_reject_uid != null &&
-    (selectedRecord?.pending_source === PENDING_SOURCE.AWAITING_BILL ||
-      registerStage(selectedRecord).label === "Awaiting Bill");
+  const modalOpen = storeOutDrawerOpen || viewDrawerOpen || Boolean(deleteItem);
+
+  const { openNewModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
+    module: MODULE,
+    modalOpen,
+    selectedId: selected,
+    getSelectedRow,
+    openAdd: useCallback(() => {
+      setStoreOutDrawerOpen(true);
+    }, []),
+    canOpenNew: useCallback(
+      () => isPendingTab && Boolean(canGenerateStoreOut),
+      [isPendingTab, canGenerateStoreOut]
+    ),
+    newBlockedMessage: "Select a QC Fail or In-Process row to generate Store Out.",
+    openDelete: useCallback(
+      (row) => {
+        setDeleteItem(row || selectedRecord);
+      },
+      [selectedRecord]
+    ),
+    canDeleteSelection: useCallback(() => Boolean(canDeleteRegister), [canDeleteRegister]),
+    onDeleteBlocked: useCallback(() => {
+      toast.info(deleteDisabledReason || "Select a register entry to delete.");
+    }, [deleteDisabledReason]),
+  });
+
+  const canEditBill = useMemo(() => {
+    if (!canAddBill || !selectedRecord?.qc_reject_uid) return false;
+    if (!isStoreOutApproved(selectedRecord)) return false;
+    if (isPendingTab) {
+      return (
+        selectedRecord?.pending_source === PENDING_SOURCE.AWAITING_BILL ||
+        registerStage(selectedRecord).label === "Awaiting Bill" ||
+        registerStage(selectedRecord).label === "Complete"
+      );
+    }
+    return true;
+  }, [canAddBill, selectedRecord, isPendingTab]);
 
   useEffect(() => {
-    if (
-      selectedRecord?.qc_reject_uid != null &&
-      (canEditBill || (!isPendingTab && selectedRecord?.bill_no))
-    ) {
+    if (selectedRecord?.qc_reject_uid != null && canEditBill) {
       setBillDraftNos(parseSavedBillNos(selectedRecord.bill_no));
     } else {
       setBillDraftNos([]);
     }
-  }, [selectedRecord?.qc_reject_uid, selectedRecord?.bill_no, selectedRecord?.pending_source, isPendingTab, canEditBill]);
+  }, [selectedRecord?.qc_reject_uid, selectedRecord?.bill_no, canEditBill]);
 
   const savedBillNo = useMemo(
     () => formatBillNosForSave(parseSavedBillNos(selectedRecord?.bill_no)) ?? "",
@@ -430,29 +428,40 @@ export default function RmRejectionPage() {
   );
   const billDirty = billDraftFormatted !== savedBillNo;
 
+  const billLastUpdatedLabel = useMemo(() => {
+    if (!selectedRecord?.updated_at) return null;
+    const who = selectedRecord.updated_by_name || selectedRecord.updated_by || "—";
+    return `${who} · ${formatDateTime(selectedRecord.updated_at)}`;
+  }, [selectedRecord?.updated_at, selectedRecord?.updated_by_name, selectedRecord?.updated_by]);
+
   const handleSaveBillNo = async () => {
     const id = selectedRecord?.qc_reject_uid;
     if (!id || !canEditBill) return;
     const payload = formatBillNosForSave(billDraftNos);
-    if (!payload) {
-      toast.info("Select at least one bill number to complete.");
-      return;
-    }
     setBillSaving(true);
     try {
       const res = await rmRejectionService.updateBill(id, payload);
       const saved = res?.data;
-      setBillDraftNos(parseSavedBillNos(saved?.bill_no ?? payload));
-      toast.success(res?.message || "Bill saved. RM Rejection is complete.");
+      const savedBill = saved?.bill_no ?? payload;
+      setBillDraftNos(parseSavedBillNos(savedBill));
+      toast.success(
+        res?.message ||
+          (savedBill ? "Bill number(s) saved successfully." : "Bill number cleared successfully.")
+      );
       setAllRows((prev) =>
         prev.map((row) =>
           row.qc_reject_uid === id
-            ? { ...row, bill_no: saved?.bill_no ?? payload }
+            ? {
+                ...row,
+                bill_no: savedBill,
+                updated_at: saved?.updated_at ?? row.updated_at,
+                updated_by: saved?.updated_by ?? row.updated_by,
+                updated_by_name: saved?.updated_by_name ?? saved?.updated_by ?? row.updated_by_name,
+              }
             : row
         )
       );
-      await fetchRows();
-      setSelected(null);
+      if (isPendingTab) await fetchRows();
     } catch (err) {
       toast.error(err?.message || "Could not save the bill number. Please try again.");
     } finally {
@@ -484,11 +493,11 @@ export default function RmRejectionPage() {
             <span
               className={`inline-flex px-2 py-0.5 text-[9px] font-black uppercase border ${t.className}`}
             >
-              {t.label}
+              {t.prefix ? `${t.label}` : t.label}
             </span>
           );
         },
-        { fixed: true, width: "150px" },
+        { fixed: true, width: "160px", align: "center" },
       ],
       [
         "Source",
@@ -500,7 +509,7 @@ export default function RmRejectionPage() {
             {rejectionSourceDisplay(row)}
           </span>
         ),
-        { width: "140px" },
+        { width: "140px", align: "center" },
       ],
       
       ["Coils", "coil_count", (_v, row) => (
@@ -516,7 +525,7 @@ export default function RmRejectionPage() {
           const coilSources = (row?.coils || [])
             .map((c) => {
               if (c?.ipr_uid != null) return `${c.coil_no_uid}: IPR-${c.ipr_uid}`;
-              if (c?.qc_check_uid != null) return `${c.coil_no_uid}: QC-${c.qc_check_uid}`;
+              if (c?.qc_uid != null) return `${c.coil_no_uid}: QC-${c.qc_uid}`;
               return c?.coil_no_uid;
             })
             .filter(Boolean)
@@ -532,7 +541,9 @@ export default function RmRejectionPage() {
         },
         { width: "180px" },
       ],
-      ["MRN", "mrn_no", (v, row) => <span className="font-bold text-slate-800 text-[10px]">{v ?? row?.mrn_refs ?? "—"}</span>, { width: "90px" }],
+      ["MRN UID", "mrn_uid", (v, row) => (
+          <span className="font-bold text-slate-800 text-[10px]">{v || row?.mrn_uids || "—"}</span>
+        ), { width: "110px" }],
       ["Heat No.", "heat_no", (v, row) => (
           <span className="font-mono text-[10px] font-bold text-amber-700">{v || row?.heat_nos || "—"}</span>
         ),
@@ -543,12 +554,17 @@ export default function RmRejectionPage() {
         ),
         { width: "140px" },
       ],
+      ["Item Description", "item_descs", (v, row) => (
+          <span className="text-[11px] text-slate-600 truncate block" title={v || row?.item_desc || ""}>
+            {v || row?.item_desc || "—"}
+          </span>
+        ), { width: "180px" }],
       ["Qty", "qty", (v, row) => (
           <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
             {Number(v ?? row?.total_qty ?? 0).toLocaleString()}
           </span>
         ),
-        { width: "90px" },
+        { width: "80px", align: "center" },
       ],
       [
         "Store Out",
@@ -558,7 +574,7 @@ export default function RmRejectionPage() {
             {v != null ? `OUT-${v}` : "—"}
           </span>
         ),
-        { width: "90px" },
+        { width: "120px" },
       ],
       ["Failure Reason", "failure_reason", (v, row) => (
           <span className="text-rose-700 text-[10px] truncate block">{v || row?.reason || "—"}</span>
@@ -599,17 +615,22 @@ export default function RmRejectionPage() {
             {rejectionSourceDisplay(row)}
           </span>
         ),
-        { width: "140px" },
+        { width: "140px", align: "center" },
       ],
-      ["MRN Refs", "mrn_refs", (v) => <span className="font-bold text-slate-800 text-[10px]">{v || "—"}</span>, { width: "120px" }],
+      ["MRN UID", "mrn_uids", (v) => <span className="font-bold text-slate-800 text-[10px]">{v || "—"}</span>, { width: "120px" }],
       ["Heat Nos.", "heat_nos", (v) => <span className="font-mono text-[10px] font-bold text-amber-700">{v || "—"}</span>, { width: "140px" }],
       ["Item Codes", "item_codes", (v) => <span className="text-slate-700 text-[10px] uppercase">{v || "—"}</span>, { width: "160px" }],
+      ["Item Description", "item_descs", (v, row) => (
+          <span className="text-[11px] text-slate-600 truncate block" title={v || row?.item_desc || ""}>
+            {v || row?.item_desc || "—"}
+          </span>
+        ), { width: "200px" }],
       ["Reason", "reason", (v) => <span className="text-rose-700 text-[10px] font-bold truncate block">{v || "—"}</span>, { width: "180px" }],
       ["Store Out", "out_uid", (v) => (
         <span className={`text-[10px] font-bold ${v ? "text-indigo-600" : "text-slate-400"}`}>
           {v != null ? `OUT-${v}` : "—"}
         </span>
-      ), { width: "90px" }],
+      ), { width: "120px" }],
       ["Bill Number", "bill_no", (v) => (
         <span className={`text-[10px] font-bold uppercase ${v ? "text-slate-800" : "text-slate-400"}`}>
           {v || "—"}
@@ -628,14 +649,22 @@ export default function RmRejectionPage() {
           const s = registerStage(row);
           return (
             <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${s.className}`}>
-              {s.label}
+              {s.prefix ? `${s.label}` : s.label}
             </span>
           );
         },
-        { width: "130px" },
+        { width: "160px", align: "center" },
       ],
       ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400">{formatDateTime(v)}</span>, { width: "150px" }],
+      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+      ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+      ["Updated At", "updated_at", (v, row) => (
+        <span className="text-[10px] text-slate-400 font-medium">
+          {row?.updated_by_name ? formatDateTime(v) : "—"}
+        </span>
+      ), { width: "150px" }],
+      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
+      ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
     ],
     []
   );
@@ -660,7 +689,6 @@ export default function RmRejectionPage() {
             { label: "All", value: PENDING_TYPE_FILTER.ALL },
             { label: "QC Fail", value: PENDING_TYPE_FILTER.QC_CHECK },
             { label: "In-Process Rejection", value: PENDING_TYPE_FILTER.IN_PROCESS },
-            { label: "Pending Authorization", value: PENDING_TYPE_FILTER.AWAITING_AUTHORIZATION },
             { label: "Store Out Pending", value: PENDING_TYPE_FILTER.AWAITING_STORE_OUT },
             { label: "Awaiting Bill", value: PENDING_TYPE_FILTER.AWAITING_BILL },
           ],
@@ -708,46 +736,23 @@ export default function RmRejectionPage() {
                       label="Generate Store Out"
                       icon={LogOut}
                       disabled={!canGenerateStoreOut}
-                      onClick={() => setStoreOutDrawerOpen(true)}
+                      onClick={openNewModal}
                       className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                     />
-                    {canAuthorize.allowed ? (
-                      <ActionButton
-                        module={MODULE}
-                        action="authorize"
-                        variant="outline"
-                        label="Approve"
-                        icon={CheckCircle}
-                        disabled={!canApproveRegister}
-                        title={approveDisabledReason || undefined}
-                        onClick={handleOpenApproveDrawer}
-                        className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0 disabled:text-slate-400 disabled:border-slate-200"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        disabled
-                        title="Authorize permission required on RM Rejection"
-                        className="rounded-none h-9 text-[11px] font-bold uppercase px-4 border border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed shrink-0 flex items-center gap-2"
-                      >
-                        <CheckCircle size={14} />
-                        Approve
-                      </button>
-                    )}
                   </>
                 )}
+                <ActionButton
+                  module={MODULE}
+                  action="view"
+                  variant="outline"
+                  label="View"
+                  icon={Eye}
+                  disabled={!canViewRow}
+                  onClick={() => handleOpenViewDrawer()}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                />
                 {!isPendingTab && (
                   <>
-                    <ActionButton
-                      module={MODULE}
-                      action="view"
-                      variant="outline"
-                      label="View"
-                      icon={Eye}
-                      disabled={!canViewRegister}
-                      onClick={() => handleOpenViewDrawer()}
-                      className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
-                    />
                     <ActionButton
                       module={MODULE}
                       action="delete"
@@ -756,7 +761,7 @@ export default function RmRejectionPage() {
                       icon={Trash2}
                       disabled={!canDeleteRegister}
                       title={deleteDisabledReason || undefined}
-                      onClick={() => setDeleteItem(selectedRecord)}
+                      onClick={openDeleteModal}
                       className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                     />
                   </>
@@ -782,18 +787,16 @@ export default function RmRejectionPage() {
             }
           />
           {selectedRecord && (
-            <div className="border-b border-rose-100 bg-rose-50 px-3 py-2 space-y-2">
+            <div className="border-b border-indigo-100 bg-indigo-50 px-3 py-2 space-y-2">
               <div className="flex items-start justify-between gap-2 min-w-0">
-                <span className="text-[10px] font-bold text-rose-600 uppercase truncate">
+                <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
                   Selected:{" "}
                   {selectedRecord.qc_reject_uid != null &&
-                  selectedRecord.pending_source === PENDING_SOURCE.AWAITING_AUTHORIZATION
-                    ? `REJECT-${selectedRecord.qc_reject_uid} · Pending authorization`
-                    : selectedRecord.qc_reject_uid != null &&
-                        selectedRecord.pending_source === PENDING_SOURCE.AWAITING_STORE_OUT
-                      ? selectedRecord.out_uid
-                        ? `REJECT-${selectedRecord.qc_reject_uid} · OUT-${selectedRecord.out_uid} · Store Out approve pending`
-                        : `REJECT-${selectedRecord.qc_reject_uid} · Store Out Pending (Scan/Edit in Store Out)`
+                  (selectedRecord.pending_source === PENDING_SOURCE.AWAITING_STORE_OUT ||
+                    selectedRecord.pending_source === PENDING_SOURCE.AWAITING_AUTHORIZATION)
+                    ? selectedRecord.out_uid
+                      ? `REJECT-${selectedRecord.qc_reject_uid} · OUT-${selectedRecord.out_uid} · Store Out Pending`
+                      : `REJECT-${selectedRecord.qc_reject_uid} · Store Out Pending (Scan/Edit in Store Out)`
                       : selectedRecord.qc_reject_uid != null &&
                           selectedRecord.pending_source === PENDING_SOURCE.AWAITING_BILL
                         ? `REJECT-${selectedRecord.qc_reject_uid} · Store Out #${selectedRecord.out_uid ?? "—"}`
@@ -810,7 +813,7 @@ export default function RmRejectionPage() {
                 <button
                   type="button"
                   onClick={() => setSelected(null)}
-                  className="text-rose-400 hover:text-rose-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
+                  className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
                 >
                   <X size={14} /> Clear
                 </button>
@@ -820,7 +823,10 @@ export default function RmRejectionPage() {
                 <div className="w-full min-w-0 space-y-1.5" data-compact-form-bar>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
                     <span className={`${LIST_PAGE_SEARCH_LABEL_CLASS} shrink-0 pt-1.5 sm:pt-2`}>Bill</span>
-                    <div className="w-full min-w-0 flex-1" title="Search and select bill numbers">
+                    <div
+                      className="w-full min-w-0 flex-1"
+                      title="Search and select bill numbers (editable any time after Store Out authorize)"
+                    >
                       <SearchableSelect
                         multiple
                         showTags
@@ -833,7 +839,7 @@ export default function RmRejectionPage() {
                         dataKey="bill_no"
                         labelKey="bill_no"
                         labelOnlyDisplay
-                        placeholder="Select bill numbers"
+                        placeholder="Bill number..."
                         emptyMessage="No bill numbers found"
                         usePortal
                         maxVisibleTags={3}
@@ -845,17 +851,15 @@ export default function RmRejectionPage() {
                       disabled={billSaving || !billDirty}
                       className="h-9 w-full sm:w-auto sm:shrink-0 px-3 border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold uppercase disabled:opacity-50"
                     >
-                      {billSaving ? "…" : "Save & Complete"}
+                      {billSaving ? "…" : "Save Bill"}
                     </button>
                   </div>
-                  <p className="text-[10px] text-indigo-700 font-semibold">
-                    Store Out is done. Add bill number(s) like Forwarding Note, then save to finish.
-                  </p>
+                  {billLastUpdatedLabel ? (
+                    <p className="text-[10px] text-slate-500 sm:pl-8 break-words" title={billLastUpdatedLabel}>
+                      {billLastUpdatedLabel}
+                    </p>
+                  ) : null}
                 </div>
-              ) : !isPendingTab && selectedRecord?.bill_no ? (
-                <p className="text-xs font-bold text-slate-700 uppercase break-all">
-                  Bill {selectedRecord.bill_no}
-                </p>
               ) : null}
             </div>
           )}
@@ -866,13 +870,15 @@ export default function RmRejectionPage() {
             showDate={!isPendingTab}
             fromDate={params.fromDate}
             toDate={params.toDate}
+            minDate={dateFilterDefaults.minDate}
+            maxDate={dateFilterDefaults.maxDate}
             extraFilters={extraFilters}
-            instantClientExtras={isPendingTab}
-            applyExtrasOnChange={!isPendingTab}
-            showSearchButton={false}
-            applyOnSearchEnter={false}
+            showSearchButton={!isPendingTab}
+            applyOnSearchEnter={!isPendingTab}
+            applyExtrasOnChange={isPendingTab}
             searchVariant="quick"
             onApply={(data) => {
+              if (!isPendingTab) applySearchFromInput();
               setSelected(null);
               setDisplayLimit(100);
               setParams((prev) => ({
@@ -917,6 +923,7 @@ export default function RmRejectionPage() {
             viewMode={viewMode}
             allowCopy
             showSelection
+            {...tableHotkeyProps}
             emptyIcon={ShieldX}
             sortKey={params.sortKey ?? ""}
             sortDir={params.sortDir}
@@ -931,15 +938,16 @@ export default function RmRejectionPage() {
             selectedId={selected}
             onSelect={setSelected}
             getRowId={(row) => rowKey(row)}
-            onRowDoubleClick={
-              !isPendingTab
-                ? (row) => {
-                    if (row?.qc_reject_uid == null) return;
-                    setSelected(rowKey(row));
-                    handleOpenViewDrawer(row);
-                  }
-                : undefined
-            }
+            onRowDoubleClick={(row) => {
+              if (isPendingTab) {
+                setSelected(rowKey(row));
+                handleOpenViewDrawer(row);
+              } else {
+                if (row?.qc_reject_uid == null) return;
+                setSelected(rowKey(row));
+                handleOpenViewDrawer(row);
+              }
+            }}
             onLoadMore={() => {
               if (!loading && items.length < totalItems) setDisplayLimit((n) => n + 100);
             }}
@@ -973,19 +981,7 @@ export default function RmRejectionPage() {
         onSuccess={() => {
           setSelected(null);
           setStoreOutDrawerOpen(false);
-          toast.info("Register mein save ho gaya. Pending list mein Pending Authorization dikhega — Approve karein.");
-          void fetchRows();
-        }}
-      />
-
-      <ApproveRejectionDrawer
-        open={approveDrawerOpen}
-        onClose={() => setApproveDrawerOpen(false)}
-        row={selectedRecord}
-        onSuccess={() => {
-          setSelected(null);
-          setApproveDrawerOpen(false);
-          toast.info("Rejection approved. Ab Store Out → Pending mein scan + approve karein.");
+          toast.info("Queued in Store Out Pending. Go to Store Out → Pending to scan and authorize the exit.");
           void fetchRows();
         }}
       />
@@ -1006,7 +1002,7 @@ export default function RmRejectionPage() {
           setSelected(null);
           if (!isPendingTab) {
             handleTabChange(PAGE_TABS.PENDING);
-            toast.info("Register delete ho gaya. Item Pending tab mein wapas aa gaya.");
+            toast.info("Register entry deleted. The item has returned to the Pending tab.");
           } else {
             void fetchRows();
           }

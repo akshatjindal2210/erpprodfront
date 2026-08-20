@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { CalendarDays, Loader2, Save } from "lucide-react";
 import { toast } from "react-toastify";
 import Drawer from "@/ui/primitives/Drawer";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { schedulePlanningService } from "@/apps/ims/lib/services/schedulePlanning";
 import { filterDateToDisplay, formatDateTypingInput, parseFilterDateInput, editFilterDateInput, joinFilterDateSegments, splitFilterDateSegments } from "@/platform/utils/core/utilHelper";
 
@@ -301,16 +302,14 @@ export default function DispatchRescheduleModal({ open, item, onClose, onSaved }
               </label>
               <DateField value={targetDate} onChange={setTargetDate} min={dateMin} max={dateMax} />
             </div>
-            <div>
-              <label className={LABEL}>Remark</label>
-              <textarea
-                value={remark}
-                onChange={(e) => setRemark(e.target.value)}
-                placeholder="Optional remark..."
-                rows={2}
-                className="w-full px-2 py-1.5 text-[11px] text-slate-800 border border-slate-200 rounded-none focus:border-indigo-500 outline-none bg-white resize-none"
-              />
-            </div>
+            <FormTextarea
+              label="Remark"
+              labelClassName={LABEL}
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              placeholder="Optional remark..."
+              rows={2}
+            />
           </div>
         </div>
       </div>

@@ -19,7 +19,7 @@ export const RM_STORE_NAV_REGISTRY = [
     subItems: [
       {
         id: "production-master",
-        name: "Production Master",
+        name: "Item RM Master",
         icon: <Factory size={14} />,
         href: ROUTES.RM_PRODUCTION_MASTER,
         module: "rm_production_master",
@@ -87,7 +87,7 @@ export const RM_STORE_NAV_REGISTRY = [
     name: "In-process Request",
     icon: <RefreshCcw size={16} />,
     href: ROUTES.RM_IN_PROCESS_REQUEST,
-    module: "rm_issue_request",
+    module: "rm_in_process_request",
   },
   {
     id: "rm-store-out",

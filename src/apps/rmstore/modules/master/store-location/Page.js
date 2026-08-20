@@ -26,7 +26,6 @@ import LocationBulkQRDrawer from "./LocationBulkQRDrawer";
 
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
-
 export default function LocationMasterPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
@@ -302,7 +301,9 @@ export default function LocationMasterPage() {
             searchPlaceholder="Search by rack, ledger, or item"
             searchLabel="Search Locations"
             searchVariant="quick"
+            showSearchButton
             applyOnSearchEnter={false}
+            applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 
@@ -326,8 +327,8 @@ export default function LocationMasterPage() {
               totalItems={totalItems}
               cardConfig={{
                 titleKey: "location_no",
-                badgeIndices: [6],
-                detailIndices: [1, 2, 3, 4, 5],
+                tagsKeys: ["approved"],
+                detailKeys: ["rack_no", "row_no", "item_code", "item_desc", "location_description"],
                 footerKey: "created_at",
                 className: "rounded-none border border-slate-200 shadow-none"
               }}

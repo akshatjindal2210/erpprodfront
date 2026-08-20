@@ -8,7 +8,8 @@ import "@/apps/ims/lib/config/inwardUi.theme.css";
 import { inventoryInwardService } from "@/apps/rmstore/lib/services/inventoryInward";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import { storeLocationService } from "@/apps/rmstore/lib/services/storeLocation";
-import { coilService } from "@/apps/rmstore/lib/services/coil";
+import { coilHelperContext, lookupCoilByUid } from "@/apps/rmstore/lib/helpers/coilLookup";
+import { resolveCoilLocationDetail, resolveCoilLocationLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 import { extractLocationNo, extractCoilUid, normalizeScanInput, coilUidDisplayLabel, locationNoDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
 import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
 import { withSortedViewsData } from "@/apps/rmstore/lib/helpers/sortDropdownResponse";
@@ -19,7 +20,7 @@ import FormPanelLoader from "@/ui/common/system/FormPanelLoader";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import Snackbar from "@/ui/primitives/Snackbar";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
-import RemarksTextarea from "@/ui/common/forms/RemarksTextarea";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
 import LaserScanField from "@/ui/common/scan/LaserScanField";
 import { getDeviceScanSettings, getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
@@ -82,6 +83,52 @@ function locationCoilTotals(coils) {
   };
 }
 
+/** Backend marks issued/moved coils under a read-only history bucket. */
+function isHistoricalLoc(loc) {
+  return !!loc?.historical;
+}
+
+function isLiveInwardCoil(coil) {
+  const st = String(coil?.status || "active").toLowerCase();
+  return st === "active" || st === "rejected";
+}
+
+/** Normalize API locations[] — backend is source of truth for edit layout. */
+function normalizeInwardLocations(raw, flatCoils = []) {
+  const list = Array.isArray(raw) && raw.length ? raw : buildLocationsFromCoils(flatCoils);
+  return list.map((loc) => ({
+    location_id: loc.location_id ?? null,
+    name: loc.name || loc.location_no || String(loc.location_id ?? "—"),
+    location_no: loc.location_no || loc.name || String(loc.location_id ?? "—"),
+    historical: !!loc.historical,
+    coils: Array.isArray(loc.coils) ? loc.coils : [],
+  }));
+}
+
+/** Build locations[] from flat coils when API sends coils only. */
+function buildLocationsFromCoils(coils) {
+  const map = {};
+  for (const coil of coils || []) {
+    if (!coil?.coil_no_uid) continue;
+    const lid = coil.location_id != null ? Number(coil.location_id) : null;
+    const key = lid != null ? String(lid) : isLiveInwardCoil(coil) ? "__pending__" : "__none__";
+    if (!map[key]) {
+      const label =
+        String(coil.location_no || "").trim() ||
+        (lid != null ? String(lid) : isLiveInwardCoil(coil) ? "Assign location" : "Moved / issued");
+      map[key] = {
+        location_id: lid,
+        name: label,
+        location_no: label,
+        historical: lid == null && !isLiveInwardCoil(coil),
+        coils: [],
+      };
+    }
+    map[key].coils.push(coil);
+  }
+  return Object.values(map);
+}
+
 /** MRN breakdown for the Inward Summary section (per location). */
 function buildLocationMrnBreakdown(locations) {
   return (locations || [])
@@ -91,10 +138,7 @@ function buildLocationMrnBreakdown(locations) {
       (loc.coils || []).forEach((c) => {
         const qty = Number(c.qty) || 0;
         totalQty += qty;
-        const label =
-          c.mrn_no != null && String(c.mrn_no).trim() !== ""
-            ? String(c.mrn_no).trim()
-            : String(c.mrn_uid || "—").trim() || "—";
+        const label = String(c.mrn_uid || "").trim() || "—";
         const cur = byMrn.get(label) || {
           mrnLabel: label,
           itemCode: null,
@@ -129,6 +173,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
   const [saving, setSaving] = useState(false);
   const [remarks, setRemarks] = useState("");
   const [locations, setLocations] = useState([]);
+  const [historyLocations, setHistoryLocations] = useState([]);
   const locationsRef = useRef([]);
   locationsRef.current = locations;
   const [locHasError, setLocHasError] = useState([]);
@@ -183,6 +228,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
   const resetForm = useCallback(() => {
     setRemarks("");
     setLocations([]);
+    setHistoryLocations([]);
     setLocHasError([]);
     clearLocSearch();
     setIsScannerOpen(false);
@@ -227,37 +273,15 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
         }
         setRemarks(d.remarks || "");
 
-        let locGroups = Array.isArray(d.locations) ? d.locations : [];
-        if (!locGroups.length && Array.isArray(d.coils) && d.coils.length) {
-          const map = {};
-          d.coils.forEach((c) => {
-            const lid = c.location_id;
-            if (lid == null) return;
-            if (!map[lid]) {
-              const name =
-                String(c.location_no || "").trim() ||
-                getLocationDisplayNo(c) ||
-                String(lid);
-              map[lid] = { location_id: lid, name, location_no: name, coils: [] };
-            }
-            map[lid].coils.push(c);
-          });
-          locGroups = Object.values(map);
-        }
-
-        const normalized = locGroups.map((loc) => ({
-          location_id: loc.location_id,
-          name: loc.name || loc.location_no || String(loc.location_id),
-          location_no: loc.location_no || loc.name || String(loc.location_id),
-          coils: Array.isArray(loc.coils) ? loc.coils : [],
-        }));
-        setLocations(normalized);
-        setLocHasError(normalized.map(() => false));
-        if (normalized.length) {
+        const editable = normalizeInwardLocations(d.locations);
+        const history = normalizeInwardLocations(d.history_locations || []);
+        setLocations(editable);
+        setHistoryLocations(history);
+        setLocHasError(editable.map(() => false));
+        if (editable.length) {
           setLastActiveLocIdx(0);
           lastActiveLocIdxRef.current = 0;
-        }
-        if (!normalized.length) {
+        } else {
           showScanToast("warning", "no-coils", "No coils are linked to this store-in entry.", 3500);
         }
       } catch (err) {
@@ -399,6 +423,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
           location_id: locToAdd.location_id,
           name: locName,
           location_no: locName,
+          historical: false,
           coils: [],
         },
       ]);
@@ -548,15 +573,23 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
     setLastActiveLocIdx(li);
     lastActiveLocIdxRef.current = li;
     try {
-      const res = await coilService.getByUid(uid);
-      const coil = res?.data;
+      const coil = await lookupCoilByUid(uid, coilHelperContext(MODULE, isEdit ? "edit" : "add"));
       if (!coil) {
         showScanToast("error", "coil-missing", MSG.COIL_NOT_FOUND);
         return;
       }
       const status = String(coil.status || "active").toLowerCase();
       if (status !== "active") {
-        showScanToast("error", "coil-status", `Coil ${uid} is not available. Its current status is ${status}.`);
+        const zone = resolveCoilLocationLabel(coil);
+        const ref = resolveCoilLocationDetail(coil);
+        const held = ref && ref !== zone ? `${zone} (${ref})` : zone;
+        showScanToast(
+          "error",
+          "coil-status",
+          status === "rejected"
+            ? `Coil ${uid} is in ${held}. Send it from RM Rejection / Store Out, not Store In.`
+            : `Coil ${uid} is not available. Its current status is ${status}.`
+        );
         return;
       }
       if (coil.location_id) {
@@ -711,8 +744,11 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "d") return;
       e.preventDefault();
       const li = lastActiveLocIdx ?? (locations.length > 0 ? locations.length - 1 : null);
-      if (li !== null && locations[li]?.coils?.length > 0) {
-        handleRemoveCoil(li, locations[li].coils.length - 1);
+      if (li === null) return;
+      const loc = locations[li];
+      if (isHistoricalLoc(loc)) return;
+      if (loc?.coils?.length > 0) {
+        handleRemoveCoil(li, loc.coils.length - 1);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -720,7 +756,21 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
   }, [open, lastActiveLocIdx, locations, handleRemoveCoil]);
 
   const validate = () => {
-    if (locations.length === 0) {
+    const pendingNoLocation = locations.filter(
+      (loc) => loc.location_id == null && (loc.coils?.length ?? 0) > 0
+    );
+    if (pendingNoLocation.length) {
+      showScanToast(
+        "error",
+        "save-pending-loc",
+        "Assign a store location before saving — active coils cannot stay unassigned on this entry.",
+        SNACK_DUR.med
+      );
+      return false;
+    }
+
+    const withLocation = locations.filter((loc) => loc.location_id != null);
+    if (withLocation.length === 0) {
       showScanToast("error", "save-loc", "Add at least one location.");
       return false;
     }
@@ -739,18 +789,35 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
 
     setSaving(true);
     try {
-      const payload = {
-        remarks: remarks || null,
-        locations: locations.map((loc) => ({
+      const editableLocations = locations
+        .filter((loc) => loc.location_id != null)
+        .map((loc) => ({
           location_id: loc.location_id,
-          coils: (loc.coils || []).map((c) => ({ coil_no_uid: c.coil_no_uid })),
-        })),
-      };
+          coils: (loc.coils || [])
+            .filter((c) => String(c.status || "active").toLowerCase() === "active")
+            .map((c) => ({ coil_no_uid: c.coil_no_uid })),
+        }))
+        .filter((loc) => loc.coils.length > 0);
+
+      const payload = { remarks: remarks || null };
+      if (editableLocations.length > 0) {
+        payload.locations = editableLocations;
+      }
+
       let res;
       if (isEdit && editId) {
-        res = await inventoryInwardService.update(editId, payload);
+        if (!editableLocations.length) {
+          showScanToast("error", "save-loc", "Add at least one location with coils to update this entry.");
+          return;
+        }
+        res = await inventoryInwardService.update(editId, { ...payload, locations: editableLocations });
         showScanToast("success", "save-ok", res?.message || MSG.INWARD_UPDATED, 2800);
       } else {
+        if (!editableLocations.length) {
+          showScanToast("error", "save-loc", "Add at least one location.");
+          return;
+        }
+        payload.locations = editableLocations;
         res = await inventoryInwardService.create(payload);
         showScanToast("success", "save-ok", res?.message || MSG.INWARD_CREATED, 2800);
       }
@@ -776,7 +843,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
       <Drawer
         isOpen={open}
         onClose={onClose}
-        onSubmit={handleSave}
+        onSubmit={!formReady || saving ? undefined : handleSave}
         title={drawerTitle}
         description={drawerDesc}
         footer={
@@ -937,25 +1004,46 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
               )}
             </div>
 
-            {locations.length > 0 ? (
+            {(locations.length > 0 || historyLocations.length > 0) ? (
+              <div className="space-y-3">
+            {locations.length > 0 && (
               <div className="grid grid-cols-1 gap-3">
                 {locations.map((loc, li) => {
                   const { coilCount, totalQty } = locationCoilTotals(loc.coils);
+                  const isHistorical = false;
                   return (
                     <div
-                      key={`${loc.location_id}-${li}`}
+                      key={`${loc.location_id ?? "history"}-${li}`}
                       className={`bg-white rounded-xl border transition-all overflow-hidden shadow-sm ${
-                        locHasError[li] ? "border-rose-200 shadow-rose-50" : "border-slate-200"
+                        locHasError[li]
+                          ? "border-rose-200 shadow-rose-50"
+                          : isHistorical
+                            ? "border-amber-200"
+                            : "border-slate-200"
                       }`}
                     >
-                      <div className="px-3 py-2 bg-inward-loc-header-bg border-b border-inward-loc-header-border flex items-center justify-between gap-2 flex-wrap">
+                      <div
+                        className={`px-3 py-2 border-b flex items-center justify-between gap-2 flex-wrap ${
+                          isHistorical
+                            ? "bg-amber-50 border-amber-100"
+                            : "bg-inward-loc-header-bg border-inward-loc-header-border"
+                        }`}
+                      >
                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <div className="w-7 h-7 bg-inward-loc-header-icon-bg rounded-lg flex items-center justify-center text-white shadow-sm shrink-0">
+                          <div
+                            className={`w-7 h-7 rounded-lg flex items-center justify-center text-white shadow-sm shrink-0 ${
+                              isHistorical ? "bg-amber-500" : "bg-inward-loc-header-icon-bg"
+                            }`}
+                          >
                             <MapPin size={14} />
                           </div>
                           <div className="min-w-0">
-                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter leading-none mb-0.5">Location</p>
-                            <p className="text-xs font-black text-slate-800 uppercase leading-none truncate">{loc.name || loc.location_no}</p>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter leading-none mb-0.5">
+                              {isHistorical ? "Record" : "Location"}
+                            </p>
+                            <p className="text-xs font-black text-slate-800 uppercase leading-none truncate">
+                              {loc.name || loc.location_no}
+                            </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -967,18 +1055,21 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
                             <span className="text-[8px] font-bold text-slate-400 uppercase">Qty</span>
                             <span className="text-sm font-black text-emerald-700 leading-none">{totalQty}</span>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveLoc(li)}
-                            className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all shrink-0"
-                            aria-label="Remove location"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {!isHistorical && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveLoc(li)}
+                              className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all shrink-0"
+                              aria-label="Remove location"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       </div>
 
                       <div className="p-3 space-y-3 bg-inward-box-panel-bg border-t border-inward-box-panel-border/60">
+                        {!isHistorical && (
                         <div className="space-y-2 w-full min-w-0">
                           {(showPhoneQr || laserScan) ? (
                             <div className="flex items-stretch gap-2 w-full min-w-0">
@@ -1049,9 +1140,19 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
                                   }}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter") {
-                                      const inputValue = e.target.value;
-                                      void tryAddCoil(li, inputValue);
-                                      e.target.value = "";
+                                      e.preventDefault();
+                                      const inputEl = e.currentTarget;
+                                      const inputValue = inputEl.value;
+                                      inputEl.value = "";
+                                      void tryAddCoil(li, inputValue).finally(() => {
+                                        window.setTimeout(() => {
+                                          if (coilInputRefs.current[li] === inputEl) {
+                                            inputEl.focus();
+                                          } else {
+                                            coilInputRefs.current[li]?.focus();
+                                          }
+                                        }, 0);
+                                      });
                                     }
                                     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
                                       e.preventDefault();
@@ -1065,8 +1166,9 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
                             )}
                           </div>
                         </div>
+                        )}
 
-                        {validatingCoil && lastActiveLocIdx === li && (
+                        {validatingCoil && lastActiveLocIdx === li && !isHistorical && (
                           <div className="flex items-center gap-2 px-2 py-1 bg-inward-box-muted-bg border border-inward-box-muted-border rounded-lg">
                             <Loader2 size={12} className="animate-spin text-inward-box-spinner" />
                             <p className="text-[9px] font-bold text-inward-box-spinner-text uppercase">Validating coil...</p>
@@ -1074,19 +1176,30 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
                         )}
 
                         <div className="space-y-1.5">
+                          {isHistorical && (
+                            <p className="text-[9px] font-semibold text-amber-700 px-0.5">
+                              History only — read-only.
+                            </p>
+                          )}
                           {loc.coils.length > 0 ? (
                             <div className="flex flex-wrap gap-1.5 p-2 bg-inward-box-dash-bg rounded-lg border border-dashed border-inward-box-dash-border">
                               {loc.coils.map((c, bi) => (
                                 <div
                                   key={`${c.coil_no_uid}-${bi}`}
-                                  title={`${c.item_code || "—"} · ${c.item_desc || "—"} · Heat ${c.heat_no || "—"} · Qty ${c.qty ?? "—"}`}
+                                  title={`${c.item_code || "—"} · ${c.item_desc || "—"} · Heat ${c.heat_no || "—"} · Qty ${c.qty ?? "—"} · ${c.status || "active"}`}
                                   className="flex items-start gap-1 pl-2 pr-1 py-1 bg-inward-box-chip-bg border border-inward-box-chip-border rounded-md shadow-sm animate-in zoom-in-95 max-w-[240px]"
                                 >
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1 flex-wrap">
                                       <span className="text-[10px] font-mono font-black text-inward-box-chip-text">{c.coil_no_uid}</span>
+                                      {isHistorical && (
+                                        <span className="text-[8px] font-bold uppercase text-amber-700">
+                                          {String(c.status || "moved")}
+                                        </span>
+                                      )}
                                     </div>
                                   </div>
+                                  {!isHistorical && (
                                   <button
                                     type="button"
                                     onClick={() => handleRemoveCoil(li, bi)}
@@ -1095,6 +1208,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
                                   >
                                     <X size={10} />
                                   </button>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -1110,6 +1224,58 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
                   );
                 })}
               </div>
+            )}
+
+            {historyLocations.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-amber-100">
+                <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest px-1">
+                  Moved / issued (read-only)
+                </p>
+                <div className="grid grid-cols-1 gap-3">
+                  {historyLocations.map((loc, hi) => {
+                    const { coilCount, totalQty } = locationCoilTotals(loc.coils);
+                    return (
+                      <div
+                        key={`hist-${hi}`}
+                        className="bg-white rounded-xl border border-amber-200 overflow-hidden shadow-sm"
+                      >
+                        <div className="px-3 py-2 border-b bg-amber-50 border-amber-100 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-7 h-7 rounded-lg bg-amber-500 flex items-center justify-center text-white shrink-0">
+                              <MapPin size={14} />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter leading-none mb-0.5">
+                                Record
+                              </p>
+                              <p className="text-xs font-black text-slate-800 uppercase leading-none truncate">
+                                {loc.name || loc.location_no || "Moved / issued"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 tabular-nums">
+                            <span className="text-[9px] font-black text-slate-600">{coilCount} coils</span>
+                            <span className="text-[9px] font-black text-emerald-700">QTY {totalQty}</span>
+                          </div>
+                        </div>
+                        <div className="p-3 flex flex-wrap gap-1.5 bg-inward-box-dash-bg border-t border-amber-50">
+                          {(loc.coils || []).map((c, bi) => (
+                            <span
+                              key={`${c.coil_no_uid}-${bi}`}
+                              title={`${c.item_code || "—"} · ${c.status || "moved"}`}
+                              className="text-[10px] font-mono font-black text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md"
+                            >
+                              {c.coil_no_uid}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-8 bg-white border border-dashed border-slate-200 rounded-2xl text-center">
                 <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mb-3">
@@ -1123,7 +1289,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
 
           {/* ── Remarks ── */}
           <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm min-w-0">
-            <RemarksTextarea
+            <FormTextarea
               label="Remarks / Note"
               labelIcon={<MessageSquare size={14} className="text-inward-loc-label" />}
               value={remarks}
@@ -1156,7 +1322,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
 
                     <div className="rounded-lg border border-slate-100 overflow-hidden shadow-sm">
                       <div className="grid grid-cols-3 bg-slate-50 border-b border-slate-100 px-3 py-1.5">
-                        <span className="text-[9px] font-bold text-slate-500 uppercase">MRN</span>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase">MRN UID</span>
                         <span className="text-[9px] font-bold text-slate-500 uppercase text-right">Coils</span>
                         <span className="text-[9px] font-bold text-slate-500 uppercase text-right">Qty</span>
                       </div>

@@ -2,6 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useRef } from "react";
 import { isLaserCommitKey } from "@/platform/utils/device/deviceScanSettings";
+import { SCAN_INPUT_CLASS } from "@/ui/common/Constants";
 
 const IDLE_MS = 200;
 
@@ -54,7 +55,7 @@ const ScanEnterInput = forwardRef(function ScanEnterInput(
       autoCapitalize="off"
       spellCheck={false}
       placeholder={placeholder}
-      className={className}
+      className={className || SCAN_INPUT_CLASS}
       onKeyDown={(e) => {
         if (!isLaserCommitKey(e)) return;
         e.preventDefault();

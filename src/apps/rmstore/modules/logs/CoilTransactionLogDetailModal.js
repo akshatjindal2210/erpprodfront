@@ -98,7 +98,7 @@ export default function CoilTransactionLogDetailModal({ open, onClose, row, labe
           <MasterDetailKV label="Log ID" value={String(row.id ?? "").split("::")[0] || "—"} />
           <MasterDetailKV label="Module" value={moduleLabel} />
           <MasterDetailKV label="Reference" value={row.source_id || "—"} />
-          <MasterDetailKV label="MRN" value={row.mrn_no || "—"} />
+          <MasterDetailKV label="MRN UID" value={row.mrn_uid || "—"} />
         </MasterDetailGrid>
 
         <MasterDetailSection label={`Coil sticker no. (${stickerEntries.length})`} tone="indigo">

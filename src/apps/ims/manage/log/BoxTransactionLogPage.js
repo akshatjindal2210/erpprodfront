@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { RefreshCcw, History, Layers, Eye } from "lucide-react";
+import { RefreshCcw, History, Eye } from "lucide-react";
 import { toast } from "react-toastify";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 
@@ -20,10 +20,8 @@ import { applyBoxTransactionLogView, BOX_TX_DISPLAY_MODES, isUniquePerLogSearch 
 import { fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
-import {
-  getBoxTxTypeBadgeClass,
-  resolveBoxTxTypeLabel,
-} from "@/apps/ims/lib/utils/boxTransactionVisuals";
+import { TransactionLogModuleEntityCell } from "@/ui/common/list/ActivityLogModuleEntityCell";
+import { getBoxTxTypeBadgeClass, resolveBoxTxTypeLabel } from "@/apps/ims/lib/utils/boxTransactionVisuals";
 
 const LIST_PAGE_SIZE = 1000;
 const DISPLAY_CHUNK = 100;
@@ -116,7 +114,7 @@ export default function BoxTransactionLogPage() {
       {
         type: "text",
         label: "Journey Name",
-        placeholder: "Packing, box sticker, item code",
+        placeholder: "Packing, box sticker, item code, or job card",
         value: journeyInput,
         onChange: setJourneyInput,
       },
@@ -233,10 +231,9 @@ export default function BoxTransactionLogPage() {
   );
 
   const copyModuleEntity = useCallback((row) => {
-    const parts = [
-      row?.source_module?.replace(/_/g, " ") || "—",`REF: ${row?.source_id || "N/A"}`,
-    ];
-    // if (row?.packing_number) parts.push(`PKG: ${row.packing_number}`);
+    const parts = [row?.source_module?.replace(/_/g, " ") || "—"];
+    const ref = String(row?.source_id ?? "").trim();
+    if (ref && ref !== "N/A") parts.push(`REF: ${ref}`);
     return parts.join(" | ");
   }, []);
 
@@ -294,14 +291,8 @@ export default function BoxTransactionLogPage() {
         },
       ],
 
-      [ "Module / Entity", "source_module", (v, row) => (
-          <div className="flex flex-col leading-tight min-w-[140px]">
-            <div className="flex items-center gap-1">
-              <Layers size={10} className="text-slate-500 shrink-0" />
-              <span className={`capitalize ${IMS_TABLE_CELL_TEXT}`}>{v?.replace(/_/g, " ")}</span>
-            </div>
-            <span className="text-[9px] text-indigo-500 font-mono ml-3">REF: {row.source_id || "N/A"}</span>
-          </div>
+      [ "Module / Entity", "source_module", (_v, row) => (
+          <TransactionLogModuleEntityCell row={row} appType="ims" />
         ),
         {
           width: "180px",

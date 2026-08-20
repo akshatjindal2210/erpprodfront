@@ -18,6 +18,7 @@ export const ENDPOINTS = {
     CREATE: `${BASE}/spec/create`,
     UPDATE: `${BASE}/spec/update`,
     DELETE: `${BASE}/spec/delete`,
+    HEADER_HELPER: `${BASE}/spec/header-helper`,
   },
   STORE_LOCATION: {
     LIST: `${BASE}/store-locations/list`,
@@ -29,6 +30,10 @@ export const ENDPOINTS = {
   },
   MRN: {
     LIST: `${BASE}/mrn/list`,
+    ERP_LIST: `${BASE}/mrn/erp-list`,
+    ERP_LOTS: `${BASE}/mrn/erp-lots`,
+    ERP_LOOKUP: `${BASE}/mrn/erp-lookup`,
+    ERP_SEARCH: `${BASE}/mrn/erp-search`,
     GENERATE: `${BASE}/mrn/generate`,
     DELETE: `${BASE}/mrn/delete`,
     DETAIL: `${BASE}/mrn/detail`,
@@ -44,6 +49,8 @@ export const ENDPOINTS = {
   COIL: {
     LIST: `${BASE}/coils/list`,
     GET: `${BASE}/coils/get`,
+    VIEWS: `${BASE}/coils/helper`,
+    FINDER_REPORT: `${BASE}/coils/finder-report`,
   },
   INVENTORY_INWARDS: {
     LIST: `${BASE}/inventory-inwards/list`,
@@ -59,6 +66,7 @@ export const ENDPOINTS = {
   QC_CHECK: {
     LIST: `${BASE}/qc-checks/list`,
     GET: `${BASE}/qc-checks/get`,
+    HELPER: `${BASE}/qc-checks/helper`,
     PREPARE: `${BASE}/qc-checks/prepare`,
     SUBMIT: `${BASE}/qc-checks/submit`,
     APPROVE: `${BASE}/qc-checks/approve`,
@@ -79,9 +87,11 @@ export const ENDPOINTS = {
     DELETE: `${BASE}/rm-rejections/delete`,
   },
   ISSUE_REQUEST: {
+    PRODUCTION_MAPPING: `${BASE}/issue-requests/production-mapping`,
     LIST: `${BASE}/issue-requests/list`,
     LIST_JOB_CARDS: `${BASE}/issue-requests/list-job-cards`,
     GET: `${BASE}/issue-requests/get`,
+    HELPER: `${BASE}/issue-requests/helper`,
     JOB_CARD_SUMMARY: `${BASE}/issue-requests/job-card-summary`,
     AVAILABLE_COILS: `${BASE}/issue-requests/available-coils`,
     CREATE: `${BASE}/issue-requests/create`,
@@ -93,6 +103,8 @@ export const ENDPOINTS = {
   },
   IN_PROCESS_REQUEST: {
     LIST: `${BASE}/in-process-requests/list`,
+    COIL_HELPER: `${BASE}/in-process-requests/coil-helper`,
+    HELPER: `${BASE}/in-process-requests/helper`,
     GET: `${BASE}/in-process-requests/get`,
     REASONS: `${BASE}/in-process-requests/reasons`,
     PENDING_STORE_IN: `${BASE}/in-process-requests/pending-store-in`,
@@ -108,7 +120,10 @@ export const ENDPOINTS = {
     PENDING_LIST: `${BASE}/out-entries/pending-list`,
     STORED_MRNS: `${BASE}/out-entries/stored-mrn-list`,
     STORED_MRN_DETAIL: `${BASE}/out-entries/stored-mrn-detail`,
+    JOB_CARD_PLAN: `${BASE}/out-entries/job-card-plan`,
+    LOCK_ISSUE_UID: `${BASE}/out-entries/lock-issue-uid`,
     GET: `${BASE}/out-entries/get`,
+    REASONS: `${BASE}/out-entries/reasons`,
     CREATE: `${BASE}/out-entries/create`,
     UPDATE: `${BASE}/out-entries/update`,
     APPROVE: `${BASE}/out-entries/approve`,
@@ -123,6 +138,7 @@ export const ENDPOINTS = {
     DELETE: `${BASE}/stock-adjustment/delete`,
     STICKER_RENDER_SINGLE: `${BASE}/stock-adjustment/sticker/render-single`,
     STICKER_RENDER_BULK: `${BASE}/stock-adjustment/sticker/render-bulk`,
+    UPLOAD_DOCS: `${BASE}/stock-adjustment/upload-docs`,
   },
   INVENTORY_REPORT: {
     LIST: `${BASE}/inventory-report/list`,

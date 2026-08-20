@@ -7,7 +7,7 @@ import { toast } from "react-toastify";
 import { boxService } from "@/apps/ims/lib/services/box";
 import { masterService } from "@/apps/ims/lib/services/master";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
-import RemarksTextarea from "@/ui/common/forms/RemarksTextarea";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import Snackbar from "@/ui/primitives/Snackbar";
@@ -778,7 +778,7 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
               required
             />
           </div>
-          <RemarksTextarea
+          <FormTextarea
             label="Internal Remarks"
             value={form.remarks}
             onChange={(e) => handleChange("remarks", e.target.value)}

@@ -346,16 +346,14 @@ export default function MrnPortalPage() {
     () => {
       if (isComparisonView) {
         return [
-          ["UID", "uid", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
-          ["MRN No", "mrn_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
+          ["MRN UID", "uid", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
+          // ["MRN No", "mrn_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
           ["Date", "mrn_dt", (_v, row) => renderMrnCompareCell(row, "mrn_dt", { date: true }), { width: "140px", wrap: true }],
-          ["Bill No", "bill_no", (_v, row) => renderMrnCompareCell(row, "bill_no"), { width: "150px", wrap: true }],
-          ["Bill Date", "bill_dt", (_v, row) => renderMrnCompareCell(row, "bill_dt", { date: true }), { width: "140px", wrap: true }],
           ["Lot No", "it_lot_no", (_v, row) => renderMrnCompareCell(row, "it_lot_no"), { width: "140px", wrap: true }],
           ["Quantity", "it_recp_qty", (_v, row) => renderMrnCompareCell(row, "it_recp_qty", { qty: true }), { width: "140px", wrap: true }],
           ["Item Code", "item_code", (_v, row) => renderMrnCompareCell(row, "item_code"), { width: "140px", wrap: true }],
           ["Item Description", "item_desc", (_v, row) => renderMrnCompareCell(row, "item_desc"), { width: "140px", wrap: true }],
-          ["Customer", "acc_name", (_v, row) => {
+          ["Vendor", "acc_name", (_v, row) => {
             const name = row?.ims_source?.acc_name ?? row?.acc_name;
             return (
               <span className="text-slate-800 font-bold text-[10px] uppercase whitespace-normal break-words leading-snug" title={name || ""}>
@@ -363,19 +361,19 @@ export default function MrnPortalPage() {
               </span>
             );
           }, { width: "200px", wrap: true }],
+          ["Bill No", "bill_no", (_v, row) => renderMrnCompareCell(row, "bill_no"), { width: "150px", wrap: true }],
+          ["Bill Date", "bill_dt", (_v, row) => renderMrnCompareCell(row, "bill_dt", { date: true }), { width: "140px", wrap: true }],
           ["Mismatch", "has_comparison_mismatch", renderMrnMismatchSummary, { width: "130px", wrap: true }],
         ];
       }
       return [
-      ["UID", "uid", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
-      ["MRN No", "mrn_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
+      ["MRN UID", "uid", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
+      // ["MRN No", "mrn_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
       ["Date", "mrn_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDay(v)}</span>, { width: "100px" }],
-      ["Bill No", "bill_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>, { width: "140px" }],
-      ["Bill Date", "bill_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDay(v)}</span>, { width: "100px" }],
       ["Lot No", "it_lot_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>, { width: "140px" }],
       ["Quantity", "it_recp_qty", renderMrnQtyCell, { width: "100px", cardRender: renderMrnQtyCell }],
-      ["Unit", "it_unit", (v) => <span className="text-[10px] font-bold text-slate-600 tabular-nums">{v ?? "—"}</span>, { width: "70px" }],
-      ["Customer", "acc_name", (v) => (
+      // ["Unit", "it_unit", (v) => <span className="text-[10px] font-bold text-slate-600 tabular-nums">{v ?? "—"}</span>, { width: "70px" }],
+      ["Vendor", "acc_name", (v) => (
         <span className="text-slate-800 font-bold text-[10px] uppercase whitespace-normal break-words leading-snug" title={v || ""}>
           {v || "Unknown"}
         </span>
@@ -386,14 +384,16 @@ export default function MrnPortalPage() {
       ["Item Description", "item_desc", (v) => (
         <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v || ""}>{v || "—"}</span>
       ), { width: "180px" }],
-      ["Sticker Status", "status", renderMrnStickerStatus, { width: "120px" }],
+      ["Sticker Status", "status", renderMrnStickerStatus, { width: "150px" }],
+      ["Bill No", "bill_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>, { width: "140px" }],
+      ["Bill Date", "bill_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDay(v)}</span>, { width: "100px" }],
       ["Created By", "userc", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
       ["Created At", "datec", (v) => <span className="text-[10px] text-slate-400 font-bold">{v ? formatDateTime(v) : "—"}</span>, { width: "150px" }],
       ["Generated By", "created_by_name", (v, row) => (
         <span className="text-[10px] text-slate-500 uppercase font-bold">
           {isMrnStickerGenerated(row) ? (v || "—") : "—"}
         </span>
-      ), { width: "110px" }],
+      ), { width: "120px" }],
       ["Generated At", "created_at", (v, row) => (
         <span className="text-[10px] text-slate-400 font-bold">
           {isMrnStickerGenerated(row) && v ? formatDateTime(v) : "—"}
@@ -532,7 +532,9 @@ export default function MrnPortalPage() {
             searchPlaceholder="Search by document, lot, or MRN"
             searchLabel="MRN Search"
             searchVariant="quick"
-            applyOnSearchEnter={false}
+            showSearchButton
+            applyOnSearchEnter
+            applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 

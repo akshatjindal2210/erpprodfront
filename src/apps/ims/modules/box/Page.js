@@ -20,7 +20,7 @@ import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
-import { formatDateTime } from "@/platform/utils/core/utilHelper";
+import { formatDocDate } from "@/platform/utils/core/utilHelper";
 
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
@@ -166,7 +166,7 @@ export default function BoxTablePage() {
       {
         type: "text",
         label: "Journey",
-        placeholder: "Packing no, box no, or item code",
+        placeholder: "Packing no, box no, item code, or job card",
         value: journeyInput,
         onChange: setJourneyInput,
         onEnter: applyJourneyFilter,
@@ -203,6 +203,8 @@ export default function BoxTablePage() {
   const HEADERS = [
     ["Box No", "box_no_uid", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { fixed: true, width: "120px" }],
     ["Packing No", "packing_number", (v) => <span className="font-semibold text-slate-700 text-[10px] uppercase">{v || "—"}</span>, { width: "110px" }],
+    ["Job Card", "job_card_no", (v) => <span className="font-bold text-slate-800 text-[10px] font-mono tracking-tight">{v || "—"}</span>, { width: "120px" }],
+    ["Doc Date", "doc_dt", (v) => <span className="text-[10px] font-bold text-slate-700 tabular-nums">{formatDocDate(v) || "—"}</span>, { width: "100px" }],
 
     ["Item Code", "item_code", (v) => <span className="font-mono text-[10px] font-bold tracking-tighter">{v}</span>, { width: "150px" }],
     ["Description", "itemdesc", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v}</span>, { width: "240px" }],
@@ -327,7 +329,7 @@ export default function BoxTablePage() {
                 approvedStatus: params.status,
               })
             }
-              searchPlaceholder="Search box UID, box no, packing, location..."
+              searchPlaceholder="Search box UID, box no, packing, job card, location..."
             searchLabel="Search Box Records"
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}

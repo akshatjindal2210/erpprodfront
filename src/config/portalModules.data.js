@@ -45,7 +45,6 @@ export const MODULES = {
     { name: "schedule_planning", label: "Schedule Planning" },
   ],
   rmstore: [
-    /*
     { name: "rm_production_master", label: "Production Master" },
     { name: "rm_spec_master", label: "RM Spec Master" },
     { name: "rm_store_location_master", label: "RM Store Location Master" },
@@ -55,13 +54,13 @@ export const MODULES = {
     { name: "rm_qc_check", label: "QC Check" },
     { name: "rm_rejection", label: "RM Rejection" },
     { name: "rm_issue_request", label: "Issue Request" },
+    { name: "rm_in_process_request", label: "In-Process Request" },
     { name: "rm_out_entry", label: "Store Out" },
     { name: "rm_stock_adjustment", label: "Stock Adjustment" },
     { name: "rm_inventory_report", label: "RM Inventory" },
     { name: "rm_activity_logs", label: "Activity Logs" },
     { name: "rm_coil_transaction_logs", label: "Coil Transaction Logs" },
     { name: "rm_coil_download_logs", label: "Coil Download Logs" },
-    */
   ],
   task: [
     { name: "cl_task_master", label: "CL Task Master" },
@@ -74,6 +73,6 @@ export const MODULES = {
   ],
 };
 
-export const PORTAL_APP_KEYS = ["core", "ims", /* "rmstore", */ "task"];
+export const PORTAL_APP_KEYS = ["core", "ims", "rmstore", "task"];
 
 export const SETTINGS_MODULES = ["users", "modules", "training_videos", "departments", "designations"];

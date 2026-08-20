@@ -1,14 +1,12 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Loader2, ScanLine, CameraOff, MapPin, Info, Layers, Package, QrCode } from "lucide-react";
+import { Loader2, ScanLine, CameraOff, Layers, Package, Info, QrCode } from "lucide-react";
 import Drawer from "@/ui/primitives/Drawer";
 import Snackbar from "@/ui/primitives/Snackbar";
-import { coilService } from "@/apps/rmstore/lib/services/coil";
-import { storeLocationService } from "@/apps/rmstore/lib/services/storeLocation";
+import { coilHelperContext, lookupCoilByUid } from "@/apps/rmstore/lib/helpers/coilLookup";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
 import { extractCoilUid, coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
-import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
 import { playScanSuccessBeep, prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
@@ -16,15 +14,12 @@ import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
 import LaserScanField from "@/ui/common/scan/LaserScanField";
 import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
+import CoilFinderDetailsSection from "./CoilFinderDetailsSection";
+import CoilFinderPlacementSection, { coilFinderHeaderTone } from "./CoilFinderPlacementSection";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "info", title: "", message: "", duration: SNACK_DUR.med };
 const COIL_FINDER_SCANNER_ID = "rm-coil-finder-scanner-reader";
-
-function formatLocationNo(loc) {
-  if (!loc) return "—";
-  return getLocationDisplayNo(loc);
-}
 
 function IconLabeledRow({ icon: Icon, label, children, iconClass = "text-slate-400" }) {
   return (
@@ -42,7 +37,6 @@ function IconLabeledRow({ icon: Icon, label, children, iconClass = "text-slate-4
 
 export default function CoilFinderDrawer({ open, onClose }) {
   const [loading, setLoading] = useState(false);
-  const [locationData, setLocationData] = useState(null);
   const [coilData, setCoilData] = useState(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
@@ -66,38 +60,17 @@ export default function CoilFinderDrawer({ open, onClose }) {
     }
 
     setLoading(true);
-    setLocationData(null);
     setCoilData(null);
 
     try {
-      const coilRes = await coilService.getByUid(coilUid);
-      const coil = coilRes?.data;
-
+      const coil = await lookupCoilByUid(coilUid, coilHelperContext("rm_coils", "view"));
       if (!coil) {
         showScanToast("error", "coil-not-found", "Coil not found. Check the UID and try again.");
         return;
       }
 
       setCoilData(coil);
-
-      const locationId = coil.location_id;
-      if (!locationId) {
-        showScanToast("warning", "no-location-assigned", "This coil is unassigned and not linked to any location yet.");
-        void playScanSuccessBeep();
-        return;
-      }
-
-      const locRes = await storeLocationService.getViews({
-        id: locationId,
-        permission_module: "rm_coils",
-        permission_action: "view",
-      });
-      if (locRes.data) {
-        setLocationData(locRes.data);
-        void playScanSuccessBeep();
-      } else {
-        showScanToast("error", "assigned-location-not-found", "Saved location was not found in the location list.");
-      }
+      void playScanSuccessBeep();
     } catch (err) {
       showScanToast("error", "fetch-error", err?.message || "Could not load the coil details. Please try again.");
     } finally {
@@ -150,7 +123,6 @@ export default function CoilFinderDrawer({ open, onClose }) {
         );
         return;
       }
-      setLocationData(null);
       setCoilData(null);
       setCameraOn(true);
     })();
@@ -158,12 +130,11 @@ export default function CoilFinderDrawer({ open, onClose }) {
 
   const handleClose = useCallback(() => {
     stopCamera();
-    setLocationData(null);
     setCoilData(null);
     onClose();
   }, [onClose, stopCamera]);
 
-  const isStored = !!coilData?.location_id;
+  const headerTone = coilData ? coilFinderHeaderTone(coilData) : null;
 
   return (
     <>
@@ -194,7 +165,7 @@ export default function CoilFinderDrawer({ open, onClose }) {
                     ref={keyboardInputRef}
                     placeholder={getScanInputPlaceholder()}
                     onEnter={handleScanEnter}
-                    className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    className="w-full h-11 min-h-11 pl-10 pr-4 bg-white border border-slate-200 rounded-xl text-sm font-mono text-slate-900 placeholder:text-slate-500 placeholder:opacity-100 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                 </div>
               )}
@@ -233,81 +204,36 @@ export default function CoilFinderDrawer({ open, onClose }) {
               <p className="text-xs font-medium text-slate-500">Please wait…</p>
             </div>
           ) : coilData ? (
-            <div className="space-y-4 animate-in slide-in-from-bottom-2 duration-300">
-              <div className={`p-3 rounded-xl border ${isStored ? "border-emerald-200 bg-emerald-50/80" : "border-indigo-200 bg-indigo-50/90"}`}>
+            <div className="space-y-4">
+              <div className={`p-3 rounded-xl border ${headerTone.shell}`}>
                 <div className="flex items-start gap-2">
-                  <div
-                    className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${
-                      isStored ? "bg-emerald-600 text-white" : "bg-indigo-600 text-white"
-                    }`}
-                  >
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${headerTone.icon}`}>
                     <Layers size={18} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className={`text-[10px] font-medium leading-none ${isStored ? "text-emerald-700" : "text-indigo-600"}`}>
-                      This coil
-                    </p>
-                    <p className={`text-sm font-bold font-mono leading-tight break-all ${isStored ? "text-emerald-900" : "text-indigo-900"}`}>
+                    <p className={`text-[10px] font-medium leading-none ${headerTone.kicker}`}>This coil</p>
+                    <p className={`text-sm font-bold font-mono leading-tight break-all ${headerTone.title}`}>
                       {coilData.coil_no_uid}
                     </p>
-                    <p className={`text-[11px] mt-1 ${isStored ? "text-emerald-700/80" : "text-indigo-700/80"}`}>
+                    <p className={`text-[11px] mt-1 ${headerTone.meta}`}>
                       Heat <span className="font-mono font-semibold">{coilData.heat_no ?? "—"}</span>
                       <span className="mx-1 opacity-50">·</span>
                       Qty <span className="font-semibold">{coilData.qty ?? "—"}</span>
                     </p>
-                    <div className="mt-2 pt-2 border-t border-indigo-100/90 space-y-2.5">
-                      <IconLabeledRow icon={Package} label="Item" iconClass="text-indigo-500">
+                    <div className={`mt-2 pt-2 border-t ${headerTone.divider} space-y-2.5`}>
+                      <IconLabeledRow icon={Package} label="Item code" iconClass="text-indigo-500">
                         <span className="font-mono uppercase">{coilData.item_code || "—"}</span>
-                        {coilData.item_desc ? (
-                          <span className="block font-normal text-slate-600 mt-0.5">{coilData.item_desc}</span>
-                        ) : null}
                       </IconLabeledRow>
-                      <IconLabeledRow icon={MapPin} label="Zone" iconClass={isStored ? "text-emerald-500" : "text-blue-500"}>
-                        <span>{isStored ? "Stored" : "Unassigned"}</span>
+                      <IconLabeledRow icon={Info} label="Item description" iconClass="text-indigo-400">
+                        <span className="font-normal">{coilData.item_desc || "—"}</span>
                       </IconLabeledRow>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {locationData ? (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                    <p className="text-xs font-semibold text-slate-800">Current location</p>
-                    <p className="text-[11px] text-slate-600 mt-0.5 leading-snug">Where this coil is stored now.</p>
-                  </div>
-
-                  <div className="flex items-center gap-2 px-1">
-                    <MapPin size={14} className="text-emerald-600" />
-                    <span className="text-xs font-medium text-slate-600">Coil is here</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3">
-                    <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm shadow-emerald-50/50">
-                      <p className="text-[11px] text-emerald-600 font-medium mb-1">Location No.</p>
-                      <p className="text-2xl font-bold text-emerald-900 leading-none font-mono tracking-tight">
-                        {formatLocationNo(locationData)}
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm shadow-emerald-50/50">
-                        <p className="text-[11px] text-emerald-600 font-medium mb-1">Rack</p>
-                        <p className="text-2xl font-bold text-emerald-900 leading-none font-mono">{locationData.rack_no || "—"}</p>
-                      </div>
-                      <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm shadow-emerald-50/50">
-                        <p className="text-[11px] text-emerald-600 font-medium mb-1">Row</p>
-                        <p className="text-2xl font-bold text-emerald-900 leading-none font-mono">{locationData.row_no || "—"}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="py-10 text-center bg-amber-50 rounded-2xl border border-dashed border-amber-200">
-                  <Info size={24} className="text-amber-400 mx-auto mb-2" />
-                  <p className="text-sm font-semibold text-amber-800">Unassigned</p>
-                  <p className="text-[10px] text-amber-700 mt-1 px-2">This coil is not linked to any location yet.</p>
-                </div>
-              )}
+              <CoilFinderPlacementSection coil={coilData} />
+              <CoilFinderDetailsSection coil={coilData} />
             </div>
           ) : (
             !cameraOn && (

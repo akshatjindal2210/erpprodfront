@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { RefreshCw, X, ShieldCheck, Eye, ClipboardCheck, CheckCircle, ClipboardList, Database, Edit3, Trash2 } from "lucide-react";
+import { RefreshCw, ShieldCheck, Eye, ClipboardCheck, CheckCircle, ClipboardList, Database, Edit3, Trash2, Printer } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { qcCheckService } from "@/apps/rmstore/lib/services/qcCheck";
+import { printCoilReport } from "@/apps/rmstore/lib/utils/coilReportActions";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
@@ -22,6 +23,7 @@ import DeleteModal from "@/ui/common/modals/DeleteModal";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
+import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import QcCheckModal from "./QcCheckModal";
 import QcScanGateModal from "./QcScanGateModal";
@@ -58,15 +60,15 @@ function StatusBadge({ status }) {
   }
   if (s === "awaiting_approval") {
     return (
-      <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-sky-50 text-sky-700 border-sky-200">
+      <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-indigo-50 text-indigo-700 border-indigo-200">
         ○ Awaiting Approval
       </span>
     );
   }
   if (s === "draft") {
     return (
-      <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-violet-50 text-violet-700 border-violet-200">
-        ○ Draft
+      <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-sky-50 text-sky-700 border-sky-200">
+        ● DRAFT
       </span>
     );
   }
@@ -80,7 +82,10 @@ function StatusBadge({ status }) {
 export default function QcCheckPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
-  const canAdd = canAccess(MODULE, "add").allowed;
+  const hasAddPermission = canAccess(MODULE, "add").allowed;
+  const hasEditPermission = canAccess(MODULE, "edit").allowed;
+  const hasAuthorizePermission = canAccess(MODULE, "authorize").allowed;
+  const hasDeletePermission = canAccess(MODULE, "delete").allowed;
 
   const [pageTab, setPageTab] = useState(PAGE_TABS.PENDING);
   const isPendingTab = pageTab === PAGE_TABS.PENDING;
@@ -116,15 +121,19 @@ export default function QcCheckPage() {
   const [scanGate, setScanGate] = useState({ open: false, row: null });
   /** After batch scan unlock — remaining coils open Spec form one-by-one after each submit. */
   const [postScanQueue, setPostScanQueue] = useState([]);
+  const [batchContext, setBatchCoils] = useState([]);
   const postScanQueueRef = useRef([]);
   postScanQueueRef.current = postScanQueue;
   const closingAfterQcSuccessRef = useRef(false);
   const [deleteItem, setDeleteItem] = useState(null);
+  const [printing, setPrinting] = useState(false);
 
   const handleTabChange = (tab) => {
     setPageTab(tab);
     setSelected(null);
     setDisplayLimit(100);
+    setPostScanQueue([]);
+    setBatchCoils([]);
     setParams((prev) => ({
       ...prev,
       status: tab === PAGE_TABS.PENDING ? "pending" : "all",
@@ -198,22 +207,23 @@ export default function QcCheckPage() {
       const editable =
         ["pending", "draft"].includes(String(row?.status || "").toLowerCase()) ||
         row?.is_virtual_pending;
-      if (editable && !forceView && !canAdd) {
+      if (editable && !forceView && !hasAddPermission && !hasEditPermission) {
         toast.error("You do not have permission to perform a QC check.");
         return;
       }
+
       setModal({ open: true, mode: forceView || !editable ? "view" : "inspect", row });
     },
-    [canAdd]
+    [hasAddPermission, hasEditPermission]
   );
 
   /**
-   * Pending Check — scan QC sticker, then Spec form.
-   * Draft re-open without re-scan: uncomment the block below when needed.
+   * Pending Check — scan QC sticker (coil or batch), then Spec form.
+   * Batch: first coil opens immediately; remaining coils queue after each submit.
    */
   const openCheckWithScan = useCallback(
     (row) => {
-      if (!canAdd) {
+      if (!hasAddPermission) {
         toast.error("You do not have permission to perform a QC check.");
         return;
       }
@@ -228,7 +238,7 @@ export default function QcCheckPage() {
       setPostScanQueue([]);
       setScanGate({ open: true, row: target });
     },
-    [selectedRecord, canAdd]
+    [selectedRecord, hasAddPermission, openInspect]
   );
 
   /** Open Spec Check form for the unlocked coil (fill values → submit). */
@@ -239,18 +249,31 @@ export default function QcCheckPage() {
         return;
       }
       setSelected(rowKey(unlockedRow));
-      setPostScanQueue(Array.isArray(remainingQueue) ? remainingQueue : []);
+      const queue = Array.isArray(remainingQueue) ? remainingQueue : [];
+      setPostScanQueue(queue);
+      if (queue.length > 0 || unlockedRow?.is_batch_pending) {
+        // If it's a batch result (all UIDs in one string), or if there's a queue
+        setBatchCoils(unlockedRow?.is_batch_pending ? [] : [unlockedRow, ...queue]);
+      } else {
+        setBatchCoils([]);
+      }
       const st = String(unlockedRow.status || "").toLowerCase();
       // Close scan gate, then open Spec form (same inspect drawer as before)
       window.setTimeout(() => {
         if (st === "awaiting_approval" && unlockedRow.qc_check_uid) {
-          setModal({ open: true, mode: "approve", row: unlockedRow });
-          return;
+          if (hasAuthorizePermission) {
+            setModal({ open: true, mode: "approve", row: unlockedRow });
+            return;
+          }
+          if (hasEditPermission) {
+            setModal({ open: true, mode: "edit", row: unlockedRow });
+            return;
+          }
         }
         openInspect(unlockedRow);
       }, 0);
     },
-    [openInspect]
+    [openInspect, hasAuthorizePermission, hasEditPermission]
   );
 
   const handleQcModalSuccess = useCallback(
@@ -259,7 +282,10 @@ export default function QcCheckPage() {
       // Draft save should not advance to the next coil
       if (meta?.isDraft) return;
       const queue = postScanQueueRef.current;
-      if (!queue.length) return;
+      if (!queue.length) {
+        setBatchCoils([]);
+        return;
+      }
       const [next, ...rest] = queue;
       closingAfterQcSuccessRef.current = true;
       setPostScanQueue(rest);
@@ -268,6 +294,8 @@ export default function QcCheckPage() {
         if (next?.coil_no_uid) {
           toast.info(`Next coil: complete the spec check for ${next.coil_no_uid}.`);
           openInspect(next);
+        } else {
+          setBatchCoils([]);
         }
       }, 50);
     },
@@ -277,58 +305,84 @@ export default function QcCheckPage() {
   const openApprove = useCallback((row) => {
     const target = row || selectedRecord;
     if (!target?.qc_check_uid) return;
-    if (String(target.status || "").toLowerCase() !== "awaiting_approval") return;
+    const st = String(target.status || "").toLowerCase();
+    if (!["awaiting_approval", "passed", "failed"].includes(st)) return;
     setModal({ open: true, mode: "approve", row: target });
   }, [selectedRecord]);
 
   const openEdit = useCallback((row) => {
-    if (!row?.qc_check_uid) return;
-    const st = String(row.status || "").toLowerCase();
+    const target = row || selectedRecord;
+    if (!target?.qc_check_uid) return;
+    const st = String(target.status || "").toLowerCase();
+    if (st === "draft") {
+      openInspect(target);
+      return;
+    }
     if (!["awaiting_approval", "passed", "failed"].includes(st)) return;
-    setModal({ open: true, mode: "edit", row });
-  }, []);
+    setModal({ open: true, mode: "edit", row: target });
+  }, [selectedRecord, openInspect]);
 
   const headers = useMemo(
-    () => [
-      ["QC #", "qc_check_uid", (v) => (<span className="font-bold text-sky-700 text-[10px]">{v != null ? v : "—"}</span>), { fixed: true, width: "80px" }],
-      ["Item Code", "item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { fixed: true, width: "200px" }],
-      ["Description", "item_desc", (v) => <span className="text-[11px] text-slate-600 truncate block">{v || "—"}</span>, { width: "220px" }],
-      ["Coil UID", "coil_no_uid", (v) => (<span className="font-mono text-[10px] font-bold text-slate-800 truncate block" title={v || ""}>{v || "—"}</span>), { width: "220px" }],
-      ["Coil Count", "coil_count", (v, row) => (
-          <span className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded bg-indigo-50 text-indigo-700 text-[10px] font-black tabular-nums border border-indigo-100">
-            {v != null && v !== "" ? Number(v) : row?.is_batch_pending ? 0 : 1}
-          </span>
-        ),
-        { width: "100px" },
-      ],
-      ["MRN", "mrn_no", (v) => <span className="font-bold text-slate-800 text-[10px]">{v ?? "—"}</span>, { width: "90px" }],
-      ["Mode", "sticker_mode", (v) => {
-          const batch = String(v || "coil").toLowerCase() === "batch";
-          return (
-            <span
-              className={`px-2 py-0.5 text-[9px] font-black uppercase border ${batch ? "bg-violet-50 text-violet-700 border-violet-200" : "bg-slate-50 text-slate-600 border-slate-200"}`}
-            >
-              {batch ? "Batch" : "Coil"}
+    () => {
+      const base = [
+        ["QC #", "qc_check_uid", (v) => (<span className="font-bold text-sky-700 text-[10px]">{v != null ? v : "—"}</span>), { fixed: true, width: "80px" }],
+        ["MRN UID", "mrn_uid", (v) => <span className="font-bold text-slate-800 text-[10px]">{v || "—"}</span>, { width: "110px" }],
+        ["Item Code", "item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { fixed: true, width: "200px" }],
+        ["Description", "item_desc", (v) => <span className="text-[11px] text-slate-600 truncate block">{v || "—"}</span>, { width: "220px" }],
+        ["Coil UID", "coil_no_uid", (v) => (<span className="font-mono text-[10px] font-bold text-slate-800 truncate block" title={v || ""}>{v || "—"}</span>), { width: "220px" }],
+        ["Coil Count", "coil_count", (v, row) => {
+            const count = v != null && v !== "" ? Number(v) : (row?.coil_no_uid || "").includes(",") ? (row.coil_no_uid.split(",").length) : (row?.is_batch_pending ? 0 : 1);
+            return (
+              <span className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded bg-indigo-50 text-indigo-700 text-[10px] font-black tabular-nums border border-indigo-100">
+                {count}
+              </span>
+            );
+          },
+          { width: "100px" },
+        ],
+        ["Heat No.", "heat_no", (v) => <span className="font-mono text-[10px] font-bold text-amber-700">{v || "—"}</span>, { width: "120px" }],
+        ["Qty", "qty", (v) => (
+            <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
+              {v != null ? Number(v).toLocaleString() : "0"}
             </span>
-          );
-        },
-        { width: "90px" },
-      ],
-      ["Heat No.", "heat_no", (v) => <span className="font-mono text-[10px] font-bold text-amber-700">{v || "—"}</span>, { width: "120px" }],
-      ["Qty", "qty", (v) => (
-          <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
-            {v != null ? Number(v).toLocaleString() : "0"}
+          ),
+          { width: "90px" },
+        ],
+        ["Status", "status", (v) => <StatusBadge status={v} />, { width: "160px" }],
+        ["Failure Reason", "failure_reason", (v) => <span className="text-rose-700 text-[10px] truncate block">{v || "—"}</span>, { width: "180px" }],
+        ["Inspected By", "inspected_by_name", (v, row) => <span className="text-[10px] text-slate-500">{v || row?.inspected_by || "—"}</span>, { width: "130px" }],
+        ["Inspected At", "inspected_at", (v) => <span className="text-[10px] text-slate-400">{v ? formatDateTime(v) : "—"}</span>, { width: "150px" }],
+      ];
+
+      if (isPendingTab) return base;
+
+      return [
+        ...base,
+        [
+          "Approved Status",
+          "approved",
+          (v) => (
+            <span
+              className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}
+            >
+              {v ? "● AUTHORIZED" : "○ PENDING"}
+            </span>
+          ),
+          { width: "120px" },
+        ],
+        ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+        ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+        ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+        ["Updated At", "updated_at", (v, row) => (
+          <span className="text-[10px] text-slate-400 font-medium">
+            {row?.updated_by_name ? formatDateTime(v) : "—"}
           </span>
-        ),
-        { width: "90px" },
-      ],
-      ["Status", "status", (v) => <StatusBadge status={v} />, { width: "160px" }],
-      ["Failure Reason", "failure_reason", (v) => <span className="text-rose-700 text-[10px] truncate block">{v || "—"}</span>, { width: "180px" }],
-      ["Inspected By", "inspected_by_name", (v, row) => <span className="text-[10px] text-slate-500">{v || row?.inspected_by || "—"}</span>, { width: "110px" }],
-      ["Inspected At", "inspected_at", (v) => <span className="text-[10px] text-slate-400">{v ? formatDateTime(v) : "—"}</span>, { width: "150px" }],
-      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400">{v ? formatDateTime(v) : "—"}</span>, { width: "150px" }],
-    ],
-    []
+        ), { width: "150px" }],
+        ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
+        ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+      ];
+    },
+    [isPendingTab]
   );
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
@@ -353,26 +407,45 @@ export default function QcCheckPage() {
     ];
   }, [isPendingTab, params.status]);
 
-  const canInspect = isPendingTab && canAdd;
-  const canApprove =
-    isPendingTab &&
-    selectedRecord &&
-    String(selectedRecord.status || "").toLowerCase() === "awaiting_approval";
-  const canEdit =
-    selectedRecord?.qc_check_uid != null &&
-    ["awaiting_approval", "passed", "failed"].includes(
-      String(selectedRecord.status || "").toLowerCase()
-    );
-  const canDelete =
-    !isPendingTab &&
-    selectedRecord?.qc_check_uid != null &&
-    ["passed", "failed"].includes(String(selectedRecord.status || "").toLowerCase());
-  const canView =
+  const canInspect = isPendingTab && hasAddPermission;
+  const canApproveRow =
     selectedRecord &&
     selectedRecord.qc_check_uid != null &&
-    ["awaiting_approval", "passed", "failed"].includes(
+    String(selectedRecord.status || "").toLowerCase() === "awaiting_approval";
+  const canEditRow =
+    selectedRecord?.qc_check_uid != null &&
+    ["awaiting_approval", "passed", "failed", "draft"].includes(
       String(selectedRecord.status || "").toLowerCase()
     );
+  const canDeleteRow =
+    selectedRecord?.qc_check_uid != null &&
+    ["passed", "failed", "awaiting_approval", "draft"].includes(
+      String(selectedRecord.status || "").toLowerCase()
+    );
+  const canView =
+    selectedRecord &&
+    selectedRecord.qc_check_uid != null;
+
+  const canPrintReport = useMemo(() => {
+    return (
+      selectedRecord?.qc_check_uid != null &&
+      (selectedRecord.approved ||
+        ["passed", "failed"].includes(String(selectedRecord.status || "").toLowerCase()))
+    );
+  }, [selectedRecord]);
+
+  const handlePrint = useCallback(
+    async (row) => {
+      const target = row || selectedRecord;
+      await printCoilReport({
+        coil_no_uid: target?.coil_no_uid,
+        permissionModule: "rm_qc_check",
+        printing,
+        setPrinting,
+      });
+    },
+    [selectedRecord, printing]
+  );
 
   const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
 
@@ -389,10 +462,10 @@ export default function QcCheckPage() {
       newBlockedMessage: "You do not have permission to perform a QC check.",
       openEdit: useCallback(
         (row) => {
-          if (!canEdit) return;
+          if (!canEditRow) return;
           openEdit(row);
         },
-        [canEdit, openEdit]
+        [canEditRow, openEdit]
       ),
       openApprove: useCallback(
         (row) => {
@@ -400,7 +473,7 @@ export default function QcCheckPage() {
         },
         [openApprove, selectedRecord]
       ),
-      canApproveSelection: useCallback(() => Boolean(canApprove), [canApprove]),
+      canApproveSelection: useCallback(() => Boolean(canApproveRow), [canApproveRow]),
       approveBlockedMessage: "Select a row awaiting approval.",
       openDelete: useCallback(
         (row) => {
@@ -409,8 +482,11 @@ export default function QcCheckPage() {
         },
         []
       ),
-      canDeleteSelection: useCallback(() => Boolean(canDelete), [canDelete]),
-      deleteBlockedMessage: "Select a QC record from the register to delete.",
+      canDeleteSelection: useCallback(() => Boolean(canDeleteRow), [canDeleteRow]),
+      deleteBlockedMessage: "Select a saved QC record (draft or register) to delete.",
+      onPrint: handlePrint,
+      canPrintSelection: useCallback(() => Boolean(canPrintReport), [canPrintReport]),
+      printBlockedMessage: "Select an approved QC record to print.",
     });
 
   return (
@@ -431,84 +507,72 @@ export default function QcCheckPage() {
             }
             actions={
               <>
-                {isPendingTab ? (
-                  <>
-                    <ActionButton
-                      module={MODULE}
-                      action="add"
-                      label="Check"
-                      icon={ClipboardCheck}
-                      disabled={!canInspect}
-                      onClick={openNewModal}
-                      className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
-                    />
-                    <ActionButton
-                      module={MODULE}
-                      action="view"
-                      variant="outline"
-                      label="View"
-                      icon={Eye}
-                      disabled={!canView}
-                      onClick={() => canView && openInspect(selectedRecord, true)}
-                      className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
-                    />
-                    <ActionButton
-                      module={MODULE}
-                      action="edit"
-                      variant="outline"
-                      label="Edit"
-                      icon={Edit3}
-                      disabled={!canEdit || String(selectedRecord?.status || "").toLowerCase() !== "awaiting_approval"}
-                      record={selectedRecord}
-                      onClick={openEditModal}
-                      className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
-                    />
-                    <ActionButton
-                      module={MODULE}
-                      action="authorize"
-                      variant="outline"
-                      label="Approve"
-                      icon={CheckCircle}
-                      disabled={!canApprove}
-                      onClick={openApproveModal}
-                      className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
-                    />
-                  </>
-                ) : (
-                  <>
-                    <ActionButton
-                      module={MODULE}
-                      action="view"
-                      variant="outline"
-                      label="View"
-                      icon={Eye}
-                      disabled={!canView}
-                      onClick={() => canView && openInspect(selectedRecord, true)}
-                      className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
-                    />
-                    <ActionButton
-                      module={MODULE}
-                      action="edit"
-                      variant="outline"
-                      label="Edit"
-                      icon={Edit3}
-                      disabled={!canEdit}
-                      record={selectedRecord}
-                      onClick={openEditModal}
-                      className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
-                    />
-                    <ActionButton
-                      module={MODULE}
-                      action="delete"
-                      variant="danger"
-                      label="Delete"
-                      icon={Trash2}
-                      disabled={!canDelete}
-                      onClick={openDeleteModal}
-                      className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
-                    />
-                  </>
+                {isPendingTab && (
+                  <ActionButton
+                    module={MODULE}
+                    action="add"
+                    label="Check"
+                    icon={ClipboardCheck}
+                    disabled={!canInspect}
+                    onClick={openNewModal}
+                    className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
+                  />
                 )}
+                <ActionButton
+                  module={MODULE}
+                  action="view"
+                  variant="outline"
+                  label="View"
+                  icon={Eye}
+                  disabled={!canView}
+                  record={selectedRecord}
+                  onClick={() => canView && openInspect(selectedRecord, true)}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                />
+                <ActionButton
+                  module={MODULE}
+                  action="view"
+                  variant="outline"
+                  label={printing ? "…" : "Print QC"}
+                  icon={Printer}
+                  disabled={!canPrintReport || printing}
+                  record={selectedRecord}
+                  onClick={() => handlePrint(selectedRecord)}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                />
+                <ActionButton
+                  module={MODULE}
+                  action="edit"
+                  variant="outline"
+                  label="Edit"
+                  icon={Edit3}
+                  disabled={!canEditRow}
+                  record={selectedRecord}
+                  onClick={openEditModal}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                />
+                <ActionButton
+                  module={MODULE}
+                  action="authorize"
+                  variant="outline"
+                  label="Approve"
+                  icon={CheckCircle}
+                  disabled={!canApproveRow}
+                  record={selectedRecord}
+                  onClick={openApproveModal}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
+                />
+                <ActionButton
+                  module={MODULE}
+                  action="delete"
+                  variant="danger"
+                  label="Delete"
+                  icon={Trash2}
+                  disabled={!hasDeletePermission || !canDeleteRow}
+                  record={selectedRecord}
+                  onClick={() => setDeleteItem(selectedRecord)}
+                  className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
+                />
                 <div className="hidden sm:block w-px h-6 bg-slate-200 mx-1 shrink-0" />
                 <button
                   type="button"
@@ -530,21 +594,13 @@ export default function QcCheckPage() {
             }
           />
           {selectedRecord && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-sky-50 border border-sky-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-sky-700 uppercase truncate">
-                Selected:{" "}
-                {selectedRecord.qc_check_uid != null
-                  ? `QC-${selectedRecord.qc_check_uid}`
-                  : "Pending"}{" "}
-                · {selectedRecord.coil_no_uid}
-              </span>
-              <button
-                onClick={() => setSelected(null)}
-                className="text-sky-400 hover:text-sky-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear
-              </button>
-            </div>
+            <MasterSelectionBanner onClear={() => setSelected(null)}>
+              Selected:{" "}
+              {selectedRecord.qc_check_uid != null
+                ? `QC-${selectedRecord.qc_check_uid}`
+                : "Pending"}{" "}
+              · {selectedRecord.coil_no_uid}
+            </MasterSelectionBanner>
           )}
         </ListPageToolbar>
 
@@ -581,10 +637,9 @@ export default function QcCheckPage() {
             searchPlaceholder="Search by coil, MRN, heat, or item"
             searchLabel={isPendingTab ? "Search Pending" : "Search Register"}
             searchVariant="quick"
-            applyOnSearchEnter={false}
-            {...(isPendingTab
-              ? { instantClientExtras: true, showSearchButton: false }
-              : { applyExtrasOnChange: true, showSearchButton: false })}
+            showSearchButton={!isPendingTab}
+            applyOnSearchEnter={!isPendingTab}
+            applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 
@@ -611,14 +666,22 @@ export default function QcCheckPage() {
             onSelect={setSelected}
             getRowId={(row) => rowKey(row)}
             onRowDoubleClick={(row) => {
+              const st = String(row?.status || "").toLowerCase();
               if (isPendingTab) {
-                const editable =
-                  ["pending", "draft"].includes(String(row?.status || "").toLowerCase()) ||
-                  row?.is_virtual_pending;
-                if (editable) openCheckWithScan(row);
-                else openInspect(row, true);
+                const editable = ["pending", "draft"].includes(st) || row?.is_virtual_pending;
+                if (editable) {
+                  openCheckWithScan(row);
+                } else if (st === "awaiting_approval" && hasAuthorizePermission) {
+                  setModal({ open: true, mode: "approve", row });
+                } else {
+                  openInspect(row, true);
+                }
               } else {
-                openInspect(row, true);
+                if (st === "awaiting_approval" && hasAuthorizePermission) {
+                  setModal({ open: true, mode: "approve", row });
+                } else {
+                  openInspect(row, true);
+                }
               }
             }}
             onLoadMore={() => {
@@ -656,10 +719,14 @@ export default function QcCheckPage() {
         open={modal.open}
         mode={modal.mode}
         row={modal.row}
+        batchCoils={batchContext}
         onClose={() => {
           setModal({ open: false, mode: "inspect", row: null });
           // Keep remaining batch coils after submit; clear only on user cancel
-          if (!closingAfterQcSuccessRef.current) setPostScanQueue([]);
+          if (!closingAfterQcSuccessRef.current) {
+            setPostScanQueue([]);
+            setBatchCoils([]);
+          }
         }}
         onSuccess={handleQcModalSuccess}
       />

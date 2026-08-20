@@ -7,8 +7,8 @@ import { toast } from "react-toastify";
 import { rmRejectionService } from "@/apps/rmstore/lib/services/rmRejection";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import Drawer from "@/ui/primitives/Drawer";
-import { OK_INPUT, FormLabel } from "@/ui/common/Constants";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 
 function Info({ label, value, mono }) {
   return (
@@ -64,7 +64,7 @@ export default function ApproveRejectionDrawer({ open, onClose, onSuccess, row }
         qc_reject_uid: rejectId,
         remarks: remarks.trim() || null,
       });
-      toast.success(res?.message || "Rejection authorized. Store Out → Pending mein dikhega.");
+      toast.success(res?.message || "Rejection authorized. It will appear on Store Out → Pending.");
       onSuccess?.();
       onClose?.();
     } catch (err) {
@@ -111,14 +111,14 @@ export default function ApproveRejectionDrawer({ open, onClose, onSuccess, row }
         </div>
       ) : (
         <div className="space-y-3 pb-2">
-          <div className="rounded-xl border border-amber-200 bg-amber-50 overflow-hidden">
-            <div className="px-3 py-2.5 border-b border-amber-100 flex items-start gap-2">
-              <CheckCircle size={18} className="text-amber-700 shrink-0 mt-0.5" />
+          <div className="rounded-xl border border-sky-200 bg-sky-50 overflow-hidden">
+            <div className="px-3 py-2.5 border-b border-sky-100 flex items-start gap-2">
+              <CheckCircle size={18} className="text-sky-700 shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="text-[11px] font-black uppercase tracking-wider text-amber-800">
-                  Pending authorization
+                <p className="text-[11px] font-black uppercase tracking-wider text-sky-800">
+                  ○ Awaiting Approval
                 </p>
-                <p className="text-[13px] font-bold text-amber-950 mt-0.5 break-words">
+                <p className="text-[13px] font-bold text-sky-950 mt-0.5 break-words">
                   {detail?.reason || row?.reason || row?.failure_reason || "—"}
                 </p>
               </div>
@@ -140,7 +140,7 @@ export default function ApproveRejectionDrawer({ open, onClose, onSuccess, row }
                       : "—")
               }
             />
-            <Info label="MRN Refs" value={detail?.mrn_refs ?? row?.mrn_refs} />
+            <Info label="MRN UID" value={detail?.mrn_uids ?? detail?.mrn_refs ?? row?.mrn_uids ?? row?.mrn_refs} />
             <Info label="Heat Nos." value={detail?.heat_nos ?? row?.heat_nos} mono />
             <Info label="Item Codes" value={detail?.item_codes ?? row?.item_codes} />
             <Info
@@ -206,17 +206,14 @@ export default function ApproveRejectionDrawer({ open, onClose, onSuccess, row }
             </div>
           </div>
 
-          <div className="space-y-0.5">
-            <FormLabel>Remarks</FormLabel>
-            <textarea
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-              rows={3}
-              disabled={submitting}
-              className={`${OK_INPUT} text-[11px] h-auto min-h-[52px] py-1.5 resize-none rounded-md`}
-              placeholder="Update remarks before approving (optional)"
-            />
-          </div>
+          <FormTextarea
+            label="Remarks"
+            value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+            rows={3}
+            disabled={submitting}
+            placeholder="Update remarks before approving (optional)"
+          />
         </div>
       )}
     </Drawer>

@@ -1,11 +1,12 @@
 "use client";
 
 import { Check, Loader2 } from "lucide-react";
-import { okInput } from "@/ui/common/Constants";
+import { okInput, OK_TEXTAREA } from "@/ui/common/Constants";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 
 export const CONFIG_INPUT = `${okInput} text-[11px] h-[38px] rounded-lg border-slate-200`;
 export const CONFIG_SELECT = CONFIG_INPUT;
-export const CONFIG_TEXTAREA = `${okInput} text-[11px] rounded-lg border-slate-200 resize-none py-2.5 min-h-[72px]`;
+export const CONFIG_TEXTAREA = `${OK_TEXTAREA} text-[11px] min-h-[72px]`;
 export const CONFIG_LABEL = "text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1 block mb-1";
 
 export function ConfigFormRow({ row, draft, setDraft, disabled }) {
@@ -65,33 +66,37 @@ export function ConfigFormRow({ row, draft, setDraft, disabled }) {
 
   return (
     <div className="space-y-1 min-w-0">
-      <label htmlFor={`cfg-${row.key}`} className={CONFIG_LABEL}>
-        {label}
-      </label>
       {row.key === "company_address" ? (
-        <textarea
+        <FormTextarea
           id={`cfg-${row.key}`}
+          label={label}
+          labelClassName={CONFIG_LABEL}
           rows={2}
           disabled={disabled}
-          className={CONFIG_TEXTAREA}
           value={value}
           onChange={(e) => setDraft((d) => ({ ...d, [row.key]: e.target.value }))}
           placeholder="Plot no., sector, city…"
+          inputClassName="text-[11px] min-h-[72px]"
         />
       ) : (
-        <input
-          id={`cfg-${row.key}`}
-          type={row.value_type === "number" ? "number" : "text"}
-          min={row.min}
-          max={row.max}
-          disabled={disabled}
-          className={CONFIG_INPUT}
-          value={value}
-          onChange={(e) => setDraft((d) => ({ ...d, [row.key]: e.target.value }))}
-          placeholder={
-            row.value_type === "url" ? "https://example.com" : row.value_type === "number" ? String(row.min ?? 7) : ""
-          }
-        />
+        <>
+          <label htmlFor={`cfg-${row.key}`} className={CONFIG_LABEL}>
+            {label}
+          </label>
+          <input
+            id={`cfg-${row.key}`}
+            type={row.value_type === "number" ? "number" : "text"}
+            min={row.min}
+            max={row.max}
+            disabled={disabled}
+            className={CONFIG_INPUT}
+            value={value}
+            onChange={(e) => setDraft((d) => ({ ...d, [row.key]: e.target.value }))}
+            placeholder={
+              row.value_type === "url" ? "https://example.com" : row.value_type === "number" ? String(row.min ?? 7) : ""
+            }
+          />
+        </>
       )}
       {help ? <p className="text-[10px] text-slate-400 leading-snug ml-1">{help}</p> : null}
     </div>

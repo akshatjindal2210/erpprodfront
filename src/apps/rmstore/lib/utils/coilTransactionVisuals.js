@@ -12,6 +12,19 @@ function parseDetails(raw) {
 
 export function resolveCoilTxTypeLabel(type, row, typeLabels = {}) {
   if (!type) return "—";
+  if (type === "store_out" || type === "store_out_revert") {
+    const details = parseDetails(row?.details);
+    const entryType = String(details?.entry_type || "").trim().toLowerCase();
+    if (entryType === "rm_rejection") {
+      return type === "store_out_revert"
+        ? "Store Out Revert — Vendor Return"
+        : "Store Out — Vendor Return";
+    }
+    if (type === "store_out_revert") {
+      return typeLabels.store_out_revert || "Store Out Revert — Shop Floor";
+    }
+    return typeLabels.store_out || "Store Out — Shop Floor";
+  }
   return typeLabels[type] || String(type).replace(/_/g, " ");
 }
 

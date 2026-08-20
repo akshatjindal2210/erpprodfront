@@ -14,7 +14,7 @@ import { applyClientSearch } from "@/ui/common/list/clientListSearch";
 import { withSortedViewsData } from "@/apps/ims/lib/helpers/sortDropdownResponse";
 import { sortSelectRowsAsc } from "@/platform/utils/form/sortSelectOptions";
 import { calculateFifoBoxes, enrichForwardingBoxesWithPackingStd, isForwardingLooseBox } from "@/platform/utils/core/utilHelper";
-import RemarksTextarea           from "@/ui/common/forms/RemarksTextarea";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import FormPanelLoader           from "@/ui/common/system/FormPanelLoader";
 import { OK_INPUT, FORM_LABEL_CLASS, FORM_MICRO_LABEL_CLASS, FORM_ERROR_CLASS } from "@/ui/common/Constants";
 import { useCanAccess }          from "@/platform/hooks/auth/useCanAccess";
@@ -476,6 +476,49 @@ const buildDispatchFromTarget = (item, targetQty) => {
   };
 };
 
+/** Edit hydrate: cap saved qty preview when balance is already known. */
+const fifoPreviewTargetForRow = (row) => {
+  const balanceCap = Number(row?.source_dispatch_qty ?? 0);
+  const savedQty = Number(row.dispatch_qty) || Number(row.dispatch_target) || 0;
+  if (savedQty <= 0) return 0;
+  if (balanceCap > 0) return Math.min(savedQty, balanceCap);
+  return savedQty;
+};
+
+/**
+ * After schedule balance loads, trim stale box selection from the edit load race
+ * (stock preview ran before source_dispatch_qty was set).
+ */
+const reconcileRowSelectionToBalance = (row, balanceCap) => {
+  if (!(balanceCap > 0)) return row;
+  const withBal = { ...row, source_dispatch_qty: balanceCap };
+  if (withBal.boxes_edited) return withBal;
+
+  const pool = withBal.available_boxes || [];
+  if (!pool.length) return withBal;
+
+  const ordered = reorderBoxesForSelection(pool, withBal.loose_priority);
+  const maxBoxes = maxFifoBoxesForItem(withBal, ordered);
+  const currentCount =
+    withBal.selected_boxes?.length > 0
+      ? getFifoSelectionCount(withBal, ordered)
+      : (withBal.original_breakdowns || []).reduce(
+          (acc, bd) => acc + (Number(bd.box) || 0) + (Number(bd.loose_box) || 0),
+          0
+        );
+  const savedQty = Number(withBal.dispatch_qty) || 0;
+  const needsTrim = currentCount > maxBoxes || savedQty > balanceCap;
+  if (!needsTrim) return withBal;
+
+  const target = getItemFifoTarget(withBal);
+  const built = buildDispatchFromTarget(withBal, target > 0 ? target : balanceCap);
+  return {
+    ...withBal,
+    ...built,
+    original_breakdowns: [],
+  };
+};
+
 /** Apply dispatch qty input → FIFO boxes (never breaks boxes; caps at balance). */
 const resolveDispatchQtySelection = (item, rawVal, { emptyMeansSystem = false } = {}) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
@@ -658,10 +701,7 @@ export default function ForwardingModal({
         const catalogBal = Math.max(0, Number(match.balance_qty ?? match.source_dispatch_qty ?? 0));
         if (!(catalogBal > 0)) return row;
         changed = true;
-        return {
-          ...row,
-          source_dispatch_qty: catalogBal,
-        };
+        return reconcileRowSelectionToBalance(row, catalogBal);
       });
       if (!changed) return prev;
       formItemsRef.current = nextItems;
@@ -1204,9 +1244,10 @@ export default function ForwardingModal({
               const fifoBoxes = bundle.fifoBoxes || [];
               // Keep saved breakdown path (boxes_edited false). Only attach pool for +/- later.
               const orderedBoxes = reorderBoxesForSelection(fifoBoxes, cur.loose_priority);
+              const previewTarget = fifoPreviewTargetForRow(cur);
               const previewSelected =
-                !cur.boxes_edited && Number(cur.dispatch_qty) > 0
-                  ? selectBoxesByQty(orderedBoxes, Number(cur.dispatch_qty))
+                !cur.boxes_edited && previewTarget > 0
+                  ? selectBoxesByQty(orderedBoxes, previewTarget)
                   : cur.selected_boxes;
               return {
                 ...cur,
@@ -2542,7 +2583,7 @@ export default function ForwardingModal({
 
         {/* ── Remarks (full row, same as other modals) ── */}
         <div className="space-y-3 min-w-0">
-          <RemarksTextarea
+          <FormTextarea
             label="Remarks"
             value={form.remarks}
             onChange={(e) => handleInputChange("remarks", e.target.value)}

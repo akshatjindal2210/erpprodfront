@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Eye, List, ClipboardList, Lock, Unlock } from "lucide-react";
+import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Eye, List, ClipboardList, Lock, Unlock, Info } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 
@@ -24,11 +24,12 @@ import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys
 import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
+import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 
 const MODULE = "rm_issue_request";
 
-/** Master-wise = one row per issue request. Job-card-wise = one row per JC (like FN item-wise). */
+/** Master-wise = one row per issue request. Job-card-wise = one row per JC (line list only). */
 const REPORT_TYPES = {
   SUMMARY: "summary",
   JOB_CARD: "job_card_wise",
@@ -79,6 +80,36 @@ function resolveMasterIssueUid(row) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function resolveMasterModalItem(record, masterRows = []) {
+  if (!record) return null;
+  const uid = resolveMasterIssueUid(record);
+  if (!uid) return null;
+  const master = masterRows.find((r) => Number(r.issue_uid) === uid);
+  if (master) return master;
+  return {
+    issue_uid: uid,
+    approved: record.approved,
+    out_entry_locked: record.out_entry_locked,
+  };
+}
+
+function issueDrillButton(row, label, onDrill, title) {
+  if (!onDrill || !row?.issue_uid) return label;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onDrill(row);
+      }}
+      className="font-mono text-indigo-600 font-bold text-[10px] uppercase hover:underline cursor-pointer text-left"
+      title={title}
+    >
+      {label}
+    </button>
+  );
+}
+
 function parseJobCards(raw) {
   if (Array.isArray(raw)) return raw;
   if (typeof raw === "string") {
@@ -101,8 +132,7 @@ function enrichIssueRow(row) {
       if (!no) return "";
       const qty = Number(jc?.issue_qty);
       const mac = String(jc?.macname || "").trim();
-      const base =
-        Number.isFinite(qty) && qty > 0 ? `${no} (${qty.toLocaleString()})` : no;
+      const base = Number.isFinite(qty) && qty > 0 ? `${no} (${qty.toLocaleString()})` : no;
       return mac ? `${base} · ${mac}` : base;
     })
     .filter(Boolean)
@@ -165,12 +195,14 @@ export default function IssueRequestPage() {
   const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } =
     useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
+  const [masterRowsCache, setMasterRowsCache] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("add");
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
+  const [jobCardIssueUidFilter, setJobCardIssueUidFilter] = useState(null);
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -194,7 +226,9 @@ export default function IssueRequestPage() {
         });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
-      setAllRows(data);
+      const rows = isSummary ? data.map(enrichIssueRow) : data;
+      setAllRows(rows);
+      if (isSummary) setMasterRowsCache(rows);
       setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Could not load the issue requests. Please try again.");
@@ -208,13 +242,27 @@ export default function IssueRequestPage() {
     fetchRows();
   }, [fetchRows]);
 
+  const masterRows = masterRowsCache;
+
+  const drillToJobCardWise = useCallback((row) => {
+    const uid = resolveMasterIssueUid(row);
+    if (!uid) return;
+    setJobCardIssueUidFilter(uid);
+    setReportType(REPORT_TYPES.JOB_CARD);
+    setSelected(null);
+    setDisplayLimit(100);
+  }, []);
+
   const filteredRows = useMemo(() => {
-    let data = isSummary ? allRows.map(enrichIssueRow) : allRows;
+    let data = isSummary ? masterRows : allRows;
+    if (!isSummary && jobCardIssueUidFilter != null) {
+      data = data.filter((r) => String(r.issue_uid) === String(jobCardIssueUidFilter));
+    }
     if (String(tempSearch || "").trim()) {
       data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir, isSummary]);
+  }, [allRows, masterRows, tempSearch, params.sortKey, params.sortDir, isSummary, jobCardIssueUidFilter]);
 
   const getRowId = useCallback(
     (row) => {
@@ -223,6 +271,11 @@ export default function IssueRequestPage() {
     },
     [isSummary]
   );
+
+  useEffect(() => {
+    if (!selected) return;
+    if (!filteredRows.some((row) => getRowId(row) === selected)) setSelected(null);
+  }, [selected, filteredRows, getRowId]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -244,9 +297,23 @@ export default function IssueRequestPage() {
         tempSearch,
         sourceRows: allRows,
         filteredRows,
-        serverFiltered: params.status !== "all" || Boolean(appliedSearch),
+        serverFiltered:
+          params.status !== "all" ||
+          params.storeOutFilter !== "all" ||
+          Boolean(appliedSearch),
       }),
-    [tempSearch, allRows, filteredRows, params.status, appliedSearch]
+    [tempSearch, allRows, filteredRows, params.status, params.storeOutFilter, appliedSearch]
+  );
+
+  const openMasterModal = useCallback(
+    (record, mode) => {
+      if (!record) return;
+      if (mode !== "view" && record?.out_entry_locked) return;
+      setEditItem(resolveMasterModalItem(record, masterRows));
+      setModalMode(mode);
+      setModalOpen(true);
+    },
+    [masterRows]
   );
 
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
@@ -259,32 +326,21 @@ export default function IssueRequestPage() {
       setModalMode("add");
       setModalOpen(true);
     }, []),
-    openEdit: useCallback((row) => {
-      if (!isSummary || row?.out_entry_locked) return;
-      setEditItem(row);
-      setModalMode("edit");
-      setModalOpen(true);
-    }, [isSummary]),
-    openApprove: useCallback((row) => {
-      if (!isSummary || row?.out_entry_locked) return;
-      setEditItem(row);
-      setModalMode("approve");
-      setModalOpen(true);
-    }, [isSummary]),
+    openEdit: useCallback((row) => openMasterModal(row, "edit"), [openMasterModal]),
+    openApprove: useCallback((row) => openMasterModal(row, "approve"), [openMasterModal]),
     canApproveSelection: useCallback(
-      () => isSummary && Boolean(selected && selectedRecord) && !isSelectedLocked,
-      [isSummary, selected, selectedRecord, isSelectedLocked]
+      () => Boolean(selected && selectedRecord) && !isSelectedLocked,
+      [selected, selectedRecord, isSelectedLocked]
     ),
     onApproveBlocked: useCallback(() => {
-      if (!isSummary) toast.info("Switch to Master-wise to approve.");
-      else if (isSelectedLocked) toast.info("This issue request is locked for store out.");
+      if (isSelectedLocked) toast.info("This issue request is locked for store out.");
       else toast.info("Select a row to approve (Ctrl+A).");
-    }, [isSummary, isSelectedLocked]),
+    }, [isSelectedLocked]),
     openDelete: useCallback((row) => {
-      if (!isSummary || row?.out_entry_locked) return;
-      setDeleteItem(row);
-    }, [isSummary]),
-    canDeleteSelection: useCallback(() => isSummary && !!selected && !isSelectedLocked, [isSummary, selected, isSelectedLocked]),
+      if (row?.out_entry_locked) return;
+      setDeleteItem(resolveMasterModalItem(row, masterRows));
+    }, [masterRows]),
+    canDeleteSelection: useCallback(() => !!selected && !isSelectedLocked, [selected, isSelectedLocked]),
   });
 
   const handleLock = async () => {
@@ -311,22 +367,30 @@ export default function IssueRequestPage() {
     }
   };
 
-  const modalRecord = useMemo(() => {
-    if (!selectedRecord) return null;
-    if (isSummary) return selectedRecord;
-    return { issue_uid: selectedRecord.issue_uid, approved: selectedRecord.approved };
-  }, [selectedRecord, isSummary]);
+  const modalRecord = useMemo(
+    () => resolveMasterModalItem(selectedRecord, masterRows),
+    [selectedRecord, masterRows]
+  );
 
   const openViewModal = () => {
     if (!selectedRecord) return;
-    setEditItem(isSummary ? selectedRecord : { issue_uid: selectedRecord.issue_uid });
-    setModalMode("view");
-    setModalOpen(true);
+    openMasterModal(selectedRecord, "view");
   };
 
   const MASTER_HEADERS = useMemo(
     () => [
-      ["Issue UID", "issue_uid", (v) => <span className="font-bold text-teal-700 text-[10px]">{v}</span>, { fixed: true, width: "90px" }],
+      [
+        "Issue UID",
+        "issue_uid",
+        (v, row) =>
+          issueDrillButton(
+            row,
+            <span className="font-bold text-teal-700 text-[10px]">{v}</span>,
+            drillToJobCardWise,
+            `View ${row.job_cards_parsed?.length ?? 0} job card line(s)`
+          ),
+        { fixed: true, width: "90px" },
+      ],
       ["FG Item Code", "item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px] truncate block">{v || "—"}</span>, { width: "120px" }],
       ["FG Description", "item_desc", (v) => (
           <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>
@@ -335,6 +399,24 @@ export default function IssueRequestPage() {
         ),
         { width: "180px" },
       ],
+      ["Part Wt", "part_weight", (v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n === 0) return <span className="font-bold text-slate-700 text-[11px] tabular-nums">—</span>;
+        return (
+          <span className="font-bold text-slate-700 text-[11px] tabular-nums">
+            {n.toLocaleString(undefined, { maximumFractionDigits: 20 })}
+          </span>
+        );
+      }, { width: "80px", align: "center" }],
+      ["RM Wt", "rm_weight", (v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n === 0) return <span className="font-bold text-slate-700 text-[11px] tabular-nums">—</span>;
+        return (
+          <span className="font-bold text-slate-700 text-[11px] tabular-nums">
+            {n.toLocaleString(undefined, { maximumFractionDigits: 20 })}
+          </span>
+        );
+      }, { width: "80px", align: "center" }],
       ["RM Item Code", "rm_item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px] truncate block">{v || "—"}</span>, { width: "120px" }],
       ["RM Description", "rm_item_desc", (v) => (
           <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>
@@ -351,14 +433,21 @@ export default function IssueRequestPage() {
         ),
         { width: "110px" },
       ],
-      ["Job Cards", "job_card_label", (v) => (
-          <span className="text-[10px] text-slate-700 truncate block font-medium" title={v || ""}>
-            {v || "—"}
-          </span>
-        ),
+      [
+        "Job Cards",
+        "job_card_label",
+        (v, row) =>
+          issueDrillButton(
+            row,
+            <span className="text-[10px] text-slate-700 truncate block font-medium" title={v || ""}>
+              {v || "—"}
+            </span>,
+            drillToJobCardWise,
+            `Open ${row.job_cards_parsed?.length ?? 0} job card line(s) in Job Card Wise`
+          ),
         { width: "180px" },
       ],
-      ["Qty", "requested_qty", (v) => qtyCell(v), { width: "90px" }],
+      ["Qty", "requested_qty", (v) => qtyCell(v), { width: "90px", align: "center" }],
       ["Coils", "coil_count", (v) => <span className="font-bold tabular-nums text-[11px]">{v ?? 0}</span>, { width: "65px" }],
       ["Status", "approved", (v) => (
           <span
@@ -371,9 +460,9 @@ export default function IssueRequestPage() {
             {v ? "● AUTHORIZED" : "○ PENDING"}
           </span>
         ),
-        { width: "110px" },
+        { width: "130px", align: "center" },
       ],
-      ["Lock Status", "out_entry_locked", (_v, row) => <LockStatusBadge row={row} />, { width: "110px" }],
+      ["Lock Status", "out_entry_locked", (_v, row) => <LockStatusBadge row={row} />, { width: "110px", align: "center" }],
       ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 truncate block" title={v || ""}>{v || "—"}</span>, { width: "140px" }],
       ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
       ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
@@ -383,26 +472,55 @@ export default function IssueRequestPage() {
           {row?.updated_by_name ? formatDateTime(v) : "—"}
         </span>
       ), { width: "150px" }],
-      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
+      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
       ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
       ["Locked By", "out_entry_locked_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
       ["Locked At", "out_entry_locked_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
     ],
-    []
+    [drillToJobCardWise]
   );
 
   const JOB_CARD_HEADERS = useMemo(
     () => [
-      ["Issue UID", "issue_uid", (v) => <span className="font-bold text-teal-700 text-[10px]">{v}</span>, { fixed: true, width: "90px" }],
+      [
+        "Issue UID",
+        "issue_uid",
+        (v, row) =>
+          issueDrillButton(
+            row,
+            <span className="font-bold text-teal-700 text-[10px]">{v}</span>,
+            drillToJobCardWise,
+            "Show all job card lines for this issue"
+          ),
+        { fixed: true, width: "90px" },
+      ],
       ["Job Card", "pjobcardno", (v) => <span className="font-bold text-indigo-700 text-[11px]">{v || "—"}</span>, { width: "120px" }],
       ["Plan Date", "pldt", (v) => <span className="text-[10px] text-slate-500">{v ? formatDateTime(v) : "—"}</span>, { width: "130px" }],
       ["Machine", "macname", (v) => <span className="text-[10px] font-bold text-slate-700 uppercase truncate block" title={v || ""}>{v || "—"}</span>, { width: "110px" }],
       ["FG Item", "item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px] truncate block">{v || "—"}</span>, { width: "110px" }],
       ["FG Description", "item_desc", (v) => <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>, { width: "160px" }],
+      ["Part Wt", "part_weight", (v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n === 0) return <span className="font-bold text-slate-700 text-[11px] tabular-nums">—</span>;
+        return (
+          <span className="font-bold text-slate-700 text-[11px] tabular-nums">
+            {n.toLocaleString(undefined, { maximumFractionDigits: 20 })}
+          </span>
+        );
+      }, { width: "80px", align: "center" }],
+      ["RM Wt", "rm_weight", (v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n === 0) return <span className="font-bold text-slate-700 text-[11px] tabular-nums">—</span>;
+        return (
+          <span className="font-bold text-slate-700 text-[11px] tabular-nums">
+            {n.toLocaleString(undefined, { maximumFractionDigits: 20 })}
+          </span>
+        );
+      }, { width: "80px", align: "center" }],
       ["RM Item", "rm_item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px] truncate block">{v || "—"}</span>, { width: "110px" }],
       ["RM Description", "rm_item_desc", (v) => <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>, { width: "160px" }],
       // ["Plan Qty", "planqty", (v) => qtyCell(v), { width: "85px" }],
-      ["Issue Qty", "issue_qty", (v) => qtyCell(v), { width: "85px" }],
+      ["Qty", "issue_qty", (v) => qtyCell(v), { width: "85px", align: "center" }],
       ["Coils", "coil_count", (v) => <span className="font-bold tabular-nums text-[11px]">{v ?? 0}</span>, { width: "65px" }],
       ["Shift", "shift", (v) => <span className="text-[10px] font-bold text-slate-600 uppercase">{v || "—"}</span>, { width: "55px" }],
       [
@@ -417,13 +535,13 @@ export default function IssueRequestPage() {
             {v ? "● AUTHORIZED" : "○ PENDING"}
           </span>
         ),
-        { width: "110px" },
+        { width: "130px", align: "center" },
       ],
       [
         "Lock Status",
         "out_entry_locked",
         (_v, row) => <LockStatusBadge row={row} />,
-        { width: "110px" },
+        { width: "110px", align: "center" },
       ],
       ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 truncate block" title={v || ""}>{v || "—"}</span>, { width: "140px" }],
       ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
@@ -434,12 +552,12 @@ export default function IssueRequestPage() {
           {row?.updated_by_name ? formatDateTime(v) : "—"}
         </span>
       ), { width: "150px" }],
-      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
+      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
       ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
       ["Locked By", "out_entry_locked_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
       ["Locked At", "out_entry_locked_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
     ],
-    []
+    [drillToJobCardWise]
   );
 
   const headers = isSummary ? MASTER_HEADERS : JOB_CARD_HEADERS;
@@ -485,10 +603,11 @@ export default function IssueRequestPage() {
                   setReportType(id);
                   setSelected(null);
                   setDisplayLimit(100);
+                  if (id === REPORT_TYPES.SUMMARY) setJobCardIssueUidFilter(null);
                 }}
                 tabs={[
-                  { id: REPORT_TYPES.SUMMARY, label: "Master-wise", icon: List },
-                  { id: REPORT_TYPES.JOB_CARD, label: "Job Card-wise", icon: ClipboardList },
+                  { id: REPORT_TYPES.SUMMARY, label: "Issue Request", icon: List },
+                  { id: REPORT_TYPES.JOB_CARD, label: "Job Card Wise", icon: ClipboardList },
                 ]}
               />
             }
@@ -518,7 +637,7 @@ export default function IssueRequestPage() {
                   variant="outline"
                   label="Edit"
                   icon={Edit3}
-                  disabled={!selectedRecord || !isSummary || isSelectedLocked}
+                  disabled={!selectedRecord || isSelectedLocked}
                   record={modalRecord}
                   onClick={openEditModal}
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
@@ -529,12 +648,8 @@ export default function IssueRequestPage() {
                   variant="outline"
                   label="Approve"
                   icon={CheckCircle}
-                  disabled={!selectedRecord || !isSummary || isSelectedLocked}
-                  onClick={() => {
-                    setEditItem(modalRecord);
-                    setModalMode("approve");
-                    setModalOpen(true);
-                  }}
+                  disabled={!selectedRecord || isSelectedLocked}
+                  onClick={() => openMasterModal(selectedRecord, "approve")}
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
                 />
                 <ActionButton
@@ -543,8 +658,8 @@ export default function IssueRequestPage() {
                   variant="danger"
                   label="Delete"
                   icon={Trash2}
-                  disabled={!selectedRecord || !isSummary || isSelectedLocked}
-                  onClick={() => setDeleteItem(modalRecord)}
+                  disabled={!selectedRecord || isSelectedLocked}
+                  onClick={() => setDeleteItem(resolveMasterModalItem(selectedRecord, masterRows))}
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                 />
                 {String(role || "").toLowerCase() === "super_admin" && (
@@ -592,30 +707,36 @@ export default function IssueRequestPage() {
             }
           />
 
-          {selectedRecord && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-teal-50 border border-teal-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-teal-700 uppercase truncate">
-                {isSummary ? (
-                  <>
-                    Selected: Issue #{selectedRecord.issue_uid} · {selectedRecord.item_code || "—"} · RM{" "}
-                    {selectedRecord.rm_item_code || "—"} · Qty {Number(selectedRecord.requested_qty || 0).toLocaleString()} ·{" "}
-                    {selectedRecord.coil_count ?? 0} coil(s)
-                  </>
-                ) : (
-                  <>
-                    Selected: Issue #{selectedRecord.issue_uid} · JC {selectedRecord.pjobcardno || "—"} · Issue Qty{" "}
-                    {Number(selectedRecord.issue_qty || 0).toLocaleString()} · {selectedRecord.coil_count ?? 0} coil(s)
-                  </>
-                )}
+          {jobCardIssueUidFilter != null && !isSummary ? (
+            <div className="flex items-center justify-between px-3 py-1.5 bg-cyan-50 border border-cyan-100">
+              <span className="text-[10px] font-bold text-cyan-800 uppercase flex items-center gap-2">
+                <Info size={12} /> Showing job cards for Issue #{jobCardIssueUidFilter}
               </span>
               <button
                 type="button"
-                onClick={() => setSelected(null)}
-                className="text-teal-400 hover:text-teal-700 flex items-center gap-1 font-bold text-[10px] uppercase"
+                onClick={() => setJobCardIssueUidFilter(null)}
+                className="text-cyan-600 hover:text-cyan-800 flex items-center gap-1 font-bold text-[10px] uppercase"
               >
-                <X size={14} /> Clear
+                <X size={14} /> Show all job cards
               </button>
             </div>
+          ) : null}
+
+          {selectedRecord && (
+            <MasterSelectionBanner onClear={() => setSelected(null)}>
+              {isSummary ? (
+                <>
+                  Issue #{selectedRecord.issue_uid} · {selectedRecord.item_code || "—"} · RM{" "}
+                  {selectedRecord.rm_item_code || "—"} · Qty {Number(selectedRecord.requested_qty || 0).toLocaleString()} ·{" "}
+                  {selectedRecord.coil_count ?? 0} coil(s)
+                </>
+              ) : (
+                <>
+                  Issue #{selectedRecord.issue_uid} · {selectedRecord.pjobcardno || "—"} · Issue Qty{" "}
+                  {Number(selectedRecord.issue_qty || 0).toLocaleString()} · {selectedRecord.coil_count ?? 0} coil(s)
+                </>
+              )}
+            </MasterSelectionBanner>
           )}
         </ListPageToolbar>
 
@@ -627,6 +748,8 @@ export default function IssueRequestPage() {
             extraFilters={extraFilters}
             onApply={(data) => {
               applySearchFromInput();
+              setSelected(null);
+              setJobCardIssueUidFilter(null);
               setParams((prev) => ({
                 ...prev,
                 fromDate: data.fromDate,
@@ -637,6 +760,7 @@ export default function IssueRequestPage() {
             }}
             onReset={() => {
               resetSearch();
+              setJobCardIssueUidFilter(null);
               setParams({
                 pageSize: 500,
                 status: "all",
@@ -656,12 +780,15 @@ export default function IssueRequestPage() {
             }
             searchLabel={isSummary ? "Search Issue Request" : "Search Job Cards"}
             searchVariant="quick"
-            applyOnSearchEnter={false}
+            showSearchButton
+            applyOnSearchEnter={isSummary}
+            applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
           <DataTable
+            key={reportType}
             headers={headers}
             data={items}
             loading={loading}
@@ -683,9 +810,7 @@ export default function IssueRequestPage() {
             getRowId={getRowId}
             onRowDoubleClick={(row) => {
               setSelected(getRowId(row));
-              setEditItem(isSummary ? row : { issue_uid: row.issue_uid });
-              setModalMode("view");
-              setModalOpen(true);
+              openMasterModal(row, "view");
             }}
             emptyMessage={isSummary ? "No issue requests found" : "No job card lines found"}
             cardConfig={{
@@ -723,7 +848,7 @@ export default function IssueRequestPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSuccess={fetchRows}
-        editData={editItem || modalRecord}
+        editData={editItem}
         mode={modalMode}
       />
 

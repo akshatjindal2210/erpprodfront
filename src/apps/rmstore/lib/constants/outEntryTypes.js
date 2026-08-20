@@ -10,3 +10,5 @@ export function getOutEntryTypeLabel(entryType) {
   if (v === OUT_ENTRY_TYPE.JOB_CARD || v === "job card") return "Job Card";
   return "Store Out";
 }
+
+export const STORE_OUT_REASON_MAX_LEN = 200;

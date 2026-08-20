@@ -31,6 +31,11 @@ const SELECT = `${INPUT} w-full`;
 const BTN = "h-7 px-2 text-[10px] font-bold uppercase border border-slate-300 rounded-none hover:bg-slate-50 disabled:opacity-40 text-slate-700";
 const ICON_BTN = "h-7 w-full px-1 text-[10px] font-bold uppercase border border-slate-300 rounded-none hover:bg-slate-50 flex items-center justify-center gap-1 disabled:opacity-40 text-slate-700";
 
+/** Table header — subtle but readable */
+const TH = "px-2 py-1.5 text-[10px] font-bold uppercase text-slate-700 bg-slate-100 border-b border-r border-slate-200 align-middle";
+const TH_CENTER = `${TH} text-center`;
+const TH_CTRL = "px-1.5 py-1.5 text-[10px] font-bold uppercase text-slate-700 bg-slate-100 border-b border-r border-slate-200 align-top";
+
 function DetailField({ label, value, wide = false }) {
   return (
     <div className={wide ? "min-w-0 sm:col-span-2 lg:col-span-4" : "min-w-0"}>
@@ -970,18 +975,16 @@ export default function SchedulePlanModal({
 
           <div className="border border-slate-200 rounded-sm overflow-x-auto max-h-[min(65vh,600px)] overflow-y-auto">
             <table className="w-full text-left border-collapse min-w-[1150px]">
-              <thead className="sticky top-0 z-10 bg-slate-50">
+              <thead className="sticky top-0 z-10 bg-slate-100">
                 <tr>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 w-10 text-center">#</th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 w-[100px]">Item</th>
-                  {/* <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 w-[110px]">Cust. Item</th> */}
-                  {/* <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 min-w-[140px]">Description</th> */}
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 w-[70px] text-center">Qty</th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-emerald-700 border-b border-r border-slate-200 w-[80px] text-center">In Hand</th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-600 border-b border-r border-slate-200 min-w-[152px] align-top">Cust. request</th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-amber-700 border-b border-r border-slate-200 min-w-[120px]">Previous dates</th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-600 border-b border-r border-slate-200 w-[108px] align-top">Status</th>
-                  <th className="px-1.5 py-1.5 text-[10px] font-bold uppercase text-slate-600 border-b border-r border-slate-200 min-w-[118px] align-top">
+                  <th className={`${TH_CENTER} w-10`}>#</th>
+                  <th className={`${TH} w-[100px]`}>Item</th>
+                  <th className={`${TH_CENTER} w-[70px]`}>Qty</th>
+                  <th className={`${TH_CENTER} w-[80px]`}>In Hand</th>
+                  <th className={`${TH} min-w-[152px]`}>Cust. Request</th>
+                  <th className={`${TH} min-w-[120px]`}>Previous Dates</th>
+                  <th className={`${TH} w-[108px]`}>Status</th>
+                  <th className={`${TH_CTRL} min-w-[118px]`}>
                     <span className="block px-0.5 pb-1">Action</span>
                     <select
                       value={globalAction}
@@ -1001,9 +1004,9 @@ export default function SchedulePlanModal({
                       />
                     </select>
                   </th>
-                  <th className="px-1.5 py-1.5 text-[10px] font-bold uppercase text-indigo-600 border-b border-r border-slate-200 w-[180px] align-top">
+                  <th className={`${TH_CTRL} w-[180px]`}>
                     <span className="block px-0.5 pb-1">
-                      {authorizeOnly ? "Hold date (Ready = remark only)" : "Target date / Reason"}
+                      {authorizeOnly ? "Hold Date (Ready = remark only)" : "Target Date / Reason"}
                     </span>
                     <div className="space-y-1">
                       <ScheduleTargetDateField
@@ -1028,7 +1031,7 @@ export default function SchedulePlanModal({
                       ) : null}
                     </div>
                   </th>
-                  <th className="px-1.5 py-1.5 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 min-w-[120px] align-top">
+                  <th className={`${TH_CTRL} min-w-[120px]`}>
                     <span className="block px-0.5 pb-1">Remark</span>
                     <input
                       type="text"
@@ -1039,7 +1042,7 @@ export default function SchedulePlanModal({
                       className={`${INPUT} w-full`}
                     />
                   </th>
-                  <th className="px-2 py-2 text-[10px] font-bold uppercase text-slate-500 border-b border-slate-200 w-[100px] text-center align-top">
+                  <th className={`${TH_CTRL} w-[100px] text-center`}>
                     <span className="block px-0.5 pb-1">More</span>
                     {canApprove ? (
                       <button

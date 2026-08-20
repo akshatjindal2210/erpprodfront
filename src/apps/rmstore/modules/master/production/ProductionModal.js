@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { AlertCircle, Loader2, Shield } from "lucide-react";
 import { toast } from "react-toastify";
+import { AlertCircle, Shield } from "lucide-react";
+import { notify } from "@/apps/rmstore/lib/utils/notify";
 
 import { productionService, productionErpHelpers } from "@/apps/rmstore/lib/services/production";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
@@ -11,13 +12,14 @@ import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
+import { rmDcodesFromRow } from "./productionRmHelpers";
 
 const MODULE = "rm_production_master";
-const FIELD_ORDER = ["item_dcode", "rm_item_dcode"];
+const FIELD_ORDER = ["item_dcode", "rm_item_dcodes"];
 
 const INITIAL_FORM = {
   item_dcode: "",
-  rm_item_dcode: "",
+  rm_item_dcodes: [],
   approved: false,
 };
 
@@ -35,6 +37,7 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
   const [errors, setErrors] = useState({});
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
+  const savingRef = useRef(false);
 
   const editId = editData?.production_id ?? null;
 
@@ -44,8 +47,8 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
       if (editData) {
         setForm({
           item_dcode: editData.item_dcode ?? "",
-          rm_item_dcode: editData.rm_item_dcode ?? "",
-          approved: isApprove ? true : false,
+          rm_item_dcodes: rmDcodesFromRow(editData),
+          approved: isApprove,
         });
       } else {
         setForm(INITIAL_FORM);
@@ -58,7 +61,7 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
       }, 300);
     }
     return () => clearTimeout(timeoutId);
-  }, [open, editId, isApprove]);
+  }, [open, editId, isApprove, editData]);
 
   const handleChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -70,11 +73,13 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
   const validate = () => {
     const newErrors = {};
     if (!form.item_dcode) newErrors.item_dcode = "Select a production item.";
-    if (!form.rm_item_dcode) newErrors.rm_item_dcode = "Select an RM item.";
+    const rmIds = Array.isArray(form.rm_item_dcodes) ? form.rm_item_dcodes : [];
+    if (!rmIds.length) newErrors.rm_item_dcodes = "Select at least one RM item.";
     return newErrors;
   };
 
   const handleSave = async (statusOverride = null) => {
+    if (savingRef.current || loading) return;
     const newErrors = validate();
     if (Object.keys(newErrors).length) {
       setErrors(newErrors);
@@ -91,6 +96,7 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
       return;
     }
 
+    savingRef.current = true;
     setLoading(true);
     try {
       let finalApproved = form.approved;
@@ -100,9 +106,13 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
         finalApproved = false;
       }
 
+      const rmIds = (form.rm_item_dcodes || [])
+        .map((d) => Number(d))
+        .filter((n) => Number.isFinite(n) && n > 0);
+
       const payload = {
         item_dcode: Number(form.item_dcode),
-        rm_item_dcode: Number(form.rm_item_dcode),
+        rm_items: rmIds.map((rm_item_dcode) => ({ rm_item_dcode })),
         approved: finalApproved,
       };
 
@@ -111,12 +121,13 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
         ? await productionService.update(editData.production_id, payload)
         : await productionService.create(payload);
 
-      toast.success(response?.message || "Saved successfully.");
+      notify(response, "Saved successfully.");
       onSuccess();
       onClose();
     } catch (err) {
-      toast.error(err?.message || "Could not save the production mapping. Please try again.");
+      toast.error(err?.message || "Could not save the Item RM mapping. Please try again.");
     } finally {
+      savingRef.current = false;
       setLoading(false);
     }
   };
@@ -137,8 +148,8 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
       isOpen={open}
       onClose={onClose}
       onSubmit={() => handleSave(isApprove ? true : undefined)}
-      title={isApprove ? "Approve Production Master" : isEdit ? "Edit Production Master" : "New Production Master"}
-      description="Map a production item to a raw material item"
+      title={isApprove ? "Approve Item RM Master" : isEdit ? "Edit Item RM Master" : "New Item RM Master"}
+      description="Map a production item to one or more raw material items"
       footer={footerContent}
       maxWidth="max-w-4xl"
     >
@@ -149,7 +160,7 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
             <p className="text-[11px] text-amber-700 font-medium leading-normal">
               Editing this authorized mapping will reset its status to{" "}
               <span className="font-bold text-amber-900 uppercase">Pending</span>. It will require
-              re-approval.
+              re-authorization.
             </p>
           </div>
         )}
@@ -178,22 +189,27 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
           />
         </div>
 
-        <div data-field="rm_item_dcode">
+        <div data-field="rm_item_dcodes">
           <SearchableSelect
-            label="RM Item (Raw Material)"
-            value={form.rm_item_dcode}
-            onChange={(id) => handleChange("rm_item_dcode", id)}
+            multiple
+            showTags
+            maxVisibleTags={4}
+            label="RM Items (Raw Material)"
+            value={form.rm_item_dcodes}
+            onChange={(ids) => handleChange("rm_item_dcodes", Array.isArray(ids) ? ids : [])}
             fetchService={(params) =>
               productionErpHelpers.getRmItemsViews({ ...params, ...helperPerms })
             }
             getByIdService={(id) => productionErpHelpers.getRmItemViewById(id, helperPerms)}
             dataKey="id"
             labelKey="item_code"
+            selectedLabelKey="itemdesc"
             subLabelKey="itemdesc"
             showDuplicateSubLabel
             preserveApiOrder
-            error={errors.rm_item_dcode}
+            error={errors.rm_item_dcodes}
             required
+            helperText="Select one or more raw materials for this production item."
           />
         </div>
 

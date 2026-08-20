@@ -220,12 +220,66 @@ html[data-app-drawer-open] .imp-panel-no-select main > div {
   height: 14px;
 }
 
-/* iOS Safari: inputs below 16px trigger focus zoom — keep tap targets readable on phones */
+/* iOS Safari + mobile readability — app shell AND drawer portals (drawers render on document.body) */
 @media (max-width: 768px) {
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]),
-  textarea,
-  select {
+  :is(.imp-panel-no-select, [data-app-drawer-root]) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]),
+  :is(.imp-panel-no-select, [data-app-drawer-root]) textarea,
+  :is(.imp-panel-no-select, [data-app-drawer-root]) select {
+    color: rgb(15 23 42) !important;
+    -webkit-text-fill-color: rgb(15 23 42);
+  }
+
+  :is(.imp-panel-no-select, [data-app-drawer-root]) input::placeholder,
+  :is(.imp-panel-no-select, [data-app-drawer-root]) textarea::placeholder {
+    color: rgb(100 116 139) !important;
+    opacity: 1 !important;
+    -webkit-text-fill-color: rgb(100 116 139);
+  }
+
+  /*
+   * Compact fields (h-7, h-8, h-9): keep 12–13px so text fits; avoid 16px clip in short boxes.
+   */
+  :is(.imp-panel-no-select, [data-app-drawer-root]) input[class*="h-7"],
+  :is(.imp-panel-no-select, [data-app-drawer-root]) input[class*="h-8"],
+  :is(.imp-panel-no-select, [data-app-drawer-root]) input[class*="h-9"],
+  :is(.imp-panel-no-select, [data-app-drawer-root]) select[class*="h-7"],
+  :is(.imp-panel-no-select, [data-app-drawer-root]) select[class*="h-8"],
+  :is(.imp-panel-no-select, [data-app-drawer-root]) select[class*="h-9"],
+  [data-list-page-filter-strip] input:not([type="checkbox"]):not([type="radio"]),
+  [data-compact-form-bar] input:not([type="checkbox"]):not([type="radio"]),
+  .list-page-filter-control input:not([type="checkbox"]):not([type="radio"]) {
+    font-size: 13px !important;
+    line-height: 1.25rem !important;
+  }
+
+  /* Standard full-height inputs — 16px prevents iOS focus zoom (not textarea — handled above) */
+  :is(.imp-panel-no-select, [data-app-drawer-root]) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]):not([class*="h-7"]):not([class*="h-8"]):not([class*="h-9"]),
+  :is(.imp-panel-no-select, [data-app-drawer-root]) select:not([class*="h-7"]):not([class*="h-8"]):not([class*="h-9"]) {
     font-size: 16px !important;
+    line-height: 1.375 !important;
+    min-height: 2.75rem;
+  }
+
+  :is(.imp-panel-no-select, [data-app-drawer-root]) textarea {
+    font-size: 14px !important;
+    line-height: 1.45 !important;
+    min-height: 3.5rem;
+  }
+
+  /* Data tables — headers/cells too small on some phones */
+  :is(.imp-panel-no-select, [data-app-drawer-root]) table thead th {
+    font-size: 12px !important;
+    line-height: 1.35 !important;
+  }
+
+  :is(.imp-panel-no-select, [data-app-drawer-root]) table thead th div {
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  :is(.imp-panel-no-select, [data-app-drawer-root]) table tbody td {
+    font-size: 12px !important;
+    line-height: 1.35 !important;
   }
 }
 

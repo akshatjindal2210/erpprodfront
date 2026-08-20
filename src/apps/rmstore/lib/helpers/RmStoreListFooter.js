@@ -86,10 +86,10 @@ export default function RmStoreListFooter({
 
   return (
     <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 shrink-0">
-      <div className="flex flex-col gap-1 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-2">
+      <div className="flex flex-col gap-1.5 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)] sm:items-center sm:gap-3">
         {children ?? <span className={FOOTER_TEXT_CLASS}>{countText}</span>}
         {extra ? (
-          <span className="text-[9px] text-slate-500 text-center justify-self-center px-1">{extra}</span>
+          <div className="min-w-0 flex justify-center justify-self-center px-1">{extra}</div>
         ) : (
           <span className="hidden sm:block" aria-hidden />
         )}

@@ -1,13 +1,7 @@
 import { sortSelectRowsAsc } from "@/platform/utils/form/sortSelectOptions";
+import { EMPTY_INVENTORY_TOTALS } from "@/apps/rmstore/modules/inventory-report/inventoryReport.config";
 
-export const EMPTY_INVENTORY_TOTALS = {
-  total_stock_qty: 0,
-  shop_floor_qty: 0,
-  in_store_qty: 0,
-  unassigned_qty: 0,
-  pending_qc_qty: 0,
-  pending_reject_qty: 0,
-};
+export { EMPTY_INVENTORY_TOTALS };
 
 export const EMPTY_FILTERS = {
   item_dcodes: [],
@@ -165,20 +159,29 @@ function buildCustomerOptions(rows = []) {
   return sortSelectRowsAsc([...map.values()], "acc_name");
 }
 
+function parseLocationDetailSegment(raw) {
+  const s = String(raw || "").trim();
+  if (!s || s === "—") return null;
+  return s.replace(/\s*\([\d,]+\)\s*$/, "").trim() || null;
+}
+
 function buildLocationOptions(rows = []) {
   const map = new Map();
   for (const row of rows) {
     const ids = Array.isArray(row?.in_store_location_ids) ? row.in_store_location_ids : [];
-    const labels = String(row?.location_details ?? "")
+    const segments = String(row?.location_details ?? "")
       .split(",")
       .map((s) => s.trim())
-      .filter((s) => s && s !== "—");
+      .filter(Boolean);
+    const rackSegments = segments
+      .map(parseLocationDetailSegment)
+      .filter((label) => label && label !== "—");
     ids.forEach((id, index) => {
       const key = String(id);
       if (!key || map.has(key)) return;
       map.set(key, {
         id: key,
-        location_no: labels[index] || labels[0] || key,
+        location_no: rackSegments[index] || rackSegments[0] || key,
       });
     });
   }
@@ -224,26 +227,6 @@ export function buildInventoryFilterOptionsFromRows(allRows = [], filters = {}) 
   };
 }
 
-export function computeInventoryTotals(rows = []) {
-  const safeQty = (value) => {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  return (rows || []).reduce(
-    (acc, row) => {
-      acc.total_stock_qty += safeQty(row?.total_stock_qty);
-      acc.shop_floor_qty += safeQty(row?.shop_floor_qty);
-      acc.in_store_qty += safeQty(row?.in_store_qty);
-      acc.unassigned_qty += safeQty(row?.unassigned_qty);
-      acc.pending_qc_qty += safeQty(row?.pending_qc_qty);
-      acc.pending_reject_qty += safeQty(row?.pending_reject_qty);
-      return acc;
-    },
-    { ...EMPTY_INVENTORY_TOTALS }
-  );
-}
-
 export function hasActiveInventoryFilters(filters = {}) {
   return (
     (filters.item_dcodes?.length ?? 0) > 0 ||
@@ -252,3 +235,22 @@ export function hasActiveInventoryFilters(filters = {}) {
     (filters.packing_numbers?.length ?? 0) > 0
   );
 }
+
+/** Native title tooltip — lists coil_no_uid values behind a qty/count cell. */
+export function formatCoilUidTooltip(label, uidsRaw, { maxShow = 50 } = {}) {
+  const uids = String(uidsRaw || "")
+    .split(/\n|,/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!uids.length) return undefined;
+  const shown = uids.slice(0, maxShow);
+  const rest = uids.length - shown.length;
+  return (
+    `${label} (${uids.length} coil${uids.length === 1 ? "" : "s"}):\n` +
+    shown.join("\n") +
+    (rest > 0 ? `\n… and ${rest} more` : "")
+  );
+}
+
+/** @deprecated use INVENTORY_QTY_META from inventoryReport.config.js */
+export { INVENTORY_COIL_UID_FIELD } from "@/apps/rmstore/modules/inventory-report/inventoryReport.config";

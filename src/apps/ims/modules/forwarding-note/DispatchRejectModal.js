@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Loader2, Save } from "lucide-react";
 import { toast } from "react-toastify";
 import Drawer from "@/ui/primitives/Drawer";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { schedulePlanningService } from "@/apps/ims/lib/services/schedulePlanning";
 
 const LABEL = "block text-[10px] font-bold uppercase text-slate-500 tracking-wide mb-1";
@@ -143,16 +144,14 @@ export default function DispatchRejectModal({ open, item, onClose, onSaved }) {
                 className="w-full h-8 px-2 text-[11px] text-slate-800 border border-slate-200 rounded-none focus:border-rose-500 outline-none bg-white"
               />
             </div>
-            <div>
-              <label className={LABEL}>Remark</label>
-              <textarea
-                value={remark}
-                onChange={(e) => setRemark(e.target.value)}
-                placeholder="Optional remark..."
-                rows={2}
-                className="w-full px-2 py-1.5 text-[11px] text-slate-800 border border-slate-200 rounded-none focus:border-rose-500 outline-none bg-white resize-none"
-              />
-            </div>
+            <FormTextarea
+              label="Remark"
+              labelClassName={LABEL}
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              placeholder="Optional remark..."
+              rows={2}
+            />
           </div>
         </div>
       </div>

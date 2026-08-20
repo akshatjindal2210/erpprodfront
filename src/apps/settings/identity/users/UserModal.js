@@ -11,16 +11,7 @@ import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { errInput, FieldError, okInput, formFieldLabelCls, ROLE_LABELS, selectCls, TYPES, USER_STATUSES, AUTH_SOURCES, AUTH_SOURCE_LABELS } from "@/ui/common/Constants";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
-import {
-  partitionModulesForUserForm,
-  resolveAppAccessEnabled,
-  moduleIdsForAppType,
-  sanitizePermissionsPayload,
-  shouldIncludeInUserPermissionForm,
-  isAppGateModule,
-  PORTAL_APP_KEYS,
-  clearModulePermissions,
-} from "@/config/moduleAppRegistry";
+import { partitionModulesForUserForm, resolveAppAccessEnabled, moduleIdsForAppType, sanitizePermissionsPayload, shouldIncludeInUserPermissionForm, isAppGateModule, PORTAL_APP_KEYS, clearModulePermissions } from "@/config/moduleAppRegistry";
 import UserPermissionsPanel from "./UserPermissionsPanel";
 import { departmentService } from "@/apps/settings/lib/services/departmentService";
 import { designationService } from "@/apps/settings/lib/services/designationService";
@@ -95,6 +86,11 @@ const EMPTY_FORM = {
     task: {
       verification_user_id: "",
     },
+    rmstore: {
+      type_spec_values: false,
+      issue_rm_mapped: false,
+      in_process_rejection: false,
+    },
   },
 };
 
@@ -154,6 +150,12 @@ function normalizedUserPayload(user) {
             if (user?.id != null && Number(rawId) === Number(user.id)) return "";
             return String(rawId);
           })(),
+        },
+        rmstore: {
+          type_spec_values: false,
+          issue_rm_mapped: false,
+          in_process_rejection: false,
+          ...(raw.rmstore || {}),
         },
       };
     })(),
@@ -946,6 +948,14 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
         task: {
           verification_user_id: Number.isFinite(verifierNum) && verifierNum > 0 ? verifierNum : null,
         },
+        rmstore: {
+          type_spec_values: false,
+          issue_rm_mapped: Boolean(payload.special_permissions?.rmstore?.issue_rm_mapped),
+          ...(payload.special_permissions?.rmstore || {}),
+          in_process_rejection: Boolean(
+            payload.special_permissions?.rmstore?.in_process_rejection
+          ),
+        },
       };
 
       if (isDbUpdate) {
@@ -1503,6 +1513,81 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
                         heightClass="h-10"
                       />
                     </div>
+                  </div>
+                </div>
+              }
+              rmstoreSpecialPermissionsSection={
+                <div className="space-y-3">
+                  <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                    RM Store Special Permissions
+                  </h3>
+                  <div className="rounded-lg border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden">
+                    <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
+                      <input
+                        type="checkbox"
+                        checked={form.special_permissions?.rmstore?.type_spec_values || false}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            special_permissions: {
+                              ...prev.special_permissions,
+                              rmstore: {
+                                ...prev.special_permissions?.rmstore,
+                                type_spec_values: e.target.checked,
+                              },
+                            },
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <span className="text-sm font-bold text-slate-700 select-none">
+                        Type condition, grade &amp; size color fields are free-text with suggestions
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
+                      <input
+                        type="checkbox"
+                        checked={form.special_permissions?.rmstore?.issue_rm_mapped || false}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            special_permissions: {
+                              ...prev.special_permissions,
+                              rmstore: {
+                                ...prev.special_permissions?.rmstore,
+                                issue_rm_mapped: e.target.checked,
+                              },
+                            },
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <span className="text-sm font-bold text-slate-700 select-none">
+                        SP1 — Issue Request: select mapped RM for job card item
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
+                      <input
+                        type="checkbox"
+                        checked={form.special_permissions?.rmstore?.in_process_rejection || false}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            special_permissions: {
+                              ...prev.special_permissions,
+                              rmstore: {
+                                ...prev.special_permissions?.rmstore,
+                                in_process_rejection: e.target.checked,
+                              },
+                            },
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <span className="text-sm font-bold text-slate-700 select-none">
+                        In-process Rejection — submit rejections (requires authorize to approve)
+                      </span>
+                    </label>
                   </div>
                 </div>
               }

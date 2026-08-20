@@ -18,14 +18,7 @@ export default function ReduxProvider({ children }) {
     return () => clearTimeout(timer);
   }, []);
 
-  const bootLoader = showBootLoader ? (
-    <FormPanelLoader
-      label="Loading..."
-      hint="Please wait."
-      minHeight="min-h-screen"
-      className="border-0 rounded-none bg-[#f8fafc] w-full"
-    />
-  ) : null;
+  const bootLoader = showBootLoader ? <FormPanelLoader fullScreen /> : null;
 
   return (
     <Provider store={store}>

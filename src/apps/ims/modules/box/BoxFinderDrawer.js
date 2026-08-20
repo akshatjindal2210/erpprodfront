@@ -17,6 +17,7 @@ import LaserScanField from "@/ui/common/scan/LaserScanField";
 import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import { FinderQcHoldBanner, getFinderBoxCardShellClass, getFinderBoxIconShellClass, getFinderBoxLabelClass, getFinderBoxMetaClass, getFinderBoxTitleClass } from "@/apps/ims/modules/box/finderBoxVisuals";
+import BoxFinderDetailsSection from "./BoxFinderDetailsSection";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "info", title: "", message: "", duration: SNACK_DUR.med };
@@ -329,7 +330,7 @@ export default function BoxFinderDrawer({ open, onClose }) {
               <p className="text-xs font-medium text-slate-500">Please wait…</p>
             </div>
           ) : boxData ? (
-            <div className="space-y-4 animate-in slide-in-from-bottom-2 duration-300">
+            <div className="space-y-4">
               <div className={`p-3 rounded-xl border ${getFinderBoxCardShellClass(boxData)}`}>
                 <FinderQcHoldBanner box={boxData} />
                 <div className="flex items-start gap-2">
@@ -389,6 +390,7 @@ export default function BoxFinderDrawer({ open, onClose }) {
                   <p className="text-[10px] text-amber-700 mt-1 px-2">This box is not linked to any location yet.</p>
                 </div>
               )}
+              <BoxFinderDetailsSection box={boxData} />
             </div>
           ) : (
             !cameraOn && (

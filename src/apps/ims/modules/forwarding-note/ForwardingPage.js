@@ -47,6 +47,40 @@ function resolveMasterFuid(row) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+function resolveMasterModalItem(record, summaryRows = []) {
+  if (!record) return null;
+  const fuid = resolveMasterFuid(record);
+  if (!fuid) return null;
+  const master = summaryRows.find((r) => resolveMasterFuid(r) === fuid);
+  if (master) return master;
+  return {
+    fuid,
+    approved: record.approved,
+    out_entry_locked: record.out_entry_locked,
+    po_number: record.po_number,
+    bill_no: record.bill_no,
+    acc_name: record.acc_name,
+    acc_code: record.acc_code,
+  };
+}
+
+function forwardingDrillButton(row, label, onDrill, title) {
+  if (!onDrill || !resolveMasterFuid(row)) return label;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onDrill(row);
+      }}
+      className="font-mono text-indigo-600 font-bold text-[10px] uppercase hover:underline cursor-pointer text-left"
+      title={title}
+    >
+      {label}
+    </button>
+  );
+}
+
 /** Search matches visible table cells (raw + formatted labels). */
 function forwardingTableSearchParts(row, reportType = "summary") {
   const parts = [];
@@ -201,6 +235,8 @@ export default function ForwardingPage() {
 
   const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
+  const [summaryRowsCache, setSummaryRowsCache] = useState([]);
+  const [itemWiseFuidFilter, setItemWiseFuidFilter] = useState(null);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selectedId, setSelectedId] = useState(null); 
   const [modalOpen, setModalOpen] = useState(false);
@@ -232,6 +268,7 @@ export default function ForwardingPage() {
       }, params.pageSize);
 
       setAllRows(data);
+      if (reportType === "summary") setSummaryRowsCache(data);
       setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load forwarding notes.");
@@ -254,17 +291,29 @@ export default function ForwardingPage() {
     fetchData();
   }, [fetchData, outerTab]);
 
+  const drillToItemWise = useCallback((row) => {
+    const fuid = resolveMasterFuid(row);
+    if (!fuid) return;
+    setItemWiseFuidFilter(fuid);
+    setReportType("item_wise");
+    setSelectedId(null);
+    setDisplayLimit(100);
+  }, []);
+
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
     let data = allRows;
+    if (reportType === "item_wise" && itemWiseFuidFilter != null) {
+      data = data.filter((r) => resolveMasterFuid(r) === itemWiseFuidFilter);
+    }
     if (q) {
-      data = applyClientSearch(allRows, tempSearch, {
+      data = applyClientSearch(data, tempSearch, {
         getParts: (row) => forwardingTableSearchParts(row, reportType),
         skipSort: !!params.sortKey,
       });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir, reportType]);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir, reportType, itemWiseFuidFilter]);
 
   useEffect(() => {
     setDisplayLimit(100);
@@ -287,8 +336,15 @@ export default function ForwardingPage() {
     [reportType]
   );
 
+  useEffect(() => {
+    if (!selectedId) return;
+    if (!filteredRows.some((row) => getRowId(row) === selectedId)) setSelectedId(null);
+  }, [selectedId, filteredRows, getRowId]);
+
   const handleFilterApply = (data) => {
     applySearchFromInput();
+    setSelectedId(null);
+    setItemWiseFuidFilter(null);
     setParams((prev) => ({
       ...prev,
       fromDate: data.fromDate,
@@ -300,6 +356,7 @@ export default function ForwardingPage() {
 
   const handleReset = () => {
     resetSearch();
+    setItemWiseFuidFilter(null);
     setParams({
       pageSize: 1000,
       status: "all",
@@ -444,43 +501,35 @@ export default function ForwardingPage() {
       openMasterNew();
     }, [outerTab, openDispatchPlanNew, openMasterNew]),
     openEdit: useCallback(() => {
-      if (reportType !== "summary") return;
       openModal("edit");
-    }, [reportType, openModal]),
-    canEditSelection: useCallback(() => reportType === "summary" && Boolean(selectedId) && !isSelectedLocked, [reportType, selectedId, isSelectedLocked]),
+    }, [openModal]),
+    canEditSelection: useCallback(() => Boolean(selectedId) && !isSelectedLocked, [selectedId, isSelectedLocked]),
     onPrint: handlePrintBill,
     canPrintSelection: useCallback(() => canPrintMasterBill, [canPrintMasterBill]),
     printBlockedMessage: "Select a forwarding note (Summary or Item-wise) to print the master bill (Ctrl+P).",
     printModule: "forwarding_note_master",
     printAction: "view",
     openApprove: useCallback(() => {
-      if (reportType !== "summary") return;
       openModal("approve");
-    }, [reportType, openModal]),
+    }, [openModal]),
     canApproveSelection: useCallback(
-      () => reportType === "summary" && Boolean(selectedId) && !isSelectedLocked,
-      [reportType, selectedId, isSelectedLocked]
+      () => Boolean(selectedId) && !isSelectedLocked,
+      [selectedId, isSelectedLocked]
     ),
     onApproveBlocked: useCallback(() => {
-      if (reportType !== "summary") return;
       if (!selectedId) toast.info("Select a row to approve (Ctrl+A).");
       else if (isSelectedLocked) toast.info("This forwarding note is locked for out entry.");
-    }, [reportType, selectedId, isSelectedLocked]),
+    }, [selectedId, isSelectedLocked]),
     openDelete: useCallback(() => {
-      if (reportType !== "summary") return;
       setIsDeleting(true);
-    }, [reportType]),
-    canDeleteSelection: useCallback(() => reportType === "summary" && Boolean(selectedId) && !isSelectedLocked, [reportType, selectedId, isSelectedLocked]),
+    }, []),
+    canDeleteSelection: useCallback(() => Boolean(selectedId) && !isSelectedLocked, [selectedId, isSelectedLocked]),
   });
 
-  const modalRecord = useMemo(() => {
-    if (!selectedRecord) return null;
-    if (reportType === "summary") return selectedRecord;
-    return {
-      fuid: selectedRecord.fuid,
-      approved: selectedRecord.approved
-    };
-  }, [selectedRecord, reportType]);
+  const modalRecord = useMemo(
+    () => resolveMasterModalItem(selectedRecord, summaryRowsCache),
+    [selectedRecord, summaryRowsCache]
+  );
 
   const handleUnlock = async () => {
     if (!selectedRecord?.fuid) return;
@@ -576,7 +625,20 @@ export default function ForwardingPage() {
 
   const HEADERS = useMemo(() => {
     const baseHeaders = [
-      ["FUID", "fuid", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "80px" }],
+      [
+        "FUID",
+        "fuid",
+        (v, row) =>
+          forwardingDrillButton(
+            row,
+            <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>,
+            drillToItemWise,
+            reportType === "summary"
+              ? `View ${row.total_items ?? 0} item line(s) in Item-wise`
+              : "Show all item lines for this forwarding note"
+          ),
+        { fixed: true, width: "80px" },
+      ],
     ];
 
     // Schedule belongs on Item-wise only — one FN master can link many schedules.
@@ -602,7 +664,20 @@ export default function ForwardingPage() {
     const masterHeaders = [
       ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "110px" }],
       ["Customer", "acc_name", (v) => <span className="text-[10px] font-medium text-slate-500 uppercase italic whitespace-normal break-words leading-snug block" title={v}>{v || "—"}</span>, { width: "250px", wrap: true }],
-      ["Total Qty", "total_items", (v) => <span className="font-black text-slate-700 text-[11px]">{v}</span>, { width: "120px" }],
+      [
+        "Total Qty",
+        "total_items",
+        (v, row) =>
+          reportType === "summary"
+            ? forwardingDrillButton(
+                row,
+                <span className="font-black text-slate-700 text-[11px]">{v}</span>,
+                drillToItemWise,
+                `Open ${v ?? 0} item line(s) in Item-wise`
+              )
+            : <span className="font-black text-slate-700 text-[11px]">{v}</span>,
+        { width: "120px" },
+      ],
       ["Timestamp", "timestamp", (v) => <span className="text-[10px] text-slate-500">{formatDateTime(v)}</span>, { width : "150px" }],
       ["Status", "approved", (v) => (
         <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
@@ -639,7 +714,7 @@ export default function ForwardingPage() {
     ];
 
     return [...baseHeaders, ...itemCols, ...masterHeaders];
-  }, [reportType]);
+  }, [reportType, drillToItemWise]);
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: reportType === "summary" ? "Forwarding Note" : "Forwarding Note Items",
@@ -683,6 +758,8 @@ export default function ForwardingPage() {
                   onChange={(id) => {
                     setReportType(id);
                     setSelectedId(null);
+                    setDisplayLimit(100);
+                    if (id === "summary") setItemWiseFuidFilter(null);
                   }}
                   tabs={[
                     { id: "summary", label: "Summary", icon: List },
@@ -734,7 +811,7 @@ export default function ForwardingPage() {
               ) : (
                 <>
                   <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openMasterNew} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
-                  <ActionButton module="forwarding_note_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selectedId || isSelectedLocked} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
+                  <ActionButton module="forwarding_note_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selectedId || isSelectedLocked} record={modalRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selectedId || isSelectedLocked} onClick={() => openModal("approve")} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedId || isSelectedLocked} onClick={() => setIsDeleting(true)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
                   <PrintActionButton
@@ -815,6 +892,21 @@ export default function ForwardingPage() {
               </button>
             </div>
           )}
+
+          {outerTab === "forwarding_master" && itemWiseFuidFilter != null && reportType === "item_wise" ? (
+            <div className="flex items-center justify-between px-3 py-1.5 bg-cyan-50 border border-cyan-100">
+              <span className="text-[10px] font-bold text-cyan-800 uppercase flex items-center gap-2">
+                <Info size={12} /> Showing items for FUID {itemWiseFuidFilter}
+              </span>
+              <button
+                type="button"
+                onClick={() => setItemWiseFuidFilter(null)}
+                className="text-cyan-600 hover:text-cyan-800 flex items-center gap-1 font-bold text-[10px] uppercase"
+              >
+                <X size={14} /> Show all items
+              </button>
+            </div>
+          ) : null}
 
           {outerTab === "forwarding_master" && selectedId && (
             <div className="border-b border-indigo-100 bg-indigo-50 px-3 py-2 space-y-2">
@@ -965,7 +1057,7 @@ export default function ForwardingPage() {
 
             <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
               <DataTable
-                key={`${reportType}-${tempSearch}`}
+                key={reportType}
                 headers={HEADERS}
                 data={items}
                 allowCopy={true}

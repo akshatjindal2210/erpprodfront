@@ -12,6 +12,10 @@ import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_AMBER } f
 const INPUT =
   "h-8 px-2 text-[11px] text-slate-800 border border-slate-300 rounded-none focus:border-indigo-500 outline-none bg-white w-full";
 
+const TH = "px-2 py-1.5 text-[10px] font-bold uppercase text-slate-700 bg-slate-100 border-b border-r border-slate-200 align-middle";
+const TH_CENTER = `${TH} text-center`;
+const TH_CTRL = "px-1.5 py-1.5 text-[10px] font-bold uppercase text-slate-700 bg-slate-100 border-b border-r border-slate-200 align-top";
+
 function hasShortage(row) {
   return Boolean(String(row?.shortage_no ?? "").trim());
 }
@@ -226,12 +230,12 @@ export default function ScheduleShortageModal({
         {isBulk ? (
           <div className="border border-slate-200 overflow-x-auto max-h-[min(50vh,420px)] overflow-y-auto">
             <table className="w-full text-left border-collapse min-w-[640px]">
-              <thead className="sticky top-0 bg-slate-50 z-10">
+              <thead className="sticky top-0 z-10 bg-slate-100">
                 <tr>
-                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200">Item</th>
-                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 text-center w-[80px]">Qty</th>
-                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 w-[110px]">Shortage qty</th>
-                  <th className="px-1.5 py-1.5 text-[10px] font-bold uppercase text-slate-500 border-b border-r border-slate-200 min-w-[140px] align-top">
+                  <th className={TH}>Item</th>
+                  <th className={`${TH_CENTER} w-[80px]`}>Qty</th>
+                  <th className={`${TH} w-[110px]`}>Shortage Qty</th>
+                  <th className={`${TH_CTRL} min-w-[140px]`}>
                     <span className="block px-0.5 pb-1">Remark</span>
                     <input
                       type="text"
@@ -248,7 +252,7 @@ export default function ScheduleShortageModal({
                       disabled={saving || editableCount === 0}
                     />
                   </th>
-                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase text-slate-500 border-b border-slate-200 w-[120px]">Shortage No</th>
+                  <th className={`${TH} w-[120px] border-r-0`}>Shortage No</th>
                 </tr>
               </thead>
               <tbody>

@@ -17,6 +17,7 @@ import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPag
 import DeleteModal from "@/ui/common/modals/DeleteModal";
 import DataTable from "@/ui/primitives/DataTable";
 import ProductionModal from "./ProductionModal";
+import { enrichProductionRow, productionRmCopyValue, productionSearchParts } from "./productionRmHelpers";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 
@@ -52,17 +53,18 @@ export default function ProductionMasterPage() {
         sortBy: params.sortKey || "production_id",
         order: params.sortDir.toUpperCase(),
         filters: {
-          ...(params.status !== "all" && { approved: params.status === "approved" }),
+          ...(params.status === "approved" && { approved: true }),
+          ...(params.status === "pending" && { approved: false }),
         },
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await productionService.getAll({ ...base, page, limit });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
-      setAllRows(data);
+      setAllRows((data ?? []).map(enrichProductionRow));
       setDisplayLimit(100);
     } catch (err) {
-      toast.error(err?.message || "Could not load the production mappings. Please try again.");
+      toast.error(err?.message || "Could not load the Item RM mappings. Please try again.");
       setAllRows([]);
     } finally {
       setLoading(false);
@@ -77,7 +79,10 @@ export default function ProductionMasterPage() {
     const q = String(tempSearch || "").trim();
     let data = allRows;
     if (q) {
-      data = applyClientSearch(allRows, tempSearch, { skipSort: !!params.sortKey });
+      data = applyClientSearch(allRows, tempSearch, {
+        getParts: productionSearchParts,
+        skipSort: !!params.sortKey,
+      });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir]);
@@ -176,8 +181,29 @@ export default function ProductionMasterPage() {
     canDeleteSelection: useCallback(() => !!selected, [selected]),
   });
 
-  const HEADERS = useMemo(
-    () => [
+  const HEADERS = useMemo(() => {
+    const renderRmCodes = (v) => {
+      const text = v != null && String(v).trim() !== "" ? String(v) : "—";
+      return (
+        <span
+          className="font-semibold text-slate-800 uppercase text-[11px] tracking-tight block leading-tight"
+          title={text}
+        >
+          {text}
+        </span>
+      );
+    };
+
+    const renderRmDescs = (v) => {
+      const text = v != null && String(v).trim() !== "" ? String(v) : "—";
+      return (
+        <span className="text-[10px] text-slate-500 italic block leading-tight" title={text}>
+          {text}
+        </span>
+      );
+    };
+
+    return [
       ["Production ID", "production_id", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "120px" }],
       ["Item Code", "item_code", 
         (v) => (
@@ -194,31 +220,28 @@ export default function ProductionMasterPage() {
         ),
         { width: "220px" },
       ],
-      ["RM Item Code", "rm_item_code", (v) => (
-          <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">
-            {v || "—"}
-          </span>
-        ),
-        { width: "150px" },
-      ],
-      ["RM Item Description", "rm_item_desc", (v) => (
-          <span className="text-[10px] text-slate-500 truncate block italic" title={v || ""}>
-            {v || "—"}
-          </span>
-        ),
-        { width: "240px" },
-      ],
-      ["Approval Status", "approved", (v) => (
+      ["RM Item Code", "rm_item_code", renderRmCodes, {
+        width: "250px",
+        copyValue: (row) => productionRmCopyValue(row, "rm_item_code"),
+      }],
+      ["RM Item Description", "rm_item_desc", renderRmDescs, {
+        width: "260px",
+        copyValue: (row) => productionRmCopyValue(row, "rm_item_desc"),
+      }],
+      ["Approval Status", "approved", (v) => {
+          const on = v === true || v === "true" || v === 1;
+          return (
           <span
             className={`px-2 py-0.5 text-[9px] font-black uppercase border ${
-              v
+              on
                 ? "bg-emerald-50 text-emerald-600 border-emerald-100"
                 : "bg-amber-50 text-amber-600 border-amber-100"
             }`}
           >
-            {v ? "● AUTHORIZED" : "○ PENDING"}
+            {on ? "● AUTHORIZED" : "○ PENDING"}
           </span>
-        ),
+          );
+        },
         { width: "140px" },
       ],
       ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
@@ -241,12 +264,11 @@ export default function ProductionMasterPage() {
         ),
         { width: "150px" },
       ],
-    ],
-    []
-  );
+    ];
+  }, []);
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
-    moduleName: "Production Master",
+    moduleName: "Item RM Master",
     rows: filteredRows,
     headers: HEADERS,
   });
@@ -290,7 +312,7 @@ export default function ProductionMasterPage() {
           {selected && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
               <span className="text-[10px] font-bold text-indigo-600 uppercase">
-                Selected: {selectedRecord?.item_code} → {selectedRecord?.rm_item_code}
+                Selected: {selectedRecord?.item_code} → {selectedRecord?.rm_item_code || "—"}
               </span>
               <button
                 onClick={() => setSelected(null)}
@@ -310,10 +332,12 @@ export default function ProductionMasterPage() {
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            searchPlaceholder="Search by production or RM item"
+            searchPlaceholder="Search by production item or any mapped RM"
             searchLabel="Search Production"
             searchVariant="quick"
+            showSearchButton
             applyOnSearchEnter={false}
+            applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 
@@ -346,8 +370,8 @@ export default function ProductionMasterPage() {
             totalItems={totalItems}
             cardConfig={{
               titleKey: "item_code",
-              badgeIndices: [5],
-              detailIndices: [0, 2, 3, 4],
+              tagsKeys: ["approved"],
+              detailKeys: ["item_desc", "rm_item_code", "rm_item_desc"],
               footerKey: "created_at",
             }}
           />
@@ -356,7 +380,7 @@ export default function ProductionMasterPage() {
         <RmStoreListFooter
           shown={items.length}
           total={totalItems}
-          label="Production Mappings"
+          label="Item RM Mappings"
           {...footerFilter}
         />
       </div>
@@ -376,7 +400,7 @@ export default function ProductionMasterPage() {
             fetchProductions();
             setSelected(null);
           }}
-          service={productionService} entityLabel="Production Mapping" idKey="production_id" moduleSlug={MODULE}
+          service={productionService} entityLabel="Item RM Mapping" idKey="production_id" moduleSlug={MODULE}
         />
       )}
     </div>

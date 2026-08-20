@@ -2,6 +2,14 @@ import { api } from "@/platform/api/apiClient";
 import { ENDPOINTS } from "@/apps/rmstore/lib/config/endpoints";
 
 export const issueRequestService = {
+  productionMapping: ({ itemdcode, item_code } = {}) =>
+    api(ENDPOINTS.ISSUE_REQUEST.PRODUCTION_MAPPING, {
+      method: "POST",
+      body: {
+        ...(itemdcode != null ? { itemdcode } : {}),
+        ...(item_code ? { item_code } : {}),
+      },
+    }),
   getAll: (params) => api(ENDPOINTS.ISSUE_REQUEST.LIST, { method: "POST", body: params }),
   getAllJobCards: (params) => api(ENDPOINTS.ISSUE_REQUEST.LIST_JOB_CARDS, { method: "POST", body: params }),
   getById: (issue_uid) => api(ENDPOINTS.ISSUE_REQUEST.GET, { method: "POST", body: { issue_uid } }),

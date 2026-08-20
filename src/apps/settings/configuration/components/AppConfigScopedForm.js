@@ -2,11 +2,7 @@
 
 import { ListTodo } from "lucide-react";
 
-import {
-  AppConfigFormFooter,
-  AppConfigFormLoading,
-  ConfigFieldRows,
-} from "@/apps/settings/configuration/components/AppConfigFormFields";
+import { AppConfigFormFooter, AppConfigFormLoading, ConfigFieldRows } from "@/apps/settings/configuration/components/AppConfigFormFields";
 import { useAppConfigForm } from "@/apps/settings/configuration/hooks/useAppConfigForm";
 
 /** Shared Settings form — layout comes from each app's app.config.js */

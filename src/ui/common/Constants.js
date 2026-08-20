@@ -89,11 +89,11 @@ export function FieldError({ msg }) {
 
 /** Drawer / modal field labels (12px — readable on phone, not oversized). */
 export const FORM_LABEL_CLASS =
-  "text-xs font-bold text-slate-500 uppercase tracking-wide ml-1";
+  "block text-xs font-bold text-slate-500 uppercase tracking-wide ml-1 leading-snug whitespace-normal break-normal [overflow-wrap:normal] [word-break:normal]";
 
 /** Dense grid labels inside modals (item rows, scan meta). */
 export const FORM_MICRO_LABEL_CLASS =
-  "text-[11px] sm:text-xs font-bold text-slate-400 uppercase tracking-wide";
+  "block text-[11px] sm:text-xs font-bold text-slate-400 uppercase tracking-wide leading-snug whitespace-normal break-normal [overflow-wrap:normal] [word-break:normal]";
 
 export const FORM_HINT_CLASS = "text-xs text-slate-500 ml-1 leading-relaxed";
 export const FORM_ERROR_CLASS = "text-xs text-rose-500 ml-1 flex items-center gap-1";
@@ -132,10 +132,19 @@ export const PERMS = ['view', 'add', 'edit', 'delete', 'authorize'];
 
 // ------------------ IMS drawer / modal inputs (compact)
 const BASE_INPUT =
-  "w-full bg-white border rounded-lg px-2.5 sm:px-3 h-9 text-[11px] sm:text-xs text-slate-800 placeholder-slate-400 outline-none transition-all appearance-none leading-normal";
+  "w-full bg-white border rounded-lg px-2.5 sm:px-3 min-h-9 h-auto sm:h-9 py-2 sm:py-0 text-xs sm:text-[11px] text-slate-900 placeholder:text-slate-500 placeholder:opacity-100 outline-none transition-all appearance-none leading-normal";
 export const OK_INPUT   = `${BASE_INPUT} border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50/80`;
 export const ERR_INPUT  = `${BASE_INPUT} border-rose-300 focus:border-rose-400 focus:ring-2 focus:ring-rose-50 bg-rose-50/20`;
+/** Textareas — no fixed sm:h-9; resize-y must not use height:!important (blocks drag resize). */
+const BASE_TEXTAREA =
+  "w-full bg-white border rounded-lg px-2.5 sm:px-3 py-2 text-xs sm:text-[11px] text-slate-900 placeholder:text-slate-500 placeholder:opacity-100 outline-none transition-all appearance-none leading-normal resize-y min-h-[3.75rem] sm:min-h-[4rem]";
+export const OK_TEXTAREA = `${BASE_TEXTAREA} border-slate-200 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50/80`;
+export const ERR_TEXTAREA = `${BASE_TEXTAREA} border-rose-300 focus:border-rose-400 focus:ring-2 focus:ring-rose-50 bg-rose-50/20`;
 /** Optional class merge for modal fields (same density as OK_INPUT). */
 export const MODAL_INPUT_CLASS = "text-[11px] h-9 rounded-lg";
+
+/** Manual scan / keyboard entry in drawers — dark typed text + visible placeholder on phone */
+export const SCAN_INPUT_CLASS =
+  "flex-1 min-h-9 h-9 w-full min-w-0 px-2.5 sm:px-3 border border-slate-300 rounded-lg bg-white text-sm sm:text-xs font-mono text-slate-900 placeholder:text-slate-500 placeholder:opacity-100 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20";
 
 export const UNIT_OPTIONS = ["PCS", "KG"];

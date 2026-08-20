@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { RefreshCcw, History, Layers, Eye } from "lucide-react";
+import { RefreshCcw, History, Eye } from "lucide-react";
 import { toast } from "react-toastify";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 
@@ -12,31 +12,17 @@ import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
-import RmStoreListFooter, {
-  FOOTER_TEXT_CLASS,
-  formatRmStoreListFooterText,
-  rmStoreFooterFromClientFilter,
-} from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import RmStoreListFooter, { FOOTER_TEXT_CLASS, formatRmStoreListFooterText, rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import CoilTransactionLogDetailModal from "@/apps/rmstore/modules/logs/CoilTransactionLogDetailModal";
 import CoilStickerNosCell, { getCoilStickerEntries } from "@/apps/rmstore/modules/logs/CoilStickerNosCell";
-import {
-  applyCoilTransactionLogView,
-  COIL_TX_DISPLAY_MODES,
-} from "@/apps/rmstore/lib/utils/coilTransactionLogSearch";
+import { applyCoilTransactionLogView, COIL_TX_DISPLAY_MODES } from "@/apps/rmstore/lib/utils/coilTransactionLogSearch";
 import { fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
-import {
-  IMS_LIST_PAGE_SHELL,
-  IMS_TABLE_CELL_DATE,
-  IMS_TABLE_CELL_NUMBER,
-  IMS_TABLE_CELL_TEXT,
-} from "@/ui/common/list/listPageShellClasses";
-import {
-  getCoilTxTypeBadgeClass,
-  resolveCoilTxTypeLabel,
-} from "@/apps/rmstore/lib/utils/coilTransactionVisuals";
+import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
+import { TransactionLogModuleEntityCell } from "@/ui/common/list/ActivityLogModuleEntityCell";
+import { getCoilTxTypeBadgeClass, resolveCoilTxTypeLabel } from "@/apps/rmstore/lib/utils/coilTransactionVisuals";
 
 const MODULE = "rm_coil_transaction_logs";
 const LIST_PAGE_SIZE = 1000;
@@ -111,10 +97,17 @@ export default function CoilTransactionLogPage() {
   const journeyTyping = Boolean(String(journeyInput ?? "").trim());
   const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
   const isUniqueView = displayMode === COIL_TX_DISPLAY_MODES.UNIQUE;
+  const hasDateRange = Boolean(params.fromDate || params.toDate);
 
   const footerFilter = useMemo(
-    () => rmStoreFooterFromClientFilter({ tempSearch, sourceRows: allRows, filteredRows: filteredItems }),
-    [tempSearch, allRows, filteredItems]
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: allRows,
+        filteredRows: filteredItems,
+        serverFiltered: isJourneyMode || hasDateRange,
+      }),
+    [tempSearch, allRows, filteredItems, isJourneyMode, hasDateRange]
   );
 
   const footerText = useMemo(() => {
@@ -148,10 +141,11 @@ export default function CoilTransactionLogPage() {
     () => [
       {
         type: "text",
-        label: "Journey Name",
+        label: "Journey",
         placeholder: "MRN or coil sticker no",
         value: journeyInput,
         onChange: setJourneyInput,
+        onEnter: () => setAppliedJourney(String(journeyInput ?? "").trim()),
       },
       {
         label: "View",
@@ -220,20 +214,10 @@ export default function CoilTransactionLogPage() {
   }, [loading, rows.length, totalItems]);
 
   const handleFilterApply = (data) => {
-    const journey = String(journeyInput ?? "").trim();
-    const searchSubmit = data?.searchSubmit === true;
-
-    if (data?.displayMode) {
-      setDisplayMode(data.displayMode);
-      setDisplayLimit(DISPLAY_CHUNK);
-      if (!searchSubmit && journey && journey !== appliedJourney) {
-        return;
-      }
-    }
-
+    const nextJourney = String(journeyInput ?? "").trim();
     setDisplayLimit(DISPLAY_CHUNK);
-    if (journey) {
-      setAppliedJourney(journey);
+    if (nextJourney) {
+      setAppliedJourney(nextJourney);
       return;
     }
     setAppliedJourney("");
@@ -265,10 +249,9 @@ export default function CoilTransactionLogPage() {
   );
 
   const copyModuleEntity = useCallback((row) => {
-    const parts = [
-      row?.source_module?.replace(/_/g, " ") || "—",
-      `REF: ${row?.source_id || "N/A"}`,
-    ];
+    const parts = [row?.source_module?.replace(/_/g, " ") || "—"];
+    const ref = String(row?.source_id ?? "").trim();
+    if (ref && ref !== "N/A") parts.push(`REF: ${ref}`);
     return parts.join(" | ");
   }, []);
 
@@ -341,18 +324,7 @@ export default function CoilTransactionLogPage() {
       [
         "Module / Entity",
         "source_module",
-        (v, row) => (
-          <div className="flex flex-col leading-tight min-w-[140px]">
-            <div className="flex items-center gap-1">
-              <Layers size={10} className="text-slate-500 shrink-0" />
-              <span className={`capitalize ${IMS_TABLE_CELL_TEXT}`}>{v?.replace(/_/g, " ")}</span>
-            </div>
-            <span className="text-[9px] text-indigo-500 font-mono ml-3">REF: {row.source_id || "N/A"}</span>
-            {row.mrn_no ? (
-              <span className="text-[9px] text-slate-400 font-mono ml-3">MRN: {row.mrn_no}</span>
-            ) : null}
-          </div>
-        ),
+        (_v, row) => <TransactionLogModuleEntityCell row={row} appType="rmstore" />,
         {
           width: "180px",
           copyValue: (row) => copyModuleEntity(row),
@@ -423,20 +395,28 @@ export default function CoilTransactionLogPage() {
 
         <ListPageFilterStrip>
           <DateRangeFilter
-            key={`${params.fromDate}-${params.toDate}-${displayMode}-${appliedJourney}`}
+            key={`${params.fromDate}-${params.toDate}-${appliedJourney}`}
+            showDate
             fromDate={params.fromDate}
             toDate={params.toDate}
             dateDisabled={journeyTyping}
-            applyExtrasOnChange
             extraFilters={extraFilters}
             onApply={handleFilterApply}
             onReset={handleReset}
+            onExtraFilterChange={(key, value) => {
+              if (key === "displayMode") {
+                setDisplayMode(value || COIL_TX_DISPLAY_MODES.SUMMARY);
+                setDisplayLimit(DISPLAY_CHUNK);
+              }
+            }}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            searchPlaceholder="Search by coil sticker, type, or module"
-            searchLabel="Search"
+            searchPlaceholder="Coil sticker, type, module, or user"
+            searchLabel="Quick Search"
             searchVariant="quick"
-            applyOnSearchEnter={false}
+            showSearchButton
+            applyOnSearchEnter
+            applyExtrasOnChange={false}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
           />

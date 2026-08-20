@@ -34,6 +34,7 @@ function stickerLogSearchParts(row) {
     row?.primary_label,
     row?.coil_no_uid,
     row?.packing_number,
+    row?.mrn_uid,
     row?.mrn_no,
     row?.acc_name,
     row?.item_code,
@@ -164,9 +165,18 @@ export default function CoilDownloadLogPage() {
   );
 
   const totalItems = filteredRows.length;
+  const journeyTyping = Boolean(String(journeyInput ?? "").trim());
+  const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
+
   const footerFilter = useMemo(
-    () => rmStoreFooterFromClientFilter({ tempSearch, sourceRows: allRows, filteredRows }),
-    [tempSearch, allRows, filteredRows]
+    () =>
+      rmStoreFooterFromClientFilter({
+        tempSearch,
+        sourceRows: allRows,
+        filteredRows,
+        serverFiltered: isJourneyMode || Boolean(params.fromDate || params.toDate),
+      }),
+    [tempSearch, allRows, filteredRows, isJourneyMode, params.fromDate, params.toDate]
   );
 
   const handleLoadMore = useCallback(() => {
@@ -207,17 +217,15 @@ export default function CoilDownloadLogPage() {
     () => [
       {
         type: "text",
-        label: "Journey Name",
+        label: "Journey",
         placeholder: "MRN no or coil sticker no",
         value: journeyInput,
         onChange: setJourneyInput,
+        onEnter: () => setAppliedJourney(String(journeyInput ?? "").trim()),
       },
     ],
     [journeyInput]
   );
-
-  const journeyTyping = Boolean(String(journeyInput ?? "").trim());
-  const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
 
   const onSort = (key) => {
     setParams((p) => ({
@@ -238,8 +246,8 @@ export default function CoilDownloadLogPage() {
       </div>
     ), { fixed: true, width: "200px" }],
 
-    ["MRN No", "packing_number", (v, row) => (
-      <span className="text-[11px] font-semibold text-slate-700">{v || row?.mrn_no || "—"}</span>
+    ["MRN UID", "mrn_uid", (v) => (
+      <span className="text-[11px] font-semibold text-slate-700">{v || "—"}</span>
     ), { width: "120px" }],
 
     ["Customer", "acc_name", (v) => (
@@ -308,10 +316,12 @@ export default function CoilDownloadLogPage() {
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            searchPlaceholder="Search the logs"
-            searchLabel="Search (Coil, MRN, Customer)"
+            searchPlaceholder="Coil, MRN, customer, or user"
+            searchLabel="Quick Search"
             searchVariant="quick"
-            applyOnSearchEnter={false}
+            showSearchButton
+            applyOnSearchEnter
+            applyExtrasOnChange={false}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
           />
@@ -339,7 +349,7 @@ export default function CoilDownloadLogPage() {
               cardConfig={{
                 titleKey: "primary_label",
                 tagsKeys: ["last_download_type"],
-                detailKeys: ["packing_number", "acc_name", "item_code", "last_downloaded_by_name"],
+                detailKeys: ["mrn_uid", "packing_number", "acc_name", "item_code", "last_downloaded_by_name"],
                 footerKey: "last_downloaded_at",
                 className: "rounded-none border border-slate-200",
               }}

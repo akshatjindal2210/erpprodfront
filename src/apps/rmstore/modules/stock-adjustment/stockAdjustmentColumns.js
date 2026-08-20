@@ -1,15 +1,16 @@
 "use client";
 
-import { formatDateTime } from "@/platform/utils/core/utilHelper";
+import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
 import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
+import { stockAdjustmentTypeLabel } from "@/apps/rmstore/lib/utils/stockAdjustmentEntryTypes";
 import dayjs from "dayjs";
 import { docDateToDayjs } from "@/platform/utils/core/utilHelper";
 
-/** Same list layout as IMS Stock Adjustment — RM labels (Heat / Coil impact). */
+/** List columns and filters for the Stock Adjustment list page. */
 export const STOCK_ADJUSTMENT_CARD_CONFIG = {
   titleKey: "item_code",
-  badgeIndices: [8],
-  detailIndices: [1, 2, 4, 5],
+  badgeIndices: [10],
+  detailIndices: [1, 2, 3, 4, 6],
   footerKey: "created_at",
   className: "rounded-none border border-slate-200 shadow-none",
 };
@@ -64,7 +65,14 @@ export function filterStockAdjustmentRows(
         [
           row?.adjustment_id,
           row?.entry_type,
-          row?.entry_type === "add" ? "Add (+)" : row?.entry_type === "minus" ? "Minus (-)" : null,
+          stockAdjustmentTypeLabel(row),
+          row?.financial_year,
+          row?.it_lot_no,
+          row?.mrn_no,
+          row?.mrn_uid,
+          row?.mrn_dt,
+          row?.bill_no,
+          row?.bill_dt,
           row?.heat_no,
           row?.acc_name,
           row?.item_code,
@@ -96,12 +104,40 @@ export const STOCK_ADJUSTMENT_HEADERS = [
   [
     "Type",
     "entry_type",
-    (v) => (
+    (_v, row) => (
       <span className="text-[10px] font-black uppercase text-slate-700">
-        {v === "add" ? "Add (+)" : v === "minus" ? "Minus (-)" : "—"}
+        {stockAdjustmentTypeLabel(row)}
       </span>
     ),
-    { width: "72px", align: "center" },
+    { width: "88px", align: "center" },
+  ],
+  [
+    "MRN UID",
+    "mrn_uid",
+    (v, row) => (
+      <span className="font-mono text-[10px] text-slate-700 truncate block max-w-[120px]" title={v || ""}>
+        {v || "—"}
+      </span>
+    ),
+    { width: "120px" },
+  ],
+  [
+    "MRN Date",
+    "mrn_dt",
+    (v) => (
+      <span className="text-[10px] text-slate-600 font-bold uppercase">{formatDocDate(v) || "—"}</span>
+    ),
+    { width: "100px" },
+  ],
+  [
+    "Bill No.",
+    "bill_no",
+    (v) => (
+      <span className="font-mono text-[10px] text-slate-700 truncate block max-w-[120px]" title={v || ""}>
+        {v || "—"}
+      </span>
+    ),
+    { width: "120px" },
   ],
   [
     "Heat No.",
@@ -125,7 +161,7 @@ export const STOCK_ADJUSTMENT_HEADERS = [
     { width: "160px" },
   ],
   [
-    "Total Qty",
+    "Total qty",
     "qty",
     (v, row) => (
       <div className="flex items-baseline gap-1 py-1 justify-center">
@@ -138,7 +174,7 @@ export const STOCK_ADJUSTMENT_HEADERS = [
     { width: "100px", align: "center" },
   ],
   [
-    "Coil Impact",
+    "Coil impact",
     "coil_count_impact",
     (v) => (
       <span className="text-[10px] font-bold text-slate-700 tabular-nums">{v != null ? v : "—"}</span>
@@ -146,7 +182,7 @@ export const STOCK_ADJUSTMENT_HEADERS = [
     { width: "90px", align: "center" },
   ],
   [
-    "Item Code",
+    "Item code",
     "item_code",
     (v) => (
       <span className="font-bold text-slate-800 uppercase text-[10px] tracking-tight">{v || "—"}</span>

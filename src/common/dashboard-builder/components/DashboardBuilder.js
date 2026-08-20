@@ -8,19 +8,21 @@ import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { ChevronDown, Copy, CloudOff, GripVertical, Layout, Monitor, MoreHorizontal, Pencil, Plus, Redo2, Smartphone, Trash2, Undo2, UploadCloud, X } from "lucide-react";
 import { useSelector } from "react-redux";
+import { toast } from "react-toastify";
 import { api } from "@/platform/api/apiClient";
 import { CORE_ENDPOINTS } from "@/platform/api/endpoints";
 import WidgetRenderer from "./WidgetRenderer";
 import SimpleBuilderCanvas from "./SimpleBuilderCanvas";
 import WidgetBuilderPanel from "./WidgetBuilderPanel";
 import { applyMainLayoutPixelsToItem, buildCanvasWidgetsWithContainers, applyDesktopContainerLayout, containerAutoGridHeight, hasCustomMobileNestedLayout, hasCustomPhoneLayout, hasCustomTopLevelMobileLayout, hasManualWidgetLayout, hydrateContainerNestedLayouts, inferContainerPresetFromLayout, inferNestedContentCanvasWidthPx, inferNestedGridWidthPx, mainGridLayoutToPixels, mainLayoutItemPixelStyle, mergeNestedItemFromChild, nestedGridColWidthPx, NESTED_BUILDER_COLS, NESTED_GAP, NESTED_GRID_COLS, NESTED_ROW_HEIGHT, normalizeContainerLayoutItem, normalizeNestedLayoutItem, placeNextNestedLayoutItem, readNestedGridWidthPx, readWidgetLayoutPixels, resolveContainerDisplayHeight, resolveContainerGridHeight, resolveContainerPreset, resolveNextContainerLayoutHeightPx, resolvePhoneNestedLayoutForDisplay, resolvePhoneTopLevelLayout, resolvePublishedDesktopLayout, resolvePublishedNestedLayout, resolvePublishedPhoneLayout, sanitizeNestedLayoutItems, scaleNestedLayoutToBuilder, scaleNestedLayoutToStorage, shouldPreserveSavedLayout, stackLayoutForPhone, stackNestedLayoutForPhone, syncNestedChildLayoutsFromContainers } from "../utils/dashboardLayoutEngine";
-import { boxesFromChildren, boxesFromTopLevelWidgets, boxPxToGridItem, cloneBoxBeside, cloneBoxInContainer, contentBoundsPx, defaultBoxForType, defaultTopLevelBoxForType, ensurePhoneLayoutPx, layoutPxFingerprint, mergeLayoutPxFromWidgets, normalizeBox, packLayoutPxGaps, placeNextBoxPx, PHONE_CONTENT_WIDTH, PHONE_FRAME_INSET, readWidgetBoxPx, sanitizeNestedLayoutPx, scaleLayoutPx } from "../utils/floatingLayoutEngine";
+import { boxesFromChildren, boxesFromTopLevelWidgets, boxPxToGridItem, cloneBoxBeside, cloneBoxInContainer, clampLayoutPxToLaptopFrame, contentBoundsPx, defaultBoxForType, defaultTopLevelBoxForType, desktopPxFromWidgetBoxPx, ensurePhoneLayoutPx, fitNestedLayoutForPhoneEdit, fitNestedLayoutPxToWidth, FLOAT_GAP, isLaptopBoxPx, isLaptopSizedLayoutPx, isPhoneSizedLayoutPx, LAPTOP_DESIGN_CANVAS_WIDTH, LAPTOP_CANVAS_INSET, layoutPxFingerprint, mergeLayoutPxFromWidgets, normalizeBox, packLayoutPxGaps, placeNextBoxPx, PHONE_CONTENT_WIDTH, PHONE_FRAME_INSET, PHONE_OUTER_WIDTH, readWidgetBoxPx, recoverDesktopLayoutPxFromWidgets, resolvePhoneNestedLayoutPx, sanitizeNestedLayoutPx, scaleLayoutPx, widgetsForDesktopLayoutMerge } from "../utils/floatingLayoutEngine";
 import DashboardAudienceUserSelect from "./DashboardAudienceUserSelect";
 import DashboardHome from "@/common/dashboard/components/DashboardHome";
 import { cloneDashboardToUsers, createWidget, deleteDashboardConfig, deleteWidget, getDashboardWidgets, hybridPreviewWidget, listDashboardConfigs, listWidgets, previewWidget, publishDashboardConfig, renameDashboardConfig, saveDashboardDraft, unpublishDashboardConfig, updateWidget as updateWidgetApi } from "../services/dashboardApi";
 import { useEscapeKey } from "@/platform/hooks/system/useEscapeKey";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { filterAppNavPagesByAccess, getDefaultPageKeyForApp } from "../utils/appNavPages";
+import { DASHBOARD_CANVAS_BG, DASHBOARD_CONTAINER_BG, DASHBOARD_CONTAINER_BORDER, DASHBOARD_TABLE_BODY_BG, DASHBOARD_TABLE_HEADER_BG, DASHBOARD_WIDGET_BG, DASHBOARD_WIDGET_BORDER } from "../utils/dashboardBuilderTheme";
 import { buildDashboardRuntimeFilters, canFilterDashboardByUser } from "../utils/dashboardFilterAccess";
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
 import { DASHBOARD_DB_SOURCE_OPTIONS, isWidgetHybridMode, resolveHybridExternalDbSource } from "../utils/dashboardDbSources.js";
@@ -167,7 +169,7 @@ const getContainerNestedMobileSource = (container, allWidgets = [], options = {}
 function defaultWidgetStyle(rawType = "table") {
   const shared = {
     color: "#3b82f6",
-    bg: "#ffffff",
+    bg: DASHBOARD_WIDGET_BG,
     borderRadius: 6,
     fontFamily: "inherit",
     margin: 0,
@@ -177,36 +179,66 @@ function defaultWidgetStyle(rawType = "table") {
     kpiLabelPosition: "bottom",
   };
   if (rawType === "kpi") {
-    return { ...shared, fontSize: 26, kpiLabelFontSize: 10, padding: 6 };
+    return {
+      ...shared,
+      fontSize: 26,
+      kpiLabelFontSize: 10,
+      contentGap: 2,
+      fontWeight: "inherit",
+      padding: 6,
+      border: "1px solid #f5f7f9",
+      boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.08)",
+    };
   }
   if (rawType === "heading") {
-    return { ...shared, color: "#0f172a", fontSize: 18, padding: 0, bg: "transparent", borderRadius: 0 };
+    return { ...shared, color: "#0f172a", fontSize: 18, fontWeight: "inherit", padding: 0, bg: "transparent", borderRadius: 0 };
   }
   if (rawType === "container") {
-    return { ...shared, bg: "#f1f5f9", color: "#334155", fontSize: 12, padding: 12, borderRadius: 10 };
+    return {
+      ...shared,
+      bg: DASHBOARD_CONTAINER_BG,
+      color: "#334155",
+      fontSize: 12,
+      padding: 12,
+      borderRadius: 10,
+      border: DASHBOARD_CONTAINER_BORDER,
+    };
   }
   if (rawType === "table") {
     return {
       ...shared,
       color: "#475569",
       fontSize: 10,
+      titleFontSize: 11,
+      contentGap: 4,
+      fontWeight: "inherit",
       padding: 8,
+      border: DASHBOARD_WIDGET_BORDER,
+      boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.08)",
       tableHeaderColor: "#64748b",
-      tableHeaderBg: "#f8fafc",
+      tableHeaderBg: DASHBOARD_TABLE_HEADER_BG,
       tableBodyColor: "#475569",
-      tableBodyBg: "#ffffff",
+      tableBodyBg: DASHBOARD_TABLE_BODY_BG,
       tableBorderColor: "#e2e8f0",
       tableHeaderFontSize: 9,
       tableBodyFontSize: 10,
       tableSearchFontSize: 10,
       tableRowHoverBg: "#f8fafc",
+      tableCellPaddingX: 8,
+      tableCellPaddingY: 6,
+      tableToolbarGap: 12,
     };
   }
   if (rawType === "graph") {
     return {
       ...shared,
       fontSize: 10,
+      titleFontSize: 11,
+      contentGap: 4,
+      fontWeight: "inherit",
       padding: 8,
+      border: DASHBOARD_WIDGET_BORDER,
+      boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.08)",
       graphTextSize: 10,
       graphPieRadius: 70,
       graphShowLegend: true,
@@ -221,9 +253,9 @@ function defaultWidgetStyle(rawType = "table") {
       fontSize: 10,
       padding: 8,
       tableHeaderColor: "#64748b",
-      tableHeaderBg: "#f8fafc",
+      tableHeaderBg: DASHBOARD_TABLE_HEADER_BG,
       tableBodyColor: "#475569",
-      tableBodyBg: "#ffffff",
+      tableBodyBg: DASHBOARD_TABLE_BODY_BG,
       tableBorderColor: "#e2e8f0",
       tableHeaderFontSize: 9,
       tableBodyFontSize: 10,
@@ -256,6 +288,7 @@ function mergeWidgetStyle(rawType, chartConfig = {}) {
     bg: cfg.bg ?? defaults.bg,
     fontSize: cfg.fontSize ?? defaults.fontSize,
     borderRadius: cfg.borderRadius ?? defaults.borderRadius,
+    border: cfg.border ?? defaults.border,
     boxShadow: cfg.boxShadow ?? defaults.boxShadow,
     contentAlign: cfg.contentAlign ?? defaults.contentAlign,
     fontFamily: cfg.fontFamily ?? defaults.fontFamily,
@@ -312,7 +345,7 @@ function mergeWidgetStyle(rawType, chartConfig = {}) {
       ? (cfg.graph_colors || cfg.graphColors)
       : defaults.graphColors,
   };
-  if (rawType === "heading" && (!cfg.bg || cfg.bg === "#ffffff" || cfg.bg === "#fff")) {
+  if (rawType === "heading" && (!cfg.bg || cfg.bg === DASHBOARD_WIDGET_BG || cfg.bg === "#ffffff" || cfg.bg === "#fff")) {
     merged.bg = "transparent";
     merged.padding = cfg.padding ?? 0;
     merged.borderRadius = 0;
@@ -580,6 +613,28 @@ const BUILDER_DEVICE_DESKTOP = "desktop";
 const BUILDER_DEVICE_MOBILE = "mobile";
 /** Phone layout math uses content box (inside bezel). Outer chrome stays PHONE_OUTER_WIDTH (390). */
 const PHONE_BUILDER_WIDTH = PHONE_CONTENT_WIDTH;
+
+/** Saved canvas_width from phone builder (~382) must never become laptop design width. */
+function isPhoneSavedCanvasWidth(width) {
+  const n = Number(width);
+  return Number.isFinite(n) && n >= 200 && n <= PHONE_OUTER_WIDTH;
+}
+
+/** Laptop design width for save/publish — fixed canvas, never phone width. */
+function resolvePublishCanvasWidth({ builderDeviceMode }) {
+  void builderDeviceMode;
+  return LAPTOP_DESIGN_CANVAS_WIDTH;
+}
+
+/** Recover laptop design width when DB has phone canvas_width by mistake. */
+function resolveLoadedDesignCanvasWidth(savedWidth, layoutPxItems = []) {
+  const saved = Number(savedWidth);
+  if (!Number.isFinite(saved) || saved < 200) return null;
+  if (!isPhoneSavedCanvasWidth(saved)) return Math.round(saved);
+  const boundsW = contentBoundsPx(sanitizeNestedLayoutPx(layoutPxItems), 0).width;
+  if (boundsW > PHONE_OUTER_WIDTH) return Math.round(boundsW);
+  return null;
+}
 
 function normalizeDeviceTargetValue(rawValue = "") {
   const value = String(rawValue || "").trim().toLowerCase();
@@ -991,6 +1046,8 @@ export default function DashboardBuilder({
   const layoutPxRef = useRef([]);
   const layoutPxMobileRef = useRef([]);
   const phoneLayoutCustomizedRef = useRef(false);
+  /** True after user edits laptop floating layout (drag/resize/add). Phone publish must not overwrite desktop. */
+  const desktopLayoutCustomizedRef = useRef(false);
   const designCanvasWidthRef = useRef(null);
   const [designCanvasWidth, setDesignCanvasWidth] = useState(null);
   const mobileLayoutRef = useRef([]);
@@ -1407,7 +1464,7 @@ export default function DashboardBuilder({
     const updateWidth = () => {
       const measured = Math.max(
         0,
-        Math.floor(node.getBoundingClientRect?.().width || node.clientWidth || 0),
+        Math.floor(node.clientWidth || 0),
       );
       // Window resize can briefly report 0 — keep last good width so the canvas never blanks.
       if (measured < 200) return;
@@ -1433,7 +1490,7 @@ export default function DashboardBuilder({
     const node = canvasContainerRef.current;
     if (!node) return undefined;
     const measure = () => {
-      const width = Math.max(0, Math.floor(node.getBoundingClientRect?.().width || node.clientWidth || 0));
+      const width = Math.max(0, Math.floor(node.clientWidth || 0));
       if (width >= 200) {
         setContainerWidth((prev) => (Math.abs(prev - width) <= 1 ? prev : width));
       }
@@ -1574,25 +1631,24 @@ export default function DashboardBuilder({
         ? await getDashboardWidgets(resolvedAppKey, apiPageKey, filters, resolvedDashboardKey)
         : await listWidgets(resolvedAppKey, apiPageKey, resolvedDashboardKey);
       const rows = res?.data || [];
+      const apiLayoutPxRaw = Array.isArray(res?.layout_px) ? res.layout_px : [];
+      const apiLayoutPxMobileRaw = Array.isArray(res?.layout_px_mobile) ? res.layout_px_mobile : [];
+      const apiLayoutPx = apiLayoutPxRaw;
       if (readOnly) {
         layoutBlueprintRef.current = {
           desktop: Array.isArray(res?.layout_blueprint?.desktop) ? res.layout_blueprint.desktop : [],
           mobile: Array.isArray(res?.layout_blueprint?.mobile) ? res.layout_blueprint.mobile : [],
         };
-        layoutPxBlueprintRef.current = {
-          desktop: sanitizeNestedLayoutPx(Array.isArray(res?.layout_px) ? res.layout_px : []),
-          mobile: sanitizeNestedLayoutPx(Array.isArray(res?.layout_px_mobile) ? res.layout_px_mobile : []),
-        };
       } else {
         layoutBlueprintRef.current = { desktop: [], mobile: [] };
-        layoutPxBlueprintRef.current = { desktop: [], mobile: [] };
       }
-      const loadedCanvasWidth = Number(res?.canvas_width);
-      const nextDesignWidth = Number.isFinite(loadedCanvasWidth) && loadedCanvasWidth >= 200
-        ? Math.round(loadedCanvasWidth)
-        : null;
-      designCanvasWidthRef.current = nextDesignWidth;
-      setDesignCanvasWidth(nextDesignWidth);
+      layoutPxBlueprintRef.current = {
+        desktop: sanitizeNestedLayoutPx(apiLayoutPxRaw),
+        mobile: sanitizeNestedLayoutPx(apiLayoutPxMobileRaw),
+      };
+      desktopLayoutCustomizedRef.current = false;
+      designCanvasWidthRef.current = LAPTOP_DESIGN_CANVAS_WIDTH;
+      setDesignCanvasWidth(LAPTOP_DESIGN_CANVAS_WIDTH);
       let mapped = rows.map((row, idx) => mapWidgetRow(row, idx));
 
       // Builder should reopen with live data, not blank "No Data Found" cards.
@@ -1785,10 +1841,12 @@ export default function DashboardBuilder({
       setMobileLayout(nextMobileLayout);
       if (USE_FLOATING_BUILDER) {
         const topLevelHydrated = hydratedWithLayout.filter((widget) => isTopLevelCanvasWidget(widget));
+        const recoveredLayoutPx = recoverDesktopLayoutPxFromWidgets(topLevelHydrated, apiLayoutPx);
+        const layoutPxForMerge = isPhoneSizedLayoutPx(recoveredLayoutPx) ? apiLayoutPx : recoveredLayoutPx;
         // Always merge API layout_px with per-widget boxPx so live never falls back to grid packing.
         const mergedLayoutPx = mergeLayoutPxFromWidgets(
-          Array.isArray(res?.layout_px) ? res.layout_px : [],
-          topLevelHydrated,
+          layoutPxForMerge,
+          widgetsForDesktopLayoutMerge(topLevelHydrated, layoutPxForMerge),
         );
         const visibleTopIds = new Set(topLevelHydrated.map((widget) => String(widget.id)));
         // Live: keep original designer coords in state; display packing happens in resolvedLayoutPx
@@ -1797,24 +1855,33 @@ export default function DashboardBuilder({
         const nextLayoutPx = mergedLayoutPx.filter((box) => visibleTopIds.has(String(box.i)));
         layoutPxRef.current = nextLayoutPx;
         setLayoutPx(nextLayoutPx);
+        // Live: keep FULL api layout_px as blueprint (incl. permission-hidden) so gap packing works.
+        // Builder: refresh blueprint from saved designer coords.
+        if (!readOnly && !isPhoneSizedLayoutPx(nextLayoutPx)) {
+          layoutPxBlueprintRef.current = {
+            ...layoutPxBlueprintRef.current,
+            desktop: sanitizeNestedLayoutPx(nextLayoutPx),
+          };
+        } else if (readOnly) {
+          const fullDesktop = sanitizeNestedLayoutPx(apiLayoutPxRaw);
+          const fullMobile = sanitizeNestedLayoutPx(apiLayoutPxMobileRaw);
+          layoutPxBlueprintRef.current = {
+            desktop: fullDesktop.length ? fullDesktop : layoutPxBlueprintRef.current.desktop,
+            mobile: fullMobile.length ? fullMobile : layoutPxBlueprintRef.current.mobile,
+          };
+        }
         const rawMobilePx = Array.isArray(res?.layout_px_mobile) ? res.layout_px_mobile : [];
         const sanitizedMobilePx = sanitizeNestedLayoutPx(rawMobilePx);
         const nextMobilePx = sanitizedMobilePx.filter((box) => visibleTopIds.has(String(box.i)));
         layoutPxMobileRef.current = nextMobilePx;
         setLayoutPxMobile(nextMobilePx);
-        phoneLayoutCustomizedRef.current = nextMobilePx.length > 0;
+        phoneLayoutCustomizedRef.current = nextMobilePx.length > 0
+          && isPhoneSizedLayoutPx(nextMobilePx)
+          && !isLaptopSizedLayoutPx(nextMobilePx)
+          && hasCustomPhoneLayout(hydratedWithLayout, nextLayout, nextMobileLayout);
         if (!designCanvasWidthRef.current) {
-          // Prefer full blueprint bounds for pack width (incl. hidden widgets).
-          const bounds = contentBoundsPx(
-            layoutPxBlueprintRef.current?.desktop?.length
-              ? layoutPxBlueprintRef.current.desktop
-              : (Array.isArray(res?.layout_px) ? res.layout_px : nextLayoutPx),
-            0,
-          );
-          if (bounds.width >= 200) {
-            designCanvasWidthRef.current = bounds.width;
-            setDesignCanvasWidth(bounds.width);
-          }
+          designCanvasWidthRef.current = LAPTOP_DESIGN_CANVAS_WIDTH;
+          setDesignCanvasWidth(LAPTOP_DESIGN_CANVAS_WIDTH);
         }
         finalWidgets = hydratedWithLayout.map((widget) => {
           if (!isTopLevelCanvasWidget(widget)) {
@@ -1828,7 +1895,13 @@ export default function DashboardBuilder({
           const matched = blueprintBox
             || nextLayoutPx.find((item) => String(item.i) === String(widget.id));
           if (!matched) return widget;
-          const { left, top, width, height } = matched;
+          const matchedBox = normalizeBox(matched);
+          const cfgBox = widget.style?.boxPx;
+          // Don't let a phone-sized layout_px overwrite laptop boxPx from chart_config.
+          if (isLaptopBoxPx(cfgBox) && !isLaptopBoxPx(matchedBox)) {
+            return widget;
+          }
+          const { left, top, width, height } = matchedBox;
           return {
             ...widget,
             style: {
@@ -1884,38 +1957,69 @@ export default function DashboardBuilder({
   }, [readOnly, visibleWidgets, widgets]);
 
   const canvasWidgets = useMemo(() => {
-    const pool = readOnly ? widgets : hydrateContainerNestedLayouts(widgets);
+    const pool = hydrateContainerNestedLayouts(widgets);
     const usePhoneFloating = isPhoneBuilderMode || (readOnly && isPhoneView);
-    const withNested = readOnly || isPhoneBuilderMode || usePhoneFloating
-      ? pool.map((widget) => {
+    const desktopTopPx = sanitizeNestedLayoutPx(layoutPx?.length ? layoutPx : []);
+    const mobileTopPx = sanitizeNestedLayoutPx(layoutPxMobile?.length ? layoutPxMobile : []);
+    const phoneFrameW = PHONE_CONTENT_WIDTH;
+
+    const phoneContainerInnerWidth = (containerId) => {
+      const mobileBox = mobileTopPx.find((box) => String(box.i) === String(containerId));
+      if (mobileBox) return Math.max(40, normalizeBox(mobileBox).width);
+      const desktopBox = desktopTopPx.find((box) => String(box.i) === String(containerId));
+      if (desktopBox) {
+        const designW = Math.max(320, contentBoundsPx(desktopTopPx, 0).width);
+        return Math.max(40, Math.round(normalizeBox(desktopBox).width * (phoneFrameW / designW)));
+      }
+      return Math.max(40, phoneFrameW - PHONE_FRAME_INSET * 2);
+    };
+
+    const withNested = pool.map((widget) => {
         if (widget.rawType !== "container") return widget;
         const sectionChildren = pool.filter(
           (child) => String(child.containerId || child.sectionId) === String(widget.id),
         );
-        // Floating phone: prefer saved mobile nested px; else desktop nested (laptop fallback).
         const fullNestedPx = Array.isArray(widget.nestedLayoutPx) ? widget.nestedLayoutPx : [];
         const fullMobileNestedPx = Array.isArray(widget.mobileNestedLayoutPx)
           ? widget.mobileNestedLayoutPx
           : [];
         const desktopNestedPx = boxesFromChildren(sectionChildren, fullNestedPx);
-        const mobileNestedPx = fullMobileNestedPx.length
-          ? boxesFromChildren(sectionChildren, fullMobileNestedPx)
-          : null;
         const nestedLayout = resolvePublishedNestedLayout(widget, pool);
-        let nestedLayoutPx = usePhoneFloating && mobileNestedPx
-          ? mobileNestedPx
+        const phoneNestedCustomized = fullMobileNestedPx.length > 0
+          && hasCustomMobileNestedLayout(fullNestedPx, fullMobileNestedPx)
+          && isPhoneSizedLayoutPx(fullMobileNestedPx)
+          && !isLaptopSizedLayoutPx(fullMobileNestedPx);
+        let nestedLayoutPx = usePhoneFloating
+          ? resolvePhoneNestedLayoutPx(
+            sectionChildren,
+            desktopNestedPx,
+            fullMobileNestedPx,
+            phoneContainerInnerWidth(widget.id),
+            { phoneNestedCustomized },
+          )
           : desktopNestedPx;
-        // Live: pack nested holes when permission hid sibling children inside the container.
+        // Live: pack nested holes when permission hid a child (or stale blueprint slots remain).
         if (readOnly && nestedLayoutPx.length) {
           const blueprintNested = usePhoneFloating && fullMobileNestedPx.length
             ? fullMobileNestedPx
             : fullNestedPx;
-          const nestedCanvasWidth = Number(widget.style?.boxPx?.width)
-            || contentBoundsPx(blueprintNested, 0).width
-            || null;
-          nestedLayoutPx = packLayoutPxGaps(nestedLayoutPx, blueprintNested, {
-            canvasWidth: nestedCanvasWidth,
-          });
+          const nestedVisibleIds = new Set(nestedLayoutPx.map((box) => String(box.i)));
+          // Hidden children are absent from sectionChildren — detect via blueprint slots missing from visible.
+          const hadHiddenNested = sanitizeNestedLayoutPx(blueprintNested).some(
+            (box) => !nestedVisibleIds.has(String(box.i)),
+          );
+          if (hadHiddenNested) {
+            const nestedCanvasWidth = usePhoneFloating
+              ? phoneContainerInnerWidth(widget.id)
+              : (Number(widget.style?.boxPx?.width)
+                || contentBoundsPx(blueprintNested, 0).width
+                || null);
+            nestedLayoutPx = packLayoutPxGaps(nestedLayoutPx, blueprintNested, {
+              canvasWidth: nestedCanvasWidth,
+              pad: 0,
+              gap: FLOAT_GAP,
+            });
+          }
         }
         return {
           ...widget,
@@ -1923,8 +2027,7 @@ export default function DashboardBuilder({
           nestedLayoutPx,
           sectionChildren,
         };
-      })
-      : pool;
+      });
     // Published (laptop + phone): hide containers whose nested widgets were all permission-filtered out.
     const forCanvas = readOnly
       ? withNested.filter((widget) => {
@@ -1932,11 +2035,8 @@ export default function DashboardBuilder({
         return (widget.sectionChildren || []).length > 0;
       })
       : withNested;
-    if (readOnly) {
-      return buildCanvasWidgetsWithContainers(forCanvas);
-    }
-    return buildCanvasWidgetsWithContainers(withNested);
-  }, [widgets, readOnly, isPhoneBuilderMode, isPhoneView]);
+    return buildCanvasWidgetsWithContainers(forCanvas);
+  }, [widgets, readOnly, isPhoneBuilderMode, isPhoneView, layoutPx, layoutPxMobile]);
 
   const movableWidgetsForContainer = useMemo(() => {
     if (!selectedWidgetId) return [];
@@ -2203,6 +2303,7 @@ export default function DashboardBuilder({
   // Panel is a flex sibling so containerWidth already excludes it.
   // Grid w/h are proportional (out of 12 cols) so layouts look consistent.
   const measuredCanvasWidth = Math.max(0, containerWidth || 0);
+  const laptopDesignWidth = LAPTOP_DESIGN_CANVAS_WIDTH;
   const canvasWidth = useMemo(() => {
     if (isPhonePreviewFrame) return PHONE_CONTENT_WIDTH;
     // Live phone: use real viewport/host width (edge-to-edge), not a 390 cap.
@@ -2212,12 +2313,15 @@ export default function DashboardBuilder({
       if (measuredCanvasWidth >= 200) return measuredCanvasWidth;
       return PHONE_CONTENT_WIDTH;
     }
-    const liveWidth = liveGridMeasure.mounted ? liveGridMeasure.width : 0;
-    if (liveWidth >= 200) return liveWidth;
-    if (measuredCanvasWidth >= 200) return measuredCanvasWidth;
-    // Never return a sub-200 width — that unmounts the canvas (gridReady false → blank).
-    return Math.max(320, measuredCanvasWidth || 1200);
-  }, [measuredCanvasWidth, isPhonePreviewFrame, liveGridMeasure.mounted, liveGridMeasure.width, readOnly, isPhoneView]);
+    if (isPhoneBuilderMode) {
+      const liveWidth = liveGridMeasure.mounted ? liveGridMeasure.width : 0;
+      if (liveWidth >= 200) return liveWidth;
+      if (measuredCanvasWidth >= 200) return measuredCanvasWidth;
+      return Math.max(320, measuredCanvasWidth || PHONE_CONTENT_WIDTH);
+    }
+    // Laptop builder + live: fixed design canvas width.
+    return laptopDesignWidth;
+  }, [laptopDesignWidth, measuredCanvasWidth, isPhonePreviewFrame, liveGridMeasure.mounted, liveGridMeasure.width, readOnly, isPhoneView, isPhoneBuilderMode]);
   // Laptop live matches builder at 1:1 (scroll). Phone still uses fixed design width.
   const floatingCanvasWidth = canvasWidth;
   // Stay ready once we've ever had a usable width; don't unmount on resize glitches.
@@ -2253,64 +2357,97 @@ export default function DashboardBuilder({
         floatingGridMetrics,
       );
 
-    // Live: flow-pack from original blueprint coords (not already-shifted state).
-    if (readOnly && !isPhoneFloatingView) {
+    // Laptop builder: keep saved designer coords (no permission packing).
+    // Laptop live/publish: pack holes when widgets/containers were permission-hidden.
+    if (!isPhoneFloatingView) {
+      const frameW = LAPTOP_DESIGN_CANVAS_WIDTH;
+      const inset = LAPTOP_CANVAS_INSET;
+      if (!readOnly) {
+        return clampLayoutPxToLaptopFrame(desktopPx, frameW, inset);
+      }
       const visibleIds = new Set(
-        (publishedVisibleWidgets || []).map((widget) => String(widget.id)),
+        (publishedVisibleWidgets || [])
+          .filter((widget) => isTopLevelCanvasWidget(widget))
+          .filter((widget) => {
+            // Empty containers (all children permission-filtered) leave a hole — pack past them.
+            if (widget.rawType !== "container" && widget.rawType !== "section") return true;
+            return (widgets || []).some(
+              (child) => String(child.containerId || child.sectionId) === String(widget.id),
+            );
+          })
+          .map((widget) => String(widget.id)),
       );
       const blueprint = layoutPxBlueprintRef.current?.desktop?.length
         ? layoutPxBlueprintRef.current.desktop
         : desktopPx;
-      // Empty containers are display-only filtered on publish. Do not treat them as
-      // permission holes — that used to reflow the whole laptop layout and break
-      // builder↔publish alignment (table/KPI left edges drifted).
-      const emptyContainerIds = new Set(
-        (widgets || [])
-          .filter((widget) => (
-            widget.rawType === "container"
-            && !visibleIds.has(String(widget.id))
-          ))
-          .map((widget) => String(widget.id)),
-      );
-      const packBlueprint = sanitizeNestedLayoutPx(blueprint).filter(
-        (box) => !emptyContainerIds.has(String(box.i)),
-      );
       const sizeById = new Map(desktopPx.map((box) => [String(box.i), box]));
-      const sourceBoxes = packBlueprint
+      const visibleBoxes = sanitizeNestedLayoutPx(blueprint)
         .filter((box) => visibleIds.has(String(box.i)))
         .map((box) => {
           const live = sizeById.get(String(box.i));
-          // Keep live width/height if present; positions come from blueprint for stable order.
-          return live
-            ? { ...box, width: live.width, height: live.height }
-            : box;
+          return live ? { ...box, width: live.width, height: live.height } : box;
         });
-      desktopPx = packLayoutPxGaps(sourceBoxes, packBlueprint, {
-        canvasWidth: Number(designCanvasWidthRef.current)
-          || Number(designCanvasWidth)
-          || null,
+      const seenIds = new Set(visibleBoxes.map((box) => String(box.i)));
+      // Include visible widgets missing from blueprint (e.g. added after publish snapshot).
+      desktopPx.forEach((box) => {
+        const id = String(box.i);
+        if (!visibleIds.has(id) || seenIds.has(id)) return;
+        visibleBoxes.push(box);
+        seenIds.add(id);
       });
+      const toPack = visibleBoxes.length
+        ? visibleBoxes
+        : desktopPx.filter((box) => visibleIds.has(String(box.i)));
+      const packed = packLayoutPxGaps(toPack, blueprint, {
+        canvasWidth: frameW,
+        pad: inset,
+        gap: FLOAT_GAP,
+      });
+      return clampLayoutPxToLaptopFrame(packed, frameW, inset);
     }
-
-    // Laptop builder + live laptop: desktop layout only — never mix phone boxes.
-    if (!isPhoneFloatingView) return desktopPx;
 
     const phoneW = PHONE_CONTENT_WIDTH;
     const topLevelForPhone = (widgets || []).filter((widget) => isTopLevelCanvasWidget(widget));
+    let deskPxForPhone = desktopPx.length
+      ? desktopPx
+      : desktopPxFromWidgetBoxPx(topLevelForPhone);
     const rawMobile = sanitizeNestedLayoutPx(
       (layoutPxMobile?.length ? layoutPxMobile : layoutPxMobileRef.current) || [],
+    );
+    const mobileIsPhoneSized = rawMobile.length > 0
+      && isPhoneSizedLayoutPx(rawMobile)
+      && !isLaptopSizedLayoutPx(rawMobile);
+    const useSavedPhoneLayout = phoneLayoutCustomizedRef.current && mobileIsPhoneSized;
+    const phoneBuilderOpts = { phoneWidth: phoneW, desktopPx: deskPxForPhone, equalize: false };
+    // Always scale from laptop design width — never use phone canvasWidth (would skip scaling).
+    const phoneDesignW = Math.max(
+      320,
+      LAPTOP_DESIGN_CANVAS_WIDTH,
+      contentBoundsPx(deskPxForPhone, 0).width,
+    );
+    const scaledFromDesktop = ensurePhoneLayoutPx(
+      topLevelForPhone,
+      scaleLayoutPx(deskPxForPhone, phoneDesignW, phoneW),
+      phoneBuilderOpts,
     );
     // Complete + clamp only when a phone layout already exists. Incomplete
     // layout_px_mobile (laptop-added table after phone was customized) used to fall
     // back to desktop boxPx (~640) and collapse the phone canvas fitScale.
     // Empty mobile still falls through to scale-from-desktop below.
-    const savedMobile = rawMobile.length
-      ? ensurePhoneLayoutPx(topLevelForPhone, rawMobile, { phoneWidth: phoneW, desktopPx })
+    const savedMobile = rawMobile.length && useSavedPhoneLayout
+      ? ensurePhoneLayoutPx(topLevelForPhone, rawMobile, { phoneWidth: phoneW, desktopPx: deskPxForPhone })
       : [];
     const packPhoneVisible = (boxes) => {
       if (!readOnly) return boxes;
       const visibleIds = new Set(
-        (publishedVisibleWidgets || []).map((widget) => String(widget.id)),
+        (publishedVisibleWidgets || [])
+          .filter((widget) => {
+            if (widget.rawType !== "container" && widget.rawType !== "section") return true;
+            return (widgets || []).some(
+              (child) => String(child.containerId || child.sectionId) === String(widget.id),
+            );
+          })
+          .map((widget) => String(widget.id)),
       );
       const blueprint = layoutPxBlueprintRef.current?.mobile?.length
         ? layoutPxBlueprintRef.current.mobile
@@ -2330,18 +2467,31 @@ export default function DashboardBuilder({
       const toPack = sourceBoxes.length ? sourceBoxes : boxes.filter((box) => visibleIds.has(String(box.i)));
       return ensurePhoneLayoutPx(
         topLevelForPhone.filter((widget) => visibleIds.has(String(widget.id))),
-        packLayoutPxGaps(toPack, blueprint, { canvasWidth: phoneW }),
-        { phoneWidth: phoneW, desktopPx },
+        packLayoutPxGaps(toPack, blueprint, {
+          canvasWidth: phoneW,
+          pad: PHONE_FRAME_INSET,
+          gap: FLOAT_GAP,
+        }),
+        { phoneWidth: phoneW, desktopPx: deskPxForPhone },
       );
     };
 
-    // Phone builder: phone canvas as designed.
-    if (isPhoneBuilderMode && savedMobile.length) {
-      const mobileBounds = contentBoundsPx(savedMobile, 0);
-      if (mobileBounds.width <= phoneW + 48) return savedMobile;
-      return scaleLayoutPx(savedMobile, Math.max(320, mobileBounds.width), phoneW);
+    // Phone builder: mirror laptop until user edits phone; ignore laptop-sized stale mobile px.
+    if (isPhoneBuilderMode) {
+      if (!useSavedPhoneLayout) {
+        return scaledFromDesktop;
+      }
+      const clamped = fitNestedLayoutPxToWidth(rawMobile, phoneW, PHONE_FRAME_INSET);
+      const hasAllWidgets = topLevelForPhone.length > 0 && topLevelForPhone.every((widget) =>
+        clamped.some((box) => String(box.i) === String(widget.id)),
+      );
+      if (hasAllWidgets) return clamped;
+      return ensurePhoneLayoutPx(topLevelForPhone, clamped, phoneBuilderOpts);
     }
-    // Live phone: phone layout only when published/saved; else laptop scaled into phone width.
+    // Live phone: use saved phone px only when truly customized; else scale laptop layout.
+    if (readOnly && !useSavedPhoneLayout) {
+      return packPhoneVisible(scaledFromDesktop);
+    }
     if (readOnly && savedMobile.length) {
       const packedMobile = packPhoneVisible(savedMobile);
       const mobileBounds = contentBoundsPx(packedMobile, 0);
@@ -2350,18 +2500,17 @@ export default function DashboardBuilder({
     }
     const designW = Math.max(
       320,
-      Number(designCanvasWidthRef.current) || contentBoundsPx(desktopPx, 0).width,
+      Number(designCanvasWidthRef.current) || contentBoundsPx(deskPxForPhone, 0).width || LAPTOP_DESIGN_CANVAS_WIDTH,
     );
     // Live phone without saved mobile: pack desktop gaps first, then scale into phone width.
-    // (Desktop pack was skipped above because isPhoneFloatingView is true.)
     if (readOnly) {
       const visibleIds = new Set(
         (publishedVisibleWidgets || []).map((widget) => String(widget.id)),
       );
       const blueprint = layoutPxBlueprintRef.current?.desktop?.length
         ? layoutPxBlueprintRef.current.desktop
-        : desktopPx;
-      const sizeById = new Map(desktopPx.map((box) => [String(box.i), box]));
+        : deskPxForPhone;
+      const sizeById = new Map(deskPxForPhone.map((box) => [String(box.i), box]));
       const sourceBoxes = sanitizeNestedLayoutPx(blueprint)
         .filter((box) => visibleIds.has(String(box.i)))
         .map((box) => {
@@ -2370,7 +2519,7 @@ export default function DashboardBuilder({
         });
       const toPack = sourceBoxes.length
         ? sourceBoxes
-        : desktopPx.filter((box) => visibleIds.has(String(box.i)));
+        : deskPxForPhone.filter((box) => visibleIds.has(String(box.i)));
       const packedDesktop = packLayoutPxGaps(toPack, blueprint, {
         canvasWidth: Number(designCanvasWidthRef.current) || Number(designCanvasWidth) || null,
       });
@@ -2380,11 +2529,7 @@ export default function DashboardBuilder({
         { phoneWidth: phoneW, desktopPx: packedDesktop },
       );
     }
-    return ensurePhoneLayoutPx(
-      topLevelForPhone,
-      scaleLayoutPx(desktopPx, designW, phoneW),
-      { phoneWidth: phoneW, desktopPx },
-    );
+    return scaledFromDesktop;
   }, [
     layoutPx,
     layoutPxMobile,
@@ -2459,6 +2604,7 @@ export default function DashboardBuilder({
       return;
     }
 
+    desktopLayoutCustomizedRef.current = true;
     layoutPxRef.current = normalized;
     if (options.interim) {
       setLayoutPx(normalized);
@@ -2535,7 +2681,17 @@ export default function DashboardBuilder({
           ? parent.nestedLayoutPx
           : []);
       const matched = nestedPx.find((item) => String(item.i) === String(selectedWidget.id));
-      if (matched) return normalizeBox(matched);
+      if (matched) {
+        let box = normalizeBox(matched);
+        if (isPhoneBuilderMode) {
+          const parentBox = resolvedLayoutPx.find((item) => String(item.i) === String(selectedWidget.containerId));
+          const frameW = Math.max(40, Number(parentBox?.width) || PHONE_BUILDER_WIDTH);
+          const fitted = fitNestedLayoutForPhoneEdit(sanitizeNestedLayoutPx(nestedPx), frameW);
+          const fittedMatch = fitted.find((item) => String(item.i) === String(selectedWidget.id));
+          if (fittedMatch) box = normalizeBox(fittedMatch);
+        }
+        return box;
+      }
       if (!isPhoneLayoutMode && selectedWidget.style?.boxPx) return normalizeBox(selectedWidget.style.boxPx);
       return null;
     })()
@@ -2603,7 +2759,6 @@ export default function DashboardBuilder({
   const handlePixelSizeChange = ({ widthPx: nextWidthPx, heightPx: nextHeightPx }) => {
     if (isCanvasLocked || !selectedWidget) return;
     if (nextWidthPx == null && nextHeightPx == null) return;
-    captureHistoryBeforeChange();
     manualSizedWidgetIdsRef.current.add(String(selectedWidget.id));
 
     // Phone floating: size edits go ONLY to layout_px_mobile / mobileNestedLayoutPx.
@@ -2615,18 +2770,15 @@ export default function DashboardBuilder({
       const matched = existingPx.find((item) => String(item.i) === String(selectedWidget.id));
       const currentBox = matched
         ? normalizeBox(matched)
-        : normalizeBox({ left: 8, top: 8, width: 200, height: 120 });
-      const nextBox = normalizeBox({
+        : normalizeBox(readWidgetBoxPx(selectedWidget, existingPx.length));
+      let nextBox = normalizeBox({
         left: currentBox.left,
         top: currentBox.top,
         width: nextWidthPx != null ? nextWidthPx : currentBox.width,
         height: nextHeightPx != null ? nextHeightPx : currentBox.height,
       });
-      nextBox.width = Math.min(nextBox.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2);
-      nextBox.left = Math.min(
-        Math.max(PHONE_FRAME_INSET, nextBox.left),
-        Math.max(PHONE_FRAME_INSET, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET - nextBox.width),
-      );
+      const [clamped] = fitNestedLayoutPxToWidth([nextBox], PHONE_BUILDER_WIDTH, PHONE_FRAME_INSET);
+      nextBox = clamped;
       const nextPx = matched
         ? existingPx.map((item) => (
           String(item.i) === String(selectedWidget.id)
@@ -2634,9 +2786,7 @@ export default function DashboardBuilder({
             : item
         ))
         : [...existingPx, { i: String(selectedWidget.id), ...nextBox }];
-      const normalizedPx = sanitizeNestedLayoutPx(nextPx);
-      layoutPxMobileRef.current = normalizedPx;
-      setLayoutPxMobile(normalizedPx);
+      handleCanvasLayoutPxChange(sanitizeNestedLayoutPx(nextPx), {});
       return;
     }
 
@@ -2644,19 +2794,26 @@ export default function DashboardBuilder({
       phoneLayoutCustomizedRef.current = true;
       const containerId = String(selectedWidget.containerId);
       const container = widgetsRef.current.find((entry) => String(entry.id) === containerId);
-      const existingNestedPx = sanitizeNestedLayoutPx(
+      const parentBox = resolvedLayoutPx.find((item) => String(item.i) === containerId);
+      const frameW = Math.max(40, Number(parentBox?.width) || PHONE_BUILDER_WIDTH);
+      let existingNestedPx = sanitizeNestedLayoutPx(
         Array.isArray(container?.mobileNestedLayoutPx) && container.mobileNestedLayoutPx.length
           ? container.mobileNestedLayoutPx
           : (Array.isArray(container?.nestedLayoutPx) ? container.nestedLayoutPx : []),
       );
+      existingNestedPx = fitNestedLayoutForPhoneEdit(existingNestedPx, frameW);
       const matched = existingNestedPx.find((item) => String(item.i) === String(selectedWidget.id));
-      const currentBox = matched ? normalizeBox(matched) : normalizeBox({ left: 4, top: 4, width: 100, height: 72 });
-      const nextBox = normalizeBox({
+      const currentBox = matched
+        ? normalizeBox(matched)
+        : normalizeBox(readWidgetBoxPx(selectedWidget, 0));
+      let nextBox = normalizeBox({
         left: currentBox.left,
         top: currentBox.top,
         width: nextWidthPx != null ? nextWidthPx : currentBox.width,
         height: nextHeightPx != null ? nextHeightPx : currentBox.height,
       });
+      const [clamped] = fitNestedLayoutPxToWidth([nextBox], frameW, 0);
+      nextBox = clamped;
       const normalizedPx = sanitizeNestedLayoutPx(
         matched
           ? existingNestedPx.map((item) => (
@@ -2669,6 +2826,8 @@ export default function DashboardBuilder({
       handleNestedLayoutChange(containerId, normalizedPx, true, {});
       return;
     }
+
+    captureHistoryBeforeChange();
 
     // Laptop floating: size edits go ONLY to layout_px / style.boxPx — never phone layout.
     if (USE_FLOATING_BUILDER && !isPhoneBuilderMode && !selectedWidget.containerId) {
@@ -2691,6 +2850,7 @@ export default function DashboardBuilder({
         ))
         : [...existingPx, { i: String(selectedWidget.id), ...nextBox }];
       const normalizedPx = sanitizeNestedLayoutPx(nextPx);
+      desktopLayoutCustomizedRef.current = true;
       layoutPxRef.current = normalizedPx;
       setLayoutPx(normalizedPx);
       setWidgets((prev) =>
@@ -3037,6 +3197,7 @@ export default function DashboardBuilder({
       const box = placeNextBoxPx(
         existingPx,
         defaultTopLevelBoxForType(rawType, containerPreset, PHONE_BUILDER_WIDTH),
+        PHONE_BUILDER_WIDTH,
       );
       // Keep new phone widgets within the phone frame width + side gutter.
       box.width = Math.min(box.width, PHONE_BUILDER_WIDTH - PHONE_FRAME_INSET * 2);
@@ -3097,11 +3258,15 @@ export default function DashboardBuilder({
     }
     if (USE_FLOATING_BUILDER) {
       const existingPx = sanitizeNestedLayoutPx(layoutPxRef.current?.length ? layoutPxRef.current : layoutPx);
-      const box = placeNextBoxPx(
+      const designWForAdd = canvasWidth || LAPTOP_DESIGN_CANVAS_WIDTH;
+      const rawBox = placeNextBoxPx(
         existingPx,
-        defaultTopLevelBoxForType(rawType, containerPreset, canvasWidth || 1200),
+        defaultTopLevelBoxForType(rawType, containerPreset, designWForAdd),
+        designWForAdd,
       );
+      const [box] = clampLayoutPxToLaptopFrame([normalizeBox(rawBox)], designWForAdd, LAPTOP_CANVAS_INSET);
       const nextPx = [...existingPx, { i: id, ...box }];
+      desktopLayoutCustomizedRef.current = true;
       layoutPxRef.current = nextPx;
       setLayoutPx(nextPx);
       // Keep phone floating layout complete even when already customized — otherwise
@@ -3111,6 +3276,7 @@ export default function DashboardBuilder({
         const phoneBox = placeNextBoxPx(
           sanitizeNestedLayoutPx(layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile),
           defaultTopLevelBoxForType(rawType, containerPreset, PHONE_BUILDER_WIDTH),
+          PHONE_BUILDER_WIDTH,
         );
         phoneBox.width = Math.min(phoneBox.width, PHONE_BUILDER_WIDTH - PHONE_FRAME_INSET * 2);
         phoneBox.left = Math.min(
@@ -3280,7 +3446,11 @@ export default function DashboardBuilder({
           ? container.nestedLayoutPx
           : boxesFromChildren(containerChildren, []),
       );
-      const box = placeNextBoxPx(existingPx, defaultBoxForType(rawType));
+      const containerInnerW = Math.max(
+        160,
+        Math.round(readWidgetBoxPx(container, 0).width - 24),
+      );
+      const box = placeNextBoxPx(existingPx, defaultBoxForType(rawType), containerInnerW);
       const nestedPxItem = { i: id, ...box };
       const nextNestedPx = [...existingPx, nestedPxItem];
 
@@ -3445,9 +3615,13 @@ export default function DashboardBuilder({
     const container = liveWidgets.find((entry) => String(entry.id) === String(containerId));
     if (!container) return;
 
-    const containerWidth = Number(container.style?.boxPx?.width)
-      || Number((layoutPxRef.current || layoutPx).find((item) => String(item.i) === String(containerId))?.width)
-      || 0;
+    const phoneContainerBox = (layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile)
+      .find((item) => String(item.i) === String(containerId));
+    const containerWidth = isPhoneBuilderMode
+      ? (Number(phoneContainerBox?.width) || PHONE_BUILDER_WIDTH)
+      : (Number(container.style?.boxPx?.width)
+        || Number((layoutPxRef.current || layoutPx).find((item) => String(item.i) === String(containerId))?.width)
+        || 0);
     let clonedForPreview = null;
 
     if (isPhoneBuilderMode) {
@@ -3471,10 +3645,13 @@ export default function DashboardBuilder({
       );
       const nextMobileNested = [...mobileNestedSource, mobileNestedItem];
       const containerChildren = liveWidgets.filter((entry) => String(entry.containerId) === String(containerId));
-      const existingMobilePx = sanitizeNestedLayoutPx(
-        Array.isArray(container.mobileNestedLayoutPx) && container.mobileNestedLayoutPx.length
-          ? container.mobileNestedLayoutPx
-          : (Array.isArray(container.nestedLayoutPx) ? container.nestedLayoutPx : boxesFromChildren(containerChildren, [])),
+      const existingMobilePx = fitNestedLayoutForPhoneEdit(
+        sanitizeNestedLayoutPx(
+          Array.isArray(container.mobileNestedLayoutPx) && container.mobileNestedLayoutPx.length
+            ? container.mobileNestedLayoutPx
+            : (Array.isArray(container.nestedLayoutPx) ? container.nestedLayoutPx : boxesFromChildren(containerChildren, [])),
+        ),
+        containerWidth || PHONE_BUILDER_WIDTH,
       );
       const sourceBox = existingMobilePx.find((item) => String(item.i) === String(widget.id))
         || defaultBoxForType(widget.rawType || "kpi");
@@ -3610,7 +3787,7 @@ export default function DashboardBuilder({
       const normalizedPx = sanitizeNestedLayoutPx(nextLayout);
       // Do NOT write pixel boxes into the live grid nested map — that poisons publish grid fallback.
       if (options.interim) return;
-      captureHistoryBeforeChange();
+      if (!options.skipHistory) captureHistoryBeforeChange();
       const containerKey = String(containerId);
       if (saveToPhone) phoneLayoutCustomizedRef.current = true;
       setWidgets((prev) => {
@@ -3996,13 +4173,17 @@ export default function DashboardBuilder({
         ),
       );
     } catch (err) {
+      const message = String(err?.message || err?.payload?.message || "Preview failed.").trim() || "Preview failed.";
       setWidgets((prev) =>
         prev.map((w) =>
           String(w.id) === String(widget.id)
-            ? { ...w, previewError: err.message || "Preview failed." }
+            ? { ...w, previewError: message }
             : w,
         ),
       );
+      if (!quiet) {
+        toast.error(message, { autoClose: 8000 });
+      }
     } finally {
       if (!quiet) setBusy(false);
     }
@@ -4378,12 +4559,9 @@ export default function DashboardBuilder({
     const syncedWidgets = hydrateContainerNestedLayouts(
       sourceWidgets.map((widget) => {
         if (widget.rawType !== "container") return widget;
-        const nestedLayout = preferPhoneNestedLive
-          ? (Array.isArray(widget.nestedLayout) && widget.nestedLayout.length
-            ? sanitizeNestedLayoutItems([...widget.nestedLayout])
-            : getContainerNestedSource(widget, sourceWidgets))
-          : getContainerNestedSource(widget, sourceWidgets);
-        if (!preferPhoneNestedLive) {
+        // Desktop nested layout must stay laptop coords when publishing from phone mode.
+        const nestedLayout = getContainerNestedSource(widget, sourceWidgets);
+        if (builderDeviceMode !== BUILDER_DEVICE_MOBILE) {
           liveContainerNestedLayoutsRef.desktop.set(String(widget.id), nestedLayout);
         }
         return {
@@ -4398,21 +4576,34 @@ export default function DashboardBuilder({
     const topLevelIds = new Set(
       syncedWidgets.filter((widget) => isTopLevelCanvasWidget(widget)).map((widget) => String(widget.id)),
     );
-    const publishLayoutPx = mergeLayoutPxFromWidgets(
-      layoutPxRef.current?.length ? layoutPxRef.current : layoutPx,
-      syncedWidgets,
+    const publishingFromPhoneOnly = builderDeviceMode === BUILDER_DEVICE_MOBILE && !desktopLayoutCustomizedRef.current;
+    const frozenDesktopPx = sanitizeNestedLayoutPx(
+      layoutPxBlueprintRef.current?.desktop?.length
+        ? layoutPxBlueprintRef.current.desktop
+        : (layoutPxRef.current?.length ? layoutPxRef.current : layoutPx),
     );
-    layoutPxRef.current = publishLayoutPx;
+    const desktopLayoutSource = publishingFromPhoneOnly
+      ? frozenDesktopPx
+      : (layoutPxRef.current?.length ? layoutPxRef.current : layoutPx);
+    const publishLayoutPx = publishingFromPhoneOnly
+      ? frozenDesktopPx
+      : mergeLayoutPxFromWidgets(
+        desktopLayoutSource,
+        widgetsForDesktopLayoutMerge(syncedWidgets, desktopLayoutSource),
+      );
+    if (!publishingFromPhoneOnly) {
+      layoutPxRef.current = publishLayoutPx;
+      layoutPxBlueprintRef.current = {
+        ...layoutPxBlueprintRef.current,
+        desktop: sanitizeNestedLayoutPx(publishLayoutPx),
+      };
+    }
 
     // Floating builder: derive storage grid from pixel boxes so fallback/phone stay aligned.
     let publishLayout;
+    const publishCanvasWidth = resolvePublishCanvasWidth({ builderDeviceMode });
     if (USE_FLOATING_BUILDER && publishLayoutPx.length) {
-      const designW = Math.max(
-        320,
-        Number(designCanvasWidthRef.current)
-          || Number(canvasWidth)
-          || 1200,
-      );
+      const designW = publishCanvasWidth;
       const storageColWidth = Math.max(
         8,
         (designW - GRID_GAP_X * (GRID_COLS - 1)) / GRID_COLS,
@@ -4668,13 +4859,8 @@ export default function DashboardBuilder({
         appKey: targetAppKey,
         pageKey: DASHBOARD_STORAGE_PAGE_KEY,
         layout_px: publishLayoutPx,
-        canvas_width: (() => {
-          const bounds = contentBoundsPx(publishLayoutPx, 0);
-          return Math.max(320, bounds.width);
-        })(),
-        ...(USE_FLOATING_BUILDER && (
-          layoutPxMobileRef.current?.length || layoutPxMobile?.length || phoneLayoutCustomizedRef.current
-        ) ? {
+        canvas_width: publishCanvasWidth,
+        ...(USE_FLOATING_BUILDER && phoneLayoutCustomizedRef.current ? {
           layout_px_mobile: ensurePhoneLayoutPx(
             (widgets || []).filter((widget) => isTopLevelCanvasWidget(widget)),
             layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile,
@@ -4716,15 +4902,22 @@ export default function DashboardBuilder({
       // Floating phone canvas: always seed from laptop scaled to 390 when
       // there is no real phone layout yet, or when saved phone px is still desktop-wide.
       if (USE_FLOATING_BUILDER) {
-        const desktopPx = sanitizeNestedLayoutPx(
+        let desktopPx = sanitizeNestedLayoutPx(
           (layoutPxRef.current?.length ? layoutPxRef.current : layoutPx) || [],
         );
+        if (!desktopPx.length) {
+          desktopPx = desktopPxFromWidgetBoxPx(
+            (widgets || []).filter((widget) => isTopLevelCanvasWidget(widget)),
+          );
+        }
         const existingMobilePx = sanitizeNestedLayoutPx(
           (layoutPxMobileRef.current?.length ? layoutPxMobileRef.current : layoutPxMobile) || [],
         );
         const existingBounds = existingMobilePx.length ? contentBoundsPx(existingMobilePx, 0) : { width: 0 };
         const hasRealPhoneLayout = phoneLayoutCustomizedRef.current
           && existingMobilePx.length
+          && isPhoneSizedLayoutPx(existingMobilePx)
+          && !isLaptopSizedLayoutPx(existingMobilePx)
           && existingBounds.width <= PHONE_BUILDER_WIDTH + 48;
 
         if (hasRealPhoneLayout) {
@@ -4736,12 +4929,20 @@ export default function DashboardBuilder({
           layoutPxMobileRef.current = completed;
           setLayoutPxMobile(completed);
           setWidgets((prev) => syncTopLevelLayoutsOnWidgets(prev, liveLayout, mergedMobile));
-        } else if (desktopPx.length) {
+        } else if (desktopPx.length || (widgets || []).some((w) => isTopLevelCanvasWidget(w))) {
+          const deskForSeed = desktopPx.length
+            ? desktopPx
+            : desktopPxFromWidgetBoxPx((widgets || []).filter((widget) => isTopLevelCanvasWidget(widget)));
           const designW = Math.max(
             320,
-            Number(designCanvasWidthRef.current) || contentBoundsPx(desktopPx, 0).width,
+            LAPTOP_DESIGN_CANVAS_WIDTH,
+            contentBoundsPx(deskForSeed, 0).width,
           );
-          const seeded = scaleLayoutPx(desktopPx, designW, PHONE_BUILDER_WIDTH);
+          const seeded = ensurePhoneLayoutPx(
+            (widgets || []).filter((widget) => isTopLevelCanvasWidget(widget)),
+            scaleLayoutPx(deskForSeed, designW, PHONE_BUILDER_WIDTH),
+            { phoneWidth: PHONE_BUILDER_WIDTH, desktopPx: deskForSeed, equalize: false },
+          );
           layoutPxMobileRef.current = seeded;
           setLayoutPxMobile(seeded);
           // Working copy only — live still uses laptop until user edits + publish.
@@ -4848,12 +5049,22 @@ export default function DashboardBuilder({
         defaultForUserIds: defaultForUsersForSave,
         dashboardJson,
       });
-      if (Number.isFinite(Number(dashboardJson.canvas_width))) {
-        designCanvasWidthRef.current = Math.round(Number(dashboardJson.canvas_width));
-        setDesignCanvasWidth(designCanvasWidthRef.current);
-      }
+      designCanvasWidthRef.current = LAPTOP_DESIGN_CANVAS_WIDTH;
+      setDesignCanvasWidth(LAPTOP_DESIGN_CANVAS_WIDTH);
       layoutPxRef.current = Array.isArray(dashboardJson.layout_px) ? dashboardJson.layout_px : layoutPxRef.current;
       setLayoutPx(layoutPxRef.current);
+      if (Array.isArray(dashboardJson.layout_px_mobile)) {
+        layoutPxBlueprintRef.current = {
+          ...layoutPxBlueprintRef.current,
+          mobile: sanitizeNestedLayoutPx(dashboardJson.layout_px_mobile),
+        };
+      }
+      if (!isPhoneSizedLayoutPx(layoutPxRef.current)) {
+        layoutPxBlueprintRef.current = {
+          ...layoutPxBlueprintRef.current,
+          desktop: sanitizeNestedLayoutPx(layoutPxRef.current),
+        };
+      }
       layoutRef.current = publishLayout;
       mobileLayoutRef.current = publishMobileLayout;
       setLayout(publishLayout);
@@ -4921,12 +5132,22 @@ export default function DashboardBuilder({
         dashboardJson,
       });
 
-      if (Number.isFinite(Number(dashboardJson.canvas_width))) {
-        designCanvasWidthRef.current = Math.round(Number(dashboardJson.canvas_width));
-        setDesignCanvasWidth(designCanvasWidthRef.current);
-      }
+      designCanvasWidthRef.current = LAPTOP_DESIGN_CANVAS_WIDTH;
+      setDesignCanvasWidth(LAPTOP_DESIGN_CANVAS_WIDTH);
       layoutPxRef.current = Array.isArray(dashboardJson.layout_px) ? dashboardJson.layout_px : layoutPxRef.current;
       setLayoutPx(layoutPxRef.current);
+      if (Array.isArray(dashboardJson.layout_px_mobile)) {
+        layoutPxBlueprintRef.current = {
+          ...layoutPxBlueprintRef.current,
+          mobile: sanitizeNestedLayoutPx(dashboardJson.layout_px_mobile),
+        };
+      }
+      if (!isPhoneSizedLayoutPx(layoutPxRef.current)) {
+        layoutPxBlueprintRef.current = {
+          ...layoutPxBlueprintRef.current,
+          desktop: sanitizeNestedLayoutPx(layoutPxRef.current),
+        };
+      }
       layoutRef.current = publishLayout;
       mobileLayoutRef.current = publishMobileLayout;
       setLayout(publishLayout);
@@ -5503,19 +5724,33 @@ export default function DashboardBuilder({
       );
       const sourceBox = existingPx.find((item) => String(item.i) === String(widget.id))
         || readWidgetBoxPx(widget, existingPx.length);
-      const box = cloneBoxBeside(sourceBox, existingPx);
-      const phoneBox = isPhone
-        ? normalizeBox({
-          ...box,
-          width: Math.min(box.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2),
+      const rawCloneBox = cloneBoxBeside(sourceBox, existingPx);
+      let box;
+      if (isPhone) {
+        box = normalizeBox({
+          ...rawCloneBox,
+          width: Math.min(rawCloneBox.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2),
           left: Math.max(
             PHONE_FRAME_INSET,
-            Math.min(box.left, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET - Math.min(box.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2)),
+            Math.min(
+              rawCloneBox.left,
+              PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET - Math.min(rawCloneBox.width, PHONE_CONTENT_WIDTH - PHONE_FRAME_INSET * 2),
+            ),
           ),
-        })
-        : box;
+        });
+      } else {
+        const clamped = clampLayoutPxToLaptopFrame(
+          [normalizeBox(rawCloneBox)],
+          canvasWidth || LAPTOP_DESIGN_CANVAS_WIDTH,
+          LAPTOP_CANVAS_INSET,
+        );
+        box = normalizeBox(clamped[0] || rawCloneBox || sourceBox);
+      }
+      if (!box || !Number.isFinite(Number(box.width))) {
+        box = normalizeBox(sourceBox || rawCloneBox || {});
+      }
       const localId = `tmp_${Date.now()}`;
-      const nextPx = [...existingPx, { i: localId, ...(isPhone ? phoneBox : box) }];
+      const nextPx = [...existingPx, { i: localId, ...box }];
       if (isPhone) {
         phoneLayoutCustomizedRef.current = true;
         layoutPxMobileRef.current = nextPx;
@@ -5776,9 +6011,11 @@ export default function DashboardBuilder({
           ? (isPhoneView
             // Live phone: full-bleed into the side gutters (no shell letterbox).
             ? "w-full min-h-0 min-w-0 overflow-x-hidden max-md:w-full"
-            : "w-full min-h-0 min-w-0 overflow-x-auto")
+            : "w-full min-h-0 min-w-0 overflow-x-hidden")
           : "flex-1 h-full min-h-0 w-full overflow-hidden"
-    } ${readOnly && isPhoneView ? "bg-[#f8fafc] max-md:bg-[#f8fafc]" : "bg-[#f8fafc]"} font-sans`}>
+    } font-sans`}
+      style={{ backgroundColor: DASHBOARD_CANVAS_BG }}
+    >
       {!readOnly && builderNotice ? (
         <div
           className={`fixed left-1/2 top-4 z-[130] w-[min(92vw,420px)] -translate-x-1/2 rounded-lg border px-4 py-3 shadow-lg ${
@@ -5798,9 +6035,9 @@ export default function DashboardBuilder({
           ? "w-full"
           : readOnly
             ? (isPhoneView
-              ? "w-full flex flex-col min-w-0 overflow-x-hidden"
-              : "w-full flex flex-col min-w-0 overflow-x-auto")
-            : "flex-1 flex flex-col overflow-hidden min-w-0"
+              ? "w-full flex flex-col min-w-0 min-h-0 overflow-x-hidden h-full"
+              : "w-full flex flex-col min-w-0 min-h-0 overflow-x-hidden flex-1 h-full")
+            : "flex-1 flex flex-col overflow-hidden min-w-0 h-full"
       }`}>
         {!readOnly && (
           <div className="h-10 bg-white border-b border-slate-200 shrink-0 z-20 shadow-sm flex min-w-0" data-builder-toolbar-shell>
@@ -6298,26 +6535,30 @@ export default function DashboardBuilder({
                 // Live phone: edge-to-edge canvas (break out of any residual parent pad).
                 ? "overflow-x-hidden overflow-y-auto bg-transparent p-0 max-md:w-full max-md:max-w-none"
                 : isPhoneBuilderMode
-                  ? "flex-1 overflow-x-hidden overflow-y-auto bg-[#f8fafc] p-0"
-                  // Builder + live laptop: same horizontal scroll (1:1 WYSIWYG).
-                  : "flex-1 overflow-x-auto overflow-y-auto bg-[#f8fafc] p-0"
+                  ? "flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-0"
+                  // Builder + live laptop: full-bleed canvas; hide horizontal overflow always.
+                  : "flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-0 h-full [overflow-x:hidden]"
           }`}
+          style={
+            readOnly && isPhoneView
+              ? undefined
+              : { backgroundColor: DASHBOARD_CANVAS_BG }
+          }
         >
           <div
             style={
               readOnly && isPhoneView
                 ? { width: "100%", maxWidth: "100%" }
-                : readOnly
-                  ? undefined
-                  : { minHeight: "100%" }
+                : { width: "100%", maxWidth: "100%", minHeight: readOnly ? undefined : "100%" }
             }
             className={`${
               isPhonePreviewFrame
                 ? "flex justify-center py-3 w-full max-w-full"
                 : (readOnly && isPhoneView)
                   ? "w-full max-w-none"
-                  // Live laptop grows with design width (scroll), same as builder.
-                  : "w-max min-w-full"
+                  : isPhoneFloatingView
+                    ? "w-full max-w-full min-w-0 overflow-x-hidden"
+                    : "w-full h-full min-h-0 max-w-full min-w-0 box-border overflow-x-hidden"
             }`}
           >
             {gridReady ? (
@@ -6326,24 +6567,27 @@ export default function DashboardBuilder({
                 isPhonePreviewFrame
                   ? "box-border w-[390px] max-w-full rounded-[24px] border-4 border-slate-800 bg-white shadow-xl overflow-hidden"
                   : (readOnly && isPhoneView)
-                    // Live phone: span the full content column (into former side gutters).
                     ? "w-full max-w-none overflow-hidden"
-                    : "w-max min-w-full"
+                    : isPhoneFloatingView
+                      ? "w-full max-w-full min-w-0 overflow-x-hidden"
+                      : "w-full max-w-full min-w-0 box-border overflow-x-hidden"
               }
               style={
                 readOnly && isPhoneView
-                  ? { width: "100%", marginLeft: 0, marginRight: 0 }
-                  : undefined
+                  ? { width: "100%", marginLeft: 0, marginRight: 0, maxWidth: "100%" }
+                  : !isPhoneFloatingView
+                    ? { width: "100%", maxWidth: "100%" }
+                    : undefined
               }
             >
             {/* Phone gutters are layout insets (equal L/R) — no CSS padding here. */}
             <div
               ref={liveGridMeasure.containerRef}
-              {...(lockPhoneDesignWidth ? { "data-dashboard-phone-frame": "true" } : {})}
+              {...(lockPhoneDesignWidth ? { "data-dashboard-phone-frame": "true" } : { "data-dashboard-laptop-frame": "true" })}
               className={
                 lockPhoneDesignWidth
                   ? "relative box-border w-full min-w-0 overflow-hidden p-0"
-                  : "relative w-max min-w-full"
+                  : "relative box-border w-full min-w-0 overflow-x-hidden"
               }
             >
             <SimpleBuilderCanvas
@@ -6352,13 +6596,16 @@ export default function DashboardBuilder({
               layoutPx={resolvedLayoutPx}
               readOnly={readOnly}
               phoneMode={isPhoneFloatingView}
-              canvasWidth={
-                lockPhoneDesignWidth
-                  ? (isPhonePreviewFrame
-                    ? PHONE_CONTENT_WIDTH
-                    : Math.max(320, floatingCanvasWidth || PHONE_CONTENT_WIDTH))
-                  : floatingCanvasWidth
+              hostViewportWidth={
+                isPhoneFloatingView
+                  ? 0
+                  : (containerWidth || liveGridMeasure.width || 0)
               }
+              canvasWidth={lockPhoneDesignWidth
+                ? (isPhonePreviewFrame
+                  ? PHONE_CONTENT_WIDTH
+                  : Math.max(320, floatingCanvasWidth || PHONE_CONTENT_WIDTH))
+                : laptopDesignWidth}
               selectedWidgetId={readOnly ? null : selectedWidgetId}
               onLayoutChange={readOnly ? undefined : handleCanvasLayoutPxChange}
               onSelectWidget={readOnly ? undefined : (widgetId) => {
@@ -6540,6 +6787,33 @@ export default function DashboardBuilder({
       )}
 
       <style jsx global>{`
+        .simple-rnd {
+          outline: none !important;
+          overflow: hidden !important;
+          box-sizing: border-box !important;
+        }
+        [data-dashboard-design-canvas] {
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+        }
+        [data-dashboard-design-canvas] .simple-widget-body,
+        [data-dashboard-design-canvas] .nested-kpi-value,
+        [data-dashboard-design-canvas] h2 {
+          text-rendering: geometricPrecision;
+        }
+        .simple-rnd.simple-rnd-selected {
+          outline: none !important;
+          box-shadow: none !important;
+        }
+        .simple-rnd .react-resizable-handle {
+          box-sizing: border-box !important;
+        }
+        .simple-container-rnd > .simple-widget-body.simple-nested-canvas {
+          border-radius: inherit;
+        }
+        .simple-nested-canvas .simple-nested-child-rnd {
+          border-radius: 6px;
+        }
         .dashboard-builder-grid .container-nested-grid-host {
           overflow: visible !important;
         }

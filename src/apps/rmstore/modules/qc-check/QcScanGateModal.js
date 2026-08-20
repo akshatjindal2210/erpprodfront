@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Loader2, Plus, QrCode, ScanLine, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Loader2, Plus, QrCode, ScanLine } from "lucide-react";
 
 import Drawer from "@/ui/primitives/Drawer";
 import Snackbar from "@/ui/primitives/Snackbar";
@@ -12,9 +12,10 @@ import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettin
 import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
 import { prepareQrScanSession, unlockScanAudio } from "@/platform/utils/global/scanFeedback";
-import { extractBatchMrnUid, extractCoilUid, extractQcStickerUid, normalizeScanInput, qcStickerDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
+import { extractBatchMrnUid, extractQcStickerUid, normalizeScanInput, qcStickerDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
 import { qcCheckService } from "@/apps/rmstore/lib/services/qcCheck";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
+import { SCAN_INPUT_CLASS } from "@/ui/common/Constants";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = {
@@ -26,22 +27,18 @@ const INITIAL_SNACK = {
 };
 
 /**
- * Scan-driven QC unlock (IMS-style scan controls).
- * Specs open only for the coil identified by the scanned sticker.
+ * Scan-driven QC unlock.
  *
- * Coil-wise: scan QC|{coil_uid} → open that coil's QC form.
- * Batch-wise: scan QC|{mrn}_batch_qc → scan each coil → open a pending coil from that batch.
+ * Coil-wise MRN: scan QC|{coil_uid} → open that coil's Spec form.
+ * Batch-wise MRN: scan QC|{mrn}_batch_qc only → open Spec form for the whole batch.
+ *                 Individual coil QC stickers from a batch MRN are rejected (not independent).
  */
 export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
-  const [phase, setPhase] = useState("idle"); // idle | batch_coils
-  const [batchMrnUid, setBatchMrnUid] = useState("");
-  const [batchMrnNo, setBatchMrnNo] = useState("");
-  const [batchCoils, setBatchCoils] = useState([]);
-  const [scannedCoils, setScannedCoils] = useState(() => new Set());
   const [busy, setBusy] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [laserCaptureMode, setLaserCaptureMode] = useState(null);
   const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
+  const [batchCoils, setBatchCoils] = useState([]);
 
   const coilInputRef = useRef(null);
   const scanToastRef = useRef({});
@@ -58,11 +55,6 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
   }, []);
   const { showScanToast, showScanSuccess } = useScanSnackbarActions(setSnackbar, scanToastRef);
 
-  const remaining = useMemo(
-    () => batchCoils.filter((c) => !scannedCoils.has(String(c.coil_no_uid || "").toLowerCase())),
-    [batchCoils, scannedCoils]
-  );
-
   const armLaser = useCallback(() => {
     if (laserScan || isLaserScanEnabled()) {
       laserCaptureModeRef.current = "qc";
@@ -74,13 +66,9 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
   }, [laserScan]);
 
   const reset = useCallback(() => {
-    setPhase("idle");
-    setBatchMrnUid("");
-    setBatchMrnNo("");
-    setBatchCoils([]);
-    setScannedCoils(new Set());
     setBusy(false);
     setIsScannerOpen(false);
+    setBatchCoils([]);
     armLaser();
   }, [armLaser]);
 
@@ -90,11 +78,6 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
       return;
     }
     reset();
-    if (row?.is_batch_pending && row?.mrn_uid) {
-      setBatchMrnUid(String(row.mrn_uid));
-      setBatchMrnNo(row.mrn_no != null ? String(row.mrn_no) : "");
-      setPhase("idle");
-    }
     void unlockScanAudio().catch(() => {});
   }, [open, row?.coil_no_uid, row?.mrn_uid, row?.is_batch_pending, reset]);
 
@@ -106,46 +89,22 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
       limit: 5,
       filters: { status: "pending", coil_no_uid: uid, expand_coils: true },
     });
-    return (
+    const hit =
       (res?.data || []).find(
-        (r) => String(r.coil_no_uid || "").toLowerCase() === uid.toLowerCase() && !r.is_batch_pending
-      ) || null
-    );
+        (r) => String(r.coil_no_uid || "").toLowerCase() === uid.toLowerCase()
+      ) || null;
+    if (!hit) return null;
+    // Batch MRN coils must use the batch QC sticker — not independent coil QC
+    if (String(hit.sticker_mode || "").toLowerCase() === "batch" || hit.is_batch_pending) {
+      return {
+        __batchCoilBlocked: true,
+        mrn_uid: hit.mrn_uid,
+        mrn_no: hit.mrn_no,
+        coil_no_uid: hit.coil_no_uid,
+      };
+    }
+    return hit;
   }, []);
-
-  const loadBatchPending = useCallback(
-    async (mrnUid) => {
-      const uid = String(mrnUid || "").trim();
-      if (!uid) {
-        showScanToast("error", "batch-mrn", "The batch sticker has no MRN.");
-        return false;
-      }
-      const res = await qcCheckService.getAll({
-        page: 1,
-        limit: 1000,
-        filters: { status: "pending", mrn_uid: uid, expand_coils: true },
-      });
-      const list = (res?.data || []).filter(
-        (r) => String(r.coil_no_uid || "").trim() && !r.is_batch_pending
-      );
-      if (!list.length) {
-        showScanToast("error", "batch-empty", "No pending coils were found for this batch MRN.");
-        return false;
-      }
-      setBatchMrnUid(uid);
-      setBatchMrnNo(list[0]?.mrn_no != null ? String(list[0].mrn_no) : "");
-      setBatchCoils(list);
-      setScannedCoils(new Set());
-      setPhase("batch_coils");
-      showScanSuccess(
-        "batch-ok",
-        `Batch unlocked. Scan all ${list.length} coil sticker(s).`,
-        SNACK_DUR.med
-      );
-      return true;
-    },
-    [showScanToast, showScanSuccess]
-  );
 
   const openCoilFromScan = useCallback(
     async (pendingRow, remainingQueue = []) => {
@@ -159,9 +118,13 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
           ? { qc_check_uid: pendingRow.qc_check_uid }
           : { coil_no_uid: pendingRow.coil_no_uid };
         await qcCheckService.prepare(prepareBody);
+        const extra =
+          Array.isArray(remainingQueue) && remainingQueue.length
+            ? ` (${remainingQueue.length} more in batch queue)`
+            : "";
         showScanSuccess(
           "qc-ok",
-          `Scan accepted. Opening the spec check for ${pendingRow.coil_no_uid}.`,
+          `Scan accepted. Opening the spec check for ${pendingRow.coil_no_uid}.${extra}`,
           SNACK_DUR.short
         );
         onUnlocked?.(pendingRow, remainingQueue);
@@ -179,25 +142,69 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
     [onUnlocked, showScanToast, showScanSuccess]
   );
 
-  const finishBatchUnlock = useCallback(() => {
-    const scannedPending = batchCoils.filter(
-      (c) =>
-        scannedCoils.has(String(c.coil_no_uid || "").toLowerCase()) &&
-        (["pending", "draft"].includes(String(c.status || "").toLowerCase()) ||
-          c.is_virtual_pending)
-    );
-    const allScanned = batchCoils.filter((c) =>
-      scannedCoils.has(String(c.coil_no_uid || "").toLowerCase())
-    );
-    const queue = scannedPending.length ? scannedPending : allScanned;
-    if (!queue.length) {
-      showScanToast("error", "batch-none", "No coils remain available for QC in this batch.");
-      return;
-    }
-    const [first, ...rest] = queue;
-    // Coil-level Spec form for first; remaining open after each submit
-    void openCoilFromScan(first, rest);
-  }, [batchCoils, scannedCoils, openCoilFromScan, showScanToast]);
+  /** Batch QC sticker → not queuing coils anymore; check the whole batch together. */
+  const openBatchFromScan = useCallback(
+    async (mrnUid) => {
+      const uid = String(mrnUid || "").trim();
+      if (!uid) {
+        showScanToast("error", "batch-mrn", "The batch sticker has no MRN.");
+        return false;
+      }
+      const res = await qcCheckService.getAll({
+        page: 1,
+        limit: 1000,
+        filters: { status: "pending", mrn_uid: uid, expand_coils: true },
+      });
+      // expand_coils returns one row per coil; batch MRNs flag is_batch_pending=true
+      // so we must NOT filter those out here — batch sticker unlocks the whole set.
+      const list = (res?.data || []).filter((r) => String(r.coil_no_uid || "").trim());
+      if (!list.length) {
+        showScanToast("error", "batch-empty", "No pending coils were found for this batch MRN.");
+        return false;
+      }
+      const mode = String(list[0]?.sticker_mode || "").toLowerCase();
+      if (mode && mode !== "batch") {
+        showScanToast(
+          "error",
+          "not-batch-mrn",
+          "This MRN is coil-wise. Scan each coil QC sticker, not the batch sticker.",
+          SNACK_DUR.long
+        );
+        return false;
+      }
+
+      // Create a virtual batch row that contains all coil UIDs
+      const batchRow = {
+        ...list[0],
+        coil_no_uid: list.map((c) => c.coil_no_uid).join(", "),
+        coil_count: list.length,
+        is_batch_pending: true,
+      };
+
+      setBusy(true);
+      try {
+        await qcCheckService.prepare({ coil_no_uid: batchRow.coil_no_uid, is_batch_qc: true });
+        showScanSuccess(
+          "qc-ok",
+          `Batch scan accepted. Opening spec check for all ${list.length} coils in MRN ${list[0].mrn_no || uid}.`,
+          SNACK_DUR.short
+        );
+        onUnlocked?.(batchRow, []); // Empty queue — we are checking all at once
+        return true;
+      } catch (err) {
+        showScanToast(
+          "error",
+          "spec-load",
+          err?.message || "Specifications could not be loaded. Define them in RM Spec Master.",
+          SNACK_DUR.long
+        );
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [onUnlocked, showScanToast, showScanSuccess]
+  );
 
   const tryScan = useCallback(
     async (rawVal) => {
@@ -210,43 +217,6 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
 
       setBusy(true);
       try {
-        if (phase === "batch_coils") {
-          let coilUid = extractCoilUid(raw);
-          if (!coilUid) {
-            const qcUid = extractQcStickerUid(raw);
-            if (qcUid && !/_batch_qc$/i.test(qcUid)) coilUid = qcUid;
-          }
-          if (!coilUid) {
-            showScanToast("error", "need-coil", "Scan a coil sticker for this batch.");
-            return;
-          }
-          const key = coilUid.toLowerCase();
-          const inBatch = batchCoils.some((c) => String(c.coil_no_uid || "").toLowerCase() === key);
-          if (!inBatch) {
-            showScanToast("error", "coil-batch", "This coil does not belong to the scanned batch.");
-            return;
-          }
-          if (scannedCoils.has(key)) {
-            showScanToast("error", "coil-dup", "This coil has already been scanned.");
-            return;
-          }
-          const next = new Set(scannedCoils);
-          next.add(key);
-          setScannedCoils(next);
-          const left = batchCoils.filter(
-            (c) => !next.has(String(c.coil_no_uid || "").toLowerCase())
-          );
-          if (left.length === 0) finishBatchUnlock();
-          else {
-            showScanSuccess(
-              "coil-ok",
-              `Coil accepted (${next.size} of ${batchCoils.length}).`,
-              SNACK_DUR.short
-            );
-          }
-          return;
-        }
-
         const batchMrn = extractBatchMrnUid(raw);
         if (batchMrn) {
           if (
@@ -260,7 +230,7 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
               "Opening QC for the scanned batch, which differs from the selected row."
             );
           }
-          await loadBatchPending(batchMrn);
+          await openBatchFromScan(batchMrn);
           return;
         }
 
@@ -275,27 +245,24 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
           showScanToast("error", "no-pending", `No pending QC check was found for coil ${qcUid}.`);
           return;
         }
-        void openCoilFromScan(pending);
+        if (pending.__batchCoilBlocked) {
+          const mrnLabel = pending.mrn_no || pending.mrn_uid || "this MRN";
+          showScanToast(
+            "error",
+            "batch-coil",
+            `MRN ${mrnLabel} is batch-wise. Scan the batch QC sticker, not an individual coil.`,
+            SNACK_DUR.long
+          );
+          return;
+        }
+        await openCoilFromScan(pending);
       } catch (err) {
         showScanToast("error", "scan-fail", err?.message || "Scan could not be processed. Please try again.");
       } finally {
         setBusy(false);
       }
     },
-    [
-      open,
-      busy,
-      phase,
-      batchCoils,
-      scannedCoils,
-      row,
-      loadBatchPending,
-      resolvePendingCoil,
-      openCoilFromScan,
-      finishBatchUnlock,
-      showScanToast,
-      showScanSuccess,
-    ]
+    [open, busy, row, openBatchFromScan, resolvePendingCoil, openCoilFromScan, showScanToast]
   );
 
   tryScanRef.current = tryScan;
@@ -352,11 +319,6 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
   });
 
   const laserScanActive = open && Boolean(laserCaptureMode) && (laserScan || isLaserScanEnabled());
-  const title = phase === "batch_coils" ? "Scan Batch Coils" : "Scan QC Sticker";
-  const hint =
-    phase === "batch_coils"
-      ? `MRN ${batchMrnNo || batchMrnUid} · scan each coil, then fill specs`
-      : "Scan QC sticker once, then fill specs for that coil";
 
   const scanControls = (
     <>
@@ -393,12 +355,8 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
           <input
             ref={coilInputRef}
             type="text"
-            className="flex-1 h-8 px-2.5 border border-slate-300 rounded-lg text-xs font-mono"
-            placeholder={
-              phase === "batch_coils"
-                ? getScanInputPlaceholder("coil")
-                : "Scan / paste QC sticker"
-            }
+            className={SCAN_INPUT_CLASS}
+            placeholder={getScanInputPlaceholder() || "Scan / paste QC sticker"}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -436,8 +394,8 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
       <Drawer
         isOpen={open}
         onClose={onClose}
-        title={title}
-        description={hint}
+        title="Scan QC Sticker"
+        description="Scan coil or batch QC sticker once, then fill specs (batch coils continue after each submit)"
         maxWidth="max-w-lg"
         footer={<RmStoreDrawerFooter onClose={onClose} cancelOnly />}
       >
@@ -446,51 +404,26 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
             <div className="flex items-center justify-between gap-2 px-0.5">
               <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 <ScanLine size={13} className="text-indigo-600" />
-                {phase === "batch_coils" ? "Coil sticker" : "QC sticker"}
+                QC sticker
                 {busy ? <Loader2 size={12} className="animate-spin text-slate-400" /> : null}
               </span>
-              {phase === "batch_coils" ? (
-                <span className="text-[10px] font-bold text-indigo-600 tabular-nums">
-                  {scannedCoils.size}/{batchCoils.length}
-                </span>
-              ) : null}
             </div>
             {scanControls}
           </div>
 
-          {phase === "batch_coils" ? (
-            <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
-              <div className="px-2.5 py-1.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  Coils · MRN {batchMrnNo || batchMrnUid}
+          {batchCoils.length > 0 && (
+            <div
+              className="rounded-xl border border-indigo-100 bg-indigo-50 p-2.5 flex items-center justify-between gap-2 cursor-help transition-colors hover:bg-indigo-100/50 animate-in fade-in slide-in-from-bottom-2"
+              title={`Coils in this batch:\n${batchCoils.map((c) => c.coil_no_uid).join("\n")}`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse shrink-0" />
+                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 truncate">
+                  Batch: ALL ({batchCoils.length} coils)
                 </span>
-                {remaining.length > 0 ? (
-                  <span className="text-[10px] font-medium text-slate-500">
-                    {remaining.length} left
-                  </span>
-                ) : null}
               </div>
-              <ul className="max-h-52 overflow-y-auto divide-y divide-slate-100">
-                {batchCoils.map((c) => {
-                  const uid = String(c.coil_no_uid || "");
-                  const done = scannedCoils.has(uid.toLowerCase());
-                  return (
-                    <li
-                      key={uid}
-                      className="px-2.5 py-1.5 flex items-center justify-between gap-2 text-[11px]"
-                    >
-                      <span className="font-mono font-bold text-slate-800 truncate">{uid}</span>
-                      {done ? (
-                        <Check size={14} className="text-emerald-600 shrink-0" />
-                      ) : (
-                        <X size={14} className="text-slate-300 shrink-0" />
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
             </div>
-          ) : null}
+          )}
         </div>
       </Drawer>
 

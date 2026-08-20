@@ -20,10 +20,18 @@ import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
+import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { SpecColorChip } from "./specHeaderUi";
 
 const MODULE = "rm_spec_master";
 
 export default function RmSpecMasterPage() {
+  const canAccess = useCanAccess();
+  const hasAddPermission = canAccess(MODULE, "add").allowed;
+  const hasEditPermission = canAccess(MODULE, "edit").allowed;
+  const hasAuthorizePermission = canAccess(MODULE, "authorize").allowed;
+  const hasDeletePermission = canAccess(MODULE, "delete").allowed;
+
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
   const [params, setParams] = useState({
@@ -120,15 +128,20 @@ export default function RmSpecMasterPage() {
     () => [
       ["Item Code", "item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { fixed: true, width: "140px" }],
       ["Description", "item_desc", (v) => <span className="text-[11px] text-slate-600 truncate block">{v || "—"}</span>, { width: "220px" }],
-      ["Condition", "condition", (v) => <span className="text-[11px] text-slate-700 truncate block">{v || "—"}</span>, { width: "120px" }],
-      ["Grade", "grade", (v) => <span className="text-[11px] text-slate-700 truncate block">{v || "—"}</span>, { width: "120px" }],
-      ["Size", "size", (v) => <span className="text-[11px] text-slate-700 truncate block">{v || "—"}</span>, { width: "100px" }],
+      /*
+      ["Condition", "condition", (v, row) => <SpecColorChip value={v} color={row?.condition_color} />, { width: "120px" }],
+      ["Grade", "grade", (v, row) => <SpecColorChip value={v} color={row?.grade_color} />, { width: "120px" }],
+      ["Size", "size", (v) => <span className="text-[11px] font-bold text-slate-700 uppercase truncate block">{v || "—"}</span>, { width: "100px" }],
+      ["Condition Color", "condition_color", (v) => <SpecColorChip value={v} />, { width: "130px" }],
+      ["Grade Color", "grade_color", (v) => <SpecColorChip value={v} />, { width: "120px" }],
       ["Spec Count", "spec_count", (v) => (
           <span className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded bg-indigo-50 text-indigo-700 text-[10px] font-black">
             {v ?? 0}
           </span>
-        ), { width: "120px" }],
-      ["Spec Name", "spec_names", (v) => <span className="text-[10px] text-slate-500 truncate block">{v || "—"}</span>, { width: "220px" }],
+        ), { width: "110px" }],
+        ["Spec Name", "spec_names", (v) => <span className="text-[10px] text-slate-500 truncate block">{v || "—"}</span>, { width: "220px" }],
+        ["Inspection Method", "inspection_methods", (v) => <span className="text-[10px] text-slate-500 truncate block">{v || "—"}</span>, { width: "180px" }],
+      */
       ["Approval Status", "approval_status", (v) => {
         const status = v || "pending";
         const styles =
@@ -200,12 +213,12 @@ export default function RmSpecMasterPage() {
           <ListPageToolbarLayout
             actions={
               <>
-                <ActionButton module={MODULE} action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
-                <ActionButton module={MODULE} action="add" variant="outline" label="Clone" icon={Copy} disabled={!selected} onClick={() => openModal("clone", selectedRecord)} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
+                <ActionButton module={MODULE} action="add" label="New" icon={Plus} disabled={!hasAddPermission} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+                <ActionButton module={MODULE} action="add" variant="outline" label="Clone" icon={Copy} disabled={!selected || !hasAddPermission} onClick={() => openModal("clone", selectedRecord)} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
                 <ActionButton module={MODULE} action="view" variant="outline" label="View" icon={Eye} disabled={!selected} onClick={() => openModal("view", selectedRecord)} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
-                <ActionButton module={MODULE} action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
-                <ActionButton module={MODULE} action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected} onClick={() => openModal("approve", selectedRecord)} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
-                <ActionButton module={MODULE} action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+                <ActionButton module={MODULE} action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected || !hasEditPermission} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
+                <ActionButton module={MODULE} action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected || !hasAuthorizePermission} record={selectedRecord} onClick={() => openModal("approve", selectedRecord)} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
+                <ActionButton module={MODULE} action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected || !hasDeletePermission} record={selectedRecord} onClick={() => setDeleteItem(selectedRecord)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
                 <button onClick={() => fetchSpecs()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase shadow-none shrink-0">
                   <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
@@ -219,7 +232,7 @@ export default function RmSpecMasterPage() {
           {selected && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
               <span className="text-[10px] font-bold text-indigo-600 uppercase">
-                Selected: {selectedRecord?.item_code} · {selectedRecord?.spec_count ?? 0} line(s)
+                Selected: {selectedRecord?.item_code} · {selectedRecord?.spec_count ?? 0} line{(selectedRecord?.spec_count ?? 0) === 1 ? "" : "s"}
               </span>
               <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
                 <X size={14} /> Clear
@@ -235,14 +248,16 @@ export default function RmSpecMasterPage() {
             onApply={(data) => setParams((p) => ({ ...p, status: data.approvedStatus || p.status }))}
             onReset={() => {
               setTempSearch("");
-              setParams({ pageSize: 1000, status: "all", sortKey: "item_code", sortDir: "asc" });
+              setParams({ pageSize: 1000, status: "all", sortKey: "created_at", sortDir: "desc" });
             }}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by item or specification name"
             searchLabel="Search Spec"
             searchVariant="quick"
+            showSearchButton
             applyOnSearchEnter={false}
+            applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 
@@ -273,7 +288,12 @@ export default function RmSpecMasterPage() {
             onLoadMore={() => { if (!loading && items.length < totalItems) setDisplayLimit((n) => n + 100); }}
             hasMore={items.length < totalItems}
             totalItems={totalItems}
-            cardConfig={{ titleKey: "item_code", badgeIndices: [7], detailIndices: [1, 2, 3], footerKey: "created_at" }}
+            cardConfig={{
+              titleKey: "item_code",
+              tagsKeys: ["approval_status"],
+              detailKeys: ["item_desc", "condition", "grade", "size"],
+              footerKey: "created_at",
+            }}
           />
         </div>
 

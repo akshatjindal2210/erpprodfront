@@ -7,7 +7,7 @@ import { toast } from "react-toastify";
 import Drawer from "@/ui/primitives/Drawer";
 import FormPanelLoader from "@/ui/common/system/FormPanelLoader";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
-import RemarksTextarea from "@/ui/common/forms/RemarksTextarea";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { stockAdjustmentService } from "@/apps/ims/lib/services/stockAdjustment";
 import { boxService } from "@/apps/ims/lib/services/box";
@@ -2108,7 +2108,7 @@ export default function StockAdjustmentStickerCloneDrawer({
           )}
 
           <div className="min-w-0 w-full max-lg:col-span-2 lg:col-span-4">
-            <RemarksTextarea
+            <FormTextarea
               label="Reason"
               labelIcon={<MessageSquareQuote size={12} className="text-indigo-500 shrink-0" />}
               value={form.remarks}

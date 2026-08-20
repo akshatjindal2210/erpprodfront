@@ -1,5 +1,4 @@
-// import { Boxes, Home, ListTodo, Settings, Warehouse } from "lucide-react";
-import { Boxes, Home, ListTodo, Settings } from "lucide-react";
+import { Boxes, Home, ListTodo, Settings, Warehouse } from "lucide-react";
 import { ROUTES } from "@/config/routes";
 import { userHasAppAccess } from "@/config/moduleAppRegistry";
 import { getTaskHomePath } from "@/apps/task/lib/config/appConfig";
@@ -34,7 +33,6 @@ export const APPS = [
     accent: "from-blue-500 to-blue-700",
     inLauncher: true,
   },
-  /*
   {
     id: "rmstore",
     name: "RM Store",
@@ -45,7 +43,6 @@ export const APPS = [
     accent: "from-teal-500 to-teal-700",
     inLauncher: true,
   },
-  */
   {
     id: "task",
     name: "Task",

@@ -2,6 +2,8 @@ import { AlertCircle, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   OK_INPUT,
   ERR_INPUT,
+  OK_TEXTAREA,
+  ERR_TEXTAREA,
   FORM_LABEL_CLASS,
   FORM_ERROR_CLASS,
   FORM_HINT_CLASS,
@@ -13,8 +15,8 @@ import {
 export const inputBase = OK_INPUT;
 export const inputError = ERR_INPUT;
 /** Multi-line: drop fixed h-9, add vertical padding so text isn't flush to the border. */
-export const textareaBase = `${OK_INPUT} h-auto min-h-[72px] py-2 resize-y`;
-export const textareaError = `${ERR_INPUT} h-auto min-h-[72px] py-2 resize-y`;
+export const textareaBase = `${OK_TEXTAREA} min-h-[72px]`;
+export const textareaError = `${ERR_TEXTAREA} min-h-[72px]`;
 export const formHintClass = FORM_HINT_CLASS;
 export const formMicroLabelClass = FORM_MICRO_LABEL_CLASS;
 

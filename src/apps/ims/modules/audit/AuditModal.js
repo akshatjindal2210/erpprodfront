@@ -9,7 +9,7 @@ import { auditService } from "@/apps/ims/lib/services/audit";
 import { userService } from "@/common/auth/services/userService";
 import { locationService } from "@/apps/ims/lib/services/location";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
-import RemarksTextarea from "@/ui/common/forms/RemarksTextarea";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import {
@@ -520,7 +520,7 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
           </div>
         </div>
 
-        <RemarksTextarea
+        <FormTextarea
           label="Remarks"
           labelIcon={<MessageSquareQuote size={12} className="text-indigo-500" />}
           labelClassName={FORM_LABEL_CLASS}

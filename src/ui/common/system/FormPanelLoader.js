@@ -8,7 +8,45 @@ export default function FormPanelLoader({
   hint = "Please wait.",
   className = "",
   minHeight = "min-h-[220px]",
+  fullScreen = false,
 }) {
+  if (fullScreen) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        style={{
+          minHeight: "100vh",
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#f8fafc",
+          fontFamily: "system-ui,sans-serif",
+        }}
+      >
+        <div
+          aria-hidden
+          style={{
+            width: 32,
+            height: 32,
+            border: "3px solid #e2e8f0",
+            borderTopColor: "#4f46e5",
+            borderRadius: "50%",
+            animation: "imp-spin .75s linear infinite",
+          }}
+        />
+        <p style={{ margin: "12px 0 4px", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#475569" }}>
+          {label}
+        </p>
+        {hint ? <p style={{ margin: 0, fontSize: 10, color: "#94a3b8" }}>{hint}</p> : null}
+        <style>{`@keyframes imp-spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`rounded-xl border border-slate-200 bg-white flex flex-col items-center justify-center gap-2 py-12 px-4 ${minHeight} ${className}`}

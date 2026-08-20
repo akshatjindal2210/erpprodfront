@@ -2,7 +2,8 @@
 
 /** @typedef {"quick" | "server"} ListPageFilterVariant */
 
-const LABEL_BASE = "text-[10px] font-bold uppercase ml-1 tracking-tight italic";
+const LABEL_BASE =
+  "block text-[10px] font-bold uppercase ml-1 tracking-tight italic leading-snug whitespace-normal break-normal [overflow-wrap:normal] [word-break:normal]";
 
 /** Shared label fallback */
 export const LIST_PAGE_SEARCH_LABEL_CLASS = `${LABEL_BASE} text-slate-500`;

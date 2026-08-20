@@ -8,7 +8,7 @@ import { getShellAppFromPathname } from "@/config/appsRegistry";
 import { useAppLogout } from "@/platform/hooks/auth/useLogout";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { THEME_CONFIG } from "@/config/theme";
-import { QUICK_LINKS_CONFIG } from "@/apps/ims/lib/config/quickLinks";
+import { getQuickLinksForPathname } from "@/config/quickAccess";
 import { NAV_REGISTRY } from "@/apps/ims/lib/config/navRegistry";
 import { SETTINGS_NAV_REGISTRY } from "@/apps/settings/configuration/config/settingsNavRegistry";
 import { TASK_NAV_REGISTRY } from "@/apps/task/lib/config/navRegistry";
@@ -168,7 +168,7 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
         });
       });
     } else if (!isTaskPath) {
-      QUICK_LINKS_CONFIG.forEach(link => 
+      getQuickLinksForPathname(pathname).forEach((link) =>
         items.push({ name: link.label, path: link.path, type: "Quick Access", icon: link.icon })
       );
 

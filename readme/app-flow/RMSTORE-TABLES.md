@@ -4,7 +4,7 @@ Registry: `backend/src/config/db/dbTables.js` → `RMSTORE_TABLES`
 Init: `backend/src/apps/rmstore/lib/config/db/initDB.js`  
 DDL: `backend/src/apps/rmstore/lib/config/tables/`
 
-**11 live tables** (prefix `rmstore_`). Schema is CREATE-only — drop old `rmstore_*` tables manually before restart if migrating.
+**12 live tables** (prefix `rmstore_`). Schema is CREATE-only — drop old `rmstore_*` tables manually before restart if migrating.
 
 Shared (not RM-only): `mst_activity_logs` with `app_type = 'rmstore'` for Activity Log UI.
 
@@ -16,15 +16,16 @@ Shared (not RM-only): `mst_activity_logs` with `app_type = 'rmstore'` for Activi
 |---|-------|------|---------|
 | 1 | `rmstore_master_location` | 18 | Rack/row locations (`RM-{rack}{row}`) |
 | 2 | `rmstore_master_production` | 15 | FG item ↔ RM item mapping |
-| 3 | `rmstore_master_spec` | 24 | QC spec lines per item |
-| 4 | `rmstore_mrn` | 24 | MRN batch (ERP receipt + sticker meta) |
-| 5 | `rmstore_coil_table` | 30 | Coil stickers / stock lifecycle |
-| 6 | `rmstore_inventory_inwards` | 16 | Store-In headers |
-| 7 | `rmstore_qc_check` | 22 | Per-coil QC (specs in `items` JSONB) |
-| 8 | `rmstore_qc_rejection` | 16 | QC rejection batches |
-| 9 | `rmstore_issue_request` | 20 | Production issue (`coils` JSONB) |
-| 10 | `rmstore_out_entry` | 17 | Store-Out headers |
-| 11 | `rmstore_coil_transaction` | 9 | Coil movement + sticker download log |
+| 3 | `rmstore_spec_master` | 20 | RM item-level spec master |
+| 4 | `rmstore_spec_detail` | 13 | QC spec lines linked by `spec_item_id` (HARD delete; no audit cols) |
+| 5 | `rmstore_mrn` | 24 | MRN batch (ERP receipt + sticker meta) |
+| 6 | `rmstore_coil_table` | 30 | Coil stickers / stock lifecycle |
+| 7 | `rmstore_inventory_inwards` | 16 | Store-In headers |
+| 8 | `rmstore_qc_check` | 22 | Per-coil QC (specs in `items` JSONB) |
+| 9 | `rmstore_qc_rejection` | 16 | QC rejection batches |
+| 10 | `rmstore_issue_request` | 20 | Production issue (`coils` JSONB) |
+| 11 | `rmstore_out_entry` | 17 | Store-Out headers |
+| 12 | `rmstore_coil_transaction` | 9 | Coil movement + sticker download log |
 
 ---
 
@@ -74,20 +75,17 @@ Shared (not RM-only): `mst_activity_logs` with `app_type = 'rmstore'` for Activi
 
 ---
 
-## 3. `rmstore_master_spec`
+## 3. `rmstore_spec_master`
 
-**Purpose:** One row per QC parameter line for an item (`item_dcode` + `sno`).
+**Purpose:** One row per RM item spec master. Holds the item snapshot, header fields, and audit. Detail/lines live in `rmstore_spec_detail`. Delete is **HARD** (row removed; snapshot in activity log).
 
 | Column | Type |
 |--------|------|
-| spec_id | SERIAL PK |
+| spec_item_id | SERIAL PK |
 | item_dcode / item_code / item_desc | INTEGER / VARCHAR / TEXT |
-| sno | INTEGER |
-| type / spec_name / remarks / print_val | VARCHAR / VARCHAR / TEXT / TEXT |
-| spec_type | VARCHAR(50) |
-| min_value / max_value | NUMERIC |
-| correct_option / incorrect_option | TEXT |
-| document_required | BOOLEAN |
+| condition / grade / size | VARCHAR / VARCHAR / VARCHAR |
+| condition_color / grade_color | VARCHAR / VARCHAR |
+| type | VARCHAR(100) |
 | approved / approved_by / approved_at | BOOLEAN / TEXT / TIMESTAMP |
 | is_deleted / deleted_by / deleted_at | BOOLEAN / TEXT / TIMESTAMP |
 | created_by / created_at | TEXT / TIMESTAMP |
@@ -99,7 +97,29 @@ Shared (not RM-only): `mst_activity_logs` with `app_type = 'rmstore'` for Activi
 
 ---
 
-## 4. `rmstore_mrn`
+## 4. `rmstore_spec_detail`
+
+**Purpose:** One row per QC parameter line under a spec master (`spec_item_id` + `sno`). No audit/soft-delete columns. Removed lines and full-spec delete are **HARD**.
+
+| Column | Type |
+|--------|------|
+| spec_id | SERIAL PK |
+| spec_item_id | INTEGER → `rmstore_spec_master.spec_item_id` |
+| sno | INTEGER |
+| spec_name / remarks / print_val | VARCHAR / TEXT / TEXT |
+| inspection_method | TEXT |
+| spec_type | VARCHAR(50) |
+| min_value / max_value | NUMERIC |
+| correct_option / incorrect_option | TEXT |
+| document_required | BOOLEAN |
+
+**Used in**
+- BE: `modules/spec/`; loaded by QC Check inspect
+- FE: `master/rm-spec/`; QC Check modal checklist
+
+---
+
+## 5. `rmstore_mrn`
 
 **Purpose:** Local copy of ERP MRN line; created/updated on sticker generate. Docs (TC/RMTC) live here once.
 
@@ -125,7 +145,7 @@ Shared (not RM-only): `mst_activity_logs` with `app_type = 'rmstore'` for Activi
 
 ---
 
-## 5. `rmstore_coil_table`
+## 6. `rmstore_coil_table`
 
 **Purpose:** Individual coil stickers — core stock entity through QC, Store-In, Store-Out.
 
@@ -156,7 +176,7 @@ Shared (not RM-only): `mst_activity_logs` with `app_type = 'rmstore'` for Activi
 
 ---
 
-## 6. `rmstore_inventory_inwards`
+## 7. `rmstore_inventory_inwards`
 
 **Purpose:** Store-In batch header; coils get `in_uid` + `location_id`.
 
@@ -177,7 +197,7 @@ Shared (not RM-only): `mst_activity_logs` with `app_type = 'rmstore'` for Activi
 
 ---
 
-## 7. `rmstore_qc_check`
+## 8. `rmstore_qc_check`
 
 **Purpose:** QC inspection per coil. Spec answers/docs in `items` JSONB (no child table).
 
@@ -205,7 +225,7 @@ Shared (not RM-only): `mst_activity_logs` with `app_type = 'rmstore'` for Activi
 
 ---
 
-## 8. `rmstore_qc_rejection`
+## 9. `rmstore_qc_rejection`
 
 **Purpose:** Batch of QC-failed coils leaving store/coil area.
 
@@ -226,7 +246,7 @@ Shared (not RM-only): `mst_activity_logs` with `app_type = 'rmstore'` for Activi
 
 ---
 
-## 9. `rmstore_issue_request`
+## 10. `rmstore_issue_request`
 
 **Purpose:** Production issue request; selected coils stored in `coils` JSONB.
 
@@ -250,7 +270,7 @@ Shared (not RM-only): `mst_activity_logs` with `app_type = 'rmstore'` for Activi
 
 ---
 
-## 10. `rmstore_out_entry`
+## 11. `rmstore_out_entry`
 
 **Purpose:** Store-Out batch header; coils get `out_uid`, leave location.
 
@@ -272,7 +292,7 @@ Shared (not RM-only): `mst_activity_logs` with `app_type = 'rmstore'` for Activi
 
 ---
 
-## 11. `rmstore_coil_transaction`
+## 12. `rmstore_coil_transaction`
 
 **Purpose:** Single audit table for inventory moves **and** sticker downloads (`transaction_type = sticker_download`). Payload in `details` JSONB.
 
@@ -311,7 +331,7 @@ Not an `rmstore_*` table. RM writes with `app_type = 'rmstore'` via `logRmstoreA
 
 ```
 ERP MRN → rmstore_mrn + rmstore_coil_table (+ coil_transaction sticker_download)
-       → rmstore_qc_check (+ master_spec)
+       → rmstore_qc_check (+ spec_master / spec_detail)
        → rmstore_inventory_inwards (+ coil location / master_location)
        → rmstore_issue_request (+ master_production)  [optional]
        → rmstore_out_entry

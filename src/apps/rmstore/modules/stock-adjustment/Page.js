@@ -16,7 +16,6 @@ import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import DataTable from "@/ui/primitives/DataTable";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -24,6 +23,7 @@ import PrintActionButton from "@/ui/primitives/PrintActionButton";
 
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
+import { canPrintSaStickers } from "@/apps/rmstore/lib/utils/stockAdjustmentEntryTypes";
 import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
 import { STOCK_ADJUSTMENT_CARD_CONFIG, STOCK_ADJUSTMENT_HEADERS, STOCK_ADJUSTMENT_STATUS_FILTER_OPTIONS, filterStockAdjustmentRows, buildStockAdjustmentApiFilters } from "./stockAdjustmentColumns";
 
@@ -103,10 +103,18 @@ export default function StockAdjustmentPage() {
     }
   }, [params.pageSize, params.fromDate, params.toDate, params.status]);
 
-  const handleModalSuccess = useCallback(() => {
-    fetchData();
-    setSelected(null);
-  }, [fetchData]);
+  const handleModalSuccess = useCallback(
+    (meta) => {
+      fetchData();
+      if (meta?.openPrintStickers && meta?.record?.adjustment_id) {
+        setSelected(meta.record.adjustment_id);
+        handleOpenModal("print", meta.record);
+        return;
+      }
+      setSelected(null);
+    },
+    [fetchData, handleOpenModal]
+  );
 
   useEffect(() => {
     fetchData();
@@ -131,16 +139,6 @@ export default function StockAdjustmentPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
-  const footerFilter = useMemo(
-    () =>
-      rmStoreFooterFromClientFilter({
-        tempSearch: searchText,
-        sourceRows: allRows,
-        filteredRows,
-        serverFiltered: params.status !== "all" || Boolean(params.fromDate) || Boolean(params.toDate),
-      }),
-    [searchText, allRows, filteredRows, params.status, params.fromDate, params.toDate]
-  );
 
   const handleLoadMore = useCallback(() => {
     if (!loading && items.length < totalItems) {
@@ -216,20 +214,17 @@ export default function StockAdjustmentPage() {
     }, [selectedRecord?.approved]),
     onPrint: useCallback(() => {
       if (!selectedRecord) return;
-      if (selectedRecord.entry_type !== "add" || !selectedRecord.approved) {
-        toast.info("Printing stickers is only available for approved Add (+) adjustments.");
+      if (!canPrintSaStickers(selectedRecord)) {
+        toast.info("Printing stickers is only available for approved Add (+) or Old adjustments.");
         return;
       }
       handleOpenModal("print", selectedRecord);
     }, [selectedRecord, handleOpenModal]),
     canPrintSelection: useCallback(
-      () =>
-        Boolean(selected) &&
-        selectedRecord?.entry_type === "add" &&
-        Boolean(selectedRecord?.approved),
-      [selected, selectedRecord?.entry_type, selectedRecord?.approved]
+      () => Boolean(selected) && canPrintSaStickers(selectedRecord),
+      [selected, selectedRecord]
     ),
-    printBlockedMessage: "Printing stickers is only available for approved Add (+) adjustments.",
+    printBlockedMessage: "Printing stickers is only available for approved Add (+) or Old adjustments.",
     printModule: MODULE,
     printAction: "view",
     openDelete: useCallback((row) => setDeleteItem(row), []),
@@ -286,7 +281,7 @@ export default function StockAdjustmentPage() {
                   variant="outline"
                   label="Approve"
                   icon={CheckCircle}
-                  disabled={!selected || Boolean(selectedRecord?.approved)}
+                  disabled={!selected}
                   onClick={() => handleOpenModal("approve", selectedRecord)}
                   title={
                     selectedRecord?.approved
@@ -298,15 +293,11 @@ export default function StockAdjustmentPage() {
                 <PrintActionButton
                   module={MODULE}
                   variant="outline"
-                  label="Print Stickers"
+                  label="Print stickers"
                   icon={Printer}
-                  disabled={
-                    !selected ||
-                    selectedRecord?.entry_type !== "add" ||
-                    !selectedRecord?.approved
-                  }
+                  disabled={!selected || !canPrintSaStickers(selectedRecord)}
                   onClick={openPrintModal}
-                  title="Print RM coil stickers for an approved Add (+) adjustment"
+                  title="Print RM coil stickers for an approved Add (+) or Old adjustment"
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-indigo-600 shadow-none shrink-0"
                 />
                 <ActionButton
@@ -345,6 +336,7 @@ export default function StockAdjustmentPage() {
               <span className="text-[10px] font-bold text-indigo-600 uppercase truncate max-w-[min(100%,28rem)]">
                 Selected: ADJ-#{selected}
                 {selectedRecord?.item_code ? ` · ${selectedRecord.item_code}` : ""}
+                {selectedRecord?.item_desc ? ` — ${selectedRecord.item_desc}` : ""}
               </span>
               <button
                 type="button"
@@ -367,17 +359,11 @@ export default function StockAdjustmentPage() {
             onReset={handleReset}
             searchValue={searchText}
             onSearchChange={setSearchText}
-            onSearchEnter={() =>
-              handleFilterApply({
-                fromDate: params.fromDate,
-                toDate: params.toDate,
-                approvedStatus: params.status,
-              })
-            }
+            showSearchButton
             applyOnSearchEnter={false}
-            searchPlaceholder="Search by heat, item, or remark"
+            applyExtrasOnChange={false}
+            searchPlaceholder="Search heat, item, remark…"
             searchLabel="Search Adjustment"
-            searchVariant="quick"
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
           />
@@ -411,12 +397,15 @@ export default function StockAdjustmentPage() {
           />
         </div>
 
-        <RmStoreListFooter
-          shown={items.length}
-          total={totalItems}
-          label="Adjustments"
-          {...footerFilter}
-        />
+        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            Showing {items.length} of {totalItems} Adjustments
+          </span>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
+          </div>
+        </div>
       </div>
 
       {modalOpen && modalMode === "print" && (

@@ -227,7 +227,7 @@ const Drawer = ({
 
         {footer ? (
           <div className="shrink-0 px-3 sm:px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-slate-200 flex justify-end items-center bg-slate-50">
-            <div className="flex w-full sm:w-auto gap-2 items-center justify-end flex-wrap">
+            <div className="flex w-full items-center justify-end gap-3 flex-row flex-nowrap">
               {footer}
             </div>
           </div>

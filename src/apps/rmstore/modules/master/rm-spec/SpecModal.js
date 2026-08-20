@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, Fragment } from "react";
-import { Check, AlertCircle, Loader2, Shield, Plus, Trash2, Eye, Package, Copy } from "lucide-react";
 import { toast } from "react-toastify";
+import { AlertCircle, Loader2, Shield, Plus, Trash2, Eye, Package, Copy } from "lucide-react";
+import { notify } from "@/apps/rmstore/lib/utils/notify";
 
 import { specService } from "@/apps/rmstore/lib/services/spec";
 import { productionErpHelpers } from "@/apps/rmstore/lib/services/production";
@@ -11,11 +12,25 @@ import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { useSelector } from "react-redux";
+import { selectUser } from "@/platform/store/slices/authSlice";
+import { canTypeSpecValues } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
+import { SpecColoredHeaderField, SpecPlainHeaderField, SpecSizeField } from "./specHeaderUi";
 import { ERR_INPUT, OK_INPUT } from "@/ui/common/Constants";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
 
 const MODULE = "rm_spec_master";
 const FIELD_ORDER = ["item_dcode", "condition", "grade", "size", "specs"];
+
+function fetchSpecHeaderSuggestions(field) {
+  return (search = "") => specService.getHeaderValues(field, { search }).then((res) => (Array.isArray(res?.data) ? res.data : []));
+}
+
+const fetchConditionSuggestions = fetchSpecHeaderSuggestions("condition");
+const fetchGradeSuggestions = fetchSpecHeaderSuggestions("grade");
+const fetchSizeSuggestions = fetchSpecHeaderSuggestions("size");
+const fetchConditionColorSuggestions = fetchSpecHeaderSuggestions("condition_color");
+const fetchGradeColorSuggestions = fetchSpecHeaderSuggestions("grade_color");
 
 const SPEC_TYPE_OPTIONS = [
   { value: "min", label: "Minimum" },
@@ -49,6 +64,7 @@ const emptyLine = () => ({
   spec_name: "",
   remarks: "",
   print_val: "",
+  inspection_method: "",
   spec_type: "min",
   min_value: "",
   max_value: "",
@@ -66,7 +82,7 @@ function numToInput(v) {
 function splitOptions(text) {
   return String(text || "")
     .split(",")
-    .map((s) => s.trim())
+    .map((s) => s.trim().toUpperCase())
     .filter(Boolean);
 }
 
@@ -97,6 +113,9 @@ function hydrateLine(spec, index = 0) {
     spec_name: spec?.spec_name ?? "",
     remarks: spec?.remarks ?? "",
     print_val: spec?.print_val ?? "",
+    inspection_method: spec?.inspection_method
+      ? String(spec.inspection_method).trim()
+      : "",
     spec_type: SPEC_TYPE_OPTIONS.some((o) => o.value === spec_type) ? spec_type : "min",
     min_value: "",
     max_value: "",
@@ -106,8 +125,8 @@ function hydrateLine(spec, index = 0) {
   };
 
   if (base.spec_type === "dropdown") {
-    base.correct_option = spec?.correct_option != null ? String(spec.correct_option) : "";
-    base.incorrect_option = spec?.incorrect_option != null ? String(spec.incorrect_option) : "";
+    base.correct_option = normalizeOptions(spec?.correct_option);
+    base.incorrect_option = normalizeOptions(spec?.incorrect_option);
     return base;
   }
 
@@ -132,6 +151,10 @@ function validateLine(line, index) {
     return `${prefix}: Type is required.`;
   }
   if (!String(line.spec_name || "").trim()) return `${prefix}: Spec name is required.`;
+  if (!String(line.print_val || "").trim()) return `${prefix}: Print is required.`;
+  if (!String(line.inspection_method || "").trim()) {
+    return `${prefix}: Inspection method is required.`;
+  }
   if (!line.spec_type) return `${prefix}: Spec type is required.`;
 
   if (line.spec_type === "min") {
@@ -157,20 +180,25 @@ function validateLine(line, index) {
     if (!incorrect.length) {
       return `${prefix}: Add at least one incorrect dropdown option.`;
     }
-    const correctSet = new Set(correct.map((s) => s.toLowerCase()));
-    const incorrectSet = new Set(incorrect.map((s) => s.toLowerCase()));
+    const correctSet = new Set(correct);
+    const incorrectSet = new Set(incorrect);
     if (correctSet.size !== correct.length) {
       return `${prefix}: Correct options must be unique.`;
     }
     if (incorrectSet.size !== incorrect.length) {
       return `${prefix}: Incorrect options must be unique.`;
     }
-    const overlap = correct.find((c) => incorrectSet.has(c.toLowerCase()));
+    const overlap = correct.find((c) => incorrectSet.has(c));
     if (overlap) {
       return `${prefix}: "${overlap}" cannot be both correct and incorrect.`;
     }
   }
   return null;
+}
+
+/** Red asterisk for required column headings (Remarks is optional). */
+function ReqStar() {
+  return <span className="text-rose-500"> *</span>;
 }
 
 function DocumentRequiredCell({ line, lineIdx, readOnly, onChange }) {
@@ -215,10 +243,10 @@ function ValueCells({ line, lineIdx, readOnly, hasError, onUpdateLine }) {
             type="text"
             value={line.correct_option}
             disabled={readOnly}
-            onChange={(e) => onUpdateLine(lineIdx, { correct_option: e.target.value })}
-            placeholder="Correct values (comma-separated)"
-            className={`${inputCls} w-full`}
-            title="Correct dropdown options. Separate multiple with commas."
+            onChange={(e) => onUpdateLine(lineIdx, { correct_option: e.target.value.toUpperCase() })}
+            placeholder="CORRECT VALUES (COMMA-SEPARATED)"
+            className={`${inputCls} w-full uppercase`}
+            title="Correct dropdown options (stored in CAPS). Separate multiple with commas."
           />
         </td>
         <td className="px-2 py-1.5">
@@ -226,10 +254,10 @@ function ValueCells({ line, lineIdx, readOnly, hasError, onUpdateLine }) {
             type="text"
             value={line.incorrect_option}
             disabled={readOnly}
-            onChange={(e) => onUpdateLine(lineIdx, { incorrect_option: e.target.value })}
-            placeholder="Incorrect values (comma-separated)"
-            className={`${inputCls} w-full`}
-            title="Incorrect dropdown options. Separate multiple with commas."
+            onChange={(e) => onUpdateLine(lineIdx, { incorrect_option: e.target.value.toUpperCase() })}
+            placeholder="WRONG VALUES (COMMA-SEPARATED)"
+            className={`${inputCls} w-full uppercase`}
+            title="Incorrect dropdown options (stored in CAPS). Separate multiple with commas."
           />
         </td>
       </>
@@ -279,6 +307,8 @@ function ValueCells({ line, lineIdx, readOnly, hasError, onUpdateLine }) {
 
 export default function SpecModal({ open, onClose, onSuccess, editData, mode = "add" }) {
   const canAccess = useCanAccess();
+  const user = useSelector(selectUser);
+  const canTypeHeaders = canTypeSpecValues(user);
   const canApprove = canAccess(MODULE, "authorize").allowed;
   const isEdit = mode === "edit";
   const isApprove = mode === "approve";
@@ -295,6 +325,8 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
   const [condition, setCondition] = useState("");
   const [grade, setGrade] = useState("");
   const [size, setSize] = useState("");
+  const [conditionColor, setConditionColor] = useState("");
+  const [gradeColor, setGradeColor] = useState("");
   const [lines, setLines] = useState(() => withAutoSno([emptyLine()]));
   const [approved, setApproved] = useState(false);
   const [wasApproved, setWasApproved] = useState(false);
@@ -312,6 +344,8 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
     setCondition("");
     setGrade("");
     setSize("");
+    setConditionColor("");
+    setGradeColor("");
   };
 
   const loadDetail = useCallback(async (item_dcode, { asClone = false } = {}) => {
@@ -351,6 +385,8 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
       setCondition(data.condition != null ? String(data.condition) : "");
       setGrade(data.grade != null ? String(data.grade) : "");
       setSize(data.size != null ? String(data.size) : "");
+      setConditionColor(data.condition_color != null ? String(data.condition_color) : "");
+      setGradeColor(data.grade_color != null ? String(data.grade_color) : "");
       setLines(hydrated);
     } catch (err) {
       toast.error(err?.message || "Could not load the specifications. Please try again.");
@@ -375,6 +411,11 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
           loadDetail(itemKey, { asClone: true });
         } else {
           setItemDcode(String(itemKey));
+          setCondition(editData?.condition != null ? String(editData.condition) : "");
+          setGrade(editData?.grade != null ? String(editData.grade) : "");
+          setSize(editData?.size != null ? String(editData.size) : "");
+          setConditionColor(editData?.condition_color != null ? String(editData.condition_color) : "");
+          setGradeColor(editData?.grade_color != null ? String(editData.grade_color) : "");
           setLines(withAutoSno([emptyLine()]));
           setApproved(isApprove ? true : Boolean(editData?.approved));
           setWasApproved(Boolean(editData?.approved));
@@ -472,7 +513,17 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
     const newErrors = validate();
     if (Object.keys(newErrors).length) {
       setErrors(newErrors);
-      toast.error("Please fix the highlighted fields before saving.");
+      const firstMsg =
+        newErrors.item_dcode ||
+        newErrors.condition ||
+        newErrors.grade ||
+        newErrors.size ||
+        Object.keys(newErrors)
+          .filter((k) => k.startsWith("line_"))
+          .map((k) => newErrors[k])[0] ||
+        newErrors.specs ||
+        "Please fill all required fields before saving.";
+      toast.error(firstMsg);
       const firstLineErr = Object.keys(newErrors).find((k) => k.startsWith("line_"));
       focusFirstError(
         newErrors,
@@ -505,6 +556,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
           spec_name: String(line.spec_name || "").trim(),
           remarks: String(line.remarks || "").trim() || null,
           print_val: String(line.print_val || "").trim() || null,
+          inspection_method: String(line.inspection_method || "").trim() || null,
           spec_type: line.spec_type,
           min_value: isMax || isDropdown ? 0 : Number(String(line.min_value).trim()),
           max_value: isMin || isDropdown ? 0 : Number(String(line.max_value).trim()),
@@ -519,9 +571,11 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
       const itemId = Number(itemDcode || (!isClone && editData?.item_dcode));
       const sourceItemId = Number(editData?.item_dcode) || itemId;
       const headerMeta = {
-        condition: String(condition || "").trim(),
-        grade: String(grade || "").trim(),
-        size: String(size || "").trim(),
+        condition: String(condition || "").trim().toUpperCase(),
+        grade: String(grade || "").trim().toUpperCase(),
+        size: String(size || "").trim().toUpperCase(),
+        condition_color: String(conditionColor || "").trim().toUpperCase() || null,
+        grade_color: String(gradeColor || "").trim().toUpperCase() || null,
       };
       let response;
 
@@ -554,10 +608,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
         });
       }
 
-      toast.success(
-        response?.message ||
-          (isClone ? "RM specification cloned successfully." : "Saved successfully.")
-      );
+      notify(response, isClone ? "RM specification cloned successfully." : "Saved successfully.");
       onSuccess();
       onClose();
     } catch (err) {
@@ -625,7 +676,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
           <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200">
             <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
             <p className="text-[11px] text-amber-700 font-medium">
-              Saving changes will reset <span className="font-bold uppercase">all {lines.length} line(s)</span> to{" "}
+              Saving changes will reset <span className="font-bold uppercase">all {lines.length} line{lines.length === 1 ? "" : "s"}</span> to{" "}
               <span className="font-bold uppercase">Pending</span>. Use Approve to authorize them together again.
             </p>
           </div>
@@ -653,9 +704,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
         )}
 
         <div data-field="item_dcode">
-          <SearchableSelect
-            label="RM Item (Raw Material)"
-            value={itemDcode}
+          <SearchableSelect label="RM Item (Raw Material)" value={itemDcode}
             onChange={(id) => {
               setItemDcode(id);
               setErrors((p) => {
@@ -669,89 +718,128 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
               productionErpHelpers.getRmItemsViews({ ...params, ...helperPerms })
             }
             getByIdService={(id) => productionErpHelpers.getRmItemViewById(id, helperPerms)}
-            dataKey="id"
-            labelKey="item_code"
-            subLabelKey="itemdesc"
-            showDuplicateSubLabel
-            preserveApiOrder
-            error={errors.item_dcode}
-            required
-            disabled={isView}
+            dataKey="id" labelKey="item_code" selectedLabelKey="itemdesc" subLabelKey="itemdesc" showDuplicateSubLabel preserveApiOrder error={errors.item_dcode} required disabled={isView}
           />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div data-field="condition">
-            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Condition <span className="text-rose-500">*</span>
-            </label>
-            <input
-              type="text"
+        <div className="space-y-4">
+          <div className={`grid grid-cols-1 gap-4 ${canTypeHeaders ? "sm:grid-cols-5" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
+            <SpecColoredHeaderField
+              label="Condition"
+              required
               value={condition}
-              disabled={readOnly}
-              onChange={(e) => {
-                setCondition(e.target.value);
-                setErrors((p) => {
-                  if (!p.condition) return p;
-                  const n = { ...p };
-                  delete n.condition;
-                  return n;
-                });
-              }}
+              onChange={setCondition}
+              colorValue={conditionColor}
+              onColorChange={setConditionColor}
+              error={errors.condition || ""}
+              readOnly={readOnly}
+              active={open}
+              dataField="condition"
+              fetchSuggestions={fetchConditionSuggestions}
+              canType={canTypeHeaders}
+              withColor
               placeholder="e.g. HHB"
-              className={`${errors.condition ? ERR_INPUT : OK_INPUT} text-[12px] h-9 rounded-lg px-2.5 ${readOnly ? "bg-slate-50" : ""}`}
+              onClearError={() => {
+                if (errors.condition) {
+                  setErrors((p) => {
+                    const n = { ...p };
+                    delete n.condition;
+                    return n;
+                  });
+                }
+              }}
             />
-            {errors.condition ? (
-              <p className="mt-1 text-[10px] font-bold text-rose-500">{errors.condition}</p>
+            {canTypeHeaders ? (
+              <SpecPlainHeaderField
+                label="Condition Color"
+                value={conditionColor}
+                onChange={setConditionColor}
+                error={errors.condition_color || ""}
+                readOnly={readOnly}
+                active={open}
+                dataField="condition_color"
+                fetchSuggestions={fetchConditionColorSuggestions}
+                canType={canTypeHeaders}
+                colorField
+                placeholder="Type or pick color..."
+                onClearError={() => {
+                  if (errors.condition_color) {
+                    setErrors((p) => {
+                      const n = { ...p };
+                      delete n.condition_color;
+                      return n;
+                    });
+                  }
+                }}
+              />
             ) : null}
-          </div>
-          <div data-field="grade">
-            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Grade <span className="text-rose-500">*</span>
-            </label>
-            <input
-              type="text"
+          
+            <SpecColoredHeaderField
+              label="Grade"
+              required
               value={grade}
-              disabled={readOnly}
-              onChange={(e) => {
-                setGrade(e.target.value);
-                setErrors((p) => {
-                  if (!p.grade) return p;
-                  const n = { ...p };
-                  delete n.grade;
-                  return n;
-                });
-              }}
+              onChange={setGrade}
+              colorValue={gradeColor}
+              onColorChange={setGradeColor}
+              error={errors.grade || ""}
+              readOnly={readOnly}
+              active={open}
+              dataField="grade"
+              fetchSuggestions={fetchGradeSuggestions}
+              canType={canTypeHeaders}
+              withColor
               placeholder="e.g. MIX GRADE"
-              className={`${errors.grade ? ERR_INPUT : OK_INPUT} text-[12px] h-9 rounded-lg px-2.5 ${readOnly ? "bg-slate-50" : ""}`}
-            />
-            {errors.grade ? (
-              <p className="mt-1 text-[10px] font-bold text-rose-500">{errors.grade}</p>
-            ) : null}
-          </div>
-          <div data-field="size">
-            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Size <span className="text-rose-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={size}
-              disabled={readOnly}
-              onChange={(e) => {
-                setSize(e.target.value);
-                setErrors((p) => {
-                  if (!p.size) return p;
-                  const n = { ...p };
-                  delete n.size;
-                  return n;
-                });
+              onClearError={() => {
+                if (errors.grade) {
+                  setErrors((p) => {
+                    const n = { ...p };
+                    delete n.grade;
+                    return n;
+                  });
+                }
               }}
-              placeholder="e.g. 5.50 mm"
-              className={`${errors.size ? ERR_INPUT : OK_INPUT} text-[12px] h-9 rounded-lg px-2.5 ${readOnly ? "bg-slate-50" : ""}`}
             />
-            {errors.size ? (
-              <p className="mt-1 text-[10px] font-bold text-rose-500">{errors.size}</p>
+            {canTypeHeaders ? (
+              <SpecPlainHeaderField
+                label="Grade Color"
+                value={gradeColor}
+                onChange={setGradeColor}
+                error={errors.grade_color || ""}
+                readOnly={readOnly}
+                active={open}
+                dataField="grade_color"
+                fetchSuggestions={fetchGradeColorSuggestions}
+                canType={canTypeHeaders}
+                colorField
+                placeholder="Type or pick color..."
+                onClearError={() => {
+                  if (errors.grade_color) {
+                    setErrors((p) => {
+                      const n = { ...p };
+                      delete n.grade_color;
+                      return n;
+                    });
+                  }
+                }}
+              />
             ) : null}
+            <SpecSizeField
+              value={size}
+              onChange={setSize}
+              error={errors.size || ""}
+              readOnly={readOnly}
+              active={open}
+              fetchSuggestions={fetchSizeSuggestions}
+              onClearError={() => {
+                if (errors.size) {
+                  setErrors((p) => {
+                    const n = { ...p };
+                    delete n.size;
+                    return n;
+                  });
+                }
+              }}
+            />
           </div>
         </div>
 
@@ -788,23 +876,22 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] border-collapse text-left">
+              <table className="w-full min-w-[1100px] border-collapse text-left">
                 <thead>
                   <tr className="bg-slate-50/80 border-b border-slate-200 text-[9px] font-black uppercase tracking-wider text-slate-500">
                     <th className="px-2 py-2 w-12 text-center">Serial No.</th>
-                    <th className="px-2 py-2 min-w-[140px]">Spec Name *</th>
-                    <th className="px-2 py-2 w-[90px]">Print</th>
-                    <th className="px-2 py-2 w-[110px]">Spec Type *</th>
+                    <th className="px-2 py-2 min-w-[140px]">Spec Name{ReqStar()}</th>
+                    <th className="px-2 py-2 w-[90px]">Print{ReqStar()}</th>
+                    <th className="px-2 py-2 min-w-[120px]">Inspection Method{ReqStar()}</th>
+                    <th className="px-2 py-2 w-[110px]">Spec Type{ReqStar()}</th>
                     <th className="px-2 py-2 min-w-[110px]" title="Min value, or Correct options for Dropdown">
-                      Min / Correct *
+                      Min / Correct{ReqStar()}
                     </th>
                     <th className="px-2 py-2 min-w-[110px]" title="Max value, or Incorrect options for Dropdown">
-                      Max / Incorrect *
+                      Max / Incorrect{ReqStar()}
                     </th>
                     <th className="px-2 py-2 min-w-[120px]">Remarks</th>
-                    <th className="px-2 py-2 w-[80px]" title="If Yes, QC must upload a document">
-                      Doc
-                    </th>
+                    <th className="px-2 py-2 w-[80px]" title="If Yes, QC must upload a document">Doc</th>
                     {!readOnly && <th className="px-2 py-2 w-10" />}
                   </tr>
                 </thead>
@@ -844,6 +931,18 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
                             />
                           </td>
                           <td className="px-2 py-1.5">
+                            <input
+                              type="text"
+                              value={line.inspection_method}
+                              disabled={readOnly}
+                              onChange={(e) =>
+                                updateLine(idx, { inspection_method: e.target.value })
+                              }
+                              placeholder="e.g. Visual / Physical"
+                              className={`${inputCls} w-full`}
+                            />
+                          </td>
+                          <td className="px-2 py-1.5">
                             <select
                               value={line.spec_type}
                               disabled={readOnly}
@@ -858,7 +957,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
                           <ValueCells
                             line={line}
                             lineIdx={idx}
-                            readOnly={readOnly}
+                            readOnly={readOnly || !canTypeHeaders}
                             hasError={!!lineErr}
                             onUpdateLine={updateLine}
                           />
@@ -868,7 +967,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
                               value={line.remarks}
                               disabled={readOnly}
                               onChange={(e) => updateLine(idx, { remarks: e.target.value })}
-                              placeholder="Optional"
+                              placeholder="Optional (not required)"
                               className={`${OK_INPUT} text-[11px] h-7 rounded-md px-1.5 w-full ${readOnly ? "bg-slate-50" : ""}`}
                             />
                           </td>
@@ -897,7 +996,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
                         </tr>
                         {lineErr ? (
                           <tr className="bg-rose-50/50">
-                            <td colSpan={readOnly ? 8 : 9} className="px-3 py-1 text-[9px] text-rose-600 font-bold">
+                            <td colSpan={readOnly ? 9 : 10} className="px-3 py-1 text-[9px] text-rose-600 font-bold">
                               {lineErr}
                             </td>
                           </tr>

@@ -1030,7 +1030,7 @@ export default function DataTable({
               })}
             </colgroup>
             <thead className="sticky top-0 z-[60] shadow-[0_1px_0_0_rgba(148,163,184,0.45)]">
-              <tr className="bg-slate-50">
+              <tr>
                 {showSelection && (
                   <th
                     className="sticky left-0 top-0 z-[70] bg-slate-50 py-3 px-0 border-b border-r border-slate-200 text-center box-border"
@@ -1053,7 +1053,8 @@ export default function DataTable({
                         ...(stickyLeftCol ? { left: `${stickyLeft}px` } : {}),
                         ...(stickyRightCol ? { right: 0 } : {}),
                       }}
-                      className={`relative px-3 py-2.5 sm:py-3 text-[11px] font-bold text-slate-500 uppercase tracking-tight select-none bg-slate-50 border-b border-slate-200 sticky top-0
+                      className={`relative px-3 py-2 sm:py-2.5 md:py-3 text-xs sm:text-[11px] font-bold uppercase tracking-tight select-none border-b border-slate-200 sticky top-0
+                      ${config.headerClass || "bg-slate-50 text-slate-600 sm:text-slate-500"}
                       ${stickyRightCol ? "border-l border-r-0" : "border-r"}
                       ${stickyLeftCol ? "z-[65]" : stickyRightCol ? "z-[66]" : "z-[55]"}`}
                     >
@@ -1183,11 +1184,15 @@ export default function DataTable({
                             cellSelectActive &&
                             selectionMode === "cell" &&
                             isCellInSet(selectedCells, rowIndex, i);
+                          const colCellTone =
+                            !cellSelected && config.cellClass ? config.cellClass : "";
                           const cellBg = cellSelected
                             ? "!bg-indigo-100 ring-1 ring-inset !ring-indigo-400 relative z-[1]"
-                            : isSticky
-                              ? stickyCellBg
-                              : defaultCellBg;
+                            : colCellTone
+                              ? colCellTone
+                              : isSticky
+                                ? stickyCellBg
+                                : defaultCellBg;
 
                           return (
                             <td
@@ -1345,20 +1350,32 @@ export default function DataTable({
                         )}
                       </div>
                       <div className="flex flex-wrap gap-1.5 mb-4">
-                        {badgeSlots.map((slot, idx) => (
+                        {badgeSlots.map((slot, idx) => {
+                          const badgeConfig = slot.kind === "header" ? slot.h[3] || {} : {};
+                          const badgeClass =
+                            badgeConfig.cardBadgeClass ||
+                            "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-tight bg-slate-100 text-slate-600 border border-slate-200";
+                          return (
                           <div
                             key={`${rowReactKey}-b-${slot.kind === "header" ? slot.h[1] : slot.key}-${idx}`}
                             className="inline-block"
                           >
                             {slot.kind === "header"
-                              ? renderCell(item, slot.h, rowIndex, "card")
+                              ? badgeConfig.cardBadgeClass
+                                ? (
+                                  <span className={badgeClass}>
+                                    {renderCell(item, slot.h, rowIndex, "card")}
+                                  </span>
+                                )
+                                : renderCell(item, slot.h, rowIndex, "card")
                               : (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-tight bg-slate-100 text-slate-600 border border-slate-200">
+                                <span className={badgeClass}>
                                   {renderCardValue(item, slot.key, rowIndex)}
                                 </span>
                               )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       <div className="space-y-2 mb-3">
                         {detailSlots.map((slot, idx) => {
@@ -1381,8 +1398,8 @@ export default function DataTable({
                             <div
                               className={
                                 detailFullWidth
-                                  ? "w-full"
-                                  : "min-w-0 max-w-[70%] text-[11px] font-bold text-slate-600 text-right whitespace-normal break-words hyphens-auto"
+                                  ? `w-full ${headerConfig.cardValueClass || ""}`
+                                  : `min-w-0 max-w-[70%] text-[11px] font-bold text-slate-600 text-right whitespace-normal break-words hyphens-auto ${headerConfig.cardValueClass || ""}`
                               }
                               title={slot.kind === "raw" ? String(item[slot.key] ?? "") : undefined}
                             >
