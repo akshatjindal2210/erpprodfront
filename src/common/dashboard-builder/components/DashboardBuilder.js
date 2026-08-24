@@ -25,7 +25,7 @@ import { filterAppNavPagesByAccess, getDefaultPageKeyForApp } from "../utils/app
 import { DASHBOARD_CANVAS_BG, DASHBOARD_CONTAINER_BG, DASHBOARD_CONTAINER_BORDER, DASHBOARD_TABLE_BODY_BG, DASHBOARD_TABLE_HEADER_BG, DASHBOARD_WIDGET_BG, DASHBOARD_WIDGET_BORDER } from "../utils/dashboardBuilderTheme";
 import { buildDashboardRuntimeFilters, canFilterDashboardByUser } from "../utils/dashboardFilterAccess";
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
-import { DASHBOARD_DB_SOURCE_OPTIONS, isWidgetHybridMode, resolveHybridExternalDbSource } from "../utils/dashboardDbSources.js";
+import { DASHBOARD_DB_SOURCE_OPTIONS, buildHybridPreviewRequest, isWidgetHybridMode, resolveHybridExternalDbSource } from "../utils/dashboardDbSources.js";
 import { normalizeTableSearchPosition, normalizeTableSearchWidth } from "../utils/tableToolbar.js";
 import { isPwaStandalone, getListHotkeyParts } from "@/platform/utils/pwa/pwa";
 
@@ -451,6 +451,14 @@ function chartConfigFromWidgetStyle(widget = {}) {
     is_hybrid: isWidgetHybridMode(widget),
     hybrid_mssql_query: widget.chart_config?.hybrid_mssql_query || "",
     hybrid_external_source: resolveHybridExternalDbSource(widget),
+    hybrid_url: String(widget.chart_config?.hybrid_url || ""),
+    hybrid_url_method: String(widget.chart_config?.hybrid_url_method || "GET").toUpperCase() === "POST" ? "POST" : "GET",
+    hybrid_url_body: String(widget.chart_config?.hybrid_url_body || ""),
+    url_method: String(widget.chart_config?.url_method || "GET").toUpperCase() === "POST" ? "POST" : "GET",
+    url_body: String(widget.chart_config?.url_body || ""),
+    url_excluded_columns: Array.isArray(widget.chart_config?.url_excluded_columns)
+      ? widget.chart_config.url_excluded_columns
+      : [],
     data_source: isWidgetHybridMode(widget) ? "hybrid" : (widget.dataSource || "ims_postgresql"),
   };
 }
@@ -800,6 +808,16 @@ function buildStateFingerprint(widgets = [], layout = [], mobileLayout = []) {
       tableSearchWidth: normalizeTableSearchWidth(widget.tableSearchWidth),
       tableColumnSortEnabled: widget.tableColumnSortEnabled === true,
       tableExportEnabled: widget.tableExportEnabled === true,
+      hybridMssqlQuery: String(widget.chart_config?.hybrid_mssql_query || ""),
+      hybridExternalSource: String(widget.chart_config?.hybrid_external_source || ""),
+      hybridUrl: String(widget.chart_config?.hybrid_url || ""),
+      hybridUrlMethod: String(widget.chart_config?.hybrid_url_method || "GET").toUpperCase(),
+      hybridUrlBody: String(widget.chart_config?.hybrid_url_body || ""),
+      urlMethod: String(widget.chart_config?.url_method || "GET").toUpperCase(),
+      urlBody: String(widget.chart_config?.url_body || ""),
+      urlExcludedColumns: Array.isArray(widget.chart_config?.url_excluded_columns)
+        ? [...widget.chart_config.url_excluded_columns].map(String).sort()
+        : [],
       style: fingerprintStyleForCompare(widget.style || {}),
       erpFilter: widget.erpFilter || {},
       layout: desktopLayoutItem,
@@ -1661,16 +1679,17 @@ export default function DashboardBuilder({
             try {
               let response;
               if (isWidgetHybridMode(widget)) {
-                response = await hybridPreviewWidget({
-                  mssql_query: widget.chart_config?.hybrid_mssql_query || "",
-                  pg_query: widget.query || "",
-                  db_source: resolveHybridExternalDbSource(widget),
-                  filters,
-                });
+                response = await hybridPreviewWidget(
+                  buildHybridPreviewRequest(widget, {
+                    pgQuery: widget.query || "",
+                    filters,
+                  }),
+                );
               } else {
                 response = await previewWidget(widget.query, {
                   dbSource: widget.dataSource || "ims_postgresql",
                   filters,
+                  chartConfig: widget.chart_config || {},
                 });
               }
               return { id: String(widget.id), data: response?.data || [], error: null };
@@ -2225,7 +2244,7 @@ export default function DashboardBuilder({
   useEffect(() => {
     loadWidgets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readOnly, appKey, pageKey, targetAppKey, resolvedPageKey, selectedDashboardKey, runtimeDashboardKey, filters.fromDate, filters.toDate, filters.userId, filters.fyuid, filterRefreshToken]);
+  }, [readOnly, appKey, pageKey, targetAppKey, resolvedPageKey, selectedDashboardKey, runtimeDashboardKey, filters.fromDate, filters.toDate, filters.userId, filters.username, filters.name, filters.fyuid, filterRefreshToken]);
 
   const selectedWidget = widgets.find((w) => String(w.id) === String(selectedWidgetId));
   const panelWidget = selectedWidget || (busy ? panelWidgetSnapshot : null);
@@ -4152,16 +4171,17 @@ export default function DashboardBuilder({
 
       let res;
       if (isWidgetHybridMode(widget)) {
-        res = await hybridPreviewWidget({
-          mssql_query: widget.chart_config?.hybrid_mssql_query || "",
-          pg_query: widget.query || "",
-          db_source: resolveHybridExternalDbSource(widget),
-          filters,
-        });
+        res = await hybridPreviewWidget(
+          buildHybridPreviewRequest(widget, {
+            pgQuery: widget.query || "",
+            filters,
+          }),
+        );
       } else {
         res = await previewWidget(widget.query, {
           dbSource: widget.dataSource || "ims_postgresql",
           filters,
+          chartConfig: widget.chart_config || {},
         });
       }
 

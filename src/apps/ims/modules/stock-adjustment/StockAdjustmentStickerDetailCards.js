@@ -20,6 +20,8 @@ export default function StockAdjustmentStickerDetailCards({
   onCategoryChange,
   categorySelectDisabled = false,
   categoryError = "",
+  /** Update flow — show Add / Minus / After tiles instead of Full / Loose. */
+  updateBreakdown = null,
 }) {
   const row = selectedRow || {};
   const p = packing || {};
@@ -30,9 +32,24 @@ export default function StockAdjustmentStickerDetailCards({
     row.type_name ||
     "—";
   const showCategorySelect = !categorySelectDisabled && !minusViewMode;
+  const isUpdateBreakdown = updateBreakdown && typeof updateBreakdown === "object";
 
   const itemCode = row.item_code ?? "—";
   const itemDesc = row.itemdesc || row.description || row.item_desc || "—";
+
+  const updateAction = String(updateBreakdown?.action ?? "").toLowerCase();
+  const updateQtyNum = Number(updateBreakdown?.updateQty);
+  const hasUpdateQty = Number.isFinite(updateQtyNum) && updateQtyNum > 0;
+  const addTile = isUpdateBreakdown && updateAction === "add" && hasUpdateQty ? updateQtyNum : 0;
+  const minusTile = isUpdateBreakdown && updateAction === "minus" && hasUpdateQty ? updateQtyNum : 0;
+  const afterTile =
+    isUpdateBreakdown && updateBreakdown?.projectedQty != null && Number.isFinite(Number(updateBreakdown.projectedQty))
+      ? Number(updateBreakdown.projectedQty)
+      : null;
+  const currentQtyDisplay =
+    isUpdateBreakdown && updateBreakdown?.currentQty != null && Number.isFinite(Number(updateBreakdown.currentQty))
+      ? Number(updateBreakdown.currentQty)
+      : p.qty_per_box ?? 0;
 
   return (
     <div className="p-2 lg:p-3 space-y-2 lg:space-y-3">
@@ -252,26 +269,55 @@ export default function StockAdjustmentStickerDetailCards({
         </div>
         <div className="p-3 lg:p-4 space-y-2 lg:space-y-2.5">
           <div className="flex justify-between items-center border-b border-blue-100 pb-1.5">
-            <span className="text-[11px] lg:text-[13px] font-bold text-blue-800 uppercase">Qty / Box</span>
+            <span className="text-[11px] lg:text-[13px] font-bold text-blue-800 uppercase">
+              {isUpdateBreakdown ? "Current Qty" : "Qty / Box"}
+            </span>
             <span className="text-[13px] font-black text-blue-700 tabular-nums">
-              {p.qty_per_box ?? 0}{" "}
+              {Number(currentQtyDisplay).toLocaleString()}{" "}
               <span className="text-[10px] opacity-60 uppercase">{row.unit || "PCS"}</span>
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-2 pt-1 lg:gap-3">
-            <div className="bg-white border border-blue-100 rounded p-1.5 lg:p-3 text-center">
-              <p className="text-base font-black text-blue-600 leading-none">{p.full_boxes_count ?? 0}</p>
-              <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Full Boxes</p>
+          {isUpdateBreakdown ? (
+            <div className="grid grid-cols-3 gap-2 pt-1 lg:gap-3">
+              <div className="bg-white border border-emerald-100 rounded p-1.5 lg:p-3 text-center min-w-0">
+                <p className="text-base font-black text-emerald-600 leading-none tabular-nums">
+                  {addTile > 0 ? `+${addTile.toLocaleString()}` : "—"}
+                </p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Add (+)</p>
+              </div>
+              <div className="bg-white border border-rose-100 rounded p-1.5 lg:p-3 text-center min-w-0">
+                <p className="text-base font-black text-rose-600 leading-none tabular-nums">
+                  {minusTile > 0 ? `−${minusTile.toLocaleString()}` : "—"}
+                </p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Minus (−)</p>
+              </div>
+              <div className="bg-white border border-indigo-100 rounded p-1.5 lg:p-3 text-center min-w-0">
+                <p
+                  className={`text-base font-black leading-none tabular-nums ${
+                    afterTile != null && afterTile < 0 ? "text-rose-600" : "text-indigo-700"
+                  }`}
+                >
+                  {afterTile == null ? "—" : afterTile.toLocaleString()}
+                </p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">After</p>
+              </div>
             </div>
-            <div className="bg-white border border-orange-100 rounded p-1.5 lg:p-3 text-center">
-              <p className="text-base font-black text-orange-600 leading-none">
-                {p.loose_box_qty ?? 0}
-              </p>
-              <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">
-                Loose Box{(p.loose_box_qty ?? 0) === 1 ? "" : "es"}
-              </p>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 pt-1 lg:gap-3">
+              <div className="bg-white border border-blue-100 rounded p-1.5 lg:p-3 text-center">
+                <p className="text-base font-black text-blue-600 leading-none">{p.full_boxes_count ?? 0}</p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Full Boxes</p>
+              </div>
+              <div className="bg-white border border-orange-100 rounded p-1.5 lg:p-3 text-center">
+                <p className="text-base font-black text-orange-600 leading-none">
+                  {p.loose_box_qty ?? 0}
+                </p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">
+                  Loose Box{(p.loose_box_qty ?? 0) === 1 ? "" : "es"}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

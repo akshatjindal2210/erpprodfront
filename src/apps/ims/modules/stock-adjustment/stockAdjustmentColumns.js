@@ -82,7 +82,7 @@ export function stockAdjustmentSearchParts(row) {
   const parts = [
     row?.adjustment_id,
     row?.entry_type,
-    row?.entry_type === "add" ? "Add (+)" : row?.entry_type === "minus" ? "Minus (-)" : null,
+    row?.entry_type === "add" ? "Add (+)" : row?.entry_type === "minus" ? "Minus (-)" : row?.entry_type === "update" ? "Update" : null,
     row?.packing_number,
     row?.financial_year,
     row?.acc_name,
@@ -98,6 +98,8 @@ export function stockAdjustmentSearchParts(row) {
     row?.updated_by_name,
     row?.approved_by_name,
     row?.approved ? "AUTHORIZED" : "PENDING",
+    row?.qty_update_plan?.box_no_uid,
+    row?.qty_update_plan?.box_uid,
   ];
 
   if (Array.isArray(row?.minus_customer_lines)) {
@@ -154,7 +156,7 @@ export function stockAdjustmentCustomerCell(v, row) {
 
 export const STOCK_ADJUSTMENT_HEADERS = [
   ["ADJ ID", "adjustment_id", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "80px" }],
-  ["Type", "entry_type", (v) => (<span className="text-[10px] font-black uppercase text-slate-700">{v === "add" ? "Add (+)" : v === "minus" ? "Minus (-)" : "—"}</span>), { width: "72px", align: "center" }],
+  ["Type", "entry_type", (v) => (<span className="text-[10px] font-black uppercase text-slate-700">{v === "add" ? "Add (+)" : v === "minus" ? "Minus (-)" : v === "update" ? "Update" : "—"}</span>), { width: "72px", align: "center" }],
   ["Packing no.", "packing_number", (v) => (<span className="font-mono text-[10px] text-slate-700 truncate block max-w-[120px]">{v || "—"}</span>), { width: "120px" }],
   ["Fin. year", "financial_year", (v) => (<span className="text-[10px] text-slate-600">{v || "—"}</span>), { width: "80px", align: "center" }],
   ["Customer", "acc_name", stockAdjustmentCustomerCell, { width: "200px", wrap: true }],

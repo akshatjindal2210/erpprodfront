@@ -303,7 +303,14 @@ export default function StockAdjustmentModal({ open, onClose, onSuccess, editDat
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1.5 text-[11px] text-slate-700">
             <p className={`${MODAL_LABEL_CLASS} !ml-0`}>Packing entry (read-only)</p>
             <p>
-              <span className="font-bold text-slate-500">Type:</span> {editData.entry_type === "add" ? "Add (+)" : "Minus (−)"}
+              <span className="font-bold text-slate-500">Type:</span>{" "}
+              {editData.entry_type === "add"
+                ? "Add (+)"
+                : editData.entry_type === "minus"
+                  ? "Minus (−)"
+                  : editData.entry_type === "update"
+                    ? "Update"
+                    : editData.entry_type}
             </p>
             <p>
               <span className="font-bold text-slate-500">Packing no.:</span> {editData.packing_number || "—"}

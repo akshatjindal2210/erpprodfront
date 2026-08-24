@@ -11,11 +11,29 @@ import { userService } from "@/common/auth/services/userService";
 import { applyListViewSpanFromSession } from "@/platform/utils/global";
 import { linkPushSubscriptionToUser } from "@/common/pwa/webPushSubscribe";
 
-const primaryClass =
-  "w-full bg-[#1e293b] hover:bg-slate-900 disabled:bg-slate-300 text-white font-semibold py-3 rounded-xl text-sm transition-all flex items-center justify-center gap-2";
+const loginFont = {
+  fontFamily: "'Montserrat', 'Poppins', ui-sans-serif, sans-serif",
+};
+
+const cardStyle = {
+  background: "rgba(6, 14, 24, 0.90)",
+  backdropFilter: "blur(16px)",
+  WebkitBackdropFilter: "blur(16px)",
+  border: "1px solid rgba(56, 116, 179, 0.35)",
+  borderRadius: "16px",
+  boxShadow:
+    "0 0 0 1px rgba(45, 110, 180, 0.15), 0 0 30px rgba(10, 50, 100, 0.45), 0 20px 45px rgba(0, 0, 0, 0.8)",
+};
 
 const inputClass =
-  "w-full pl-10 pr-10 py-2.5 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 outline-none border border-slate-200 bg-white focus:border-slate-400 focus:ring-2 focus:ring-slate-100";
+  "w-full h-11 pl-11 pr-11 rounded-lg text-[13.5px] font-medium text-[#82888d] placeholder:text-[#50647c] outline-none border border-[#1b2b3e] bg-[#050a12] focus:border-[#2b6cb0] focus:ring-1 focus:ring-[#2b6cb0] transition-all ";
+
+const btnStyle = {
+  background: "linear-gradient(180deg, #1d509e 0%, #113a78 50%, #0a2754 100%)",
+  boxShadow:
+    "inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 15px rgba(10, 40, 90, 0.6)",
+  borderRadius: "8px",
+};
 
 export default function UserLogin() {
   const dispatch = useDispatch();
@@ -23,6 +41,7 @@ export default function UserLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -32,6 +51,17 @@ export default function UserLogin() {
     const prevBodyOverflow = body.style.overflow;
     html.style.overflow = "hidden";
     body.style.overflow = "hidden";
+
+    const fontId = "login-montserrat-font";
+    if (!document.getElementById(fontId)) {
+      const link = document.createElement("link");
+      link.id = fontId;
+      link.rel = "stylesheet";
+      link.href =
+        "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap";
+      document.head.appendChild(link);
+    }
+
     return () => {
       html.style.overflow = prevHtmlOverflow;
       body.style.overflow = prevBodyOverflow;
@@ -62,9 +92,11 @@ export default function UserLogin() {
             role: profile.role ?? profile.type ?? "user",
             type: profile.type ?? profile.role ?? "user",
             designation: profile.designation ?? null,
-            designation_name: profile.designation_name ?? profile.designation?.name ?? null,
+            designation_name:
+              profile.designation_name ?? profile.designation?.name ?? null,
             department: profile.department ?? null,
-            department_id: profile.department_id ?? profile.department?.id ?? null,
+            department_id:
+              profile.department_id ?? profile.department?.id ?? null,
             permissions: profile.permissions,
             app_access: profile.app_access,
           })
@@ -90,73 +122,115 @@ export default function UserLogin() {
   };
 
   return (
-    <div className="fixed inset-0 z-0 flex items-center justify-center overflow-y-auto overscroll-none bg-[#f8fafc] px-4 sm:px-6 font-sans">
-      <div className="w-full max-w-sm mx-auto my-auto py-4 text-center">
-        <img
-          src="/logo.png"
-          alt="JFL ERP"
-          className="h-12 sm:h-16 w-auto max-w-[11rem] sm:max-w-[14rem] mx-auto mb-4 sm:mb-5 object-contain"
-        />
-        <h1 className="text-xl font-bold text-slate-900">Welcome back</h1>
-        <p className="text-slate-500 text-sm mt-1 mb-4 sm:mb-6">Sign in to your account to continue.</p>
+    <div
+      className="fixed inset-0 z-0 flex justify-center items-start overflow-hidden bg-[#070c14]"
+      style={loginFont}
+    >
+      {/* Background Image: Absolute Edge-to-Edge Fill */}
+      <img
+        src="/bg_img.png"
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none select-none fixed top-0 left-0 w-screen h-screen m-0 p-0 border-none outline-none"
+        style={{ objectFit: "fill" }}
+      />
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
+      {/* Login Card Overlay - Lowered & Enlarged */}
+      <div className="relative z-10 w-full max-w-[400px] mx-auto mt-[38vh] px-4 pb-10">
+        <div className="w-full px-7 py-7" style={cardStyle}>
+          <div className="text-center mb-6">
+            <h1
+              className="text-white"
+              style={{
+                fontSize: "16px",
+                fontWeight: 600,
+                letterSpacing: "0.22em",
+                color: "#dfe4e9",
+                lineHeight: 1.2,
+              }}
+            >
+              WELCOME BACK
+            </h1>
+            <p
+              className="mt-1.5"
+              style={{
+                fontSize: "12px",
+                fontWeight: 400,
+                color: "#82888d",
+                letterSpacing: "0.01em",
+              }}
+            >
+              Login to your ERP account
+            </p>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4 text-left">
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
-                Username
-              </label>
-              <div className="relative">
-                <User
-                  size={16}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                />
-                <input
-                  type="text"
-                  placeholder="Enter your username"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className={inputClass}
-                />
-              </div>
+            <div className="relative">
+              <User
+                size={16}
+                strokeWidth={1.75}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#4f637a] pointer-events-none"
+              />
+              <input
+                type="text"
+                placeholder="Username"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className={inputClass}
+                style={loginFont}
+              />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
-                Password
-              </label>
-              <div className="relative">
-                <Lock
-                  size={16}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                />
-                <input
-                  type={showPass ? "text" : "password"}
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className={inputClass}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPass(!showPass)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  aria-label={showPass ? "Hide password" : "Show password"}
-                >
-                  {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
+            <div className="relative">
+              <Lock
+                size={16}
+                strokeWidth={1.75}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#4f637a] pointer-events-none"
+              />
+              <input
+                type={showPass ? "text" : "password"}
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className={inputClass}
+                style={loginFont}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPass(!showPass)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#4f637a] hover:text-[#a0aec0] transition-colors"
+                aria-label={showPass ? "Hide password" : "Show password"}
+              >
+                {showPass ? (
+                  <Eye size={16} strokeWidth={1.75} />
+                ) : (
+                  <EyeOff size={16} strokeWidth={1.75} />
+                )}
+              </button>
             </div>
 
-            <button type="submit" disabled={isLoading} className={`${primaryClass} mt-2`}>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full h-11 mt-1 text-white flex items-center justify-center gap-2 disabled:opacity-50 hover:brightness-110 transition-all"
+              style={{
+                ...btnStyle,
+                ...loginFont,
+                fontSize: "13px",
+                fontWeight: 600,
+                color: "#dfe4e9",
+                letterSpacing: "0.2em",
+              }}
+            >
               {isLoading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                "Sign in"
+                "LOGIN"
               )}
             </button>
+
           </form>
         </div>
       </div>

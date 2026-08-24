@@ -957,7 +957,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
                           <ValueCells
                             line={line}
                             lineIdx={idx}
-                            readOnly={readOnly || !canTypeHeaders}
+                            readOnly={readOnly}
                             hasError={!!lineErr}
                             onUpdateLine={updateLine}
                           />

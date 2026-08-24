@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { getTables, hybridPreviewWidget } from "../services/dashboardApi";
 import { Database, Palette, Table2, Code, Trash2, Info, Eye, Save, X, ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
 import { DASHBOARD_WIDGET_QUERY_PLACEHOLDER, getDashboardQueryRuntimeFilters } from "../utils/widgetQuery.js";
-import { EXTERNAL_MSSQL_QUERY_PLACEHOLDER, isExternalMssqlDbSource, isHybridDbSource, isWidgetHybridMode, resolveHybridExternalDbSource } from "../utils/dashboardDbSources.js";
+import { EXTERNAL_MSSQL_QUERY_PLACEHOLDER, HYBRID_EXTERNAL_DB_OPTIONS, buildHybridPreviewRequest, isExternalMssqlDbSource, isHybridDbSource, isHybridUrlExternalSource, isUrlJsonDbSource, isWidgetHybridMode, resolveHybridExternalDbSource } from "../utils/dashboardDbSources.js";
 import { APPS } from "@/config/appsRegistry";
 import { getAppNavPages } from "../utils/appNavPages";
 import { DEFAULT_WIDGET_BOX_SHADOW, STRONG_WIDGET_BOX_SHADOW } from "../utils/floatingLayoutEngine";
@@ -282,6 +282,45 @@ function validateSelectOnlyFrontend(query) {
   return "";
 }
 
+function validateHttpApiUrl(rawUrl = "") {
+  const url = String(rawUrl || "").trim();
+  if (!url) return "API URL is required.";
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "API URL must use http:// or https://.";
+    }
+    if (parsed.username || parsed.password) {
+      return "API URL must not contain embedded credentials.";
+    }
+  } catch {
+    return "Enter a valid API URL.";
+  }
+  return "";
+}
+
+function validateJsonPostBody(method, rawBody) {
+  if (String(method || "GET").toUpperCase() !== "POST") return "";
+  const body = String(rawBody || "").trim();
+  if (!body) return "";
+  try {
+    JSON.parse(body);
+    return "";
+  } catch {
+    return "POST body must be valid JSON.";
+  }
+}
+
+function validateUrlWidget(widget = {}) {
+  return validateHttpApiUrl(widget.query)
+    || validateJsonPostBody(widget.chart_config?.url_method, widget.chart_config?.url_body);
+}
+
+function validateHybridUrlWidget(widget = {}) {
+  return validateHttpApiUrl(widget.chart_config?.hybrid_url)
+    || validateJsonPostBody(widget.chart_config?.hybrid_url_method, widget.chart_config?.hybrid_url_body);
+}
+
 const PropertyPanel = ({
   selectedWidget,
   onUpdate,
@@ -322,6 +361,14 @@ const PropertyPanel = ({
     setHybridError("");
     setHybridStep(1);
   }, [selectedWidget.id]);
+
+  const resetHybridPreviewState = useCallback(() => {
+    setHybridExternalPreview([]);
+    setHybridColumns([]);
+    setHybridExternalRowCount(0);
+    setHybridError("");
+    setHybridStep(1);
+  }, []);
   const [tablesCollapsed, setTablesCollapsed] = useState(true);
   const [filtersCollapsed, setFiltersCollapsed] = useState(true);
   const [copiedTable, setCopiedTable] = useState("");
@@ -374,7 +421,7 @@ const PropertyPanel = ({
   }, [selectedWidget?.id, widthPx, heightPx]);
 
   useEffect(() => {
-    if (!selectedWidget || !REQUIRES_SQL.has(selectedWidget.rawType)) {
+    if (!selectedWidget || !REQUIRES_SQL.has(selectedWidget.rawType) || isUrlJsonDbSource(selectedWidget.dataSource)) {
       setTables([]);
       return;
     }
@@ -401,7 +448,22 @@ const PropertyPanel = ({
   }
   const isExternalSqlServer = isExternalMssqlDbSource(selectedWidget.dataSource);
   const isHybrid = isWidgetHybridMode(selectedWidget);
+  const isUrlJson = isUrlJsonDbSource(selectedWidget.dataSource);
   const hybridExternalSource = resolveHybridExternalDbSource(selectedWidget);
+  const urlMethod = String(selectedWidget.chart_config?.url_method || "GET").toUpperCase() === "POST"
+    ? "POST"
+    : "GET";
+  const urlExcludedColumns = Array.isArray(selectedWidget.chart_config?.url_excluded_columns)
+    ? selectedWidget.chart_config.url_excluded_columns
+    : [];
+  const urlPreviewRows = Array.isArray(selectedWidget.previewData) && selectedWidget.previewData.length
+    ? selectedWidget.previewData
+    : (Array.isArray(selectedWidget.data) ? selectedWidget.data : []);
+  const urlColumns = Array.from(new Set(
+    urlPreviewRows.flatMap((row) =>
+      row && typeof row === "object" && !Array.isArray(row) ? Object.keys(row) : [],
+    ),
+  ));
 
   const flushStylePatch = useCallback(() => {
     const patchStyle = pendingStyleRef.current;
@@ -531,18 +593,21 @@ const PropertyPanel = ({
       setHybridLoading(true);
       setHybridError("");
       const current = selectedWidgetRef.current || selectedWidget;
-      const mssqlQuery = current.chart_config?.hybrid_mssql_query || "";
-      if (!mssqlQuery.trim()) {
+      const externalSource = resolveHybridExternalDbSource(current);
+
+      if (isHybridUrlExternalSource(externalSource)) {
+        if (!String(current.chart_config?.hybrid_url || "").trim()) {
+          setHybridError("Please enter an API URL first.");
+          return;
+        }
+      } else if (!String(current.chart_config?.hybrid_mssql_query || "").trim()) {
         setHybridError("Please enter an external query first.");
         return;
       }
 
-      const res = await hybridPreviewWidget({
-        mssql_query: mssqlQuery,
-        db_source: resolveHybridExternalDbSource(current),
-        filters: {},
-        stage_only: true,
-      });
+      const res = await hybridPreviewWidget(
+        buildHybridPreviewRequest(current, { stageOnly: true }),
+      );
 
       const sampleRows = Array.isArray(res?.data) ? res.data : [];
       const columns = Array.isArray(res?.columns) && res.columns.length
@@ -587,7 +652,23 @@ const PropertyPanel = ({
       onPreview?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
     }
-    if (isExternalSqlServer || isHybrid) {
+    if (isUrlJson) {
+      const err = validateUrlWidget(widget);
+      setValidationError(err);
+      if (err) return;
+      onPreview?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
+      return;
+    }
+    if (isHybrid) {
+      const hybridErr = isHybridUrlExternalSource(resolveHybridExternalDbSource(widget))
+        ? validateHybridUrlWidget(widget)
+        : "";
+      setValidationError(hybridErr);
+      if (hybridErr) return;
+      onPreview?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
+      return;
+    }
+    if (isExternalSqlServer) {
       setValidationError("");
       onPreview?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
@@ -612,7 +693,23 @@ const PropertyPanel = ({
       onSave?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
     }
-    if (isExternalSqlServer || isHybrid) {
+    if (isUrlJson) {
+      const err = validateUrlWidget(widget);
+      setValidationError(err);
+      if (err) return;
+      onSave?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
+      return;
+    }
+    if (isHybrid) {
+      const hybridErr = isHybridUrlExternalSource(resolveHybridExternalDbSource(widget))
+        ? validateHybridUrlWidget(widget)
+        : "";
+      setValidationError(hybridErr);
+      if (hybridErr) return;
+      onSave?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
+      return;
+    }
+    if (isExternalSqlServer) {
       setValidationError("");
       onSave?.(widget, { widthPx: parsedWidth, heightPx: parsedHeight });
       return;
@@ -626,12 +723,15 @@ const PropertyPanel = ({
   const handleDatabaseChange = (nextSource) => {
     const currentConfig = selectedWidget.chart_config || {};
     if (isHybridDbSource(nextSource)) {
-      const nextQuery = String(selectedWidget.query || "").trim()
+      const nextQuery = !isUrlJsonDbSource(selectedWidget.dataSource) && String(selectedWidget.query || "").trim()
         ? selectedWidget.query
         : "SELECT * FROM {{temp_erp_data}}";
       applyWidgetPatch({
         dataSource: "hybrid",
         query: nextQuery,
+        previewData: [],
+        data: [],
+        previewError: null,
         chart_config: {
           ...currentConfig,
           is_hybrid: true,
@@ -641,11 +741,16 @@ const PropertyPanel = ({
       setHybridStep(1);
       return;
     }
+    const sourceChangedToOrFromUrl =
+      isUrlJsonDbSource(nextSource) !== isUrlJsonDbSource(selectedWidget.dataSource);
     applyWidgetPatch({
       dataSource: nextSource,
-      query: String(selectedWidget.query || "").includes("{{temp_erp_data}}")
+      query: sourceChangedToOrFromUrl || String(selectedWidget.query || "").includes("{{temp_erp_data}}")
         ? ""
         : selectedWidget.query,
+      previewData: [],
+      data: [],
+      previewError: null,
       chart_config: {
         ...currentConfig,
         is_hybrid: false,
@@ -942,9 +1047,13 @@ const PropertyPanel = ({
               const previewRows = Array.isArray(selectedWidget.previewData) && selectedWidget.previewData.length
                 ? selectedWidget.previewData
                 : (Array.isArray(selectedWidget.data) ? selectedWidget.data : []);
-              const columns = previewRows[0] && typeof previewRows[0] === "object"
-                ? Object.keys(previewRows[0])
-                : [];
+              const columns = Array.from(new Set(
+                previewRows.flatMap((row) =>
+                  row && typeof row === "object" && !Array.isArray(row)
+                    ? Object.keys(row)
+                    : [],
+                ),
+              )).filter((column) => !urlExcludedColumns.includes(column));
               if (!columns.length) {
                 return (
                   <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-2.5 py-2 text-[10px] text-slate-500">
@@ -1086,7 +1195,7 @@ const PropertyPanel = ({
                       <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className={`h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold ${hybridStep >= 1 ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"}`}>1</div>
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-700">Load ERP / HRMS data</span>
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-700">Load external data</span>
                         </div>
                         {hybridStep === 2 && (
                           <button onClick={() => setHybridStep(1)} className="text-[9px] text-blue-600 font-bold hover:underline">Edit Step 1</button>
@@ -1099,39 +1208,102 @@ const PropertyPanel = ({
                             <PanelFieldLabel>External database</PanelFieldLabel>
                             <select
                               value={hybridExternalSource}
-                              onChange={(e) => applyWidgetPatch({
-                                chart_config: {
-                                  ...(selectedWidget.chart_config || {}),
-                                  hybrid_external_source: e.target.value,
-                                  is_hybrid: true,
-                                },
-                              })}
-                              className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
-                            >
-                              {dbSourceOptions.filter(opt => isExternalMssqlDbSource(opt.value)).map((opt) => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <PanelFieldLabel>ERP SQL (First DB)</PanelFieldLabel>
-                            <QuerySqlEditor
-                              value={selectedWidget.chart_config?.hybrid_mssql_query || ""}
-                              placeholder={EXTERNAL_MSSQL_QUERY_PLACEHOLDER}
-                              minHeight={140}
-                              defaultMaxHeight={320}
                               onChange={(e) => {
-                                const current = selectedWidgetRef.current || selectedWidget;
+                                resetHybridPreviewState();
                                 applyWidgetPatch({
                                   chart_config: {
-                                    ...(current.chart_config || {}),
-                                    hybrid_mssql_query: e.target.value,
+                                    ...(selectedWidget.chart_config || {}),
+                                    hybrid_external_source: e.target.value,
                                     is_hybrid: true,
                                   },
                                 });
                               }}
-                            />
+                              className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+                            >
+                              {HYBRID_EXTERNAL_DB_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
                           </div>
+                          {isHybridUrlExternalSource(hybridExternalSource) ? (
+                            <>
+                              <div>
+                                <PanelFieldLabel>Request Method</PanelFieldLabel>
+                                <select
+                                  value={String(selectedWidget.chart_config?.hybrid_url_method || "GET").toUpperCase() === "POST" ? "POST" : "GET"}
+                                  onChange={(e) => applyWidgetPatch({
+                                    chart_config: {
+                                      ...(selectedWidget.chart_config || {}),
+                                      hybrid_url_method: e.target.value,
+                                      is_hybrid: true,
+                                    },
+                                  })}
+                                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+                                >
+                                  <option value="GET">GET</option>
+                                  <option value="POST">POST</option>
+                                </select>
+                              </div>
+                              <div>
+                                <PanelFieldLabel>API URL</PanelFieldLabel>
+                                <input
+                                  type="url"
+                                  value={selectedWidget.chart_config?.hybrid_url || ""}
+                                  placeholder="https://api.example.com/data"
+                                  onChange={(e) => {
+                                    const current = selectedWidgetRef.current || selectedWidget;
+                                    applyWidgetPatch({
+                                      chart_config: {
+                                        ...(current.chart_config || {}),
+                                        hybrid_url: e.target.value,
+                                        hybrid_external_source: "url_json",
+                                        is_hybrid: true,
+                                      },
+                                    });
+                                  }}
+                                  className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                                />
+                              </div>
+                              {String(selectedWidget.chart_config?.hybrid_url_method || "GET").toUpperCase() === "POST" ? (
+                                <div>
+                                  <PanelFieldLabel>JSON Request Body (optional)</PanelFieldLabel>
+                                  <textarea
+                                    value={selectedWidget.chart_config?.hybrid_url_body || ""}
+                                    placeholder={'{\n  "key": "value"\n}'}
+                                    rows={5}
+                                    onChange={(e) => applyWidgetPatch({
+                                      chart_config: {
+                                        ...(selectedWidget.chart_config || {}),
+                                        hybrid_url_body: e.target.value,
+                                        is_hybrid: true,
+                                      },
+                                    })}
+                                    className="w-full resize-y bg-white border border-slate-200 rounded-md px-2 py-1.5 font-mono text-[10px] text-slate-700"
+                                  />
+                                </div>
+                              ) : null}
+                            </>
+                          ) : (
+                            <div>
+                              <PanelFieldLabel>ERP SQL (First DB)</PanelFieldLabel>
+                              <QuerySqlEditor
+                                value={selectedWidget.chart_config?.hybrid_mssql_query || ""}
+                                placeholder={EXTERNAL_MSSQL_QUERY_PLACEHOLDER}
+                                minHeight={140}
+                                defaultMaxHeight={320}
+                                onChange={(e) => {
+                                  const current = selectedWidgetRef.current || selectedWidget;
+                                  applyWidgetPatch({
+                                    chart_config: {
+                                      ...(current.chart_config || {}),
+                                      hybrid_mssql_query: e.target.value,
+                                      is_hybrid: true,
+                                    },
+                                  });
+                                }}
+                              />
+                            </div>
+                          )}
                           <button
                             type="button"
                             disabled={hybridLoading}
@@ -1146,7 +1318,9 @@ const PropertyPanel = ({
                             ) : (
                               <>
                                 <Database size={12} />
-                                Preview ERP query
+                                {isHybridUrlExternalSource(hybridExternalSource)
+                                  ? "Load URL data"
+                                  : "Preview ERP query"}
                               </>
                             )}
                           </button>
@@ -1155,7 +1329,7 @@ const PropertyPanel = ({
                       ) : (
                         <div className="px-3 py-2 bg-emerald-50/50 border-b border-emerald-100 space-y-1.5">
                           <p className="text-[9px] text-emerald-800 font-semibold">
-                            ERP ready → in Step 2 use{" "}
+                            {isHybridUrlExternalSource(hybridExternalSource) ? "URL" : "ERP"} ready → in Step 2 use{" "}
                             <code className="bg-emerald-100 px-1 rounded font-mono font-bold">{"{{temp_erp_data}}"}</code>
                           </p>
                           {hybridColumns.length > 0 && (
@@ -1164,7 +1338,7 @@ const PropertyPanel = ({
                                 <span
                                   key={col}
                                   className="px-1 py-0.5 rounded bg-white border border-emerald-200 text-[8px] font-mono text-emerald-800"
-                                  title="Column from ERP result"
+                                  title="Column from external result"
                                 >
                                   {col}
                                 </span>
@@ -1174,8 +1348,8 @@ const PropertyPanel = ({
                           {hybridExternalRowCount > 0 && (
                             <p className="text-[8px] text-emerald-600">
                               {hybridExternalPreview.length > 0
-                                ? `Showing ${hybridExternalPreview.length} of ${hybridExternalRowCount.toLocaleString()} ERP rows`
-                                : `${hybridExternalRowCount.toLocaleString()} ERP rows`}
+                                ? `Showing ${hybridExternalPreview.length} of ${hybridExternalRowCount.toLocaleString()} external rows`
+                                : `${hybridExternalRowCount.toLocaleString()} external rows`}
                             </p>
                           )}
                         </div>
@@ -1231,10 +1405,10 @@ const PropertyPanel = ({
                                     type="button"
                                     onClick={() => insertFilterToken(filter.token)}
                                     className="px-1.5 py-0.5 bg-slate-50 rounded text-[9px] text-slate-600 font-mono border border-emerald-100 hover:border-emerald-300 hover:text-emerald-800 inline-flex items-center gap-1"
-                                    title={`${filter.label} — ${filter.hint}`}
+                                    title={`${filter.label} — ${filter.hint} (${filter.token})`}
                                   >
                                     {isCopied ? <Check size={10} /> : <Copy size={10} />}
-                                    {filter.token}
+                                    {filter.label}
                                   </button>
                                 );
                               })}
@@ -1270,6 +1444,116 @@ const PropertyPanel = ({
                         </div>
                       </div>
                     </div>
+                  </div>
+                ) : isUrlJson ? (
+                  <div className="space-y-3">
+                    <div>
+                      <PanelFieldLabel>Request Method</PanelFieldLabel>
+                      <select
+                        value={urlMethod}
+                        onChange={(e) => {
+                          setValidationError("");
+                          applyWidgetPatch({
+                            chart_config: {
+                              ...(selectedWidget.chart_config || {}),
+                              url_method: e.target.value,
+                            },
+                            previewError: null,
+                          });
+                        }}
+                        className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-semibold text-slate-700"
+                      >
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                      </select>
+                    </div>
+                    <div>
+                      <PanelFieldLabel>API URL</PanelFieldLabel>
+                      <input
+                        type="url"
+                        value={selectedWidget.query || ""}
+                        placeholder="https://api.example.com/data"
+                        onChange={(e) => {
+                          setValidationError("");
+                          applyWidgetPatch({ query: e.target.value, previewError: null });
+                        }}
+                        className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[11px] font-medium text-slate-700"
+                      />
+                    </div>
+                    {urlMethod === "POST" ? (
+                      <div>
+                        <PanelFieldLabel>JSON Request Body (optional)</PanelFieldLabel>
+                        <textarea
+                          value={selectedWidget.chart_config?.url_body || ""}
+                          placeholder={'{\n  "key": "value"\n}'}
+                          rows={6}
+                          onChange={(e) => {
+                            setValidationError("");
+                            applyWidgetPatch({
+                              chart_config: {
+                                ...(selectedWidget.chart_config || {}),
+                                url_body: e.target.value,
+                              },
+                              previewError: null,
+                            });
+                          }}
+                          className="w-full resize-y bg-white border border-slate-200 rounded-md px-2 py-2 font-mono text-[10px] text-slate-700"
+                        />
+                      </div>
+                    ) : null}
+                    {urlColumns.length > 0 ? (
+                      <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <PanelFieldLabel className="mb-0">Displayed Columns</PanelFieldLabel>
+                          {urlExcludedColumns.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => applyWidgetPatch({
+                                chart_config: {
+                                  ...(selectedWidget.chart_config || {}),
+                                  url_excluded_columns: [],
+                                },
+                              })}
+                              className="text-[9px] font-semibold text-blue-600 hover:underline"
+                            >
+                              Select all
+                            </button>
+                          ) : null}
+                        </div>
+                        <div className="grid max-h-40 grid-cols-1 gap-1 overflow-y-auto">
+                          {urlColumns.map((column) => {
+                            const checked = !urlExcludedColumns.includes(column);
+                            return (
+                              <label
+                                key={column}
+                                className="flex items-center gap-2 rounded px-1.5 py-1 text-[10px] text-slate-700 hover:bg-slate-50"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => {
+                                    const nextExcluded = checked
+                                      ? [...urlExcludedColumns, column]
+                                      : urlExcludedColumns.filter((item) => item !== column);
+                                    applyWidgetPatch({
+                                      chart_config: {
+                                        ...(selectedWidget.chart_config || {}),
+                                        url_excluded_columns: nextExcluded,
+                                      },
+                                    });
+                                  }}
+                                />
+                                <span className="truncate" title={column}>{column}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[9px] text-slate-400">
+                        Run Preview to choose which JSON columns to display.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -1311,10 +1595,10 @@ const PropertyPanel = ({
                                 type="button"
                                 onClick={() => insertFilterToken(filter.token)}
                                 className="px-1.5 py-0.5 bg-slate-50 rounded text-[9px] text-slate-600 font-mono border border-emerald-100 hover:border-emerald-300 hover:text-emerald-800 inline-flex items-center gap-1"
-                                title={`${filter.label} — ${filter.hint}`}
+                                title={`${filter.label} — ${filter.hint} (${filter.token})`}
                               >
                                 {isCopied ? <Check size={10} /> : <Copy size={10} />}
-                                {filter.token}
+                                {filter.label}
                               </button>
                             );
                           })}
@@ -1857,6 +2141,11 @@ const PropertyPanel = ({
                     </button>
                   ))}
                 </div>
+                {selectedWidget.rawType === "table" ? (
+                  <p className="text-[8px] text-slate-400 mt-1">
+                    Top: heading and search stay on one row. Bottom: heading sits in the footer with the row count.
+                  </p>
+                ) : null}
               </div>
             )}
 

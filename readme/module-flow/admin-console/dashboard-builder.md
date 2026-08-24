@@ -1,6 +1,6 @@
 # Dashboard Builder
 
-Super-admin widgets / layout. Widgets live in `dashboard_json` (no `mst_widgets` table). Detail: `frontend/readme/app-flow/DASHBOARD-BUILDER.md`.
+Super-admin widgets / layout. Widgets live in `dashboard_json` (no `mst_widgets` table). Detail: `frontend/readme/app-flow/DASHBOARD-BUILDER.md` (runtime SQL filters: super admin = all users unless picked; normal user = logged-in `{{userId}}`).
 
 |               |                                                                                                 |
 |---------------|-------------------------------------------------------------------------------------------------|

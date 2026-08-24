@@ -191,8 +191,9 @@ export default function StockAdjustmentPage() {
 
   const handlePrintStickers = useCallback(() => {
     if (!selectedRecord) return;
-    if (selectedRecord.entry_type !== "add" || !selectedRecord.approved) {
-      toast.info("Print stickers: select an approved add adjustment.");
+    const et = selectedRecord.entry_type;
+    if ((et !== "add" && et !== "update") || !selectedRecord.approved) {
+      toast.info("Print stickers: select an approved Add or Update adjustment.");
       return;
     }
     handleOpenModal("print", selectedRecord);
@@ -230,11 +231,11 @@ export default function StockAdjustmentPage() {
     canPrintSelection: useCallback(
       () =>
         Boolean(selected) &&
-        selectedRecord?.entry_type === "add" &&
+        (selectedRecord?.entry_type === "add" || selectedRecord?.entry_type === "update") &&
         Boolean(selectedRecord?.approved),
       [selected, selectedRecord?.entry_type, selectedRecord?.approved]
     ),
-    printBlockedMessage: "Print stickers: select an approved add adjustment (Ctrl+Alt+P).",
+    printBlockedMessage: "Print stickers: select an approved Add or Update adjustment (Ctrl+Alt+P).",
     printModule: "stock_adjustment",
     printAction: "view",
     openDelete: useCallback((row) => {
@@ -276,7 +277,7 @@ export default function StockAdjustmentPage() {
               <PrintActionButton module="stock_adjustment" variant="outline" label="Print stickers" icon={Printer}
                 disabled={
                   !selected ||
-                  selectedRecord?.entry_type !== "add" ||
+                  (selectedRecord?.entry_type !== "add" && selectedRecord?.entry_type !== "update") ||
                   !selectedRecord?.approved
                 }
                 onClick={openPrintModal}
@@ -384,7 +385,7 @@ export default function StockAdjustmentPage() {
         </div>
       </div>
 
-      {modalOpen && modalMode === "print" && editItem?.entry_type === "add" && (
+      {modalOpen && modalMode === "print" && (editItem?.entry_type === "add" || editItem?.entry_type === "update") && (
         <StockAdjustmentPrintStickersDrawer
           open={modalOpen}
           editData={editItem}
@@ -398,7 +399,7 @@ export default function StockAdjustmentPage() {
           onSuccess={handleModalSuccess}
         />
       )}
-      {modalOpen && modalMode === "view" && (editItem?.entry_type === "add" || editItem?.entry_type === "minus") && (
+      {modalOpen && modalMode === "view" && (editItem?.entry_type === "add" || editItem?.entry_type === "minus" || editItem?.entry_type === "update") && (
         <StockAdjustmentStickerCloneDrawer
           open={modalOpen}
           mode="view"
@@ -406,7 +407,7 @@ export default function StockAdjustmentPage() {
           onClose={closeModal}
         />
       )}
-      {modalOpen && modalMode === "view" && editItem?.entry_type !== "add" && editItem?.entry_type !== "minus" && (
+      {modalOpen && modalMode === "view" && editItem?.entry_type !== "add" && editItem?.entry_type !== "minus" && editItem?.entry_type !== "update" && (
         <StockAdjustmentModal
           open={modalOpen}
           mode="view"
@@ -414,7 +415,7 @@ export default function StockAdjustmentPage() {
           onClose={closeModal}
         />
       )}
-      {modalOpen && modalMode === "edit" && (editItem?.entry_type === "add" || editItem?.entry_type === "minus") && (
+      {modalOpen && modalMode === "edit" && (editItem?.entry_type === "add" || editItem?.entry_type === "minus" || editItem?.entry_type === "update") && (
         <StockAdjustmentStickerCloneDrawer
           open={modalOpen}
           mode="edit"
@@ -423,7 +424,7 @@ export default function StockAdjustmentPage() {
           onSuccess={handleModalSuccess}
         />
       )}
-      {modalOpen && modalMode === "edit" && editItem?.entry_type !== "add" && editItem?.entry_type !== "minus" && (
+      {modalOpen && modalMode === "edit" && editItem?.entry_type !== "add" && editItem?.entry_type !== "minus" && editItem?.entry_type !== "update" && (
         <StockAdjustmentModal
           open={modalOpen}
           mode="edit"
@@ -432,7 +433,7 @@ export default function StockAdjustmentPage() {
           onSuccess={handleModalSuccess}
         />
       )}
-      {modalOpen && modalMode === "approve" && (editItem?.entry_type === "add" || editItem?.entry_type === "minus") && (
+      {modalOpen && modalMode === "approve" && (editItem?.entry_type === "add" || editItem?.entry_type === "minus" || editItem?.entry_type === "update") && (
         <StockAdjustmentStickerCloneDrawer
           open={modalOpen}
           mode="approve"
@@ -444,7 +445,8 @@ export default function StockAdjustmentPage() {
       {modalOpen &&
         modalMode === "approve" &&
         editItem?.entry_type !== "add" &&
-        editItem?.entry_type !== "minus" && (
+        editItem?.entry_type !== "minus" &&
+        editItem?.entry_type !== "update" && (
           <StockAdjustmentModal
             open={modalOpen}
             onClose={closeModal}

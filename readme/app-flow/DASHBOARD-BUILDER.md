@@ -199,8 +199,8 @@ Base: `frontend/src/features/dashboard-builder/`
 | `utils/floatingLayoutEngine.js` | Pixel box math: sanitize, clone, phone gutters, merge `layout_px`, gap pack. |
 | `utils/dashboardLayoutEngine.js` | Grid/publish helpers still used for legacy fields and packing fallbacks. |
 | `utils/dashboardDbSources.js` | Postgres / ERP / HRMS / Hybrid source keys. |
-| `utils/widgetQuery.js` | Empty placeholder vs real SQL. |
-| `utils/dashboardFilterAccess.js` | Who can filter by user; runtime date/user/FY filters. |
+| `utils/widgetQuery.js` | Empty placeholder vs real SQL; `{{userId}}` / `{{username}}` / `{{name}}` tokens (super-admin-only chips in the editor). |
+| `utils/dashboardFilterAccess.js` | Super admin may pick a user; everyone else is scoped to self. Builds `fromDate` / `toDate` / `userId` / `fyuid` for live queries. |
 | `utils/appNavPages.js` | Nav pages for widget page-access targeting. |
 | `utils/tableToolbar.js` | Table search align / width helpers. |
 
@@ -222,13 +222,14 @@ Base: `backend/src/apps/dashboard/` — mounted at **`/api/dashboard`**.
 | File | Job |
 |------|-----|
 | `routes/index.js` | Builder APIs = Super Admin; live APIs = logged-in user. |
-| `controllers/dashboard.controller.js` | Tables, widget CRUD, preview, hybrid preview, save draft, publish, clone, live widgets. |
+| `controllers/dashboard.controller.js` | Tables, widget CRUD, preview, hybrid preview, save draft, publish, clone, live widgets. **`resolveWidgetFiltersForUser`**: super admin → all users unless a user is picked; normal user → logged-in `userId` / `username` / `name` (client cannot spoof another user). |
 | `models/dashboardConfig.model.js` | `mst_dashboard_configs` upsert / list / audience. |
 | `utils/dashboardJsonSchema.js` | Document normalize; `tmp_*` → `w_*` remap (including mobile nested px). |
-| `utils/queryExecutor.js` | Widget SELECT (Postgres / MSSQL / Hybrid). |
-| `utils/hybridQueryEngine.js` | Session TEMP + merge for Hybrid. |
+| `utils/query/widgetQuery.js` | `applyDashboardUserPlaceholders` — when `matchAllUsers`, `col = {{userId}}` becomes `col IS NOT NULL`. |
+| `utils/queryExecutor.js` | Widget SELECT (Postgres / MSSQL / Hybrid); applies date + user placeholders. |
+| `utils/hybridQueryEngine.js` | Session TEMP + merge for Hybrid; same user placeholder helper. |
 | `utils/sqlGenerator.js` | SELECT-only + safety LIMIT. |
-| `utils/externalMssqlQuery.js` | ERP / HRMS MSSQL helpers. |
+| `utils/externalMssqlQuery.js` | ERP / HRMS MSSQL helpers; same user placeholder helper. |
 
 App body parser (`backend/src/index.js`): CORS first, then `express.json` / urlencoded with **100mb** limit (`config.bodyParserLimit`).
 
@@ -252,7 +253,41 @@ All dashboard routes are **POST** (body params; no GET / PUT / DELETE).
 Allowed `app_key`: `home`, `ims`, `task`, `settings`.  
 DB sources: `ims_postgresql`, `erp_mssql`, `hrms_mssql`, `hybrid`.
 
-SQL placeholders: `{{fromDate}}`, `{{toDate}}`, `{{userId}}`, `{{fyuid}}`, and Hybrid `{{temp_erp_data}}`.
+SQL placeholders: `{{fromDate}}`, `{{toDate}}`, `{{userId}}`, `{{username}}`, `{{name}}`, `{{fyuid}}`, and Hybrid `{{temp_erp_data}}`.
+
+### Runtime SQL filters (user + date)
+
+Widget SQL does **not** auto-filter. Tokens must appear in the query, e.g.
+
+```sql
+SELECT *
+FROM public.task_tasks
+WHERE created_by = {{userId}}
+  AND created_at BETWEEN {{fromDate}} AND {{toDate}}
+```
+
+`created_by` on `task_tasks` is `INT` (users.id). Do not quote `{{userId}}`. Date column is `created_at`, not `date`.
+
+| Who | `{{userId}}` / `{{username}}` / `{{name}}` |
+|-----|--------------------------------------------|
+| Super admin, no user picked | **All users** (`col = {{userId}}` → `col IS NOT NULL`) |
+| Super admin, user picked | That user's id / username / name |
+| Normal user (and `admin`) | **Logged-in user only** (request body cannot override) |
+
+Date range still applies for everyone. Live bar defaults From/To to **today** if URL has no `df_from` / `df_to` — empty widgets are often the date window, not the user token.
+
+**Which file does what**
+
+| File | Change |
+|------|--------|
+| `frontend/src/common/dashboard-builder/utils/widgetQuery.js` | Token list + hint: normal user = own id; super admin = all unless a user is selected. |
+| `frontend/src/common/dashboard-builder/utils/dashboardFilterAccess.js` | Super admin may send `df_uid` / `df_user`; others send empty user fields. Dates + FY still sent. |
+| `frontend/src/platform/layouts/QuickAccessBar.js` | Live From/To + super-admin user picker (`df_from`, `df_to`, `df_uid`). No logic change required for the all-users rule (backend applies it). |
+| `backend/.../controllers/dashboard.controller.js` | `resolveWidgetFiltersForUser`: `matchAllUsers` for super admin with no user; overwrite user fields from `req.user` for everyone else. |
+| `backend/.../lib/utils/query/widgetQuery.js` | `applyDashboardUserPlaceholders` (`IS NOT NULL` when `matchAllUsers`). |
+| `backend/.../lib/utils/query/queryExecutor.js` | Postgres/live SELECT uses that helper after date replace. |
+| `backend/.../lib/utils/query/hybridQueryEngine.js` | Same helper on Hybrid PG SQL. |
+| `backend/.../lib/utils/mssql/externalMssqlQuery.js` | Same helper on ERP/HRMS SQL. |
 
 ---
 
@@ -317,6 +352,7 @@ Do not regress these without an explicit decision:
 7. **IMS toast** — only when the request failed or returned no usable primary data.
 8. **Style panel** — debounced style-only patches (no max-update-depth loops).
 9. **Hotkeys** — save/publish effects registered above any early access `return`.
+10. **Runtime user filter** — super admin sees all users unless one is picked; normal users are always scoped to `req.user` (`{{userId}}` must not become `NULL`). Date tokens still required in SQL.
 
 ---
 

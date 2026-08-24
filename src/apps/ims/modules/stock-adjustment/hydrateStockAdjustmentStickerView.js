@@ -1,10 +1,13 @@
 import { stockAdjustmentService } from "@/apps/ims/lib/services/stockAdjustment";
 import { masterService } from "@/apps/ims/lib/services/master";
+import { boxService } from "@/apps/ims/lib/services/box";
 import { loadPackingContext } from "./loadPackingContext";
 import { buildViewAddRowsFromAdjustment, loadAddBoxesForAdjustmentView, isAddBoxRemovedFromInventory, mapSavedBoxesToAddRows, loadMinusPlanBoxes, parseRemovedBoxUidsForAdjustment, resolveMinusSelectedUidsForAdjustment, normalizeMinusSelectedUidSet,isMinusBoxUidSelected } from "./stockAdjustmentViewBoxes";
 import { parseStoredRemarks } from "./StockAdjustmentModal";
 import { dedupeMinusDrawerBoxRows, isBoxVisibleForStockAdjustmentMinus, isValidMinusDrawerBoxRow } from "@/apps/ims/lib/utils/boxInventory";
 import { enrichMinusBoxCustomerNames } from "@/apps/ims/lib/utils/minusCustomerBreakdown";
+import { parseQtyUpdatePayload } from "@/apps/ims/lib/utils/stockAdjustmentQtyUpdate";
+import { pickBoxFromViewsResponse } from "@/apps/ims/lib/helpers/boxViewsLookup";
 
 const STOCK_ADJ_PERMS = { permission_module: "stock_adjustment", permission_action: "view" };
 
@@ -80,7 +83,7 @@ function mergeMinusPackingBoxes(liveBoxes, planBoxes, packingNo) {
   return [...byUid.values()].sort((a, b) => Number(a.box_uid) - Number(b.box_uid));
 }
 
-/** Load saved add/minus adjustment into the same UI state as the create drawer (view / edit). */
+/** Load saved add/minus/update adjustment into the same UI state as the create drawer (view / edit). */
 export async function hydrateStockAdjustmentStickerView(editData, options = {}) {
   const adjId = Number(editData?.adjustment_id);
   if (!Number.isFinite(adjId) || adjId < 1) {
@@ -91,6 +94,11 @@ export async function hydrateStockAdjustmentStickerView(editData, options = {}) 
   const row = res?.data ?? editData;
   const entryType = row.entry_type;
   const pn = String(row.packing_number || "").trim();
+
+  if (entryType === "update") {
+    return hydrateUpdateAdjustment(row, options);
+  }
+
   if (!pn || (entryType !== "add" && entryType !== "minus")) {
     throw new Error("This adjustment cannot be opened in the packing form");
   }
@@ -200,5 +208,144 @@ export async function hydrateStockAdjustmentStickerView(editData, options = {}) 
     savedAddBoxRows,
     packingPreview,
     itemMeta,
+    updateBox: null,
+    updateAction: "minus",
+    updateQty: "",
+  };
+}
+
+async function hydrateUpdateAdjustment(row, options = {}) {
+  const forEdit = options.forEdit === true;
+  const plan =
+    row.qty_update_plan ||
+    parseQtyUpdatePayload(row.removed_box_ids);
+  if (!plan?.box_uid) {
+    throw new Error("Update adjustment is missing box details");
+  }
+
+  const parsed = parseStoredRemarks(row.remarks);
+  let updateBox = null;
+  try {
+    const boxRes = await boxService.getViews({
+      box_uid: plan.box_uid,
+      id: String(plan.box_uid),
+      ...STOCK_ADJ_PERMS,
+    });
+    updateBox = pickBoxFromViewsResponse(boxRes);
+  } catch {
+    updateBox = null;
+  }
+
+  if (!updateBox) {
+    updateBox = {
+      box_uid: plan.box_uid,
+      box_no_uid: plan.box_no_uid,
+      packing_number: plan.packing_number || row.packing_number,
+      qty: plan.snapshot_qty ?? row.per_box_qty,
+      item_code: row.item_code,
+      item_desc: row.item_desc,
+      itemdcode: row.item_dcode,
+      item_dcode: row.item_dcode,
+    };
+  }
+
+  // Edit of an already-approved Update: show pre-apply qty so minus validation matches backend.
+  if (
+    forEdit &&
+    row.approved &&
+    plan.applied_delta != null &&
+    Number.isFinite(Number(plan.applied_delta))
+  ) {
+    const liveQty = parseInt(String(updateBox.qty ?? ""), 10);
+    const pre =
+      plan.applied_from_qty != null && Number.isFinite(Number(plan.applied_from_qty))
+        ? Number(plan.applied_from_qty)
+        : Number.isFinite(liveQty)
+          ? liveQty - Number(plan.applied_delta)
+          : plan.snapshot_qty;
+    if (Number.isFinite(pre) && pre >= 0) {
+      updateBox = { ...updateBox, qty: pre };
+    }
+  }
+
+  let itemMeta = null;
+  const idForItem = updateBox.itemdcode ?? updateBox.item_dcode ?? row.item_dcode;
+  if (idForItem) {
+    try {
+      const itemRes = await masterService.getItemViewById(idForItem, STOCK_ADJ_PERMS);
+      itemMeta = itemRes?.data ?? null;
+    } catch {
+      /* optional */
+    }
+  }
+
+  const packingNo = String(
+    updateBox.packing_number || plan.packing_number || row.packing_number || ""
+  ).trim();
+  let packingPreview = {
+    dailyprod: {
+      itemdcode: idForItem,
+      item_code: updateBox.item_code ?? row.item_code,
+      item_desc: updateBox.item_desc ?? updateBox.itemdesc ?? row.item_desc,
+      acc_code: updateBox.acc_code ?? row.acc_code,
+      acc_name: updateBox.acc_name ?? row.acc_name,
+    },
+    boxes: [updateBox],
+  };
+  if (packingNo) {
+    try {
+      const ctx = await loadPackingContext(packingNo, {
+        forMinus: false,
+        fetchBoxes: false,
+        itemDcode: idForItem,
+      });
+      if (ctx) {
+        packingPreview = {
+          ...ctx,
+          boxes: [updateBox],
+          dailyprod: {
+            ...ctx.dailyprod,
+            ...packingPreview.dailyprod,
+            itemdcode: packingPreview.dailyprod.itemdcode ?? ctx.dailyprod?.itemdcode,
+            item_code: packingPreview.dailyprod.item_code ?? ctx.dailyprod?.item_code,
+            item_desc: packingPreview.dailyprod.item_desc ?? ctx.dailyprod?.item_desc,
+            acc_code: packingPreview.dailyprod.acc_code ?? ctx.dailyprod?.acc_code,
+            acc_name: packingPreview.dailyprod.acc_name ?? ctx.dailyprod?.acc_name,
+            total_qty: ctx.dailyprod?.total_qty ?? packingPreview.dailyprod.total_qty,
+            job_card_no: ctx.dailyprod?.job_card_no ?? packingPreview.dailyprod.job_card_no,
+            doc_dt: ctx.dailyprod?.doc_dt ?? packingPreview.dailyprod.doc_dt,
+            doc_no: ctx.dailyprod?.doc_no ?? packingPreview.dailyprod.doc_no,
+            party_rate_cust_code:
+              ctx.dailyprod?.party_rate_cust_code ?? packingPreview.dailyprod.party_rate_cust_code,
+          },
+        };
+      }
+    } catch {
+      /* keep box-only preview */
+    }
+  }
+
+  return {
+    row,
+    gateEntryType: "update",
+    gateFinancialYear: "",
+    gatePackingNo: String(updateBox.box_no_uid || plan.box_no_uid || "").trim(),
+    form: {
+      remarks: parsed.remarks,
+      approved: !!row.approved,
+      acc_code: packingPreview.dailyprod?.acc_code ?? row.acc_code ?? null,
+      acc_name: packingPreview.dailyprod?.acc_name ?? row.acc_name ?? null,
+      party_rate_cust_code: packingPreview.dailyprod?.party_rate_cust_code ?? null,
+    },
+    addNumBoxes: "",
+    addPerBoxQty: "",
+    minusSelectedUids: new Set(),
+    viewAddRows: [],
+    savedAddBoxRows: [],
+    packingPreview,
+    itemMeta,
+    updateBox,
+    updateAction: plan.update_action || "minus",
+    updateQty: String(plan.update_qty ?? ""),
   };
 }

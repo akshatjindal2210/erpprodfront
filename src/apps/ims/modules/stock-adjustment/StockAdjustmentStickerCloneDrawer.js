@@ -1,14 +1,21 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Check, AlertCircle, Loader2, Shield, MessageSquareQuote, Package, Layers } from "lucide-react";
+import { Check, AlertCircle, Loader2, Shield, MessageSquareQuote, Package, Layers, QrCode, ScanLine } from "lucide-react";
 import { toast } from "react-toastify";
 
 import Drawer from "@/ui/primitives/Drawer";
 import FormPanelLoader from "@/ui/common/system/FormPanelLoader";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
+import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
+import LaserScanField from "@/ui/common/scan/LaserScanField";
+import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
+import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
+import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
+import { prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
 import { stockAdjustmentService } from "@/apps/ims/lib/services/stockAdjustment";
 import { boxService } from "@/apps/ims/lib/services/box";
 import { STICKER_DOWNLOAD_SOURCE_KEYS, getBoxNoUidPrefix } from "@/platform/utils/global";
@@ -20,22 +27,20 @@ import { sortFilterOptionsAsc } from "@/platform/utils/form/sortSelectOptions";
 import { getCurrentIndianFinancialYearStartYear, rowInIndianFinancialYear } from "@/platform/utils/core/indianFinancialYear";
 import { boxRowCustomerLabel, groupSelectedMinusBoxesByCustomer, parseMinusCustomerLinesFromRow, resolveMinusAccCodeFromSelection } from "@/apps/ims/lib/utils/minusCustomerBreakdown";
 
-const FIELD_ORDER = ["addNumBoxes", "addExtraBoxes", "addPerBoxQty", "category", "minusBoxes"];
+const FIELD_ORDER = ["addNumBoxes", "addExtraBoxes", "addPerBoxQty", "category", "minusBoxes", "updateQty", "updateAction"];
 import { formatStockAdjustmentBoxNoUid, parseOptionalStandardQtyPerBox, parseStockAdjustmentBoxIndex, resolveDefaultStockAdjustmentCategoryId, resolveStockAdjustmentPackingNo, summarizeAddBoxBreakup, buildStockAdjustmentAddPreviewRows } from "@/apps/ims/lib/utils/stockAdjustmentPacking";
 import { categoryService } from "@/apps/ims/lib/services/category";
 import { hydrateStockAdjustmentStickerView } from "./hydrateStockAdjustmentStickerView";
-import {
-  boxInventoryStatus,
-  isBoxAvailableForMinus,
-  isBoxVisibleForStockAdjustmentMinus,
-  isValidMinusDrawerBoxRow,
-  isStockAdjustmentIn,
-  isStockAdjustmentOut,
-} from "@/apps/ims/lib/utils/boxInventory";
+import { boxInventoryStatus, isBoxAvailableForMinus, isBoxVisibleForStockAdjustmentMinus, isValidMinusDrawerBoxRow, isStockAdjustmentIn, isStockAdjustmentOut, isBoxInHand } from "@/apps/ims/lib/utils/boxInventory";
 import { isMinusBoxUidSelected, parseRemovedBoxUids, normalizeMinusSelectedUidSet } from "./stockAdjustmentViewBoxes";
 import { printFromBackendHtml } from "@/apps/ims/lib/utils/printHtmlDocument";
+import { parseStickerScan, parseBoxScanRaw, detectQrType, boxNoUidDisplayLabel, extractBoxCode, normalizeScanInput } from "@/apps/ims/lib/helpers/qrScan";
+import { pickBoxFromViewsResponse } from "@/apps/ims/lib/helpers/boxViewsLookup";
+import { projectedQtyAfterUpdate, parseQtyUpdatePayload } from "@/apps/ims/lib/utils/stockAdjustmentQtyUpdate";
+import { OK_INPUT } from "@/ui/common/Constants";
 
 const STOCK_ADJ_PERMS = { permission_module: "stock_adjustment", permission_action: "view" };
+const SA_UPDATE_STICKER_SCANNER_ID = "sa-update-sticker-reader";
 
 function isSaAddBoxRow(row) {
   if (isStockAdjustmentIn(row)) return true;
@@ -151,6 +156,7 @@ const INITIAL_FORM = {
 };
 
 const GATE_ADD_MINUS = [
+  { value: "update", label: "Update" },
   { value: "add", label: "Add (+)" },
   { value: "minus", label: "Minus (-)" },
 ];
@@ -173,6 +179,11 @@ function getFinancialYearOptions() {
     out.push({ value: v, label: v });
   }
   return out;
+}
+
+function defaultFinancialYear() {
+  const y = getCurrentIndianFinancialYearStartYear();
+  return `${y}-${y + 1}`;
 }
 
 function minusBoxNoUidLabel(row) {
@@ -202,6 +213,8 @@ function MinusBreakdownTable({
   allowSelect = true,
   adjustmentId = null,
   entryApproved = false,
+  /** Update flow only — impact from typed qty (not full box remove). */
+  updateImpact = null,
 }) {
   const visibleBoxes = (boxes || []).filter(
     (b) =>
@@ -220,25 +233,74 @@ function MinusBreakdownTable({
     total = displayBoxes.length;
   }
 
-  const customerSummary = groupSelectedMinusBoxesByCustomer(
-    displayBoxes.filter((b) => isMinusBoxUidSelected(selectedUids, b.box_uid)),
-    selectedUids,
-    packingNo
-  );
+  const isUpdateImpact = updateImpact != null;
+  const updateQtyNum = parseInt(String(updateImpact?.qty ?? ""), 10);
+  const hasUpdateQty = Number.isFinite(updateQtyNum) && updateQtyNum > 0;
+  const updateIsMinus = String(updateImpact?.action ?? "").toLowerCase() === "minus";
+
+  const customerSummary = isUpdateImpact
+    ? []
+    : groupSelectedMinusBoxesByCustomer(
+        displayBoxes.filter((b) => isMinusBoxUidSelected(selectedUids, b.box_uid)),
+        selectedUids,
+        packingNo
+      );
+
+  const bannerTitle = isUpdateImpact
+    ? updateIsMinus
+      ? "Box qty update — Minus (−)"
+      : "Box qty update — Add (+)"
+    : readOnly
+      ? entryApproved
+        ? "Boxes removed (minus)"
+        : "Boxes selected for minus"
+      : "Boxes to remove (minus)";
+
+  const impactText = isUpdateImpact
+    ? hasUpdateQty
+      ? updateIsMinus
+        ? `−${updateQtyNum.toLocaleString()}`
+        : `+${updateQtyNum.toLocaleString()}`
+      : "—"
+    : `-${selectedQty}`;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0">
-      <div className="shrink-0 px-3 py-2 lg:px-4 bg-rose-50 border-b border-rose-100 flex flex-wrap items-center justify-between gap-2">
+      <div
+        className={`shrink-0 px-3 py-2 lg:px-4 border-b flex flex-wrap items-center justify-between gap-2 ${
+          isUpdateImpact
+            ? updateIsMinus
+              ? "bg-rose-50 border-rose-100"
+              : "bg-emerald-50 border-emerald-100"
+            : "bg-rose-50 border-rose-100"
+        }`}
+      >
         <div className="min-w-0">
-          <p className="text-[9px] font-black uppercase text-rose-700 tracking-wide">
-            {readOnly
-              ? entryApproved
-                ? "Boxes removed (minus)"
-                : "Boxes selected for minus"
-              : "Boxes to remove (minus)"}
+          <p
+            className={`text-[9px] font-black uppercase tracking-wide ${
+              isUpdateImpact
+                ? updateIsMinus
+                  ? "text-rose-700"
+                  : "text-emerald-800"
+                : "text-rose-700"
+            }`}
+          >
+            {bannerTitle}
           </p>
-          <p className="text-[11px] font-bold text-rose-900">
-            {readOnly ? (
+          <p
+            className={`text-[11px] font-bold ${
+              isUpdateImpact
+                ? updateIsMinus
+                  ? "text-rose-900"
+                  : "text-emerald-900"
+                : "text-rose-900"
+            }`}
+          >
+            {isUpdateImpact ? (
+              <>
+                <span className="tabular-nums">{total}</span> box
+              </>
+            ) : readOnly ? (
               <>
                 <span className="tabular-nums">{total}</span> box
               </>
@@ -247,8 +309,10 @@ function MinusBreakdownTable({
                 Selected: <span className="tabular-nums">{selectedCount}</span> / {total} box
               </>
             )}
-            <span className="mx-2 text-rose-300">|</span>
-            Qty impact: <span className="font-black tabular-nums">-{selectedQty}</span> PCS
+            <span className={`mx-2 ${isUpdateImpact && !updateIsMinus ? "text-emerald-300" : "text-rose-300"}`}>
+              |
+            </span>
+            Qty impact: <span className="font-black tabular-nums">{impactText}</span> PCS
           </p>
           {customerSummary.length > 0 ? (
             <div className="mt-1.5 flex flex-col gap-1 w-full">
@@ -703,6 +767,19 @@ export default function StockAdjustmentStickerCloneDrawer({
   const [itemMeta, setItemMeta] = useState(null);
   const [categoryOptions, setCategoryOptions] = useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
+  const [updateBox, setUpdateBox] = useState(null);
+  const [updateAction, setUpdateAction] = useState("minus");
+  const [updateQty, setUpdateQty] = useState("");
+  const [isUpdateScannerOpen, setIsUpdateScannerOpen] = useState(false);
+  const updateScanInputRef = useRef(null);
+  const loadUpdateBoxFromScanRef = useRef(async () => {});
+  const { laserScan, keyboardType, showPhoneQr } = useDeviceScanSettings();
+  const showUpdateLaserUi = laserScan || isLaserScanEnabled();
+  const updateScanBtnCount = (showPhoneQr ? 1 : 0) + (showUpdateLaserUi ? 1 : 0);
+  const updateScanBtnFill =
+    updateScanBtnCount > 1 ? "flex-1 basis-0 min-w-0 w-full" : "w-full";
+
+  const closeUpdateScanner = useCallback(() => setIsUpdateScannerOpen(false), []);
 
   const loadCategoriesForItem = useCallback(async (preferredId = null) => {
     try {
@@ -781,6 +858,10 @@ export default function StockAdjustmentStickerCloneDrawer({
       setItemMeta(null);
       setCategoryOptions([]);
       setSelectedCategoryId("");
+      setUpdateBox(null);
+      setUpdateAction("minus");
+      setUpdateQty("");
+      setIsUpdateScannerOpen(false);
       setForm(INITIAL_FORM);
       setErrors({});
       setMobileBreakdownTab("details");
@@ -854,6 +935,9 @@ export default function StockAdjustmentStickerCloneDrawer({
           setPackingPreview(hydrated.packingPreview);
           setItemMeta(hydrated.itemMeta);
           setSavedRow(hydrated.row);
+          setUpdateBox(hydrated.updateBox ?? null);
+          setUpdateAction(hydrated.updateAction || "minus");
+          setUpdateQty(hydrated.updateQty || "");
           setGatePassed(true);
           setMobileBreakdownTab(
             hydrated.gateEntryType === "add" ? "boxes" : "details"
@@ -927,7 +1011,9 @@ export default function StockAdjustmentStickerCloneDrawer({
       toast.success(
         gateEntryType === "add"
           ? "Approved — boxes created in inventory. Print stickers from the list (Ctrl+P)."
-          : "Approved — selected boxes removed from inventory."
+          : gateEntryType === "update"
+            ? "Approved — box quantity updated in inventory."
+            : "Approved — selected boxes removed from inventory."
       );
       onSuccess?.();
       onClose?.();
@@ -982,6 +1068,19 @@ export default function StockAdjustmentStickerCloneDrawer({
       st?.item_desc ??
       "—";
 
+    const rawTotal = st?.total_qty ?? dp?.total_qty;
+    let totalQty = Number(rawTotal);
+    if (!Number.isFinite(totalQty) || totalQty <= 0) {
+      const boxRows = packingPreview?.boxes || [];
+      if (boxRows.length) {
+        totalQty = boxRows.reduce((s, b) => s + (parseInt(String(b.qty ?? ""), 10) || 0), 0);
+      } else if (gateEntryType === "update" && updateBox?.qty != null) {
+        totalQty = parseInt(String(updateBox.qty), 10) || 0;
+      } else {
+        totalQty = 0;
+      }
+    }
+
     return {
       item_code: dp?.item_code ?? im?.item_code ?? st?.item_code ?? "—",
       itemdcode: dp?.itemdcode ?? im?.itemdcode ?? st?.itemdcode ?? null,
@@ -993,12 +1092,21 @@ export default function StockAdjustmentStickerCloneDrawer({
       acc_code: finalAccCode,
       cust_code: st?.cust_code,
       job_card_no: dp?.job_card_no ?? st?.job_card_no ?? "—",
-      total_qty: st?.total_qty ?? dp?.total_qty ?? 0,
+      total_qty: totalQty,
       unit: st?.unit ?? dp?.unit ?? "PCS",
       doc_dt: st?.doc_dt ?? dp?.doc_dt,
       doc_no: st?.doc_no ?? dp?.doc_no ?? pn,
     };
-  }, [packingPreview, itemMeta, gatePackingNo, form.acc_name, form.acc_code, form.party_rate_cust_code]);
+  }, [
+    packingPreview,
+    itemMeta,
+    gatePackingNo,
+    form.acc_name,
+    form.acc_code,
+    form.party_rate_cust_code,
+    gateEntryType,
+    updateBox,
+  ]);
 
   const addTotalQty = useMemo(() => {
     const n = parseInt(String(addNumBoxes).trim(), 10);
@@ -1038,7 +1146,11 @@ export default function StockAdjustmentStickerCloneDrawer({
         loose_box_qty: Number(pd.loose_box_qty) || 0,
       };
     }
-    if (gateEntryType === "minus" && packingPreview?.boxes?.length) {
+    // Same left-panel breakdown summary as Minus (Update uses one box the same way).
+    if (
+      (gateEntryType === "minus" || gateEntryType === "update") &&
+      packingPreview?.boxes?.length
+    ) {
       const boxes = packingPreview.boxes;
       const full = boxes.filter((b) => !b.is_loose).length;
       const loose = boxes.filter((b) => b.is_loose).length;
@@ -1337,11 +1449,309 @@ export default function StockAdjustmentStickerCloneDrawer({
 
   const minusViewMode = isMinusFlow && readOnly;
 
-  const handleGateLoad = async () => {
-    if (!gateEntryType) {
-      toast.warn("Select type — Add or Minus");
+  const loadUpdateBoxFromScan = useCallback(async (rawInput) => {
+    const raw = normalizeScanInput(rawInput);
+    if (!raw) {
+      toast.warn("Scan or enter a box sticker (box_no_uid)");
       return;
     }
+    const qrType = detectQrType(raw);
+    if (qrType === "location") {
+      toast.error("That looks like a location QR — scan a box sticker instead.");
+      return;
+    }
+    setPackLoading(true);
+    setIsUpdateScannerOpen(false);
+    try {
+      const { box_no_uid: scanNoUid, box_uid: scanUid } = parseStickerScan(raw);
+      const code = scanNoUid || scanUid || extractBoxCode(raw) || parseBoxScanRaw(raw);
+      if (!code) {
+        toast.error("Invalid box sticker");
+        return;
+      }
+      const res = await boxService.getViews({
+        ...(scanNoUid ? { box_no_uid: scanNoUid } : {}),
+        ...(scanUid ? { box_uid: scanUid } : {}),
+        id: code,
+        ...STOCK_ADJ_PERMS,
+      });
+      let box = pickBoxFromViewsResponse(res);
+      // Soft fallback: list search when exact sticker lookup misses (prefix / partial codes).
+      if (!box?.box_uid && !box?.id) {
+        const searchRes = await boxService.getViews({
+          search: code,
+          page: 1,
+          limit: 25,
+          ...STOCK_ADJ_PERMS,
+        });
+        const rows = Array.isArray(searchRes?.data) ? searchRes.data : [];
+        const codeLc = String(code).toLowerCase();
+        box =
+          rows.find((r) => String(r?.box_no_uid ?? "").toLowerCase() === codeLc) ||
+          rows.find((r) => String(r?.box_uid ?? "") === String(code)) ||
+          rows.find((r) => {
+            const no = String(r?.box_no_uid ?? "").toLowerCase();
+            return no.length > codeLc.length && no.endsWith(`_${codeLc}`);
+          }) ||
+          null;
+      }
+      if (!box?.box_uid && !box?.id) {
+        toast.error(res?.reject_reason || `Box sticker not found: ${code}`);
+        return;
+      }
+      const normalized = {
+        ...box,
+        box_uid: box.box_uid ?? box.id,
+      };
+      if (!isBoxInHand(normalized)) {
+        toast.error(
+          "Box is not in hand — it may be dispatched or already removed via stock adjustment."
+        );
+        return;
+      }
+      const currentQty = parseInt(String(normalized.qty ?? ""), 10);
+      if (!Number.isFinite(currentQty) || currentQty < 0) {
+        toast.error("Box has an invalid quantity");
+        return;
+      }
+
+      const packingNo = String(normalized.packing_number ?? "").trim();
+      // Same left-side packing/item cards as Add / Minus — load full packing context when possible.
+      let previewPayload = {
+        dailyprod: {
+          itemdcode: normalized.itemdcode ?? normalized.item_dcode ?? normalized.prod_item_dcode,
+          item_code: normalized.item_code ?? normalized.prod_item_code,
+          item_desc:
+            normalized.item_desc ??
+            normalized.itemdesc ??
+            normalized.prod_item_desc,
+          acc_code: normalized.acc_code ?? normalized.override_cust ?? normalized.prod_acc_code,
+          acc_name: normalized.acc_name,
+        },
+        boxes: [normalized],
+      };
+      if (packingNo) {
+        try {
+          const ctx = await loadPackingContext(packingNo, {
+            forMinus: false,
+            fetchBoxes: false,
+            itemDcode: previewPayload.dailyprod.itemdcode,
+          });
+          if (ctx) {
+            previewPayload = {
+              ...ctx,
+              boxes: [normalized],
+              dailyprod: {
+                ...ctx.dailyprod,
+                ...previewPayload.dailyprod,
+                itemdcode:
+                  previewPayload.dailyprod.itemdcode ?? ctx.dailyprod?.itemdcode,
+                item_code:
+                  previewPayload.dailyprod.item_code ?? ctx.dailyprod?.item_code,
+                item_desc:
+                  previewPayload.dailyprod.item_desc ?? ctx.dailyprod?.item_desc,
+                acc_code:
+                  previewPayload.dailyprod.acc_code ?? ctx.dailyprod?.acc_code,
+                acc_name:
+                  previewPayload.dailyprod.acc_name ?? ctx.dailyprod?.acc_name,
+                // Keep production totals / doc fields from packing meta (box scan omits them).
+                total_qty: ctx.dailyprod?.total_qty ?? previewPayload.dailyprod.total_qty,
+                job_card_no:
+                  ctx.dailyprod?.job_card_no ?? previewPayload.dailyprod.job_card_no,
+                doc_dt: ctx.dailyprod?.doc_dt ?? previewPayload.dailyprod.doc_dt,
+                doc_no: ctx.dailyprod?.doc_no ?? previewPayload.dailyprod.doc_no,
+                party_rate_cust_code:
+                  ctx.dailyprod?.party_rate_cust_code ??
+                  previewPayload.dailyprod.party_rate_cust_code,
+              },
+            };
+          }
+        } catch {
+          /* keep box-only preview */
+        }
+      }
+
+      const idForItem =
+        previewPayload.dailyprod?.itemdcode ??
+        normalized.itemdcode ??
+        normalized.item_dcode ??
+        normalized.prod_item_dcode;
+      const im = await fetchItemMetaForStockDrawer(idForItem);
+
+      setUpdateBox(normalized);
+      setUpdateAction("minus");
+      setUpdateQty("");
+      setGatePackingNo(String(normalized.box_no_uid || code).trim());
+      setPackingPreview(previewPayload);
+      setItemMeta(im);
+      setForm((prev) => ({
+        ...prev,
+        acc_code:
+          previewPayload.dailyprod?.acc_code ??
+          normalized.acc_code ??
+          normalized.override_cust ??
+          null,
+        acc_name:
+          previewPayload.dailyprod?.acc_name ?? normalized.acc_name ?? null,
+        party_rate_cust_code:
+          previewPayload.dailyprod?.party_rate_cust_code ?? null,
+      }));
+      setCategoryOptions([]);
+      setSelectedCategoryId("");
+      setMinusSelectedUids(new Set());
+      setGatePassed(true);
+      setMobileBreakdownTab("details");
+      if (updateScanInputRef.current) updateScanInputRef.current.value = "";
+    } catch (err) {
+      toast.error(err?.message || "Load failed");
+    } finally {
+      setPackLoading(false);
+    }
+  }, []);
+
+  loadUpdateBoxFromScanRef.current = loadUpdateBoxFromScan;
+
+  const handleUpdateStickerEnter = useCallback((code) => {
+    void loadUpdateBoxFromScanRef.current(code);
+  }, []);
+
+  const handleUpdateLaserScan = useCallback((code) => {
+    void loadUpdateBoxFromScanRef.current(code);
+  }, []);
+
+  const handleUpdateCameraDecoded = useCallback((decodedText) => {
+    setIsUpdateScannerOpen(false);
+    void loadUpdateBoxFromScanRef.current(decodedText);
+  }, []);
+
+  const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
+    active: open && isUpdateScannerOpen && gateEntryType === "update" && !gatePassed,
+    elementId: SA_UPDATE_STICKER_SCANNER_ID,
+    onDecoded: handleUpdateCameraDecoded,
+    fps: 15,
+    qrbox: { width: 250, height: 250 },
+    onCameraFailed: () => {
+      toast.error("Camera unavailable — allow camera access or type the sticker.");
+      setIsUpdateScannerOpen(false);
+    },
+  });
+
+  const startUpdateCameraScanner = useCallback(() => {
+    void (async () => {
+      const prep = await prepareQrScanSession();
+      if (!prep.cameraOk) {
+        toast.error(
+          prep.cameraDenied
+            ? "Camera permission denied — enable it in browser settings."
+            : "Camera unavailable on this device."
+        );
+        return;
+      }
+      setIsUpdateScannerOpen(true);
+    })();
+  }, []);
+
+  const updateStickerScanGate = !structureLocked && gateEntryType === "update" && !gatePassed ? (
+    <div className="min-w-0 w-full sm:flex-1 sm:min-w-[280px] sm:max-w-xl space-y-1.5">
+      <label className={FIELD_LABEL}>Box sticker (scan / type box_no_uid)</label>
+      <div className="space-y-1.5 w-full min-w-0">
+        {(showPhoneQr || showUpdateLaserUi) ? (
+          <div className="flex items-stretch gap-1.5 w-full min-w-0">
+            {showPhoneQr ? (
+              <button
+                type="button"
+                onClick={startUpdateCameraScanner}
+                disabled={packLoading || isUpdateScannerOpen}
+                className={`h-8 lg:h-9 px-2.5 bg-indigo-600 border border-indigo-700 text-white hover:bg-indigo-700 rounded-lg transition-all shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-60 ${updateScanBtnFill}`}
+                title="Open camera scanner"
+              >
+                <QrCode size={14} />
+                <span className="text-[9px] font-black uppercase">QR</span>
+              </button>
+            ) : null}
+            {showUpdateLaserUi ? (
+              <LaserScanField
+                active={open && gateEntryType === "update" && !gatePassed && showUpdateLaserUi}
+                onScanned={handleUpdateLaserScan}
+                keyboardInputRef={updateScanInputRef}
+                formatPreview={boxNoUidDisplayLabel}
+                compact
+                heightClass="h-8 lg:h-9"
+                fill={updateScanBtnCount > 0}
+              />
+            ) : null}
+          </div>
+        ) : null}
+        {keyboardType ? (
+          <div className="flex w-full min-w-0 items-center gap-1.5">
+            <div
+              className={`flex flex-1 min-w-0 items-center gap-2 h-8 lg:h-9 px-2.5 ${OK_INPUT} border-slate-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-50/80 rounded-lg`}
+            >
+              <ScanLine className="shrink-0 text-indigo-400 pointer-events-none" size={14} />
+              <ScanEnterInput
+                ref={updateScanInputRef}
+                onEnter={handleUpdateStickerEnter}
+                placeholder={getScanInputPlaceholder() || "Type or scan box_no_uid"}
+                className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[10px] font-mono text-slate-700 placeholder:text-slate-400 outline-none"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const code = String(updateScanInputRef.current?.value ?? "").trim();
+                if (!code) {
+                  toast.warn("Scan or enter a box sticker");
+                  return;
+                }
+                void loadUpdateBoxFromScan(code);
+              }}
+              disabled={packLoading}
+              className="h-8 lg:h-9 shrink-0 px-3 rounded-lg bg-indigo-600 text-white text-[9px] font-black uppercase shadow-sm hover:bg-indigo-700 disabled:opacity-55 inline-flex items-center justify-center gap-1.5"
+            >
+              {packLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              Load
+            </button>
+          </div>
+        ) : !showPhoneQr && !showUpdateLaserUi ? (
+          <p className="text-[9px] text-slate-500 py-1">
+            Enable Laser scanner or Keyboard type in Settings to scan stickers.
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              const code = String(updateScanInputRef.current?.value ?? "").trim();
+              if (!code) {
+                toast.warn("Scan a box sticker with QR or laser");
+                return;
+              }
+              void loadUpdateBoxFromScan(code);
+            }}
+            disabled={packLoading}
+            className="h-8 w-full rounded-lg bg-indigo-600 text-white text-[9px] font-black uppercase shadow-sm hover:bg-indigo-700 disabled:opacity-55 inline-flex items-center justify-center gap-1.5"
+          >
+            {packLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            Load
+          </button>
+        )}
+      </div>
+    </div>
+  ) : null;
+
+  const handleGateLoad = async () => {
+    if (!gateEntryType) {
+      toast.warn("Select type — Add, Minus, or Update");
+      return;
+    }
+
+    if (gateEntryType === "update") {
+      const raw =
+        String(updateScanInputRef.current?.value ?? "").trim() ||
+        gatePackingNo.trim();
+      await loadUpdateBoxFromScan(raw);
+      return;
+    }
+
     if (gateEntryType === "add") {
       const fy = gateFinancialYear.trim();
       if (!fy) {
@@ -1451,9 +1861,10 @@ export default function StockAdjustmentStickerCloneDrawer({
 
       setPackingPreview(previewPayload);
       setItemMeta(im);
+      setUpdateBox(null);
+      setUpdateAction("minus");
+      setUpdateQty("");
       if (gateEntryType === "add") {
-        const itemId = previewPayload.dailyprod?.itemdcode ?? previewPayload.stickerRow?.itemdcode;
-        const acc = previewPayload.dailyprod?.acc_code ?? null;
         await loadCategoriesForItem();
       } else {
         setCategoryOptions([]);
@@ -1584,6 +1995,21 @@ export default function StockAdjustmentStickerCloneDrawer({
         }
       }
     }
+    if (gateEntryType === "update") {
+      if (!updateBox?.box_uid) e.updateAction = "Scan a box sticker first";
+      if (updateAction !== "add" && updateAction !== "minus") {
+        e.updateAction = "Select Add or Minus";
+      }
+      const uq = parseInt(String(updateQty).trim(), 10);
+      if (!Number.isFinite(uq) || uq < 1) {
+        e.updateQty = "Enter a positive quantity";
+      } else if (updateAction === "minus") {
+        const current = parseInt(String(updateBox?.qty ?? ""), 10);
+        if (Number.isFinite(current) && current - uq < 0) {
+          e.updateQty = `Cannot go below 0 (current ${current})`;
+        }
+      }
+    }
     return e;
   };
 
@@ -1642,13 +2068,19 @@ export default function StockAdjustmentStickerCloneDrawer({
           payload.removed_box_uids = [...minusSelectedUids]
             .map((u) => parseInt(u, 10))
             .filter((n) => Number.isFinite(n));
+        } else if (gateEntryType === "update") {
+          payload.box_uid = Number(updateBox.box_uid);
+          payload.update_action = updateAction;
+          payload.update_qty = parseInt(String(updateQty).trim(), 10);
         }
 
         await stockAdjustmentService.update(editData.adjustment_id, payload);
         toast.success(
           wasApproved
             ? "Saved — status set to pending; Approve again to apply box changes"
-            : "Saved — Approve to create boxes and reflect in inventory"
+            : gateEntryType === "update"
+              ? "Saved — Approve to apply qty change to the box"
+              : "Saved — Approve to create boxes and reflect in inventory"
         );
         onSuccess?.();
         onClose?.();
@@ -1686,11 +2118,26 @@ export default function StockAdjustmentStickerCloneDrawer({
           acc_code: resolveMinusAccCode(form, packingPreview, minusSelectedUids),
           approved: showApproval && form.approved === true,
         });
+      } else if (gateEntryType === "update") {
+        await stockAdjustmentService.create({
+          entry_type: "update",
+          box_uid: Number(updateBox.box_uid),
+          update_action: updateAction,
+          update_qty: parseInt(String(updateQty).trim(), 10),
+          unit: "PCS",
+          remarks: remarksForApi,
+          acc_code: form.acc_code,
+          approved: showApproval && form.approved === true,
+        });
       }
       toast.success(
         showApproval && form.approved
-          ? "Stock adjustment saved and approved — boxes are in inventory."
-          : "Stock adjustment saved — use Approve to create boxes in inventory."
+          ? gateEntryType === "update"
+            ? "Stock adjustment saved and approved — box qty updated."
+            : "Stock adjustment saved and approved — boxes are in inventory."
+          : gateEntryType === "update"
+            ? "Stock adjustment saved — use Approve to apply the qty change."
+            : "Stock adjustment saved — use Approve to create boxes in inventory."
       );
       onSuccess?.();
       onClose?.();
@@ -1708,7 +2155,13 @@ export default function StockAdjustmentStickerCloneDrawer({
         : addTotalQty
       : gateEntryType === "minus"
         ? -minusImpactQty
-        : 0;
+        : gateEntryType === "update"
+          ? (() => {
+              const uq = parseInt(String(updateQty).trim(), 10);
+              if (!Number.isFinite(uq) || uq < 1) return 0;
+              return updateAction === "minus" ? -uq : uq;
+            })()
+          : 0;
 
   const toolbarActionButtons = (
     <>
@@ -1720,6 +2173,10 @@ export default function StockAdjustmentStickerCloneDrawer({
             setPackingPreview(null);
             setItemMeta(null);
             setMinusSelectedUids(new Set());
+            setUpdateBox(null);
+            setUpdateAction("minus");
+            setUpdateQty("");
+            setIsUpdateScannerOpen(false);
             setMobileBreakdownTab("details");
           }}
           className="col-span-2 h-8 lg:h-9 w-full rounded-lg text-[9px] lg:text-[10px] font-black uppercase border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 px-3 transition-all sm:col-span-1 sm:w-auto"
@@ -1794,15 +2251,21 @@ export default function StockAdjustmentStickerCloneDrawer({
                 id="sa-gate-type-m"
                 value={gateEntryType}
                 onChange={(e) => {
-                  setGateEntryType(e.target.value);
+                  const nextType = e.target.value;
+                  setGateEntryType(nextType);
                   setGatePassed(false);
                   setPackingPreview(null);
+                  setUpdateBox(null);
+                  setUpdateAction("minus");
+                  setUpdateQty("");
+                  setIsUpdateScannerOpen(false);
+                  setGateFinancialYear(nextType === "add" ? defaultFinancialYear() : "");
                 }}
                 disabled={structureLocked}
                 className={FIELD_CONTROL}
               >
                 <option value="">Select…</option>
-                {sortFilterOptionsAsc(GATE_ADD_MINUS).map((o) => (
+                {GATE_ADD_MINUS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
@@ -1824,8 +2287,14 @@ export default function StockAdjustmentStickerCloneDrawer({
                 </select>
               </div>
             ) : null}
-            <div className={`min-w-0 ${gateEntryType === "add" ? "col-span-2" : "col-span-2"}`}>
-              <label htmlFor="sa-gate-pack-m" className={FIELD_LABEL}>Packing</label>
+            {gateEntryType === "update" ? (
+              <div className="min-w-0 col-span-2">{updateStickerScanGate}</div>
+            ) : (
+              <>
+            <div className="min-w-0 col-span-2">
+              <label htmlFor="sa-gate-pack-m" className={FIELD_LABEL}>
+                Packing
+              </label>
               <input
                 id="sa-gate-pack-m"
                 type="text"
@@ -1854,6 +2323,8 @@ export default function StockAdjustmentStickerCloneDrawer({
                 Load
               </button>
             ) : null}
+              </>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-1.5 w-full">{toolbarActionButtons}</div>
@@ -1874,15 +2345,21 @@ export default function StockAdjustmentStickerCloneDrawer({
                 id="sa-gate-type"
                 value={gateEntryType}
                 onChange={(e) => {
-                  setGateEntryType(e.target.value);
+                  const nextType = e.target.value;
+                  setGateEntryType(nextType);
                   setGatePassed(false);
                   setPackingPreview(null);
+                  setUpdateBox(null);
+                  setUpdateAction("minus");
+                  setUpdateQty("");
+                  setIsUpdateScannerOpen(false);
+                  setGateFinancialYear(nextType === "add" ? defaultFinancialYear() : "");
                 }}
                 disabled={gatePassed || structureLocked}
                 className={FIELD_CONTROL}
               >
                 <option value="">Select…</option>
-                {sortFilterOptionsAsc(GATE_ADD_MINUS).map((o) => (
+                {GATE_ADD_MINUS.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>
@@ -1910,6 +2387,10 @@ export default function StockAdjustmentStickerCloneDrawer({
                 </select>
               </div>
             )}
+            {gateEntryType === "update" ? (
+              updateStickerScanGate
+            ) : (
+              <>
             <div className="min-w-0 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-lg">
               <label htmlFor="sa-gate-pack" className={FIELD_LABEL}>
                 Packing number
@@ -1942,6 +2423,8 @@ export default function StockAdjustmentStickerCloneDrawer({
                 Load
               </button>
             )}
+              </>
+            )}
           </div>
 
           <div className="w-full shrink-0 lg:w-auto">
@@ -1959,7 +2442,15 @@ export default function StockAdjustmentStickerCloneDrawer({
     <>
       {isApprove ? (
         <p className="mx-3 mt-2 sm:mx-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-900">
-          Review packing and boxes below, then click <span className="font-black">Approve</span>. Add creates boxes in inventory; minus removes selected boxes. To change counts, close this screen and use <span className="font-black">Edit</span> first.
+          {gateEntryType === "update" ? (
+            <>
+              Review the box qty change below, then click <span className="font-black">Approve</span>. Qty is applied only on approve. To change values, close and use <span className="font-black">Edit</span> first.
+            </>
+          ) : (
+            <>
+              Review packing and boxes below, then click <span className="font-black">Approve</span>. Add creates boxes in inventory; minus removes selected boxes. To change counts, close this screen and use <span className="font-black">Edit</span> first.
+            </>
+          )}
         </p>
       ) : null}
       {editingWasApproved ? (
@@ -1980,13 +2471,139 @@ export default function StockAdjustmentStickerCloneDrawer({
         <p className="mx-3 mt-2 sm:mx-4 text-[10px] text-slate-500">
           All packing boxes are listed. Select rows to remove. Unavailable rows are dispatched or already removed. Changes apply after approve.
         </p>
+      ) : gateEntryType === "update" && gatePassed && !structureLocked ? (
+        <p className="mx-3 mt-2 sm:mx-4 text-[10px] text-slate-500">
+          One box at a time. Choose Add or Minus, enter qty, then Save. Inventory qty changes only after Approve.
+        </p>
       ) : null}
     </>
   );
 
+  const updateProjectedQty = useMemo(() => {
+    if (gateEntryType !== "update" || !updateBox) return null;
+    // Approved view/approve: show applied result — do not add the delta again on live qty.
+    if ((isView || isApprove) && savedRow?.approved) {
+      const plan =
+        savedRow.qty_update_plan || parseQtyUpdatePayload(savedRow.removed_box_ids);
+      if (plan?.applied_to_qty != null && Number.isFinite(Number(plan.applied_to_qty))) {
+        return Number(plan.applied_to_qty);
+      }
+      const live = parseInt(String(updateBox.qty ?? ""), 10);
+      return Number.isFinite(live) ? live : null;
+    }
+    return projectedQtyAfterUpdate(updateBox.qty, updateAction, updateQty);
+  }, [gateEntryType, updateBox, updateAction, updateQty, isView, isApprove, savedRow]);
+
+  const updateBreakdownForCards = useMemo(() => {
+    if (gateEntryType !== "update" || !updateBox) return null;
+    const current = parseInt(String(updateBox.qty ?? ""), 10);
+    const uq = parseInt(String(updateQty ?? "").trim(), 10);
+    return {
+      currentQty: Number.isFinite(current) ? current : 0,
+      action: updateAction === "minus" ? "minus" : "add",
+      updateQty: Number.isFinite(uq) && uq > 0 ? uq : null,
+      projectedQty: updateProjectedQty,
+    };
+  }, [gateEntryType, updateBox, updateAction, updateQty, updateProjectedQty]);
+
+  const updateFieldsBlock = gateEntryType === "update" ? (
+    <>
+      <div className="flex flex-col justify-start min-w-0 max-lg:col-span-1 lg:col-span-3">
+        <span className={FIELD_LABEL_ROW}>
+          <Package className="w-3 h-3 text-slate-400 shrink-0" aria-hidden />
+          Box sticker
+        </span>
+        <div className={READOUT_BOX}>
+          <p className="text-[11px] font-mono font-bold text-slate-900 leading-tight truncate">
+            {updateBox?.box_no_uid || gatePackingNo.trim() || "—"}
+          </p>
+          <p className="text-[9px] font-semibold text-slate-500 mt-0.5 truncate">
+            Packing {updateBox?.packing_number || "—"}
+          </p>
+        </div>
+      </div>
+      <div className="min-w-0 w-full max-lg:col-span-1 lg:col-span-2">
+        <span className={FIELD_LABEL}>Current qty</span>
+        <div className={READOUT_BOX}>
+          <p className="text-[14px] font-black text-slate-900 tabular-nums leading-tight">
+            {updateBox?.qty != null ? Number(updateBox.qty).toLocaleString() : "—"}
+          </p>
+          <p className="text-[9px] font-semibold text-slate-500 mt-0.5">PCS (read-only)</p>
+        </div>
+      </div>
+      <div className="min-w-0 w-full max-lg:col-span-1 lg:col-span-2" data-field="updateAction">
+        <span className={FIELD_LABEL}>
+          Action <span className="text-rose-500">*</span>
+        </span>
+        <div className="flex h-8 lg:h-9 rounded-lg border border-slate-200 bg-white overflow-hidden shadow-sm">
+          {[
+            { value: "add", label: "Add (+)" },
+            { value: "minus", label: "Minus (-)" },
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              disabled={structureLocked}
+              onClick={() => {
+                if (structureLocked) return;
+                setUpdateAction(opt.value);
+                if (errors.updateAction) setErrors((prev) => ({ ...prev, updateAction: "" }));
+                if (errors.updateQty) setErrors((prev) => ({ ...prev, updateQty: "" }));
+              }}
+              className={`flex-1 text-[10px] font-black uppercase transition ${
+                updateAction === opt.value
+                  ? opt.value === "minus"
+                    ? "bg-rose-600 text-white"
+                    : "bg-emerald-600 text-white"
+                  : "bg-white text-slate-600 hover:bg-slate-50"
+              } disabled:opacity-70`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="min-w-0 w-full max-lg:col-span-1 lg:col-span-2">
+        <label htmlFor="sa-update-qty" className={FIELD_LABEL}>
+          Qty to {updateAction === "minus" ? "minus" : "add"} <span className="text-rose-500">*</span>
+        </label>
+        <input
+          data-field="updateQty"
+          id="sa-update-qty"
+          type="number"
+          min={1}
+          value={updateQty}
+          disabled={structureLocked}
+          onChange={(e) => {
+            setUpdateQty(e.target.value);
+            if (errors.updateQty) setErrors((prev) => ({ ...prev, updateQty: "" }));
+          }}
+          placeholder="e.g. 5"
+          className={`${FIELD_CONTROL} ${errors.updateQty ? FIELD_CONTROL_ERR : ""}`}
+        />
+      </div>
+      <div className="min-w-0 w-full max-lg:col-span-1 lg:col-span-2">
+        <span className={FIELD_LABEL}>New qty (preview)</span>
+        <div className={updateAction === "minus" ? READOUT_BOX_MINUS : READOUT_BOX}>
+          <p
+            className={`text-[14px] font-black tabular-nums leading-tight ${
+              updateProjectedQty != null && updateProjectedQty < 0 ? "text-rose-600" : "text-slate-900"
+            }`}
+          >
+            {updateProjectedQty == null ? "—" : updateProjectedQty.toLocaleString()}
+          </p>
+          <p className="text-[9px] font-semibold text-slate-500 mt-0.5">After approve</p>
+        </div>
+      </div>
+    </>
+  ) : null;
+
   const inputsTopRowFields = (
       <div className="max-w-[1800px] mx-auto w-full min-w-0 px-3 py-2 lg:py-2.5 sm:px-4 sm:py-3 max-lg:px-2 max-lg:py-2">
         <div className="grid w-full min-w-0 grid-cols-1 max-lg:grid-cols-3 sm:grid-cols-2 lg:grid-cols-12 gap-2 max-lg:gap-2 lg:gap-3 items-end">
+          {updateFieldsBlock}
+          {gateEntryType !== "update" ? (
+          <>
           <div className="flex flex-col justify-start min-w-0 max-lg:col-span-1 lg:col-span-2">
             <span className={FIELD_LABEL_ROW}>
               <Package className="w-3 h-3 text-slate-400 shrink-0" aria-hidden />
@@ -2106,6 +2723,8 @@ export default function StockAdjustmentStickerCloneDrawer({
               </div>
             </div>
           )}
+          </>
+          ) : null}
 
           <div className="min-w-0 w-full max-lg:col-span-2 lg:col-span-4">
             <FormTextarea
@@ -2177,9 +2796,9 @@ export default function StockAdjustmentStickerCloneDrawer({
           </div>
 
           {/* Error Row (Full Width) */}
-          {(errors.addExtraBoxes || errors.addPerBoxQty || errors.addNumBoxes || errors.minusBoxes) && (
+          {(errors.addExtraBoxes || errors.addPerBoxQty || errors.addNumBoxes || errors.minusBoxes || errors.updateQty || errors.updateAction) && (
             <div className="max-lg:col-span-3 lg:col-span-12 flex flex-col gap-0.5 mt-1">
-              {[errors.addExtraBoxes, errors.addPerBoxQty, errors.addNumBoxes, errors.minusBoxes].filter(Boolean).map((err, eidx) => (
+              {[errors.addExtraBoxes, errors.addPerBoxQty, errors.addNumBoxes, errors.minusBoxes, errors.updateQty, errors.updateAction].filter(Boolean).map((err, eidx) => (
                 <p key={eidx} className="text-[8px] text-rose-600 font-semibold leading-tight flex items-start gap-0.5">
                   <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" /> {err}
                 </p>
@@ -2221,9 +2840,7 @@ export default function StockAdjustmentStickerCloneDrawer({
         <div className="flex items-center gap-1.5 lg:gap-2 min-w-0 flex-1">
           <Layers className="w-4 h-4 lg:w-[18px] lg:h-[18px] shrink-0 text-slate-600" aria-hidden />
           <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-tight text-slate-800 truncate">
-            {(structureLocked || isAddEditRebuild) && gateEntryType === "add"
-              ? "Stickers"
-              : "Breakdown"}
+            {(structureLocked || isAddEditRebuild) && gateEntryType === "add" ? "Stickers" : "Breakdown"}
           </span>
         </div>
         <div className="flex items-baseline gap-2 shrink-0 pr-1">
@@ -2252,6 +2869,24 @@ export default function StockAdjustmentStickerCloneDrawer({
             showBulkKindDropdown={gateEntryType === "add" && !isView && !isEdit && (!structureLocked || isApprove)}
             bulkBoxKind={addAllBoxesLoose ? "loose" : "full"}
             onBulkBoxKindChange={setAddBulkBoxKind}
+          />
+        ) : gateEntryType === "update" ? (
+          <MinusBreakdownTable
+            boxes={updateBox ? [updateBox] : []}
+            selectedUids={
+              updateBox?.box_uid != null
+                ? new Set([String(updateBox.box_uid)])
+                : new Set()
+            }
+            onToggle={() => {}}
+            packingNo={String(updateBox?.packing_number ?? "").trim()}
+            selectedQty={0}
+            selectedCount={updateBox ? 1 : 0}
+            readOnly
+            allowSelect={false}
+            adjustmentId={null}
+            entryApproved={false}
+            updateImpact={{ action: updateAction, qty: updateQty }}
           />
         ) : (
           <MinusBreakdownTable
@@ -2307,7 +2942,7 @@ export default function StockAdjustmentStickerCloneDrawer({
                 selectedRow={selectedRowLike}
                 packing={packingLikeForCards}
                 onCustomerChange={handleCustomerChange}
-                customerSelectDisabled={isView || isApprove}
+                customerSelectDisabled={isView || isApprove || gateEntryType === "update"}
                 customerChanging={customerChanging}
                 hideCustomerSection={isMinusFlow && !readOnly}
                 minusViewMode={minusViewMode}
@@ -2320,6 +2955,7 @@ export default function StockAdjustmentStickerCloneDrawer({
                 }}
                 categorySelectDisabled={isView || isApprove || gateEntryType !== "add"}
                 categoryError={errors.category || ""}
+                updateBreakdown={updateBreakdownForCards}
               />
             </div>
           ) : (
@@ -2335,7 +2971,7 @@ export default function StockAdjustmentStickerCloneDrawer({
             selectedRow={selectedRowLike}
             packing={packingLikeForCards}
             onCustomerChange={handleCustomerChange}
-            customerSelectDisabled={isView || isApprove}
+            customerSelectDisabled={isView || isApprove || gateEntryType === "update"}
             customerChanging={customerChanging}
             hideCustomerSection={isMinusFlow && !readOnly}
             minusViewMode={minusViewMode}
@@ -2348,6 +2984,7 @@ export default function StockAdjustmentStickerCloneDrawer({
             }}
             categorySelectDisabled={isView || isApprove || gateEntryType !== "add"}
             categoryError={errors.category || ""}
+            updateBreakdown={updateBreakdownForCards}
           />
         </div>
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">{breakdownTableBlock}</div>
@@ -2384,6 +3021,15 @@ export default function StockAdjustmentStickerCloneDrawer({
       noPadding
       bodyScrollable={false}
     >
+      <QrScannerOverlay
+        open={isUpdateScannerOpen}
+        onClose={closeUpdateScanner}
+        readerId={SA_UPDATE_STICKER_SCANNER_ID}
+        hint="Scanning box sticker / QR"
+        torchSupported={torchSupported}
+        torchOn={torchOn}
+        onToggleTorch={toggleTorch}
+      />
       <div className="flex h-full min-h-0 flex-col w-full max-w-full min-w-0 overflow-hidden bg-slate-50 antialiased">
         {viewHydrating || packLoading ? (
           <FormPanelLoader
@@ -2407,11 +3053,17 @@ export default function StockAdjustmentStickerCloneDrawer({
                 ? "Select financial year and packing number, then Load"
                 : gateEntryType === "minus"
                   ? "Enter packing number, then Load"
-                  : "Select type first"}
+                  : gateEntryType === "update"
+                    ? "Scan or type box sticker (box_no_uid)"
+                    : "Select type first"}
             </p>
             <p className="text-[10px] text-slate-400 max-w-md">
+              {gateEntryType === "update"
+                ? "Use QR / laser / keyboard — same sticker scan as elsewhere in IMS. One box per update."
+                : <>
               After load, use Details / Boxes tabs on small screens
               {gateEntryType === "minus" ? " — tick boxes to remove in Boxes tab." : "."}
+                </>}
             </p>
           </div>
         ) : (

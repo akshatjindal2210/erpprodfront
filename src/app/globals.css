@@ -283,7 +283,7 @@ html[data-app-drawer-open] .imp-panel-no-select main > div {
   }
 }
 
-/* Dashboard top-bar date/dropdown filters — match quick-link labels (10px bold) on phone */
+/* Dashboard top-bar date/dropdown filters — 13px so date input matches native select size on phone */
 [data-dashboard-qab] .list-page-filter-value,
 [data-dashboard-qab] .list-page-filter-placeholder,
 [data-dashboard-qab] .list-page-filter-control,
@@ -291,32 +291,64 @@ html[data-app-drawer-open] .imp-panel-no-select main > div {
 [data-dashboard-qab] select {
   font-family: inherit;
   -webkit-text-size-adjust: 100%;
-  font-size: 10px !important;
-  line-height: 1.2 !important;
+  font-size: 13px !important;
+  line-height: 1.25 !important;
   font-weight: 700 !important;
   font-style: normal !important;
   letter-spacing: -0.025em !important;
+  text-transform: uppercase !important;
 }
 
 [data-dashboard-qab] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]),
 [data-dashboard-qab] select {
-  color: rgb(226 232 240);
+  color: rgb(203 213 225);
+  -webkit-text-fill-color: rgb(203 213 225);
 }
 
 [data-dashboard-qab] .dashboard-qab-dash,
 [data-dashboard-qab] .dashboard-qab-user {
   font-weight: 700 !important;
   letter-spacing: -0.025em !important;
+  text-transform: uppercase !important;
 }
 
 [data-dashboard-qab] input::placeholder {
-  color: rgb(100 116 139);
+  color: rgb(148 163 184);
+  -webkit-text-fill-color: rgb(148 163 184);
   font-weight: 700;
-  font-size: 10px !important;
+  font-size: 13px !important;
+  text-transform: uppercase !important;
   opacity: 1;
 }
 
 @media (max-width: 768px) {
+  /*
+   * Dark QAB bar — beat the global phone input rule (slate-900 fill on light forms).
+   * Use 13px (not 10px): native <select> on phone ignores tiny sizes; date input must match.
+   */
+  [data-dashboard-qab] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]),
+  [data-dashboard-qab] select,
+  [data-dashboard-qab] .dashboard-qab-date input,
+  [data-dashboard-qab] .dashboard-qab-dash,
+  [data-dashboard-qab] .dashboard-qab-user {
+    color: rgb(203 213 225) !important;
+    -webkit-text-fill-color: rgb(203 213 225) !important;
+    font-size: 13px !important;
+    line-height: 1.25 !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.025em !important;
+    text-transform: uppercase !important;
+  }
+
+  [data-dashboard-qab] input::placeholder {
+    color: rgb(148 163 184) !important;
+    -webkit-text-fill-color: rgb(148 163 184) !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    opacity: 1 !important;
+  }
+
   [data-dashboard-qab] .list-page-filter-control {
     height: 28px !important;
     min-height: 28px !important;
@@ -336,6 +368,8 @@ html[data-app-drawer-open] .imp-panel-no-select main > div {
 @media (min-width: 769px) {
   [data-dashboard-qab] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="image"]),
   [data-dashboard-qab] select {
+    font-size: 10px !important;
+    line-height: 1.2 !important;
     font-weight: 500 !important;
     letter-spacing: normal !important;
   }

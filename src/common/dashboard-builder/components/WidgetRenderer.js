@@ -202,6 +202,9 @@ const DashboardTableView = ({
   nested = false,
   isPhoneMode = false,
   title = "",
+  titlePosition = "top",
+  titleAlign = "left",
+  titleFontPx = 11,
   tableSearchEnabled = false,
   tableSearchPlaceholder = "",
   tableSearchPosition = "right",
@@ -219,7 +222,11 @@ const DashboardTableView = ({
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
   const [exporting, setExporting] = useState(false);
-  const keys = Object.keys(data[0] || {});
+  const keys = Array.from(new Set(
+    data.flatMap((row) =>
+      row && typeof row === "object" && !Array.isArray(row) ? Object.keys(row) : [],
+    ),
+  ));
   const resolvedSearchPlaceholder = String(tableSearchPlaceholder || "").trim() || "Search...";
   const showSearch = tableSearchEnabled === true;
   const showExport = tableExportEnabled === true;
@@ -320,98 +327,138 @@ const DashboardTableView = ({
       : <ArrowDown size={10} className="shrink-0 text-blue-600" aria-hidden />;
   };
 
-  const showToolbar = showSearch || showExport;
-  const toolbarJustify = searchFull && showExport
-    ? "justify-between"
-    : searchPos === "left"
-      ? "justify-start"
-      : searchPos === "center"
-        ? "justify-center"
-        : "justify-end";
-
+  const displayTitle = String(title || "").trim();
+  const titleOnBottom = String(titlePosition || "top") === "bottom";
+  const showTitleTop = Boolean(displayTitle) && !titleOnBottom;
+  const showTitleBottom = Boolean(displayTitle) && titleOnBottom;
+  const titleLeft = showTitleTop && titleAlign !== "right";
+  const titleRight = showTitleTop && titleAlign === "right";
+  const showTopBar = showTitleTop || showSearch || showExport;
+  const totalRows = Array.isArray(data) ? data.length : 0;
+  const searchActive = showSearch && Boolean(String(searchQuery || "").trim());
+  const countLabel = searchActive
+    ? `Showing ${displayRows.length} of ${totalRows}`
+    : `Total ${totalRows} ${totalRows === 1 ? "row" : "rows"}`;
+  const titleAlignClass =
+    titleAlign === "right" ? "text-right" : titleAlign === "center" ? "text-center" : "text-left";
   const searchSizeClass = searchFull
     ? showExport
-      ? "flex-1 min-w-[160px] w-auto max-w-none"
-      : "w-full max-w-none"
+      ? "flex-1 min-w-[120px] w-auto max-w-none"
+      : "min-w-[120px] w-full max-w-none"
     : "shrink-0";
+
+  const renderTableTitle = (extraClass = "") => (
+    <div
+      className={`min-w-0 truncate font-bold uppercase tracking-widest ${titleAlignClass} ${extraClass}`.trim()}
+      style={{
+        color: style.color || "#334155",
+        fontSize: `${titleFontPx}px`,
+        ...(style.fontWeight && style.fontWeight !== "inherit" ? { fontWeight: style.fontWeight } : {}),
+      }}
+      title={displayTitle}
+    >
+      {displayTitle}
+    </div>
+  );
+
+  const searchControl = showSearch ? (
+    <label
+      className={`relative block ${searchSizeClass} ${tableSearchClassName}`.trim()}
+      style={searchFull ? undefined : { width: effectiveSearchWidth, maxWidth: "100%" }}
+    >
+      <Search
+        size={Math.max(12, Math.min(14, Math.round(tableVisual.searchFontPx)))}
+        className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
+        style={{ color: tableVisual.searchColor, opacity: 0.55 }}
+        aria-hidden
+      />
+      <input
+        type="text"
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        placeholder={resolvedSearchPlaceholder}
+        className="w-full h-8 rounded-md border focus:outline-none focus:ring-1 focus:ring-blue-400/40 shadow-sm"
+        style={{
+          borderColor: tableVisual.borderColor,
+          backgroundColor: tableVisual.searchBg,
+          color: tableVisual.searchColor,
+          fontSize: `${tableVisual.searchFontPx}px`,
+          height: 32,
+          paddingLeft: 30,
+          paddingRight: searchQuery ? 28 : 10,
+        }}
+        aria-label="Search table rows"
+      />
+      {searchQuery ? (
+        <button
+          type="button"
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 hover:opacity-80"
+          style={{ color: tableVisual.searchColor }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSearchQuery("");
+          }}
+          aria-label="Clear search"
+        >
+          <X size={12} />
+        </button>
+      ) : null}
+    </label>
+  ) : null;
+
+  const exportControl = showExport ? (
+    <div
+      className={`flex shrink-0 items-center ${tableExportClassName}`.trim()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <ExportMenu
+        disabled={!displayRows.length}
+        exporting={exporting}
+        onExport={handleExport}
+        label="Export"
+        variant="solid"
+        showLabel
+        menuAlign="right"
+        className="h-8 self-center [&_button]:!h-8 [&_button]:!min-h-8 [&_button]:!min-w-0 [&_button]:!w-auto [&_button]:!px-2.5 [&_button]:!text-[10px] [&_button]:!rounded-md [&_button]:!font-semibold"
+      />
+    </div>
+  ) : null;
 
   return (
     <div
       className="flex flex-col h-full w-full min-h-0 min-w-0"
       style={{ backgroundColor: tableVisual.bodyBg }}
     >
-      {showToolbar && (
+      {showTopBar && (
         <div
-          className={`table-action-header shrink-0 flex flex-row flex-wrap items-center border-b px-2 py-1.5 mb-2 sm:px-3 ${toolbarJustify} ${tableToolbarClassName}`.trim()}
+          className={`table-action-header shrink-0 flex flex-nowrap items-center border-b px-2 py-1.5 sm:px-3 ${tableToolbarClassName}`.trim()}
           style={{
             backgroundColor: tableVisual.bodyBg,
             borderColor: tableVisual.borderColor,
             gap: `${tableVisual.toolbarGap}px`,
           }}
         >
-          {showSearch && (
-            <label
-              className={`relative block ${searchSizeClass} ${tableSearchClassName}`.trim()}
-              style={searchFull ? undefined : { width: effectiveSearchWidth, maxWidth: "100%" }}
-            >
-              <Search
-                size={Math.max(12, Math.min(14, Math.round(tableVisual.searchFontPx)))}
-                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
-                style={{ color: tableVisual.searchColor, opacity: 0.55 }}
-                aria-hidden
-              />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                placeholder={resolvedSearchPlaceholder}
-                className="w-full h-8 rounded-md border focus:outline-none focus:ring-1 focus:ring-blue-400/40 shadow-sm"
-                style={{
-                  borderColor: tableVisual.borderColor,
-                  backgroundColor: tableVisual.searchBg,
-                  color: tableVisual.searchColor,
-                  fontSize: `${tableVisual.searchFontPx}px`,
-                  height: 32,
-                  paddingLeft: 30,
-                  paddingRight: searchQuery ? 28 : 10,
-                }}
-                aria-label="Search table rows"
-              />
-              {searchQuery ? (
-                <button
-                  type="button"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 hover:opacity-80"
-                  style={{ color: tableVisual.searchColor }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSearchQuery("");
-                  }}
-                  aria-label="Clear search"
-                >
-                  <X size={12} />
-                </button>
-              ) : null}
-            </label>
-          )}
-          {showExport && (
-            <div
-              className={`flex shrink-0 items-center ${tableExportClassName}`.trim()}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ExportMenu
-                disabled={!displayRows.length}
-                exporting={exporting}
-                onExport={handleExport}
-                label="Export"
-                variant="solid"
-                showLabel
-                menuAlign="right"
-                className="h-8 self-center [&_button]:!h-8 [&_button]:!min-h-8 [&_button]:!min-w-0 [&_button]:!w-auto [&_button]:!px-2.5 [&_button]:!text-[10px] [&_button]:!rounded-md [&_button]:!font-semibold"
-              />
-            </div>
+          {titleLeft && searchPos === "left" ? (
+            <>
+              {renderTableTitle("max-w-[46%]")}
+              {searchControl}
+              {exportControl}
+            </>
+          ) : (
+            <>
+              {titleLeft ? renderTableTitle("flex-1") : null}
+              <div
+                className={`flex min-w-0 shrink-0 flex-nowrap items-center ${titleLeft || titleRight || searchPos !== "left" ? "ml-auto" : ""}`}
+                style={{ gap: `${tableVisual.toolbarGap}px` }}
+              >
+                {titleRight ? renderTableTitle("max-w-[46%]") : null}
+                {searchControl}
+                {exportControl}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -494,6 +541,24 @@ const DashboardTableView = ({
           </div>
         ) : null}
       </div>
+      <div
+        className="shrink-0 flex flex-nowrap items-center border-t px-2 py-1 min-h-[28px] sm:px-3"
+        style={{
+          backgroundColor: tableVisual.bodyBg,
+          borderColor: tableVisual.borderColor,
+          gap: `${tableVisual.toolbarGap}px`,
+        }}
+      >
+        {showTitleBottom && titleAlign !== "right" ? renderTableTitle("flex-1") : null}
+        <span
+          className="ml-auto shrink-0 whitespace-nowrap text-[10px] font-semibold tabular-nums"
+          style={{ color: tableVisual.bodyColor, opacity: 0.82 }}
+          aria-live="polite"
+        >
+          {countLabel}
+        </span>
+        {showTitleBottom && titleAlign === "right" ? renderTableTitle("max-w-[60%]") : null}
+      </div>
     </div>
   );
 };
@@ -571,11 +636,23 @@ const WidgetRenderer = ({
   const previewRows = Array.isArray(widget.previewData) ? widget.previewData : null;
   const liveRows = Array.isArray(widget.data) ? widget.data : null;
   // Prefer non-empty preview; otherwise fall back to live data (empty [] must not hide rows).
-  const data = (previewRows?.length ? previewRows : null)
+  const rawData = (previewRows?.length ? previewRows : null)
     || (liveRows?.length ? liveRows : null)
     || previewRows
     || liveRows
     || [];
+  const excludedUrlColumns = Array.isArray(widget.chart_config?.url_excluded_columns)
+    ? widget.chart_config.url_excluded_columns
+    : [];
+  const data = String(widget.dataSource || widget.chart_config?.data_source || "").toLowerCase() === "url_json"
+    && excludedUrlColumns.length
+    ? rawData.map((row) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+      return Object.fromEntries(
+        Object.entries(row).filter(([key]) => !excludedUrlColumns.includes(key)),
+      );
+    })
+    : rawData;
   const error = widget.error || widget.previewError || null;
   const { type, title, style = {} } = widget;
   const displayTitle = String(title || "").trim();
@@ -793,7 +870,11 @@ const WidgetRenderer = ({
       }
     }
 
-    const keys = Object.keys(data[0] || {});
+    const keys = Array.from(new Set(
+      data.flatMap((row) =>
+        row && typeof row === "object" && !Array.isArray(row) ? Object.keys(row) : [],
+      ),
+    ));
     const graphXKey = String(style.graphXKey || "").trim();
     const graphYKey = String(style.graphYKey || "").trim();
     const xKey = (graphXKey && keys.includes(graphXKey)) ? graphXKey : keys[0];
@@ -894,7 +975,10 @@ const WidgetRenderer = ({
           style={style}
           nested={nested}
           isPhoneMode={isPhoneMode}
-          title={displayTitle || widget.title || widget.description || "Dashboard Table"}
+          title={displayTitle || widget.title || widget.description || ""}
+          titlePosition={style.titlePosition === "bottom" ? "bottom" : "top"}
+          titleAlign={style.contentAlign === "right" ? "right" : "left"}
+          titleFontPx={resolveTitleFontPx(style, nested ? 10 : 11)}
           tableSearchEnabled={widget.tableSearchEnabled === true}
           tableSearchPlaceholder={widget.tableSearchPlaceholder || ""}
           tableSearchPosition={widget.tableSearchPosition || "right"}
@@ -1001,7 +1085,8 @@ const WidgetRenderer = ({
     }
     if (!isHeading) {
       const isKpiChrome = type === "kpi" || widget.rawType === "kpi" || widget.rawType === "count" || widget.rawType === "sum";
-      const showTitle = Boolean(displayTitle) && !isKpiChrome;
+      const isTableChrome = type === "table" || type === "hybrid";
+      const showTitle = Boolean(displayTitle) && !isKpiChrome && !isTableChrome;
       const titleFontPx = resolveTitleFontPx(style);
       const contentGapPx = resolveContentGapPx(style, 4);
       const fontWeight = style.fontWeight && style.fontWeight !== "inherit" ? style.fontWeight : undefined;
@@ -1060,11 +1145,12 @@ const WidgetRenderer = ({
     }
   }
   const isKpi = type === "kpi" || widget.rawType === "kpi" || widget.rawType === "count" || widget.rawType === "sum";
-  const showHeader = displayTitle && !isKpi && !isHeading && !isContainer && !isHybrid;
+  const isTableLike = type === "table" || type === "hybrid";
+  const showHeader = displayTitle && !isKpi && !isHeading && !isContainer && !isTableLike;
 
   if (nested && pureSavedStyle) {
     const innerCss = savedStyleToCss(style);
-    const showTitle = Boolean(displayTitle) && !isKpi;
+    const showTitle = Boolean(displayTitle) && !isKpi && type !== "table" && type !== "hybrid";
     const titleFontPx = resolveTitleFontPx(style, 10);
     const contentGapPx = resolveContentGapPx(style, 4);
     const titleEl = showTitle ? (

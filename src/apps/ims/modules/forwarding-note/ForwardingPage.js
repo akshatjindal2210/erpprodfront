@@ -115,6 +115,8 @@ function forwardingTableSearchParts(row, reportType = "summary") {
   }
 
   push(...parseSavedBillNos(row.bill_no), row.bill_no ? null : "—");
+  // Hub / external bill (IMS invfnote) — searchable in Quick Search
+  push(row.billno, row.billdt, row.status);
   push(row.acc_name, row.acc_code);
   pushNum(reportType === "item_wise" ? row.total_qty : row.total_items);
   pushDate(row.timestamp, row.created_at, row.updated_at, row.approved_at, row.out_entry_locked_at, row.bill_updated_at);
@@ -164,6 +166,35 @@ function LockStatusBadge({ row }) {
   );
 }
 
+function formatExternalBillStatus(status) {
+  const raw = String(status ?? "").trim();
+  const key = raw.toLowerCase();
+  if (!raw) return { text: "-", className: "bg-slate-50 text-slate-400 border-slate-100", textClass: "text-slate-400" };
+
+  const palette = {
+    green: { badge: "bg-emerald-50 text-emerald-600 border-emerald-100", text: "text-emerald-600" },
+    yellow: { badge: "bg-amber-50 text-amber-700 border-amber-100", text: "text-amber-700" },
+    red: { badge: "bg-rose-50 text-rose-700 border-rose-100", text: "text-rose-700" },
+    blue: { badge: "bg-blue-50 text-blue-700 border-blue-100", text: "text-blue-700" },
+    orange: { badge: "bg-orange-50 text-orange-700 border-orange-100", text: "text-orange-700" },
+    purple: { badge: "bg-purple-50 text-purple-700 border-purple-100", text: "text-purple-700" },
+    cyan: { badge: "bg-cyan-50 text-cyan-700 border-cyan-100", text: "text-cyan-700" },
+    indigo: { badge: "bg-indigo-50 text-indigo-700 border-indigo-100", text: "text-indigo-700" },
+    pink: { badge: "bg-pink-50 text-pink-700 border-pink-100", text: "text-pink-700" },
+    slate: { badge: "bg-slate-50 text-slate-700 border-slate-200", text: "text-slate-700" },
+    gray: { badge: "bg-slate-50 text-slate-700 border-slate-200", text: "text-slate-700" },
+    black: { badge: "bg-slate-900 text-white border-slate-900", text: "text-slate-900" },
+    white: { badge: "bg-white text-slate-700 border-slate-200", text: "text-slate-700" },
+  };
+
+  const hit = palette[key];
+  return {
+    text: raw,
+    className: hit?.badge || "bg-slate-50 text-slate-700 border-slate-200",
+    textClass: hit?.text || "text-slate-700",
+  };
+}
+
 const DISPATCH_FILTER_OPTIONS = [
   { label: "All", value: "all" },
   { label: "Locked", value: "locked" },
@@ -176,18 +207,22 @@ const DISPATCH_PLAN_STATUS_OPTIONS = [
   { label: "Complete", value: "complete" },
 ];
 
-/** Match Lock Status column: COMPLETE → scan done; LOCKED → locked & not complete; UNLOCKED → neither. */
-function buildDispatchApiFilters(dispatchFilter) {
-  switch (dispatchFilter) {
-    case "locked":
-      return { out_entry_locked: true, out_entry_complete: false };
-    case "unlocked":
-      return { out_entry_locked: false, out_entry_complete: false };
-    case "complete":
-      return { out_entry_complete: true };
-    default:
-      return {};
-  }
+function rowMatchesApprovedStatus(row, status) {
+  if (!status || status === "all") return true;
+  if (status === "approved") return Boolean(row?.approved);
+  if (status === "pending") return !row?.approved;
+  return true;
+}
+
+function rowMatchesDispatchFilter(row, dispatchFilter) {
+  if (!dispatchFilter || dispatchFilter === "all") return true;
+  const complete =
+    row?.out_entry_complete === true || row?.out_entry_scan_complete === true;
+  const locked = Boolean(row?.out_entry_locked);
+  if (dispatchFilter === "complete") return complete;
+  if (dispatchFilter === "locked") return locked && !complete;
+  if (dispatchFilter === "unlocked") return !locked && !complete;
+  return true;
 }
 
 export default function ForwardingPage() {
@@ -233,7 +268,7 @@ export default function ForwardingPage() {
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
+  const { tempSearch, setTempSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
   const [summaryRowsCache, setSummaryRowsCache] = useState([]);
   const [itemWiseFuidFilter, setItemWiseFuidFilter] = useState(null);
@@ -250,14 +285,11 @@ export default function ForwardingPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const apiSearch = reportType === "summary" ? appliedSearch : "";
+      // Dates hit API; Status / Lock-Complete + Quick Search are client-side on loaded rows.
       const base = {
-        ...(apiSearch && { search: apiSearch }),
         filters: {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
-          ...(params.status !== "all" && { approved: params.status === "approved" }),
-          ...buildDispatchApiFilters(params.dispatchFilter),
         },
       };
 
@@ -280,10 +312,7 @@ export default function ForwardingPage() {
     params.pageSize,
     params.fromDate,
     params.toDate,
-    params.status,
-    params.dispatchFilter,
     reportType,
-    reportType === "summary" ? appliedSearch : "",
   ]);
 
   useEffect(() => {
@@ -306,6 +335,11 @@ export default function ForwardingPage() {
     if (reportType === "item_wise" && itemWiseFuidFilter != null) {
       data = data.filter((r) => resolveMasterFuid(r) === itemWiseFuidFilter);
     }
+    data = data.filter(
+      (r) =>
+        rowMatchesApprovedStatus(r, params.status) &&
+        rowMatchesDispatchFilter(r, params.dispatchFilter)
+    );
     if (q) {
       data = applyClientSearch(data, tempSearch, {
         getParts: (row) => forwardingTableSearchParts(row, reportType),
@@ -313,11 +347,20 @@ export default function ForwardingPage() {
       });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir, reportType, itemWiseFuidFilter]);
+  }, [
+    allRows,
+    tempSearch,
+    params.sortKey,
+    params.sortDir,
+    params.status,
+    params.dispatchFilter,
+    reportType,
+    itemWiseFuidFilter,
+  ]);
 
   useEffect(() => {
     setDisplayLimit(100);
-  }, [tempSearch, reportType]);
+  }, [tempSearch, reportType, params.status, params.dispatchFilter]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -349,10 +392,22 @@ export default function ForwardingPage() {
       ...prev,
       fromDate: data.fromDate,
       toDate: data.toDate,
+      // Status / Lock stay client-side; sync from strip on Search too.
       status: data.approvedStatus ?? prev.status,
       dispatchFilter: data.dispatchFilter ?? prev.dispatchFilter,
     }));
   };
+
+  const handleClientExtraFilterChange = useCallback((key, value) => {
+    setSelectedId(null);
+    if (key === "approvedStatus") {
+      setParams((prev) => ({ ...prev, status: value ?? "all" }));
+      return;
+    }
+    if (key === "dispatchFilter") {
+      setParams((prev) => ({ ...prev, dispatchFilter: value ?? "all" }));
+    }
+  }, []);
 
   const handleReset = () => {
     resetSearch();
@@ -434,15 +489,16 @@ export default function ForwardingPage() {
     dispatchPlanRef.current?.clearSelection?.();
   }, []);
 
-  /** Forwarding Master New — direct create only with special permission; otherwise schedule-only. */
+  /** Forwarding Master New — direct create only with special permission; otherwise same as Today Dispatch Plan → New. */
   const openMasterNew = useCallback(() => {
     if (canDirectCreate) {
       setDispatchPrefill(null);
       openModal("add");
       return;
     }
-    toast.info("Switch to Today's Dispatch Plan, then click New (with or without a row selected).");
-  }, [canDirectCreate, openModal]);
+    // toast.info("Switch to Today's Dispatch Plan, then click New (with or without a row selected).");   // Commented out because the user does not open the form on the Forwarding Note page.
+    openDispatchPlanNew(); // Uncommented for the Forwarding Note page: on New button click, check permission; if not permitted, show a toast, otherwise open the same modal as Today's Dispatch New.
+  }, [canDirectCreate, openModal, openDispatchPlanNew]);
 
   const closeModal = useCallback(() => {
     setModalOpen(false);
@@ -608,7 +664,10 @@ export default function ForwardingPage() {
 
   const extraFilters = useMemo(() => [
     { 
-      label: "Status", key: "approvedStatus", value: params.status, 
+      label: "Status",
+      key: "approvedStatus",
+      value: params.status,
+      variant: "quick",
       options: [
         { label: "All Status", value: "all" }, 
         { label: "Authorized", value: "approved" }, 
@@ -619,6 +678,7 @@ export default function ForwardingPage() {
       label: "Lock / Complete",
       key: "dispatchFilter",
       value: params.dispatchFilter,
+      variant: "quick",
       options: DISPATCH_FILTER_OPTIONS,
     },
   ], [params.status, params.dispatchFilter]);
@@ -662,7 +722,15 @@ export default function ForwardingPage() {
     ] : [];
 
     const masterHeaders = [
-      ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "110px" }],
+      // ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "110px" }],
+      ["Bill No.", "billno", (v, row) => {
+        const color = formatExternalBillStatus(row?.status).textClass;
+        return <span className={`font-bold uppercase text-[11px] ${color}`}>{v || "-"}</span>;
+      }, { width: "140px" }],
+      ["Bill Date", "billdt", (v, row) => {
+        const color = formatExternalBillStatus(row?.status).textClass;
+        return <span className={`text-[10px] font-semibold ${color}`}>{v || "-"}</span>;
+      }, { width: "110px" }],
       ["Customer", "acc_name", (v) => <span className="text-[10px] font-medium text-slate-500 uppercase italic whitespace-normal break-words leading-snug block" title={v}>{v || "—"}</span>, { width: "250px", wrap: true }],
       [
         "Total Qty",
@@ -709,8 +777,8 @@ export default function ForwardingPage() {
       ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
       ["Locked By", "out_entry_locked_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
       ["Locked At", "out_entry_locked_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-      ["Bill By", "bill_updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Bill At", "bill_updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+      // ["Bill By", "bill_updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+      // ["Bill At", "bill_updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
     ];
 
     return [...baseHeaders, ...itemCols, ...masterHeaders];
@@ -914,10 +982,8 @@ export default function ForwardingPage() {
                 <span className="text-[10px] font-bold text-indigo-600 uppercase flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0 flex-1 leading-snug">
                   <Info size={12} className="shrink-0" />
                   <span className="break-all">
-                    FUID{" "}
-                    {reportType === "summary"
-                      ? selectedRecord?.fuid
-                      : `${selectedRecord?.fuid} · ${selectedRecord?.item_code || "—"}`}
+                    Selected: FUID{" "}
+                    {reportType === "summary" ? selectedRecord?.fuid : `${selectedRecord?.fuid} · ${selectedRecord?.item_code || "—"}`}
                   </span>
                   <span className="text-indigo-400 font-semibold normal-case break-all">
                     PO {selectedRecord?.po_number || "—"}
@@ -939,6 +1005,7 @@ export default function ForwardingPage() {
                 </button>
               </div>
 
+              {/*
               {selectedRecord?.fuid && canEditBill ? (
                 <div className="w-full min-w-0 space-y-1.5" data-compact-form-bar>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
@@ -985,6 +1052,8 @@ export default function ForwardingPage() {
                   Bill {selectedRecord.bill_no}
                 </p>
               ) : null}
+              */}
+
             </div>
           )}
         </ListPageToolbar>
@@ -1035,19 +1104,11 @@ export default function ForwardingPage() {
                 fromDate={params.fromDate}
                 toDate={params.toDate}
                 extraFilters={extraFilters}
-                applyExtrasOnChange
                 onApply={handleFilterApply}
                 onReset={handleReset}
+                onExtraFilterChange={handleClientExtraFilterChange}
                 searchValue={tempSearch}
                 onSearchChange={setTempSearch}
-                onSearchEnter={() =>
-                  handleFilterApply({
-                    fromDate: params.fromDate,
-                    toDate: params.toDate,
-                    approvedStatus: params.status,
-                    dispatchFilter: params.dispatchFilter,
-                  })
-                }
                 searchPlaceholder="Search table..."
                 searchLabel="Quick Search"
                 minDate={dateFilterDefaults.minDate}
@@ -1076,7 +1137,7 @@ export default function ForwardingPage() {
                 emptyIcon={FileText}
                 cardConfig={{ 
                   titleKey: reportType === "summary" ? "po_number" : "item_code", 
-                  badgeIndices: [reportType === 'summary' ? 8 : 10], 
+                  badgeIndices: [reportType === 'summary' ? 7 : 9], 
                   detailIndices: [2, 3, 4, 5], 
                   footerKey: "created_at",
                   className: "rounded-none border border-slate-200" 
@@ -1106,7 +1167,9 @@ export default function ForwardingPage() {
             mode={modalMode}
             dispatchPrefill={dispatchPrefill}
             customerSchedulePicker={
-              (modalMode === "add" && !dispatchPrefill && outerTab === "dispatch_plan") ||
+              // Blank New from Dispatch Plan, or Master New without direct-create permission
+              // (same schedule-catalog flow — no need to switch tabs).
+              (modalMode === "add" && !dispatchPrefill && (outerTab === "dispatch_plan" || !canDirectCreate)) ||
               ((modalMode === "edit" || modalMode === "approve") &&
                 Boolean(String(selectedRecord?.schno ?? "").trim()))
             }

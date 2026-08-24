@@ -1,5 +1,5 @@
 export const DASHBOARD_WIDGET_QUERY_PLACEHOLDER =
-  "SELECT ... FROM ... WHERE created_at BETWEEN {{fromDate}} AND {{toDate}} AND user_id = {{userId}} AND fin_year_id = {{fyuid}}";
+  "SELECT ... FROM ... WHERE created_at BETWEEN {{fromDate}} AND {{toDate}} AND username = {{username}} AND fin_year_id = {{fyuid}}";
 
 /** Runtime placeholders users can insert into widget SQL (replaced on preview / live). */
 export const DASHBOARD_QUERY_RUNTIME_FILTERS = [
@@ -21,7 +21,19 @@ export const DASHBOARD_QUERY_RUNTIME_FILTERS = [
   {
     token: "{{userId}}",
     label: "User ID",
-    hint: "Super admin user filter",
+    hint: "Normal user: own id. Super admin: all users unless one is selected",
+    superAdminOnly: true,
+  },
+  {
+    token: "{{username}}",
+    label: "Username",
+    hint: "Use with username columns",
+    superAdminOnly: true,
+  },
+  {
+    token: "{{name}}",
+    label: "Name",
+    hint: "Use with name columns",
     superAdminOnly: true,
   },
 ];

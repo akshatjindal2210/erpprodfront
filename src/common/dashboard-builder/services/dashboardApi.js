@@ -1,5 +1,5 @@
 import { api } from "@/platform/api/apiClient";
-import { externalMssqlRequestedData, isExternalMssqlDbSource } from "../utils/dashboardDbSources.js";
+import { externalMssqlRequestedData, isExternalMssqlDbSource, isUrlJsonDbSource } from "../utils/dashboardDbSources.js";
 
 const BASE_PATH = "/dashboard";
 
@@ -43,7 +43,7 @@ export const deleteWidget = async (id, { appKey = "ims", pageKey = "default", da
   });
 };
 
-export const previewWidget = async (query, { dbSource = "ims_postgresql", filters = {} } = {}) => {
+export const previewWidget = async (query, { dbSource = "ims_postgresql", filters = {}, chartConfig = {} } = {}) => {
   if (isExternalMssqlDbSource(dbSource)) {
     const body = {
       requestedData: externalMssqlRequestedData(dbSource),
@@ -57,28 +57,45 @@ export const previewWidget = async (query, { dbSource = "ims_postgresql", filter
       body,
     });
   }
+  if (isUrlJsonDbSource(dbSource)) {
+    return api(`${BASE_PATH}/widgets/preview`, {
+      method: "POST",
+      body: { query, db_source: dbSource, chart_config: chartConfig },
+    });
+  }
   return api(`${BASE_PATH}/widgets/preview`, {
     method: "POST",
-    body: { query, db_source: dbSource, filters },
+    body: { query, db_source: dbSource, filters, chart_config: chartConfig },
   });
 };
 
 export const hybridPreviewWidget = async ({
-  mssql_query,
+  mssql_query = "",
   pg_query,
   db_source = "erp_mssql",
   filters = {},
   stage_only = false,
+  url,
+  url_method,
+  url_body,
 } = {}) => {
+  const body = {
+    db_source,
+    filters,
+    stage_only: stage_only === true,
+    ...(pg_query ? { pg_query } : {}),
+  };
+  // Keep MSSQL payload shape identical to pre-URL Hybrid (always send mssql_query for ERP/HRMS).
+  if (String(db_source || "").toLowerCase() === "url_json") {
+    body.url = url;
+    body.url_method = url_method;
+    body.url_body = url_body;
+  } else {
+    body.mssql_query = mssql_query;
+  }
   return api(`${BASE_PATH}/widgets/hybrid-preview`, {
     method: "POST",
-    body: {
-      mssql_query,
-      ...(pg_query ? { pg_query } : {}),
-      db_source,
-      filters,
-      stage_only: stage_only === true,
-    },
+    body,
   });
 };
 

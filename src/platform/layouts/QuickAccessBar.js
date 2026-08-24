@@ -128,7 +128,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
 
   const dashboardFromDate = String(searchParams?.get("df_from") || "");
   const dashboardToDate = String(searchParams?.get("df_to") || "");
-  const dashboardUserId = String(searchParams?.get("df_user") || "");
+  const dashboardUsername = String(searchParams?.get("df_user") || "");
   const dashboardSelectedKey = String(searchParams?.get("df_dash") || "").trim().toLowerCase();
   const dashboardDefaultsAppliedRef = useRef(false);
   const today = dayjs().format("YYYY-MM-DD");
@@ -417,10 +417,18 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
         });
         const rows = Array.isArray(response?.data) ? response.data : [];
         setDashboardUsers(
-          rows.map((row) => ({
-            value: String(row.id),
-            label: row.name || row.username || `User ${row.id}`,
-          })),
+          rows
+            .map((row) => {
+              const username = String(row.username || "").trim();
+              if (!username) return null;
+              return {
+                id: row.id,
+                value: username,
+                name: String(row.name || "").trim(),
+                label: row.name || username,
+              };
+            })
+            .filter(Boolean),
         );
       } catch (_error) {
         setDashboardUsers([]);
@@ -430,10 +438,24 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   }, [isDashboardRoute, dashboardActive, canFilterByUser]);
 
   useEffect(() => {
+    if (!isDashboardRoute || dashboardActive !== true || !canFilterByUser || !dashboardUsername || !dashboardUsers.length) {
+      return;
+    }
+    if (String(searchParams?.get("df_uid") || "").trim()) return;
+    const selected = dashboardUsers.find((row) => row.value === dashboardUsername);
+    if (!selected?.id) return;
+    updateDashboardFilterQuery({
+      df_user: dashboardUsername,
+      df_uid: String(selected.id),
+      df_name: selected.name || dashboardUsername,
+    }, true);
+  }, [isDashboardRoute, dashboardActive, canFilterByUser, dashboardUsername, dashboardUsers, searchParams, updateDashboardFilterQuery]);
+
+  useEffect(() => {
     if (!isDashboardRoute || dashboardActive !== true || canFilterByUser) return;
     const urlUser = String(searchParams?.get("df_user") || "").trim();
     if (urlUser) {
-      updateDashboardFilterQuery({ df_user: "" }, true);
+      updateDashboardFilterQuery({ df_user: "", df_uid: "", df_name: "" }, true);
     }
   }, [isDashboardRoute, dashboardActive, canFilterByUser, searchParams, updateDashboardFilterQuery]);
 
@@ -575,7 +597,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
                       value={dashboardActiveKey}
                       onChange={(e) => applyDashboardSelection(e.target.value)}
                       aria-label="Dashboard"
-                      className="dashboard-qab-dash h-7 sm:h-6 min-w-0 flex-1 sm:flex-none rounded border border-slate-700/80 sm:border-slate-700 bg-slate-950/40 sm:bg-slate-950/60 px-1.5 text-[10px] font-bold uppercase tracking-tight text-slate-300 sm:text-slate-200 outline-none focus:border-blue-500"
+                      className="dashboard-qab-dash h-7 sm:h-6 min-w-0 flex-1 sm:flex-none rounded border border-slate-700/80 sm:border-slate-700 bg-slate-950/40 sm:bg-slate-950/60 px-1.5 text-[13px] sm:text-[10px] font-bold uppercase tracking-tight text-slate-300 sm:text-slate-200 outline-none focus:border-blue-500"
                     >
                       {dashboardList.map((option) => (
                         <option key={option.dashboard_key} value={option.dashboard_key}>
@@ -588,9 +610,18 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
                   ) : null}
                   {canFilterByUser ? (
                     <select
-                      value={dashboardUserId}
-                      onChange={(e) => updateDashboardFilterQuery({ df_user: e.target.value }, true)}
-                      className="dashboard-qab-user h-7 sm:h-6 min-w-0 flex-1 sm:flex-none rounded border border-slate-700/80 sm:border-slate-700 bg-slate-950/40 sm:bg-slate-950/60 px-1.5 text-[10px] font-bold uppercase tracking-tight text-slate-300 sm:text-slate-200 outline-none focus:border-blue-500"
+                      value={dashboardUsername}
+                      onChange={(e) => {
+                        const selected = dashboardUsers.find((row) => row.value === e.target.value);
+                        updateDashboardFilterQuery({
+                          df_user: e.target.value,
+                          df_uid: selected?.id ? String(selected.id) : "",
+                          df_name: selected?.name || "",
+                        }, true);
+                      }}
+                      aria-label="Username"
+                      title="Username"
+                      className="dashboard-qab-user h-7 sm:h-6 min-w-0 flex-1 sm:flex-none rounded border border-slate-700/80 sm:border-slate-700 bg-slate-950/40 sm:bg-slate-950/60 px-1.5 text-[13px] sm:text-[10px] font-bold uppercase tracking-tight text-slate-300 sm:text-slate-200 outline-none focus:border-blue-500"
                     >
                       <option value="">All Users</option>
                       {dashboardUsers.map((option) => (
@@ -784,22 +815,34 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
         .dashboard-qab-date .relative {
           width: 100%;
         }
-        /* Phone — full-width dates, icon text ke upar na aaye */
+        /* Phone — date + dropdown same 13px (native select ignores smaller sizes) */
         .dashboard-qab-date input {
           height: 28px;
           width: 100%;
           min-width: 0;
           box-sizing: border-box;
           border-radius: 4px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(0, 0, 0, 0.25);
+          border: 1px solid rgba(51, 65, 85, 0.8);
+          background: rgba(2, 6, 23, 0.4);
           padding: 0 26px 0 8px !important;
-          color: rgb(226 232 240);
+          color: rgb(203 213 225) !important;
+          -webkit-text-fill-color: rgb(203 213 225) !important;
+          font-size: 13px !important;
+          font-weight: 700 !important;
+          letter-spacing: -0.025em !important;
+          text-transform: uppercase !important;
+          line-height: 1.25 !important;
           outline: none;
         }
         [data-dashboard-qab] .dashboard-qab-dash,
         [data-dashboard-qab] .dashboard-qab-user {
-          letter-spacing: -0.025em;
+          color: rgb(203 213 225) !important;
+          -webkit-text-fill-color: rgb(203 213 225) !important;
+          font-size: 13px !important;
+          font-weight: 700 !important;
+          letter-spacing: -0.025em !important;
+          text-transform: uppercase !important;
+          line-height: 1.25 !important;
         }
         .dashboard-qab-date button {
           width: 22px !important;
@@ -821,10 +864,21 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
             padding: 0 28px 0 6px !important;
             border: 1px solid rgb(51 65 85);
             background: rgba(2, 6, 23, 0.6);
+            font-size: 10px !important;
+            line-height: 1.2 !important;
+            font-weight: 500 !important;
+            letter-spacing: normal !important;
           }
           [data-dashboard-qab] input {
             border: 1px solid rgb(51 65 85);
             background: rgba(2, 6, 23, 0.6);
+          }
+          [data-dashboard-qab] .dashboard-qab-dash,
+          [data-dashboard-qab] .dashboard-qab-user {
+            font-size: 10px !important;
+            line-height: 1.2 !important;
+            font-weight: 500 !important;
+            letter-spacing: normal !important;
           }
           .dashboard-qab-user {
             width: 130px;
@@ -847,8 +901,11 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
           border-color: rgb(59 130 246);
         }
         .dashboard-qab-date input::placeholder {
-          color: rgb(100 116 139);
-          font-size: 10px;
+          color: rgb(148 163 184) !important;
+          -webkit-text-fill-color: rgb(148 163 184) !important;
+          font-size: 13px !important;
+          font-weight: 700 !important;
+          text-transform: uppercase !important;
         }
         .dashboard-qab-date button:hover {
           color: rgb(96 165 250);

@@ -192,18 +192,23 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
         if (cancelled) return;
 
         const row = hydrated.row;
-        if (row?.entry_type !== "add") {
-          toast.info("Print stickers is only for approved add adjustments.");
+        if (row?.entry_type !== "add" && row?.entry_type !== "update") {
+          toast.info("Print stickers is only for approved Add or Update adjustments.");
           onCloseRef.current?.();
           return;
         }
         if (!row?.approved) {
-          toast.info("Approve this add adjustment before printing stickers.");
+          toast.info("Approve this adjustment before printing stickers.");
           onCloseRef.current?.();
           return;
         }
 
-        const rows = (hydrated.savedAddBoxRows || []).filter((r) => r.box_uid != null);
+        const rows =
+          row.entry_type === "update"
+            ? hydrated.updateBox?.box_uid != null
+              ? [hydrated.updateBox]
+              : []
+            : (hydrated.savedAddBoxRows || []).filter((r) => r.box_uid != null);
         setDetail(row);
         setPackingPreview(hydrated.packingPreview);
         setItemMeta(hydrated.itemMeta);
@@ -244,7 +249,11 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
     return {
       item_code: detail?.item_code ?? im?.item_code ?? st?.item_code ?? dp?.item_code ?? "—",
       itemdesc: detail?.item_desc ?? im?.itemdesc ?? im?.description ?? st?.itemdesc ?? st?.item_desc ?? "—",
-      category: st?.category ?? st?.type_name ?? "—",
+      category: st?.category ?? st?.type_name ??
+        detail?.category_name ??
+        (detail?.category_id != null && String(detail.category_id).trim() !== ""
+          ? `Category #${detail.category_id}`
+          : "—"),
       acc_name: detail?.acc_name ?? im?.acc_name ?? st?.acc_name ?? dp?.acc_name ?? "—",
       party_rate_cust_code: detail?.party_rate_cust_code ?? st?.party_rate_cust_code ?? dp?.party_rate_cust_code,
       acc_code: detail?.acc_code ?? dp?.acc_code ?? st?.acc_code ?? null,
@@ -331,7 +340,11 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
     try {
       const printRes = await printStockAdjustmentAddStickers({
         adjustmentId: detail.adjustment_id,
-        packingNo: detail.packing_number,
+        packingNo:
+          detail.packing_number ||
+          stickerRows[0]?.packing_number ||
+          stickerRows[0]?.package_no ||
+          "",
         boxUids: uids,
         stickerMeta: stickerMetaBase,
       });
@@ -457,7 +470,11 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col mx-2 mb-2 mt-1.5 bg-white border border-slate-200 rounded-lg">
                   {mobileTab === "details" ? (
                     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-50 p-2">
-                      <StockAdjustmentStickerDetailCards selectedRow={selectedRowLike} packing={packingLike} />
+                      <StockAdjustmentStickerDetailCards selectedRow={selectedRowLike} packing={packingLike}
+                        selectedCategoryId={detail?.category_id != null ? String(detail.category_id) : ""}
+                        categorySelectDisabled
+                        customerSelectDisabled
+                      />
                     </div>
                   ) : (
                     <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">{breakdownBlock}</div>
@@ -467,7 +484,11 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
 
               <div className="hidden lg:flex lg:flex-row flex-1 min-h-0 w-full min-w-0 overflow-hidden bg-slate-50">
                 <div className="shrink-0 lg:w-80 xl:w-96 border-r border-slate-200 bg-slate-50 overflow-y-auto overflow-x-hidden">
-                  <StockAdjustmentStickerDetailCards selectedRow={selectedRowLike} packing={packingLike} />
+                  <StockAdjustmentStickerDetailCards selectedRow={selectedRowLike} packing={packingLike}
+                    selectedCategoryId={detail?.category_id != null ? String(detail.category_id) : ""}
+                    categorySelectDisabled
+                    customerSelectDisabled
+                  />
                 </div>
                 <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">{breakdownBlock}</div>
               </div>
