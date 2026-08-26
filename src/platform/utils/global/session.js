@@ -8,6 +8,7 @@ let listViewSpanDays = LIST_VIEW_SPAN_FALLBACK;
 const listViewListeners = new Set();
 
 let inwardLocationValidationEnabled = false;
+let locationCapacityValidationEnabled = false;
 
 function clampListSpan(n) {
   const x = parseInt(String(n), 10);
@@ -39,6 +40,14 @@ export function isInwardLocationValidationEnabled() {
   return inwardLocationValidationEnabled;
 }
 
+export function setLocationCapacityValidationEnabled(value) {
+  locationCapacityValidationEnabled = value === true;
+}
+
+export function isLocationCapacityValidationEnabled() {
+  return locationCapacityValidationEnabled;
+}
+
 export function getBoxNoUidPrefix() {
   return getBoxNoUidPrefixFromFinancialYear();
 }
@@ -49,6 +58,9 @@ export function applySessionFromLogin(payload) {
   }
   if (payload?.inward_location_validation != null) {
     setInwardLocationValidationEnabled(payload.inward_location_validation === true);
+  }
+  if (payload?.location_capacity_validation != null) {
+    setLocationCapacityValidationEnabled(payload.location_capacity_validation === true);
   }
 }
 

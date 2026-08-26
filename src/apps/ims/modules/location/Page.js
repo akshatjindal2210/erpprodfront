@@ -186,10 +186,7 @@ export default function LocationMasterPage() {
     ), { fixed: true, width: "120px" }],
     ["Rack No", "rack_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "90px" }],
     ["Shelf No", "shelf_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{(v || "—").toString().toUpperCase()}</span>, { width: "90px" }],
-    [
-      "Customer Name",
-      "acc_code",
-      (v, row) => (
+    ["Customer Name", "acc_code", (v, row) => (
         <div className="flex flex-col leading-tight min-w-0 max-w-full select-text">
           <span
             className="font-bold text-slate-900 text-[10px] uppercase whitespace-normal break-words leading-snug hyphens-auto"
@@ -202,12 +199,24 @@ export default function LocationMasterPage() {
       { width: "250px", wrap: true, copyValue: (row) => row.acc_name || "—" },
     ],
     ["Item Code", "item_code", (v, row) => (
-      <div className="flex flex-col leading-tight min-w-[140px]">
-        <span className="font-bold text-slate-900 text-[10px] truncate uppercase">{v || "—"}</span>
+      <div className="flex flex-col leading-tight min-w-0 max-w-full">
+        <span className="font-bold text-slate-900 text-[10px] truncate uppercase whitespace-normal">{v || "—"}</span>
       </div>
-    ), { width: "160px" }],
+    ), { width: "250px", wrap: true, copyValue: (row) => row.item_code || "—"  }],
+    ["Rule", "rule", (v, row) => {
+      const hasItems = Array.isArray(row.item_dcodes) ? row.item_dcodes.length > 0 : !!row.item_dcode;
+      if (!hasItems) return <span className="text-[10px] text-slate-400">—</span>;
+      const mode = String(v || row.restriction_mode || "include").toLowerCase() === "exclude" ? "exclude" : "include";
+      return (
+        <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${mode === "exclude" ? "bg-rose-50 text-rose-600 border-rose-100" : "bg-sky-50 text-sky-700 border-sky-100"}`}>
+          {mode === "exclude" ? "EXCLUDE" : "INCLUDE"}
+        </span>
+      );
+    }, { width: "100px", align: "center" }],
     ["Details", "location_description", (v) => <span className="text-[10px] text-slate-500 italic whitespace-normal break-words leading-tight">{v || "—"}</span>, { width: "180px", wrap: true }],
     ["Total Capacity", "total_capacity", (v) => <span className="font-black text-slate-700 text-[11px]">{v ?? 0}</span>, { align: "center", width: "120px" }],
+    ["Occupied Capacity", "occupied_capacity", (v) => <span className="font-black text-amber-700 text-[11px]">{v ?? 0}</span>, { align: "center", width: "140px" }],
+    ["Available Capacity", "available_capacity", (v) => <span className="font-black text-emerald-700 text-[11px]">{v ?? 0}</span>, { align: "center", width: "140px" }],
     ["Status", "approved", (v) => (
       <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
         {v ? "● AUTHORIZED" : "○ PENDING"}

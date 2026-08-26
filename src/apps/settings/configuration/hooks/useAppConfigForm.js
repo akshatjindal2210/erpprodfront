@@ -15,6 +15,11 @@ function applySavedSideEffects(row, savedValue) {
       inward_location_validation: String(savedValue).trim().toLowerCase() === "true",
     });
   }
+  if (row.key === "location_capacity_validation" && savedValue != null) {
+    applyListViewSpanFromSession({
+      location_capacity_validation: String(savedValue).trim().toLowerCase() === "true",
+    });
+  }
 }
 
 export function useAppConfigForm(appId) {

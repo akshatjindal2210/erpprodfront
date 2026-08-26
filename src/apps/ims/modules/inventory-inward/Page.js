@@ -65,6 +65,7 @@ export default function InwardPage() {
   const [packingFilterPn, setPackingFilterPn] = useState("");
   const [packingFilterItem, setPackingFilterItem] = useState(null); // { dcode, code }
   const [packingFilterCust, setPackingFilterCust] = useState(null); // { code, name }
+  const [packingFilterSource, setPackingFilterSource] = useState("");
   const [packingParams, setPackingParams] = useState({
     pageSize: 500,
     sortKey: "packing_number",
@@ -155,7 +156,9 @@ export default function InwardPage() {
     setLoading(true);
     try {
       const base = {
-        filters: {},
+        filters: {
+          ...(packingFilterSource ? { source: packingFilterSource } : {}),
+        },
         sortBy: packingBoxParams.sortKey,
         order: String(packingBoxParams.sortDir || "desc").toUpperCase(),
         ...(packingFilterPn ? { packing_number: packingFilterPn } : {}),
@@ -186,6 +189,7 @@ export default function InwardPage() {
     packingFilterPn,
     packingFilterItem,
     packingFilterCust,
+    packingFilterSource,
     appliedSearch,
   ]);
 
@@ -260,6 +264,7 @@ export default function InwardPage() {
       setPackingFilterPn("");
       setPackingFilterItem(null);
       setPackingFilterCust(null);
+      setPackingFilterSource("");
       setPackingBoxParams({
         pageSize: 500,
         sortKey: "box_no_uid",
@@ -269,6 +274,7 @@ export default function InwardPage() {
       setPackingFilterPn("");
       setPackingFilterItem(null);
       setPackingFilterCust(null);
+      setPackingFilterSource("");
       setPackingParams({
         pageSize: 500,
         sortKey: "packing_number",
@@ -282,6 +288,7 @@ export default function InwardPage() {
     setPackingView(PACKING_VIEWS.SUMMARY);
     setPackingFilterPn("");
     setPackingFilterItem(null);
+    setPackingFilterSource("");
     setSelected(null);
     setTempSearch("");
     setDisplayLimit(100);
@@ -292,6 +299,7 @@ export default function InwardPage() {
     setPackingFilterPn("");
     setPackingFilterItem(null);
     setPackingFilterCust(null);
+    setPackingFilterSource("");
     setSelected(null);
     setDisplayLimit(100);
   };
@@ -327,7 +335,8 @@ export default function InwardPage() {
       if (isPackingBoxView) return item.box_uid;
       const cust = item.acc_code != null ? String(item.acc_code).trim() : "";
       const jc = item.job_card_no != null ? String(item.job_card_no).trim() : "";
-      return `${item.packing_number}:${item.item_dcode}:${cust}:${jc}`;
+      const src = item.source != null ? String(item.source).trim() : "";
+      return `${item.packing_number}:${item.item_dcode}:${cust}:${jc}:${src}`;
     },
     [isStoreIn, isPackingBoxView]
   );
@@ -345,6 +354,7 @@ export default function InwardPage() {
     setPackingFilterPn(String(row.packing_number).trim());
     setPackingFilterItem(null);
     setPackingFilterCust(null);
+    setPackingFilterSource(String(row.source || "").trim());
     setPackingView(PACKING_VIEWS.BOXES);
     setSelected(null);
     setDisplayLimit(100);
@@ -434,6 +444,29 @@ export default function InwardPage() {
     ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 
+  const packingSourceCell = (v) => {
+    const s = String(v || "PACKING ENTRY").toUpperCase();
+    if (s.startsWith("STOCK ADJ")) {
+      return (
+        <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-200">
+          ● {s}
+        </span>
+      );
+    }
+    if (s === "QC HOLD") {
+      return (
+        <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-violet-50 text-violet-700 border-violet-200">
+          ● QC HOLD
+        </span>
+      );
+    }
+    return (
+      <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-slate-50 text-slate-700 border-slate-200">
+        ● PACKING ENTRY
+      </span>
+    );
+  };
+
   const PACKING_AREA_BOX_HEADERS = [
     [
       "Box UID",
@@ -441,6 +474,7 @@ export default function InwardPage() {
       (v) => <span className="font-bold text-indigo-600 text-[10px]">{v || "—"}</span>,
       { fixed: true, width: "160px" },
     ],
+    ["Source", "source", packingSourceCell, { width: "180px" }],
     ["Date", "doc_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDocDate(v) || "—"}</span>, { width: "100px" }],
     [
       "Job Card",
@@ -494,6 +528,7 @@ export default function InwardPage() {
 
   const PACKING_AREA_HEADERS = [
     [ "Packing No", "packing_number", (v) => (<span className="font-mono font-bold text-slate-800 text-[10px] tracking-tight">{v || "—"}</span>), { fixed: true, width: "100px" } ],
+    ["Source", "source", packingSourceCell, { width: "150px" }],
     ["Date", "doc_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDocDate(v) || "—"}</span>, { width: "100px" }],
     [
       "Job Card",
@@ -770,7 +805,9 @@ export default function InwardPage() {
           {!isStoreIn && packingFilterPn && isPackingBoxView && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50 border border-amber-200">
               <span className="text-[10px] font-bold text-amber-800 uppercase">
-                Packing {packingFilterPn} — {totalItems} box{totalItems === 1 ? "" : "es"}
+                Packing {packingFilterPn}
+                {packingFilterSource ? ` · ${packingFilterSource}` : ""} — {totalItems} box
+                {totalItems === 1 ? "" : "es"}
               </span>
               <button
                 type="button"
@@ -778,6 +815,7 @@ export default function InwardPage() {
                   setPackingFilterPn("");
                   setPackingFilterItem(null);
                   setPackingFilterCust(null);
+                  setPackingFilterSource("");
                   setDisplayLimit(100);
                 }}
                 className="text-amber-600 hover:text-amber-900 flex items-center gap-1 font-bold text-[10px] uppercase"

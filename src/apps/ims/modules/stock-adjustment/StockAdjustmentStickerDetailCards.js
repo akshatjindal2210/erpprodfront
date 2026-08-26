@@ -27,9 +27,9 @@ export default function StockAdjustmentStickerDetailCards({
   const p = packing || {};
   const categoryLabel =
     categories.find((c) => String(c.id) === String(selectedCategoryId))?.name ||
-    (selectedCategoryId ? `Category #${selectedCategoryId}` : null) ||
     row.category ||
     row.type_name ||
+    (selectedCategoryId ? `Category #${selectedCategoryId}` : null) ||
     "—";
   const showCategorySelect = !categorySelectDisabled && !minusViewMode;
   const isUpdateBreakdown = updateBreakdown && typeof updateBreakdown === "object";

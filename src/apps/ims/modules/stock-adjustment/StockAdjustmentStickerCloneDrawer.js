@@ -26,9 +26,11 @@ import { focusFirstError } from "@/platform/utils/form/formFocus";
 import { sortFilterOptionsAsc } from "@/platform/utils/form/sortSelectOptions";
 import { getCurrentIndianFinancialYearStartYear, rowInIndianFinancialYear } from "@/platform/utils/core/indianFinancialYear";
 import { boxRowCustomerLabel, groupSelectedMinusBoxesByCustomer, parseMinusCustomerLinesFromRow, resolveMinusAccCodeFromSelection } from "@/apps/ims/lib/utils/minusCustomerBreakdown";
+import { STICKER, formatSaBoxNoUid } from "@/apps/ims/lib/stickerUidFormat";
+import { parseStickerBoxIndex } from "@/apps/ims/lib/stickerUidHelpers";
 
 const FIELD_ORDER = ["addNumBoxes", "addExtraBoxes", "addPerBoxQty", "category", "minusBoxes", "updateQty", "updateAction"];
-import { formatStockAdjustmentBoxNoUid, parseOptionalStandardQtyPerBox, parseStockAdjustmentBoxIndex, resolveDefaultStockAdjustmentCategoryId, resolveStockAdjustmentPackingNo, summarizeAddBoxBreakup, buildStockAdjustmentAddPreviewRows } from "@/apps/ims/lib/utils/stockAdjustmentPacking";
+import { parseOptionalStandardQtyPerBox, resolveDefaultStockAdjustmentCategoryId, resolveStockAdjustmentPackingNo, summarizeAddBoxBreakup, buildStockAdjustmentAddPreviewRows } from "@/apps/ims/lib/utils/stockAdjustmentPacking";
 import { categoryService } from "@/apps/ims/lib/services/category";
 import { hydrateStockAdjustmentStickerView } from "./hydrateStockAdjustmentStickerView";
 import { boxInventoryStatus, isBoxAvailableForMinus, isBoxVisibleForStockAdjustmentMinus, isValidMinusDrawerBoxRow, isStockAdjustmentIn, isStockAdjustmentOut, isBoxInHand } from "@/apps/ims/lib/utils/boxInventory";
@@ -45,7 +47,7 @@ const SA_UPDATE_STICKER_SCANNER_ID = "sa-update-sticker-reader";
 function isSaAddBoxRow(row) {
   if (isStockAdjustmentIn(row)) return true;
   const uid = String(row?.box_no_uid ?? "");
-  return /_SA\d+_/i.test(uid);
+  return new RegExp(`_${STICKER.SA}\\d+_`, "i").test(uid);
 }
 
 function getDeviceType() {
@@ -68,16 +70,17 @@ async function printBulkStickersAfterStockAdjustmentAdd({
   const pn = String(packingNo ?? "").trim();
   if (!pn) return { ok: false, reason: "no_pn" };
 
-  /** Server filter by `sa_id` — box list API only returns whitelisted columns; `sa_id` must be in BOX_STORE_LIST_FIELDS. */
-  const listRes = await boxService.getAll({
+  /** Boxes helper — SA view rights (not /boxes/list which needs Boxes module). */
+  const listRes = await boxService.getViews({
     page: 1,
     limit: 1000,
     filters: { sa_id: adjId },
     sortBy: "box_uid",
     order: "ASC",
+    ...STOCK_ADJ_PERMS,
   });
   const rows = Array.isArray(listRes?.data) ? listRes.data : [];
-  const matched = rows.filter((b) => Number(b.sa_id) === adjId);
+  const matched = rows.filter((b) => Number(b.sa_id) === adjId).sort((a, b) => Number(a.box_uid) - Number(b.box_uid));
   const exp = parseInt(String(expectedBoxCount), 10);
   if (Number.isFinite(exp) && exp > 0 && matched.length !== exp) {
     console.warn("[stock adjustment] sticker print: box count mismatch", {
@@ -97,6 +100,8 @@ async function printBulkStickersAfterStockAdjustmentAdd({
     box_uids: uids,
     device_type: getDeviceType(),
     download_source: STICKER_DOWNLOAD_SOURCE_KEYS.stock_adjustment,
+    permission_module: "stock_adjustment",
+    permission_action: "view",
     sticker_meta: stickerMeta,
   });
   const opened = printFromBackendHtml(res?.html, { title: res?.print_title });
@@ -121,6 +126,8 @@ async function printBulkStickersBeforeStockAdjustmentMinus({ packingNo, boxUids,
     box_uids: uids,
     device_type: getDeviceType(),
     download_source: STICKER_DOWNLOAD_SOURCE_KEYS.stock_adjustment,
+    permission_module: "stock_adjustment",
+    permission_action: "view",
     sticker_meta: stickerMeta,
   });
   const opened = printFromBackendHtml(res?.html, { title: res?.print_title });
@@ -1209,14 +1216,14 @@ export default function StockAdjustmentStickerCloneDrawer({
     const rows = kept.map((r) => ({ ...r, is_saved: true }));
     if (!Number.isFinite(pb) || pb < 1 || !pn) return rows;
 
-    const maxIdx = kept.reduce((m, r) => Math.max(m, parseStockAdjustmentBoxIndex(r.box_no_uid)), 0);
+    const maxIdx = kept.reduce((m, r) => Math.max(m, parseStickerBoxIndex(r.box_no_uid)), 0);
     const totalAfter = kept.length + extra;
 
     for (let i = 1; i <= extra; i++) {
       const boxIndex = maxIdx + i;
       rows.push({
         box_no: boxIndex,
-        box_no_uid: formatStockAdjustmentBoxNoUid(pn, adjId, totalAfter, boxIndex, getBoxNoUidPrefix()),
+        box_no_uid: formatSaBoxNoUid(pn, adjId, totalAfter, boxIndex, getBoxNoUidPrefix()),
         package_no: pn,
         total_boxes: totalAfter,
         qty: pb,

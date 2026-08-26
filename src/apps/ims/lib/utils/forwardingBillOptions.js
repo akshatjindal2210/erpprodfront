@@ -24,16 +24,33 @@ export function parseSavedBillNos(raw) {
   );
 }
 
-/** Join selected bill numbers for save — e.g. HPF/26-27/0834,HPF/26-27/0835 (deduped). */
+/** Join selected bill numbers for save. */
 export function formatBillNosForSave(billNos) {
   const unique = uniqueBillNos(Array.isArray(billNos) ? billNos.map(String) : []);
   if (unique.length === 0) return null;
   return unique.join(",");
 }
 
-/** Live IMS bill numbers for SearchableSelect (via backend bill-helper). */
-export async function fetchBillOptions({ search = "", page = 1, limit = 50 } = {}) {
-  const res = await forwardingNoteService.getBillNumbers({ search, page, limit });
+export function isBlankForwardingBill(row = {}) {
+  return !String(row?.billno ?? "").trim();
+}
+
+/** Row → payload item for bill-helper (backend decides match key). */
+export function billHelperItemFromRow(row = {}) {
+  if (!row) return null;
+  const acc_code = row.acc_code;
+  const item_dcode = row.item_dcode ?? row.itemdcode;
+  if (acc_code == null || item_dcode == null) return null;
+  return {
+    acc_code,
+    item_dcode,
+    packing_number: row.packing_number ?? row.packing ?? null,
+  };
+}
+
+/** Live invfnote bills — pass selected row fields; match mode is backend-only. */
+export async function fetchBillOptions({ search = "", page = 1, limit = 50, items = [] } = {}) {
+  const res = await forwardingNoteService.getBillNumbers({ search, page, limit, items });
   const data = Array.isArray(res?.data) ? res.data : [];
   return {
     data,
@@ -41,19 +58,23 @@ export async function fetchBillOptions({ search = "", page = 1, limit = 50 } = {
   };
 }
 
-/** Resolve one saved bill number for multi-select display. */
-export async function getBillByNo(billNo) {
+export async function getBillByNo(billNo, { items = [] } = {}) {
   const label = String(billNo ?? "").trim();
   if (!label) return { data: null };
 
   try {
-    const res = await forwardingNoteService.getBillNumbers({ search: label, page: 1, limit: 100 });
+    const res = await forwardingNoteService.getBillNumbers({
+      search: label,
+      page: 1,
+      limit: 100,
+      items,
+    });
     const data = Array.isArray(res?.data) ? res.data : [];
-    const found = data.find((row) => String(row?.bill_no ?? "").trim() === label);
+    const found = data.find((row) => String(row?.bill_no ?? row?.billno ?? "").trim() === label);
     if (found) return { data: found };
   } catch {
-    /* fall through — show saved value even if IMS lookup fails */
+    /* fall through */
   }
 
-  return { data: { bill_no: label } };
+  return { data: { bill_no: label, billno: label } };
 }

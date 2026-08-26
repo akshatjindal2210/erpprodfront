@@ -27,9 +27,20 @@ const INITIAL_FORM = {
   row_no: "",
   location_description: "",
   total_capacity: "",
-  item_dcode: "",
+  item_dcodes: [],
   approved: false,
 };
+
+function toIdArray(value, fallbackSingle) {
+  if (Array.isArray(value) && value.length) {
+    return value.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0);
+  }
+  if (fallbackSingle != null && fallbackSingle !== "") {
+    const n = Number(fallbackSingle);
+    return Number.isFinite(n) && n > 0 ? [n] : [];
+  }
+  return [];
+}
 
 export default function LocationModal({ open, onClose, onSuccess, editData, mode = "add" }) {
   const canAccess = useCanAccess();
@@ -58,10 +69,10 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
       if (editData) {
         setForm({
           rack_no: editData.rack_no || "",
-          row_no: editData.row_no || "",
+          row_no: editData.row_no || editData.shelf_no || "",
           location_description: editData.location_description || "",
           total_capacity: editData.total_capacity || "",
-          item_dcode: editData.item_dcode != null ? String(editData.item_dcode) : "",
+          item_dcodes: toIdArray(editData.item_dcodes, editData.item_dcode),
           approved: isApprove,
         });
       } else {
@@ -137,18 +148,18 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
         row_no: form.row_no?.trim().toUpperCase(),
         location_description: form.location_description,
         total_capacity: parseInt(form.total_capacity) || 0,
-        item_dcode: form.item_dcode ? Number(form.item_dcode) : null,
+        item_dcodes: toIdArray(form.item_dcodes),
         approved: finalApproved,
       };
 
       const isUpdate = isEdit || isApprove;
-      const request = isUpdate 
-        ? locationService.update(editData.location_id, payload) 
+      const request = isUpdate
+        ? locationService.update(editData.location_id, payload)
         : locationService.create(payload);
-      
+
       const response = await request;
       notify(response, "Saved successfully.");
-      
+
       onSuccess();
       onClose();
     } catch (err) {
@@ -179,7 +190,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
       maxWidth="max-w-4xl"
     >
       <div ref={formRef} className="space-y-4 pb-4">
-        
+
         {isEdit && editData?.approved && (
           <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
             <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
@@ -192,11 +203,11 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="space-y-1">
             <FormLabel required>RM Rack</FormLabel>
-            <input 
+            <input
               data-field="rack_no"
-              value={form.rack_no} 
-              onChange={(e) => handleInputChange("rack_no", e.target.value)} 
-              placeholder="e.g. 48" 
+              value={form.rack_no}
+              onChange={(e) => handleInputChange("rack_no", e.target.value)}
+              placeholder="e.g. 48"
               className={`${errors.rack_no ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`}
             />
             {errors.rack_no && <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold"><AlertCircle size={10}/>{errors.rack_no}</p>}
@@ -204,7 +215,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
 
           <div className="space-y-1">
             <FormLabel required>RM Row</FormLabel>
-            <input 
+            <input
               data-field="row_no"
               value={form.row_no}
               onChange={(e) => handleInputChange("row_no", e.target.value)}
@@ -216,12 +227,12 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
 
           <div className="space-y-1">
             <FormLabel required>Capacity</FormLabel>
-            <input 
+            <input
               data-field="total_capacity"
               type="number"
               min={1}
-              value={form.total_capacity} 
-              onChange={(e) => handleInputChange("total_capacity", e.target.value)} 
+              value={form.total_capacity}
+              onChange={(e) => handleInputChange("total_capacity", e.target.value)}
               className={`${errors.total_capacity ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`}
             />
             {errors.total_capacity && (
@@ -233,9 +244,10 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
         </div>
 
         <SearchableSelect
-          label="RM Item (optional)"
-          value={form.item_dcode}
-          onChange={(id) => handleInputChange("item_dcode", id ?? "")}
+          label="RM Items (optional)"
+          placeholder="Search RM items..."
+          value={form.item_dcodes}
+          onChange={(ids) => handleInputChange("item_dcodes", Array.isArray(ids) ? ids : [])}
           fetchService={(params) =>
             productionErpHelpers.getRmItemsViews({ ...params, ...helperPerms })
           }
@@ -245,6 +257,8 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
           subLabelKey="itemdesc"
           showDuplicateSubLabel
           preserveApiOrder
+          multiple
+          compactMulti
         />
 
         {(isEdit || isApprove) && editData?.qr_code && (
@@ -305,4 +319,3 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
     </Drawer>
   );
 }
-

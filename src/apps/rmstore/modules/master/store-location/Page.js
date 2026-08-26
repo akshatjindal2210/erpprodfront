@@ -207,6 +207,8 @@ export default function LocationMasterPage() {
     ), { width: "160px" }],
     ["Details", "location_description", (v) => <span className="text-[10px] text-slate-500 italic whitespace-normal break-words leading-tight">{v || "—"}</span>, { width: "180px", wrap: true }],
     ["Total Capacity", "total_capacity", (v) => <span className="font-black text-slate-700 text-[11px]">{v ?? 0}</span>, { align: "center", width: "120px" }],
+    ["Occupied Capacity", "occupied_capacity", (v) => <span className="font-black text-amber-700 text-[11px]">{v ?? 0}</span>, { align: "center", width: "140px" }],
+    ["Available Capacity", "available_capacity", (v) => <span className="font-black text-emerald-700 text-[11px]">{v ?? 0}</span>, { align: "center", width: "140px" }],
     ["Status", "approved", (v) => (
       <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
         {v ? "● AUTHORIZED" : "○ PENDING"}

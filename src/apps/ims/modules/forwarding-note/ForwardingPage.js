@@ -31,7 +31,7 @@ import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { printFromBackendHtml } from "@/apps/ims/lib/utils/printHtmlDocument";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/ui/common/list/ListPageSearchField";
-import { parseSavedBillNos, fetchBillOptions, formatBillNosForSave, getBillByNo, uniqueBillNos } from "@/apps/ims/lib/utils/forwardingBillOptions";
+import { fetchBillOptions, getBillByNo, billHelperItemFromRow, isBlankForwardingBill } from "@/apps/ims/lib/utils/forwardingBillOptions";
 import TodayDispatchPlanTab from "@/apps/ims/modules/forwarding-note/TodayDispatchPlanTab";
 import { buildScheduleItemWiseHeaders } from "@/apps/ims/modules/schedule-planning/schedulePlanningColumns";
 import { SCHEDULE_PLAN_STATUS } from "@/apps/ims/modules/schedule-planning/schedulePlanStatus";
@@ -58,7 +58,7 @@ function resolveMasterModalItem(record, summaryRows = []) {
     approved: record.approved,
     out_entry_locked: record.out_entry_locked,
     po_number: record.po_number,
-    bill_no: record.bill_no,
+    billno: record.billno,
     acc_name: record.acc_name,
     acc_code: record.acc_code,
   };
@@ -114,12 +114,12 @@ function forwardingTableSearchParts(row, reportType = "summary") {
     push(`${row.loose_box || 0} Boxes`, `Qty: ${Number(row.loose_box_qty || 0).toLocaleString()}`);
   }
 
-  push(...parseSavedBillNos(row.bill_no), row.bill_no ? null : "—");
-  // Hub / external bill (IMS invfnote) — searchable in Quick Search
-  push(row.billno, row.billdt, row.status);
+  // Hub / external + saved line bills
+  push(row.billno, row.billdt, row.status, row.line_bill_no);
+  push(row.bill_made_by, row.bill_updated_by, row.line_bill_updated_by, row.bill_updated_by_name);
   push(row.acc_name, row.acc_code);
   pushNum(reportType === "item_wise" ? row.total_qty : row.total_items);
-  pushDate(row.timestamp, row.created_at, row.updated_at, row.approved_at, row.out_entry_locked_at, row.bill_updated_at);
+  pushDate(row.timestamp, row.created_at, row.updated_at, row.approved_at, row.out_entry_locked_at, row.line_bill_updated_at, row.bill_updated_at);
 
   push(
     row.approved ? "AUTHORIZED" : "PENDING",
@@ -138,6 +138,7 @@ function forwardingTableSearchParts(row, reportType = "summary") {
     row.updated_by_name,
     row.approved_by_name,
     row.out_entry_locked_by_name,
+    row.line_bill_updated_by,
     row.bill_updated_by_name
   );
 
@@ -279,7 +280,7 @@ export default function ForwardingPage() {
   const [dispatchPrefill, setDispatchPrefill] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [billPrinting, setBillPrinting] = useState(false);
-  const [billDraftNos, setBillDraftNos] = useState([]);
+  const [billDraftNo, setBillDraftNo] = useState(null);
   const [billSaving, setBillSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -433,13 +434,44 @@ export default function ForwardingPage() {
     [selectedRecord]
   );
 
+  const isSuperAdmin = role === "super_admin" || user?.type === "super_admin";
+  const selectedBillItem = useMemo(
+    () => (reportType === "item_wise" ? billHelperItemFromRow(selectedRecord) : null),
+    [reportType, selectedRecord]
+  );
+  const hasSavedDbBill = Boolean(
+    selectedRecord?.bill_source === "db" || String(selectedRecord?.line_bill_no ?? "").trim()
+  );
+  // Blank bill: any editor. Saved DB bill: super admin only (to change).
+  const canAssignLineBill = Boolean(
+    reportType === "item_wise" &&
+      canEditBill &&
+      selectedRecord?.id &&
+      selectedBillItem &&
+      selectedRecord?.out_entry_complete === true &&
+      (isBlankForwardingBill(selectedRecord) || (hasSavedDbBill && isSuperAdmin))
+  );
+
   useEffect(() => {
-    if (selectedRecord?.fuid != null) {
-      setBillDraftNos(parseSavedBillNos(selectedRecord.bill_no));
-    } else {
-      setBillDraftNos([]);
-    }
-  }, [selectedRecord?.fuid, selectedRecord?.bill_no]);
+    const saved =
+      String(selectedRecord?.billno ?? selectedRecord?.line_bill_no ?? "").trim() || null;
+    // Prefill dropdown with existing saved bill when super admin re-opens to change
+    setBillDraftNo(hasSavedDbBill && isSuperAdmin ? saved : null);
+  }, [selectedRecord?.id, selectedRecord?.fuid, selectedRecord?.billno, selectedRecord?.line_bill_no, reportType, hasSavedDbBill, isSuperAdmin]);
+
+  const fetchBillOptionsForRow = useCallback(
+    (params) =>
+      fetchBillOptions({
+        ...params,
+        items: selectedBillItem ? [selectedBillItem] : [],
+      }),
+    [selectedBillItem]
+  );
+
+  const getBillByNoForRow = useCallback(
+    (billNo) => getBillByNo(billNo, { items: selectedBillItem ? [selectedBillItem] : [] }),
+    [selectedBillItem]
+  );
 
   const openModal = useCallback((mode) => {
     setModalMode(mode);
@@ -611,56 +643,51 @@ export default function ForwardingPage() {
     }
   };
 
-  const handleSaveBillNo = async () => {
-    const fuid = selectedRecord?.fuid;
-    if (!fuid || !canEditBill) return;
-    const payload = formatBillNosForSave(billDraftNos);
+  const handleSaveLineBill = async () => {
+    const itemId = selectedRecord?.id;
+    const billNo = String(billDraftNo ?? "").trim();
+    if (!itemId || !billNo || !canAssignLineBill) return;
+
     setBillSaving(true);
     try {
-      const res = await forwardingNoteService.updateBill(fuid, payload);
-      const saved = res?.data;
-      setBillDraftNos(parseSavedBillNos(saved?.bill_no ?? payload));
-      toast.success(
-        saved?.bill_no || payload
-          ? "Bill number(s) saved successfully."
-          : "Bill number cleared successfully."
-      );
-      const auditPatch = {
-        bill_no: saved?.bill_no ?? payload,
-        bill_updated_by_name: saved?.bill_updated_by_name ?? null,
-        bill_updated_at: saved?.bill_updated_at ?? null,
-      };
-      setAllRows((prev) =>
-        prev.map((row) => (row.fuid === fuid ? { ...row, ...auditPatch } : row))
-      );
-      await fetchData();
+      const looked = await getBillByNoForRow(billNo);
+      const opt = looked?.data || {};
+      const res = await forwardingNoteService.assignItemBill({
+        item_ids: [itemId],
+        billno: opt.billno || opt.bill_no || billNo,
+        billdt: opt.billdt || null,
+      });
+      if (!res?.success) throw new Error(res?.message || "Failed to save bill");
+
+      const saved = Array.isArray(res?.data) ? res.data[0] : res?.data;
+      toast.success("Bill assigned successfully.");
+      setBillDraftNo(null);
+      if (saved) {
+        setAllRows((prev) =>
+          (prev || []).map((row) =>
+            String(row?.id) === String(itemId)
+              ? {
+                  ...row,
+                  billno: saved.billno || billNo,
+                  billdt: saved.billdt || opt.billdt || null,
+                  line_bill_no: saved.billno || billNo,
+                  bill_source: "db",
+                  bill_updated_by_name: saved.bill_updated_by_name || saved.line_bill_updated_by || null,
+                  line_bill_updated_by: saved.line_bill_updated_by || saved.bill_updated_by_name || null,
+                  line_bill_updated_at: saved.line_bill_updated_at || saved.bill_updated_at || null,
+                }
+              : row
+          )
+        );
+      } else {
+        await fetchData();
+      }
     } catch (err) {
-      toast.error(err?.message || "Failed to save bill number.");
+      toast.error(err?.message || "Failed to save bill.");
     } finally {
       setBillSaving(false);
     }
   };
-
-  const savedBillNo = useMemo(
-    () => formatBillNosForSave(parseSavedBillNos(selectedRecord?.bill_no)) ?? "",
-    [selectedRecord?.bill_no]
-  );
-
-  const billDraftFormatted = useMemo(
-    () => formatBillNosForSave(billDraftNos) ?? "",
-    [billDraftNos]
-  );
-
-  const billDirty = useMemo(
-    () => billDraftFormatted !== savedBillNo,
-    [billDraftFormatted, savedBillNo]
-  );
-
-  const billLastUpdatedLabel = useMemo(() => {
-    if (!selectedRecord?.bill_updated_at) return null;
-    const who = selectedRecord.bill_updated_by_name || "—";
-    return `${who} · ${formatDateTime(selectedRecord.bill_updated_at)}`;
-  }, [selectedRecord?.bill_updated_at, selectedRecord?.bill_updated_by_name]);
 
   const extraFilters = useMemo(() => [
     { 
@@ -722,15 +749,14 @@ export default function ForwardingPage() {
     ] : [];
 
     const masterHeaders = [
-      // ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "110px" }],
       ["Bill No.", "billno", (v, row) => {
-        const color = formatExternalBillStatus(row?.status).textClass;
-        return <span className={`font-bold uppercase text-[11px] ${color}`}>{v || "-"}</span>;
-      }, { width: "140px" }],
+        const color = row?.bill_source === "db" ? "text-emerald-600" : formatExternalBillStatus(row?.status).textClass;
+        return <span className={`font-bold uppercase text-[11px] whitespace-normal break-words leading-snug ${color}`} title={v || ""}>{v || "-"}</span>;
+      }, { width: reportType === "summary" ? "200px" : "140px", wrap: true }],
       ["Bill Date", "billdt", (v, row) => {
-        const color = formatExternalBillStatus(row?.status).textClass;
-        return <span className={`text-[10px] font-semibold ${color}`}>{v || "-"}</span>;
-      }, { width: "110px" }],
+        const color = row?.bill_source === "db" ? "text-emerald-600" : formatExternalBillStatus(row?.status).textClass;
+        return <span className={`text-[10px] font-semibold whitespace-normal break-words leading-snug ${color}`} title={v || ""}>{v || "-"}</span>;
+      }, { width: reportType === "summary" ? "160px" : "110px", wrap: true }],
       ["Customer", "acc_name", (v) => <span className="text-[10px] font-medium text-slate-500 uppercase italic whitespace-normal break-words leading-snug block" title={v}>{v || "—"}</span>, { width: "250px", wrap: true }],
       [
         "Total Qty",
@@ -769,16 +795,20 @@ export default function ForwardingPage() {
       ), { width: "280px" }],
       ["PO Number", "po_number", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "120px" }],
       ["Cartage", "cartage", (v) => <span className="text-slate-700 font-bold text-[10px]">{v?.toLocaleString() || 0}</span>, { width: "150px" }],
-      ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+      ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
       ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-      ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+      ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
       ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
       ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
       ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
       ["Locked By", "out_entry_locked_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
       ["Locked At", "out_entry_locked_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-      // ["Bill By", "bill_updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      // ["Bill At", "bill_updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+      ["Bill By", reportType === "summary" ? "bill_made_by" : "bill_updated_by_name", (v, row) => (
+        <span className="text-[10px] text-slate-500">{v || row?.line_bill_updated_by || row?.bill_updated_by || "—"}</span>
+      ), { width: "110px" }],
+      ["Bill At", reportType === "summary" ? "bill_updated_at" : "line_bill_updated_at", (v) => (
+        <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>
+      ), { width: "150px" }],
     ];
 
     return [...baseHeaders, ...itemCols, ...masterHeaders];
@@ -1005,55 +1035,37 @@ export default function ForwardingPage() {
                 </button>
               </div>
 
-              {/*
-              {selectedRecord?.fuid && canEditBill ? (
-                <div className="w-full min-w-0 space-y-1.5" data-compact-form-bar>
+              {canAssignLineBill ? (
+                <div className="w-full min-w-0" data-compact-form-bar>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
                     <span className={`${LIST_PAGE_SEARCH_LABEL_CLASS} shrink-0 pt-1.5 sm:pt-2`}>Bill</span>
-                    <div
-                      className="w-full min-w-0 flex-1"
-                      title={isSelectedLocked ? "Editable after out entry lock" : "Search and select bill numbers"}
-                    >
+                    <div className="w-full min-w-0 flex-1" title="Matching packing bills only">
                       <SearchableSelect
-                        multiple
-                        showTags
                         variant="toolbar"
                         heightClass="h-8"
-                        value={billDraftNos}
-                        onChange={(nos) => setBillDraftNos(uniqueBillNos(nos))}
-                        fetchService={fetchBillOptions}
-                        getByIdService={getBillByNo}
+                        value={billDraftNo}
+                        onChange={(v) => setBillDraftNo(v || null)}
+                        fetchService={fetchBillOptionsForRow}
+                        getByIdService={getBillByNoForRow}
                         dataKey="bill_no"
                         labelKey="bill_no"
                         labelOnlyDisplay
-                        placeholder="Bill number..."
-                        emptyMessage="No bill numbers found"
+                        placeholder="Select bill..."
+                        emptyMessage="No matching bills"
                         usePortal
-                        maxVisibleTags={3}
                       />
                     </div>
                     <button
                       type="button"
-                      onClick={handleSaveBillNo}
-                      disabled={billSaving || !billDirty}
+                      onClick={handleSaveLineBill}
+                      disabled={billSaving || !billDraftNo}
                       className="h-9 w-full sm:w-auto sm:shrink-0 px-3 border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold uppercase disabled:opacity-50"
                     >
                       {billSaving ? "…" : "Save Bill"}
                     </button>
                   </div>
-                  {billLastUpdatedLabel ? (
-                    <p className="text-[10px] text-slate-500 sm:pl-8 break-words" title={billLastUpdatedLabel}>
-                      {billLastUpdatedLabel}
-                    </p>
-                  ) : null}
                 </div>
-              ) : selectedRecord?.bill_no ? (
-                <p className="text-xs font-bold text-slate-700 uppercase break-all">
-                  Bill {selectedRecord.bill_no}
-                </p>
               ) : null}
-              */}
-
             </div>
           )}
         </ListPageToolbar>

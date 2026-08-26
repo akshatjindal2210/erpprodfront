@@ -96,7 +96,7 @@ export default function ExportMenu({
               type="button"
               role="menuitem"
               onClick={() => handlePick(fmt.id)}
-              className="flex w-full items-center px-3 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap"
+              className="flex w-full min-w-full items-center px-3 py-1.5 text-left text-[11px] font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap"
             >
               {fmt.label}
             </button>

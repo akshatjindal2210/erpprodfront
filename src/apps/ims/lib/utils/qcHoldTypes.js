@@ -2,9 +2,9 @@ import { Clock, Layers, RotateCcw, ShieldAlert } from "lucide-react";
 
 /**
  * Toggle partial QC flows. Set true to restore Partial Hold + Partial Submit.
- * @see backend/src/apps/ims/constants/qcHoldFeatureFlags.js (keep in sync)
+ * @see backend/src/apps/ims/lib/constants/qcHoldFeatureFlags.js (keep in sync)
  */
-export const QC_HOLD_PARTIAL_ENABLED = false;
+export const QC_HOLD_PARTIAL_ENABLED = true;
 
 export const QC_HOLD_STATUS = {
   PENDING: "pending",

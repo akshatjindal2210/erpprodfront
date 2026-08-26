@@ -25,7 +25,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
-import { QC_HOLD_CARD_CONFIG, QC_HOLD_HEADERS, activeQcHoldStatusTabs, buildQcHoldApiFilters, canEditQcHoldRow, canPrintQcHoldStickersRow, getQcHoldEmptyState, isIncompleteQcHoldRow, qcHoldSearchParts, rowHoldStatus } from "./qcHoldColumns";
+import { QC_HOLD_CARD_CONFIG, QC_HOLD_HEADERS, activeQcHoldStatusTabs, buildQcHoldApiFilters, canEditQcHoldRow, canPrintQcHoldStickersRow, getQcHoldEmptyState, isIncompleteQcHoldRow, matchesQcHoldStatusTab, qcHoldSearchParts, rowHoldStatus } from "./qcHoldColumns";
 
 const LIST_PAGE_SIZE = 1000;
 const DISPLAY_CHUNK = 100;
@@ -107,7 +107,7 @@ export default function QcHoldMaterialPage() {
   }, [fetchData]);
 
   const filteredRows = useMemo(() => {
-    let rows = allRows;
+    let rows = allRows.filter((row) => matchesQcHoldStatusTab(row, statusTab));
 
     if (statusTab === "pending") {
       rows = rows.filter(isIncompleteQcHoldRow);
@@ -288,18 +288,16 @@ export default function QcHoldMaterialPage() {
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
                 />
 
-                {(statusTab === "complete" || statusTab === "pending") ? (
-                  <ActionButton
-                    module="qc_hold_material"
-                    action="view"
-                    variant="outline"
-                    label="Print Stickers"
-                    icon={Printer}
-                    disabled={!selectedId || !canPrintQcHoldStickersRow(selectedRecord)}
-                    onClick={openPrintStickers}
-                    className="rounded-none h-9 bg-emerald-50 text-[11px] font-bold uppercase px-4 border-emerald-300 text-emerald-700 shadow-none shrink-0"
-                  />
-                ) : null}
+                <ActionButton
+                  module="qc_hold_material"
+                  action="view"
+                  variant="outline"
+                  label="Print Stickers"
+                  icon={Printer}
+                  disabled={!selectedId || !canPrintQcHoldStickersRow(selectedRecord)}
+                  onClick={openPrintStickers}
+                  className="rounded-none h-9 bg-emerald-50 text-[11px] font-bold uppercase px-4 border-emerald-300 text-emerald-700 shadow-none shrink-0"
+                />
                 
                 <ActionButton
                   module="qc_hold_material"

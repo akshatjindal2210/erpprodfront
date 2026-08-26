@@ -8,11 +8,16 @@ import Drawer from "@/ui/primitives/Drawer";
 import FormPanelLoader from "@/ui/common/system/FormPanelLoader";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { categoryService } from "@/apps/ims/lib/services/category";
+import { sortFilterOptionsAsc } from "@/platform/utils/form/sortSelectOptions";
 import StockAdjustmentStickerDetailCards from "./StockAdjustmentStickerDetailCards";
 import { hydrateStockAdjustmentStickerView } from "./hydrateStockAdjustmentStickerView";
 import { buildStockAdjustmentStickerPrintMeta, printSingleStockAdjustmentSticker, printStockAdjustmentAddStickers } from "./stockAdjustmentStickerPrint";
 
-export function StickerPrintBreakdownTable({ rows, dlTracking, packingFullCount, onPrintOne, canPrint = true }) {
+const SA_PRINT_PERMS = { permission_module: "stock_adjustment", permission_action: "view" };
+
+export function StickerPrintBreakdownTable({ rows, dlTracking, packingFullCount, qtyPerBox = 0, onPrintOne, canPrint = true }) {
+  const std = Number(qtyPerBox) || 0;
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full min-w-0">
       <div className="px-2 py-1.5 lg:px-4 lg:py-2.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center gap-1.5 min-w-0 shrink-0">
@@ -76,7 +81,15 @@ export function StickerPrintBreakdownTable({ rows, dlTracking, packingFullCount,
                   {rows.map((row, idx) => {
                     const rowKey = row.box_uid || `${row.box_no_uid}_${idx}`;
                     const isPrinted = row.box_uid != null && !!dlTracking[String(row.box_uid)];
-                    const isLoose = row.is_loose || Number(row.box_no) > packingFullCount;
+                    const qty = Number(row.qty) || 0;
+                    const isLoose =
+                      std > 0
+                        ? qty < std
+                        : row.is_loose === true
+                          ? true
+                          : row.is_loose === false
+                            ? false
+                            : Number(row.box_no) > packingFullCount;
 
                     return (
                       <tr key={rowKey} className="group border-b border-slate-100 hover:bg-slate-50/70">
@@ -165,6 +178,7 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
   const [packingPreview, setPackingPreview] = useState(null);
   const [itemMeta, setItemMeta] = useState(null);
   const [stickerRows, setStickerRows] = useState([]);
+  const [categoryOptions, setCategoryOptions] = useState([]);
   const [dlTracking, setDlTracking] = useState({});
   const [printingAll, setPrintingAll] = useState(false);
   const [mobileTab, setMobileTab] = useState("details");
@@ -187,8 +201,12 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
       setPackingPreview(null);
       setItemMeta(null);
       setStickerRows([]);
+      setCategoryOptions([]);
       try {
-        const hydrated = await hydrateStockAdjustmentStickerView(editData);
+        const [hydrated, catRes] = await Promise.all([
+          hydrateStockAdjustmentStickerView(editData),
+          categoryService.getViews({ ...SA_PRINT_PERMS }).catch(() => null),
+        ]);
         if (cancelled) return;
 
         const row = hydrated.row;
@@ -213,6 +231,15 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
         setPackingPreview(hydrated.packingPreview);
         setItemMeta(hydrated.itemMeta);
         setStickerRows(rows);
+        setCategoryOptions(
+          sortFilterOptionsAsc(
+            (catRes?.data || []).map((c) => ({
+              id: String(c.id),
+              name: c.name || `Category #${c.id}`,
+            })),
+            "name"
+          )
+        );
       } catch (err) {
         if (!cancelled) {
           toast.error(err?.message || "Failed to load stickers");
@@ -228,12 +255,24 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
     };
   }, [open, editData?.adjustment_id]);
 
+  const categoryIdStr =
+    detail?.category_id != null && String(detail.category_id).trim() !== ""
+      ? String(detail.category_id)
+      : "";
+
+  const resolvedCategoryName = useMemo(() => {
+    if (!categoryIdStr) return "";
+    const fromList = categoryOptions.find((c) => String(c.id) === categoryIdStr)?.name;
+    if (fromList) return fromList;
+    return detail?.category_name || "";
+  }, [categoryIdStr, categoryOptions, detail?.category_name]);
+
   const selectedRowLike = useMemo(() => {
     if (!packingPreview) {
       return {
         item_code: detail?.item_code ?? "—",
         itemdesc: detail?.item_desc ?? "—",
-        category: "—",
+        category: resolvedCategoryName || "—",
         acc_name: "—",
         job_card_no: "—",
         total_qty: detail?.qty ?? 0,
@@ -246,14 +285,15 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
     const dp = packingPreview.dailyprod;
     const im = itemMeta;
     const pn = String(detail?.packing_number ?? "").trim();
+    const categoryName =
+      st?.category ||
+      st?.type_name ||
+      resolvedCategoryName ||
+      (categoryIdStr ? `Category #${categoryIdStr}` : "—");
     return {
       item_code: detail?.item_code ?? im?.item_code ?? st?.item_code ?? dp?.item_code ?? "—",
       itemdesc: detail?.item_desc ?? im?.itemdesc ?? im?.description ?? st?.itemdesc ?? st?.item_desc ?? "—",
-      category: st?.category ?? st?.type_name ??
-        detail?.category_name ??
-        (detail?.category_id != null && String(detail.category_id).trim() !== ""
-          ? `Category #${detail.category_id}`
-          : "—"),
+      category: categoryName,
       acc_name: detail?.acc_name ?? im?.acc_name ?? st?.acc_name ?? dp?.acc_name ?? "—",
       party_rate_cust_code: detail?.party_rate_cust_code ?? st?.party_rate_cust_code ?? dp?.party_rate_cust_code,
       acc_code: detail?.acc_code ?? dp?.acc_code ?? st?.acc_code ?? null,
@@ -263,7 +303,7 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
       doc_dt: st?.doc_dt ?? dp?.doc_dt,
       doc_no: st?.doc_no ?? dp?.doc_no ?? pn,
     };
-  }, [packingPreview, itemMeta, detail]);
+  }, [packingPreview, itemMeta, detail, resolvedCategoryName, categoryIdStr]);
 
   const packingLike = useMemo(() => {
     const pd = packingPreview?.stickerRow?.packing_details;
@@ -373,6 +413,7 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
       rows={stickerRows}
       dlTracking={dlTracking}
       packingFullCount={packingFullCount}
+      qtyPerBox={packingLike.qty_per_box}
       onPrintOne={canPrintStickers ? handlePrintOne : () => {}}
       canPrint={canPrintStickers}
     />
@@ -471,7 +512,8 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
                   {mobileTab === "details" ? (
                     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-50 p-2">
                       <StockAdjustmentStickerDetailCards selectedRow={selectedRowLike} packing={packingLike}
-                        selectedCategoryId={detail?.category_id != null ? String(detail.category_id) : ""}
+                        categories={categoryOptions}
+                        selectedCategoryId={categoryIdStr}
                         categorySelectDisabled
                         customerSelectDisabled
                       />
@@ -485,7 +527,8 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
               <div className="hidden lg:flex lg:flex-row flex-1 min-h-0 w-full min-w-0 overflow-hidden bg-slate-50">
                 <div className="shrink-0 lg:w-80 xl:w-96 border-r border-slate-200 bg-slate-50 overflow-y-auto overflow-x-hidden">
                   <StockAdjustmentStickerDetailCards selectedRow={selectedRowLike} packing={packingLike}
-                    selectedCategoryId={detail?.category_id != null ? String(detail.category_id) : ""}
+                    categories={categoryOptions}
+                    selectedCategoryId={categoryIdStr}
                     categorySelectDisabled
                     customerSelectDisabled
                   />

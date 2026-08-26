@@ -51,6 +51,8 @@ export async function printSingleQcHoldSticker({ boxUid, stickerMeta }) {
     box_uid: uid,
     device_type: getDeviceType(),
     download_source: STICKER_DOWNLOAD_SOURCE_KEYS.qc_hold_material,
+    permission_module: "qc_hold_material",
+    permission_action: "view",
     sticker_meta: stickerMeta,
   });
   const opened = printFromBackendHtml(res?.html, { title: res?.print_title });
@@ -71,6 +73,8 @@ export async function printQcHoldCompletionStickers({ packingNo, boxUids, sticke
     box_uids: uids,
     device_type: getDeviceType(),
     download_source: STICKER_DOWNLOAD_SOURCE_KEYS.qc_hold_material,
+    permission_module: "qc_hold_material",
+    permission_action: "view",
     ...(stickerMeta ? { sticker_meta: stickerMeta } : {}),
   });
   const opened = printFromBackendHtml(res?.html, { title: res?.print_title });

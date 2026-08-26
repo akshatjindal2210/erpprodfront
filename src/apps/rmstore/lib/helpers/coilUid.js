@@ -8,54 +8,6 @@
  */
 export const COIL_QTY_DIFF = { min: 4, max: 10 };
 
-/** Last segment = coil index, second-to-last = total (MRN + SA UID formats). */
-export function parseCoilNoUidMeta(coilNoUid) {
-  const s = String(coilNoUid || "").trim();
-  if (!s) return { index: null, total: null };
-  const parts = s.split("_").filter(Boolean);
-  if (parts.length < 2) return { index: null, total: null };
-  const index = Number(parts[parts.length - 1]);
-  const total = Number(parts[parts.length - 2]);
-  return {
-    index: Number.isFinite(index) ? index : null,
-    total: Number.isFinite(total) ? total : null,
-  };
-}
-
-/** MRN Portal coil UID: {prefix}_mrnno_serialno_totalno_colino e.g. 26_1001_3_10_03 */
-export function formatCoilNoUid({ prefix, mrn_no, serial_no, total, index }) {
-  const pfx = String(prefix ?? "").trim() || "0";
-  const mrn = String(mrn_no ?? "").trim() || "0";
-  const serial = String(serial_no ?? "").trim() || "0";
-  const tb = String(Math.max(1, Number(total) || 1));
-  const bi = String(Math.max(1, Number(index) || 1));
-  return `${pfx}_${mrn}_${serial}_${tb}_${bi}`;
-}
-
-/** Stock Adjustment Add coil UID: {prefix}_mrnno_serial_SA{adjId}_total_index e.g. 26_3819_1_SA3_6_1 */
-export function formatStockAdjustmentCoilUid({ prefix, mrn_no, serial_no, adjustment_id, total, index }) {
-  const pfx = String(prefix ?? "").trim() || "0";
-  const mrn = String(mrn_no ?? "").trim() || "0";
-  const serial = String(serial_no ?? "").trim() || "0";
-  const adj = Math.max(0, Number(adjustment_id) || 0);
-  const ci = Math.max(1, Number(index) || 1);
-  const tc = Math.max(1, Number(total) || 1);
-  return `${pfx}_${mrn}_${serial}_SA${adj}_${tc}_${ci}`;
-}
-
-/** Serial segment for UID — prefer mrn_uid 3rd segment over numeric serial_no. */
-export function resolveSerialNoForUid({ serial_no, mrn_uid, uid } = {}) {
-  const uidStr = String(mrn_uid || uid || "").trim();
-  if (uidStr.includes("_")) {
-    const parts = uidStr.split("_").filter(Boolean);
-    if (parts.length >= 3) return parts[2];
-  }
-  if (serial_no != null && String(serial_no).trim() !== "") {
-    return String(serial_no).trim();
-  }
-  return "0";
-}
-
 /** Whole-number qty. */
 export function roundQty3(n) {
   const v = Number(n);

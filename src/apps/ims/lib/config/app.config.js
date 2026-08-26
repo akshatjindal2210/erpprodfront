@@ -9,9 +9,9 @@ export const IMS_APP_CONFIG = {
     {
       id: "application",
       title: "Application settings",
-      description: "IMS-only options for all users.",
+      description: "IMS app-level options.",
       layout: [
-        ["inward_location_validation", "default_list_view_span_days"],
+        ["inward_location_validation", "location_capacity_validation", "default_list_view_span_days"],
         ["box_qr_public_base_url"],
       ],
     },

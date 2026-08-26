@@ -641,7 +641,7 @@ export default function OutEntryPage() {
 
   const PENDING_HEADERS = [
     ["FUID", "fuid", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "80px" }],
-    ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { width: "110px" }],
+    // ["Bill Number", "billno", (v, row) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || row?.bill_no || "—"}</span>, { width: "200px" }],
     ["Customer", "acc_name", (v) => <span className="text-[10px] font-medium text-slate-500 uppercase italic whitespace-normal break-words leading-snug block" title={v}>{v || "—"}</span>, { width: "250px", wrap: true }],
     ["Total Qty", "total_items", (v) => <span className="font-black text-slate-700 text-[11px]">{v}</span>, { width: "120px" }],
     ["Timestamp", "timestamp", (v) => <span className="text-[10px] text-slate-500">{formatDateTime(v)}</span>, { width : "150px" }],
@@ -921,7 +921,7 @@ export default function OutEntryPage() {
             } : {
               titleKey: "fuid",
               badgeIndices: [6],
-              detailKeys: ["acc_name", "bill_no", "po_number", "transporter_name", "total_items"],
+              detailKeys: ["acc_name", "billno", "po_number", "transporter_name", "total_items"],
               footerKey: "timestamp",
               className: "rounded-none border border-slate-200 shadow-none"
             }}

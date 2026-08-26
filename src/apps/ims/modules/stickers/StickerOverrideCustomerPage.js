@@ -198,6 +198,8 @@ export default function StickerOverrideCustomerPage() {
         box_uids: boxUids,
         device_type: getDeviceType(),
         download_source: STICKER_DOWNLOAD_SOURCE_KEYS.customer_override,
+        permission_module: "change_override_customer",
+        permission_action: "view",
         sticker_meta: {
           itemdcode: selectedRecord.itemdcode || selectedRecord.item_name || "",
           acc_name: selectedRecord.to_customer_name || selectedRecord.to_customer || "",

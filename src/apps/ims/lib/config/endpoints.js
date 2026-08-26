@@ -124,7 +124,7 @@ export const ENDPOINTS = {
     GET: "/forwarding-notes/get",
     CREATE: "/forwarding-notes/create",
     UPDATE: "/forwarding-notes/update",
-    UPDATE_BILL: "/forwarding-notes/update-bill",
+    ASSIGN_ITEM_BILL: "/forwarding-notes/assign-item-bill",
     DELETE: "/forwarding-notes/delete",
     UNLOCK_LOCK: "/forwarding-notes/unlock-lock",
     LOCK_LOCK: "/forwarding-notes/lock-lock",

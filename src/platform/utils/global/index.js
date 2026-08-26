@@ -14,18 +14,22 @@ export {
   setListViewSpanDays,
   setInwardLocationValidationEnabled,
   isInwardLocationValidationEnabled,
+  setLocationCapacityValidationEnabled,
+  isLocationCapacityValidationEnabled,
   getBoxNoUidPrefix,
   applySessionFromLogin,
   applySessionFromLogin as applyListViewSpanFromSession,
 } from "./session";
 
 export {
-  BOX_NO_UID_PREFIX_FALLBACK,
-  normalizeBoxNoUidPrefix,
   formatStandardBoxNoUid,
+} from "@/apps/ims/lib/stickerUidFormat";
+
+export {
+  normalizeBoxNoUidPrefix,
   parseStandardBoxNoUid,
   docNoFromStandardBoxNoUid,
-} from "./boxUid";
+} from "@/apps/ims/lib/stickerUidHelpers";
 
 export {
   getCurrentIndianFinancialYearStartYear,

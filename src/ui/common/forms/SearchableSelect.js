@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Loader2, Search, X, AlertCircle, CheckCircle2 } from "lucide-react";
 import { FORM_ERROR_CLASS, FORM_HINT_CLASS, FORM_LABEL_CLASS } from "@/ui/common/Constants";
@@ -93,6 +93,8 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   allowFreeText = false,
   /** Convert typed/displayed text to uppercase immediately (does not wait for blur). */
   uppercase = false,
+  /** Open the option list on mount (e.g. after Load produced picker rows). */
+  defaultOpen = false,
 }) {
   const isToolbar = variant === "toolbar";
   const toolbarTone = filterVariant === "quick" ? "quick" : "server";
@@ -158,6 +160,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   const onDropdownOpenRef = useRef(onDropdownOpen);
   const onDropdownIntentRef = useRef(onDropdownIntent);
   const bootstrapOpenRef = useRef(false);
+  const didDefaultOpenRef = useRef(false);
 
   useEffect(() => { fetchServiceRef.current = fetchService; }, [fetchService]);
   useEffect(() => { getByIdServiceRef.current = getByIdService; }, [getByIdService]);
@@ -219,6 +222,20 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     setLastFetchedQuery(null);
     lastFetchedQueryRef.current = null;
   }, [clearSearchOnOpen]);
+
+  // Open once when the picker appears (e.g. Stock Adjustment MRN UID after Load).
+  useLayoutEffect(() => {
+    if (!defaultOpen || disabled || didDefaultOpenRef.current) return;
+    didDefaultOpenRef.current = true;
+    prepareOpenSearch();
+    calcPosition();
+    setOpen(true);
+    const id = requestAnimationFrame(() => {
+      calcPosition();
+      inputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [defaultOpen, disabled, calcPosition, prepareOpenSearch]);
 
   // Update position on scroll/resize
   useEffect(() => {

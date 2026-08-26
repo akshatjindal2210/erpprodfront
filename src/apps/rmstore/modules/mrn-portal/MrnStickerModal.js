@@ -4,7 +4,7 @@
  * RM Sticker Control — same Drawer + layout pattern as IMS StickerCreationModel.
  * Left detail cards + right breakdown; after generate → Saved cards + PRINT ALL / Re-Print.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Layers, Box, User, ClipboardList, Printer, Eye, X, RefreshCw, CheckCircle2, Upload, FileText, Save, AlertTriangle } from "lucide-react";
 import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
@@ -16,7 +16,9 @@ import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { mrnService } from "@/apps/rmstore/lib/services/mrn";
 import { specService } from "@/apps/rmstore/lib/services/spec";
 import { specColorInputStyle } from "@/apps/rmstore/modules/master/rm-spec/specHeaderUi";
-import { formatCoilNoUid, parseCoilNoUidMeta, splitQtyAcrossCoils, equalSplitQtyAcrossCoils, roundQty3, QTY_EPS } from "@/apps/rmstore/lib/helpers/coilUid";
+import { splitQtyAcrossCoils, equalSplitQtyAcrossCoils, roundQty3, QTY_EPS } from "@/apps/rmstore/lib/helpers/coilUid";
+import { formatCoilNoUid } from "@/apps/rmstore/lib/coilUidFormat";
+import { parseCoilNoUidMeta } from "@/apps/rmstore/lib/coilUidHelpers";
 import { printFromBackendHtml } from "@/apps/ims/lib/utils/printHtmlDocument";
 import { getBoxNoUidPrefix } from "@/platform/utils/global";
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
@@ -31,6 +33,35 @@ const RM_STICKER_WIDTH_MM = 65;
 const RM_STICKER_HEIGHT_MM = 85;
 const STICKER_PREVIEW_W_PX = (RM_STICKER_WIDTH_MM / 25.4) * 96;
 const STICKER_PREVIEW_H_PX = (RM_STICKER_HEIGHT_MM / 25.4) * 96;
+
+function fitStickerPreviewLayout(availW, availH) {
+  const pad = 24;
+  const s = Math.min(2.6, (availW - pad) / STICKER_PREVIEW_W_PX, (availH - pad) / STICKER_PREVIEW_H_PX);
+  const scale = Number.isFinite(s) && s > 0 ? s : 1;
+  return {
+    scale,
+    w: Math.round(STICKER_PREVIEW_W_PX * scale),
+    h: Math.round(STICKER_PREVIEW_H_PX * scale),
+  };
+}
+
+function getPreviewLayoutFromViewport() {
+  if (typeof window === "undefined") {
+    return fitStickerPreviewLayout(800, 560);
+  }
+  const areaW = Math.min(52 * 16, window.innerWidth - 24);
+  const areaH = Math.min(window.innerHeight * 0.92 - 56, window.innerHeight * 0.7);
+  return fitStickerPreviewLayout(areaW, areaH);
+}
+
+/** Zoom inside the preview HTML so the iframe is born at full size — no CSS scale animation. */
+function withPreviewZoom(html, scale) {
+  const zoom = Number.isFinite(Number(scale)) && Number(scale) > 0 ? Number(scale) : 1;
+  const inject = `<style>html{zoom:${zoom};animation:none;transition:none}*{animation:none!important;transition:none!important}</style>`;
+  const src = String(html || "");
+  if (src.includes("</head>")) return src.replace("</head>", `${inject}</head>`);
+  return `${inject}${src}`;
+}
 
 function resolveUploadUrl(noteOrPath) {
   const raw = String(noteOrPath || "").trim();
@@ -220,12 +251,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const [specInfo, setSpecInfo] = useState(null);
   const [specChecked, setSpecChecked] = useState(false);
   const [drawerCloneKey, setDrawerCloneKey] = useState(0);
-  const [previewLayout, setPreviewLayout] = useState({
-    scale: 1,
-    w: STICKER_PREVIEW_W_PX,
-    h: STICKER_PREVIEW_H_PX,
-  });
-  const previewAreaRef = useRef(null);
+  const [previewLayout, setPreviewLayout] = useState(() => getPreviewLayoutFromViewport());
 
   const resolvedUid = useMemo(() => {
     const fromProp = mrnId != null ? String(mrnId).trim() : "";
@@ -464,29 +490,6 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     }));
   }, [alreadyGenerated, generatedCoils, detail, coilCount, coilQtys, heatNo]);
 
-  useLayoutEffect(() => {
-    if (!previewOpen || !previewHtml || previewLoading) return undefined;
-    const area = previewAreaRef.current;
-    if (!area) return undefined;
-    const run = () => {
-      const availW = area.clientWidth;
-      const availH = area.clientHeight;
-      if (availW <= 0 || availH <= 0) return;
-      const pad = 24;
-      const s = Math.min(2.6, (availW - pad) / STICKER_PREVIEW_W_PX, (availH - pad) / STICKER_PREVIEW_H_PX);
-      const scale = Number.isFinite(s) && s > 0 ? s : 1;
-      setPreviewLayout({
-        scale,
-        w: Math.round(STICKER_PREVIEW_W_PX * scale),
-        h: Math.round(STICKER_PREVIEW_H_PX * scale),
-      });
-    };
-    run();
-    const ro = new ResizeObserver(run);
-    ro.observe(area);
-    return () => ro.disconnect();
-  }, [previewOpen, previewHtml, previewLoading]);
-
   const qtySum = useMemo(
     () => roundQty3(coilQtys.reduce((s, q) => s + (Number(q) || 0), 0)),
     [coilQtys]
@@ -619,6 +622,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const handlePreview = async () => {
     if (!validateBeforePreview()) return;
     setTab(TABS.BREAKDOWN);
+    const layout = getPreviewLayoutFromViewport();
+    setPreviewLayout(layout);
     setPreviewOpen(true);
     setPreviewLoading(true);
     setPreviewHtml("");
@@ -640,7 +645,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         total_qty: targetQty,
         coil_qtys: coilQtys.map((q) => roundQty3(Number(q) || 0)),
       });
-      setPreviewHtml(res?.html || "");
+      setPreviewHtml(withPreviewZoom(res?.html || "", layout.scale));
     } catch (err) {
       toast.error(err?.message || "Could not generate the preview. Please try again.");
       setPreviewOpen(false);
@@ -1302,14 +1307,14 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const previewPortal = typeof document !== "undefined" && previewOpen && createPortal(
     <div
       className="fixed inset-0 flex items-end sm:items-center justify-center bg-black/55 p-1.5 sm:p-4"
-      style={{ zIndex: 1200 }}
+      style={{ zIndex: 1200, animation: "none", transition: "none" }}
       role="dialog"
       aria-modal="true"
       onClick={() => !previewLoading && setPreviewOpen(false)}
     >
       <div
         className="bg-white rounded-t-xl sm:rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-200"
-        style={{ width: "min(52rem, calc(100vw - 1.5rem))", maxHeight: "92dvh" }}
+        style={{ width: "min(52rem, calc(100vw - 1.5rem))", maxHeight: "92dvh", animation: "none", transition: "none", transform: "none" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2 px-2.5 sm:px-4 py-2 border-b border-slate-200 bg-slate-50 shrink-0">
@@ -1325,27 +1330,26 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
             <X size={18} />
           </button>
         </div>
-        <div ref={previewAreaRef} className="flex flex-1 max-h-[calc(92dvh-3.25rem)] justify-center items-center p-5 sm:p-8 bg-slate-200/80 overflow-hidden" style={{ minHeight: "min(70dvh, 28rem)" }}>
+        <div className="flex flex-1 max-h-[calc(92dvh-3.25rem)] justify-center items-center p-5 sm:p-8 bg-slate-200/80 overflow-hidden" style={{ minHeight: "min(70dvh, 28rem)" }}>
           {previewLoading ? (
             <div className="flex flex-col items-center gap-2 text-slate-600">
               <Loader2 className="animate-spin w-8 h-8" />
               <span className="text-[10px] font-bold uppercase">Loading…</span>
             </div>
           ) : previewHtml ? (
-            <div className="relative shrink-0 overflow-hidden bg-white shadow-lg" style={{ width: previewLayout.w, height: previewLayout.h }}>
-              <iframe
-                title="Coil sticker preview"
-                srcDoc={previewHtml}
-                scrolling="no"
-                className="block border-0 pointer-events-none bg-white"
-                style={{
-                  width: STICKER_PREVIEW_W_PX,
-                  height: STICKER_PREVIEW_H_PX,
-                  transform: `scale(${previewLayout.scale})`,
-                  transformOrigin: "top left",
-                }}
-              />
-            </div>
+            <iframe
+              title="Coil sticker preview"
+              srcDoc={previewHtml}
+              scrolling="no"
+              className="block border-0 pointer-events-none bg-white shadow-lg"
+              style={{
+                width: previewLayout.w,
+                height: previewLayout.h,
+                animation: "none",
+                transition: "none",
+                transform: "none",
+              }}
+            />
           ) : (
             <p className="text-sm text-slate-500">No preview data.</p>
           )}

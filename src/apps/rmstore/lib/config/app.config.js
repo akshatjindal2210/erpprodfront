@@ -12,10 +12,11 @@ export const RMSTORE_APP_CONFIG = {
   sections: [
     {
       id: "rmstore",
-      title: "MRN / coil settings",
-      description: "Controls QC sticker mode and how coil quantities work when generating MRN stickers.",
+      title: "Application settings",
+      description: "RM Store app-level options.",
       layout: [
-        ["mrn_sticker_mode", "mrn_coil_qty_editable", "mrn_coil_qty_auto_calc"],
+        ["inward_location_validation", "location_capacity_validation", "mrn_sticker_mode"],
+        ["mrn_coil_qty_editable", "mrn_coil_qty_auto_calc"],
       ],
     },
   ],

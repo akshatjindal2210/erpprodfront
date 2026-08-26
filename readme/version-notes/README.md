@@ -2,7 +2,8 @@
 
 | Note | Topic |
 |------|--------|
-| [v3.4.34.forwarding-stock-adjustment-ux.md](./v3.4.35.forwarding-stock-adjustment-ux.md) | Forwarding Note & Stock Adjustment UX |
+| [v3.4.34.md](./v3.4.34.md) | Shared Location Master + Location/Capacity App Config (IMS + rmstore) |
+| [v3.4.34.forwarding-stock-adjustment-ux.md](./v3.4.34.forwarding-stock-adjustment-ux.md) | Forwarding Note & Stock Adjustment UX |
 | [v3.4.34.dashboard-builder-url-data-source.md](./v3.4.34.dashboard-builder-url-data-source.md) | Dashboard Builder URL Data Source |
 | [v3.4.33.md](./v3.4.33.md) | IMS Stock Adjustment — Update (box qty) |
 | [v3.4.32.md](./v3.4.32.md) | First RM Store flow + FE/BE |

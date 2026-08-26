@@ -422,7 +422,7 @@ const DashboardTableView = ({
         variant="solid"
         showLabel
         menuAlign="right"
-        className="h-8 self-center [&_button]:!h-8 [&_button]:!min-h-8 [&_button]:!min-w-0 [&_button]:!w-auto [&_button]:!px-2.5 [&_button]:!text-[10px] [&_button]:!rounded-md [&_button]:!font-semibold"
+        className="h-8 self-center [&>button]:!h-8 [&>button]:!min-h-8 [&>button]:!min-w-0 [&>button]:!w-auto [&>button]:!px-2.5 [&>button]:!text-[10px] [&>button]:!rounded-md [&>button]:!font-semibold"
       />
     </div>
   ) : null;

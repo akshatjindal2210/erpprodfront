@@ -48,6 +48,8 @@ export async function printSingleStockAdjustmentSticker({ boxUid, stickerMeta })
     box_uid: uid,
     device_type: getDeviceType(),
     download_source: STICKER_DOWNLOAD_SOURCE_KEYS.stock_adjustment,
+    permission_module: "stock_adjustment",
+    permission_action: "view",
     sticker_meta: stickerMeta,
   });
   const opened = printFromBackendHtml(res?.html, { title: res?.print_title });
@@ -72,6 +74,8 @@ export async function printStockAdjustmentAddStickers({ adjustmentId, packingNo,
     box_uids: uids,
     device_type: getDeviceType(),
     download_source: STICKER_DOWNLOAD_SOURCE_KEYS.stock_adjustment,
+    permission_module: "stock_adjustment",
+    permission_action: "view",
     ...(stickerMeta ? { sticker_meta: stickerMeta } : {}),
   });
   const opened = printFromBackendHtml(res?.html, { title: res?.print_title });

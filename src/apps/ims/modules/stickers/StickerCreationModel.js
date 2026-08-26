@@ -57,7 +57,11 @@ function packRowForStickerApi(row, { categoryId = null } = {}) {
 
 function stickerFetchBody(row, overrides = {}) {
   const prod = packRowForStickerApi(row, { categoryId: overrides.category_id ?? null });
-  const body = { ...overrides };
+  const body = {
+    permission_module: "packing_entry",
+    permission_action: "view",
+    ...overrides,
+  };
   if (body.itemdcode == null && row?.itemdcode != null) body.itemdcode = row.itemdcode;
   if (body.doc_no == null && row?.doc_no != null) body.doc_no = row.doc_no;
   if (prod) body.production = prod;
@@ -1303,6 +1307,8 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         box_uid: Number(sticker.box_uid),
         device_type: getDeviceType(),
         download_source: downloadSource,
+        permission_module: "packing_entry",
+        permission_action: "view",
         sticker_meta: buildStickerPrintMeta(packingEntryCustomerRow(data, selectedRow), sticker),
       });
       printFromBackendHtml(res.html, {
@@ -1331,6 +1337,8 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
         box_uids: generated.map(s => s.box_uid),
         device_type: getDeviceType(),
         download_source: downloadSource,
+        permission_module: "packing_entry",
+        permission_action: "view",
         sticker_meta: buildStickerPrintMeta(packingRow),
       });
       printFromBackendHtml(res.html, {

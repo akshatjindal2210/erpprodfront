@@ -39,10 +39,13 @@ export function statusBadge(status) {
   return { text: "PENDING", className: "bg-amber-50 text-amber-600 border-amber-100" };
 }
 
-function fmtSubmissionBrief(sub) {
+function fmtSubmissionBrief(sub, { holdStatus } = {}) {
   if (!sub) return null;
   const st = String(sub.submission_type || "").toLowerCase();
-  const type = st === "full" ? "Full" : st === "revert" ? "Revert" : "Partial";
+  const holdComplete = String(holdStatus || "").toLowerCase() === "complete";
+  // After the hold is fully cleared, don't keep labeling past batches as "Partial".
+  const type =
+    st === "full" ? "Full" : st === "revert" ? "Revert" : holdComplete ? null : "Partial";
   const pass = Number(sub.completed_qty) || 0;
   const reject = Number(sub.rejected_qty) || 0;
   const parts = [];
@@ -52,13 +55,15 @@ function fmtSubmissionBrief(sub) {
     if (pass > 0) parts.push(`${pass.toLocaleString()} pass`);
     if (reject > 0) parts.push(`${reject.toLocaleString()} reject`);
   }
-  return `${type} · ${parts.join(" · ") || "—"}`;
+  const qtyText = parts.join(" · ") || "—";
+  return type ? `${type} · ${qtyText}` : qtyText;
 }
 
 function fmtApprovedSubmissions(row) {
   const subs = row.approved_submissions;
   if (!Array.isArray(subs) || subs.length === 0) return null;
-  return subs.map(fmtSubmissionBrief).filter(Boolean).join(" | ");
+  const holdStatus = rowHoldStatus(row);
+  return subs.map((sub) => fmtSubmissionBrief(sub, { holdStatus })).filter(Boolean).join(" | ");
 }
 
 export function qcHoldSearchParts(row) {
@@ -85,11 +90,11 @@ export function qcHoldSearchParts(row) {
     }
   };
 
-  push(row.hold_id, row.packing_number, row.item_code, row.item_dcode, row.remarks, row.reason, row.status);
-  push(statusBadge(row.status).text);
+  push(row.hold_id, row.packing_number, row.item_code, row.item_dcode, row.remarks, row.reason, rowHoldStatus(row));
+  push(statusBadge(rowHoldStatus(row)).text);
   pushNum(row.qty, row.total_qty, row.completed_qty, row.rejected_qty, row.balance_qty);
   push(fmtApprovedSubmissions(row));
-  push(fmtSubmissionBrief(row.pending_submission));
+  push(fmtSubmissionBrief(row.pending_submission, { holdStatus: rowHoldStatus(row) }));
   if (row.has_pending_submission) parts.push("Awaiting approval");
   push(row.created_by_name, row.updated_by_name, row.approved_by_name);
   pushDate(row.created_at, row.updated_at, row.approved_at);
@@ -102,17 +107,34 @@ export function buildQcHoldApiFilters(statusTab) {
   return { open_only: true };
 }
 
-export function isIncompleteQcHoldRow(row) {
-  return String(row?.status || "pending").toLowerCase() !== "complete";
+/** Balance-aware status — cleared holds are complete even if API status was stale. */
+export function rowHoldStatus(row) {
+  const balanceQty = Math.max(0, Number(row?.balance_qty) || 0);
+  if (row?.balance_qty != null && balanceQty <= 0) return "complete";
+  const completedQty = Number(row?.completed_qty) || 0;
+  const rejectedQty = Number(row?.rejected_qty) || 0;
+  if (row?.balance_qty != null && balanceQty > 0 && (completedQty > 0 || rejectedQty > 0)) {
+    return "partial";
+  }
+  if (row?.balance_qty != null && balanceQty > 0) return "pending";
+  return String(row?.status || "pending").toLowerCase();
 }
 
-export function rowHoldStatus(row) {
-  return String(row?.status || "pending").toLowerCase();
+export function isIncompleteQcHoldRow(row) {
+  return rowHoldStatus(row) !== "complete";
+}
+
+/** Keep Partial / Complete tabs aligned with balance, not a stale status badge. */
+export function matchesQcHoldStatusTab(row, statusTab) {
+  const status = rowHoldStatus(row);
+  if (statusTab === "complete") return status === "complete";
+  if (statusTab === "partial") return status === "partial";
+  return status !== "complete";
 }
 
 export function canEditQcHoldRow(row) {
   if (!row?.hold_id) return false;
-  return String(row.status || "pending").toLowerCase() === "pending" && !row.has_pending_submission;
+  return rowHoldStatus(row) === "pending" && !row.has_pending_submission;
 }
 
 function parseCompletedBoxUids(raw) {
@@ -152,7 +174,7 @@ export function getQcHoldEmptyState(statusTab, pendingFilter) {
   if (statusTab === "partial") {
     return {
       message: "No partial holds",
-      subMessage: "After partial approve — e.g. 1,000 of 10,000 cleared, 9,000 balance left (also in Pending until complete)",
+      subMessage: "Only open holds with some qty already approved — once balance is 0 they move to Complete",
     };
   }
   if (statusTab === "complete") {
@@ -185,7 +207,7 @@ export const QC_HOLD_HEADERS = [
   ["Item Code", "item_code", (v) => <span className="font-bold text-[11px] uppercase">{v || "—"}</span>, { width: "200px" }],
   ["Reason", "reason", (v) => <span className="text-[10px] text-slate-700 truncate block max-w-[160px]" title={v || ""}>{v || "—"}</span>, { width: "160px" }],
   ["Status", "status", (v, row) => {
-    const { text, className } = statusBadge(v);
+    const { text, className } = statusBadge(rowHoldStatus(row) || v);
     return (
       <div className="flex flex-col gap-0.5">
         <span className={`px-2 py-0.5 text-[9px] font-black uppercase border w-fit ${className}`}>
@@ -224,7 +246,7 @@ export const QC_HOLD_HEADERS = [
     );
   }, { width: "200px" }],
   ["Pending submit", "pending_submission", (_v, row) => {
-    const text = fmtSubmissionBrief(row.pending_submission);
+    const text = fmtSubmissionBrief(row.pending_submission, { holdStatus: rowHoldStatus(row) });
     if (!text) return <span className="text-[10px] text-slate-300">—</span>;
     return (
       <div className="flex flex-col gap-0.5 max-w-[160px]">

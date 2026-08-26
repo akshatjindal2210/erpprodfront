@@ -52,42 +52,39 @@ export default function QcHoldPrintStickersDrawer({ open, onClose, editData, ini
       setPrintSubmission(null);
 
       try {
-        if (Array.isArray(initialStickers) && initialStickers.length) {
-          const hydrated = await loadQcHoldCompletionStickerView({
-            hold_id: holdId,
-            submission_id: editData?.submission_id,
-          });
-          if (cancelled) return;
-          setHold(hydrated.hold || editData);
-          setPackingMeta(hydrated.packingMeta);
-          setPrintSubmission(hydrated.submission);
-          setStickerRows(initialStickers);
-        } else {
-          const hydrated = await loadQcHoldCompletionStickerView({
-            hold_id: holdId,
-            submission_id: editData?.submission_id,
-          });
-          if (cancelled) return;
-          const isRevert = String(hydrated.submission?.submission_type || "").toLowerCase() === "revert";
-          if (!hydrated.boxes?.length) {
-            toast.info(
-              isRevert
-                ? "No original boxes found for this revert hold."
-                : "No completion stickers found for this hold."
-            );
-            onCloseRef.current?.();
-            return;
-          }
-          setHold(hydrated.hold);
-          setPackingMeta(hydrated.packingMeta);
-          setPrintSubmission(hydrated.submission);
-          setStickerRows(hydrated.boxes);
+        const hydrated = await loadQcHoldCompletionStickerView({
+          hold_id: holdId,
+        });
+        if (cancelled) return;
+        const isRevert = String(hydrated.submission?.submission_type || "").toLowerCase() === "revert";
+        const boxes =
+          hydrated.boxes?.length
+            ? hydrated.boxes
+            : Array.isArray(initialStickers) && initialStickers.length
+              ? initialStickers
+              : [];
+        if (!boxes.length) {
+          toast.info(
+            isRevert
+              ? "No original boxes found for this revert hold."
+              : "No completion stickers found for this hold."
+          );
+          onCloseRef.current?.();
+          return;
         }
+        setHold(hydrated.hold || editData);
+        setPackingMeta(hydrated.packingMeta);
+        setPrintSubmission(hydrated.submission);
+        setStickerRows(boxes);
 
         const pn = String(editData?.packing_number ?? initialStickers?.[0]?.packing_number ?? "").trim();
         if (pn) {
           try {
-            const stickerRes = await boxService.getStickers({ doc_no: pn });
+            const stickerRes = await boxService.getStickers({
+              doc_no: pn,
+              permission_module: "qc_hold_material",
+              permission_action: "view",
+            });
             const row = stickerRes?.data?.[0] || null;
             if (!cancelled) setStickerRow(row);
           } catch {
@@ -120,14 +117,31 @@ export default function QcHoldPrintStickersDrawer({ open, onClose, editData, ini
       party_rate_cust_code: st?.party_rate_cust_code ?? packingMeta?.party_rate_cust_code,
       acc_code: hold?.acc_code ?? packingMeta?.acc_code ?? st?.acc_code ?? null,
       job_card_no: packingMeta?.job_card_no ?? st?.job_card_no ?? "—",
-      total_qty: hold?.completed_qty ?? hold?.qty ?? 0,
+      total_qty:
+        stickerRows.reduce((s, r) => s + (Number(r.qty) || 0), 0) ||
+        hold?.completed_qty ||
+        hold?.qty ||
+        0,
       unit: "PCS",
       doc_dt: st?.doc_dt,
       doc_no: pn,
     };
-  }, [hold, packingMeta, stickerRow]);
+  }, [hold, packingMeta, stickerRow, stickerRows]);
 
   const packingLike = useMemo(() => {
+    const rows = stickerRows || [];
+    if (rows.length) {
+      const maxQty = rows.reduce((m, r) => Math.max(m, Number(r.qty) || 0), 0);
+      const qtyPerBox = Number(packingMeta?.standard_qty_per_box) || (maxQty > 0 ? maxQty : 0);
+      const fullRows = rows.filter((r) => qtyPerBox > 0 && Number(r.qty) >= qtyPerBox);
+      const looseRows = rows.filter((r) => !(qtyPerBox > 0 && Number(r.qty) >= qtyPerBox));
+      const looseQty = looseRows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+      return {
+        qty_per_box: qtyPerBox || Number(rows[0]?.qty) || 0,
+        full_boxes_count: fullRows.length,
+        loose_box_qty: looseQty,
+      };
+    }
     const pd = stickerRow?.packing_details;
     if (pd?.qty_per_box != null && pd.qty_per_box !== "") {
       return {
@@ -136,13 +150,10 @@ export default function QcHoldPrintStickersDrawer({ open, onClose, editData, ini
         loose_box_qty: Number(pd.loose_box_qty) || 0,
       };
     }
-    const full = stickerRows.filter((r) => !r.is_loose).length;
-    const looseQty = stickerRows.find((r) => r.is_loose)?.qty ?? 0;
-    const perBox = packingMeta?.standard_qty_per_box ?? stickerRows.find((r) => !r.is_loose)?.qty ?? 0;
     return {
-      qty_per_box: Number(perBox) || stickerRows[0]?.qty || 0,
-      full_boxes_count: full,
-      loose_box_qty: stickerRows.some((r) => r.is_loose) ? Number(looseQty) || 1 : 0,
+      qty_per_box: 0,
+      full_boxes_count: 0,
+      loose_box_qty: 0,
     };
   }, [stickerRow, packingMeta, stickerRows]);
 
@@ -230,6 +241,7 @@ export default function QcHoldPrintStickersDrawer({ open, onClose, editData, ini
       }))}
       dlTracking={dlTracking}
       packingFullCount={packingFullCount}
+      qtyPerBox={packingLike.qty_per_box}
       onPrintOne={canPrintStickers ? handlePrintOne : () => {}}
       canPrint={canPrintStickers}
     />
@@ -313,7 +325,12 @@ export default function QcHoldPrintStickersDrawer({ open, onClose, editData, ini
                 <div className="flex-1 min-h-0 overflow-hidden flex flex-col mx-2 mb-2 mt-1.5 bg-white border border-slate-200 rounded-lg">
                   {mobileTab === "details" ? (
                     <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50 p-2">
-                      <StockAdjustmentStickerDetailCards selectedRow={selectedRowLike} packing={packingLike} />
+                      <StockAdjustmentStickerDetailCards
+                        selectedRow={selectedRowLike}
+                        packing={packingLike}
+                        categorySelectDisabled
+                        customerSelectDisabled
+                      />
                     </div>
                   ) : (
                     <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{breakdownBlock}</div>
@@ -323,7 +340,12 @@ export default function QcHoldPrintStickersDrawer({ open, onClose, editData, ini
 
               <div className="hidden lg:flex lg:flex-row flex-1 min-h-0 w-full overflow-hidden bg-slate-50">
                 <div className="shrink-0 lg:w-80 xl:w-96 border-r border-slate-200 bg-slate-50 overflow-y-auto">
-                  <StockAdjustmentStickerDetailCards selectedRow={selectedRowLike} packing={packingLike} />
+                  <StockAdjustmentStickerDetailCards
+                    selectedRow={selectedRowLike}
+                    packing={packingLike}
+                    categorySelectDisabled
+                    customerSelectDisabled
+                  />
                 </div>
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">{breakdownBlock}</div>
               </div>

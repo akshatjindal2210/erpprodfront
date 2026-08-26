@@ -1,6 +1,6 @@
 import { resolveBoxTxTypeLabel } from "@/apps/ims/lib/utils/boxTransactionVisuals";
 import { getBoxStickerEntries, stripUniqueScopeRow } from "@/apps/ims/lib/utils/boxTransactionStickerEntries";
-import { docNoFromStandardBoxNoUid } from "@/platform/utils/global/boxUid.js";
+import { docNoFromStandardBoxNoUid } from "@/apps/ims/lib/stickerUidHelpers";
 
 export const BOX_TX_DISPLAY_MODES = {
   SUMMARY: "summary",

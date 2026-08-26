@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { Check, AlertCircle, Loader2, Shield, MapPin } from "lucide-react";
 import { toast } from "react-toastify";
 
-// Services & Components
 import { locationService } from "@/apps/ims/lib/services/location";
 import { masterService } from "@/apps/ims/lib/services/master";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
@@ -25,10 +24,22 @@ const INITIAL_FORM = {
   shelf_no: "",
   location_description: "",
   total_capacity: "",
-  acc_code: "",
-  item_dcode: "",
+  acc_codes: [],
+  item_dcodes: [],
+  rule: "include",
   approved: false,
 };
+
+function toIdArray(value, fallbackSingle) {
+  if (Array.isArray(value) && value.length) {
+    return value.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0);
+  }
+  if (fallbackSingle != null && fallbackSingle !== "") {
+    const n = Number(fallbackSingle);
+    return Number.isFinite(n) && n > 0 ? [n] : [];
+  }
+  return [];
+}
 
 export default function LocationModal({ open, onClose, onSuccess, editData, mode = "add" }) {
   const canAccess = useCanAccess();
@@ -55,8 +66,9 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
           shelf_no: editData.shelf_no || "",
           location_description: editData.location_description || "",
           total_capacity: editData.total_capacity || "",
-          acc_code: editData.acc_code || "",
-          item_dcode: editData.item_dcode || "",
+          acc_codes: toIdArray(editData.acc_codes, editData.acc_code),
+          item_dcodes: toIdArray(editData.item_dcodes, editData.item_dcode),
+          rule: String(editData.rule || editData.restriction_mode || "include").toLowerCase() === "exclude" ? "exclude" : "include",
           approved: isApprove ? (editData.approved ?? false) : false,
         });
       } else {
@@ -84,7 +96,15 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
       const num = parseInt(value, 10);
       finalValue = isNaN(num) || num < 0 ? "" : num.toString();
     }
-    setForm(prev => ({ ...prev, [k]: finalValue }));
+    setForm((prev) => {
+      const next = { ...prev, [k]: finalValue };
+      // Include/Exclude only when at least one item is selected
+      if (k === "item_dcodes") {
+        const items = Array.isArray(finalValue) ? finalValue : [];
+        if (!items.length) next.rule = "include";
+      }
+      return next;
+    });
     if (errors[k]) setErrors(prev => ({ ...prev, [k]: "" }));
   };
 
@@ -115,31 +135,33 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
 
     try {
       let finalApproved = form.approved;
-      
-      // logic override for buttons
+
       if (statusOverride !== null) {
         finalApproved = statusOverride;
       } else if (isEdit && editData?.approved) {
         finalApproved = false;
       }
 
+      const items = toIdArray(form.item_dcodes);
       const payload = {
-        ...form,
+        rack_no: form.rack_no,
         shelf_no: form.shelf_no?.trim().toUpperCase(),
+        location_description: form.location_description,
         total_capacity: parseInt(form.total_capacity) || 0,
-        acc_code: form.acc_code ? Number(form.acc_code) : null,
-        item_dcode: form.item_dcode ? Number(form.item_dcode) : null,
+        acc_codes: toIdArray(form.acc_codes),
+        item_dcodes: items,
+        rule: items.length && form.rule === "exclude" ? "exclude" : "include",
         approved: finalApproved,
       };
 
       const isUpdate = isEdit || isApprove;
-      const request = isUpdate 
-        ? locationService.update(editData.location_id, payload) 
+      const request = isUpdate
+        ? locationService.update(editData.location_id, payload)
         : locationService.create(payload);
-      
+
       const response = await request;
       toast.success(response?.message || "Successfully saved");
-      
+
       onSuccess();
       onClose();
     } catch (err) {
@@ -199,7 +221,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
       maxWidth="max-w-4xl"
     >
       <div ref={formRef} className="space-y-4 pb-4">
-        
+
         {isEdit && editData?.approved && (
           <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
             <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
@@ -212,11 +234,11 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="space-y-1">
             <FormLabel required>Rack No</FormLabel>
-            <input 
+            <input
               data-field="rack_no"
-              value={form.rack_no} 
-              onChange={(e) => handleInputChange("rack_no", e.target.value)} 
-              placeholder="e.g. 48" 
+              value={form.rack_no}
+              onChange={(e) => handleInputChange("rack_no", e.target.value)}
+              placeholder="e.g. 48"
               className={`${errors.rack_no ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`}
             />
             {errors.rack_no && <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold"><AlertCircle size={10}/>{errors.rack_no}</p>}
@@ -224,7 +246,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
 
           <div className="space-y-1">
             <FormLabel required>Shelf No</FormLabel>
-            <input 
+            <input
               data-field="shelf_no"
               value={form.shelf_no}
               onChange={(e) => handleInputChange("shelf_no", e.target.value.toUpperCase())}
@@ -236,12 +258,12 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
 
           <div className="space-y-1">
             <FormLabel required>Capacity</FormLabel>
-            <input 
+            <input
               data-field="total_capacity"
               type="number"
               min={1}
-              value={form.total_capacity} 
-              onChange={(e) => handleInputChange("total_capacity", e.target.value)} 
+              value={form.total_capacity}
+              onChange={(e) => handleInputChange("total_capacity", e.target.value)}
               className={`${errors.total_capacity ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`}
             />
             {errors.total_capacity && (
@@ -252,44 +274,64 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={`grid grid-cols-1 gap-4 ${toIdArray(form.item_dcodes).length ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
           <SearchableSelect
             label="Customer / Account (Optional)"
-            value={form.acc_code}
-            onChange={(id) => handleInputChange("acc_code", id)}
-            fetchService={(params) => masterService.getLedgersViews({ 
-              ...params, 
-              permission_module: "location_master", 
-              permission_action: "view" 
+            placeholder="Search customers..."
+            value={form.acc_codes}
+            onChange={(ids) => handleInputChange("acc_codes", Array.isArray(ids) ? ids : [])}
+            fetchService={(params) => masterService.getLedgersViews({
+              ...params,
+              permission_module: "location_master",
+              permission_action: "view"
             })}
-            getByIdService={(id) => masterService.getLedgerViewById(id, { 
-              permission_module: "location_master", 
-              permission_action: "view" 
+            getByIdService={(id) => masterService.getLedgerViewById(id, {
+              permission_module: "location_master",
+              permission_action: "view"
             })}
             dataKey="id"
             labelKey="acc_name"
+            labelOnlyDisplay
+            multiple
+            compactMulti
           />
 
           <SearchableSelect
             label="Item Search (Optional)"
-            value={form.item_dcode}
-            onChange={(id) => handleInputChange("item_dcode", id)}
-            fetchService={(params) => masterService.getItemsViews({ 
-              ...params, 
-              permission_module: "location_master", 
-              permission_action: "view" 
+            placeholder="Search items..."
+            value={form.item_dcodes}
+            onChange={(ids) => handleInputChange("item_dcodes", Array.isArray(ids) ? ids : [])}
+            fetchService={(params) => masterService.getItemsViews({
+              ...params,
+              permission_module: "location_master",
+              permission_action: "view"
             })}
-            getByIdService={(id) => masterService.getItemViewById(id, { 
-              permission_module: "location_master", 
-              permission_action: "view" 
+            getByIdService={(id) => masterService.getItemViewById(id, {
+              permission_module: "location_master",
+              permission_action: "view"
             })}
             dataKey="id"
             labelKey="item_code"
             subLabelKey="itemdesc"
+            multiple
+            compactMulti
           />
+
+          {toIdArray(form.item_dcodes).length > 0 && (
+            <div className="space-y-1">
+              <FormLabel>Rule</FormLabel>
+              <select
+                value={form.rule}
+                onChange={(e) => handleInputChange("rule", e.target.value)}
+                className={`${OK_INPUT} ${FIELD_INPUT_CLASS}`}
+              >
+                <option value="include">Include — only these allowed</option>
+                <option value="exclude">Exclude — these blocked</option>
+              </select>
+            </div>
+          )}
         </div>
 
-        {/* QR code block (shown above location details when editing/approving) */}
         {(isEdit || isApprove) && editData?.qr_code && (
           <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3">
             <div className="p-2 bg-white rounded-lg border border-slate-200">
@@ -312,7 +354,6 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
 
         <div className="h-px bg-slate-100" />
 
-        {/* ── Approval Status ── */}
         {showApproval ? (
           <div className={`p-3 rounded-xl border transition-all flex items-center justify-between ${form.approved ? "bg-emerald-600 border-emerald-700 shadow-sm" : "bg-slate-50 border-slate-200"}`}>
             <div className="flex items-center gap-3">
@@ -349,4 +390,3 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
     </Drawer>
   );
 }
-

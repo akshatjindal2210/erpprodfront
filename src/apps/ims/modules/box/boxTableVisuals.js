@@ -32,6 +32,7 @@ export function resolveBoxLocationLabel(row) {
     return "Dispatch";
   }
   if (zone === "qc_hold" && !hasLocId && !loc) {
+  // if (zone === "qc_hold") {
     return "QC Area";
   }
   if (zone === "packing_area" || (zone === "in_store" && !hasLocId && !loc)) {

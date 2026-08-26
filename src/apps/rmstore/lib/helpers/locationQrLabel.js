@@ -19,9 +19,10 @@ const INNER_GAP_Y = 6;          // padding inside QR column (height limit)
 const QR_SOURCE_PX = 256;       // QR render sharpness (200–320); not visual size on label
 
 export function getLocationQrValue(data) {
+  const row = data?.row_no || data?.shelf_no || "";
   return (
     data?.location_no ||
-    (data?.rack_no ? `RM-${data.rack_no}${(data?.row_no || "").toString().toUpperCase()}` : "") ||
+    (data?.rack_no ? `RM-${data.rack_no}${String(row).toUpperCase()}` : "") ||
     ""
   )
     .toString()
@@ -38,9 +39,10 @@ function requireLocationQrValue(data) {
 }
 
 export function getLocationDisplayNo(data) {
+  const row = data?.row_no || data?.shelf_no || "";
   return (
     data?.location_no ||
-    (data?.rack_no ? `RM-${data.rack_no}${(data?.row_no || "").toString().toUpperCase()}` : "") ||
+    (data?.rack_no ? `RM-${data.rack_no}${String(row).toUpperCase()}` : "") ||
     "—"
   );
 }

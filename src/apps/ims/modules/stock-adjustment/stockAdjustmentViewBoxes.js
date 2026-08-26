@@ -1,9 +1,13 @@
 import { boxService } from "@/apps/ims/lib/services/box";
 import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
-import { formatStockAdjustmentBoxNoUid, parseStockAdjustmentBoxIndex } from "@/apps/ims/lib/utils/stockAdjustmentPacking";
+import { formatSaBoxNoUid, STICKER } from "@/apps/ims/lib/stickerUidFormat";
+import { parseStickerBoxIndex } from "@/apps/ims/lib/stickerUidHelpers";
 import { getBoxNoUidPrefix } from "@/platform/utils/global";
 import { fetchInHandBoxesForPacking } from "./loadPackingContext";
 import { enrichMinusBoxCustomerNames } from "@/apps/ims/lib/utils/minusCustomerBreakdown";
+import { pickBoxFromViewsResponse } from "@/apps/ims/lib/helpers/boxViewsLookup";
+
+const STOCK_ADJ_PERMS = { permission_module: "stock_adjustment", permission_action: "view" };
 
 export function parseRemovedBoxUids(row) {
   return parseRemovedBoxIdentifiers(row).uids;
@@ -141,7 +145,7 @@ export function isMinusBoxUidSelected(selectedUids, boxUid) {
 
 function stockAdjustmentAddStickerTag(adjustmentId) {
   const adjId = Number(adjustmentId);
-  return Number.isFinite(adjId) && adjId > 0 ? `_SA${adjId}_` : "";
+  return Number.isFinite(adjId) && adjId > 0 ? `_${STICKER.SA}${adjId}_` : "";
 }
 
 function isStockAdjustmentAddSticker(boxNoUid, adjustmentId) {
@@ -166,7 +170,7 @@ function findDbBoxForAddSlot(dbBoxes, adjustmentId, slotIndex) {
     (dbBoxes || []).find(
       (b) =>
         isStockAdjustmentAddSticker(b?.box_no_uid, adjustmentId) &&
-        parseStockAdjustmentBoxIndex(b.box_no_uid) === idx
+        parseStickerBoxIndex(b.box_no_uid) === idx
     ) ?? null
   );
 }
@@ -186,7 +190,7 @@ export function resolveAddBoxCountForView(row, dbBoxes, adjustmentId) {
   for (const b of dbBoxes || []) {
     if (!isStockAdjustmentAddSticker(b?.box_no_uid, adjustmentId)) continue;
     stampCount += 1;
-    maxIndex = Math.max(maxIndex, parseStockAdjustmentBoxIndex(b.box_no_uid));
+    maxIndex = Math.max(maxIndex, parseStickerBoxIndex(b.box_no_uid));
   }
   const n = Math.max(
     Number.isFinite(fromRecord) && fromRecord > 0 ? fromRecord : 0,
@@ -292,7 +296,7 @@ export function buildViewAddRowsFromAdjustment(row, dbBoxes, packingNo) {
   const rows = [];
   for (let i = 1; i <= n; i++) {
     const db = findDbBoxForAddSlot(dbBoxes, adjId, i);
-    const expectedUid = formatStockAdjustmentBoxNoUid(pn, adjId, n, i, getBoxNoUidPrefix());
+    const expectedUid = formatSaBoxNoUid(pn, adjId, n, i, getBoxNoUidPrefix());
     const removed = db ? isAddBoxRemovedFromInventory(db, adjId) : false;
     rows.push({
       box_no: i,
@@ -321,12 +325,13 @@ export async function loadBoxesBySaId(adjustmentId) {
 
   const { data } = await fetchAllListPages(
     async (page, limit) => {
-      const body = await boxService.getAll({
+      const body = await boxService.getViews({
         page,
         limit,
         filters: { sa_id: adjId },
         sortBy: "box_uid",
         order: "ASC",
+        ...STOCK_ADJ_PERMS,
       });
       const list = Array.isArray(body?.data) ? body.data : [];
       const total = Number(body?.total ?? list.length);
@@ -336,7 +341,9 @@ export async function loadBoxesBySaId(adjustmentId) {
     50000
   );
 
-  return data.filter((b) => Number(b.sa_id) === adjId);
+  return data
+    .filter((b) => Number(b.sa_id) === adjId)
+    .sort((a, b) => Number(a.box_uid) - Number(b.box_uid));
 }
 
 /** Approved add boxes — list by sa_id, fallback to in-hand boxes for this packing. */
@@ -367,15 +374,22 @@ async function loadBoxesByUids(uids) {
   const results = await Promise.all(
     unique.map(async (uid) => {
       try {
-        const res = await boxService.getById(uid);
+        const res = await boxService.getViews({
+          box_uid: uid,
+          id: String(uid),
+          ...STOCK_ADJ_PERMS,
+        });
         if (res?.success === false) return null;
-        return res?.data ?? res ?? null;
+        return pickBoxFromViewsResponse(res);
       } catch {
         return null;
       }
     })
   );
-  return results.filter(Boolean).sort((a, b) => Number(a.box_uid) - Number(b.box_uid));
+  return results
+    .filter(Boolean)
+    .map((b) => ({ ...b, box_uid: b.box_uid ?? b.id }))
+    .sort((a, b) => Number(a.box_uid) - Number(b.box_uid));
 }
 
 /** Boxes for view/print: add (stock_in) by sa_id; minus by removed_box_ids then sa_id fallback. */

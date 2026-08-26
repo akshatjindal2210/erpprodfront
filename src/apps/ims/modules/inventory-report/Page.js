@@ -176,19 +176,14 @@ export default function InventoryReportPage() {
 
       const render =
         key === "location_details"
-          ? (v, row) => {
-              const loc = v != null && String(v).trim() !== "" && String(v).trim() !== "—" ? String(v).trim() : "—";
-              const boxes = Array.isArray(row?.stock_box_nos) ? row.stock_box_nos.map((b) => String(b || "").trim()).filter(Boolean) : [];
-              const countRaw = Number(row?.stock_box_count);
-              const count = Number.isFinite(countRaw) ? countRaw : boxes.length;
-              const tip = boxes.length ? boxes.join(", ") : count ? `${count.toLocaleString()} box(es)` : undefined;
-              return (
-                <span className={`${tableCellClass("text")} cursor-default`} title={tip}>
-                  {loc}
-                  {count ? (<span className="text-slate-500 font-semibold"> ({count.toLocaleString()})</span>) : null}
-                </span>
-              );
-            }
+          ? (v, row) => (
+              <span
+                className={`${tableCellClass("text")}${row?.location_tip ? " cursor-help" : ""}`}
+                title={row?.location_tip || undefined}
+              >
+                {v != null && String(v).trim() !== "" ? String(v).trim() : "—"}
+              </span>
+            )
           : (v) => (
               <span className={tableCellClass(type)}>{formatInventoryTableCell(type, v)}</span>
             );

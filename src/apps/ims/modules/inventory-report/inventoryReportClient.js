@@ -166,6 +166,12 @@ function buildCustomerOptions(rows = []) {
   return sortSelectRowsAsc([...map.values()], "acc_name");
 }
 
+function parseLocationDetailSegment(segment) {
+  const s = String(segment ?? "").trim();
+  if (!s || s === "—") return null;
+  return s.replace(/\s*\([\d,]+\)\s*$/, "").trim() || null;
+}
+
 function buildLocationOptions(rows = []) {
   const map = new Map();
   for (const row of rows) {
@@ -173,7 +179,8 @@ function buildLocationOptions(rows = []) {
     const labels = String(row?.location_details ?? "")
       .split(",")
       .map((s) => s.trim())
-      .filter((s) => s && s !== "—");
+      .map(parseLocationDetailSegment)
+      .filter(Boolean);
     ids.forEach((id, index) => {
       const key = String(id);
       if (!key || map.has(key)) return;

@@ -14,7 +14,9 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { stockAdjustmentService } from "@/apps/rmstore/lib/services/stockAdjustment";
 import { specService } from "@/apps/rmstore/lib/services/spec";
 import { mrnService } from "@/apps/rmstore/lib/services/mrn";
-import { splitQtyAcrossCoils, equalSplitQtyAcrossCoils, roundQty3, QTY_EPS, formatStockAdjustmentCoilUid, resolveSerialNoForUid } from "@/apps/rmstore/lib/helpers/coilUid";
+import { splitQtyAcrossCoils, equalSplitQtyAcrossCoils, roundQty3, QTY_EPS } from "@/apps/rmstore/lib/helpers/coilUid";
+import { formatStockAdjustmentCoilUid } from "@/apps/rmstore/lib/coilUidFormat";
+import { resolveSerialNoForUid } from "@/apps/rmstore/lib/coilUidHelpers";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 import { getCurrentIndianFinancialYearStartYear } from "@/platform/utils/core/indianFinancialYear";
@@ -41,6 +43,10 @@ const READOUT_BOX_MINUS =
 /** Stock Adjustment heat no — uppercase alphanumeric (e.g. 7H26F62191). */
 function sanitizeStockAdjustmentHeatNo(raw) {
   return String(raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function hasSavedDoc(path) {
+  return Boolean(String(path || "").trim());
 }
 
 /** Prevent mouse wheel from changing number inputs while scrolling the panel (MRN sticker pattern). */
@@ -202,7 +208,7 @@ function previewCoilUid({ mrnNo, serialNo, adjustmentId, total, index }) {
   });
 }
 
-function SaDocFileInput({ label, file, onChange, disabled, savedPath, savedName }) {
+function SaDocFileInput({ label, file, onChange, disabled, savedPath, savedName, required = false }) {
   const localUrl = file instanceof File ? URL.createObjectURL(file) : "";
   const savedUrl = resolveUploadUrl(savedPath, FILE_BASE_URL);
   const previewUrl = localUrl || savedUrl;
@@ -210,7 +216,10 @@ function SaDocFileInput({ label, file, onChange, disabled, savedPath, savedName 
 
   return (
     <div className="space-y-1 min-w-0">
-      <span className={FIELD_LABEL}>{label}</span>
+      <span className={FIELD_LABEL}>
+        {label}
+        {required ? <span className="text-rose-500 ml-0.5">*</span> : null}
+      </span>
       <div className={`flex items-center gap-1.5 h-9 px-2.5 border border-slate-200 rounded-lg bg-white min-w-0 ${disabled && !previewUrl ? "opacity-50" : ""}`}>
         <FileText size={14} className={`shrink-0 ${previewUrl ? "text-emerald-600" : "text-slate-500"}`} />
         {disabled ? (
@@ -777,21 +786,17 @@ export default function StockAdjustmentDrawer({
           "Matching MRN(s) have no remaining receipt qty — stock is fully used (MRN Portal coils / prior adjustments)."
         );
       }
-      if (lotGate) {
-        setMrnPickOptions(list);
-        setGateReady(false);
-        toast.info(
-          list.length === 1
-            ? "Select the MRN from the dropdown — bill no. and bill date are shown in the option."
-            : `${list.length} MRN UIDs found — select one from the dropdown.`,
-          { autoClose: 5000 }
-        );
-      } else if (list.length === 1) {
+      if (list.length === 1) {
         await applyLoadedMrn(list[0], entryType);
       } else {
         setMrnPickOptions(list);
         setGateReady(false);
-        toast.info(`${list.length} MRN UIDs found — select one from the dropdown.`, { autoClose: 5000 });
+        toast.info(
+          entryType === "old"
+            ? `${list.length} MRN UIDs found — select one from the dropdown (bill no. & date shown).`
+            : `${list.length} MRN UIDs found — select one from the dropdown.`,
+          { autoClose: 5000 }
+        );
       }
     } catch (err) {
       toast.error(err?.message || "Could not load MRN / lot details. Please try again.");
@@ -872,6 +877,11 @@ export default function StockAdjustmentDrawer({
     }
     return null;
   }, [entryType, specItemDcode, specChecked, specMissing, specNotApproved, specItemLabel]);
+
+  const tcDocPath = savedDocs.tc_file_path || editData?.tc_file_path;
+  const rmtcDocPath = savedDocs.rmtc_file_path || editData?.rmtc_file_path;
+  const hasTcDocument = tcFile instanceof File || hasSavedDoc(tcDocPath);
+  const hasRmtcDocument = rmtcFile instanceof File || hasSavedDoc(rmtcDocPath);
 
   useEffect(() => {
     if (!open || entryType !== "minus" || !gateReady) return;
@@ -1225,6 +1235,10 @@ export default function StockAdjustmentDrawer({
       toast.error(specValidationError);
       return;
     }
+    if (isSaAddLike(entryType) && (!hasTcDocument || !hasRmtcDocument)) {
+      toast.error("Both the TC and RMTC documents are required.");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -1552,6 +1566,7 @@ export default function StockAdjustmentDrawer({
               file={tcFile}
               onChange={setTcFile}
               disabled={readOnly}
+              required
               savedPath={savedDocs.tc_file_path || editData?.tc_file_path}
               savedName={savedDocs.tc_file_name || editData?.tc_file_name}
             />
@@ -1560,6 +1575,7 @@ export default function StockAdjustmentDrawer({
               file={rmtcFile}
               onChange={setRmtcFile}
               disabled={readOnly}
+              required
               savedPath={savedDocs.rmtc_file_path || editData?.rmtc_file_path}
               savedName={savedDocs.rmtc_file_name || editData?.rmtc_file_name}
             />
@@ -1974,15 +1990,14 @@ export default function StockAdjustmentDrawer({
                   Load
                 </button>
               )}
-              {((entryType === "old" && mrnPickOptions.length > 0) || mrnPickOptions.length > 1) &&
-              !gateReady &&
-              !readOnly &&
-              !isEdit ? (
+              {mrnPickOptions.length > 1 && !gateReady && !readOnly && !isEdit ? (
                 <div className="w-full sm:min-w-[260px] sm:max-w-md">
                   <label htmlFor="rm-sa-gate-mrn-pick" className={FIELD_LABEL}>
                     Select MRN UID
                   </label>
                   <SearchableSelect
+                    key={`mrn-pick-${mrnPickOptions.map((r) => String(r.uid || "").trim()).join("|")}`}
+                    defaultOpen
                     value={mrnPickUid}
                     onChange={(uid) => {
                       const v = String(uid || "").trim();
@@ -2074,19 +2089,19 @@ export default function StockAdjustmentDrawer({
                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                   {!entryType
                     ? "Select Add (+), Minus (-), or Old"
-                    : entryType === "old" && mrnPickOptions.length > 0
-                      ? "Select an MRN from the dropdown — bill no. and bill date are shown in each option"
-                      : mrnPickOptions.length > 1
-                        ? "Multiple MRN UIDs found — select one from the dropdown above"
-                        : usesLotGate(entryType)
+                    : mrnPickOptions.length > 1
+                      ? entryType === "old"
+                        ? "Select an MRN from the dropdown — bill no. and bill date are shown in each option"
+                        : "Multiple MRN UIDs found — select one from the dropdown above"
+                      : usesLotGate(entryType)
+                        ? !financialYear
+                          ? "Select financial year, then enter Lot No. and Load"
+                          : "Enter Lot No. and Load"
+                        : needsFinancialYear(entryType)
                           ? !financialYear
-                            ? "Select financial year, then enter Lot No. and Load"
-                            : "Enter Lot No. and Load"
-                          : needsFinancialYear(entryType)
-                            ? !financialYear
-                              ? "Select financial year, then enter MRN number and Load"
-                              : "Enter MRN number and Load"
-                            : "Enter MRN number or UID and Load"}
+                            ? "Select financial year, then enter MRN number and Load"
+                            : "Enter MRN number and Load"
+                          : "Enter MRN number or UID and Load"}
                 </p>
                 <p className="text-[10px] text-slate-400 max-w-md">
                   {usesLotGate(entryType)
