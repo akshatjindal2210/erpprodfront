@@ -11,6 +11,7 @@ import {
 
 /**
  * Mutually exclusive assignee UI for CL Task wizard Assign step.
+ * Add / Clone / Edit all use multi Person(s) when Assign by = Person.
  */
 export default function ClAssigneeSection({
   form,
@@ -25,12 +26,6 @@ export default function ClAssigneeSection({
 }) {
   const mode = form.assignment_type || ASSIGNMENT_TYPE.PERSON;
   const isDeptMode = mode === ASSIGNMENT_TYPE.DEPT_DESIG;
-  /** Classic single-person masters stay locked; dept / multi-person scope stays editable */
-  const lockToPerson =
-    isEdit &&
-    mode === ASSIGNMENT_TYPE.PERSON &&
-    !!(form.person_id || (form.assigned_user_ids || []).length === 1) &&
-    (form.assigned_user_ids || []).length <= 1;
 
   const activeUsers = users.filter(isActiveTaskUser);
 
@@ -73,33 +68,31 @@ export default function ClAssigneeSection({
 
   return (
     <div className="space-y-4">
-      {!lockToPerson && (
-        <div className="space-y-1.5">
-          <ClFormLabel required>Assign by</ClFormLabel>
-          <div
-            className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1.5 rounded-xl border border-slate-200 bg-slate-50/70"
-            role="radiogroup"
-            aria-label="Assignment mode"
-          >
-            <ModeButton
-              active={isDeptMode}
-              icon={Building2}
-              label="Department / Designation"
-              description="All matching active users"
-              onClick={() => onAssignmentTypeChange(ASSIGNMENT_TYPE.DEPT_DESIG)}
-            />
-            <ModeButton
-              active={!isDeptMode}
-              icon={Users}
-              label="Person"
-              description="Pick one or more people"
-              onClick={() => onAssignmentTypeChange(ASSIGNMENT_TYPE.PERSON)}
-            />
-          </div>
+      <div className="space-y-1.5">
+        <ClFormLabel required>Assign by</ClFormLabel>
+        <div
+          className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1.5 rounded-xl border border-slate-200 bg-slate-50/70"
+          role="radiogroup"
+          aria-label="Assignment mode"
+        >
+          <ModeButton
+            active={isDeptMode}
+            icon={Building2}
+            label="Department / Designation"
+            description="All matching active users"
+            onClick={() => onAssignmentTypeChange(ASSIGNMENT_TYPE.DEPT_DESIG)}
+          />
+          <ModeButton
+            active={!isDeptMode}
+            icon={Users}
+            label="Person"
+            description="Pick one or more people"
+            onClick={() => onAssignmentTypeChange(ASSIGNMENT_TYPE.PERSON)}
+          />
         </div>
-      )}
+      </div>
 
-      {isDeptMode && !lockToPerson && (
+      {isDeptMode && (
         <div className="space-y-3 rounded-xl border border-slate-100 bg-white p-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <SearchableSelect
@@ -147,37 +140,25 @@ export default function ClAssigneeSection({
         </div>
       )}
 
-      {(!isDeptMode || lockToPerson) && (
+      {!isDeptMode && (
         <div className="space-y-1.5">
           <SearchableSelect
-            label={lockToPerson ? "Person" : "Person(s)"}
+            label="Person(s)"
             required
             options={personOptions}
-            value={
-              lockToPerson
-                ? form.person_id
-                : form.assigned_user_ids || []
-            }
+            value={form.assigned_user_ids || []}
             onChange={(val) => {
-              if (lockToPerson) {
-                onChange({ person_id: val || "", assigned_user_ids: val ? [String(val)] : [] });
-              } else {
-                const ids = Array.isArray(val) ? val.map(String) : [];
-                onChange({
-                  assigned_user_ids: ids,
-                  person_id: ids[0] || "",
-                });
-              }
+              const ids = Array.isArray(val) ? val.map(String) : [];
+              onChange({
+                assigned_user_ids: ids,
+                person_id: ids[0] || "",
+              });
             }}
             placeholder={
-              lockToPerson
-                ? "Select person"
-                : isClone
-                  ? "Select new person(s)"
-                  : "Search and select person(s)"
+              isClone ? "Select new person(s)" : "Search and select person(s)"
             }
-            isMulti={!lockToPerson}
-            compactMulti={!lockToPerson}
+            isMulti
+            compactMulti
             clearable
             error={errors.person_id || errors.assigned_user_ids}
           />
@@ -187,12 +168,12 @@ export default function ClAssigneeSection({
                 Clone clears the old assignee — pick new person(s) here.
               </span>
             </ClFormHint>
-          ) : !lockToPerson ? (
+          ) : (
             <ClFormHint>
               One CL Task is saved. Selected people each get their own Due assignment.
             </ClFormHint>
-          ) : null}
-          {!lockToPerson && (form.assigned_user_ids || []).length > 0 ? (
+          )}
+          {(form.assigned_user_ids || []).length > 0 ? (
             <p className="text-xs font-medium text-indigo-600 ml-1">
               1 CL Task · {(form.assigned_user_ids || []).length} assignee
               {(form.assigned_user_ids || []).length === 1 ? "" : "s"}.

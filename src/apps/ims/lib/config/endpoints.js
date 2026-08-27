@@ -162,6 +162,16 @@ export const ENDPOINTS = {
     LOCK_FUID: "/out-entries/lock-fuid",
   },
 
+  GATE_ENTRIES: {
+    PENDING: "/gate-entries/pending",
+    LIST: "/gate-entries/list",
+    DETAILS: "/gate-entries/details",
+    SCAN: "/gate-entries/scan",
+    SAVE: "/gate-entries/save",
+    APPROVE: "/gate-entries/approve",
+    DELETE: "/gate-entries/delete",
+  },
+
   INVENTORY_REPORT: {
     LIST: "/inventory-report/list",
   },

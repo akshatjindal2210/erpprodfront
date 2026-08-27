@@ -3,10 +3,12 @@ import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
 import { getBoxStickerEntries } from "@/apps/ims/lib/utils/boxTransactionStickerEntries";
 import { getBoxTxTypeBadgeClass, resolveBoxTxTypeLabel } from "@/apps/ims/lib/utils/boxTransactionVisuals";
 import { boxTransactionLogService } from "@/apps/ims/lib/services/boxTransactionLog";
+import { docNoFromStandardBoxNoUid } from "@/apps/ims/lib/stickerUidHelpers";
 
 const TX_SKIP = new Set([
   "count", "total_qty", "qty", "per_box_qty", "box_kind", "standard_count", "loose_count",
-  "box_no_uids", "box_uids", "box_sticker_entries", "action",
+  "box_no_uids", "box_uids", "box_sticker_entries", "is_loose_flags", "packing_numbers", "action",
+  "item_dcode", "itemdcode", "acc_code",
 ]);
 
 const fmt = (v) => {
@@ -16,7 +18,17 @@ const fmt = (v) => {
   return String(v);
 };
 
-const push = (rows, label, value) => rows.push({ label, value: fmt(value) });
+const hasDetailValue = (v) => {
+  if (v == null || v === "") return false;
+  if (typeof v === "string" && !v.trim()) return false;
+  if (Array.isArray(v) && !v.length) return false;
+  return true;
+};
+
+const push = (rows, label, value) => {
+  if (!hasDetailValue(value)) return;
+  rows.push({ label, value: fmt(value) });
+};
 
 function parseDetails(raw) {
   if (raw == null) return {};
@@ -42,10 +54,8 @@ export function buildBoxDetailRows(box) {
     ["Packing No", box.packing_number],
     ["Job Card", box.job_card_no ?? box.job_no],
     ["Item Code", box.item_code],
-    ["Item DCode", box.item_dcode ?? box.itemdcode],
     ["Description", box.item_desc ?? box.itemdesc],
     ["Customer", box.acc_name],
-    ["Account Code", box.acc_code],
     ["Party Rate Cust Code", box.party_rate_cust_code],
     ["Qty", box.qty],
     ["Box Type", box.box_kind],
@@ -55,16 +65,18 @@ export function buildBoxDetailRows(box) {
     ["Location ID", box.location_id],
     ["Doc Date", box.doc_dt ? formatDocDate(box.doc_dt) : null],
     ["Created At", box.created_at ? formatDateTime(box.created_at) : null],
-  ].map(([label, value]) => ({ label, value: fmt(value) }));
+  ]
+    .filter(([, value]) => hasDetailValue(value))
+    .map(([label, value]) => ({ label, value: fmt(value) }));
 }
 
-function buildTxEvent(row, typeLabels) {
+function buildTxEvent(row, typeLabels, focusUid) {
   const d = parseDetails(row?.details);
   const lines = [];
   push(lines, "User", row?.user_name || "System");
-  push(lines, "Module", row?.source_module?.replace(/_/g, " "));
   push(lines, "Reference", row?.source_id);
-  push(lines, "Packing No", row?.packing_number);
+  const packingNo = row?.packing_number || (focusUid ? docNoFromStandardBoxNoUid(focusUid) : null) || (Array.isArray(d.packing_numbers) && d.packing_numbers.length === 1 ? d.packing_numbers[0] : null);
+  push(lines, "Packing No", packingNo);
   push(lines, "Box Count", row?.box_count ?? d.count);
   push(lines, "Qty", row?.total_qty ?? d.total_qty ?? d.qty);
   push(lines, "Box Type", row?.box_kind ?? d.box_kind);
@@ -73,17 +85,9 @@ function buildTxEvent(row, typeLabels) {
   if (std != null || loose != null) push(lines, "Standard / Loose", `${std ?? 0} / ${loose ?? 0}`);
   if (d.per_box_qty != null) push(lines, "Per Box Qty", d.per_box_qty);
   const stickers = getBoxStickerEntries(row);
-  if (stickers.length) {
-    push(
-      lines,
-      "Box Sticker No.",
-      stickers
-        .map((e) => `${e.box_no_uid}${e.is_loose ? " (loose)" : ""}${Number.isFinite(Number(e.qty)) ? ` qty ${e.qty}` : ""}`)
-        .join(", ")
-    );
-  }
+  if (stickers.length) lines.push({ label: "Box Sticker No.", stickers, focusUid });
   Object.entries(d)
-    .filter(([k, v]) => !TX_SKIP.has(k) && v != null && v !== "" && !(Array.isArray(v) && !v.length))
+    .filter(([k, v]) => !TX_SKIP.has(k) && v != null && v !== "" && !Array.isArray(v) && typeof v !== "object")
     .forEach(([k, v]) => push(lines, k.replace(/_/g, " "), v));
 
   return {
@@ -107,18 +111,18 @@ export async function fetchBoxFinderData(box) {
       limit,
       filters: { journey: key },
       sortBy: "created_at",
-      order: "ASC",
+      order: "DESC",
     });
     if (page === 1 && res?.typeLabels) typeLabels = res.typeLabels;
     return res;
   }, 500, 10000);
 
   const events = (data ?? [])
-    .map((row) => buildTxEvent(row, typeLabels))
+    .map((row) => buildTxEvent(row, typeLabels, key))
     .sort((a, b) => {
       const ta = a?.at ? new Date(a.at).getTime() : 0;
       const tb = b?.at ? new Date(b.at).getTime() : 0;
-      return ta !== tb ? ta - tb : String(a.id).localeCompare(String(b.id));
+      return ta !== tb ? tb - ta : String(b.id).localeCompare(String(a.id));
     });
 
   return { details, events };

@@ -54,7 +54,7 @@ import {
   isOutEntrySimpleScanMode,
   pickerIdFromEntryType,
 } from "@/apps/ims/lib/utils/outEntryTypes";
-import { canApproveInventoryOut, canCreateInventoryOut } from "@/apps/ims/lib/utils/imsSpecialPermissions";
+import { canApproveInventoryOut, canCreateInventoryOut, isImsSuperAdmin } from "@/apps/ims/lib/utils/imsSpecialPermissions";
 import { mapQcHoldSelectRow } from "@/apps/ims/lib/utils/qcHoldTypes";
 import { withSortedViewsData } from "@/apps/ims/lib/helpers/sortDropdownResponse";
 import { isForwardingLooseBox } from "@/platform/utils/core/utilHelper";
@@ -579,6 +579,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   const [pickerChoiceId, setPickerChoiceId] = useState(null);
   const [otherBoxMap, setOtherBoxMap] = useState(() => new Map());
   const [manualOtherBoxId, setManualOtherBoxId] = useState("");
+  const [manualBoxId, setManualBoxId] = useState("");
   const otherBoxMapRef = useRef(new Map());
   const qcHoldBoxIndexRef = useRef(new Map());
   const [reasonOpts, setReasonOpts] = useState([]);
@@ -612,6 +613,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   const isForwardingMode = entryMode === OUT_ENTRY_TYPE.FORWARDING_NOTE;
   const canApproveStoreOut = canAccess("out_entry", "authorize").allowed;
   const canApproveInvOut = canApproveInventoryOut(user);
+  const canTypeBox = isImsSuperAdmin(user);
   const canApprove = isInventoryOutMode ? canApproveInvOut : canApproveStoreOut;
   const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
   const showApproval =
@@ -922,6 +924,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         setOtherBoxMap(new Map());
         otherBoxMapRef.current = new Map();
         setManualOtherBoxId("");
+        setManualBoxId("");
         setReasonOpts([]);
         setReasonOpen(false);
         setReasonHighlight(-1);
@@ -949,6 +952,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       setOtherBoxMap(new Map());
       otherBoxMapRef.current = new Map();
       setManualOtherBoxId("");
+      setManualBoxId("");
       setReasonOpts([]);
       setReasonOpen(false);
       setReasonHighlight(-1);
@@ -2863,8 +2867,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                     </div>
                   )}
 
-                  {/*
-                    Manual testing block (keep commented):
+                  {canTypeBox && (
+                    // Manual testing block (keep commented):
                     <div className="flex gap-2">
                       <input
                         type="text"
@@ -2890,7 +2894,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                         Add
                       </button>
                     </div>
-                  */}
+                  )}
 
                   {/* SCANNED LIST - Optimized Grid */}
                   <div className="bg-white/60 rounded-lg border border-indigo-50 overflow-hidden">

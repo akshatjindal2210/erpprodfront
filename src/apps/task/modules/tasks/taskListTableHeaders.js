@@ -1,10 +1,12 @@
 "use client";
 
-import { Pencil, Trash2, Calendar, RepeatIcon, Eye, Copy, Activity, RefreshCw } from "lucide-react";
+import { Pencil, Trash2, Calendar, RepeatIcon, Eye, Copy, Activity, RefreshCw, Star } from "lucide-react";
 import { PRIORITY_CONFIG, TASK_STATUS_CONFIG, TASK_STATUS_CONFIG_FOR_TABLE } from "@/apps/task/lib/ui/common/Constants";
 import { formatDate, formatDateTime } from "@/apps/task/lib/helpers/utilHelper";
 import { IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
 import { getTaskRowColor, getRowMeta } from "@/apps/task/lib/ui/tasks_common_component/TaskHelper";
+import { TaskRatingCell, taskRatingExportLabel } from "@/apps/task/modules/tasks/SubPageExtra";
+import { getTaskRowManageFlags } from "@/apps/task/lib/helpers/taskManageAccess";
 
 function statusExportLabel(status) {
   return (
@@ -24,7 +26,7 @@ function assignedToExportLabel(row) {
 }
 
 function lastRemarkExportLabel(row) {
-  if (!row.last_message || row.status === "pending") return "—";
+  if (!row.last_message) return "—";
   const when = row.last_message_at ? ` (${formatDateTime(row.last_message_at)})` : "";
   return `${row.last_message}${when}`;
 }
@@ -49,6 +51,7 @@ export function buildTaskExportHeaders({ showTargetDate = false } = {}) {
     ],
     ["Last Remark", "last_remark", null, { copyValue: (row) => lastRemarkExportLabel(row) }],
     ["Status", "status", null, { copyValue: (row) => statusExportLabel(row.status) }],
+    ["Rating", "rating", null, { copyValue: (row) => taskRatingExportLabel(row) }],
     ["Due Date", "due_date", null, { copyValue: (row) => formatDate(row.due_date) ?? "—" }],
     ...(showTargetDate
       ? [
@@ -133,10 +136,9 @@ function AssignmentInfo({ task }) {
 export function buildTaskListHeaders({
   activeTab,
   currentUserId,
+  userRole = "",
   quickFilter,
   statusFilter,
-  canEdit,
-  canDelete,
   onNavigate,
   onEdit,
   onDelete,
@@ -184,7 +186,7 @@ export function buildTaskListHeaders({
       "Last Remark",
       "last_remark",
       (_v, row) =>
-        row.last_message && row.status !== "pending" ? (
+        row.last_message ? (
           <div className="flex flex-col min-w-0">
             <p className="text-[11px] font-medium text-slate-800 leading-tight line-clamp-2" title={row.last_message}>
               {row.last_message}
@@ -204,6 +206,12 @@ export function buildTaskListHeaders({
         return <Badge cfg={statusCfg} colorOverride={getTaskRowColor(row)} />;
       },
       { width: "110px", copyValue: (row) => statusExportLabel(row.status) },
+    ],
+    [
+      "Rating",
+      "rating",
+      (_v, row) => <TaskRatingCell task={row} />,
+      { width: "80px", sortable: true, copyValue: (row) => taskRatingExportLabel(row) },
     ],
     [
       "Due Date",
@@ -333,10 +341,11 @@ export function buildTaskListHeaders({
       "Actions",
       "_actions",
       (_v, row) => {
-        const isOwner =
-          row.task_type === "self"
-            ? String(row.created_by_id) === String(currentUserId)
-            : String(row.assigned_by_id) === String(currentUserId);
+        const { showEdit, showDelete } = getTaskRowManageFlags({
+          row,
+          currentUserId,
+          userRole,
+        });
         return (
           <div className="flex items-center justify-center gap-0" onClick={(e) => e.stopPropagation()}>
             {showReassign && onReassign && (
@@ -365,7 +374,7 @@ export function buildTaskListHeaders({
             >
               <Activity size={12} />
             </button>
-            {canEdit && isOwner && (
+            {showEdit && (
               <button
                 type="button"
                 onClick={() => onEdit?.(row)}
@@ -383,7 +392,7 @@ export function buildTaskListHeaders({
             >
               <Copy size={12} />
             </button>
-            {canDelete && isOwner && (
+            {showDelete && (
               <button
                 type="button"
                 onClick={() => onDelete?.(row)}

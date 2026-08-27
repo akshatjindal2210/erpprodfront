@@ -19,6 +19,7 @@ export const ROUTES = {
   INVENTORY_INWARD: `${IMS}/inventory-inward`,
   FORWARDING_NOTE: `${IMS}/forwarding-note`,
   OUT_ENTRY: `${IMS}/out-entry`,
+  GATE_ENTRY: `${IMS}/gate-entry`,
 
   LOGS: `${IMS}/logs`,
   BOX_TRANSACTION_LOGS: `${IMS}/logs/box-transactions`,

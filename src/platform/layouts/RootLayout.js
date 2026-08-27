@@ -36,7 +36,8 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
   const isTask = isTaskShell(shell, pathname);
   const isRmStore = isRmStoreShell(shell, pathname);
   const hideNav = isPortal || shell === APP_SHELL.STANDALONE;
-  const hideQuickLinks = hideNav || isSettings || isTask;
+  // Show Quick Access on all shells; each link still filtered by view permission.
+  const hideQuickLinks = false;
   const sidebarNav = useMemo(() => {
     if (isSettings) return SETTINGS_NAV_REGISTRY;
     if (isTask) {

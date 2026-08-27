@@ -1,13 +1,13 @@
-import { Pencil, Trash2, Calendar, RepeatIcon, Eye, Copy, Activity, RefreshCw } from "lucide-react";
+import { Pencil, Trash2, Calendar, RepeatIcon, Eye, Copy, Activity, RefreshCw, Star } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PRIORITY_CONFIG, TASK_STATUS_CONFIG_FOR_TABLE } from "@/apps/task/lib/ui/common/Constants";
 import { formatDate, formatDateTime } from "@/apps/task/lib/helpers/utilHelper";
 import { buildTaskDetailUrl } from "@/apps/task/lib/helpers/taskRouteHelper";
 import { useSelector } from "react-redux";
-import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { ActivityLogModal } from "./SubPageExtra";
 import { getTaskRowColor, blendHexWithWhite, taskRowTint } from "@/apps/task/lib/ui/tasks_common_component/TaskHelper";
+import { getTaskRowManageFlags } from "@/apps/task/lib/helpers/taskManageAccess";
 
 function Badge({ cfg, colorOverride }) {
   if (!cfg) return null;
@@ -51,16 +51,16 @@ export default function TaskTableRow({ task, index, isSelected, onToggle, onEdit
   const { badge: alertBadge = null, badgeCls: alertBadgeCls = "", barColor = "", dueDateCls = "text-slate-500", reminderDateCls = "text-slate-500" } = rowMeta;
 
   const currentUserId = useSelector((s) => s.auth?.user?.id ?? s.auth?.id ?? null);
-  const canAccess = useCanAccess();
-  const canEdit = canAccess("tasks", "edit").allowed;
-  const canDelete = canAccess("tasks", "delete").allowed;
+  const userRole = useSelector((s) => s.auth?.role ?? s.auth?.user?.type);
   const router = useRouter();
 
   const priorityCfg = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.medium;
   const statusCfg = TASK_STATUS_CONFIG_FOR_TABLE[task.status] ?? TASK_STATUS_CONFIG_FOR_TABLE.pending;
-  const isOwner = task.task_type === "self"
-    ? task.created_by_id === currentUserId
-    : task.assigned_by_id === currentUserId;
+  const { showEdit, showDelete } = getTaskRowManageFlags({
+    row: task,
+    currentUserId,
+    userRole,
+  });
 
   const [logModal, setLogModal] = useState(false);
 
@@ -119,7 +119,7 @@ export default function TaskTableRow({ task, index, isSelected, onToggle, onEdit
 
         {/* Last Remark */}
         <td className="px-2 py-1.5 min-w-[160px] max-w-[240px]">
-          {task.last_message && task.status !== "pending" ? (
+          {task.last_message ? (
             <div className="flex flex-col">
               <p className="text-[11px] font-medium text-slate-800 leading-tight break-words line-clamp-2" title={task.last_message}>{task.last_message}</p>
               <p className="text-[9px] text-slate-400 mt-px leading-tight">{formatDateTime(task.last_message_at)}</p>
@@ -132,6 +132,18 @@ export default function TaskTableRow({ task, index, isSelected, onToggle, onEdit
         {/* Status */}
         <td className="px-2 py-1.5 w-28">
           <Badge cfg={statusCfg} colorOverride={finalColor} />
+        </td>
+
+        {/* Rating */}
+        <td className="px-2 py-1.5 w-16">
+          {task.task_type !== "self" && task.rating != null ? (
+            <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-indigo-700 tabular-nums whitespace-nowrap">
+              <Star size={10} className="fill-indigo-400 text-indigo-400 shrink-0" />
+              {task.rating}/10
+            </span>
+          ) : (
+            <span className="text-slate-300 text-[10px]">—</span>
+          )}
         </td>
 
         {/* Dates */}
@@ -191,9 +203,9 @@ export default function TaskTableRow({ task, index, isSelected, onToggle, onEdit
             )}
             <button onClick={handleNavigation} className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all" title="View"><Eye size={12} /></button>
             <button onClick={(e) => { e.stopPropagation(); handleNavigation(); }} className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all" title="Activity"><Activity size={12} /></button>
-            {canEdit && isOwner && <button onClick={() => onEdit(task)} className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all" title="Edit"><Pencil size={12} /></button>}
+            {showEdit && <button onClick={() => onEdit(task)} className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all" title="Edit"><Pencil size={12} /></button>}
             <button onClick={() => onClone(task)} className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all" title="Clone"><Copy size={12} /></button>
-            {canDelete && isOwner && <button onClick={() => onDelete(task)} className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all" title="Delete"><Trash2 size={12} /></button>}
+            {showDelete && <button onClick={() => onDelete(task)} className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all" title="Delete"><Trash2 size={12} /></button>}
           </div>
         </td>
       </tr>

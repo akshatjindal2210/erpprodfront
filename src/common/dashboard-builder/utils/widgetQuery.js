@@ -21,7 +21,7 @@ export const DASHBOARD_QUERY_RUNTIME_FILTERS = [
   {
     token: "{{userId}}",
     label: "User ID",
-    hint: "Normal user: own id. Super admin: all users unless one is selected",
+    hint: "Own id by default. With user filter: all users unless one is selected",
     superAdminOnly: true,
   },
   {

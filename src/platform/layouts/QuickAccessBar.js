@@ -11,14 +11,15 @@ import { RM_STORE_NAV_REGISTRY } from "@/apps/rmstore/lib/config/navRegistry";
 import { THEME_CONFIG } from "@/config/theme";
 import Drawer from "@/ui/primitives/Drawer";
 import { trainingVideoService } from "@/apps/settings/lib/services/trainingService";
-import { selectPermissions, selectUser, selectRole } from "@/platform/store/slices/authSlice";
+import { selectPermissions, selectUser, selectRole, selectAppAccess } from "@/platform/store/slices/authSlice";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { isPwaStandalone, getListHotkeyParts } from "@/platform/utils/pwa/pwa";
 import { APP_VERSION } from "@/config/appVersion";
-import { api } from "@/platform/api/apiClient";
-import { CORE_ENDPOINTS } from "@/platform/api/endpoints";
-import { getDashboardStatus, getUserDashboards } from "@/common/dashboard-builder/services/dashboardApi";
-import { canFilterDashboardByUser } from "@/common/dashboard-builder/utils/dashboardFilterAccess";
+import { getDashboardStatus, getUserDashboards, getDashboardFilterUsers } from "@/common/dashboard-builder/services/dashboardApi";
+import { canFilterDashboardByUser, shouldDefaultDashboardFilterToSelf, getDashboardSelfFilter } from "@/common/dashboard-builder/utils/dashboardFilterAccess";
+import { canShowTaskReportMenu } from "@/apps/task/lib/config/appConfig";
+import { getShellAppFromPathname } from "@/config/appsRegistry";
+import { userHasAppAccess } from "@/config/moduleAppRegistry";
 
 // const DASHBOARD_AUTO_REFRESH_MS = 60 * 1000; // used when auto-refresh is re-enabled below
 const DASHBOARD_SYNC_TICK_MS = 30 * 1000;
@@ -96,8 +97,18 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   const permissions = useSelector(selectPermissions);
   const role = useSelector(selectRole);
   const user = useSelector(selectUser);
+  const appAccess = useSelector(selectAppAccess);
   const canAccess = useCanAccess();
   const canFilterByUser = useMemo(() => canFilterDashboardByUser(role, user), [role, user]);
+  const defaultDashboardFilterToSelf = useMemo(
+    () => shouldDefaultDashboardFilterToSelf(role, user),
+    [role, user],
+  );
+  const shellAppId = useMemo(() => getShellAppFromPathname(pathname)?.id || null, [pathname]);
+  const hasShellAppAccess = useMemo(
+    () => (shellAppId ? userHasAppAccess(shellAppId, role, permissions, appAccess) : false),
+    [shellAppId, role, permissions, appAccess],
+  );
   const [helpOpen, setHelpOpen] = useState(false);
   const [expandedDesc, setExpandedDesc] = useState({});
   const [trainingData, setTrainingData] = useState([]);
@@ -131,6 +142,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   const dashboardUsername = String(searchParams?.get("df_user") || "");
   const dashboardSelectedKey = String(searchParams?.get("df_dash") || "").trim().toLowerCase();
   const dashboardDefaultsAppliedRef = useRef(false);
+  const dashboardSelfDefaultAppliedRef = useRef(false);
   const today = dayjs().format("YYYY-MM-DD");
   const { from: activeFromDate, to: activeToDate } = useMemo(
     () => normalizeDashboardDateRange(dashboardFromDate, dashboardToDate, today),
@@ -288,6 +300,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   useEffect(() => {
     if (!isDashboardRoute || dashboardActive !== true) {
       dashboardDefaultsAppliedRef.current = false;
+      dashboardSelfDefaultAppliedRef.current = false;
       return;
     }
     const from = String(searchParams?.get("df_from") || "").trim();
@@ -367,12 +380,28 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   }, [pathname, navRegistry]);
 
   const filteredQuickLinks = useMemo(() => {
-    return getQuickLinksForPathname(pathname).filter((link) => {
-      if (!link.module) return true;
-      const access = canAccess(link.module, "view");
+    const links = getQuickLinksForPathname(pathname);
+    const hasModuleAccess = (module) => {
+      const access = canAccess(module, "view");
       return typeof access === "object" ? access.allowed : !!access;
+    };
+
+    return links.filter((link) => {
+      if (link.appKey) {
+        return userHasAppAccess(link.appKey, role, permissions, appAccess);
+      }
+      if (!link.module) {
+        if (link.reportMenu) return canShowTaskReportMenu(role, user);
+        if (Array.isArray(link.roles) && link.roles.length) {
+          const normalizedRole = String(role || "").toLowerCase().trim();
+          return link.roles.map((r) => String(r).toLowerCase()).includes(normalizedRole);
+        }
+        if (link.id === "home") return hasShellAppAccess;
+        return true;
+      }
+      return hasModuleAccess(link.module);
     });
-  }, [pathname, canAccess]);
+  }, [pathname, canAccess, role, user, permissions, appAccess, hasShellAppAccess]);
 
   const fetchVideos = useCallback(async () => {
     const slug = currentModule?.module;
@@ -411,11 +440,8 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
     }
     const loadUsers = async () => {
       try {
-        const response = await api(CORE_ENDPOINTS.USERS.LIST, {
-          method: "POST",
-          body: { page: 1, limit: 5000, filters: { status: "active" } },
-        });
-        const rows = Array.isArray(response?.data) ? response.data : [];
+        const response = await getDashboardFilterUsers();
+        const rows = Array.isArray(response?.data?.users) ? response.data.users : [];
         setDashboardUsers(
           rows
             .map((row) => {
@@ -438,18 +464,68 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   }, [isDashboardRoute, dashboardActive, canFilterByUser]);
 
   useEffect(() => {
-    if (!isDashboardRoute || dashboardActive !== true || !canFilterByUser || !dashboardUsername || !dashboardUsers.length) {
+    if (!isDashboardRoute || dashboardActive !== true || !canFilterByUser || !dashboardUsers.length) {
+      return;
+    }
+
+    const findSelfRow = () => {
+      const self = getDashboardSelfFilter(user);
+      return (
+        dashboardUsers.find((row) => row.value === self.username) ||
+        dashboardUsers.find((row) => String(row.id) === self.userId) ||
+        null
+      );
+    };
+
+    // Manager: first open → own name (not All Users). After that empty = All Users OK.
+    if (!dashboardUsername) {
+      if (defaultDashboardFilterToSelf && !dashboardSelfDefaultAppliedRef.current) {
+        dashboardSelfDefaultAppliedRef.current = true;
+        const selfRow = findSelfRow();
+        if (!selfRow) return;
+        updateDashboardFilterQuery({
+          df_user: selfRow.value,
+          df_uid: String(selfRow.id),
+          df_name: selfRow.name || selfRow.value,
+        }, true);
+      } else if (defaultDashboardFilterToSelf) {
+        dashboardSelfDefaultAppliedRef.current = true;
+      }
+      return;
+    }
+
+    dashboardSelfDefaultAppliedRef.current = true;
+    const selected = dashboardUsers.find((row) => row.value === dashboardUsername);
+    if (!selected) {
+      const fallback = defaultDashboardFilterToSelf ? findSelfRow() : null;
+      if (fallback) {
+        updateDashboardFilterQuery({
+          df_user: fallback.value,
+          df_uid: String(fallback.id),
+          df_name: fallback.name || fallback.value,
+        }, true);
+        return;
+      }
+      updateDashboardFilterQuery({ df_user: "", df_uid: "", df_name: "" }, true);
       return;
     }
     if (String(searchParams?.get("df_uid") || "").trim()) return;
-    const selected = dashboardUsers.find((row) => row.value === dashboardUsername);
-    if (!selected?.id) return;
     updateDashboardFilterQuery({
       df_user: dashboardUsername,
       df_uid: String(selected.id),
       df_name: selected.name || dashboardUsername,
     }, true);
-  }, [isDashboardRoute, dashboardActive, canFilterByUser, dashboardUsername, dashboardUsers, searchParams, updateDashboardFilterQuery]);
+  }, [
+    isDashboardRoute,
+    dashboardActive,
+    canFilterByUser,
+    defaultDashboardFilterToSelf,
+    dashboardUsername,
+    dashboardUsers,
+    searchParams,
+    user,
+    updateDashboardFilterQuery,
+  ]);
 
   useEffect(() => {
     if (!isDashboardRoute || dashboardActive !== true || canFilterByUser) return;
@@ -485,9 +561,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   );
   const dashboardDefaultKey = String(userDashboards?.default_key || "default").toLowerCase();
   const dashboardActiveKey = dashboardSelectedKey || dashboardDefaultKey;
-  const showDashboardSwitcher = showDashboardFilters && (
-    dashboardList.length > 1 || (canFilterByUser && dashboardList.length > 0)
-  );
+  const showDashboardSwitcher = showDashboardFilters && dashboardList.length > 1;
 
   const applyDashboardSelection = useCallback(
     (nextKey = "") => {
@@ -529,12 +603,13 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
       <nav
         className={`${THEME_CONFIG.footerBg} backdrop-blur-md border-b ${THEME_CONFIG.sidebarBorder} px-2 sm:px-3 py-1.5 sm:py-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2 shadow-sm min-w-0`}
       >
-        {/* Row 1 — Quick Links */}
-        {!hideQuickLinks ? (
-          <div className="flex items-center gap-3 sm:gap-5 md:gap-7 overflow-x-auto no-scrollbar w-full sm:flex-1 sm:min-w-0 py-0.5">
+        {/* Quick Access shortcuts — permission filtered */}
+        {!hideQuickLinks && filteredQuickLinks.length > 0 ? (
+          <div className="flex items-center gap-3 sm:gap-5 md:gap-7 overflow-x-auto no-scrollbar min-w-0 flex-1 py-0.5">
             {filteredQuickLinks.map((link) => (
               <button
                 key={link.id}
+                type="button"
                 onClick={() => router.push(link.path)}
                 className="flex items-center gap-1.5 group shrink-0 hover:opacity-80 transition-opacity"
               >
@@ -545,11 +620,13 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
               </button>
             ))}
           </div>
+        ) : !hideQuickLinks ? (
+          <div className="flex-1 min-w-0" aria-hidden="true" />
         ) : null}
 
-        {/* Row 2+ on phone — dates, then users/actions; desktop single row */}
-        {(showDashboardFilters || (currentModule && !hideQuickLinks)) && (
-          <div className="flex flex-col gap-1 w-full sm:flex-row sm:items-center sm:shrink-0 sm:justify-end sm:flex-1 sm:min-w-0 sm:gap-1.5">
+        {/* Right: dashboard filters + Help */}
+        {(showDashboardFilters || !hideQuickLinks) && (
+          <div className="flex flex-col gap-1 w-full sm:w-auto sm:max-w-none sm:flex-row sm:items-center sm:shrink-0 sm:justify-end sm:ml-auto sm:gap-1.5">
             {showDashboardFilters && (
               <div
                 data-dashboard-qab=""
@@ -603,7 +680,6 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
                         <option key={option.dashboard_key} value={option.dashboard_key}>
                           {option.dashboard_name}
                           {option.is_default ? " (Default)" : ""}
-                          {/* {option.scope === "users" ? " (Clone)" : ""} */}
                         </option>
                       ))}
                     </select>
@@ -652,7 +728,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
                     <RefreshCw size={12} className={`shrink-0 ${isDashboardSyncing ? "animate-spin" : ""}`} />
                     <span className="hidden sm:inline">Refresh</span>
                   </button>
-                  {currentModule && !hideQuickLinks && (
+                  {!hideQuickLinks && (
                     <button
                       type="button"
                       onClick={() => setHelpOpen(true)}
@@ -666,12 +742,12 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
               </div>
             )}
 
-            {currentModule && !hideQuickLinks && (
+            {!hideQuickLinks && (
               <button
                 type="button"
                 onClick={() => setHelpOpen(true)}
                 title="Help"
-                className="hidden sm:flex items-center justify-center shrink-0 h-6 sm:px-3 sm:py-1.5 sm:border-l sm:border-slate-700/50 sm:pl-2 bg-indigo-600 sm:text-white md:bg-indigo-50 md:text-indigo-600 rounded md:rounded-lg hover:opacity-90 transition-all active:scale-95"
+                className="hidden sm:flex items-center justify-center shrink-0 h-6 w-6 sm:h-7 sm:w-7 rounded-md bg-white text-indigo-600 hover:opacity-90 transition-all active:scale-95 shadow-sm"
               >
                 <HelpCircle size={14} className="md:animate-pulse" />
               </button>
@@ -687,7 +763,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
         title={
           <div className="flex items-center gap-2">
             <BookOpen size={18} className="text-indigo-600" />
-            <span className="text-slate-800 font-bold uppercase text-xs tracking-widest">{currentModule?.name}</span>
+            <span className="text-slate-800 font-bold uppercase text-xs tracking-widest">{currentModule?.name || "Help"}</span>
           </div>
         }
         maxWidth="max-w-md"

@@ -614,7 +614,7 @@ export function phoneContentBoxesFromFrame(
 /**
  * Fit nested phone children inside a container width.
  * @param {{ fill?: boolean }} options
- *   fill=true  (live): scale children to fill container.
+ *   fill=true  (live): scale children to fill container (up or down).
  *   fill=false (builder): keep exact sizes; only clamp overflow.
  */
 export function fitNestedPhoneBoxes(items = [], containerWidth = 0, options = {}) {
@@ -637,9 +637,18 @@ export function fitNestedPhoneBoxes(items = [], containerWidth = 0, options = {}
   }));
   const maxRight = shifted.reduce((max, box) => Math.max(max, box.left + box.width), 0);
   const span = Math.max(40, maxRight);
-  if (span <= inner + 48) {
-    return fitNestedLayoutPxToWidth(list, frame, pad);
+
+  // Live phone: always map design span → container inner width.
+  // Old early-return (span <= inner+48) only clamped and left ~350px widgets
+  // with an empty right gutter when the real phone was wider than the builder frame.
+  if (Math.abs(span - inner) < 2) {
+    return fitNestedLayoutPxToWidth(
+      shifted.map((box) => ({ ...box, left: pad + box.left })),
+      frame,
+      pad,
+    );
   }
+
   const scale = inner / span;
   return shifted.map((box) => {
     const width = Math.max(32, Math.round(box.width * scale));

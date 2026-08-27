@@ -304,7 +304,8 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
             fetchService={(params) => masterService.getItemsViews({
               ...params,
               permission_module: "location_master",
-              permission_action: "view"
+              permission_action: "view",
+              filters: "fg",
             })}
             getByIdService={(id) => masterService.getItemViewById(id, {
               permission_module: "location_master",

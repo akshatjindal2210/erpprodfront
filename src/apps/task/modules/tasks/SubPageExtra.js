@@ -1,4 +1,4 @@
-import { AlertTriangle, Download, Trash2, FileText, CheckCircle2, ThumbsUp, XCircle, CornerUpLeft, X, Loader2, Share2, ChevronDown, User, Activity, CheckCheck } from "lucide-react";
+import { AlertTriangle, Download, Trash2, FileText, CheckCircle2, ThumbsUp, XCircle, CornerUpLeft, X, Loader2, Share2, ChevronDown, User, Activity, CheckCheck, Star } from "lucide-react";
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
@@ -10,6 +10,7 @@ import { taskService } from "@/apps/task/lib/services/taskApi";
 import { mapTaskUserToOption } from "@/apps/task/lib/helpers/utilHelper";
 import Drawer from "@/ui/primitives/Drawer";
 import { toast } from "react-toastify";
+import { OK_TEXTAREA, FormLabel, FORM_HINT_CLASS } from "@/ui/common/Constants";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 export function MiniRow({ label, value, icon, color = "text-slate-600" }) {
@@ -355,8 +356,7 @@ export function ChatBubble({ msg, onReply, onDelete, isTaskDone, isSuperAdmin })
             <button onClick={() => onReply(msg)} className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 px-1.5 py-0.5 rounded-md hover:bg-indigo-50 transition-colors">
               <CornerUpLeft size={10} /> Reply
             </button>
-            {/* {(isOwn || isSuperAdmin) && ( */}
-            {(isSuperAdmin) && (
+            {(isOwn || isSuperAdmin) && (
               <button onClick={() => onDelete(msg.chat_id)} className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-rose-600 px-1.5 py-0.5 rounded-md hover:bg-rose-50 transition-colors">
                 <Trash2 size={10} /> Delete
               </button>
@@ -581,9 +581,73 @@ export function ReassignModal({ open, onClose, onSubmit, loading, users }) {
 }
 
 // Complete / Approve / Reject — unified modal
-export function ActionModal({ open, onClose, onSubmit, loading, type }) {
+const RATING_SCORES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+/** Matches task detail status badges (rounded-full, 10px). */
+export function TaskRatingBadge({ rating }) {
+  const n = Number(rating);
+  if (!Number.isFinite(n) || n < 1 || n > 10) return null;
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-indigo-50 text-indigo-700 border-indigo-200">
+      <Star size={9} className="fill-indigo-400 text-indigo-400 shrink-0" />
+      <span className="tabular-nums">Rating {n}/10</span>
+    </span>
+  );
+}
+
+/** Compact rating for list / report table cells. */
+export function TaskRatingCell({ task }) {
+  const n = Number(task?.rating);
+  if (task?.task_type === "self" || !Number.isFinite(n) || n < 1) {
+    return <span className="text-slate-300 text-[10px]">—</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-indigo-700 tabular-nums whitespace-nowrap">
+      <Star size={10} className="fill-indigo-400 text-indigo-400 shrink-0" />
+      {n}/10
+    </span>
+  );
+}
+
+export function taskRatingExportLabel(row) {
+  if (row?.task_type === "self" || row?.rating == null || row?.rating === "") return "—";
+  const n = Number(row.rating);
+  return Number.isFinite(n) && n >= 1 ? `${n}/10` : "—";
+}
+
+export function TaskRatingPicker({ value, onChange, hint }) {
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 sm:gap-2">
+        {RATING_SCORES.map((n) => {
+          const active = value === n;
+          return (
+            <button
+              key={n}
+              type="button"
+              onClick={() => onChange(n)}
+              className={`min-h-[40px] sm:min-h-9 rounded-lg text-sm font-semibold border transition-colors ${
+                active
+                  ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                  : "bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/60"
+              }`}
+            >
+              {n}
+            </button>
+          );
+        })}
+      </div>
+      <p className={FORM_HINT_CLASS}>
+        {hint ?? (value ? `Selected: ${value} out of 10` : "Required — select a rating before completing this task.")}
+      </p>
+    </div>
+  );
+}
+
+export function ActionModal({ open, onClose, onSubmit, loading, type, requireRating = false }) {
   const [note, setNote] = useState("");
-  useEffect(() => { if (!open) setNote(""); }, [open]);
+  const [rating, setRating] = useState(null);
+  useEffect(() => { if (!open) { setNote(""); setRating(null); } }, [open]);
 
   const cfg = {
     complete: {
@@ -593,10 +657,13 @@ export function ActionModal({ open, onClose, onSubmit, loading, type }) {
       label: "Submit", ph: "What did you complete?", noteRequired: false,
     },
     approve: {
-      title: "Approve Completion", icon: ThumbsUp,
+      title: requireRating ? "Final Approve Task" : "Approve Completion", icon: ThumbsUp,
       iconBg: "bg-indigo-50 border-indigo-200", iconClr: "text-indigo-600",
       btnClr: "bg-indigo-600 hover:bg-indigo-700",
-      label: "Approve", ph: "Approval note (optional)…", noteRequired: false,
+      label: requireRating ? "Approve & Complete" : "Approve",
+      ph: requireRating ? "Add a closing remark (optional)…" : "Approval note (optional)…",
+      noteRequired: false,
+      description: requireRating ? "Rate the work and add an optional remark before closing this task." : undefined,
     },
     reject: {
       title: "Reject Completion", icon: XCircle,
@@ -607,10 +674,11 @@ export function ActionModal({ open, onClose, onSubmit, loading, type }) {
   }[type] ?? {};
 
   const Icon = cfg.icon;
+  const ratingMissing = requireRating && rating == null;
 
   const handleSubmit = () => {
-    if (loading || (cfg.noteRequired && !note.trim())) return;
-    onSubmit({ note });
+    if (loading || (cfg.noteRequired && !note.trim()) || ratingMissing) return;
+    onSubmit({ note, rating: requireRating ? rating : undefined });
   };
 
   return (
@@ -619,14 +687,15 @@ export function ActionModal({ open, onClose, onSubmit, loading, type }) {
       onClose={onClose}
       closeOnOutside={false}
       title={cfg.title || ""}
+      description={cfg.description}
       headerVariant="form"
-      maxWidth="max-w-md"
+      maxWidth={requireRating ? "max-w-lg" : "max-w-md"}
       onSubmit={handleSubmit}
       footer={
         <>
-          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50">Cancel</button>
-          <button onClick={handleSubmit} disabled={loading || (cfg.noteRequired && !note.trim())} title="Ctrl+S"
-            className={`px-5 py-2 text-sm font-medium text-white rounded-xl flex items-center gap-2 disabled:opacity-50 shadow-sm transition-all ${cfg.btnClr}`}>
+          <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800 disabled:opacity-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={loading || (cfg.noteRequired && !note.trim()) || ratingMissing} title="Ctrl+S"
+            className={`min-w-[130px] px-5 py-2.5 text-sm font-bold text-white rounded-xl flex items-center justify-center gap-2 disabled:opacity-60 shadow-sm transition-all ${cfg.btnClr}`}>
             {loading ? <Loader2 size={14} className="animate-spin" /> : Icon ? <Icon size={14} /> : null} {cfg.label}
           </button>
         </>
@@ -634,19 +703,47 @@ export function ActionModal({ open, onClose, onSubmit, loading, type }) {
     >
       <div className="space-y-4">
         {type === "reject" && (
-          <div className="flex items-start gap-2.5 p-3 bg-rose-50 border border-rose-100 rounded-xl">
+          <div className="flex items-start gap-2.5 p-3 bg-rose-50 border border-rose-100 rounded-lg">
             <AlertTriangle size={14} className="text-rose-500 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-rose-700">Task will be moved back to <strong>In Progress</strong>. Assignee will be notified.</p>
+            <p className="text-xs text-rose-700 leading-relaxed">Task will be moved back to <strong>In Progress</strong>. Assignee will be notified.</p>
           </div>
         )}
 
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-            Note {cfg.noteRequired ? <span className="text-rose-400">*</span> : <span className="text-slate-400 font-normal normal-case">(optional)</span>}
-          </label>
-          <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={cfg.ph} rows={3}
-            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 placeholder-slate-400 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 resize-none transition-all" />
-        </div>
+        {requireRating ? (
+          <>
+            <div>
+              <FormLabel required>Rating (out of 10)</FormLabel>
+              <TaskRatingPicker value={rating} onChange={setRating} />
+            </div>
+
+            <div>
+              <FormLabel htmlFor="task-action-note">Remark</FormLabel>
+              <textarea
+                id="task-action-note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder={cfg.ph}
+                rows={3}
+                className={`${OK_TEXTAREA} resize-none`}
+              />
+              <p className={FORM_HINT_CLASS}>Optional — saved in task chat on approval.</p>
+            </div>
+          </>
+        ) : (
+          <div>
+            <FormLabel htmlFor="task-action-note-simple" required={cfg.noteRequired}>
+              Note {!cfg.noteRequired ? <span className="text-slate-400 font-normal normal-case">(optional)</span> : null}
+            </FormLabel>
+            <textarea
+              id="task-action-note-simple"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={cfg.ph}
+              rows={3}
+              className={`${OK_TEXTAREA} resize-none`}
+            />
+          </div>
+        )}
       </div>
     </Drawer>
   );
@@ -764,6 +861,7 @@ const ACTION_CONFIG = {
   sub_user_removed:          { label: "Sub-user Removed",       color: "bg-rose-100 border-rose-200 text-rose-700",         dot: "bg-rose-500"    },
   reminder_set:              { label: "Reminder Set",           color: "bg-amber-100 border-amber-200 text-amber-700",      dot: "bg-amber-500"   },
   title_changed:             { label: "Title Changed",          color: "bg-blue-100 border-blue-200 text-blue-700",         dot: "bg-blue-500"    },
+  rating_changed:            { label: "Rating Changed",         color: "bg-indigo-100 border-indigo-200 text-indigo-700",   dot: "bg-indigo-500"  },
   status_changed:            { label: "Status Changed",         color: "bg-orange-100 border-orange-200 text-orange-700",   dot: "bg-orange-500"  },
   completion_requested:      { label: "Completion Requested",   color: "bg-amber-100 border-amber-200 text-amber-700",      dot: "bg-amber-500"   },
   completion_approved:       { label: "Completion Approved",    color: "bg-emerald-100 border-emerald-200 text-emerald-700",dot: "bg-emerald-500" },

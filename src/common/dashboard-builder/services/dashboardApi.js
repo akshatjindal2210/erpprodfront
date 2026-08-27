@@ -120,6 +120,13 @@ export const getUserDashboards = async (appKey = "ims") => {
   });
 };
 
+export const getDashboardFilterUsers = async () => {
+  return api(`${BASE_PATH}/dashboard/filter-users`, {
+    method: "POST",
+    body: {},
+  });
+};
+
 export const renameDashboardConfig = async ({ appKey = "ims", pageKey = "default", dashboardKey, dashboardName } = {}) => {
   return api(`${BASE_PATH}/configs/rename`, {
     method: "POST",

@@ -17,6 +17,7 @@ import LaserScanField from "@/ui/common/scan/LaserScanField";
 import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import { FinderQcHoldBanner, getFinderBoxCardShellClass, getFinderBoxIconShellClass, getFinderBoxLabelClass, getFinderBoxMetaClass, getFinderBoxTitleClass } from "@/apps/ims/modules/box/finderBoxVisuals";
+import { getBoxStockZone } from "@/apps/ims/modules/box/boxTableVisuals";
 import BoxFinderDetailsSection from "./BoxFinderDetailsSection";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
@@ -178,6 +179,12 @@ export default function BoxFinderDrawer({ open, onClose }) {
       }
 
       setBoxData(box);
+
+      /** Dispatched: keep location_id in DB, do not show store place in finder. */
+      if (getBoxStockZone(box) === "dispatched") {
+        void playScanSuccessBeep();
+        return;
+      }
 
       const locationId = box.location_id;
       if (!locationId) {
@@ -350,7 +357,14 @@ export default function BoxFinderDrawer({ open, onClose }) {
                 </div>
               </div>
 
-              {locationData ? (
+              {getBoxStockZone(boxData) === "dispatched" ? (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
+                  <p className="text-xs font-semibold text-blue-900">Dispatched</p>
+                  <p className="text-[11px] text-blue-800 mt-0.5 leading-snug">
+                    Store location is not shown. Customer and other details are below.
+                  </p>
+                </div>
+              ) : locationData ? (
                 <div className="space-y-4">
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                     <p className="text-xs font-semibold text-slate-800">Current location</p>

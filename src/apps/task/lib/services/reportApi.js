@@ -51,12 +51,17 @@ export function toYmdClient(val) {
 }
 
 /**
- * Default: 2 days past … 7 days future (from today).
+ * Default CL Report window from today.
+ * Change DAYS_BACK to 10 (or any N) for a longer past range.
+ * Keep in sync with backend reportDateRange.config.js REPORT_DEFAULT_DAYS_*.
  */
+export const REPORT_DEFAULT_DAYS_BACK = 14;
+export const REPORT_DEFAULT_DAYS_FORWARD = 2;
+
 export function defaultReportDateRange(anchorYmd = istYmd()) {
   return {
-    dateFrom: addDaysYmd(anchorYmd, -2),
-    dateTo: addDaysYmd(anchorYmd, 7),
+    dateFrom: addDaysYmd(anchorYmd, -REPORT_DEFAULT_DAYS_BACK),
+    dateTo: addDaysYmd(anchorYmd, REPORT_DEFAULT_DAYS_FORWARD),
   };
 }
 

@@ -52,13 +52,23 @@ function formatJourneyValue(v) {
 
 const fmt = (v) => formatJourneyValue(v);
 
-const push = (rows, label, value) => rows.push({ label, value: fmt(value) });
+const hasDetailValue = (v) => {
+  if (v == null || v === "") return false;
+  if (typeof v === "string" && (!v.trim() || v.trim() === "—")) return false;
+  if (Array.isArray(v) && !v.length) return false;
+  return true;
+};
+
+const push = (rows, label, value) => {
+  if (!hasDetailValue(value)) return;
+  rows.push({ label, value: fmt(value) });
+};
 
 const sortEvents = (events) =>
   [...events].sort((a, b) => {
     const ta = a?.at ? new Date(a.at).getTime() : 0;
     const tb = b?.at ? new Date(b.at).getTime() : 0;
-    return ta !== tb ? ta - tb : String(a?.id ?? "").localeCompare(String(b?.id ?? ""));
+    return ta !== tb ? tb - ta : String(b?.id ?? "").localeCompare(String(a?.id ?? ""));
 });
 
 export function coilJourneyKey(coil) {
@@ -75,10 +85,6 @@ export function coilHasQcLink(coil) {
 
 export function buildCoilDetailRows(coil) {
   if (!coil) return [];
-  const idx =
-    coil.coil_index != null && coil.total_coils != null
-      ? `${coil.coil_index} / ${coil.total_coils}`
-      : coil.coil_index ?? coil.total_coils ?? "—";
   return [
     ["Coil UID", coil.coil_no_uid],
     ["MRN UID", coil.mrn_uid],
@@ -103,7 +109,9 @@ export function buildCoilDetailRows(coil) {
     ["Status", coil.status],
     ["Created At", coil.created_at ? formatDateTime(coil.created_at) : null],
     ["Updated At", coil.updated_at ? formatDateTime(coil.updated_at) : null],
-  ].map(([label, value]) => ({ label, value: fmt(value) }));
+  ]
+    .filter(([, value]) => hasDetailValue(value))
+    .map(([label, value]) => ({ label, value: fmt(value) }));
 }
 
 function extraDetailLines(details) {
@@ -314,7 +322,7 @@ export async function fetchCoilFinderData(coil) {
         limit,
         filters: { journey: key },
         sortBy: "created_at",
-        order: "ASC",
+        order: "DESC",
       })
     ).then(async ({ rows, typeLabels }) => {
       let stickerRows = [];
@@ -326,7 +334,7 @@ export async function fetchCoilFinderData(coil) {
               limit,
               filters: { journey: key },
               sortBy: "downloaded_at",
-              order: "ASC",
+              order: "DESC",
             }),
           500,
           5000

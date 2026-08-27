@@ -98,13 +98,17 @@ function masterToForm(item) {
   }
 
   const isDeptScope = !personId && !assigneeIds.length && !!item.department_id;
-  const isMultiPerson = assigneeIds.length > 1 || (!personId && assigneeIds.length > 0);
 
   const verifierId = item.verification_user_id ? String(item.verification_user_id) : "";
-  const resolvedPersonId = personId || (assigneeIds[0] || "");
+  const resolvedPersonIds = assigneeIds.length
+    ? assigneeIds
+    : personId
+      ? [personId]
+      : [];
+  const resolvedPersonId = resolvedPersonIds[0] || "";
   // Single assignee cannot be their own verifier (legacy rows may still have this)
   const safeVerifierId =
-    resolvedPersonId && verifierId && verifierId === resolvedPersonId && assigneeIds.length <= 1
+    resolvedPersonId && verifierId && verifierId === resolvedPersonId && resolvedPersonIds.length <= 1
       ? ""
       : verifierId;
 
@@ -129,13 +133,7 @@ function masterToForm(item) {
     designation_id: designationId,
     designation_ids: designationId ? [designationId] : [],
     person_id: resolvedPersonId,
-    assigned_user_ids: personId
-      ? [personId]
-      : isMultiPerson
-        ? assigneeIds
-        : assigneeIds.length
-          ? assigneeIds
-          : [],
+    assigned_user_ids: resolvedPersonIds,
     form_fields: schema,
   };
 }
@@ -393,9 +391,6 @@ export default function ClTaskModal({ open, onClose, onSuccess, editItem = null,
           users,
         });
         if (resolved.error) e.assignment = resolved.error;
-      } else if (isEdit && form.person_id && !(form.assigned_user_ids || []).length) {
-        // single-person edit
-        if (!form.person_id) e.person_id = "Person is required";
       } else {
         if (!form.assigned_user_ids?.length && !form.person_id) {
           e.assigned_user_ids = "Select at least one person";

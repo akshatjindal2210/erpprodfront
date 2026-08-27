@@ -37,7 +37,6 @@ import {
   PRIORITY_CONFIG,
 } from "@/apps/task/lib/ui/common/Constants";
 import { buildTaskDetailUrl } from "@/apps/task/lib/helpers/taskRouteHelper";
-import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
@@ -48,7 +47,6 @@ import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
 import DataTable from "@/ui/primitives/DataTable";
-import ActionButton from "@/ui/primitives/ActionButton";
 
 import TaskModal from "@/apps/task/modules/tasks/TaskModal";
 import { buildTaskListHeaders, buildTaskExportHeaders } from "@/apps/task/modules/tasks/taskListTableHeaders";
@@ -61,11 +59,8 @@ const MODULE = "tasks";
 
 export default function ReportPage({ reportPage }) {
   const currentUser = useSelector((state) => state.auth.user);
-  const role = useSelector((state) => state.auth.role);
+  const role = String(useSelector((state) => state.auth.role) || currentUser?.type || "").toLowerCase();
   const router = useRouter();
-  const canAccess = useCanAccess();
-  const canEdit = canAccess(MODULE, "edit").allowed;
-  const canDelete = canAccess(MODULE, "delete").allowed;
 
   useEffect(() => {
     const access = canAccessTaskReport(role, currentUser);
@@ -540,10 +535,11 @@ export default function ReportPage({ reportPage }) {
 
   const isSelectedOwner = useMemo(() => {
     if (!selectedRecord || !currentUser?.id) return false;
+    if (role === "super_admin" || role === "admin") return true;
     return selectedRecord.task_type === "self"
       ? String(selectedRecord.created_by_id) === String(currentUser.id)
       : String(selectedRecord.assigned_by_id) === String(currentUser.id);
-  }, [selectedRecord, currentUser?.id]);
+  }, [selectedRecord, currentUser?.id, role]);
 
   const getSelectedRow = useCallback(
     () => displayTasks.find((t) => String(t.task_id) === String(selected)) || null,
@@ -561,23 +557,23 @@ export default function ReportPage({ reportPage }) {
       const isOwner = row.task_type === "self"
         ? String(row.created_by_id) === String(currentUser?.id)
         : String(row.assigned_by_id) === String(currentUser?.id);
-      if (!isOwner) {
+      if (!isOwner && role !== "super_admin" && role !== "admin") {
         toast.info("Only the task owner can edit");
         return;
       }
       openEditModal(row);
-    }, [currentUser?.id, openEditModal]),
+    }, [currentUser?.id, role, openEditModal]),
     openDelete: useCallback((row) => {
       if (!row) return;
       const isOwner = row.task_type === "self"
         ? String(row.created_by_id) === String(currentUser?.id)
         : String(row.assigned_by_id) === String(currentUser?.id);
-      if (!isOwner) {
+      if (!isOwner && role !== "super_admin" && role !== "admin") {
         toast.info("Only the task owner can delete");
         return;
       }
       setDeleteTask(row);
-    }, [currentUser?.id]),
+    }, [currentUser?.id, role]),
     canDeleteSelection: useCallback(() => !!selected && isSelectedOwner, [selected, isSelectedOwner]),
     canEditSelection: useCallback(() => !!selected && isSelectedOwner, [selected, isSelectedOwner]),
     editBlockedMessage: "Select a task you own to edit",
@@ -591,10 +587,9 @@ export default function ReportPage({ reportPage }) {
       buildTaskListHeaders({
         activeTab,
         currentUserId: currentUser?.id,
+        userRole: role,
         quickFilter,
         statusFilter,
-        canEdit,
-        canDelete,
         onNavigate: navigateToTask,
         onEdit: openEditModal,
         onDelete: (t) => setDeleteTask(t),
@@ -606,10 +601,9 @@ export default function ReportPage({ reportPage }) {
     [
       activeTab,
       currentUser?.id,
+      role,
       quickFilter,
       statusFilter,
-      canEdit,
-      canDelete,
       navigateToTask,
       openEditModal,
       handleClone,
@@ -650,28 +644,23 @@ export default function ReportPage({ reportPage }) {
             }
             actions={
               <>
-                <ActionButton
-                  module={MODULE}
-                  action="view"
-                  variant="outline"
-                  label="View"
-                  icon={Eye}
+                <button
+                  type="button"
                   disabled={!selectedRecord}
                   onClick={() => navigateToTask(selectedRecord)}
-                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-slate-700 shadow-none shrink-0"
-                />
-                <ActionButton
-                  module={MODULE}
-                  action="edit"
-                  variant="outline"
-                  label="Edit"
-                  icon={Edit3}
+                  className="h-9 shrink-0 px-3 rounded-none border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider shadow-none"
+                >
+                  <Eye size={14} /> View
+                </button>
+                <button
+                  type="button"
                   disabled={!selectedRecord || !isSelectedOwner}
-                  record={selectedRecord}
                   onClick={() => openEditModal(selectedRecord)}
                   title="Edit (Ctrl+Alt+E / Ctrl+E in app, F2)"
-                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
-                />
+                  className="h-9 shrink-0 px-3 rounded-none border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider shadow-none"
+                >
+                  <Edit3 size={14} /> Edit
+                </button>
                 <button
                   type="button"
                   disabled={!selectedRecord}
@@ -690,17 +679,15 @@ export default function ReportPage({ reportPage }) {
                     <RefreshCw size={14} /> Reassign
                   </button>
                 )}
-                <ActionButton
-                  module={MODULE}
-                  action="delete"
-                  variant="danger"
-                  label="Delete"
-                  icon={Trash2}
+                <button
+                  type="button"
                   disabled={!selectedRecord || !isSelectedOwner}
                   onClick={() => setDeleteTask(selectedRecord)}
                   title="Delete (Ctrl+Alt+D / Ctrl+D in app, Delete)"
-                  className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
-                />
+                  className="h-9 shrink-0 px-3 rounded-none border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 disabled:opacity-50 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider shadow-none"
+                >
+                  <Trash2 size={14} /> Delete
+                </button>
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
                 <button
                   type="button"

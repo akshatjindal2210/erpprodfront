@@ -220,6 +220,18 @@ function barTone(kind) {
   return SCORE_CELL_TONES[kind]?.cell || SCORE_CELL_TONES.none.cell;
 }
 
+/**
+ * “Today” column look — change only here.
+ * Soft emerald (same family as before), slightly darker than emerald-50.
+ */
+export const TODAY_COLUMN = {
+  headerBg: "bg-emerald-100",
+  bodyBg: "bg-emerald-50",
+  sectionBg: "bg-emerald-50/70",
+  weekdayText: "text-emerald-900 font-black",
+  dateText: "text-emerald-950 font-black",
+};
+
 export default function ReportBookingCalendar({
   users = [],
   days = [],
@@ -488,17 +500,17 @@ export default function ReportBookingCalendar({
                       <div
                         key={`wd-${ymd}`}
                         className={`shrink-0 flex items-center justify-center border-r border-slate-100 ${
-                          isToday ? "bg-emerald-50" : weekend ? "bg-rose-50/40" : ""
+                          isToday ? TODAY_COLUMN.headerBg : weekend ? "bg-rose-50/40" : ""
                         }`}
                         style={{ width: DAY_W }}
                       >
                         <span
-                          className={`text-[8px] font-bold leading-none ${
+                          className={`text-[8px] leading-none ${
                             weekend
-                              ? "text-rose-600"
+                              ? "text-rose-600 font-bold"
                               : isToday
-                                ? "text-emerald-700"
-                                : "text-slate-500"
+                                ? TODAY_COLUMN.weekdayText
+                                : "text-slate-500 font-bold"
                           }`}
                         >
                           {weekdayLong(ymd)}
@@ -517,17 +529,17 @@ export default function ReportBookingCalendar({
                         key={`dn-${ymd}`}
                         title={`${weekdayLong(ymd)} · ${dmy}`}
                         className={`shrink-0 flex items-center justify-center border-r border-slate-100 px-0.5 ${
-                          isToday ? "bg-emerald-50" : weekend ? "bg-rose-50/30" : ""
+                          isToday ? TODAY_COLUMN.headerBg : weekend ? "bg-rose-50/30" : ""
                         }`}
                         style={{ width: DAY_W }}
                       >
                         <span
-                          className={`text-[9px] font-bold tabular-nums leading-tight text-center ${
+                          className={`text-[9px] tabular-nums leading-tight text-center ${
                             isToday
-                              ? "text-emerald-800"
+                              ? TODAY_COLUMN.dateText
                               : weekend
-                                ? "text-rose-600"
-                                : "text-slate-800"
+                                ? "text-rose-600 font-bold"
+                                : "text-slate-800 font-bold"
                           }`}
                         >
                           {dmy}
@@ -546,7 +558,7 @@ export default function ReportBookingCalendar({
                         key={`ds-${ymd}`}
                         title={`All users · ${weekdayLong(ymd)} · compiled ${formatSignedScore(headerPct)}`}
                         className={`shrink-0 flex items-center justify-center border-r border-slate-100 px-0.5 ${
-                          isToday ? "bg-emerald-50" : weekend ? "bg-rose-50/20" : "bg-slate-50/80"
+                          isToday ? TODAY_COLUMN.headerBg : weekend ? "bg-rose-50/20" : "bg-slate-50/80"
                         }`}
                         style={{ width: DAY_W }}
                       >
@@ -632,7 +644,7 @@ export default function ReportBookingCalendar({
                       key={`uh-${user.person_id}-${ymd}`}
                       title={`${user.person_name} · ${weekdayLong(ymd)} · ${formatSignedScore(userDayPct)}`}
                       className={`shrink-0 border-r border-slate-100 flex items-center justify-center ${
-                        ymd === today ? "bg-emerald-50/50" : ""
+                        ymd === today ? TODAY_COLUMN.bodyBg : ""
                       }`}
                       style={{ width: DAY_W }}
                     >
@@ -668,7 +680,7 @@ export default function ReportBookingCalendar({
                     {dateCols.map((ymd) => (
                       <div
                         key={`sh-${user.person_id}-${section.key}-${ymd}`}
-                        className={`shrink-0 border-r border-indigo-100/30 ${ymd === today ? "bg-emerald-50/20" : ""}`}
+                        className={`shrink-0 border-r border-indigo-100/30 ${ymd === today ? TODAY_COLUMN.sectionBg : ""}`}
                         style={{ width: DAY_W }}
                       />
                     ))}
@@ -727,7 +739,7 @@ export default function ReportBookingCalendar({
                             <div
                               key={`tc-${task.instance_id}-${ymd}`}
                               className={`shrink-0 border-r border-slate-100 flex items-center justify-center ${
-                                isToday ? "bg-emerald-50/40" : ""
+                                isToday ? TODAY_COLUMN.bodyBg : ""
                               }`}
                               style={{ width: DAY_W, height: ROW_H }}
                             >

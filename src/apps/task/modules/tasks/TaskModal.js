@@ -21,6 +21,7 @@ import SearchableSelect from "../../lib/ui/common/SearchableSelect";
 import RichTextEditor from "../../lib/ui/common/RichTextEditor";
 import YearlyRecurrencePicker from "../../lib/ui/common/YearlyRecurrencePicker";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
+import { TaskRatingPicker } from "./SubPageExtra";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 
 // ─── IMS drawer density — same height / radius as SearchableSelect ─────────────
@@ -40,6 +41,7 @@ const EMPTY_ASSIGNED = {
   category_id:            "",
   priority:               "low",
   status:                 "pending",
+  rating:                 null,
   due_date:               "",
   is_recurring:           false,
   recurrence_type:        "weekly",
@@ -540,9 +542,11 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
   const [taskDetail,     setTaskDetail]     = useState(null);
   const [fetchingDetail, setFetchingDetail] = useState(false);
 
-  // Only assigned_by for assigned tasks; creator for self tasks
+  // Only assigned_by for assigned tasks; creator for self tasks; Super Admin / Admin always
+  const isStaffFullAccess = currentUser?.type === "super_admin" || currentUser?.type === "admin";
   const canEditAssignment = !isEdit || (() => {
     if (!taskDetail || !currentUser) return false;
+    if (isStaffFullAccess) return true;
     const uid = String(currentUser.id);
     if (isSelf) {
       return uid === String(taskDetail.created_by_id) || uid === String(taskDetail.created_by);
@@ -550,9 +554,10 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
     return uid === String(taskDetail.assigned_by_id) || uid === String(taskDetail.assigned_by);
   })();
 
-  // Assigner can change Assigned By on assigned tasks
+  // Assigner can change Assigned By on assigned tasks; Super Admin / Admin always
   const canEditAssignedBy = !isEdit || (() => {
     if (!taskDetail || !currentUser) return false;
+    if (isStaffFullAccess) return true;
     const uid = String(currentUser.id);
     if (isSelf) {
       return uid === String(taskDetail.created_by_id) || uid === String(taskDetail.created_by);
@@ -676,6 +681,7 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
           category_id:            taskDetail.category_id        ?? "",
           priority:               taskDetail.priority           ?? "medium",
           status:                 taskDetail.status             ?? "pending",
+          rating:                 taskDetail.rating != null ? Number(taskDetail.rating) : null,
           due_date:               toDateStr(taskDetail.due_date),
           is_recurring:           !!taskDetail.is_recurring,
           recurrence_type:        taskDetail.recurrence_type    ?? "weekly",
@@ -798,6 +804,9 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
         if (canEditAssignedBy && String(form.assigned_by || "") !== String(taskDetail?.assigned_by_id ?? "")) {
           payload.assigned_by = form.assigned_by || null;
         }
+      }
+      if (isStaffFullAccess && isEdit && taskDetail?.status === "completed" && form.rating != null) {
+        payload.rating = form.rating;
       }
     }
 
@@ -1232,6 +1241,17 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                   </div>
                 )}
               </div>
+
+              {isStaffFullAccess && !isSelf && isEdit && taskDetail?.status === "completed" && (
+                <div className="min-w-0 w-full">
+                  <label className={FORM_LABEL_CLASS}>Performance Rating</label>
+                  <TaskRatingPicker
+                    value={form.rating}
+                    onChange={(n) => setForm((p) => ({ ...p, rating: n }))}
+                    hint={form.rating ? `Selected: ${form.rating} out of 10` : "Select a rating (1–10) for this completed task."}
+                  />
+                </div>
+              )}
 
 
               {/* Attachments */}

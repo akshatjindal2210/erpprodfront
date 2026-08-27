@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useSelector } from "react-redux";
-import { MODULE_APP_KEY, APP_META } from "@/config/moduleAppRegistry";
+import { MODULE_APP_KEY, APP_META, userHasAppAccess, normalizeAppAccessFlag } from "@/config/moduleAppRegistry";
 
 const FULL_ACCESS = { allowed: true,  days: 0 };
 const NO_ACCESS   = { allowed: false, days: 0 };
@@ -27,29 +27,28 @@ export const useCanAccess = () => {
     // 2. Deny if no module specified (fail-closed; public pages handled by callers)
     if (!module) return NO_ACCESS;
 
-    // 3. Check App Level Access first
+    // 3. App access — same rules as launcher / userHasAppAccess (module fallback when empty)
     const appKey = MODULE_APP_KEY[module];
     if (appKey) {
-      if (!appAccess[appKey]) {
+      if (!userHasAppAccess(appKey, role, permissions, appAccess)) {
         return NO_ACCESS;
       }
-      
       // If the app doesn't use granular permissions, allow full access if app access is ON
       if (APP_META[appKey]?.permissions === false) {
         return FULL_ACCESS;
       }
     }
 
-    // 4. Check permission
-    const perm = permissions?.find(p => p.module_name === module);
+    // 4. Module permission row
+    const key = String(module).toLowerCase();
+    const perm = permissions?.find((p) => String(p.module_name ?? "").toLowerCase() === key);
     
-    // 5. Module row missing or explicitly deactivated
     if (!perm || isModuleDeactivated(perm.module_is_active)) return NO_ACCESS;
 
     // 6. Action Permission Check
     return {
-      allowed: !!perm[`can_${action}`],
-      days:    parseInt(perm[`can_${action}_days`] || 0, 10),
+      allowed: normalizeAppAccessFlag(perm[`can_${action}`]),
+      days: parseInt(perm[`can_${action}_days`] || 0, 10),
     };
   }, [role, permissions, appAccess]);
 

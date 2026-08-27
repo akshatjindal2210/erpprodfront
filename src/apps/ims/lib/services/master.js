@@ -217,7 +217,8 @@ export const masterService = {
     const mustUseServerFilter =
       rest?.filters?.sticker_generated === true ||
       String(rest?.filters?.sticker_generated || "").toLowerCase() === "true" ||
-      inHandOnly;
+      inHandOnly ||
+      rest?.filters === "fg";
 
     if (!mustUseServerFilter && cache.items) {
       return getFilteredFromCache(cache.items, rest);
@@ -231,7 +232,7 @@ export const masterService = {
     const warmBody = {
       permission_module,
       permission_action,
-      ...(mustUseServerFilter && rest.filters ? { filters: rest.filters } : {}),
+      ...(mustUseServerFilter && rest.filters != null ? { filters: rest.filters } : {}),
     };
     const res = await api(ENDPOINTS.MASTER.ITEMS.VIEWS, {
       method: "POST",

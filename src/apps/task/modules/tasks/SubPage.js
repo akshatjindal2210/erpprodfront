@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSelector } from "react-redux";
 import { ArrowLeft, Calendar, Clock, User, Tag, Flag, CheckCircle2, AlertCircle, Paperclip, MessageSquare, Activity, RefreshCw, Edit2, ChevronRight, Repeat, Shield, TrendingUp,
-  Send, X, ChevronDown, CornerUpLeft, GitBranch, ThumbsUp, CheckCheck, AlertTriangle, Share2, Loader2, Lock, XCircle, ClipboardList, Search, Bell,
+  Send, X, ChevronDown, CornerUpLeft, GitBranch, ThumbsUp, CheckCheck, AlertTriangle, Share2, Loader2, Lock, XCircle, ClipboardList, Search, Bell, Star,
 } from "lucide-react";
 import { toast }       from "react-toastify";
 import { taskService } from "@/apps/task/lib/services/taskApi";
@@ -13,7 +13,7 @@ import TaskModal       from "@/apps/task/modules/tasks/TaskModal";
 import RichTextDisplay from "@/apps/task/lib/ui/common/RichTextDisplay";
 
 import { PRIORITY_CONFIG_DETAIL_PAGE, TASK_STATUS_CONFIG } from "@/apps/task/lib/ui/common/Constants";
-import { MiniRow, Sk, fmtDt, Badge, TimelineItem, AssignmentChain, AutoTextarea, FilePill, ChatBubble, ForwardModal, ActionModal, SidebarTaskItem, ChatMembers, ActivityLogModal, } from "./SubPageExtra";
+import { MiniRow, Sk, fmtDt, Badge, TimelineItem, AssignmentChain, AutoTextarea, FilePill, ChatBubble, ForwardModal, ActionModal, SidebarTaskItem, ChatMembers, ActivityLogModal, TaskRatingBadge, } from "./SubPageExtra";
 import { formatDateTime, formatDateTimeLocalLabel, toDateTimeLocalInput } from "@/apps/task/lib/helpers/utilHelper";
 
 import { SIDEBAR_TABS, TASK_COLORS } from "@/apps/task/lib/ui/tasks_common_component/TaskConstant"
@@ -55,6 +55,7 @@ export default function TaskDetailPage() {
   const currentUser   = useSelector((s) => s.auth.user);
   const userRole      = useSelector((s) => s.auth?.role);
   const isSuperAdmin  = userRole === "super_admin";
+  const isStaffFullAccess = userRole === "super_admin" || userRole === "admin";
 
   const [task,        setTask]        = useState(null);
   const [loading,     setLoading]     = useState(true);
@@ -275,6 +276,8 @@ export default function TaskDetailPage() {
   const needsTargetFirst = canSetTargetDate && !hasValidTarget && !canAdminOverrideTarget;
   const isCurrentHolder = task && Number(task.current_holder_id)    === Number(currentUserId);
   const isTaskFinalDone = task?.status === "completed";
+  /** Completed tasks are read-only for everyone except Super Admin / Admin */
+  const isReadOnlyDone  = isTaskDone && !isStaffFullAccess;
 
   const isAssignmentActive = (a) => a && (a.is_active === 1 || a.is_active === true);
   const currentAssignment = task?.assignment_chain?.find(
@@ -289,11 +292,9 @@ export default function TaskDetailPage() {
     && ["in_progress", "pending", "forwarded"].includes(task?.status ?? "");
   const canL1AlwaysAction = isL1 && task?.status !== "creator_pending" && !isTaskFinalDone;
 
-  // Super Admin can complete any open user/self task (Final Approve used when creator_pending)
-  const canAdminComplete = isSuperAdmin && !isTaskFinalDone
-    && !["creator_pending", "pending_approval"].includes(task?.status ?? "");
+  const canAdminComplete = isSuperAdmin && !isTaskFinalDone && task?.status !== "creator_pending";
 
-  const canForward        = (canL1AlwaysAction || canSubUserAction) && task?.task_type !== "self";
+  const canForward        = !isTaskFinalDone && task?.task_type !== "self" && (canL1AlwaysAction || canSubUserAction || isSuperAdmin);
   const canComplete       = canL1AlwaysAction || canSubUserAction || canAdminComplete;
   const canL1Approve      = (isL1 || isSuperAdmin) && task?.status === "pending_approval";
   const canL1Reject       = (isL1 || isSuperAdmin) && task?.status === "pending_approval";
@@ -381,7 +382,7 @@ export default function TaskDetailPage() {
   }, [reminderDirty]);
 
   const handleChatSend = async () => {
-    if (isTaskDone || isChatLockedByTarget || (!chatMsg.trim() && chatFiles.length === 0)) return;
+    if (isReadOnlyDone || isChatLockedByTarget || (!chatMsg.trim() && chatFiles.length === 0)) return;
     setChatSending(true);
     try {
       const fd = new FormData();
@@ -416,7 +417,7 @@ export default function TaskDetailPage() {
   };
 
   const handleChatFilePick = (e) => {
-    if (isTaskDone) return;
+    if (isReadOnlyDone) return;
     pickFiles(Array.from(e.target.files), (mapped) => setChatFiles((p) => [...p, ...mapped]));
     e.target.value = "";
   };
@@ -426,7 +427,7 @@ export default function TaskDetailPage() {
   });
 
   const handleDeleteChatMsg = async (chatId) => {
-    if (isTaskDone || !confirm("Delete this message?")) return;
+    if (isReadOnlyDone || !confirm("Delete this message?")) return;
     try { await taskService.deleteChatMessage(id, chatId); toast.success("Message deleted"); await fetchChat(); }
     catch { toast.error("Failed to delete"); }
   };
@@ -464,14 +465,14 @@ export default function TaskDetailPage() {
     toast.success(msg);
     setCompleteOpen(false);
   });
-  const handleApprove  = withAction(async ({ note }) => {
+  const handleApprove  = withAction(async ({ note, rating }) => {
     if (task?.status === "pending_approval" && canL1Approve) {
       const sub = task.assignment_chain?.find((a) => a.role === "sub_user" && a.is_active && a.completion_requested_at && !a.completion_approved_at);
       if (!sub) throw new Error("No pending sub-user assignment found");
       await taskService.approveSubUser(id, sub.assignment_id, { approval_note: note });
       toast.success("Sub-user approved!");
     } else if (task?.status === "creator_pending" && canAssignerApprove) {
-      await taskService.creatorDecision(id, { decision: "approved", approval_note: note });
+      await taskService.creatorDecision(id, { decision: "approved", approval_note: note, rating });
       toast.success("Task finally approved & completed!");
     }
     setApproveOpen(false);
@@ -770,14 +771,14 @@ export default function TaskDetailPage() {
               >
                 <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
               </button>
-              {((task.task_type === "self" && task.created_by_id === currentUserId) || (task.task_type !== "self" && task.assigned_by_id === currentUserId)) && (
+              {((task.task_type === "self" && task.created_by_id === currentUserId) || (task.task_type !== "self" && task.assigned_by_id === currentUserId) || isStaffFullAccess) && (
                 <button
                   type="button"
-                  onClick={() => { if (!isTaskFinalDone) setEditOpen(true); }}
-                  disabled={isTaskFinalDone}
+                  onClick={() => { if (!isReadOnlyDone) setEditOpen(true); }}
+                  disabled={isReadOnlyDone}
                   style={{ borderRadius: 12 }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all shadow-sm ${
-                    isTaskFinalDone ? "bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed opacity-60" : "bg-slate-800 text-white hover:bg-slate-900"
+                    isReadOnlyDone ? "bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed opacity-60" : "bg-slate-800 text-white hover:bg-slate-900"
                   }`}
                 >
                   <Edit2 size={12} /><span className="hidden sm:inline">Edit</span>
@@ -790,11 +791,17 @@ export default function TaskDetailPage() {
         {/* Status banners */}
         <div className="flex-shrink-0">
           {isTaskDone && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border-b border-emerald-100">
-              <div className="p-1 bg-emerald-100 rounded-full"><CheckCheck size={14} className="text-emerald-600" /></div>
+            <div className={`flex items-center gap-3 px-4 py-3 border-b ${isStaffFullAccess ? "bg-amber-50 border-amber-100" : "bg-emerald-50 border-emerald-100"}`}>
+              <div className={`p-1 rounded-full ${isStaffFullAccess ? "bg-amber-100" : "bg-emerald-100"}`}>
+                <CheckCheck size={14} className={isStaffFullAccess ? "text-amber-600" : "text-emerald-600"} />
+              </div>
               <div>
-                <p className="text-[13px] font-bold text-emerald-900 leading-none mb-1">Task Successfully Completed</p>
-                <p className="text-[11px] text-emerald-700 font-medium">This record is now read-only. Editing, assignments, and messaging are permanently disabled.</p>
+                <p className={`text-[13px] font-bold leading-none mb-1 ${isStaffFullAccess ? "text-amber-900" : "text-emerald-900"}`}>Task Successfully Completed</p>
+                <p className={`text-[11px] font-medium ${isStaffFullAccess ? "text-amber-700" : "text-emerald-700"}`}>
+                  {isStaffFullAccess
+                    ? "Staff can still edit, update details, and send messages on this completed task."
+                    : "This record is now read-only. Editing, assignments, and messaging are permanently disabled."}
+                </p>
               </div>
             </div>
           )}
@@ -936,6 +943,9 @@ export default function TaskDetailPage() {
                         <AlertCircle size={9} /> Overdue
                       </span>
                     )}
+                    {isAssignedTask && task.rating != null && (
+                      <TaskRatingBadge rating={task.rating} />
+                    )}
                     <span className="ml-auto text-[10px] text-slate-400 font-mono">#{task.task_id}</span>
                   </div>
                   <div className="px-3 py-3 border-b border-slate-100">
@@ -957,6 +967,9 @@ export default function TaskDetailPage() {
                         <MiniRow label="Target" value={fmtDt(task.current_target.target_at)} icon={<Calendar size={12}/>} color="text-sky-700 font-semibold" />
                       ) : (
                         <MiniRow label="Reminder" value={fmtDt(task.reminder_date ?? task.self_reminder_date)} icon={<Clock size={12}/>} />
+                      )}
+                      {isAssignedTask && task.rating != null && (
+                        <MiniRow label="Rating" value={`${task.rating}/10`} icon={<Star size={12} className="fill-indigo-400 text-indigo-400" />} color="text-indigo-700 font-semibold" />
                       )}
                     </div>
                     <div className="pt-2 mt-2 border-t border-slate-200 flex flex-wrap gap-x-4 gap-y-1">
@@ -1137,11 +1150,11 @@ export default function TaskDetailPage() {
                           </p>
                         </div>
                       ) : chatMessages.map((msg) => (
-                        <ChatBubble key={msg.chat_id} msg={msg} onReply={setReplyTo} onDelete={handleDeleteChatMsg} isTaskDone={isTaskDone} isSuperAdmin={isSuperAdmin} />
+                        <ChatBubble key={msg.chat_id} msg={msg} onReply={setReplyTo} onDelete={handleDeleteChatMsg} isTaskDone={isReadOnlyDone} isSuperAdmin={isStaffFullAccess} />
                       ))}
                       <div ref={chatEndRef} />
                     </div>
-                    {replyTo && !isTaskDone && !isChatLockedByTarget && (
+                    {replyTo && !isReadOnlyDone && !isChatLockedByTarget && (
                       <div className="flex-shrink-0 px-3 py-2 border-t border-indigo-100 bg-indigo-50 flex items-center gap-2">
                         <CornerUpLeft size={12} className="text-indigo-500 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
@@ -1151,7 +1164,7 @@ export default function TaskDetailPage() {
                         <button onClick={() => setReplyTo(null)} className="text-indigo-400 hover:text-indigo-600"><X size={13} /></button>
                       </div>
                     )}
-                    {chatFiles.length > 0 && !isTaskDone && !isChatLockedByTarget && (
+                    {chatFiles.length > 0 && !isReadOnlyDone && !isChatLockedByTarget && (
                       <div className="flex-shrink-0 px-3 py-2 border-t border-slate-100 bg-white flex gap-2 overflow-x-auto">
                         {chatFiles.map((f, i) => (
                           <FilePill
@@ -1163,7 +1176,7 @@ export default function TaskDetailPage() {
                         ))}
                       </div>
                     )}
-                    {isTaskDone ? (
+                    {isReadOnlyDone ? (
                       <div className="flex-shrink-0 px-4 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-center gap-2">
                         <Lock size={13} className="text-slate-400" />
                         <p className="text-xs text-slate-400 font-medium">Chat is locked. This task is completed.</p>
@@ -1178,7 +1191,7 @@ export default function TaskDetailPage() {
                         <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
                           <AutoTextarea value={chatMsg} onChange={(e) => setChatMsg(e.target.value)} onKeyDown={handleChatKey}
                             placeholder={replyTo ? "Write a reply..." : "Type a message... (Enter to send)"}
-                            disabled={isTaskDone} />
+                            disabled={isReadOnlyDone} />
                           <div className="flex items-center gap-1 flex-shrink-0 pb-0.5">
                             <input ref={chatFileRef} type="file" multiple className="hidden"
                               accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx" onChange={handleChatFilePick} />
@@ -1303,9 +1316,9 @@ export default function TaskDetailPage() {
 
       <ForwardModal open={forwardOpen}  onClose={() => setForwardOpen(false)}  onSubmit={handleForward}  loading={actionLoading} users={users} />
       <ActionModal  open={completeOpen} onClose={() => setCompleteOpen(false)} onSubmit={handleComplete} loading={actionLoading} type="complete" />
-      <ActionModal  open={approveOpen}  onClose={() => setApproveOpen(false)}  onSubmit={handleApprove}  loading={actionLoading} type="approve" />
+      <ActionModal  open={approveOpen}  onClose={() => setApproveOpen(false)}  onSubmit={handleApprove}  loading={actionLoading} type="approve" requireRating={task?.status === "creator_pending" && task?.task_type === "assigned"} />
       <ActionModal  open={rejectOpen}   onClose={() => setRejectOpen(false)}   onSubmit={handleReject}   loading={actionLoading} type="reject"  />
-      {editOpen && task && !isTaskDone && (
+      {editOpen && task && !isReadOnlyDone && (
         <TaskModal open={editOpen} onClose={() => setEditOpen(false)} editTask={task}
           onSuccess={() => { setEditOpen(false); fetchTask(); fetchAllTasks(); }}
           taskType={task.task_type === "self" ? "self" : "assigned"} currentUser={currentUser} />

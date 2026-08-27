@@ -19,8 +19,8 @@ function physicalLocation(locationData, coil) {
 }
 
 export function getCoilWhereInfo(coil, locationData) {
-  const location = physicalLocation(locationData, coil);
   if (!coil) {
+    const location = physicalLocation(locationData, coil);
     return {
       zone: "stored",
       title: "Coil is here",
@@ -34,6 +34,8 @@ export function getCoilWhereInfo(coil, locationData) {
   const zoneLabel = resolveCoilLocationLabel(coil);
   const detail = resolveCoilLocationDetail(coil);
   const inArea = zone !== "stored";
+  /** Out / returned / consumed / rejected — keep location_id in DB, do not show rack in finder. */
+  const location = zone === "stored" ? physicalLocation(locationData, coil) : null;
   return {
     zone,
     title: location && !inArea ? "Coil is here" : "Coil is in this area",
@@ -45,13 +47,13 @@ export function getCoilWhereInfo(coil, locationData) {
 }
 
 function emptyLocationHint(info) {
-  if (info.zone === "rejected") return "No rack — send this coil from Store Out.";
-  if (info.zone === "returned") return "No rack — this coil was returned.";
-  if (info.zone === "out") return "No rack — this coil is on the shop floor.";
+  if (info.zone === "rejected") return "No rack shown — send this coil from Store Out.";
+  if (info.zone === "returned") return "No rack shown — this coil was returned.";
+  if (info.zone === "out") return "Dispatched — store location is not shown. Other details are below.";
   if (info.zone === "consumed") {
     return info.zoneDetail?.includes("Adjustment")
-      ? "No rack — this coil was removed by stock adjustment."
-      : "No rack — this coil has been consumed.";
+      ? "No rack shown — this coil was removed by stock adjustment."
+      : "No rack shown — this coil has been consumed.";
   }
   return "No rack yet. Use Store In to store it.";
 }

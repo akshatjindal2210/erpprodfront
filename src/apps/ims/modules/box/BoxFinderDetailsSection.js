@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { History, Loader2 } from "lucide-react";
+import { ChevronDown, History, Loader2 } from "lucide-react";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { boxJourneyKey, fetchBoxFinderData } from "@/apps/ims/lib/finder/boxFinderData";
+import { getBoxKindStickerChipClass } from "@/apps/ims/lib/utils/boxTransactionVisuals";
 
 function Panel({ title, sub, count, children }) {
   return (
@@ -25,6 +26,43 @@ function Panel({ title, sub, count, children }) {
   );
 }
 
+function StickersCollapse({ label, stickers, focusUid }) {
+  const [open, setOpen] = useState(false);
+  const focus = stickers.find((e) => String(e.box_no_uid ?? "").trim() === focusUid);
+
+  return (
+    <div className="col-span-2 text-[10px]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-1 text-left text-slate-500 hover:text-slate-700"
+      >
+        <ChevronDown size={12} className={`shrink-0 transition-transform ${open ? "rotate-0" : "-rotate-90"}`} />
+        <span>
+          {label} ({stickers.length})
+          {!open && focus ? (
+            <span className="ml-1 font-semibold text-slate-800">· {focus.box_no_uid}</span>
+          ) : null}
+        </span>
+      </button>
+      {open ? (
+        <div className="mt-1 max-h-64 overflow-y-auto flex flex-wrap gap-x-1 gap-y-0.5 content-start border border-slate-100 px-1.5 py-1">
+          {stickers.map((e) => (
+            <span
+              key={e.box_no_uid}
+              className={`inline-flex max-w-full shrink-0 font-mono text-[9px] leading-tight whitespace-nowrap rounded px-2 py-1 ${getBoxKindStickerChipClass(e)}`}
+              title={e.is_loose ? `${e.box_no_uid} (loose)` : e.box_no_uid}
+            >
+              {e.box_no_uid}
+              {Number.isFinite(Number(e.qty)) ? ` · qty ${e.qty}` : ""}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function JourneyTimeline({ events }) {
   if (!events.length) {
     return <p className="text-[11px] text-slate-400 italic">No journey events found.</p>;
@@ -33,7 +71,9 @@ function JourneyTimeline({ events }) {
   return (
     <ol className="space-y-0 max-h-[400px] overflow-y-auto divide-y divide-slate-100">
       {events.map((ev, index) => {
-        const lines = (ev.lines || []).filter((l) => l.value && l.value !== "—");
+        const lines = (ev.lines || []).filter(
+          (l) => (l.stickers?.length) || (l.value && l.value !== "—")
+        );
         return (
           <li key={ev.id} className="flex gap-2.5 py-2.5 first:pt-0 last:pb-0">
             <div className="flex flex-col items-center shrink-0 w-6">
@@ -52,13 +92,22 @@ function JourneyTimeline({ events }) {
                 </span>
               </div>
               {lines.length ? (
-                <dl className="space-y-0.5">
-                  {lines.map(({ label, value }) => (
-                    <div key={label} className="flex gap-1.5 text-[10px] leading-snug">
-                      <dt className="text-slate-400 shrink-0">{label}</dt>
-                      <dd className="text-slate-800 font-semibold break-all min-w-0">{value}</dd>
-                    </div>
-                  ))}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+                  {lines.map(({ label, value, stickers, focusUid }) =>
+                    stickers?.length ? (
+                      <StickersCollapse
+                        key={label}
+                        label={label}
+                        stickers={stickers}
+                        focusUid={focusUid}
+                      />
+                    ) : (
+                      <div key={label} className="contents">
+                        <dt className="text-[10px] text-slate-400 whitespace-nowrap">{label}</dt>
+                        <dd className="text-[10px] text-slate-800 font-semibold break-all min-w-0">{value}</dd>
+                      </div>
+                    )
+                  )}
                 </dl>
               ) : null}
             </div>
@@ -128,7 +177,7 @@ export default function BoxFinderDetailsSection({ box }) {
         )}
       </Panel>
 
-      <Panel title="Journey" sub="Top to bottom · oldest first" count={loading ? null : `${events.length} events`}>
+      <Panel title="Journey" sub="Top to bottom · newest first" count={loading ? null : `${events.length} events`}>
         {loading && !events.length ? (
           <div className="py-6 text-center">
             <Loader2 className="animate-spin text-indigo-500 mx-auto mb-2" size={24} />

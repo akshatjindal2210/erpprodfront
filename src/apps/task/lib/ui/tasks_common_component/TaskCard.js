@@ -1,12 +1,13 @@
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2, Copy, Calendar, Bell, RepeatIcon, Eye, Activity, Tag, Clock } from "lucide-react";
+import { Pencil, Trash2, Copy, Calendar, Bell, RepeatIcon, Eye, Activity, Tag, Clock, Star } from "lucide-react";
 import { PRIORITY_CONFIG, TASK_STATUS_CONFIG_FOR_TABLE } from "@/apps/task/lib/ui/common/Constants";
 import { buildTaskDetailUrl } from "@/apps/task/lib/helpers/taskRouteHelper";
-import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
-import { ActivityLogModal } from "@/apps/task/modules/tasks/SubPageExtra";
+import { ActivityLogModal, TaskRatingBadge } from "@/apps/task/modules/tasks/SubPageExtra";
 import { useState } from "react";
 import { formatDate } from "@/apps/task/lib/helpers/utilHelper";
 import { getTaskRowColor, blendHexWithWhite, taskRowTint } from "@/apps/task/lib/ui/tasks_common_component/TaskHelper";
+import { useSelector } from "react-redux";
+import { getTaskRowManageFlags } from "@/apps/task/lib/helpers/taskManageAccess";
 
 export function TaskCard({
   task,
@@ -26,10 +27,15 @@ export function TaskCard({
   } = rowMeta;
 
   const router = useRouter();
-  const canAccess = useCanAccess();
-  const canEdit = canAccess("tasks", "edit").allowed;
-  const canDelete = canAccess("tasks", "delete").allowed;
+  const userRole = useSelector((s) => s.auth?.role ?? s.auth?.user?.type);
+  const currentUserId = useSelector((s) => s.auth?.user?.id ?? s.auth?.id ?? null);
   const [logModal, setLogModal] = useState(false);
+
+  const { showEdit, showDelete } = getTaskRowManageFlags({
+    row: task,
+    currentUserId,
+    userRole,
+  });
 
   const priorityCfg = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.medium;
   const statusCfg = TASK_STATUS_CONFIG_FOR_TABLE[task.status] ?? TASK_STATUS_CONFIG_FOR_TABLE.pending;
@@ -135,6 +141,9 @@ export function TaskCard({
                 <Tag size={9} /> {task.category_name}
               </span>
             )}
+            {task.task_type !== "self" && task.rating != null && (
+              <TaskRatingBadge rating={task.rating} />
+            )}
           </div>
 
           <div className="space-y-0.5">
@@ -216,7 +225,7 @@ export function TaskCard({
             >
               <Activity size={12} />
             </button>
-            {canEdit && (
+            {showEdit && (
               <button
                 type="button"
                 onClick={() => onEdit(task)}
@@ -234,7 +243,7 @@ export function TaskCard({
             >
               <Copy size={12} />
             </button>
-            {canDelete && (
+            {showDelete && (
               <button
                 type="button"
                 onClick={() => onDelete(task)}

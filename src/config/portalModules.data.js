@@ -33,6 +33,7 @@ export const MODULES = {
     { name: "inventory_inwards", label: "Store In" },
     { name: "forwarding_note_master", label: "Forwarding Note" },
     { name: "out_entry", label: "Store Out" },
+    // { name: "gate_entry", label: "Gate Entry" },
     { name: "change_override_customer", label: "Change / Override Customer" },
     { name: "stock_adjustment", label: "Stock Adjustment" },
     { name: "inventory_report", label: "Inventory Report" },

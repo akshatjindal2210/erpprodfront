@@ -351,7 +351,7 @@ export default function CoilFinderDetailsSection({ coil }) {
         icon={History}
         iconClass="text-emerald-600"
         title="Journey"
-        sub="Top to bottom · oldest first"
+        sub="Top to bottom · newest first"
         count={loading ? null : `${events.length} events`}
       >
         {loading && !events.length ? (

@@ -46,10 +46,14 @@ export default function PackingModal({ open, onClose, onSuccess, editData, mode 
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
+  const [itemWeight, setItemWeight] = useState(null);
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
 
   const editStandardId = editData?.standard_id ?? null;
+
+  const qtyNum = Number(form.qty);
+  const rowKg = Number.isFinite(itemWeight) && Number.isFinite(qtyNum) && qtyNum > 0 ? itemWeight * qtyNum : null;
 
   useEffect(() => {
     let timeoutId;
@@ -65,13 +69,17 @@ export default function PackingModal({ open, onClose, onSuccess, editData, mode 
           acc_code: editData.acc_code ?? "",
           approved: isApprove ? (editData?.approved ?? false) : false,
         });
+        const w = Number(editData.item_weight);
+        setItemWeight(Number.isFinite(w) ? w : null);
       } else {
         setForm(INITIAL_FORM);
+        setItemWeight(null);
       }
       setErrors({});
     } else {
       timeoutId = setTimeout(() => {
         setForm(INITIAL_FORM);
+        setItemWeight(null);
         setErrors({});
       }, 300);
     }
@@ -220,11 +228,16 @@ export default function PackingModal({ open, onClose, onSuccess, editData, mode 
         <SearchableSelect
           label="Item Search (Code / Description)"
           value={form.item_dcode}
-          onChange={(id) => handleChange("item_dcode", id)}
+          onChange={(id, item) => {
+            handleChange("item_dcode", id);
+            const w = Number(item?.weight);
+            setItemWeight(id != null && id !== "" && Number.isFinite(w) ? w : null);
+          }}
           fetchService={(params) => masterService.getItemsViews({ 
             ...params, 
             permission_module: "packing_standard", 
-            permission_action: "view" 
+            permission_action: "view",
+            filters: "fg",
           })}
           getByIdService={(id) => masterService.getItemViewById(id, { 
             permission_module: "packing_standard", 
@@ -256,6 +269,15 @@ export default function PackingModal({ open, onClose, onSuccess, editData, mode 
               className={`${errors.qty ? ERR_INPUT : OK_INPUT} text-[11px] h-[38px] rounded-lg`}
             />
             {errors.qty && <p className="text-[9px] text-rose-500 font-bold ml-1">{errors.qty}</p>}
+            {rowKg != null && (
+              <p className="text-[11px] text-slate-600 mt-1.5 ml-1 tabular-nums">
+                Weight: <span className="font-semibold text-slate-800">{itemWeight}</span>
+                {" × "}
+                <span className="font-semibold text-slate-800">{qtyNum}</span>
+                {" = "}
+                <span className="font-bold text-indigo-700">{rowKg} kg</span>
+              </p>
+            )}
           </div>
 
           <div className="space-y-1">
