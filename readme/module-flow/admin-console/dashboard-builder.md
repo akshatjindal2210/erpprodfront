@@ -37,3 +37,5 @@ No FK to users. Audience IDs live in JSON (`targetUserIds`, `defaultForUserIds`)
 | Save / publish | INSERT or UPDATE `mst_dashboard_configs.dashboard_json` |
 | Delete widget  | UPDATE JSON                                             |
 | Delete config  | UPDATE `meta.active=false`                              |
+
+**Graph advanced settings** (comparison, formatting, legend position, etc.): see [`GRAPH_ADVANCED_SETTINGS.md`](./GRAPH_ADVANCED_SETTINGS.md).

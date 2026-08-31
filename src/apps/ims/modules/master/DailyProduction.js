@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
-import { Package, Eye, Plus, Trash2, Loader2 } from "lucide-react";
+import { Package, Eye, Plus, Trash2, Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "react-toastify";
 import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
@@ -26,6 +26,9 @@ import { applyClientSearch, fetchAllListPages, sortRowsByKey, nextSortParams } f
 import { toastDataRefreshed } from "@/platform/utils/core/toastNotify";
 import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
 import { DAILY_PRODUCTION_HEADERS, DAILY_PRODUCTION_PENDING_HEADERS, DAILY_PRODUCTION_COMPARISON_HEADERS, STICKER_STATUS_FILTER_OPTIONS, DAILY_PROD_PENDING_CARD_CONFIG, DAILY_PROD_GENERATED_CARD_CONFIG, DAILY_PROD_COMPARISON_CARD_CONFIG, dailyProdRowKey, dailyProdSearchParts, dailyProdComparisonSearchParts, filterDailyProdByStickerStatus, isDailyProdStickerGenerated, hasDailyProdComparisonMismatch } from "./masterColumns";
+import { useSelector } from "react-redux";
+import { selectUser } from "@/platform/store/slices/authSlice";
+import { canCreatePackingDeviation } from "@/apps/ims/lib/utils/imsSpecialPermissions";
 
 const LIST_FETCH_CAP = 50000;
 const DISPLAY_CHUNK = 150;
@@ -96,7 +99,13 @@ const StickerCreationModel = dynamic(
   { ssr: false }
 );
 
+const PackingDeviationDrawer = dynamic(
+  () => import("@/apps/ims/modules/master/PackingDeviationDrawer"),
+  { ssr: false }
+);
+
 export default function DailyProductionPage() {
+  const user = useSelector(selectUser);
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("packing_entry", "view"), [canAccess]);
   const canRemoveGeneratedStickers = useMemo(() => canAccess("packing_entry", "delete").allowed, [canAccess]);
@@ -104,11 +113,14 @@ export default function DailyProductionPage() {
     () => canAccess("packing_entry", "add").allowed || canAccess("packing_entry", "edit").allowed,
     [canAccess]
   );
+  const canDeviation = useMemo(() => canCreatePackingDeviation(user), [user]);
 
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
   const [viewMode, handleViewMode] = useViewMode();
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isStickerModalOpen, setIsStickerModalOpen] = useState(false);
+  const [isDeviationOpen, setIsDeviationOpen] = useState(false);
+  const [stickerGateLoading, setStickerGateLoading] = useState(false);
   const [removeStickersLoading, setRemoveStickersLoading] = useState(false);
   const [removeStickersConfirmOpen, setRemoveStickersConfirmOpen] = useState(false);
 
@@ -358,18 +370,82 @@ export default function DailyProductionPage() {
     [appliedQuery?.fromDate, appliedQuery?.toDate]
   );
 
+  const tryOpenStickerModal = useCallback(
+    async (row) => {
+      if (!canNewSticker) return;
+      const itemdcode = row?.itemdcode ?? row?.item_dcode;
+      if (itemdcode == null || String(itemdcode).trim() === "") {
+        toast.info("Select a packing row with a valid item first.");
+        return;
+      }
+      if (isDailyProdStickerGenerated(row)) {
+        toast.info("Stickers already generated for this packing entry.");
+        return;
+      }
+
+      setStickerGateLoading(true);
+      try {
+        const res = await boxService.previewMonthlyPackingLimit({
+          doc_no: row.doc_no,
+          itemdcode,
+          total_qty: row.total_qty,
+          doc_dt: row.doc_dt,
+        });
+        const limit = res?.data;
+        // Fail closed: only open when backend explicitly says ok === true
+        if (limit && limit.ok === true) {
+          setIsStickerModalOpen(true);
+          return;
+        }
+
+        const excess = Number(limit?.excess_qty) || 0;
+        const baseQty = limit?.base_qty ?? limit?.base_allowed_limit;
+        const pct = Number(limit?.shortage_qty_percentage);
+        const tolQty = Number(limit?.tolerance_qty);
+        const pctPart = Number.isFinite(pct)
+            ? `base ${baseQty ?? "—"}, ${pct}% = ${Number.isFinite(tolQty) ? tolQty : "—"}, `
+            : `base ${baseQty ?? "—"}, `;
+        const msg =
+          `New Sticker cannot open — monthly packing qty is short` +
+          (excess > 0 ? ` by ${excess}` : "") +
+          ` (${pctPart}allowed ${limit?.allowed_limit ?? "—"}, projected ${limit?.projected_total ?? "—"}).`;
+
+        if (canDeviation) {
+          toast.warning(`${msg} Create Deviation first, then try New Sticker again.`, {
+            autoClose: 9000,
+          });
+        } else {
+          toast.info(`${msg} Contact a user with Packing Deviation permission.`, {
+            autoClose: 9000,
+          });
+        }
+      } catch (err) {
+        toast.error(err?.message || "Could not verify monthly packing qty.");
+      } finally {
+        setStickerGateLoading(false);
+      }
+    },
+    [canNewSticker, canDeviation]
+  );
+
   const openStickerModal = useCallback(() => {
-    if (!canNewSticker) return;
-    setIsStickerModalOpen(true);
-  }, [canNewSticker]);
+    const row = selected ? rowByKey.get(selected) ?? null : null;
+    void tryOpenStickerModal(row);
+  }, [selected, rowByKey, tryOpenStickerModal]);
+
+  const openDeviationDrawer = useCallback(() => {
+    if (!canDeviation || !selected) return;
+    setIsDeviationOpen(true);
+  }, [canDeviation, selected]);
 
   const handleRowDoubleClick = useCallback(
     (_item, id) => {
       if (!canNewSticker) return;
       setSelected(id);
-      setIsStickerModalOpen(true);
+      const row = rowByKey.get(id) ?? null;
+      void tryOpenStickerModal(row);
     },
-    [canNewSticker]
+    [canNewSticker, rowByKey, tryOpenStickerModal]
   );
 
   const openRemoveConfirm = useCallback(() => setRemoveStickersConfirmOpen(true), []);
@@ -378,7 +454,7 @@ export default function DailyProductionPage() {
   const { openNewModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "packing_entry",
     addActions: ["add", "edit"],
-    modalOpen: isStickerModalOpen || isDetailModalOpen || removeStickersConfirmOpen,
+    modalOpen: isStickerModalOpen || isDetailModalOpen || removeStickersConfirmOpen || isDeviationOpen,
     selectedId: selected,
     getSelectedRow,
     openAdd: openStickerModal,
@@ -442,13 +518,30 @@ export default function DailyProductionPage() {
                 {canNewSticker ? (
                   <button
                     type="button"
-                    disabled={!selected}
+                    disabled={!selected || stickerGateLoading}
                     onClick={openNewModal}
                     title="Select a row in the list first to open New Sticker. Shortcut: Ctrl+Alt+N (browser) or Ctrl+N (PWA)."
                     className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    <Plus size={16} strokeWidth={2} />
+                    {stickerGateLoading ? (
+                      <Loader2 size={16} className="animate-spin" strokeWidth={2} />
+                    ) : (
+                      <Plus size={16} strokeWidth={2} />
+                    )}
                     <span>New Sticker</span>
+                  </button>
+                ) : null}
+
+                {canDeviation ? (
+                  <button
+                    type="button"
+                    disabled={!selected}
+                    onClick={openDeviationDrawer}
+                    title="Create Deviation shortage for the selected item (special permission). Auto-approved on save."
+                    className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white border border-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <AlertTriangle size={15} strokeWidth={2} />
+                    <span>Create Deviation</span>
                   </button>
                 ) : null}
 
@@ -682,6 +775,17 @@ export default function DailyProductionPage() {
           imsDateFilter={imsDateFilter}
           onClose={() => setIsStickerModalOpen(false)}
           onSuccess={handleStickerSuccess}
+        />
+      ) : null}
+
+      {isDeviationOpen && selectedRecord && canDeviation ? (
+        <PackingDeviationDrawer
+          open={isDeviationOpen && canDeviation}
+          packingRow={selectedRecord}
+          onClose={() => setIsDeviationOpen(false)}
+          onSuccess={() => {
+            toast.success("Deviation saved. You can open New Sticker now.");
+          }}
         />
       ) : null}
     </div>

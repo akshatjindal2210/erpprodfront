@@ -2,11 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isLaserCommitKey, laserScanChar } from "@/platform/utils/device/deviceScanSettings";
-import { normalizeScanInput, scanBufferLooksIncomplete } from "@/apps/ims/lib/helpers/qrScan";
+import { looksLikeEInvoiceJwt, looksLikeBillBase64, normalizeBillScanInput, normalizeScanInput, scanBufferLooksIncomplete } from "@/apps/ims/lib/helpers/qrScan";
+
+function idleCommitMsForBuffer(raw) {
+  if (looksLikeEInvoiceJwt(raw) || looksLikeBillBase64(raw) || scanBufferLooksIncomplete(raw)) {
+    return JWT_IDLE_COMMIT_MS;
+  }
+  return IDLE_COMMIT_MS;
+}
 
 const DEDUP_MS = 1500;
 const IDLE_COMMIT_MS = 450;
-const URL_IDLE_COMMIT_MS = 1000;
+/** E-invoice JWT / long QR — BT/laser often pauses mid-stream. */
+const JWT_IDLE_COMMIT_MS = 2500;
+/** After this many idle waits with still-incomplete JWT, reject instead of looping forever. */
+const JWT_INCOMPLETE_MAX_WAITS = 3;
 /** Ignore trailing Enter from scanner right after a successful commit. */
 const TRAILING_ENTER_IGNORE_MS = 1200;
 
@@ -80,6 +90,7 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
   const laserInputRef = useRef(null);
   const laserBufferRef = useRef("");
   const laserIdleRef = useRef(null);
+  const jwtIncompleteWaitsRef = useRef(0);
   const lastLaserRef = useRef({ code: "", at: 0 });
   const lastSuccessAtRef = useRef(0);
   const activeRef = useRef(active);
@@ -153,6 +164,7 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
   const resetLaser = useCallback(() => {
     setScanPreview("");
     laserBufferRef.current = "";
+    jwtIncompleteWaitsRef.current = 0;
     if (laserIdleRef.current) {
       clearTimeout(laserIdleRef.current);
       laserIdleRef.current = null;
@@ -230,7 +242,15 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
 
   const onLaserScanned = useCallback(
     (raw, { fromCommitKey = false } = {}) => {
-      const code = normalizeScanInput(raw);
+      // Bill / e-invoice QR: keep full JWT/base64 (do not first-line truncate).
+      const compact = String(raw ?? "").replace(/\s+/g, "");
+      const code =
+        looksLikeEInvoiceJwt(raw) ||
+        looksLikeBillBase64(raw) ||
+        /^eyJ/i.test(compact) ||
+        compact.length >= 48
+          ? normalizeBillScanInput(raw)
+          : normalizeScanInput(raw);
       const now = Date.now();
       if (!code) {
         if (
@@ -276,14 +296,51 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
         laserIdleRef.current = null;
       }
       const raw = laserBufferRef.current || String(laserInputRef.current?.value ?? "");
-      if (!fromCommitKey && scanBufferLooksIncomplete(raw)) {
-        laserIdleRef.current = setTimeout(() => commitLaserNow(false), URL_IDLE_COMMIT_MS);
-        return;
+      const incomplete = scanBufferLooksIncomplete(raw);
+
+      // Enter / suffix key with a 3-part JWT: commit even if signature is still short —
+      // many guns append Enter as soon as the third segment starts.
+      if (incomplete) {
+        const compact = String(raw || "").replace(/\s+/g, "");
+        const parts = compact.split(".");
+        const jwtReadyEnough =
+          fromCommitKey &&
+          looksLikeEInvoiceJwt(raw) &&
+          parts.length >= 3 &&
+          parts[0].startsWith("eyJ") &&
+          parts[1].length > 20 &&
+          parts[2].length >= 8;
+
+        if (!jwtReadyEnough) {
+          jwtIncompleteWaitsRef.current += 1;
+          if (jwtIncompleteWaitsRef.current > JWT_INCOMPLETE_MAX_WAITS) {
+            // Last resort: still forward whatever we have so backend can parse / error clearly.
+            jwtIncompleteWaitsRef.current = 0;
+            if (String(raw || "").trim().length >= 8) {
+              laserBufferRef.current = "";
+              onLaserScanned(raw, { fromCommitKey });
+              return;
+            }
+            laserBufferRef.current = "";
+            onScanRejectedRef.current?.({ reason: "incomplete_einvoice" });
+            const el = laserInputRef.current;
+            if (el) {
+              el.value = "";
+              lockLaserInput(el);
+            }
+            setPreviewIfEnabled("");
+            return;
+          }
+          laserIdleRef.current = setTimeout(() => commitLaserNow(false), JWT_IDLE_COMMIT_MS);
+          return;
+        }
       }
+
+      jwtIncompleteWaitsRef.current = 0;
       laserBufferRef.current = "";
       onLaserScanned(raw, { fromCommitKey });
     },
-    [onLaserScanned]
+    [lockLaserInput, onLaserScanned, setPreviewIfEnabled]
   );
 
   const processLaserKeyEvent = useCallback(
@@ -298,11 +355,10 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
       if (!ch || e.repeat) return;
       e.preventDefault();
       laserBufferRef.current += ch;
+      jwtIncompleteWaitsRef.current = 0;
       setPreviewIfEnabled(laserBufferRef.current);
       if (laserIdleRef.current) clearTimeout(laserIdleRef.current);
-      const idleMs = scanBufferLooksIncomplete(laserBufferRef.current)
-        ? URL_IDLE_COMMIT_MS
-        : IDLE_COMMIT_MS;
+      const idleMs = idleCommitMsForBuffer(laserBufferRef.current);
       laserIdleRef.current = setTimeout(commitLaserNow, idleMs);
     },
     [commitLaserNow, setPreviewIfEnabled]
@@ -324,8 +380,9 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
       const v = String(e.target.value ?? "");
       setPreviewIfEnabled(v);
       laserBufferRef.current = v;
+      jwtIncompleteWaitsRef.current = 0;
       if (laserIdleRef.current) clearTimeout(laserIdleRef.current);
-      const idleMs = scanBufferLooksIncomplete(v) ? URL_IDLE_COMMIT_MS : IDLE_COMMIT_MS;
+      const idleMs = idleCommitMsForBuffer(v);
       laserIdleRef.current = setTimeout(commitLaserNow, idleMs);
     },
     [commitLaserNow, unlockLaserInput, setPreviewIfEnabled]

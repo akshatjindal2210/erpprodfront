@@ -27,6 +27,7 @@ import { buildDashboardRuntimeFilters, canFilterDashboardByUser } from "../utils
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
 import { DASHBOARD_DB_SOURCE_OPTIONS, buildHybridPreviewRequest, isWidgetHybridMode, resolveHybridExternalDbSource } from "../utils/dashboardDbSources.js";
 import { normalizeTableSearchPosition, normalizeTableSearchWidth } from "../utils/tableToolbar.js";
+import { getDefaultGraphAdvancedStyle, mergeGraphAdvancedFromConfig, graphAdvancedToChartConfig } from "../utils/graphAdvancedConfig.js";
 import { isPwaStandalone, getListHotkeyParts } from "@/platform/utils/pwa/pwa";
 
 const typeToDisplayType = {
@@ -244,6 +245,7 @@ function defaultWidgetStyle(rawType = "table") {
       graphShowLegend: true,
       graphColors: ["#3b82f6", "#60a5fa", "#34d399", "#f59e0b", "#f43f5e", "#a855f7", "#06b6d4", "#84cc16"],
       graphColorPalette: "ocean",
+      ...getDefaultGraphAdvancedStyle(),
     };
   }
   if (rawType === "hybrid") {
@@ -344,6 +346,7 @@ function mergeWidgetStyle(rawType, chartConfig = {}) {
     graphColors: Array.isArray(cfg.graph_colors || cfg.graphColors)
       ? (cfg.graph_colors || cfg.graphColors)
       : defaults.graphColors,
+    ...(rawType === "graph" ? mergeGraphAdvancedFromConfig(cfg, defaults) : {}),
   };
   if (rawType === "heading" && (!cfg.bg || cfg.bg === DASHBOARD_WIDGET_BG || cfg.bg === "#ffffff" || cfg.bg === "#fff")) {
     merged.bg = "transparent";
@@ -448,6 +451,7 @@ function chartConfigFromWidgetStyle(widget = {}) {
     graph_y_key: widget.style?.graphYKey || undefined,
     graph_color_palette: widget.style?.graphColorPalette || undefined,
     graph_colors: Array.isArray(widget.style?.graphColors) ? widget.style.graphColors : undefined,
+    ...(widget.rawType === "graph" ? graphAdvancedToChartConfig(widget.style) : {}),
     is_hybrid: isWidgetHybridMode(widget),
     hybrid_mssql_query: widget.chart_config?.hybrid_mssql_query || "",
     hybrid_external_source: resolveHybridExternalDbSource(widget),

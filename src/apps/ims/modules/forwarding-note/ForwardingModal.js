@@ -582,7 +582,7 @@ export default function ForwardingModal({
   const [loadedAsScheduleNote, setLoadedAsScheduleNote] = useState(false);
   /** Use customer schedule item catalog (not free in-hand catalog). */
   const scheduleCatalogActive = Boolean(
-    customerSchedulePicker || ((isEdit || isApprove) && loadedAsScheduleNote)
+    customerSchedulePicker || isFromSchedule || ((isEdit || isApprove) && loadedAsScheduleNote)
   );
 
   useEffect(() => {
@@ -625,8 +625,6 @@ export default function ForwardingModal({
       setInHandItemCatalog(null);
       return undefined;
     }
-    // Schedule-locked FN cannot change items — skip catalog API.
-    if (isFromSchedule) return undefined;
 
     let cancelled = false;
     (async () => {
@@ -671,7 +669,7 @@ export default function ForwardingModal({
     return () => {
       cancelled = true;
     };
-  }, [open, formReady, editingFuid, isFromSchedule, scheduleCatalogActive, form.acc_code, isEdit, isApprove]);
+  }, [open, formReady, editingFuid, scheduleCatalogActive, form.acc_code, isEdit, isApprove]);
 
   // Edit / existing rows: fill Balance once from schedule catalog when still empty.
   // Never overwrite schno / balance after set — qty edits must not change them.
@@ -2270,7 +2268,10 @@ export default function ForwardingModal({
 
           {/* ── Item Rows ── */}
           <div className="space-y-3">
-            {form.items.map((item, idx) => (
+            {form.items.map((item, idx) => {
+              // Prefill rows stay locked; empty Add Row lines can pick an item.
+              const scheduleItemLocked = isFromSchedule && Boolean(String(item.item_dcode ?? "").trim());
+              return (
               <div key={idx} className="bg-white rounded-lg border border-slate-200 p-2.5 space-y-2.5 relative group/row shadow-sm">
                 
                 <div className="flex items-center justify-between">
@@ -2282,7 +2283,7 @@ export default function ForwardingModal({
                       </span>
                     ) : null}
                     {(isFromSchedule || scheduleCatalogActive || Number(item.source_dispatch_qty) > 0) &&
-                    (item.schno || Number(item.source_dispatch_qty) > 0 || scheduleCatalogActive) ? (
+                    (item.schno || Number(item.source_dispatch_qty) > 0) ? (
                       <span
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wide shadow-sm tabular-nums ${
                           Number(item.source_dispatch_qty) > 0
@@ -2320,7 +2321,7 @@ export default function ForwardingModal({
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-12 gap-2 items-end">
                   {/* Search Item */}
-                  <div className={`col-span-2 sm:col-span-4 lg:col-span-3 text-[11px] min-w-0 ${isFromSchedule ? "pointer-events-none" : ""}`}>
+                  <div className={`col-span-2 sm:col-span-4 lg:col-span-3 text-[11px] min-w-0 ${scheduleItemLocked ? "pointer-events-none" : ""}`}>
                     <SearchableSelect
                       label="Search Item"
                       value={
@@ -2336,7 +2337,7 @@ export default function ForwardingModal({
                       subLabelKey={scheduleCatalogActive ? "schedule_hint" : "itemdesc"}
                       getOptionClassName={itemRowOptionClassNames[idx]}
                       isOptionDisabled={itemRowOptionDisabled[idx]}
-                      disabled={isFromSchedule || !form.acc_code || categoryLoading || !form.packing_category_id}
+                      disabled={scheduleItemLocked || !form.acc_code || categoryLoading || !form.packing_category_id}
                       emptyMessage={
                         !form.acc_code
                           ? "Select a customer first"
@@ -2567,9 +2568,9 @@ export default function ForwardingModal({
                   );
                 })()}
               </div>
-            ))}
+            );
+            })}
           </div>
-          {!isFromSchedule ? (
           <div className="pt-1 flex justify-end">
             <button
               onClick={addRow}
@@ -2578,7 +2579,6 @@ export default function ForwardingModal({
               <Plus size={12} /> Add Row
             </button>
           </div>
-          ) : null}
         </div>
 
         {/* ── Remarks (full row, same as other modals) ── */}

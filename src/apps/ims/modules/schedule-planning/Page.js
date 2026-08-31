@@ -46,6 +46,9 @@ function buildScheduleListFilters(query, status = SCHEDULE_LIST_FILTER.ALL) {
     if (toDate) body.toDate = toDate;
   }
 
+  const schno = String(query?.schno ?? "").trim();
+  if (/^\d+$/.test(schno)) body.schno = schno;
+
   return body;
 }
 
@@ -664,12 +667,14 @@ export default function SchedulePlanningPage() {
               }
 
               setDraftReportType(reportType);
+              const quickSchno = String(tempSearch ?? "").trim();
               setAppliedQuery({
                 reportType,
                 status: SCHEDULE_LIST_FILTER.ALL,
                 ...(isCustom
                   ? { month, fromDate: hasDate ? fromDate : "", toDate: hasDate ? toDate : "" }
                   : {}),
+                ...( /^\d+$/.test(quickSchno) ? { schno: quickSchno } : {} ),
               });
               if (data.status != null) {
                 setStatusFilter(data.status);

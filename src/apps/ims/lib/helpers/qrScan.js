@@ -12,6 +12,41 @@ export function normalizeScanInput(rawValue) {
     .trim();
 }
 
+/**
+ * Bill / e-invoice QR: keep full payload (JWT or base64).
+ * Phone cameras often return multi-line base64 — do not take first line only.
+ */
+export function normalizeBillScanInput(rawValue) {
+  let s = String(rawValue ?? "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    .replace(/\uFEFF/g, "")
+    .trim();
+  if (!s) return "";
+
+  const compact = s.replace(/\s+/g, "");
+  // JWT or long base64 blob from e-invoice / tax QR
+  if (/^eyJ/i.test(compact) || (compact.length >= 32 && /^[A-Za-z0-9+/_-]+={0,2}$/.test(compact))) {
+    return compact;
+  }
+  if (s.startsWith("{")) return s;
+  return s.split(/\r?\n/)[0].trim();
+}
+
+/** True GST SignedQR JWT (header.payload…) — not plain base64 that merely starts with eyJ. */
+export function looksLikeEInvoiceJwt(rawValue) {
+  const s = String(rawValue ?? "").replace(/\s+/g, "");
+  if (!s) return false;
+  return /^eyJ[A-Za-z0-9_-]+\./i.test(s);
+}
+
+/** Phone QR often returns a single base64 JSON blob (no JWT dots). */
+export function looksLikeBillBase64(rawValue) {
+  const s = String(rawValue ?? "").replace(/\s+/g, "");
+  if (!s || s.length < 24) return false;
+  if (s.includes(".")) return false;
+  return /^[A-Za-z0-9+/_-]+={0,2}$/.test(s);
+}
+
 function readBoxParamsFromUrl(url) {
   const noParam = url.searchParams.get("box_no_uid");
   const idParam = url.searchParams.get("id");
@@ -62,10 +97,30 @@ function parseUrlStickerScan(trimmed) {
   return null;
 }
 
-/** True when idle-commit should wait (slow phone/BT scanners still sending URL chars). */
+/** True when idle-commit should wait (slow phone/BT scanners still sending URL/JWT chars). */
 export function scanBufferLooksIncomplete(rawValue) {
   const s = normalizeScanInput(rawValue);
   if (!s) return false;
+
+  const compact = s.replace(/\s+/g, "");
+
+  // Long e-invoice JWT — wait until all 3 segments arrive (scanners often pause mid-stream).
+  if (looksLikeEInvoiceJwt(s)) {
+    const parts = compact.split(".");
+    if (parts.length < 3) return true;
+    // Signature still arriving (HID/BT often pauses between segments).
+    if (parts.length === 3 && parts[2].length < 16) return true;
+    return false;
+  }
+
+  // Tax-invoice QR often returns ONE long base64 blob (may start with eyJ, no dots).
+  // Laser HID pauses mid-stream — do not commit early.
+  if (looksLikeBillBase64(s) || (/^eyJ/i.test(compact) && !compact.includes("."))) {
+    if (compact.length < 96) return true;
+    // Still growing / no padding yet for typical invoice payload sizes
+    if (!/=$/.test(compact) && compact.length < 500) return true;
+    return false;
+  }
 
   if (/^https?:\/\//i.test(s) || s.includes("://")) {
     if (/[?&]box_no_uid=[^&]+/i.test(s) || /[?&]id=\d+/i.test(s)) return false;
@@ -305,3 +360,79 @@ export function locationNoDisplayLabel(rawValue) {
 
   return extractLocationNo(rawValue) || "";
 }
+
+function decodeBase64UrlJsonBrowser(part) {
+  const padded = part.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (part.length % 4)) % 4);
+  const json = typeof atob === "function" ? atob(padded) : Buffer.from(padded, "base64").toString("utf8");
+  return JSON.parse(json);
+}
+
+function pickBillField(obj, keys) {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return "";
+}
+
+/**
+ * Parse bill / e-invoice QR (GST SignedQR JWT, JSON, or plain bill no).
+ * Example DocNo from invoice QR: HPF/26-27/1686
+ */
+export function parseBillQrPayload(rawValue) {
+  const raw = normalizeScanInput(rawValue);
+  if (!raw) return null;
+
+  if (looksLikeEInvoiceJwt(raw)) {
+    const parts = raw.split(".");
+    if (parts.length !== 3) {
+      return { ok: false, error: "Incomplete e-invoice QR. Hold steady and scan again." };
+    }
+    try {
+      const dataObject = decodeBase64UrlJsonBrowser(parts[1]);
+      let inside = dataObject?.data ?? dataObject;
+      if (typeof inside === "string") {
+        try {
+          inside = JSON.parse(inside);
+        } catch {
+          /* keep */
+        }
+      }
+      const payload = inside && typeof inside === "object" ? inside : dataObject;
+      const docNumber =
+        pickBillField(payload, ["DocNo", "docNo", "doc_no", "billno", "bill_no", "BillNo", "InvoiceNo"]) ||
+        pickBillField(dataObject, ["DocNo", "docNo", "billno", "bill_no"]);
+      if (!docNumber) {
+        return { ok: false, error: "Document number not found in e-invoice QR." };
+      }
+      const bill_dt =
+        pickBillField(payload, ["DocDt", "docDt", "doc_dt", "billdt", "bill_dt", "BillDt"]) ||
+        pickBillField(dataObject, ["DocDt", "docDt", "billdt"]) ||
+        null;
+      return { ok: true, docNumber, bill_dt, source: "einvoice_jwt", payload };
+    } catch {
+      return { ok: false, error: "Invalid e-invoice QR. Scan the full QR from the tax invoice." };
+    }
+  }
+
+  if (raw.startsWith("{") && raw.endsWith("}")) {
+    try {
+      const obj = JSON.parse(raw);
+      const docNumber = pickBillField(obj, ["DocNo", "docNo", "billno", "bill_no", "BillNo", "InvoiceNo"]);
+      if (docNumber) {
+        return {
+          ok: true,
+          docNumber,
+          bill_dt: pickBillField(obj, ["DocDt", "docDt", "billdt", "bill_dt"]) || null,
+          source: "json",
+          payload: obj,
+        };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  return { ok: true, docNumber: raw, bill_dt: null, source: "plain", payload: null };
+}
+

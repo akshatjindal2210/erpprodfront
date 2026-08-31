@@ -19,6 +19,7 @@ export const boxService = {
   getStickers:      (body) => api(ENDPOINTS.BOXES.STICKER_FETCH,    { method: "POST", body }),
   generateStickers: (body) => api(ENDPOINTS.BOXES.STICKER_GENERATE, { method: "POST", body }),
   previewSticker: (body) => api(ENDPOINTS.BOXES.STICKER_PREVIEW, { method: "POST", body }),
+  previewMonthlyPackingLimit: (body) => api(ENDPOINTS.BOXES.STICKER_MONTHLY_LIMIT, { method: "POST", body }),
   removeGeneratedStickers: (body) => api(ENDPOINTS.BOXES.STICKER_REMOVE, { method: "POST", body }),
 
   // ─── Download Tracking ───────────────────────────────────────

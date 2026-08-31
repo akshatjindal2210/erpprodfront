@@ -1,5 +1,5 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area, Legend } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area, Legend, LabelList } from "recharts";
 import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Copy, GripVertical, Pencil, Search, Trash2, X } from "lucide-react";
 import { toast } from "react-toastify";
 import SimpleNestedCanvas from "./SimpleNestedCanvas";
@@ -10,11 +10,8 @@ import { boxesFromChildren, savedStyleToCss } from "../utils/floatingLayoutEngin
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
 import { resolveWidgetSpacingPx, spacingPxToCss } from "../utils/dashboardLayoutEngine";
 import { normalizeTableSearchPosition, normalizeTableSearchWidth } from "../utils/tableToolbar.js";
-import {
-  DASHBOARD_TABLE_BODY_BG,
-  DASHBOARD_TABLE_HEADER_BG,
-  DASHBOARD_WIDGET_BG,
-} from "../utils/dashboardBuilderTheme";
+import { formatGraphValue, resolveGraphDisplayNumber, resolveGraphShowDataLabels, resolveGraphChartMargins, resolveGraphLegendProps, isGraphComparisonEnabled, sumSeriesTotal, normalizeGraphDisplayValue, normalizeGraphValueFormat } from "../utils/graphAdvancedConfig.js";
+import { DASHBOARD_TABLE_BODY_BG, DASHBOARD_TABLE_HEADER_BG, DASHBOARD_WIDGET_BG } from "../utils/dashboardBuilderTheme";
 
 const resolveKpiValueFontPx = (style = {}, displayVal = "", readOnly = false, nested = false) => {
   const configured = Number(style.fontSize);
@@ -886,6 +883,89 @@ const WidgetRenderer = ({
       ? style.graphColors
       : [style.color || "#3b82f6", "#60a5fa", "#93c5fd", "#1d4ed8", "#34d399", "#f59e0b", "#f43f5e", "#a855f7"];
     const tickFill = style.color || "#64748b";
+    const chartType = type;
+    const comparisonOn = isGraphComparisonEnabled(style) && chartType !== "pie";
+    const graphYKey2 = String(style.graphYKey2 || "").trim();
+    let yKey2 = null;
+    if (comparisonOn) {
+      if (graphYKey2 && keys.includes(graphYKey2) && graphYKey2 !== yKey) {
+        yKey2 = graphYKey2;
+      } else {
+        yKey2 = keys.find((k) => k !== xKey && k !== yKey) || null;
+      }
+    }
+    const showDataLabels = resolveGraphShowDataLabels(style, chartType);
+    const chartMargins = resolveGraphChartMargins(style, { showLegend, chartType });
+    const legendProps = resolveGraphLegendProps(style, { showLegend, fontSize: graphTextPx });
+    const renderChartLegend = () => (legendProps ? <Legend {...legendProps} /> : null);
+    const seriesTotal = sumSeriesTotal(data, yKey);
+    const displayMode = normalizeGraphDisplayValue(style.graphDisplayValue);
+    const axisFormatStyle = displayMode === "difference"
+      ? { ...style, graphDisplayValue: "raw" }
+      : style;
+
+    const formatAxisTick = (raw) => {
+      const n = resolveGraphDisplayNumber({ value: raw, total: seriesTotal, style: axisFormatStyle });
+      const fmtStyle = displayMode === "percent_total" && normalizeGraphValueFormat(axisFormatStyle.graphValueFormat) === "number"
+        ? { ...axisFormatStyle, graphValueFormat: "percent" }
+        : axisFormatStyle;
+      return formatGraphValue(n ?? raw, fmtStyle);
+    };
+
+    const formatSeriesValue = (raw, row, seriesKey) => {
+      const compareValue = yKey2 && seriesKey === yKey ? row?.[yKey2] : undefined;
+      const n = resolveGraphDisplayNumber({
+        value: raw,
+        compareValue,
+        total: seriesKey === yKey ? seriesTotal : sumSeriesTotal(data, seriesKey),
+        style,
+      });
+      const fmtStyle = displayMode === "percent_total" && normalizeGraphValueFormat(style.graphValueFormat) === "number"
+        ? { ...style, graphValueFormat: "percent" }
+        : style;
+      return formatGraphValue(n ?? raw, fmtStyle);
+    };
+
+    const tooltipContentStyle = {
+      backgroundColor: style.bg || "#fff",
+      border: "1px solid #e2e8f0",
+      borderRadius: "8px",
+      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+      fontSize: `${graphTextPx}px`,
+    };
+
+    const GraphTooltip = ({ active, payload, label }) => {
+      if (!active || !Array.isArray(payload) || !payload.length) return null;
+      return (
+        <div style={tooltipContentStyle} className="px-2.5 py-1.5">
+          {label != null && label !== "" ? (
+            <div style={{ color: tickFill, fontSize: `${Math.max(8, graphTextPx - 1)}px`, marginBottom: 4 }}>
+              {String(label)}
+            </div>
+          ) : null}
+          {payload.map((entry) => {
+            const row = entry?.payload || {};
+            const seriesKey = entry?.dataKey;
+            const text = formatSeriesValue(entry?.value, row, seriesKey);
+            return (
+              <div
+                key={`tt-${seriesKey}`}
+                style={{ fontWeight: 700, color: entry?.color || style.color || "#1e293b", fontSize: `${graphTextPx}px` }}
+              >
+                {seriesKey}: {text}
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
+
+    const labelValueAccessor = (seriesKey) => (entry) => {
+      const row = entry?.payload || {};
+      const raw = row?.[seriesKey] ?? entry?.value;
+      return formatSeriesValue(raw, row, seriesKey);
+    };
+
     const wrapChart = (chart) => (
       <ChartResponsiveContainer>
         {chart}
@@ -894,68 +974,109 @@ const WidgetRenderer = ({
 
     if (type === "bar") {
       return wrapChart(
-        <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: showLegend ? 8 : 0 }}>
+        <BarChart data={data} margin={chartMargins}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
-          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
-          <Tooltip
-            contentStyle={{ backgroundColor: style.bg || "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
-            itemStyle={{ fontSize: `${graphTextPx}px`, fontWeight: "bold", color: style.color || "#1e293b" }}
-            labelStyle={{ color: tickFill, fontSize: `${Math.max(8, graphTextPx - 1)}px`, marginBottom: "4px" }}
-          />
-          {showLegend ? <Legend wrapperStyle={{ fontSize: `${graphTextPx}px` }} /> : null}
-          <Bar dataKey={yKey} fill={palette[0] || "#3b82f6"} radius={[2, 2, 0, 0]} />
+          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} tickFormatter={formatAxisTick} width={56} />
+          <Tooltip content={<GraphTooltip />} />
+          {renderChartLegend()}
+          <Bar dataKey={yKey} fill={palette[0] || "#3b82f6"} radius={[2, 2, 0, 0]}>
+            {showDataLabels ? (
+              <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey)} />
+            ) : null}
+          </Bar>
+          {yKey2 ? (
+            <Bar dataKey={yKey2} fill={palette[1] || "#60a5fa"} radius={[2, 2, 0, 0]}>
+              {showDataLabels ? (
+                <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey2)} />
+              ) : null}
+            </Bar>
+          ) : null}
         </BarChart>,
       );
     }
 
     if (type === "line") {
       return wrapChart(
-        <LineChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: showLegend ? 8 : 0 }}>
+        <LineChart data={data} margin={chartMargins}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
-          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
-          <Tooltip
-            contentStyle={{ backgroundColor: style.bg || "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
-            itemStyle={{ fontSize: `${graphTextPx}px`, fontWeight: "bold", color: style.color || "#1e293b" }}
-            labelStyle={{ color: tickFill, fontSize: `${Math.max(8, graphTextPx - 1)}px`, marginBottom: "4px" }}
-          />
-          {showLegend ? <Legend wrapperStyle={{ fontSize: `${graphTextPx}px` }} /> : null}
-          <Line type="monotone" dataKey={yKey} stroke={palette[0] || "#3b82f6"} strokeWidth={2} dot={{ r: 3, fill: palette[0] || "#3b82f6" }} activeDot={{ r: 5 }} />
+          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} tickFormatter={formatAxisTick} width={56} />
+          <Tooltip content={<GraphTooltip />} />
+          {renderChartLegend()}
+          <Line type="monotone" dataKey={yKey} stroke={palette[0] || "#3b82f6"} strokeWidth={2} dot={{ r: 3, fill: palette[0] || "#3b82f6" }} activeDot={{ r: 5 }}>
+            {showDataLabels ? (
+              <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey)} />
+            ) : null}
+          </Line>
+          {yKey2 ? (
+            <Line type="monotone" dataKey={yKey2} stroke={palette[1] || "#60a5fa"} strokeWidth={2} dot={{ r: 3, fill: palette[1] || "#60a5fa" }} activeDot={{ r: 5 }}>
+              {showDataLabels ? (
+                <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey2)} />
+              ) : null}
+            </Line>
+          ) : null}
         </LineChart>,
       );
     }
 
     if (type === "area") {
       return wrapChart(
-        <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: showLegend ? 8 : 0 }}>
+        <AreaChart data={data} margin={chartMargins}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
-          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
-          <Tooltip
-            contentStyle={{ backgroundColor: style.bg || "#fff", border: "1px solid #e2e8f0", borderRadius: "8px" }}
-            itemStyle={{ fontSize: `${graphTextPx}px`, fontWeight: "bold", color: style.color || "#1e293b" }}
-          />
-          {showLegend ? <Legend wrapperStyle={{ fontSize: `${graphTextPx}px` }} /> : null}
-          <Area type="monotone" dataKey={yKey} stroke={palette[0] || "#3b82f6"} fill={palette[1] || palette[0] || "#93c5fd"} fillOpacity={0.35} />
+          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} tickFormatter={formatAxisTick} width={56} />
+          <Tooltip content={<GraphTooltip />} />
+          {renderChartLegend()}
+          <Area type="monotone" dataKey={yKey} stroke={palette[0] || "#3b82f6"} fill={palette[1] || palette[0] || "#93c5fd"} fillOpacity={0.35}>
+            {showDataLabels ? (
+              <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey)} />
+            ) : null}
+          </Area>
+          {yKey2 ? (
+            <Area type="monotone" dataKey={yKey2} stroke={palette[2] || "#34d399"} fill={palette[3] || palette[2] || "#6ee7b7"} fillOpacity={0.25}>
+              {showDataLabels ? (
+                <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey2)} />
+              ) : null}
+            </Area>
+          ) : null}
         </AreaChart>,
       );
     }
 
     if (type === "pie") {
+      const pieLabelsExplicit = style.graphShowDataLabels === true || style.graphShowDataLabels === false;
+      let pieLabel;
+      if (!showDataLabels) {
+        pieLabel = false;
+      } else if (!pieLabelsExplicit) {
+        // Untouched widgets: keep historical name labels (not values).
+        pieLabel = { fontSize: graphTextPx, fill: tickFill };
+      } else {
+        pieLabel = (entry) => {
+          if (displayMode === "percent_total") {
+            const pct = typeof entry.percent === "number"
+              ? entry.percent * 100
+              : resolveGraphDisplayNumber({ value: entry.value, total: seriesTotal, style });
+            return formatGraphValue(pct ?? entry.value, {
+              ...style,
+              graphValueFormat: style.graphValueFormat === "number" ? "percent" : style.graphValueFormat,
+            });
+          }
+          return formatSeriesValue(entry.value, entry, yKey);
+        };
+      }
       return wrapChart(
-        <PieChart>
-          <Tooltip
-            contentStyle={{ backgroundColor: style.bg || "#fff", border: "1px solid #e2e8f0", borderRadius: "8px" }}
-            itemStyle={{ fontSize: `${graphTextPx}px`, fontWeight: "bold", color: style.color || "#1e293b" }}
-          />
-          {showLegend ? <Legend wrapperStyle={{ fontSize: `${graphTextPx}px` }} /> : null}
+        <PieChart margin={chartMargins}>
+          <Tooltip content={<GraphTooltip />} />
+          {renderChartLegend()}
           <Pie
             data={data}
             dataKey={yKey}
             nameKey={xKey}
             outerRadius={pieRadius}
-            label={{ fontSize: graphTextPx, fill: tickFill }}
+            label={pieLabel}
+            labelLine={!!pieLabel}
           >
             {data.map((entry, index) => (
               <Cell

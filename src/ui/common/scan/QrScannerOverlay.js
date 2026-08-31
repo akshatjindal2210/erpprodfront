@@ -19,6 +19,8 @@ export default function QrScannerOverlay({
   torchSupported = false,
   torchOn = false,
   onToggleTorch,
+  /** Allow webcam QR on desktop (e.g. tax-invoice bill scan). */
+  allowDesktop = false,
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -26,7 +28,8 @@ export default function QrScannerOverlay({
   }, []);
 
   useEscapeKey(onClose, open);
-  if (!open || !isMobileDevice() || !mounted) return null;
+  const deviceOk = allowDesktop || isMobileDevice();
+  if (!open || !deviceOk || !mounted) return null;
 
   const content = (
     <div

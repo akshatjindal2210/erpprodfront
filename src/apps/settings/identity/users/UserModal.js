@@ -13,8 +13,13 @@ import { errInput, FieldError, okInput, formFieldLabelCls, ROLE_LABELS, selectCl
 import { focusFirstError } from "@/platform/utils/form/formFocus";
 import { partitionModulesForUserForm, resolveAppAccessEnabled, moduleIdsForAppType, sanitizePermissionsPayload, shouldIncludeInUserPermissionForm, isAppGateModule, PORTAL_APP_KEYS, clearModulePermissions } from "@/config/moduleAppRegistry";
 import UserPermissionsPanel from "./UserPermissionsPanel";
+import SpecialPermCheckboxes from "./SpecialPermCheckboxes";
+import { IMS_SPECIAL_PERMS, RMSTORE_SPECIAL_PERMS } from "./specialPermissions.ui";
 import { departmentService } from "@/apps/settings/lib/services/departmentService";
 import { designationService } from "@/apps/settings/lib/services/designationService";
+
+const imsPermDefaults = () => Object.fromEntries(IMS_SPECIAL_PERMS.map((p) => [p.key, false]));
+const rmstorePermDefaults = () => Object.fromEntries(RMSTORE_SPECIAL_PERMS.map((p) => [p.key, false]));
 
 const FIELD_ORDER = ["name", "email", "phone", "username", "auth_source", "usercode", "password", "type", "status", "department_id", "designation_id"];
 
@@ -78,19 +83,11 @@ const EMPTY_FORM = {
   department_id: "",
   designation_id: "",
   special_permissions: {
-    ims: {
-      inventory_out: false,
-      inventory_approve: false,
-      direct_forwarding_note: false,
-    },
+    ims: imsPermDefaults(),
     task: {
       verification_user_id: "",
     },
-    rmstore: {
-      type_spec_values: false,
-      issue_rm_mapped: false,
-      in_process_rejection: false,
-    },
+    rmstore: rmstorePermDefaults(),
   },
 };
 
@@ -137,9 +134,7 @@ function normalizedUserPayload(user) {
         : (user.special_permissions ?? {});
       return {
         ims: {
-          inventory_out: false,
-          inventory_approve: false,
-          direct_forwarding_note: false,
+          ...imsPermDefaults(),
           ...(raw.ims || {}),
         },
         task: {
@@ -152,9 +147,7 @@ function normalizedUserPayload(user) {
           })(),
         },
         rmstore: {
-          type_spec_values: false,
-          issue_rm_mapped: false,
-          in_process_rejection: false,
+          ...rmstorePermDefaults(),
           ...(raw.rmstore || {}),
         },
       };
@@ -940,21 +933,15 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
       payload.special_permissions = {
         ...(payload.special_permissions || {}),
         ims: {
-          inventory_out: false,
-          inventory_approve: false,
-          direct_forwarding_note: false,
+          ...imsPermDefaults(),
           ...(payload.special_permissions?.ims || {}),
         },
         task: {
           verification_user_id: Number.isFinite(verifierNum) && verifierNum > 0 ? verifierNum : null,
         },
         rmstore: {
-          type_spec_values: false,
-          issue_rm_mapped: Boolean(payload.special_permissions?.rmstore?.issue_rm_mapped),
+          ...rmstorePermDefaults(),
           ...(payload.special_permissions?.rmstore || {}),
-          in_process_rejection: Boolean(
-            payload.special_permissions?.rmstore?.in_process_rejection
-          ),
         },
       };
 
@@ -1401,77 +1388,19 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
                   <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
                     Special Permissions
                   </h3>
-                  <div className="rounded-lg border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden">
-                    <label htmlFor="inv-out-perm" className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
-                      <input
-                        id="inv-out-perm"
-                        type="checkbox"
-                        checked={form.special_permissions?.ims?.inventory_out || false}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            special_permissions: {
-                              ...prev.special_permissions,
-                              ims: {
-                                ...prev.special_permissions?.ims,
-                                inventory_out: e.target.checked,
-                              },
-                            },
-                          }))
-                        }
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                      />
-                      <span className="text-sm font-bold text-slate-700 select-none uppercase tracking-tight">
-                        Inventory Out
-                      </span>
-                    </label>
-                    <label htmlFor="inv-approve-perm" className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
-                      <input
-                        id="inv-approve-perm"
-                        type="checkbox"
-                        checked={form.special_permissions?.ims?.inventory_approve || false}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            special_permissions: {
-                              ...prev.special_permissions,
-                              ims: {
-                                ...prev.special_permissions?.ims,
-                                inventory_approve: e.target.checked,
-                              },
-                            },
-                          }))
-                        }
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                      />
-                      <span className="text-sm font-bold text-slate-700 select-none uppercase tracking-tight">
-                        Inventory Approve
-                      </span>
-                    </label>
-                    <label htmlFor="direct-fn-perm" className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
-                      <input
-                        id="direct-fn-perm"
-                        type="checkbox"
-                        checked={form.special_permissions?.ims?.direct_forwarding_note || false}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            special_permissions: {
-                              ...prev.special_permissions,
-                              ims: {
-                                ...prev.special_permissions?.ims,
-                                direct_forwarding_note: e.target.checked,
-                              },
-                            },
-                          }))
-                        }
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                      />
-                      <span className="text-sm font-bold text-slate-700 select-none uppercase tracking-tight">
-                        Direct Forwarding Note
-                      </span>
-                    </label>
-                  </div>
+                  <SpecialPermCheckboxes
+                    items={IMS_SPECIAL_PERMS}
+                    checkedOf={(key) => form.special_permissions?.ims?.[key]}
+                    onToggle={(key, checked) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        special_permissions: {
+                          ...prev.special_permissions,
+                          ims: { ...prev.special_permissions?.ims, [key]: checked },
+                        },
+                      }))
+                    }
+                  />
                 </div>
               }
               taskSpecialPermissionsSection={
@@ -1484,6 +1413,9 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
                       <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                         CL Verification Person
                       </label>
+                      <p className="text-[11px] font-medium text-slate-500 leading-snug">
+                        Default person who verifies this user&apos;s CL tasks. Cannot be the same as this user.
+                      </p>
                       <SearchableSelect
                         key={`cl-verifier-${isDbUpdate ? editUser?.id : "new"}`}
                         value={form.special_permissions?.task?.verification_user_id || ""}
@@ -1521,74 +1453,19 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
                   <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
                     RM Store Special Permissions
                   </h3>
-                  <div className="rounded-lg border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden">
-                    <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
-                      <input
-                        type="checkbox"
-                        checked={form.special_permissions?.rmstore?.type_spec_values || false}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            special_permissions: {
-                              ...prev.special_permissions,
-                              rmstore: {
-                                ...prev.special_permissions?.rmstore,
-                                type_spec_values: e.target.checked,
-                              },
-                            },
-                          }))
-                        }
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                      />
-                      <span className="text-sm font-bold text-slate-700 select-none">
-                        Type condition, grade &amp; size color fields are free-text with suggestions
-                      </span>
-                    </label>
-                    <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
-                      <input
-                        type="checkbox"
-                        checked={form.special_permissions?.rmstore?.issue_rm_mapped || false}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            special_permissions: {
-                              ...prev.special_permissions,
-                              rmstore: {
-                                ...prev.special_permissions?.rmstore,
-                                issue_rm_mapped: e.target.checked,
-                              },
-                            },
-                          }))
-                        }
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                      />
-                      <span className="text-sm font-bold text-slate-700 select-none">
-                        SP1 — Issue Request: select mapped RM for job card item
-                      </span>
-                    </label>
-                    <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50/80">
-                      <input
-                        type="checkbox"
-                        checked={form.special_permissions?.rmstore?.in_process_rejection || false}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            special_permissions: {
-                              ...prev.special_permissions,
-                              rmstore: {
-                                ...prev.special_permissions?.rmstore,
-                                in_process_rejection: e.target.checked,
-                              },
-                            },
-                          }))
-                        }
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                      />
-                      <span className="text-sm font-bold text-slate-700 select-none">
-                        In-process Rejection — submit rejections (requires authorize to approve)
-                      </span>
-                    </label>
-                  </div>
+                  <SpecialPermCheckboxes
+                    items={RMSTORE_SPECIAL_PERMS}
+                    checkedOf={(key) => form.special_permissions?.rmstore?.[key]}
+                    onToggle={(key, checked) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        special_permissions: {
+                          ...prev.special_permissions,
+                          rmstore: { ...prev.special_permissions?.rmstore, [key]: checked },
+                        },
+                      }))
+                    }
+                  />
                 </div>
               }
             />

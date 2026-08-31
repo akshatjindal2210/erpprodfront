@@ -1202,7 +1202,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
     try {
       const packingCustomer = packingEntryCustomerRow(data, selectedRow);
       const categoryName = resolvePackingCategoryName(categories, selectedCategory, selectedRow);
-      const res = await boxService.generateStickers({
+      const body = {
         doc_no: selectedRow.doc_no,
         itemdcode: selectedRow.itemdcode,
         item_code: selectedRow.item_code,
@@ -1230,7 +1230,9 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
           data?.datec ||
           null,
         packing_config: packing,
-      });
+      };
+
+      const res = await boxService.generateStickers(body);
       const enriched = (res.data || []).map((row) => ({
         ...row,
         itemdcode: packingCustomer.itemdcode,
@@ -1261,10 +1263,23 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
       await fetchGeneratedSummary({ ...selectedRow, ...packingCustomer, category: categoryName });
       toast.success("Stickers generated successfully.");
       setStickerTab("breakdown");
-    } catch (err) { 
-      toast.error(err.message || "Generation failed");
+    } catch (err) {
+      const p = err?.payload;
+      if (p?.code === "MONTHLY_QTY_EXCEEDED") {
+        const msg =
+          p.message ||
+          `Monthly packing qty (${p.projected_total}) exceeds allowed limit (${p.allowed_limit}).`;
+        if (p.can_create_deviation) {
+          toast.warning(msg, { autoClose: 9000 });
+        } else {
+          toast.info(msg, { autoClose: 9000 });
+        }
+      } else {
+        toast.error(err.message || "Generation failed");
+      }
+    } finally {
+      setSubmitting(false);
     }
-    finally { setSubmitting(false); }
   };
 
   const handlePreview = async () => {

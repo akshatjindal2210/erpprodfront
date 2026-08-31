@@ -77,6 +77,17 @@ export const ENDPOINTS = {
     VIEWS: "/stock-adjustment/helper",
   },
 
+  SHORTAGE: {
+    LIST: "/shortage/list",
+    GET: "/shortage/get",
+    CREATE: "/shortage/create",
+    UPDATE: "/shortage/update",
+    DELETE: "/shortage/delete",
+    BULK: "/shortage/bulk",
+    BULK_PREVIEW: "/shortage/bulk-preview",
+    PACKING_DEVIATION: "/shortage/packing-deviation",
+  },
+
   BOXES: {
     LIST: "/boxes/list",
     IN_HAND_BY_PACKING: "/boxes/in-hand-by-packing",
@@ -89,6 +100,7 @@ export const ENDPOINTS = {
     STICKER_FETCH: "/boxes/sticker/fetch",
     STICKER_GENERATE: "/boxes/sticker/generate",
     STICKER_PREVIEW: "/boxes/sticker/preview",
+    STICKER_MONTHLY_LIMIT: "/boxes/sticker/monthly-limit",
     STICKER_REMOVE: "/boxes/sticker/remove",
     STICKER_DOWNLOAD: "/boxes/sticker/download",
     STICKER_DOWNLOAD_BULK: "/boxes/sticker/download-bulk",
@@ -165,10 +177,10 @@ export const ENDPOINTS = {
   GATE_ENTRIES: {
     PENDING: "/gate-entries/pending",
     LIST: "/gate-entries/list",
+    OPEN: "/gate-entries/open",
     DETAILS: "/gate-entries/details",
-    SCAN: "/gate-entries/scan",
     SAVE: "/gate-entries/save",
-    APPROVE: "/gate-entries/approve",
+    UPDATE: "/gate-entries/update",
     DELETE: "/gate-entries/delete",
   },
 

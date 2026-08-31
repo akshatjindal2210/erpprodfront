@@ -76,5 +76,5 @@ export async function getBillByNo(billNo, { items = [] } = {}) {
     /* fall through */
   }
 
-  return { data: { bill_no: label, billno: label } };
+  return { data: { bill_no: label, billno: label, is_green: false } };
 }

@@ -6,7 +6,7 @@ import { toast } from "react-toastify";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { schedulePlanningService } from "@/apps/ims/lib/services/schedulePlanning";
 import { scheduleItemRowKey, scheduleItemWiseSearchParts, ScheduleStatusBadge, formatSchHeaderDate } from "@/apps/ims/modules/schedule-planning/schedulePlanningColumns";
-import { SCHEDULE_PLAN_STATUS } from "@/apps/ims/modules/schedule-planning/schedulePlanStatus";
+import { SCHEDULE_PLAN_STATUS, normalizeScheduleStatus, scheduleDispatchMatchPct, compareRecommendedDispatchRows } from "@/apps/ims/modules/schedule-planning/schedulePlanStatus";
 import { IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
 import { applyClientSearch, sortRowsByKey, nextSortParams } from "@/ui/common/list/clientListSearch";
 import DataTable from "@/ui/primitives/DataTable";
@@ -23,8 +23,8 @@ function getTodayLabel() {
 }
 
 const DISPATCH_PLAN_ROW_LEGEND = [
-  { swatch: "bg-emerald-50 border border-emerald-200 shadow-[inset_3px_0_0_0_#10b981]", label: "Stock sufficient" },
-  { swatch: "bg-amber-50 border border-amber-200 shadow-[inset_3px_0_0_0_#f59e0b]", label: "Insufficient stock" },
+  { swatch: "bg-emerald-50 border border-emerald-200 shadow-[inset_3px_0_0_0_#10b981]", label: "Stock sufficient (high match)" },
+  { swatch: "bg-amber-50 border border-amber-200 shadow-[inset_3px_0_0_0_#f59e0b]", label: "Partial stock (lower match)" },
   { swatch: "bg-slate-100 border border-slate-200 shadow-[inset_3px_0_0_0_#94a3b8]", label: "Zero balance / Complete" },
 ];
 
@@ -44,8 +44,14 @@ function DispatchPlanRowLegend() {
   );
 }
 
+function matchPctClass(pct) {
+  if (pct >= 100) return "bg-emerald-100 border-emerald-300 text-emerald-900";
+  if (pct >= 50) return "bg-amber-100 border-amber-300 text-amber-950";
+  return "bg-slate-100 border-slate-300 text-slate-700";
+}
+
 /** Custom dispatch-plan columns — only what's needed */
-function buildDispatchHeaders() {
+function buildDispatchHeaders({ showMatchPct = false } = {}) {
   const cols = [
     [ "Sch No", "schno", (v) => (
         <span className="font-mono text-[10px] font-bold text-slate-800 uppercase tracking-tight">
@@ -53,31 +59,6 @@ function buildDispatchHeaders() {
         </span>
       ),
       { fixed: true, width: "90px" }
-    ],
-    [ "Due Date", "action_date", (v) => (
-        <span className={`${IMS_TABLE_CELL_TEXT} text-slate-600 font-bold uppercase`}>
-          {formatSchHeaderDate(v)}
-        </span>
-      ),
-      { width: "96px" },
-    ],
-    [ "Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { width: "88px" }],
-    [ "Remark", "item_remark", (v) => (
-        <span className={`${IMS_TABLE_CELL_TEXT} break-words text-slate-600`}>
-          {v || "—"}
-        </span>
-      ),
-      { width: "180px", wrap: true },
-    ],
-    [ "Item Code", "item_code", (v) => (
-        <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>
-      ),
-      { width: "130px" },
-    ],
-    [ "Description", "itemdesc", (v) => (
-        <span className={`${IMS_TABLE_CELL_TEXT} break-words text-slate-700`}>{v || "—"}</span>
-      ),
-      { width: "200px", wrap: true },
     ],
     [ "Customer", "acc_name", (v) => (
         <span
@@ -88,6 +69,11 @@ function buildDispatchHeaders() {
         </span>
       ),
       { width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" },
+    ],
+    [ "Item Code", "item_code", (v) => (
+        <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>
+      ),
+      { width: "130px" },
     ],
     [ "Balance Qty", "balance_qty", (v, row) => (
         <span className="inline-flex items-center justify-center min-w-[3rem] px-1.5 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-[11px] font-black tabular-nums text-amber-950">
@@ -103,14 +89,61 @@ function buildDispatchHeaders() {
       ),
       { align: "center", width: "80px" },
     ],
-    [ "Shortage No", "shortage_no", (v) => (
+  ];
+  
+  /*
+  Comment because user don't see the row score
+  if (showMatchPct) {
+    cols.push([
+      "Match %",
+      "dispatch_match_pct",
+      (v, row) => {
+        const pct = Number(v ?? scheduleDispatchMatchPct(row) ?? 0);
+        return (
+          <span
+            className={`inline-flex items-center justify-center min-w-[2.75rem] px-1.5 py-0.5 rounded-md border text-[10px] font-black tabular-nums ${matchPctClass(pct)}`}
+          >
+            {pct}%
+          </span>
+        );
+      },
+      { align: "center", width: "72px" },
+    ]);
+  }
+  */
+
+  cols.push(
+    [ "Description", "itemdesc", (v) => (
+        <span className={`${IMS_TABLE_CELL_TEXT} break-words text-slate-700`}>{v || "—"}</span>
+      ),
+      { width: "200px", wrap: true },
+    ],
+    [ "Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { width: "140px", align:'center' }],
+    [ "Action Date", "action_date", (v) => (
+        <span className={`${IMS_TABLE_CELL_TEXT} text-slate-600 font-bold uppercase`}>
+          {formatSchHeaderDate(v)}
+        </span>
+      ),
+      { width: "96px" },
+    ],
+    [ "Remark", "item_remark", (v) => (
+        <span className={`${IMS_TABLE_CELL_TEXT} break-words text-slate-600`}>
+          {v || "—"}
+        </span>
+      ),
+      { width: "180px", wrap: true },
+    ],
+    [
+      "Shortage No",
+      "shortage_no",
+      (v) => (
         <span className="font-bold text-amber-800 text-[10px] tabular-nums uppercase">
           {v || "—"}
         </span>
       ),
       { align: "center", width: "120px", copyValue: (row) => row.shortage_no || "—" },
     ],
-  ];
+  );
 
   return cols;
 }
@@ -161,11 +194,22 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     if (q) {
       data = applyClientSearch(rows, search, {
         getParts: scheduleItemWiseSearchParts,
-        skipSort: !!params.sortKey,
+        skipSort: true,
       });
     }
-    return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [rows, search, params.sortKey, params.sortDir]);
+    if (params.sortKey) {
+      return sortRowsByKey(data, params.sortKey, params.sortDir);
+    }
+    if (statusFilter === "recommended") {
+      return [...data].sort(compareRecommendedDispatchRows);
+    }
+    return data;
+  }, [rows, search, params.sortKey, params.sortDir, statusFilter]);
+
+  const headers = useMemo(
+    () => buildDispatchHeaders({ showMatchPct: statusFilter === "recommended" }),
+    [statusFilter]
+  );
 
   useEffect(() => {
     setDisplayLimit(100);
@@ -184,7 +228,11 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     }
   }, [rows, selected, onSelectedChange]);
 
-  const displayRows = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
+  const displayRows = useMemo(() => {
+    // Recommended: show every qualifying row (no client chunk truncate).
+    if (statusFilter === "recommended") return filteredRows;
+    return filteredRows.slice(0, displayLimit);
+  }, [filteredRows, displayLimit, statusFilter]);
 
   const handleSelect = useCallback(
     (id) => {
@@ -262,7 +310,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
   );
 
   const getRowClassName = useCallback((row) => {
-    const status = Number(row.is_planned);
+    const status = normalizeScheduleStatus(row.is_planned);
     const qty = Number(row.balance_qty ?? row.totalqty ?? row.total_qty ?? 0);
     const stock = Number(row.fg_stock_qty ?? 0);
 
@@ -276,8 +324,12 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
       return "[&_td]:bg-slate-100 [&_td]:text-slate-500 [&_td:first-child]:shadow-[inset_3px_0_0_0_#94a3b8]";
     }
 
-    // Plan (Planned / Running) — stock adequacy highlighting.
-    if (status === SCHEDULE_PLAN_STATUS.PLANNED || status === SCHEDULE_PLAN_STATUS.RUNNING) {
+    // Plan / Ready — stock adequacy highlighting (Recommended + Plan tabs).
+    if (
+      status === SCHEDULE_PLAN_STATUS.PLANNED ||
+      status === SCHEDULE_PLAN_STATUS.RUNNING ||
+      status === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH
+    ) {
       if (qty > 0 && stock >= qty) {
         return "[&_td]:bg-emerald-50 [&_td:first-child]:shadow-[inset_3px_0_0_0_#10b981]";
       }
@@ -327,8 +379,6 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     ]
   );
 
-  const headers = useMemo(() => buildDispatchHeaders(), []);
-
   return (
     <>
       {/* Table */}
@@ -351,13 +401,18 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
           getRowId={scheduleItemRowKey}
           emptyIcon={Calendar}
           emptyMessage="No dispatch plan items"
-          emptySubMessage={`No schedule items found ${rangeLabel}`}
+          emptySubMessage={
+            statusFilter === "recommended"
+              ? `No Plan / Running / Ready lines with balance + FG stock this month`
+              : `No schedule items found ${rangeLabel}`
+          }
           onLoadMore={() => {
+            if (statusFilter === "recommended") return;
             if (!loading && displayRows.length < filteredRows.length) {
               setDisplayLimit((n) => n + 100);
             }
           }}
-          hasMore={displayRows.length < filteredRows.length}
+          hasMore={statusFilter !== "recommended" && displayRows.length < filteredRows.length}
           totalItems={filteredRows.length}
           cardConfig={{
             titleKey: "schno",

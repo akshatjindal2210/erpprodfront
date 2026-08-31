@@ -12,7 +12,7 @@ export const IMS_APP_CONFIG = {
       description: "IMS app-level options.",
       layout: [
         ["inward_location_validation", "location_capacity_validation", "default_list_view_span_days"],
-        ["box_qr_public_base_url"],
+        ["box_qr_public_base_url", "shortage_qty_percentage"],
       ],
     },
   ],

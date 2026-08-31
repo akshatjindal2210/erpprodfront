@@ -1,17 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getTables, hybridPreviewWidget } from "../services/dashboardApi";
-import { Database, Palette, Table2, Code, Trash2, Info, Eye, Save, X, ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
+import { Database, Palette, Table2, Code, Trash2, Info, Eye, Save, X, ChevronRight, ChevronDown, Copy, Check, SlidersHorizontal } from "lucide-react";
 import { DASHBOARD_WIDGET_QUERY_PLACEHOLDER, getDashboardQueryRuntimeFilters } from "../utils/widgetQuery.js";
 import { EXTERNAL_MSSQL_QUERY_PLACEHOLDER, HYBRID_EXTERNAL_DB_OPTIONS, buildHybridPreviewRequest, isExternalMssqlDbSource, isHybridDbSource, isHybridUrlExternalSource, isUrlJsonDbSource, isWidgetHybridMode, resolveHybridExternalDbSource } from "../utils/dashboardDbSources.js";
 import { APPS } from "@/config/appsRegistry";
 import { getAppNavPages } from "../utils/appNavPages";
 import { DEFAULT_WIDGET_BOX_SHADOW, STRONG_WIDGET_BOX_SHADOW } from "../utils/floatingLayoutEngine";
 import { normalizeWidgetLinkType } from "../utils/widgetClickLink";
-import {
-  normalizeTableSearchPosition,
-  normalizeTableSearchWidth,
-  TABLE_SEARCH_POSITION_OPTIONS,
-} from "../utils/tableToolbar.js";
+import { normalizeTableSearchPosition, normalizeTableSearchWidth, TABLE_SEARCH_POSITION_OPTIONS } from "../utils/tableToolbar.js";
+import { GRAPH_COMPARISON_MODE_OPTIONS, GRAPH_VALUE_FORMAT_OPTIONS, GRAPH_DISPLAY_VALUE_OPTIONS, GRAPH_DECIMAL_OPTIONS, GRAPH_LEGEND_POSITION_OPTIONS, normalizeGraphComparisonMode, normalizeGraphValueFormat, normalizeGraphDisplayValue, normalizeGraphDecimalPlaces, normalizeGraphLegendPosition, isGraphComparisonEnabled, resolveGraphShowDataLabels } from "../utils/graphAdvancedConfig.js";
 
 const BLOCKED_SQL = /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke)\b/i;
 const REQUIRES_SQL = new Set(["kpi", "table", "graph"]);
@@ -391,6 +388,7 @@ const PropertyPanel = ({
   const selectedWidgetRef = useRef(selectedWidget);
   selectedWidgetRef.current = selectedWidget;
   const isTableWidget = selectedWidget?.rawType === "table";
+  const isGraphWidget = selectedWidget?.rawType === "graph";
   const displayStyle = {
     ...(selectedWidget?.style || {}),
     ...(draftStyle || {}),
@@ -412,6 +410,9 @@ const PropertyPanel = ({
   useEffect(() => {
     if (selectedWidget?.rawType !== "table") {
       setActiveTab((tab) => (tab === "table" ? "data" : tab));
+    }
+    if (selectedWidget?.rawType !== "graph") {
+      setActiveTab((tab) => (tab === "advanced" ? "data" : tab));
     }
   }, [selectedWidget?.id, selectedWidget?.rawType]);
 
@@ -817,6 +818,18 @@ const PropertyPanel = ({
         >
           <Table2 size={12} />
           Table
+        </button>
+      )}
+      {isGraphWidget && (
+        <button
+          type="button"
+          onClick={() => setActiveTab("advanced")}
+          className={`flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${
+            activeTab === "advanced" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500"
+          }`}
+        >
+          <SlidersHorizontal size={12} />
+          Advanced
         </button>
       )}
     </div>
@@ -1936,6 +1949,217 @@ const PropertyPanel = ({
               </div>
             </div>
           </div>
+        ) : activeTab === "advanced" && isGraphWidget ? (
+          <div className="space-y-2">
+            {(() => {
+              const previewRows = Array.isArray(selectedWidget.previewData) && selectedWidget.previewData.length
+                ? selectedWidget.previewData
+                : (Array.isArray(selectedWidget.data) ? selectedWidget.data : []);
+              const columns = Array.from(new Set(
+                previewRows.flatMap((row) =>
+                  row && typeof row === "object" && !Array.isArray(row)
+                    ? Object.keys(row)
+                    : [],
+                ),
+              )).filter((column) => !urlExcludedColumns.includes(column));
+              const comparisonOn = isGraphComparisonEnabled(displayStyle);
+              const chartType = selectedWidget.type || "bar";
+              const comparisonSupported = chartType !== "pie";
+              const dataLabelsOn = resolveGraphShowDataLabels(displayStyle, chartType);
+              const valueFormat = normalizeGraphValueFormat(displayStyle.graphValueFormat);
+              const showCurrency = valueFormat === "currency";
+              const showCustomAffix = valueFormat === "custom" || valueFormat === "number" || valueFormat === "abbreviated" || valueFormat === "currency" || valueFormat === "percent";
+
+              return (
+                <>
+                  <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
+                    <PanelFieldLabel>Comparison mode</PanelFieldLabel>
+                    <SegmentControl
+                      value={normalizeGraphComparisonMode(displayStyle.graphComparisonMode)}
+                      options={GRAPH_COMPARISON_MODE_OPTIONS}
+                      onChange={(mode) => handleChange("style.graphComparisonMode", mode)}
+                    />
+                    {comparisonOn && !comparisonSupported ? (
+                      <p className="text-[9px] text-amber-600">
+                        Comparison series applies to bar, line, and area. Pie uses single-series values.
+                      </p>
+                    ) : null}
+                    {comparisonOn && comparisonSupported ? (
+                      columns.length ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[9px] font-semibold text-slate-500 mb-1">Series A (Y)</label>
+                            <select
+                              className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                              value={displayStyle.graphYKey || columns[1] || columns[0]}
+                              onChange={(e) => handleChange("style.graphYKey", e.target.value)}
+                            >
+                              {columns.map((col) => (
+                                <option key={`adv-ya-${col}`} value={col}>{col}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-semibold text-slate-500 mb-1">Series B (Y)</label>
+                            <select
+                              className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                              value={displayStyle.graphYKey2 || columns.find((c) => c !== (displayStyle.graphYKey || columns[1] || columns[0])) || columns[0]}
+                              onChange={(e) => handleChange("style.graphYKey2", e.target.value)}
+                            >
+                              {columns.map((col) => (
+                                <option key={`adv-yb-${col}`} value={col}>{col}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-2.5 py-2 text-[10px] text-slate-500">
+                          Run Preview to load columns, then map Series A / Series B.
+                        </div>
+                      )
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
+                    <PanelFieldLabel>Value formatting</PanelFieldLabel>
+                    <select
+                      className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                      value={valueFormat}
+                      onChange={(e) => handleChange("style.graphValueFormat", e.target.value)}
+                    >
+                      {GRAPH_VALUE_FORMAT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[9px] font-semibold text-slate-500 mb-1">Decimals</label>
+                        <select
+                          className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                          value={normalizeGraphDecimalPlaces(displayStyle.graphDecimalPlaces)}
+                          onChange={(e) => handleChange("style.graphDecimalPlaces", e.target.value)}
+                        >
+                          {GRAPH_DECIMAL_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {showCurrency ? (
+                        <div>
+                          <label className="block text-[9px] font-semibold text-slate-500 mb-1">Currency</label>
+                          <input
+                            type="text"
+                            maxLength={4}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                            value={displayStyle.graphCurrencySymbol ?? "₹"}
+                            onChange={(e) => handleChange("style.graphCurrencySymbol", e.target.value)}
+                            placeholder="₹"
+                          />
+                        </div>
+                      ) : (
+                        <div />
+                      )}
+                    </div>
+                    {showCustomAffix ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[9px] font-semibold text-slate-500 mb-1">Prefix</label>
+                          <input
+                            type="text"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                            value={displayStyle.graphPrefix || ""}
+                            onChange={(e) => handleChange("style.graphPrefix", e.target.value)}
+                            placeholder={valueFormat === "custom" ? "e.g. #" : "opt"}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-semibold text-slate-500 mb-1">Suffix</label>
+                          <input
+                            type="text"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                            value={displayStyle.graphSuffix || ""}
+                            onChange={(e) => handleChange("style.graphSuffix", e.target.value)}
+                            placeholder={valueFormat === "custom" ? "e.g. units" : "opt"}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                    <p className="text-[9px] text-slate-400">Applies to axis ticks, data labels, and tooltips.</p>
+                  </div>
+
+                  <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
+                    <PanelFieldLabel>Display value</PanelFieldLabel>
+                    <SegmentControl
+                      value={normalizeGraphDisplayValue(displayStyle.graphDisplayValue)}
+                      options={GRAPH_DISPLAY_VALUE_OPTIONS}
+                      onChange={(mode) => handleChange("style.graphDisplayValue", mode)}
+                    />
+                    {normalizeGraphDisplayValue(displayStyle.graphDisplayValue) === "difference" && !comparisonOn ? (
+                      <p className="text-[9px] text-slate-400">Diff uses Series A − Series B (enable Compare).</p>
+                    ) : null}
+                    <SimpleToggle
+                      label="Show data labels"
+                      hint={chartType === "pie" ? "Off hides slice labels; on shows formatted values" : "Values on bars / points"}
+                      checked={dataLabelsOn}
+                      onChange={(enabled) => handleChange("style.graphShowDataLabels", enabled)}
+                    />
+                  </div>
+
+                  <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
+                    <PanelFieldLabel>Legend position</PanelFieldLabel>
+                    {selectedWidget.style?.graphShowLegend === false ? (
+                      <p className="text-[9px] text-slate-400">
+                        Enable &quot;Show legend&quot; in the Style tab to place the legend.
+                      </p>
+                    ) : (
+                      <>
+                        <SegmentControl
+                          value={normalizeGraphLegendPosition(displayStyle.graphLegendPosition)}
+                          options={GRAPH_LEGEND_POSITION_OPTIONS}
+                          onChange={(pos) => handleChange("style.graphLegendPosition", pos)}
+                        />
+                        <p className="text-[9px] text-slate-400">
+                          Applies to bar, line, area, and pie. Default is Bottom (legacy).
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
+                    <PanelFieldLabel>Chart spacing</PanelFieldLabel>
+                    <SimpleToggle
+                      label="Manual margins"
+                      hint="Off = auto padding (labels stay visible)"
+                      checked={displayStyle.graphUseManualMargins === true}
+                      onChange={(enabled) => handleChange("style.graphUseManualMargins", enabled)}
+                    />
+                    {displayStyle.graphUseManualMargins === true ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { key: "graphMarginTop", label: "Top" },
+                          { key: "graphMarginRight", label: "Right" },
+                          { key: "graphMarginBottom", label: "Bottom" },
+                          { key: "graphMarginLeft", label: "Left" },
+                        ].map((side) => (
+                          <div key={side.key}>
+                            <label className="block text-[9px] font-semibold text-slate-500 mb-1">{side.label}</label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={80}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                              value={displayStyle[side.key] ?? 8}
+                              onChange={(e) => handleChange(`style.${side.key}`, Math.max(0, Math.min(80, Number(e.target.value) || 0)), { debounceMs: 120 })}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
         ) : (
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
@@ -2057,6 +2281,9 @@ const PropertyPanel = ({
                   checked={selectedWidget.style?.graphShowLegend !== false}
                   onChange={(enabled) => handleChange("style.graphShowLegend", enabled)}
                 />
+                <p className="text-[9px] text-slate-400">
+                  Comparison, value format, labels, legend position, and spacing are under the Advanced tab.
+                </p>
               </div>
             )}
 

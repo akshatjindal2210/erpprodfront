@@ -47,29 +47,14 @@ function parseCsvLine(line) {
   return cells.map((cell) => cell.trim());
 }
 
-function parseCsvRecords(text, { defval = "" } = {}) {
+function parseCsvMatrix(text) {
   const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
-  if (!lines.length) return [];
+  return lines.map((line) => parseCsvLine(line));
+}
 
-  const headers = parseCsvLine(lines[0]);
-  const records = [];
-
-  for (const line of lines.slice(1)) {
-    const values = parseCsvLine(line);
-    const record = {};
-    let hasValue = false;
-
-    headers.forEach((header, index) => {
-      if (!header) return;
-      const val = values[index] ?? defval;
-      record[header] = val;
-      if (val !== defval && val !== "") hasValue = true;
-    });
-
-    if (hasValue) records.push(record);
-  }
-
-  return records;
+function parseCsvRecords(text, { defval = "" } = {}) {
+  const matrix = parseCsvMatrix(text);
+  return rowsToRecords(matrix, { defval });
 }
 
 function rowsToRecords(rows, { defval = "" } = {}) {
@@ -93,6 +78,25 @@ function rowsToRecords(rows, { defval = "" } = {}) {
   }
 
   return records;
+}
+
+/** Raw sheet as string[][] (no header assumption). */
+export async function readSpreadsheetMatrixFromFile(file, { defval = "" } = {}) {
+  const name = String(file?.name || "").toLowerCase();
+
+  if (name.endsWith(".csv") || file?.type === "text/csv") {
+    const text = await file.text();
+    return parseCsvMatrix(text).map((row) => row.map((cell) => (cell === "" ? defval : cell)));
+  }
+
+  if (name.endsWith(".xls")) {
+    throw new Error("Legacy .xls files are not supported. Please save the file as .xlsx or CSV.");
+  }
+
+  const rows = await readSheet(await file.arrayBuffer());
+  return (rows || []).map((row) =>
+    (row || []).map((cell) => formatCellValue(cell, defval))
+  );
 }
 
 export async function readSpreadsheetRecordsFromFile(file, { defval = "" } = {}) {

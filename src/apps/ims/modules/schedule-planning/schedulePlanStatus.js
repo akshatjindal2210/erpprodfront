@@ -263,6 +263,39 @@ export function isScheduleOpenPlanRow(row) {
   return bal > 0;
 }
 
+/** FG coverage of remaining balance (0–100). 100 = can fully dispatch. */
+export function scheduleDispatchMatchPct(row) {
+  const bal = scheduleBalanceQty(row);
+  if (bal == null || bal <= 0) return 0;
+  const fg = Number(row?.fg_stock_qty ?? row?.in_hand_qty ?? 0);
+  if (!Number.isFinite(fg) || fg <= 0) return 0;
+  return Math.min(100, Math.round((Math.min(fg, bal) / bal) * 100));
+}
+
+export function scheduleDispatchWorkableQty(row) {
+  const bal = scheduleBalanceQty(row);
+  if (bal == null || bal <= 0) return 0;
+  const fg = Number(row?.fg_stock_qty ?? row?.in_hand_qty ?? 0);
+  if (!Number.isFinite(fg) || fg <= 0) return 0;
+  return Math.min(fg, bal);
+}
+
+export function compareRecommendedDispatchRows(a, b) {
+  const pctA = Number(a?.dispatch_match_pct ?? scheduleDispatchMatchPct(a));
+  const pctB = Number(b?.dispatch_match_pct ?? scheduleDispatchMatchPct(b));
+  if (pctB !== pctA) return pctB - pctA;
+
+  const workA = Number(a?.dispatch_workable_qty ?? scheduleDispatchWorkableQty(a));
+  const workB = Number(b?.dispatch_workable_qty ?? scheduleDispatchWorkableQty(b));
+  if (workB !== workA) return workB - workA;
+
+  const dateA = String(a?.action_date ?? "").slice(0, 10);
+  const dateB = String(b?.action_date ?? "").slice(0, 10);
+  if (dateA && dateB && dateA !== dateB) return dateA.localeCompare(dateB);
+
+  return String(a?.schno ?? "").localeCompare(String(b?.schno ?? ""), undefined, { numeric: true });
+}
+
 /** Status badge / row color — Complete when manual Complete or balance 0. */
 export function resolveScheduleDisplayStatus(row) {
   if (isScheduleCompleteRow(row)) return SCHEDULE_PLAN_STATUS.COMPLETE;

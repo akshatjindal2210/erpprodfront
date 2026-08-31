@@ -31,12 +31,12 @@ import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { printFromBackendHtml } from "@/apps/ims/lib/utils/printHtmlDocument";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/ui/common/list/ListPageSearchField";
-import { fetchBillOptions, getBillByNo, billHelperItemFromRow, isBlankForwardingBill } from "@/apps/ims/lib/utils/forwardingBillOptions";
+import { fetchBillOptions, getBillByNo, billHelperItemFromRow } from "@/apps/ims/lib/utils/forwardingBillOptions";
 import TodayDispatchPlanTab from "@/apps/ims/modules/forwarding-note/TodayDispatchPlanTab";
 import { buildScheduleItemWiseHeaders } from "@/apps/ims/modules/schedule-planning/schedulePlanningColumns";
 import { SCHEDULE_PLAN_STATUS } from "@/apps/ims/modules/schedule-planning/schedulePlanStatus";
 import { selectUser } from "@/platform/store/slices/authSlice";
-import { canCreateDirectForwardingNote } from "@/apps/ims/lib/utils/imsSpecialPermissions";
+import { canCreateDirectForwardingNote, canManageForwardingBill } from "@/apps/ims/lib/utils/imsSpecialPermissions";
 
 /** Master FUID only — never item-wise row `id` (that is a different PK). */
 function resolveMasterFuid(row) {
@@ -196,6 +196,58 @@ function formatExternalBillStatus(status) {
   };
 }
 
+/** Bill dropdown row — color only (no status label). Green = selectable. */
+function billDropdownOptionClasses(item) {
+  const statusKey = String(item?.status ?? "").trim().toLowerCase();
+  const st = formatExternalBillStatus(item?.status);
+  const labelColor = st.textClass.replace(/^text-/, "!text-");
+
+  if (item?.is_green) {
+    return `bg-emerald-50 border-l-[3px] border-l-emerald-500 [&>div>span:first-child]:${labelColor} [&>div>span:first-child]:font-semibold`;
+  }
+
+  const borderByStatus = {
+    yellow: "border-l-amber-400 bg-amber-50/60",
+    red: "border-l-rose-400 bg-rose-50/60",
+    blue: "border-l-blue-400 bg-blue-50/60",
+    orange: "border-l-orange-400 bg-orange-50/60",
+    purple: "border-l-purple-400 bg-purple-50/60",
+    cyan: "border-l-cyan-400 bg-cyan-50/60",
+    indigo: "border-l-indigo-400 bg-indigo-50/60",
+    pink: "border-l-pink-400 bg-pink-50/60",
+  };
+  const rowTone = borderByStatus[statusKey] || "border-l-slate-300 bg-slate-50/80";
+  return `${rowTone} border-l-[3px] opacity-80 [&>div>span:first-child]:${labelColor}`;
+}
+
+/** Same bill as table Bill No. column — DB saved bill first, then live IMS. */
+function billNoFromForwardingRow(row) {
+  if (!row) return null;
+  const saved = String(row.line_bill_no ?? "").trim();
+  if (saved) return saved;
+  return String(row.billno ?? "").trim() || null;
+}
+
+function billDtFromForwardingRow(row) {
+  if (!row) return null;
+  const saved = String(row.line_bill_dt ?? "").trim();
+  if (saved) return saved;
+  return String(row.billdt ?? "").trim() || null;
+}
+
+function billOptionFromForwardingRow(row) {
+  const billNo = billNoFromForwardingRow(row);
+  if (!billNo) return null;
+  const status = String(row?.status ?? "").trim() || null;
+  return {
+    bill_no: billNo,
+    billno: billNo,
+    billdt: billDtFromForwardingRow(row),
+    status,
+    is_green: String(status ?? "").toLowerCase() === "green",
+  };
+}
+
 const DISPATCH_FILTER_OPTIONS = [
   { label: "All", value: "all" },
   { label: "Locked", value: "locked" },
@@ -203,7 +255,10 @@ const DISPATCH_FILTER_OPTIONS = [
   { label: "Complete", value: "complete" },
 ];
 
+const DISPATCH_PLAN_DEFAULT_STATUS = "recommended";
+
 const DISPATCH_PLAN_STATUS_OPTIONS = [
+  { label: "Recommended", value: "recommended" },
   { label: "Plan", value: "plan" },
   { label: "Complete", value: "complete" },
 ];
@@ -229,17 +284,17 @@ function rowMatchesDispatchFilter(row, dispatchFilter) {
 export default function ForwardingPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("forwarding_note_master", "view"), [canAccess]);
-  const canEditBill = useMemo(() => canAccess("forwarding_note_master", "edit").allowed, [canAccess]);
   const user = useSelector(selectUser);
   const role = useSelector(state => state.auth.role);
   const canDirectCreate = useMemo(() => canCreateDirectForwardingNote(user), [user]);
+  const canManageBill = useMemo(() => canManageForwardingBill(user), [user]);
 
   const [outerTab, setOuterTab] = useState("dispatch_plan");
 
   // Dispatch plan tab ref + state
   const dispatchPlanRef = useRef(null);
   const [dispatchSearch, setDispatchSearch] = useState("");
-  const [dispatchStatusFilter, setDispatchStatusFilter] = useState("plan");
+  const [dispatchStatusFilter, setDispatchStatusFilter] = useState(DISPATCH_PLAN_DEFAULT_STATUS);
   const [dispatchSelected, setDispatchSelected] = useState(null);
   const [dispatchRows, setDispatchRows] = useState([]);
 
@@ -281,6 +336,7 @@ export default function ForwardingPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [billPrinting, setBillPrinting] = useState(false);
   const [billDraftNo, setBillDraftNo] = useState(null);
+  const [billDraftDt, setBillDraftDt] = useState(null);
   const [billSaving, setBillSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -434,7 +490,6 @@ export default function ForwardingPage() {
     [selectedRecord]
   );
 
-  const isSuperAdmin = role === "super_admin" || user?.type === "super_admin";
   const selectedBillItem = useMemo(
     () => (reportType === "item_wise" ? billHelperItemFromRow(selectedRecord) : null),
     [reportType, selectedRecord]
@@ -442,22 +497,34 @@ export default function ForwardingPage() {
   const hasSavedDbBill = Boolean(
     selectedRecord?.bill_source === "db" || String(selectedRecord?.line_bill_no ?? "").trim()
   );
-  // Blank bill: any editor. Saved DB bill: super admin only (to change).
   const canAssignLineBill = Boolean(
     reportType === "item_wise" &&
-      canEditBill &&
+      canManageBill &&
       selectedRecord?.id &&
       selectedBillItem &&
-      selectedRecord?.out_entry_complete === true &&
-      (isBlankForwardingBill(selectedRecord) || (hasSavedDbBill && isSuperAdmin))
+      selectedRecord?.out_entry_complete === true
+  );
+
+  const selectedBillOption = useMemo(
+    () => billOptionFromForwardingRow(selectedRecord),
+    [selectedRecord]
   );
 
   useEffect(() => {
-    const saved =
-      String(selectedRecord?.billno ?? selectedRecord?.line_bill_no ?? "").trim() || null;
-    // Prefill dropdown with existing saved bill when super admin re-opens to change
-    setBillDraftNo(hasSavedDbBill && isSuperAdmin ? saved : null);
-  }, [selectedRecord?.id, selectedRecord?.fuid, selectedRecord?.billno, selectedRecord?.line_bill_no, reportType, hasSavedDbBill, isSuperAdmin]);
+    const billNo = billNoFromForwardingRow(selectedRecord);
+    const billDt = billDtFromForwardingRow(selectedRecord);
+    setBillDraftNo(canAssignLineBill ? billNo : null);
+    setBillDraftDt(canAssignLineBill ? billDt : null);
+  }, [
+    selectedRecord?.id,
+    selectedRecord?.fuid,
+    selectedRecord?.billno,
+    selectedRecord?.line_bill_no,
+    selectedRecord?.billdt,
+    selectedRecord?.line_bill_dt,
+    reportType,
+    canAssignLineBill,
+  ]);
 
   const fetchBillOptionsForRow = useCallback(
     (params) =>
@@ -521,15 +588,14 @@ export default function ForwardingPage() {
     dispatchPlanRef.current?.clearSelection?.();
   }, []);
 
-  /** Forwarding Master New — direct create only with special permission; otherwise same as Today Dispatch Plan → New. */
+  /** Forwarding Master New — direct create only with special permission; otherwise open Today's Dispatch Plan flow. */
   const openMasterNew = useCallback(() => {
     if (canDirectCreate) {
       setDispatchPrefill(null);
       openModal("add");
       return;
     }
-    // toast.info("Switch to Today's Dispatch Plan, then click New (with or without a row selected).");   // Commented out because the user does not open the form on the Forwarding Note page.
-    openDispatchPlanNew(); // Uncommented for the Forwarding Note page: on New button click, check permission; if not permitted, show a toast, otherwise open the same modal as Today's Dispatch New.
+    openDispatchPlanNew();
   }, [canDirectCreate, openModal, openDispatchPlanNew]);
 
   const closeModal = useCallback(() => {
@@ -652,16 +718,22 @@ export default function ForwardingPage() {
     try {
       const looked = await getBillByNoForRow(billNo);
       const opt = looked?.data || {};
+      if (opt.is_green === false) {
+        throw new Error("This bill cannot be assigned. Choose another bill from the list.");
+      }
       const res = await forwardingNoteService.assignItemBill({
         item_ids: [itemId],
         billno: opt.billno || opt.bill_no || billNo,
-        billdt: opt.billdt || null,
+        billdt: opt.billdt || billDraftDt || null,
       });
-      if (!res?.success) throw new Error(res?.message || "Failed to save bill");
+      if (!res?.success) throw new Error(res?.message || "Failed to save bill.");
 
       const saved = Array.isArray(res?.data) ? res.data[0] : res?.data;
-      toast.success("Bill assigned successfully.");
-      setBillDraftNo(null);
+      const savedBill = saved?.billno || saved?.bill_no || billNo;
+      const savedDt = saved?.billdt || opt.billdt || billDraftDt || null;
+      toast.success(hasSavedDbBill ? "Bill updated successfully." : "Bill saved successfully.");
+      setBillDraftNo(savedBill);
+      setBillDraftDt(savedDt);
       if (saved) {
         setAllRows((prev) =>
           (prev || []).map((row) =>
@@ -669,7 +741,7 @@ export default function ForwardingPage() {
               ? {
                   ...row,
                   billno: saved.billno || billNo,
-                  billdt: saved.billdt || opt.billdt || null,
+                  billdt: saved.billdt || opt.billdt || billDraftDt || null,
                   line_bill_no: saved.billno || billNo,
                   bill_source: "db",
                   bill_updated_by_name: saved.bill_updated_by_name || saved.line_bill_updated_by || null,
@@ -1036,22 +1108,29 @@ export default function ForwardingPage() {
               </div>
 
               {canAssignLineBill ? (
-                <div className="w-full min-w-0" data-compact-form-bar>
+                <div className="w-full min-w-0 space-y-1" data-compact-form-bar>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
                     <span className={`${LIST_PAGE_SEARCH_LABEL_CLASS} shrink-0 pt-1.5 sm:pt-2`}>Bill</span>
-                    <div className="w-full min-w-0 flex-1" title="Matching packing bills only">
+                    <div className="w-full min-w-0 flex-1">
                       <SearchableSelect
                         variant="toolbar"
                         heightClass="h-8"
                         value={billDraftNo}
-                        onChange={(v) => setBillDraftNo(v || null)}
+                        onChange={(v) => {
+                          setBillDraftNo(v || null);
+                          setBillDraftDt(null);
+                        }}
                         fetchService={fetchBillOptionsForRow}
                         getByIdService={getBillByNoForRow}
+                        resolvedOption={selectedBillOption}
                         dataKey="bill_no"
                         labelKey="bill_no"
                         labelOnlyDisplay
+                        preserveApiOrder
                         placeholder="Select bill..."
-                        emptyMessage="No matching bills"
+                        emptyMessage="No matching bills for this line."
+                        isOptionDisabled={(item) => item?.is_green !== true}
+                        getOptionClassName={billDropdownOptionClasses}
                         usePortal
                       />
                     </div>
@@ -1061,10 +1140,14 @@ export default function ForwardingPage() {
                       disabled={billSaving || !billDraftNo}
                       className="h-9 w-full sm:w-auto sm:shrink-0 px-3 border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold uppercase disabled:opacity-50"
                     >
-                      {billSaving ? "…" : "Save Bill"}
+                      {billSaving ? "…" : hasSavedDbBill ? "Update Bill" : "Save Bill"}
                     </button>
                   </div>
                 </div>
+              ) : canManageBill && reportType === "item_wise" && selectedRecord?.id && !selectedRecord?.out_entry_complete ? (
+                <p className="text-[10px] font-bold text-slate-500 uppercase">
+                  Select a store-out complete line to assign or update a bill.
+                </p>
               ) : null}
             </div>
           )}
@@ -1089,13 +1172,13 @@ export default function ForwardingPage() {
                 searchValue={dispatchSearch}
                 onSearchChange={setDispatchSearch}
                 onApply={(data) => {
-                  setDispatchStatusFilter(data.status ?? "plan");
+                  setDispatchStatusFilter(data.status ?? DISPATCH_PLAN_DEFAULT_STATUS);
                 }}
                 searchPlaceholder="Quick search items, party, sch no..."
                 searchLabel="Quick Search"
                 onReset={() => {
                   setDispatchSearch("");
-                  setDispatchStatusFilter("plan");
+                  setDispatchStatusFilter(DISPATCH_PLAN_DEFAULT_STATUS);
                 }}
               />
             </ListPageFilterStrip>
