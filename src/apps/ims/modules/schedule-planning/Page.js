@@ -102,7 +102,6 @@ export default function SchedulePlanningPage() {
   const [modalItemsLoading, setModalItemsLoading] = useState(false);
 
   useEffect(() => {
-    if (!dateFilterDefaults.from && !dateFilterDefaults.to) return;
     if (initialQuerySet.current) return;
     initialQuerySet.current = true;
     setAppliedQuery({
@@ -111,7 +110,7 @@ export default function SchedulePlanningPage() {
     });
     setDraftReportType(SCHEDULE_REPORT_FILTER.DEFAULT);
     setStatusFilter(defaultStatusFilter);
-  }, [dateFilterDefaults.from, dateFilterDefaults.to, defaultStatusFilter]);
+  }, [defaultStatusFilter]);
 
   const isCustomReport = String(draftReportType) === SCHEDULE_REPORT_FILTER.CUSTOM;
 
@@ -650,7 +649,18 @@ export default function SchedulePlanningPage() {
                 setSelected(null);
                 setItemWiseSchnoFilter(null);
               }
-              if (key === "reportType") setDraftReportType(value ?? SCHEDULE_REPORT_FILTER.DEFAULT);
+              if (key === "reportType") {
+                const next = value ?? SCHEDULE_REPORT_FILTER.DEFAULT;
+                setDraftReportType(next);
+                if (next === SCHEDULE_REPORT_FILTER.DEFAULT) {
+                  setAppliedQuery({
+                    reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
+                    status: SCHEDULE_LIST_FILTER.ALL,
+                  });
+                  setSelected(null);
+                  setItemWiseSchnoFilter(null);
+                }
+              }
             }}
             onApply={(data) => {
               const reportType = data.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT;

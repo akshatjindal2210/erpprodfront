@@ -4,12 +4,14 @@ import { useState, useCallback, useMemo } from "react";
 import { useSelector } from "react-redux";
 import { Plus, AlertTriangle, RefreshCcw, Edit3, Trash2, X, CheckCircle } from "lucide-react";
 import { toast } from "react-toastify";
+import dayjs from "dayjs";
 
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { shortageService } from "@/apps/ims/lib/services/shortage";
 import { isImsSuperAdmin } from "@/apps/ims/lib/utils/imsSpecialPermissions";
 import { selectUser } from "@/platform/store/slices/authSlice";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
+import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { useImsCrudList } from "@/apps/ims/lib/crud/useImsCrudList";
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -22,7 +24,10 @@ import ShortageModal from "@/apps/ims/modules/shortage/ShortageModal";
 import ShortageBulkImport from "@/apps/ims/modules/shortage/ShortageBulkImport";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
+import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
+import { SCHEDULE_REPORT_FILTER, SCHEDULE_REPORT_FILTER_OPTIONS } from "@/apps/ims/modules/schedule-planning/schedulePlanStatus";
+import { MONTH_FILTER_OPTIONS } from "@/apps/ims/modules/schedule-planning/schedulePlanningColumns";
 
 const TYPE_FILTER_OPTIONS = [
   { label: "All Types", value: "all" },
@@ -37,16 +42,68 @@ const STATUS_FILTER_OPTIONS = [
   { label: "Pending", value: "pending" },
 ];
 
-const buildFilters = (params) => ({
-  ...(params.type !== "all" && { type: params.type }),
-  ...(params.status === "approved" && { approved: true }),
-  ...(params.status === "pending" && { approved: false }),
-});
+function buildShortageDefaultMonthRange() {
+  const from = dayjs().startOf("month");
+  const to = dayjs().endOf("month");
+  return { from: from.format("YYYY-MM-DD"), to: to.format("YYYY-MM-DD") };
+}
+
+function monthBoundsInCurrentYear(monthNum) {
+  const m = Number(monthNum);
+  if (!Number.isFinite(m) || m < 1 || m > 12) return { from: "", to: "" };
+  const from = dayjs().month(m - 1).startOf("month");
+  return { from: from.format("YYYY-MM-DD"), to: from.endOf("month").format("YYYY-MM-DD") };
+}
+
+function resolveShortageDateFilters(params) {
+  const reportType = String(params.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT).toLowerCase();
+  if (reportType !== SCHEDULE_REPORT_FILTER.CUSTOM) {
+    return buildShortageDefaultMonthRange();
+  }
+
+  const month = params.month;
+  const fromDate = String(params.fromDate ?? "").trim();
+  const toDate = String(params.toDate ?? "").trim();
+  const hasMonth = month && String(month).toLowerCase() !== "all";
+  const hasDate = Boolean(fromDate) || Boolean(toDate);
+
+  if (hasMonth && !hasDate) {
+    return monthBoundsInCurrentYear(month);
+  }
+
+  let from = fromDate;
+  let to = toDate || fromDate;
+  if (hasMonth && hasDate) {
+    const bounds = monthBoundsInCurrentYear(month);
+    const userFrom = fromDate || bounds.from;
+    const userTo = toDate || fromDate || bounds.to;
+    from = userFrom > bounds.from ? userFrom : bounds.from;
+    to = userTo < bounds.to ? userTo : bounds.to;
+  }
+  return { from, to };
+}
+
+const buildShortageListFilters = (params) => {
+  const filters = {
+    ...(params.type !== "all" && { type: params.type }),
+    ...(params.status === "approved" && { approved: true }),
+    ...(params.status === "pending" && { approved: false }),
+  };
+
+  const { from, to } = resolveShortageDateFilters(params);
+  if (from) filters.from_date = `${from} 00:00:00`;
+  if (to) filters.to_date = `${to} 23:59:59`;
+  return filters;
+};
 
 export default function ShortagePage() {
   const user = useSelector(selectUser);
   const canBulkImport = isImsSuperAdmin(user);
+  const canAccess = useCanAccess();
+  const viewAccess = useMemo(() => canAccess("shortage", "view"), [canAccess]);
+  const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
   const [viewMode, handleViewMode] = useViewMode();
+  const [draftReportType, setDraftReportType] = useState(SCHEDULE_REPORT_FILTER.DEFAULT);
   const [selected, setSelected] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
@@ -68,37 +125,53 @@ export default function ShortagePage() {
     handleSort,
   } = useImsCrudList({
     service: shortageService,
-    buildFilters,
+    buildFilters: buildShortageListFilters,
     errorMessage: "Failed to load shortage records",
-    extraParams: { type: "all", status: "all" },
+    extraParams: {
+      type: "all",
+      status: "all",
+      reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
+      fromDate: "",
+      toDate: "",
+      month: "all",
+    },
   });
 
-  const handleFilterApply = (data) => {
-    setParams((prev) => ({
-      ...prev,
-      type: data.typeFilter || prev.type,
-      status: data.approvedStatus || prev.status,
-    }));
-  };
+  const isCustomReport = String(draftReportType) === SCHEDULE_REPORT_FILTER.CUSTOM;
 
   const handleReset = () => {
     setTempSearch("");
+    setDraftReportType(SCHEDULE_REPORT_FILTER.DEFAULT);
     setParams((prev) => ({
       ...prev,
       type: "all",
       status: "all",
+      reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
+      fromDate: "",
+      toDate: "",
+      month: "all",
       sortKey: "id",
       sortDir: "desc",
     }));
   };
 
-  const extraFilters = useMemo(
-    () => [
+  const extraFilters = useMemo(() => {
+    const filters = [
       { label: "Type", key: "typeFilter", value: params.type, options: TYPE_FILTER_OPTIONS },
       { label: "Status", key: "approvedStatus", value: params.status, options: STATUS_FILTER_OPTIONS },
-    ],
-    [params.type, params.status]
-  );
+      { label: "Report", key: "reportType", value: draftReportType, options: SCHEDULE_REPORT_FILTER_OPTIONS, preserveOrder: false },
+    ];
+    if (isCustomReport) {
+      filters.push({
+        label: "Month",
+        key: "month",
+        value: params.month ?? "all",
+        options: MONTH_FILTER_OPTIONS,
+        preserveOrder: true,
+      });
+    }
+    return filters;
+  }, [params.type, params.status, params.month, draftReportType, isCustomReport]);
 
   const selectedRecord = useMemo(
     () => filteredRows.find((row) => row.id === selected),
@@ -249,14 +322,61 @@ export default function ShortagePage() {
 
         <ListPageFilterStrip>
           <DateRangeFilter
-            showDate={false}
+            key={draftReportType}
+            fromDate={isCustomReport ? (params.fromDate ?? "") : ""}
+            toDate={isCustomReport ? (params.toDate ?? "") : ""}
+            dateDisabled={!isCustomReport}
             extraFilters={extraFilters}
-            onApply={handleFilterApply}
+            extraFiltersBeforeDate={isCustomReport ? ["month"] : []}
+            applyOnSearchEnter={false}
+            searchVariant="quick"
+            onExtraFilterChange={(key, value) => {
+              if (key === "reportType") {
+                const next = value ?? SCHEDULE_REPORT_FILTER.DEFAULT;
+                setDraftReportType(next);
+                if (next === SCHEDULE_REPORT_FILTER.DEFAULT) {
+                  setParams((prev) => ({
+                    ...prev,
+                    reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
+                    month: "all",
+                    fromDate: "",
+                    toDate: "",
+                  }));
+                }
+              }
+            }}
+            onApply={(data) => {
+              const reportType = data.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT;
+              const isCustom = reportType === SCHEDULE_REPORT_FILTER.CUSTOM;
+              const month = data.month ?? "all";
+              const fromDate = data.fromDate || "";
+              const toDate = data.toDate || "";
+              const hasMonth = month && String(month).toLowerCase() !== "all";
+              const hasDate = Boolean(fromDate.trim()) || Boolean(toDate.trim());
+
+              if (isCustom && !hasMonth && !hasDate) {
+                toast.warning("Custom report: select Month or Date (From/To), or both.");
+                return;
+              }
+
+              setDraftReportType(reportType);
+              setParams((prev) => ({
+                ...prev,
+                reportType,
+                type: data.typeFilter || prev.type,
+                status: data.approvedStatus || prev.status,
+                ...(isCustom
+                  ? { month, fromDate: hasDate ? fromDate : "", toDate: hasDate ? toDate : "" }
+                  : { month: "all", fromDate: "", toDate: "" }),
+              }));
+            }}
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             searchPlaceholder="Search item, type..."
             searchLabel="Search Shortage"
+            minDate={dateFilterDefaults.minDate}
+            maxDate={dateFilterDefaults.maxDate}
           />
         </ListPageFilterStrip>
 

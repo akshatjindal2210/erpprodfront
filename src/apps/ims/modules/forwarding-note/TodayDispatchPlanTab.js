@@ -403,7 +403,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
           emptyMessage="No dispatch plan items"
           emptySubMessage={
             statusFilter === "recommended"
-              ? `No Plan / Running / Ready lines with balance + FG stock this month`
+              ? "Balance + FG stock lines sorted by match % (100% top → lower below)"
               : `No schedule items found ${rangeLabel}`
           }
           onLoadMore={() => {
