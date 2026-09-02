@@ -1,6 +1,6 @@
 # IMP-App Frontend
 
-**Current release:** [v3.4.38](./readme/version-notes/v3.4.38.md) — CL Task Report · Tasks stat cards · Not Viewed fix · Holiday import  
+**Current release:** [v3.4.38](./readme/version-notes/v3.4.38.md) — CL Task Report · Tasks stat cards · Not Viewed fix · Holiday import · IMS Box dispatch (SA-id collision)  
 **All release notes:** [version-notes/README.md](./readme/version-notes/README.md)
 
 This is the frontend of the IMP-App, built with Next.js 16, React 19, and Tailwind CSS 4. It follows a feature-based architecture for better scalability and maintainability.

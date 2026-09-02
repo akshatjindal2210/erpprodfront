@@ -28,10 +28,16 @@ export function getStockAdjustmentId(box) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Case 2 — stock adjustment minus. */
+/**
+ * Case 2 — stock adjustment minus.
+ * `out_uid === sa_id` is a legacy minus marker, but SA *add* boxes keep `sa_id`
+ * from stock_in. If they later dispatch and out-entry id collides with that sa_id
+ * (e.g. sticker SA366 + OUT-366), treat as dispatch, not minus.
+ */
 export function isBoxStockAdjustmentOut(box) {
   if (!box || box.is_deleted) return false;
   if (isStockAdjustmentOut(box)) return true;
+  if (isStockAdjustmentIn(box)) return false;
   if (isOutUidEmpty(box)) return false;
   const sa = getStockAdjustmentId(box);
   if (sa == null) return false;

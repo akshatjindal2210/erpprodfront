@@ -25,6 +25,19 @@ import { formatDateTime } from "@/platform/utils/core/utilHelper";
 
 const GATE_BILL_SCANNER_ID = "gate-entry-bill-qr-reader";
 
+function AuditStamp({ datetime, name }) {
+  if (!datetime && !name) return null;
+  return (
+    <>
+      {datetime ? (
+        <span className="font-semibold text-slate-600 tabular-nums">{formatDateTime(datetime)}</span>
+      ) : null}
+      {datetime && name ? " · " : null}
+      {name ? <span className="font-semibold text-slate-600">{name}</span> : null}
+    </>
+  );
+}
+
 function Field({ label, value, onChange, readOnly, placeholder }) {
   return (
     <div className="min-w-0 space-y-1">
@@ -421,8 +434,22 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
   const gateOutId = gateUid != null && String(gateUid).trim() !== "" ? `${String(payload?.gate?.type || payload?.type || "out").toLowerCase() === "in" ? "IN" : "OUT"}-${String(gateUid).trim()}` : null;
 
   const billDateDisplay = payload?.bill_dt || invmnote?.billdt || "—";
-  const showAddInfo = mode === "add" && canCreateNew;
   const addUserDisplay = user?.name || user?.username || "—";
+  const gateRow = payload?.gate || null;
+  const showAddInfo = mode === "add" && canCreateNew;
+
+  const footerAudit = useMemo(() => {
+    if (showAddInfo) {
+      return { at: addEntryStamp ?? new Date(), who: addUserDisplay };
+    }
+    if (!gateRow) return null;
+    return {
+      at: gateRow.created_at || null,
+      who: gateRow.created_by || null,
+      updatedAt: gateRow.updated_at || null,
+      updatedBy: gateRow.updated_by || null,
+    };
+  }, [showAddInfo, addEntryStamp, addUserDisplay, gateRow]);
 
   const title = isExistingGate
     ? canEditMeta
@@ -436,13 +463,15 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
 
   const footer = (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 w-full">
-      {showAddInfo ? (
+      {footerAudit?.at || footerAudit?.who ? (
         <p className="text-[11px] sm:text-xs text-slate-500 order-2 sm:order-1">
-          <span className="font-semibold text-slate-600 tabular-nums">
-            {formatDateTime(addEntryStamp ?? new Date())}
-          </span>
-          {" · "}
-          <span className="font-semibold text-slate-600">{addUserDisplay}</span>
+          Created: <AuditStamp datetime={footerAudit.at} name={footerAudit.who} />
+          {footerAudit.updatedAt || footerAudit.updatedBy ? (
+            <>
+              {" · "}
+              Updated: <AuditStamp datetime={footerAudit.updatedAt} name={footerAudit.updatedBy} />
+            </>
+          ) : null}
         </p>
       ) : (
         <span className="hidden sm:block flex-1" aria-hidden="true" />

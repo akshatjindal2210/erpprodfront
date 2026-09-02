@@ -3,10 +3,10 @@
 import { isBoxOnQcHold, isBoxOutwardDispatch, isBoxInHand } from "@/apps/ims/lib/utils/boxInventory";
 
 export function getBoxStockZone(row) {
-  if (row?.stock_zone) return row.stock_zone;
   if (isBoxOnQcHold(row)) return "qc_hold";
   if (isBoxOutwardDispatch(row)) return "dispatched";
   if (isBoxInHand(row)) return row?.location_id ? "in_store" : "packing_area";
+  if (row?.stock_zone) return row.stock_zone;
   return "other";
 }
 

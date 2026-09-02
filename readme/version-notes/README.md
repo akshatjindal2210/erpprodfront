@@ -2,7 +2,9 @@
 
 | Note | Topic |
 |------|--------|
-| [v3.4.38.md](./v3.4.38.md) | CL Task Report · Verification · Include Sunday · Holiday import · Tasks stat order · Not Viewed |
+| [v3.4.39.md](./v3.4.39.md) | Today Dispatch Plan — Recommended by Customer sort · simple box count · hide outer Sch No |
+| [v3.4.38.md](./v3.4.38.md) | CL Task Report · Verification · Include Sunday · Holiday import · Tasks stat order · Not Viewed · IMS Box SA-id dispatch |
+| [v3.4.38.box-dispatch-sa-id.md](./v3.4.38.box-dispatch-sa-id.md) | IMS Boxes — SA-add box with colliding `out_uid`/`sa_id` shown as 13C |
 | [v3.4.37.md](./v3.4.37.md) | Shortage month filter · Schedule Planning Default IMS · Today Dispatch Recommended |
 | [v3.4.36.md](./v3.4.36.md) | Gate Entry edit · Shortage PPC bulk import · Month TZ · Permission cache |
 | [v3.4.35.md](./v3.4.35.md) | Dashboard filters · CL Edit multi-person · Task rating/Actions · CL Report score & dates |

@@ -31,6 +31,8 @@ Read-only box map. Created by Packing Entry / Stock Adjustment / QC completion.
 
 Reads `location_id`, `in_uid`, `out_uid`, `qc_hold_id`, `sa_id`, FN, dailyprod.
 
+**Stock zone:** in store / packing / QC hold / dispatch. A stock-adjustment **add** box (`sa_entry_type = stock_in`) that later gets `out_uid` is **dispatch**, even if `out_uid === sa_id` (those ids can collide). See [v3.4.38.box-dispatch-sa-id.md](../../version-notes/v3.4.38.box-dispatch-sa-id.md).
+
 **Table impact**
 
 | Action        | Writes       |

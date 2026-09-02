@@ -5,13 +5,13 @@
  * Used by Page.js (same pattern as masterColumns.js for Daily Production).
  */
 
-import { CheckCircle, Clock, Layers } from "lucide-react";
+import { CheckCircle, Clock /*, Layers */ } from "lucide-react";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { QC_HOLD_PARTIAL_ENABLED } from "@/apps/ims/lib/utils/qcHoldTypes";
 
 export const QC_HOLD_STATUS_TABS = [
   { id: "complete", label: "Complete", icon: CheckCircle },
-  { id: "partial", label: "Partial", icon: Layers },
+  // { id: "partial", label: "Partial", icon: Layers },
   { id: "pending", label: "Pending", icon: Clock },
 ];
 

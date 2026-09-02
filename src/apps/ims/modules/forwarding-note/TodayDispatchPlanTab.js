@@ -34,22 +34,23 @@ function itemDispatchQty(row) {
   return Number(row?.dispatch_workable_qty ?? scheduleDispatchWorkableQty(row));
 }
 
-function resolveItemBoxCounts(row) {
-  if (row?.dispatch_full_boxes != null || row?.dispatch_loose_boxes != null) {
-    const full = Number(row.dispatch_full_boxes) || 0;
-    const loose = Number(row.dispatch_loose_boxes) || 0;
-    return { full, loose, total: full + loose };
-  }
-  const per = Number(row?.qty_per_box);
+function itemBoxCount(row) {
+  const fromApi = Number(row?.dispatch_box_count);
+  if (Number.isFinite(fromApi) && fromApi >= 0) return fromApi;
+
   const qty = itemDispatchQty(row);
-  if (!Number.isFinite(per) || per <= 0 || qty <= 0) return { full: 0, loose: 0, total: 0 };
-  const full = Math.floor(qty / per);
-  const loose = qty % per > 0 ? 1 : 0;
-  return { full, loose, total: full + loose };
+  if (!Number.isFinite(qty) || qty <= 0) return 0;
+  const per = Number(row?.qty_per_box);
+  if (Number.isFinite(per) && per > 0) {
+    const full = Math.floor(qty / per);
+    return full + (qty % per > 0 ? 1 : 0);
+  }
+  return 1;
 }
 
 function customerTotalBoxCount(row) {
-  return Number(row?.recommended_total_boxes ?? 0);
+  if (row?.recommended_total_boxes != null) return Number(row.recommended_total_boxes) || 0;
+  return itemBoxCount(row);
 }
 
 /** Item code with per-line dispatch qty, comma-separated. */
@@ -62,6 +63,14 @@ function formatItemsWithDispatchQty(items) {
     })
     .filter(Boolean)
     .join(", ");
+}
+
+/** Customer-wise recommended: highest total dispatch qty first (tie → item-wise rules). */
+function compareRecommendedCustomerRows(a, b) {
+  const qtyA = Number(a?.recommended_dispatch_qty ?? a?.dispatch_workable_qty ?? 0);
+  const qtyB = Number(b?.recommended_dispatch_qty ?? b?.dispatch_workable_qty ?? 0);
+  if (qtyB !== qtyA) return qtyB - qtyA;
+  return compareRecommendedDispatchRows(a, b);
 }
 
 /** One row per customer — sch no comma-separated; items with dispatch qty. */
@@ -80,10 +89,7 @@ function groupRecommendedByCustomer(itemRows) {
     const anchor = items[0];
     const matchPcts = items.map((r) => Number(r.dispatch_match_pct ?? scheduleDispatchMatchPct(r)));
     const recommended_dispatch_qty = items.reduce((sum, r) => sum + itemDispatchQty(r), 0);
-    const boxTotals = items.reduce(
-      (acc, r) => acc + resolveItemBoxCounts(r).total,
-      0
-    );
+    const boxTotals = items.reduce((sum, r) => sum + itemBoxCount(r), 0);
     grouped.push({
       ...anchor,
       schno: joinUniqueCsv(items.map((r) => r.schno)),
@@ -100,7 +106,7 @@ function groupRecommendedByCustomer(itemRows) {
     });
   }
 
-  grouped.sort(compareRecommendedDispatchRows);
+  grouped.sort(compareRecommendedCustomerRows);
   return grouped;
 }
 
@@ -219,15 +225,20 @@ function dispatchPlanStatusColumn() {
 
 /** Custom dispatch-plan columns — only what's needed */
 function buildDispatchHeaders({ showMatchPct = false, customerRecommendedView = false } = {}) {
-  const cols = [
-    [ "Sch No", "schno", (v) => (
+  const cols = [];
+
+  if (!customerRecommendedView) {
+    cols.push(["Sch No", "schno", (v) => (
         <span className="font-mono text-[10px] font-bold text-slate-800 uppercase tracking-tight">
           {v || "—"}
         </span>
       ),
-      { fixed: true, width: customerRecommendedView ? "120px" : "90px", wrap: customerRecommendedView },
-    ],
-    [ "Customer", "acc_name", (v) => (
+      { fixed: true, width: "90px" },
+    ]);
+  }
+
+  cols.push(
+    ["Customer", "acc_name", (v) => (
         <span
           className="font-bold text-slate-900 text-[10px] uppercase whitespace-normal break-words leading-snug"
           title={v}
@@ -235,7 +246,7 @@ function buildDispatchHeaders({ showMatchPct = false, customerRecommendedView = 
           {v || "—"}
         </span>
       ),
-      { width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" },
+      { fixed: customerRecommendedView, width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" },
     ],
     [
       customerRecommendedView ? "Item (Dispatch Qty)" : "Item Code",
@@ -249,8 +260,8 @@ function buildDispatchHeaders({ showMatchPct = false, customerRecommendedView = 
         </span>
       ),
       { width: customerRecommendedView ? "220px" : "130px", wrap: customerRecommendedView, copyValue: (row) => row.item_code || "—" },
-    ],
-  ];
+    ]
+  );
 
   if (customerRecommendedView) {
     cols.push([
@@ -709,9 +720,9 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
           totalItems={displayRows.length}
           cardConfig={{
             titleKey: isRecommendedCustomer ? "acc_name" : "schno",
-            badgeIndices: isRecommendedCustomer ? [5] : [7],
+            badgeIndices: isRecommendedCustomer ? [4] : [7],
             detailKeys: isRecommendedCustomer
-              ? ["schno", "item_code", "recommended_dispatch_qty", "recommended_total_boxes"]
+              ? ["item_code", "recommended_dispatch_qty", "recommended_total_boxes"]
               : ["acc_name", "item_code", "itemdesc", "balance_qty", "action_date", "item_remark"],
             footerKey: "schdt",
           }}
