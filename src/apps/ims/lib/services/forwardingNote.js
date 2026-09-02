@@ -15,6 +15,7 @@ export const forwardingNoteService = {
     return imsApiViews(ENDPOINTS.FORWARDING_NOTES.VIEWS, body, "fuid");
   },
   getTransporters: (params) => imsApiViews(ENDPOINTS.FORWARDING_NOTES.TRANSPORTERS, params, "transporter_name"),
+  getVehicles: (params) => imsApiViews(ENDPOINTS.FORWARDING_NOTES.VEHICLES, params, "vehicle_number"),
   getBillNumbers: (params) => imsApiViews(ENDPOINTS.FORWARDING_NOTES.BILL_NUMBERS, params, "bill_no"),
   create:      (data) => api(ENDPOINTS.FORWARDING_NOTES.CREATE, { method: "POST", body: data }),
   update:      (fuid, data) => api(ENDPOINTS.FORWARDING_NOTES.UPDATE, { method: "POST", body: { fuid, ...data } }),

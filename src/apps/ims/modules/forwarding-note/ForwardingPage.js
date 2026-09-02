@@ -255,7 +255,7 @@ const DISPATCH_FILTER_OPTIONS = [
   { label: "Complete", value: "complete" },
 ];
 
-const DISPATCH_PLAN_DEFAULT_STATUS = "recommended";
+const DISPATCH_PLAN_DEFAULT_STATUS = "recommended_customer";
 
 const DISPATCH_PLAN_STATUS_OPTIONS = [
   { label: "Recommended by Item", value: "recommended" },
@@ -498,12 +498,13 @@ export default function ForwardingPage() {
   const hasSavedDbBill = Boolean(
     selectedRecord?.bill_source === "db" || String(selectedRecord?.line_bill_no ?? "").trim()
   );
+  // Bill assign as soon as FN exists — out-entry complete/approved not required (re-enable later if needed).
   const canAssignLineBill = Boolean(
     reportType === "item_wise" &&
       canManageBill &&
       selectedRecord?.id &&
-      selectedBillItem &&
-      selectedRecord?.out_entry_complete === true
+      selectedBillItem
+      // && selectedRecord?.out_entry_complete === true
   );
 
   const selectedBillOption = useMemo(
@@ -615,7 +616,8 @@ export default function ForwardingPage() {
       fetchData();
     }
     setSelectedId(null);
-  }, [dispatchPrefill, fetchData]);
+    if (modalMode === "add") setOuterTab("forwarding_master");
+  }, [dispatchPrefill, fetchData, modalMode]);
 
   const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
 
@@ -1148,11 +1150,14 @@ export default function ForwardingPage() {
                     </button>
                   </div>
                 </div>
+              ) : null}
+              {/* Future: only allow bill after store-out complete
               ) : canManageBill && reportType === "item_wise" && selectedRecord?.id && !selectedRecord?.out_entry_complete ? (
                 <p className="text-[10px] font-bold text-slate-500 uppercase">
                   Select a store-out complete line to assign or update a bill.
                 </p>
               ) : null}
+              */}
             </div>
           )}
         </ListPageToolbar>

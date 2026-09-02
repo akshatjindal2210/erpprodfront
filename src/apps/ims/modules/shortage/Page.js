@@ -248,7 +248,7 @@ export default function ShortagePage() {
     ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
     ["Updated By", "updated_by_name", (v, row) => <span className="text-[10px] text-slate-500">{v || row?.updated_by || "—"}</span>, { width: "110px" }],
     ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-    ["Approved By", "approved_by_name", (v, row) => <span className="text-[10px] text-slate-500 uppercase">{v || row?.approved_by || "—"}</span>, { width: "110px" }],
+    ["Approved By", "approved_by_name", (v, row) => <span className="text-[10px] text-slate-500">{v || row?.approved_by || "—"}</span>, { width: "110px" }],
     ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 

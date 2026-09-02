@@ -146,6 +146,7 @@ export const ENDPOINTS = {
     CUSTOMER_CATEGORY: "/forwarding-notes/customer-category",
     PRINT_BILL: "/forwarding-notes/print-bill",
     TRANSPORTERS: "/forwarding-notes/transporter-helper",
+    VEHICLES: "/forwarding-notes/vehicle-helper",
     BILL_NUMBERS: "/forwarding-notes/bill-helper",
   },
 

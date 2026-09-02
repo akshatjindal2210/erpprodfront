@@ -198,9 +198,10 @@ const DAILY_PRODUCTION_TAIL_HEADERS = [
   //   <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v}>{v}</span>
   // ), { width: "220px" }],
   ["Sticker Status", "sticker_generated", renderDailyProdStickerStatus, { width: "110px" }],
-  ["Created By", "internal_create_user", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
+  // ["Created By", "internal_create_user", (v) => <span className="text-[10px] text-slate-500 capitalize font-bold">{v || "—"}</span>, { width: "110px" }],
+  ["Created By", "internal_create_user", (v) => <span className="text-[10px] text-slate-500 capitalize font-bold">{v ? v.toLowerCase() : "—"}</span>, { width: "110px" }],
   ["Created At", "internal_create_date", (v) => <span className="text-[10px] text-slate-400 font-bold">{formatDateTimeLocalLabel(v) || "—"}</span>, { width: "150px" }],
-  ["Generate By", "system_generate_user_name", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
+  ["Generate By", "system_generate_user_name", (v) => <span className="text-[10px] text-slate-500 font-bold">{v || "—"}</span>, { width: "110px" }],
   ["Generate At", "system_generate_date", (v) => <span className="text-[10px] text-slate-400 font-bold">{formatDateTime(v) || "—"}</span>, { width: "150px" }],
 ];
 

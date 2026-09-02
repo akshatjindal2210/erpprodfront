@@ -401,9 +401,9 @@ function pickScheduleAuditFromItems(items = []) {
 }
 
 export const SCHEDULE_AUDIT_HEADERS = [
-  ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
+  ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500 font-bold">{v || "—"}</span>, { width: "110px" }],
   ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "130px" }],
-  ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase font-bold">{v || "—"}</span>, { width: "110px" }],
+  ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500 font-bold">{v || "—"}</span>, { width: "110px" }],
   ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "130px" }],
 ];
 

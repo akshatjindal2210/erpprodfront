@@ -250,6 +250,8 @@ export default function GateEntryPage() {
   const extraFilters = useMemo(() => {
     if (isPending) return [];
     return [
+      /* 
+      // This filter is temporarily disabled because gate entyr type out is now working in is future feature. So we are not allowing filtering by type for now.
       {
         label: "Type",
         key: "typeFilter",
@@ -261,6 +263,7 @@ export default function GateEntryPage() {
           { label: "In", value: "in" },
         ],
       },
+      */
     ];
   }, [isPending, typeFilter]);
 
@@ -466,6 +469,9 @@ export default function GateEntryPage() {
             fetchPending();
             fetchComplete();
             setSelected(null);
+            if (modalMode === "add") {
+              handleTabChange(PAGE_TABS.COMPLETE);
+            }
           }}
         />
       ) : null}

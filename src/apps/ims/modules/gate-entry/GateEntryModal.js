@@ -367,6 +367,8 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
   }, [itemWiseRows, invmnote]);
 
   const gateUid = payload?.gate?.uid ?? payload?.uid ?? initial?.uid ?? null;
+  const previewUid = !gateUid && !payload?.already_saved && payload?.next_uid != null && String(payload.next_uid).trim() !== "" ? String(payload.next_uid).trim() : null;
+  const displayUid = gateUid != null && String(gateUid).trim() !== "" ? String(gateUid).trim() : previewUid;
   const isExistingGate = Boolean(gateUid) || Boolean(payload?.already_saved);
   /** New gate: create when bill loaded and not yet saved. */
   const canCreateNew = Boolean(payload?.bill_no) && !payload?.already_saved && !gateUid && !readOnlyView;
@@ -402,9 +404,15 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
         remarks,
       });
       if (!res?.success) throw new Error(res?.message || "Failed to save gate entry.");
-      toast.success(res.message || "Gate entry saved successfully.");
-      onSaved?.(res.data);
+      const gate = res.data || null;
+      toast.success(
+        gate?.uid != null
+          ? `Gate entry saved · ${String(gate.type || "out").toLowerCase() === "in" ? "IN" : "OUT"}-${gate.uid}`
+          : res.message || "Gate entry saved successfully."
+      );
+      onSaved?.(gate);
       onClose?.();
+      return;
     } catch (err) {
       toast.error(err?.message || (canEditMeta ? "Failed to update gate entry." : "Failed to save gate entry."));
     } finally {
@@ -431,7 +439,10 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
     []
   );
 
-  const gateOutId = gateUid != null && String(gateUid).trim() !== "" ? `${String(payload?.gate?.type || payload?.type || "out").toLowerCase() === "in" ? "IN" : "OUT"}-${String(gateUid).trim()}` : null;
+  const gateOutId =
+    displayUid != null
+      ? `${String(payload?.gate?.type || payload?.type || "out").toLowerCase() === "in" ? "IN" : "OUT"}-${displayUid}`
+      : null;
 
   const billDateDisplay = payload?.bill_dt || invmnote?.billdt || "—";
   const addUserDisplay = user?.name || user?.username || "—";
@@ -459,7 +470,9 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
       : gateOutId
         ? `View Gate Entry · ${gateOutId}`
         : "View Gate Entry"
-    : "Gate Entry";
+    : gateOutId
+      ? `Gate Entry · ${gateOutId}`
+      : "Gate Entry";
 
   const footer = (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 w-full">
@@ -604,7 +617,7 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
                     >
                       <X size={16} />
                     </button>
-                  ) : !readOnlyView && mode === "add" ? (
+                  ) : !readOnlyView && mode === "add" && canCreateNew ? (
                     <button
                       type="button"
                       onClick={clearBill}

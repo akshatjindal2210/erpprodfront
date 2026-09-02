@@ -569,6 +569,9 @@ export default function ForwardingModal({
   const prevCategoryRef = useRef("");
   const [transporterOpts, setTransporterOpts] = useState([]);
   const [transporterOpen, setTransporterOpen] = useState(false);
+  const [vehicleOpts, setVehicleOpts] = useState([]);
+  const [vehicleOpen, setVehicleOpen] = useState(false);
+  const [vehicleHighlight, setVehicleHighlight] = useState(-1);
   const [categoryOpts, setCategoryOpts] = useState([]);
   const [categoryLoading, setCategoryLoading] = useState(false);
 
@@ -1356,17 +1359,43 @@ export default function ForwardingModal({
     }
   }, []);
 
+  const loadVehicleSuggestions = useCallback(async (accCode, search = "") => {
+    if (!accCode) { setVehicleOpts([]); return; }
+    try {
+      const res = await forwardingNoteService.getVehicles({
+        acc_code: Number(accCode),
+        search,
+      });
+      const list = Array.isArray(res?.data) ? res.data : [];
+      setVehicleOpts(withSortedViewsData(list, "vehicle_number"));
+    } catch {
+      setVehicleOpts([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open || !formReady) return;
-    if (!form.acc_code) { setTransporterOpts([]); return; }
+    if (!form.acc_code) {
+      setTransporterOpts([]);
+      setVehicleOpts([]);
+      return;
+    }
     loadTransporterSuggestions(form.acc_code, "");
-  }, [open, formReady, form.acc_code, loadTransporterSuggestions]);
+    loadVehicleSuggestions(form.acc_code, "");
+  }, [open, formReady, form.acc_code, loadTransporterSuggestions, loadVehicleSuggestions]);
 
   const handleTransporterPick = (opt) => {
     setForm((prev) => ({
       ...prev,
       transporter_name: opt?.transporter_name ?? prev.transporter_name,
       transporter_id: opt?.transporter_id ?? prev.transporter_id,
+    }));
+  };
+
+  const handleVehiclePick = (opt) => {
+    setForm((prev) => ({
+      ...prev,
+      vehicle_number: opt?.vehicle_number ?? prev.vehicle_number,
     }));
   };
 
@@ -2220,15 +2249,64 @@ export default function ForwardingModal({
             )}
           </div>
 
-          {/* Vehicle No */}
-          <div className="space-y-1">
+          {/* Vehicle No — suggestions from previous forwarding notes (per customer) */}
+          <div className="space-y-1 relative">
             <label className={FORM_LABEL_CLASS}>Vehicle No</label>
             <input
               value={form.vehicle_number}
-              onChange={(e) => handleInputChange("vehicle_number", e.target.value)}
-              placeholder="XX-00-XX-0000"
+              onChange={(e) => {
+                const v = e.target.value;
+                handleInputChange("vehicle_number", v);
+                if (form.acc_code) loadVehicleSuggestions(form.acc_code, v);
+                setVehicleOpen(true);
+                setVehicleHighlight(-1);
+              }}
+              placeholder={form.acc_code ? "Type or pick from suggestions…" : "Select customer first"}
+              disabled={!form.acc_code}
               className={`${OK_INPUT} text-[11px] h-[38px] rounded-lg border-slate-200`}
+              onFocus={() => setVehicleOpen(true)}
+              onBlur={() => setTimeout(() => setVehicleOpen(false), 120)}
+              onKeyDown={(e) => {
+                if (!vehicleOpen || vehicleOpts.length === 0) return;
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setVehicleHighlight((prev) => Math.min(prev + 1, vehicleOpts.length - 1));
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setVehicleHighlight((prev) => Math.max(prev - 1, 0));
+                } else if (e.key === "Enter" && vehicleHighlight >= 0) {
+                  e.preventDefault();
+                  handleVehiclePick(vehicleOpts[vehicleHighlight]);
+                  setVehicleOpen(false);
+                  setVehicleHighlight(-1);
+                } else if (e.key === "Escape") {
+                  setVehicleOpen(false);
+                  setVehicleHighlight(-1);
+                }
+              }}
             />
+            {vehicleOpen && form.acc_code && vehicleOpts.length > 0 && (
+              <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-[80] max-h-56 overflow-auto">
+                {vehicleOpts.map((o, idx) => (
+                  <button
+                    key={o.id || o.vehicle_number}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleVehiclePick(o);
+                      setVehicleOpen(false);
+                      setVehicleHighlight(-1);
+                    }}
+                    onMouseEnter={() => setVehicleHighlight(idx)}
+                    className={`w-full text-left px-3 py-2 ${vehicleHighlight === idx ? "bg-indigo-50" : "hover:bg-indigo-50/40"}`}
+                  >
+                    <div className="text-[11px] font-bold text-slate-700 font-mono uppercase">
+                      {o.vehicle_number}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Cartage */}

@@ -2,7 +2,7 @@
 
 | Note | Topic |
 |------|--------|
-| [v3.4.39.md](./v3.4.39.md) | Today Dispatch Plan — Recommended by Customer sort · simple box count · hide outer Sch No |
+| [v3.4.39.md](./v3.4.39.md) | Forwarding Note (dispatch customer · IMS Ready save · bill anytime · vehicle suggest) · Gate Entry OUT-id · QC Hold Partial tab |
 | [v3.4.38.md](./v3.4.38.md) | CL Task Report · Verification · Include Sunday · Holiday import · Tasks stat order · Not Viewed · IMS Box SA-id dispatch |
 | [v3.4.38.box-dispatch-sa-id.md](./v3.4.38.box-dispatch-sa-id.md) | IMS Boxes — SA-add box with colliding `out_uid`/`sa_id` shown as 13C |
 | [v3.4.37.md](./v3.4.37.md) | Shortage month filter · Schedule Planning Default IMS · Today Dispatch Recommended |
