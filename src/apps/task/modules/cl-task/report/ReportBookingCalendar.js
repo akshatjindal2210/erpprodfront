@@ -3,6 +3,7 @@
 import { useMemo, useRef, useEffect, useState, useCallback } from "react";
 import { Loader2 } from "lucide-react";
 import { buildDateColumns, weekdayLong, isWeekendYmd, istYmd, toYmdClient } from "@/apps/task/lib/services/reportApi";
+import { isSundayYmd, shouldShowTaskDayCell } from "@/apps/task/lib/helpers/clTaskRecurrenceHelper";
 
 /** Compact stack — more rows visible */
 const DAY_W = 78;
@@ -104,20 +105,38 @@ function resolveCellScore(task, ymd, today) {
     : 0;
 }
 
+function isSundayYmdLocal(ymd) {
+  return isSundayYmd(ymd);
+}
+
+function normalizeStateKind(raw) {
+  const s = String(raw || "").toLowerCase();
+  if (s === "verification" || s === "awaiting_verification") return "verification";
+  if (s === "missed" || s === "pending" || s === "done") return s;
+  return null;
+}
+
 function resolveDayState(task, ymd, today, score) {
   if (!ymd) return "none";
+
+  const isFrequent = String(task?.task_type || "").toLowerCase() === "frequently";
+  if (isFrequent && !task?.include_sunday && isSundayYmdLocal(ymd)) return "none";
 
   const start = toYmdClient(task?.startDate) || toYmdClient(task?.scheduled_date);
   if (start && ymd < start) return "none";
 
+  if (!shouldShowTaskDayCell(task, ymd)) return "none";
+
+  const applyRedIfNeeded = (kind) => {
+    if (task?.is_red_flag && (kind === "done" || Number(score) > 0)) return "red";
+    return kind;
+  };
+
   if (ymd > today) {
     const states = task?.day_states;
     if (states && typeof states === "object" && ymd in states) {
-      const s = String(states[ymd] || "").toLowerCase();
-      if (s === "missed" || s === "pending" || s === "done") {
-        if (task?.is_red_flag && (s === "done" || Number(score) > 0)) return "red";
-        return s;
-      }
+      const kind = normalizeStateKind(states[ymd]);
+      if (kind) return applyRedIfNeeded(kind);
     }
     if (Number(score) > 0) return task?.is_red_flag ? "red" : "done";
     return "none";
@@ -125,14 +144,8 @@ function resolveDayState(task, ymd, today, score) {
 
   const states = task?.day_states;
   if (states && typeof states === "object" && ymd in states) {
-    const s = String(states[ymd] || "").toLowerCase();
-    if (s === "missed" || s === "pending" || s === "done") {
-      /** Red only when that day is scored/done — not every pending day on a flagged row. */
-      if (task?.is_red_flag && (s === "done" || Number(score) > 0)) {
-        return "red";
-      }
-      return s;
-    }
+    const kind = normalizeStateKind(states[ymd]);
+    if (kind) return applyRedIfNeeded(kind);
   }
 
   if (Number(score) > 0) {
@@ -145,21 +158,21 @@ function resolveDayState(task, ymd, today, score) {
     ymd in task.day_scores
   ) {
     if (Number(task.day_scores[ymd]) > 0) return task?.is_red_flag ? "red" : "done";
-    /** Today still open → pending; past zero → missed */
     return ymd >= today ? "pending" : "missed";
   }
 
-  /** No per-day map: only the scheduled day uses row status. */
   const sched = toYmdClient(task?.scheduled_date) || start;
   if (sched && ymd === sched) {
-    if (task?.status === "awaiting_verification") return "pending";
+    if (task?.status === "awaiting_verification") return "verification";
     if (task?.status === "pending") return ymd >= today ? "pending" : "missed";
     if (task?.status === "completed") return Number(score) > 0 || task?.done_verified ? "done" : "pending";
   }
 
-  if (start && ymd >= start && ymd <= today) {
+  if (ymd <= today) {
+    if (task?.status === "awaiting_verification") return "verification";
     return ymd >= today ? "pending" : "missed";
   }
+
   return "none";
 }
 
@@ -171,9 +184,11 @@ function cellMatched(task, ymd) {
 }
 
 function formatCellLabel(kind, score) {
-  if (kind === "none") return "0";
+  if (kind === "none") return "";
   if (kind === "missed") return "0%";
-  if (kind === "pending") return Number(score) > 0 ? formatSignedScore(score) : "0%";
+  if (kind === "pending" || kind === "verification") {
+    return Number(score) > 0 ? formatSignedScore(score) : "0%";
+  }
   if (kind === "done" || kind === "red") return formatSignedScore(score);
   return formatSignedScore(score);
 }
@@ -185,14 +200,13 @@ function formatSignedScore(n) {
 }
 
 /**
- * Report cell tones — distinct at a glance:
- * none = not assigned yet | missed = deadline passed | pending = due / action taken | done | red
+ * Report cell tones — each status uses a distinct hue.
  */
 export const SCORE_CELL_TONES = {
   none: {
     cell: "bg-slate-100 text-slate-500 border-slate-200",
     swatch: "bg-slate-100 border-slate-200",
-    label: "No task (0)",
+    label: "No task",
   },
   missed: {
     cell: "bg-rose-100 text-rose-900 border-rose-300",
@@ -200,19 +214,24 @@ export const SCORE_CELL_TONES = {
     label: "Missed",
   },
   pending: {
-    cell: "bg-amber-100 text-amber-950 border-amber-300",
-    swatch: "bg-amber-100 border-amber-300",
-    label: "Pending / action",
+    cell: "bg-sky-100 text-sky-950 border-sky-300",
+    swatch: "bg-sky-100 border-sky-300",
+    label: "Due / open",
+  },
+  verification: {
+    cell: "bg-violet-100 text-violet-950 border-violet-300",
+    swatch: "bg-violet-100 border-violet-300",
+    label: "Verification pending",
   },
   done: {
-    cell: "bg-emerald-100 text-emerald-900 border-emerald-300",
-    swatch: "bg-emerald-100 border-emerald-300",
+    cell: "bg-emerald-100 text-emerald-900 border-emerald-400",
+    swatch: "bg-emerald-100 border-emerald-400",
     label: "Done",
   },
   red: {
-    cell: "bg-rose-200 text-rose-950 border-rose-400",
-    swatch: "bg-rose-200 border-rose-400",
-    label: "Red",
+    cell: "bg-red-700 text-white border-red-800",
+    swatch: "bg-red-700 border-red-800",
+    label: "Red / MIS",
   },
 };
 
@@ -330,6 +349,7 @@ export default function ReportBookingCalendar({
         startDate: start,
         endDate: end || start,
         scheduled_date: toYmdClient(task.scheduled_date) || start,
+        include_sunday: task.include_sunday === true,
         day_scores,
         day_states,
       };
@@ -752,7 +772,7 @@ export default function ReportBookingCalendar({
                                   canOpen ? "hover:bg-white/60" : "cursor-default"
                                 } ${barTone(kind)}`}
                               >
-                                {label || "0"}
+                                {label}
                               </button>
                             </div>
                           );

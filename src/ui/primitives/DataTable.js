@@ -187,6 +187,9 @@ export default function DataTable({
   autoFocusFirstRow = false,
   /** Optional per-row class for status tint on table rows. */
   getRowClassName,
+  /** When set with renderExpandedRow, inserts a full-width detail row under the matching row (table view only). */
+  expandedRowId = null,
+  renderExpandedRow,
 }) {
   const selW = DATA_TABLE_SELECTION_COL_PX;
   const lastApiError = typeof window !== "undefined" ? window.__LAST_API_ERROR__ : null;
@@ -1127,8 +1130,8 @@ export default function DataTable({
                     const isLastElement = data.length === rowIndex + 1;
 
                     return (
+                      <React.Fragment key={rowReactKey}>
                       <tr
-                        key={rowReactKey}
                         ref={(el) => {
                           registerRowRef(currentId, el);
                           if (isLastElement) lastElementRef(el);
@@ -1224,6 +1227,19 @@ export default function DataTable({
                           );
                         })}
                       </tr>
+                      {renderExpandedRow &&
+                      expandedRowId != null &&
+                      String(expandedRowId) === String(currentId) ? (
+                        <tr key={`${rowReactKey}-expand`} className="bg-slate-50">
+                          <td
+                            colSpan={headers.length + (showSelection ? 1 : 0)}
+                            className="p-0 border-b border-slate-200 align-top"
+                          >
+                            {renderExpandedRow(item, currentId)}
+                          </td>
+                        </tr>
+                      ) : null}
+                    </React.Fragment>
                     );
                   })}
                   {loading && data.length > 0 && !suppressLoadingFooterRow && !centerLoadingOverlay && (

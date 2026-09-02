@@ -200,50 +200,26 @@ export default function HolidaysPage() {
           <ListPageToolbarLayout
             actions={
               <>
-                <ActionButton
-                  module={MODULE}
-                  action="add"
-                  label="New"
-                  icon={Plus}
-                  onClick={openNewModal}
+                <ActionButton module={MODULE} action="add" label="New" icon={Plus} onClick={openNewModal}
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                 />
-                <ActionButton
-                  module={MODULE}
-                  action="edit"
-                  variant="outline"
-                  label="Edit"
-                  icon={Edit3}
+                {canAdd ? (<HolidayBulkUpload onSuccess={fetchHolidays} onOpenChange={setBulkOpen} />) : null}
+                <ActionButton module={MODULE} action="edit" variant="outline" label="Edit" icon={Edit3} 
                   disabled={!selectedRecord || isOutsidePermissionDays(selectedRecord, editAccess.days)}
-                  record={selectedRecord}
-                  onClick={() => openEditModal(selectedRecord)}
+                  record={selectedRecord} onClick={() => openEditModal(selectedRecord)}
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
                 />
-                <ActionButton
-                  module={MODULE}
-                  action="delete"
-                  variant="danger"
-                  label="Delete"
-                  icon={Trash2}
-                  disabled={!selectedRecord}
-                  onClick={() => openDeleteModal(selectedRecord)}
+                <ActionButton module={MODULE} action="delete" variant="danger" label="Delete" icon={Trash2}
+                  disabled={!selectedRecord} onClick={() => openDeleteModal(selectedRecord)}
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                 />
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
-                <button
-                  type="button"
-                  onClick={fetchHolidays}
-                  disabled={loading}
+                <button type="button" onClick={fetchHolidays} disabled={loading}
                   className="h-9 shrink-0 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 inline-flex items-center justify-center disabled:opacity-60"
                   aria-label="Refresh"
                 >
                   <RefreshCcw size={14} className={loading ? "animate-spin text-indigo-600" : ""} />
                 </button>
-                {canAdd ? (
-                  <div className="ml-1">
-                    <HolidayBulkUpload onSuccess={fetchHolidays} onOpenChange={setBulkOpen} />
-                  </div>
-                ) : null}
               </>
             }
             viewToggle={

@@ -21,6 +21,7 @@ import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import { prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
 import { SCAN_SNACK_MSG } from "@/platform/utils/global";
+import { formatDateTime } from "@/platform/utils/core/utilHelper";
 
 const GATE_BILL_SCANNER_ID = "gate-entry-bill-qr-reader";
 
@@ -74,7 +75,7 @@ function MiniTable({ title, columns, rows, emptyText = "No lines", totalQty }) {
         */}
       </div>
       <div className="border border-slate-200 rounded-2xl bg-white overflow-hidden shadow-sm">
-        <div className="overflow-auto max-h-52">
+        <div className={`overflow-auto ${rowCount > 10 ? "max-h-[23.75rem]" : ""}`}>
           <table className="w-full text-left text-[11px]">
             <thead className="bg-slate-50 sticky top-0 border-b border-slate-200">
               <tr>
@@ -115,7 +116,7 @@ function MiniTable({ title, columns, rows, emptyText = "No lines", totalQty }) {
               )}
             </tbody>
             {showFooter ? (
-              <tfoot className="bg-white border-t border-slate-200">
+              <tfoot className="bg-white border-t border-slate-200 sticky bottom-0">
                 <tr>
                   {qtyColIdx > 1 ? (
                     <td colSpan={qtyColIdx - 1} className="px-3 py-2.5" />
@@ -155,26 +156,29 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
   const [remarks, setRemarks] = useState("");
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [laserKey, setLaserKey] = useState(0);
+  const [addEntryStamp, setAddEntryStamp] = useState(null);
 
   const autoDoneRef = useRef(false);
   const scanBusyRef = useRef(false);
   const scanInputRef = useRef(null);
   const openBillRef = useRef(async () => {});
 
-  const { laserScan, keyboardType, showPhoneQr } = useDeviceScanSettings();
+  const { laserScan, keyboardType, phoneQrScan } = useDeviceScanSettings();
   const showLaserUi = laserScan || isLaserScanEnabled();
-  /** Gate bill: always allow type/paste (JWT from phone). */
-  const showKeyboardUi = keyboardType || !showLaserUi || true;
+  const showKeyboardUi = keyboardType === true;
+  /** Bill QR: overlay allows desktop webcam (gate PC), so honor Phone QR even off-phone. */
+  const showCameraQr = phoneQrScan === true;
 
   const applyPayload = useCallback((data) => {
     setPayload(data || null);
-    setTransporter(data?.transporter_name || "");
-    setVehicle(data?.vehicle_number || "");
+    setTransporter(data?.transporter_name || data?.transport || data?.invmnote?.transport || data?.invmnote?.transporter_name || "");
+    setVehicle(data?.vehicle_number || data?.vehicleno || data?.invmnote?.vehicleno || data?.invmnote?.vehicle_number || "");
     setRemarks(data?.remarks || "");
   }, []);
 
   const clearBill = useCallback(() => {
     applyPayload(null);
+    setAddEntryStamp(null);
     setLaserKey((k) => k + 1);
     scanBusyRef.current = false;
     setLoading(false);
@@ -224,6 +228,7 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
     if (!open) {
       applyPayload(null);
       setIsScannerOpen(false);
+      setAddEntryStamp(null);
       autoDoneRef.current = false;
       scanBusyRef.current = false;
       return;
@@ -246,6 +251,11 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
       void openBillRef.current(bill);
     }
   }, [open, initial, applyPayload]);
+
+  useEffect(() => {
+    if (!open || mode !== "add" || initial?.uid) return;
+    setAddEntryStamp((prev) => prev ?? new Date());
+  }, [open, mode, initial?.uid]);
 
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,
@@ -281,7 +291,7 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
   const invmnote = payload?.invmnote || null;
   const invfnote = Array.isArray(payload?.invfnote) ? payload.invfnote : [];
 
-  /** Merge packing lines → one row per item (item level, not packing level). */
+  /** Merge packing lines → one row per item, Item code ASC. */
   const itemWiseRows = useMemo(() => {
     const map = new Map();
 
@@ -314,16 +324,16 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
       }
     }
 
-    return [...map.values()].map((r) => ({
-      item_code: r.item_code,
-      item_desc: r.item_desc,
-      qty: r.has_qty ? r.qty_sum : "—",
-    })).map((r, _, arr) => {
-      if (r.qty !== "—" || arr.length !== 1) return r;
-      const billQty = invmnote?.totalqty ?? invmnote?.total_qty;
-      if (billQty == null || billQty === "") return r;
-      return { ...r, qty: billQty };
-    }).map((r, i) => ({ ...r, sno: i + 1 }));
+    return [...map.values()]
+      .sort((a, b) => String(a.item_code).localeCompare(String(b.item_code), undefined, { sensitivity: "base" }))
+      .map((r, i) => {
+        let qty = r.has_qty ? r.qty_sum : "—";
+        if (qty === "—" && map.size === 1) {
+          const billQty = invmnote?.totalqty ?? invmnote?.total_qty;
+          if (billQty != null && billQty !== "") qty = billQty;
+        }
+        return { sno: i + 1, item_code: r.item_code, item_desc: r.item_desc, qty };
+      });
   }, [invfnote, invmnote]);
 
   const itemListTotalQty = useMemo(() => {
@@ -346,10 +356,9 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
   const gateUid = payload?.gate?.uid ?? payload?.uid ?? initial?.uid ?? null;
   const isExistingGate = Boolean(gateUid) || Boolean(payload?.already_saved);
   /** New gate: create when bill loaded and not yet saved. */
-  const canCreateNew =
-    Boolean(payload?.bill_no) && !payload?.already_saved && !gateUid && !readOnlyView;
-  /** Existing gate: Super Admin or gate_entry edit can update transporter / vehicle / remarks (not in View). */
-  const canEditMeta = Boolean(gateUid) && canEditGate && mode !== "view";
+  const canCreateNew = Boolean(payload?.bill_no) && !payload?.already_saved && !gateUid && !readOnlyView;
+  /** Existing gate: edit only when opened via Edit action (row select + Edit). Scan/New stays view-only. */
+  const canEditMeta = Boolean(gateUid) && canEditGate && mode === "edit";
   const canSubmit = canCreateNew || canEditMeta;
   const fieldsEditable = canCreateNew || canEditMeta;
   /** Scan only until a bill is loaded — then hide (use Clear to scan again). */
@@ -409,49 +418,62 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
     []
   );
 
-  const gateOutId =
-    gateUid != null && String(gateUid).trim() !== ""
-      ? `OUT-${String(gateUid).trim()}`
-      : null;
+  const gateOutId = gateUid != null && String(gateUid).trim() !== "" ? `${String(payload?.gate?.type || payload?.type || "out").toLowerCase() === "in" ? "IN" : "OUT"}-${String(gateUid).trim()}` : null;
+
+  const billDateDisplay = payload?.bill_dt || invmnote?.billdt || "—";
+  const showAddInfo = mode === "add" && canCreateNew;
+  const addUserDisplay = user?.name || user?.username || "—";
 
   const title = isExistingGate
     ? canEditMeta
-      ? "Edit Gate Entry"
-      : "View Gate Entry"
-    : "New Gate Entry";
-  const description = payload?.bill_no
-    ? gateOutId
-      ? `Bill ${payload.bill_no} · ${gateOutId}`
-      : `Bill ${payload.bill_no}`
-    : "Scan invoice QR or type bill number";
+      ? gateOutId
+        ? `Edit Gate Entry · ${gateOutId}`
+        : "Edit Gate Entry"
+      : gateOutId
+        ? `View Gate Entry · ${gateOutId}`
+        : "View Gate Entry"
+    : "Gate Entry";
 
   const footer = (
-    <div className="flex items-center justify-end gap-3 w-full">
-      <button
-        type="button"
-        onClick={onClose}
-        disabled={saving}
-        className="px-5 py-2.5 text-sm font-bold text-slate-500"
-      >
-        Close
-      </button>
-      {canSubmit ? (
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 w-full">
+      {showAddInfo ? (
+        <p className="text-[11px] sm:text-xs text-slate-500 order-2 sm:order-1">
+          <span className="font-semibold text-slate-600 tabular-nums">
+            {formatDateTime(addEntryStamp ?? new Date())}
+          </span>
+          {" · "}
+          <span className="font-semibold text-slate-600">{addUserDisplay}</span>
+        </p>
+      ) : (
+        <span className="hidden sm:block flex-1" aria-hidden="true" />
+      )}
+      <div className="flex items-center justify-end gap-3 order-1 sm:order-2 shrink-0">
         <button
           type="button"
-          onClick={() => void handleSubmit()}
-          disabled={saving || loading || !canSubmit}
-          className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50"
+          onClick={onClose}
+          disabled={saving}
+          className="px-5 py-2.5 text-sm font-bold text-slate-500"
         >
-          {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
-          {saving
-            ? canEditMeta
-              ? "Updating…"
-              : "Saving…"
-            : canEditMeta
-              ? "Update"
-              : "Save"}
+          Close
         </button>
-      ) : null}
+        {canSubmit ? (
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={saving || loading || !canSubmit}
+            className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50"
+          >
+            {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
+            {saving
+              ? canEditMeta
+                ? "Updating…"
+                : "Saving…"
+              : canEditMeta
+                ? "Update"
+                : "Save"}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 
@@ -462,7 +484,6 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
         onClose={onClose}
         onSubmit={canSubmit ? () => void handleSubmit() : undefined}
         title={title}
-        description={description}
         footer={footer}
         maxWidth="max-w-4xl"
         headerVariant="form"
@@ -493,12 +514,12 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
                     />
                   </div>
                 ) : null}
-                {!showLaserUi && !showKeyboardUi ? (
-                  <p className="text-xs text-slate-500 px-1">Enable Laser scanner or Keyboard type in Settings.</p>
+                {!showLaserUi && !showKeyboardUi && !showCameraQr ? (
+                  <p className="text-xs text-slate-500 px-1">Enable Laser scanner, Keyboard type, or Phone QR in Device Settings.</p>
                 ) : null}
               </div>
 
-              {showPhoneQr ? (
+              {showCameraQr ? (
                 <button
                   type="button"
                   onClick={() => void openCameraQr()}
@@ -525,24 +546,25 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
                     <FileText size={18} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-medium leading-none text-indigo-500">Bill number</p>
-                    <p className="text-sm font-bold font-mono leading-tight text-indigo-950 mt-0.5 break-all">
-                      {payload.bill_no}
-                    </p>
-                    <p className="text-[11px] mt-1 text-indigo-700/80">
-                      Date{" "}
-                      <span className="font-semibold">
-                        {payload.bill_dt || invmnote?.billdt || "—"}
-                      </span>
-                      {gateOutId ? (
-                        <>
-                          {" · "}
-                          <span className="font-mono font-semibold uppercase tracking-tight">
-                            {gateOutId}
-                          </span>
-                        </>
-                      ) : null}
-                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-medium leading-none text-indigo-500">Bill number</p>
+                        <p className="text-lg sm:text-xl font-bold font-mono leading-tight text-indigo-950 mt-1 break-all">
+                          {payload.bill_no}
+                        </p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-medium leading-none text-indigo-500">Bill date</p>
+                        <p className="text-lg sm:text-xl font-bold font-mono leading-tight text-indigo-950 mt-1 tabular-nums">
+                          {billDateDisplay}
+                        </p>
+                      </div>
+                    </div>
+                    {gateOutId ? (
+                      <p className="text-[11px] mt-1.5 font-mono font-semibold uppercase tracking-tight text-indigo-700/80">
+                        {gateOutId}
+                      </p>
+                    ) : null}
                   </div>
                   {showScanBar ? (
                     <button

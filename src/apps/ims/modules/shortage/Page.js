@@ -7,7 +7,7 @@ import { toast } from "react-toastify";
 import dayjs from "dayjs";
 
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
-import { shortageService } from "@/apps/ims/lib/services/shortage";
+import { shortageService, SHORTAGE_TYPES } from "@/apps/ims/lib/services/shortage";
 import { isImsSuperAdmin } from "@/apps/ims/lib/utils/imsSpecialPermissions";
 import { selectUser } from "@/platform/store/slices/authSlice";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
@@ -31,9 +31,7 @@ import { MONTH_FILTER_OPTIONS } from "@/apps/ims/modules/schedule-planning/sched
 
 const TYPE_FILTER_OPTIONS = [
   { label: "All Types", value: "all" },
-  { label: "PPC", value: "PPC" },
-  { label: "Deviation", value: "Deviation" },
-  { label: "Additional", value: "Additional" },
+  ...SHORTAGE_TYPES.map((t) => ({ label: t, value: t })),
 ];
 
 const STATUS_FILTER_OPTIONS = [
@@ -230,7 +228,8 @@ export default function ShortagePage() {
       <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
         v === "Deviation" ? "bg-amber-50 text-amber-700 border border-amber-200"
           : v === "PPC" ? "bg-blue-50 text-blue-700 border border-blue-200"
-            : "bg-slate-50 text-slate-600 border border-slate-200"
+            : v === "WIP" ? "bg-violet-50 text-violet-700 border border-violet-200"
+              : "bg-slate-50 text-slate-600 border border-slate-200"
       }`}>{v}</span>
     ), { width: "110px" }],
     ["Qty", "qty", (v) => <span className="font-black text-slate-700 text-[11px]">{v}</span>, { width: "80px", align: "center" }],

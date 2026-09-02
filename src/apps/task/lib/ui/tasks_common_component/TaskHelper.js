@@ -67,7 +67,7 @@ function resolveAlertMeta(task, currentUserId) {
 
   // 7. New / unseen updates
   if (createdAt && isToday(createdAt)) return ROW_META.new;
-  if (task.has_unseen_updates) return ROW_META.updated;
+  if (task.has_unseen_updates && !DONE_STATUSES.includes(task.status)) return ROW_META.updated;
 
   // 8. Pending
   if (task.status === "pending") return ROW_META.pending;
@@ -82,7 +82,7 @@ function getActionReasons(task, currentUserId) {
   if (isToday(task.reminder_date) || isToday(task.self_reminder_date))                                                    reasons.push("reminder");
   if (isBeforeToday(task.due_date) && !DONE_STATUSES.includes(task.status))                                               reasons.push("overdue");
   if (isToday(task.due_date) && !DONE_STATUSES.includes(task.status))                                                     reasons.push("due_today");
-  if (task.has_unseen_updates)                                                                                           reasons.push("updated");
+  if (task.has_unseen_updates && !DONE_STATUSES.includes(task.status))                                                                                           reasons.push("updated");
   if (isToday(task.created_at))                                                                                           reasons.push("new");
   return reasons;
 }

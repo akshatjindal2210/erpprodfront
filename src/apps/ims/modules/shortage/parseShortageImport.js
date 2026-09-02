@@ -1,5 +1,5 @@
 /**
- * Shortage PPC import — supports:
+ * Shortage PPC / WIP import — supports:
  * 1) Header row: item_dcode / item_code / qty
  * 2) Headerless: col A = item_dcode, B = item_code, C = qty
  */
@@ -38,6 +38,15 @@ function mapHeaderIndexes(cells = []) {
   return idx;
 }
 
+/** Qty must be a whole number > 0 — main gate for import rows. */
+export function parseImportQty(raw) {
+  const s = String(raw ?? "").trim().replace(/,/g, "");
+  if (!s) return null;
+  const n = parseInt(s, 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
 export function parseShortageImportMatrix(matrix = []) {
   const rows = (matrix || []).filter((row) =>
     Array.isArray(row) ? row.some((c) => String(c ?? "").trim() !== "") : false
@@ -60,10 +69,10 @@ export function parseShortageImportMatrix(matrix = []) {
   for (const row of rows.slice(start)) {
     const item_dcode = String(row[cols.dcode] ?? "").trim();
     const item_code = String(row[cols.code] ?? "").trim();
-    const qty = String(row[cols.qty] ?? "").trim();
+    const qty = parseImportQty(row[cols.qty]);
+    if (qty == null) continue;
     if (!item_dcode && !item_code) continue;
-    if (!qty) continue;
-    out.push({ item_dcode, item_code, qty, type: "PPC" });
+    out.push({ item_dcode, item_code, qty });
   }
   return out;
 }

@@ -25,7 +25,7 @@ import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys
 import { applyClientSearch, fetchAllListPages, sortRowsByKey, nextSortParams } from "@/ui/common/list/clientListSearch";
 import { toastDataRefreshed } from "@/platform/utils/core/toastNotify";
 import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
-import { DAILY_PRODUCTION_HEADERS, DAILY_PRODUCTION_PENDING_HEADERS, DAILY_PRODUCTION_COMPARISON_HEADERS, STICKER_STATUS_FILTER_OPTIONS, DAILY_PROD_PENDING_CARD_CONFIG, DAILY_PROD_GENERATED_CARD_CONFIG, DAILY_PROD_COMPARISON_CARD_CONFIG, dailyProdRowKey, dailyProdSearchParts, dailyProdComparisonSearchParts, filterDailyProdByStickerStatus, isDailyProdStickerGenerated, hasDailyProdComparisonMismatch } from "./masterColumns";
+import { DAILY_PRODUCTION_HEADERS, DAILY_PRODUCTION_PENDING_HEADERS, DAILY_PRODUCTION_COMPARISON_HEADERS, STICKER_STATUS_FILTER_OPTIONS, DAILY_PROD_PENDING_CARD_CONFIG, DAILY_PROD_GENERATED_CARD_CONFIG, DAILY_PROD_COMPARISON_CARD_CONFIG, dailyProdRowKey, dailyProdSearchParts, dailyProdComparisonSearchParts, filterDailyProdByStickerStatus, isDailyProdStickerGenerated, isDailyProdNeedsDeviation, DAILY_PROD_DEVIATION_ROW_CLASS, hasDailyProdComparisonMismatch } from "./masterColumns";
 import { useSelector } from "react-redux";
 import { selectUser } from "@/platform/store/slices/authSlice";
 import { canCreatePackingDeviation } from "@/apps/ims/lib/utils/imsSpecialPermissions";
@@ -314,6 +314,7 @@ export default function DailyProductionPage() {
   );
 
   const isComparisonView = appliedQuery?.stickerStatus === "comparison";
+  const isPendingView = appliedQuery?.stickerStatus === "pending";
 
   const tableHeaders = useMemo(() => {
     if (isComparisonView) return DAILY_PRODUCTION_COMPARISON_HEADERS;
@@ -379,7 +380,7 @@ export default function DailyProductionPage() {
         return;
       }
       if (isDailyProdStickerGenerated(row)) {
-        toast.info("Stickers already generated for this packing entry.");
+        setIsStickerModalOpen(true);
         return;
       }
 
@@ -643,7 +644,12 @@ export default function DailyProductionPage() {
                     hasDailyProdComparisonMismatch(row)
                       ? "bg-rose-50 group-hover:bg-rose-50 [&_td]:!bg-rose-50"
                       : ""
-                : undefined
+                : isPendingView
+                  ? (row) =>
+                      !isDailyProdStickerGenerated(row) && isDailyProdNeedsDeviation(row)
+                        ? DAILY_PROD_DEVIATION_ROW_CLASS
+                        : ""
+                  : undefined
             }
           />
         </div>

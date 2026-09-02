@@ -69,7 +69,7 @@ function verificationStatusMeta(row) {
     return { label: "COMPLETE", tone: "bg-emerald-50 text-emerald-600 border-emerald-100" };
   }
   if (status === "awaiting_verification") {
-    return { label: "APPROVAL", tone: "bg-indigo-50 text-indigo-600 border-indigo-100" };
+    return { label: "APPROVAL", tone: "bg-violet-50 text-violet-700 border-violet-200" };
   }
   if (type === "open") {
     return { label: "OPEN", tone: "bg-sky-50 text-sky-700 border-sky-100" };
@@ -106,7 +106,7 @@ export default function VerificationClTaskPage() {
   const [params, setParams] = useState({
     pageSize: 1000,
     sortKey: "submitted_at",
-    sortDir: "desc",
+    sortDir: "asc",
   });
 
   const {
@@ -133,7 +133,7 @@ export default function VerificationClTaskPage() {
         page: 1,
         limit: params.pageSize,
         sortBy: "submitted_at",
-        order: "DESC",
+        order: "ASC",
         status: "all",
         ...(appliedSearch ? { search: appliedSearch } : {}),
         ...(selectedDepartment ? { department_id: selectedDepartment } : {}),
@@ -362,7 +362,7 @@ export default function VerificationClTaskPage() {
     setParams({
       pageSize: 1000,
       sortKey: "submitted_at",
-      sortDir: "desc",
+      sortDir: "asc",
     });
   };
   const extraFilters = useMemo(

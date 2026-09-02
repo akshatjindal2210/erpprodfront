@@ -254,7 +254,12 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
       maxWidth="max-w-2xl"
     >
       <form ref={formRef} className="space-y-5" onSubmit={(e) => e.preventDefault()}>
-        <ModuleSopAcknowledgment ref={sopAckRef} moduleSlug="shortage" permissionType={sopPermissionType} />
+        <ModuleSopAcknowledgment
+          ref={sopAckRef}
+          isOpen={open}
+          moduleSlug="shortage"
+          permissionType={sopPermissionType}
+        />
 
         {isApprove ? (
           <div className="flex items-start gap-2 px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded-lg">

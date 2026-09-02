@@ -13,6 +13,7 @@ import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys
 import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
+import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -47,7 +48,14 @@ const PENDING_HEADERS = [
 ];
 
 const COMPLETE_HEADERS = [
-  ["ID", "uid", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">OUT-{v}</span>, { fixed: true, width: "80px" }],
+  ["ID", "uid", (v, row) => (
+    <span className="font-mono text-indigo-600 font-bold text-[10px]">
+      {`${String(row?.type || "out").toLowerCase() === "in" ? "IN" : "OUT"}-${v}`}
+    </span>
+  ), { fixed: true, width: "80px" }],
+  ["Type", "type", (v) => (
+    <span className="text-[10px] font-bold text-slate-700 uppercase">{v || "out"}</span>
+  ), { width: "70px" }],
   ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{v || "—"}</span>, { width: "160px" }],
   ["Bill Date", "bill_dt", (v) => <span className="text-[10px] text-slate-500 font-medium">{v || "—"}</span>, { width: "140px" }],
   ["Transporter", "transporter_name", (v) => <span className="text-[10px] font-medium text-slate-600 uppercase">{v || "—"}</span>, { width: "180px" }],
@@ -60,6 +68,8 @@ const COMPLETE_HEADERS = [
 export default function GateEntryPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("gate_entry", "view"), [canAccess]);
+  const addAccess = useMemo(() => canAccess("gate_entry", "add"), [canAccess]);
+  const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [pageTab, setPageTab] = useState(PAGE_TABS.PENDING);
   const isPending = pageTab === PAGE_TABS.PENDING;
@@ -75,11 +85,21 @@ export default function GateEntryPage() {
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
   const [sort, setSort] = useState({ key: "billno", dir: "desc" });
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [appliedFromDate, setAppliedFromDate] = useState("");
+  const [appliedToDate, setAppliedToDate] = useState("");
 
   const { tempSearch, setTempSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
 
+  useEffect(() => {
+    if (dateFilterDefaults.from || dateFilterDefaults.to) {
+      setAppliedFromDate(dateFilterDefaults.from);
+      setAppliedToDate(dateFilterDefaults.to);
+    }
+  }, [dateFilterDefaults.from, dateFilterDefaults.to]);
+
   const fetchPending = useCallback(async () => {
-    if (!viewAccess) return;
+    if (!viewAccess?.allowed) return;
     setLoading(true);
     try {
       const res = await gateEntryService.listPending();
@@ -95,10 +115,13 @@ export default function GateEntryPage() {
   }, [viewAccess]);
 
   const fetchComplete = useCallback(async () => {
-    if (!viewAccess) return;
+    if (!viewAccess?.allowed) return;
     setLoading(true);
     try {
-      const res = await gateEntryService.list();
+      const filters = {};
+      if (appliedFromDate) filters.from_date = `${appliedFromDate} 00:00:00`;
+      if (appliedToDate) filters.to_date = `${appliedToDate} 23:59:59`;
+      const res = await gateEntryService.list(Object.keys(filters).length ? { filters } : {});
       if (!res?.success) throw new Error(res?.message || "Failed to load gate entries.");
       setCompleteRows(Array.isArray(res.data) ? res.data : []);
       setDisplayLimit(100);
@@ -108,7 +131,7 @@ export default function GateEntryPage() {
     } finally {
       setLoading(false);
     }
-  }, [viewAccess]);
+  }, [viewAccess, appliedFromDate, appliedToDate]);
 
   useEffect(() => {
     if (isPending) fetchPending();
@@ -118,9 +141,13 @@ export default function GateEntryPage() {
   const sourceRows = isPending ? pendingRows : completeRows;
 
   const filteredRows = useMemo(() => {
-    const rows = applyClientSearch(sourceRows, tempSearch);
+    let rows = sourceRows;
+    if (!isPending && typeFilter !== "all") {
+      rows = rows.filter((r) => String(r?.type || "out").toLowerCase() === typeFilter);
+    }
+    rows = applyClientSearch(rows, tempSearch);
     return sortRowsByKey(rows, sort.key, sort.dir);
-  }, [sourceRows, tempSearch, sort]);
+  }, [sourceRows, tempSearch, sort, isPending, typeFilter]);
 
   const totalItems = filteredRows.length;
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
@@ -147,12 +174,35 @@ export default function GateEntryPage() {
   }, []);
 
   const openNew = useCallback(() => {
+    /*
+    Commented out because we want to allow creating new gate entries even if gate entry register tab then create new or also in pending tab then create new.
     if (!isPending) {
       toast.info("Switch to Pending to create a new gate entry.");
       return;
     }
+    */
     openModal(null, "add");
-  }, [isPending, openModal]);
+  }, [openModal]);
+
+  const handleRowDoubleClick = useCallback(
+    (row, id) => {
+      setSelected(id);
+      if (isPending) {
+        if (!addAccess.allowed) {
+          toast.info(addAccess.message || "No access to create gate entry.");
+          return;
+        }
+        const bill = row?.billno || row?.bill_no;
+        if (!bill) return;
+        openModal({ billno: bill, bill_no: bill }, "add");
+        return;
+      }
+      if (row?.uid) {
+        openModal({ uid: row.uid }, "view");
+      }
+    },
+    [isPending, addAccess, openModal]
+  );
 
   const handleRefresh = useCallback(() => {
     if (isPending) fetchPending();
@@ -163,6 +213,11 @@ export default function GateEntryPage() {
     setPageTab(tab);
     setSelected(null);
     resetSearch();
+    setTypeFilter("all");
+    if (tab === PAGE_TABS.COMPLETE) {
+      setAppliedFromDate(dateFilterDefaults.from);
+      setAppliedToDate(dateFilterDefaults.to);
+    }
     setDisplayLimit(100);
     setSort({ key: tab === PAGE_TABS.PENDING ? "billno" : "uid", dir: "desc" });
   };
@@ -190,6 +245,23 @@ export default function GateEntryPage() {
     canDeleteSelection: useCallback(() => !isPending && !!selected, [isPending, selected]),
   });
 
+  const extraFilters = useMemo(() => {
+    if (isPending) return [];
+    return [
+      {
+        label: "Type",
+        key: "typeFilter",
+        value: typeFilter,
+        variant: "quick",
+        options: [
+          { label: "All Types", value: "all" },
+          { label: "Out", value: "out" },
+          { label: "In", value: "in" },
+        ],
+      },
+    ];
+  }, [isPending, typeFilter]);
+
   const headers = isPending ? PENDING_HEADERS : COMPLETE_HEADERS;
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
@@ -200,9 +272,9 @@ export default function GateEntryPage() {
 
   const selectedLabel = isPending
     ? selectedRecord?.billno || selectedRecord?.bill_no || selected
-    : `UID #${selectedRecord?.uid ?? selected}${selectedRecord?.bill_no ? ` · ${selectedRecord.bill_no}` : ""}`;
+    : `${String(selectedRecord?.type || "out").toLowerCase() === "in" ? "IN" : "OUT"}-${selectedRecord?.uid ?? selected}${selectedRecord?.bill_no ? ` · ${selectedRecord.bill_no}` : ""}`;
 
-  if (!viewAccess) {
+  if (!viewAccess?.allowed) {
     return <div className="p-6 text-sm text-slate-500">No access.</div>;
   }
 
@@ -223,56 +295,26 @@ export default function GateEntryPage() {
             }
             actions={
               <>
-                {isPending ? (
-                  <ActionButton
-                    module="gate_entry"
-                    action="add"
-                    label="New"
-                    icon={Plus}
-                    onClick={openNewModal}
-                    className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4`}
-                  />
-                ) : (
-                  <>
-                    <ActionButton
-                      module="gate_entry"
-                      action="view"
-                      variant="outline"
-                      label="View"
-                      icon={Eye}
-                      disabled={!selectedRecord}
-                      record={selectedRecord}
-                      onClick={() => {
-                        if (selectedRecord?.uid) openModal({ uid: selectedRecord.uid }, "view");
-                      }}
-                      className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-slate-300`}
-                    />
-                    <ActionButton
-                      module="gate_entry"
-                      action="edit"
-                      variant="outline"
-                      label="Edit"
-                      icon={Pencil}
-                      disabled={!selectedRecord}
-                      record={selectedRecord}
-                      onClick={() => {
-                        if (selectedRecord?.uid) openModal({ uid: selectedRecord.uid }, "edit");
-                      }}
-                      className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-slate-300`}
-                    />
-                  </>
-                )}
+                <ActionButton module="gate_entry" action="add" label="New" icon={Plus} onClick={openNewModal} className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4`} />
+
                 {!isPending ? (
-                  <ActionButton
-                    module="gate_entry"
-                    action="delete"
-                    variant="danger"
-                    label="Delete"
-                    icon={Trash2}
-                    disabled={!selectedRecord}
-                    onClick={() => setDeleteItem(selectedRecord)}
+                  <>
+                  <ActionButton module="gate_entry" action="view" variant="outline" label="View" icon={Eye} disabled={!selectedRecord} record={selectedRecord}
+                    onClick={() => {
+                      if (selectedRecord?.uid) openModal({ uid: selectedRecord.uid }, "view");
+                    }}
+                    className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-slate-300`}
+                  />
+                  <ActionButton module="gate_entry" action="edit" variant="outline" label="Edit" icon={Pencil} disabled={!selectedRecord} record={selectedRecord}
+                    onClick={() => {
+                      if (selectedRecord?.uid) openModal({ uid: selectedRecord.uid }, "edit");
+                    }}
+                    className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-slate-300`}
+                  />
+                  <ActionButton module="gate_entry" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedRecord} onClick={() => setDeleteItem(selectedRecord)}
                     className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4`}
                   />
+                  </>
                 ) : null}
 
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-0.5 shrink-0" />
@@ -317,15 +359,37 @@ export default function GateEntryPage() {
         <ListPageFilterStrip>
           <DateRangeFilter
             key={pageTab}
-            showDate={false}
-            onApply={() => {}}
+            showDate={!isPending}
+            fromDate={isPending ? "" : appliedFromDate}
+            toDate={isPending ? "" : appliedToDate}
+            minDate={dateFilterDefaults.minDate}
+            maxDate={dateFilterDefaults.maxDate}
+            extraFilters={extraFilters}
+            onApply={(data) => {
+              if (isPending) return;
+              setAppliedFromDate(data.fromDate || "");
+              setAppliedToDate(data.toDate || "");
+              setDisplayLimit(100);
+            }}
+            onExtraFilterChange={(key, value) => {
+              if (!isPending && key === "typeFilter") {
+                setTypeFilter(value || "all");
+                setDisplayLimit(100);
+              }
+            }}
             onReset={() => {
               resetSearch();
+              setTypeFilter("all");
+              if (!isPending) {
+                setAppliedFromDate(dateFilterDefaults.from);
+                setAppliedToDate(dateFilterDefaults.to);
+              }
               setDisplayLimit(100);
             }}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             onSearchEnter={applySearchFromInput}
+            applyOnSearchEnter={false}
             searchPlaceholder={isPending ? "Search bill, customer..." : "Search bill, transporter, vehicle..."}
             searchLabel={isPending ? "Search Pending" : "Search Complete"}
           />
@@ -354,6 +418,7 @@ export default function GateEntryPage() {
             }}
             selectedId={selected}
             onSelect={setSelected}
+            onRowDoubleClick={handleRowDoubleClick}
             getRowId={getRowId}
             onLoadMore={handleLoadMore}
             hasMore={items.length < totalItems}
@@ -367,8 +432,8 @@ export default function GateEntryPage() {
                   }
                 : {
                     titleKey: "bill_no",
-                    badgeIndices: [0],
-                    detailIndices: [2, 3, 4],
+                    badgeIndices: [0, 1],
+                    detailIndices: [3, 4, 5],
                     footerKey: "created_at",
                   }
             }

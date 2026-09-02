@@ -5,23 +5,28 @@ import { scoreToPercent } from "@/apps/task/lib/helpers/clTaskScoreHelper";
 /** Excel ARGB fills + font — matches report calendar legend. */
 const SCORE_STYLES = {
   red_flag: {
-    fill: { patternType: "solid", fgColor: { rgb: "FFF43F5E" } },
+    fill: { patternType: "solid", fgColor: { rgb: "FFB91C1C" } },
     font: { color: { rgb: "FFFFFFFF" }, bold: true },
     alignment: { horizontal: "center", vertical: "center" },
   },
   negative: {
-    fill: { patternType: "solid", fgColor: { rgb: "FFFECDD3" } },
-    font: { color: { rgb: "FF9F1239" }, bold: true },
+    fill: { patternType: "solid", fgColor: { rgb: "FFFED7AA" } },
+    font: { color: { rgb: "FF9A3412" }, bold: true },
     alignment: { horizontal: "center", vertical: "center" },
   },
   done: {
-    fill: { patternType: "solid", fgColor: { rgb: "FF475569" } },
-    font: { color: { rgb: "FFFFFFFF" }, bold: true },
+    fill: { patternType: "solid", fgColor: { rgb: "FFD1FAE5" } },
+    font: { color: { rgb: "FF065F46" }, bold: true },
+    alignment: { horizontal: "center", vertical: "center" },
+  },
+  verification: {
+    fill: { patternType: "solid", fgColor: { rgb: "FFDDD6FE" } },
+    font: { color: { rgb: "FF5B21B6" }, bold: true },
     alignment: { horizontal: "center", vertical: "center" },
   },
   pending: {
-    fill: { patternType: "solid", fgColor: { rgb: "FFFDE68A" } },
-    font: { color: { rgb: "FF1E293B" }, bold: true },
+    fill: { patternType: "solid", fgColor: { rgb: "FFE0F2FE" } },
+    font: { color: { rgb: "FF0C4A6E" }, bold: true },
     alignment: { horizontal: "center", vertical: "center" },
   },
   missed: {
@@ -92,7 +97,7 @@ export function reportScoreStyleKey(task = {}) {
   if (task.is_red_flag) return "red_flag";
   if (n < 0) return "negative";
   if (task.done_verified) return "done";
-  if (task.status === "awaiting_verification") return "pending";
+  if (task.status === "awaiting_verification") return "verification";
   if (task.not_done) return "missed";
   if (n > 0) return "positive";
   return "zero";
@@ -100,9 +105,9 @@ export function reportScoreStyleKey(task = {}) {
 
 function statusLabel(task) {
   if (task.done_verified) return "Done";
-  if (task.status === "awaiting_verification") return "Pending / action";
+  if (task.status === "awaiting_verification") return "Verification pending";
   if (task.not_done) return "Missed";
-  if (task.is_red_flag) return "Red";
+  if (task.is_red_flag) return "Red / MIS";
   return String(task.status || "—").replace(/_/g, " ");
 }
 

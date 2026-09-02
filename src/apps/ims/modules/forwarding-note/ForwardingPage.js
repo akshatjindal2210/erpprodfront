@@ -258,7 +258,8 @@ const DISPATCH_FILTER_OPTIONS = [
 const DISPATCH_PLAN_DEFAULT_STATUS = "recommended";
 
 const DISPATCH_PLAN_STATUS_OPTIONS = [
-  { label: "Recommended", value: "recommended" },
+  { label: "Recommended by Item", value: "recommended" },
+  { label: "Recommended by Customer", value: "recommended_customer" },
   { label: "Plan", value: "plan" },
   { label: "Complete", value: "complete" },
 ];
@@ -566,9 +567,10 @@ export default function ForwardingPage() {
       return;
     }
     // Prefer the selected row first, then other lines — keep first occurrence per item.
+    const anchorItem = dispatchSelected._groupItems?.[0] ?? dispatchSelected;
     const ordered = [
-      ...qualifying.filter((r) => r === dispatchSelected),
-      ...qualifying.filter((r) => r !== dispatchSelected),
+      ...qualifying.filter((r) => r === anchorItem),
+      ...qualifying.filter((r) => r !== anchorItem),
     ];
     const seenItems = new Set();
     const uniqueByItem = [];
@@ -578,7 +580,7 @@ export default function ForwardingPage() {
       seenItems.add(dcode);
       uniqueByItem.push(row);
     }
-    setDispatchPrefill({ anchorRow: dispatchSelected, rows: uniqueByItem });
+    setDispatchPrefill({ anchorRow: anchorItem, rows: uniqueByItem });
     setModalMode("add");
     setModalOpen(true);
   }, [dispatchSelected, dispatchRows]);
@@ -942,7 +944,9 @@ export default function ForwardingPage() {
               outerTab === "dispatch_plan" ? (
                 <>
                   <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openDispatchPlanNew} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" /> 
-                  {canAccess("schedule_planning", "add").allowed && dispatchSelected && (
+                  {canAccess("schedule_planning", "add").allowed &&
+                    dispatchSelected &&
+                    dispatchStatusFilter === "plan" && (
                     <>
                       {Number(dispatchSelected?.db_is_planned ?? dispatchSelected?.is_planned) ===
                         SCHEDULE_PLAN_STATUS.PLANNED ||

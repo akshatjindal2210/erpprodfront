@@ -2,6 +2,8 @@
 
 | Note | Topic |
 |------|--------|
+| [v3.4.38.md](./v3.4.38.md) | CL Task Report · Verification · Include Sunday · Holiday import · Tasks stat order · Not Viewed |
+| [v3.4.37.md](./v3.4.37.md) | Shortage month filter · Schedule Planning Default IMS · Today Dispatch Recommended |
 | [v3.4.36.md](./v3.4.36.md) | Gate Entry edit · Shortage PPC bulk import · Month TZ · Permission cache |
 | [v3.4.35.md](./v3.4.35.md) | Dashboard filters · CL Edit multi-person · Task rating/Actions · CL Report score & dates |
 | [v3.4.34.md](./v3.4.34.md) | Shared Location Master + Location/Capacity App Config (IMS + rmstore) |

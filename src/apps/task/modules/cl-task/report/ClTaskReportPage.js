@@ -672,7 +672,6 @@ export default function ClTaskReportPage() {
           </div>
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider inline-flex items-center gap-1">
             {loading ? <Loader2 size={10} className="animate-spin" /> : null}
-            Filters = this page · Search = backend reload
           </span>
         </div>
       </div>

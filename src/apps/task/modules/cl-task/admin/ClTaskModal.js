@@ -52,6 +52,7 @@ const EMPTY = {
   end_date: "",
   due_time: "11:00",
   day_offset: 0,
+  include_sunday: false,
   weightage: 1,
   verification_required: true,
   verification_user_id: "",
@@ -125,6 +126,7 @@ function masterToForm(item) {
     recurrence_year_dates: parseArr(item.recurrence_year_dates),
     due_time: item.due_time || "11:00",
     day_offset: Number.isFinite(Number(item.day_offset)) ? Number(item.day_offset) : 0,
+    include_sunday: item.include_sunday === true,
     weightage: item.weightage ?? item.wastage ?? 1,
     verification_required: item.verification_required !== false,
     verification_user_id: safeVerifierId,
@@ -501,6 +503,7 @@ export default function ClTaskModal({ open, onClose, onSuccess, editItem = null,
       fd.append("recurrence_type", form.recurrence_type);
       fd.append("due_time", form.due_time || "11:00");
       fd.append("day_offset", String(Number(form.day_offset) || 0));
+      fd.append("include_sunday", String(!!form.include_sunday));
       appendJson(fd, "recurrence_weekdays", form.recurrence_weekdays || []);
       appendJson(fd, "recurrence_month_dates", form.recurrence_month_dates || []);
       appendJson(fd, "recurrence_year_dates", form.recurrence_year_dates || []);

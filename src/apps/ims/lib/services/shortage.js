@@ -4,22 +4,22 @@ import { api } from "@/platform/api/apiClient";
 
 export const shortageService = createCrudService(ENDPOINTS.SHORTAGE);
 
-/** Super Admin PPC bulk — { data, month }. */
-shortageService.bulkCreate = (records, month) =>
+/** UI labels — must match backend shortage.config.js (API validates on save). */
+export const SHORTAGE_TYPES = ["PPC", "WIP", "Deviation", "Additional"];
+export const SHORTAGE_BULK_IMPORT_TYPES = ["PPC", "WIP"];
+
+shortageService.bulkCreate = (records, month, type = "PPC") =>
   api(ENDPOINTS.SHORTAGE.BULK, {
     method: "POST",
-    body: { data: records, month },
+    body: { data: records, month, type },
   });
 
-shortageService.bulkPreview = (rows, month) =>
+shortageService.bulkPreview = (rows, month, type = "PPC") =>
   api(ENDPOINTS.SHORTAGE.BULK_PREVIEW, {
     method: "POST",
-    body: { data: rows, month },
+    body: { data: rows, month, type },
   });
 
-export const SHORTAGE_TYPES = ["PPC", "Deviation", "Additional"];
-
-/** Packing Entry → Create Deviation (auto-approved). Requires special permission. */
 export function createPackingDeviation(body) {
   return api(ENDPOINTS.SHORTAGE.PACKING_DEVIATION, { method: "POST", body });
 }

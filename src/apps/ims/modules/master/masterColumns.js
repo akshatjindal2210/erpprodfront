@@ -355,6 +355,14 @@ export function isDailyProdStickerGenerated(row) {
   return row?.sticker_generated === true || row?.sticker_generated === "true";
 }
 
+/** True when monthly packing limit blocks New Sticker until Deviation is created. */
+export function isDailyProdNeedsDeviation(row) {
+  return row?.needs_deviation === true || row?.needs_deviation === "true";
+}
+
+export const DAILY_PROD_DEVIATION_ROW_CLASS =
+  "[&_td]:bg-red-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#dc2626]";
+
 export function hasDailyProdComparisonMismatch(row, { ignoreCustomer = true } = {}) {
   if (row?.comparison?.missing_ims || row?.ims_missing) return true;
   const fields = row?.comparison?.fields || {};

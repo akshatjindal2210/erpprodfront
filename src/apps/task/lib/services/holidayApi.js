@@ -11,6 +11,10 @@ export const holidayService = {
   update: (id, data) => api.post(H.UPDATE, { id, ...(data || {}) }),
   delete: (id) => api.post(H.DELETE, { id }),
 
+  bulkPreview: (rows) => api.post(H.BULK_PREVIEW, { data: rows }),
+
+  bulkCreate: (rows) => api.post(H.BULK, { data: rows }),
+
   bulkUpload: (file) => {
     const formData = new FormData();
     formData.append("file", file);

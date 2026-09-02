@@ -66,6 +66,8 @@ export const ENDPOINTS = {
     CREATE: `${TASK_API}/holidays/create`,
     UPDATE: `${TASK_API}/holidays/update`,
     DELETE: `${TASK_API}/holidays/delete`,
+    BULK_PREVIEW: `${TASK_API}/holidays/bulk-preview`,
+    BULK: `${TASK_API}/holidays/bulk`,
     BULK_UPLOAD: `${TASK_API}/holidays/bulk-upload`,
   },
 

@@ -3,7 +3,7 @@ import { ENDPOINTS } from "@/apps/ims/lib/config/endpoints";
 
 export const gateEntryService = {
   listPending: () => api(ENDPOINTS.GATE_ENTRIES.PENDING, { method: "POST", body: {} }),
-  list: () => api(ENDPOINTS.GATE_ENTRIES.LIST, { method: "POST", body: {} }),
+  list: (body = {}) => api(ENDPOINTS.GATE_ENTRIES.LIST, { method: "POST", body }),
   /** QR text or bill number → live IMS bill payload. */
   openBill: (qrOrBill) =>
     api(ENDPOINTS.GATE_ENTRIES.OPEN, {

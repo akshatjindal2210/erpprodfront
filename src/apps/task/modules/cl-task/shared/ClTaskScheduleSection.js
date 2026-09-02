@@ -30,9 +30,10 @@ export default function ClTaskScheduleSection({ form, onChange, errors = {} }) {
         recurrence_weekdays: [],
         recurrence_month_dates: [],
         recurrence_year_dates: [],
-        due_time: "",
-        day_offset: 0,
-      });
+      due_time: "",
+      day_offset: 0,
+      include_sunday: false,
+    });
       return;
     }
     onChange({
@@ -146,6 +147,21 @@ export default function ClTaskScheduleSection({ form, onChange, errors = {} }) {
           </div>
 
           <ClTaskRecurrenceSection form={form} onChange={onChange} errors={errors} compact />
+
+          <label className="flex items-start gap-2 rounded-md border border-indigo-100 bg-white/80 px-2.5 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!form.include_sunday}
+              onChange={(e) => onChange({ include_sunday: e.target.checked })}
+              className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span className="min-w-0">
+              <span className="block text-[11px] font-bold text-slate-700">Include Sunday</span>
+              <span className="block text-[9px] text-slate-500 leading-snug mt-0.5">
+                Off by default — task will not open or count on Sundays
+              </span>
+            </span>
+          </label>
         </div>
       ) : (
         <div className="rounded-md border border-dashed border-slate-200 bg-slate-50/80 px-2.5 py-2 flex gap-2">
