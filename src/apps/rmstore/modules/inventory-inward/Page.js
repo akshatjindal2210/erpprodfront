@@ -957,6 +957,8 @@ export default function StoreInPage() {
                   ? "Search unassigned coils"
                   : "Search unassigned MRN"
             }
+            minDate={dateFilterDefaults.minDate}
+            maxDate={dateFilterDefaults.maxDate}
           />
         </ListPageFilterStrip>
 

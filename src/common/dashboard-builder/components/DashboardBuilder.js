@@ -29,6 +29,9 @@ import { DASHBOARD_DB_SOURCE_OPTIONS, buildHybridPreviewRequest, isWidgetHybridM
 import { normalizeTableSearchPosition, normalizeTableSearchWidth } from "../utils/tableToolbar.js";
 import { getDefaultGraphAdvancedStyle, mergeGraphAdvancedFromConfig, graphAdvancedToChartConfig } from "../utils/graphAdvancedConfig.js";
 import { isPwaStandalone, getListHotkeyParts } from "@/platform/utils/pwa/pwa";
+import { normalizeWidgetLinkType } from "../utils/widgetClickLink";
+import { normalizeDrawerWidget, serializeDrawerWidget } from "../utils/drawerWidgetConfig";
+import WidgetClickDrawer from "./WidgetClickDrawer";
 
 const typeToDisplayType = {
   kpi: "kpi",
@@ -393,10 +396,14 @@ function chartConfigFromWidgetStyle(widget = {}) {
     fontFamily: widget.style?.fontFamily || "inherit",
     ...spacingConfigFromWidgetStyle(widget, defaults),
     erp_filter: widget.erpFilter && typeof widget.erpFilter === "object" ? widget.erpFilter : {},
-    link_type: widget.linkType || "NONE",
+    link_type: normalizeWidgetLinkType(widget.linkType),
     link_url: widget.linkUrl || "",
     link_app_id: widget.linkAppId || "",
     link_page_id: widget.linkPageId || "",
+    drawer_title: String(widget.drawerTitle || "").trim(),
+    drawer_widget: normalizeWidgetLinkType(widget.linkType) === "DRAWER"
+      ? serializeDrawerWidget(widget.drawerWidget, widget.id)
+      : null,
     section_id: widget.containerId || widget.sectionId || null,
     container_preset: widget.containerPreset || "full",
     layout_locked: widget.layoutLocked === true || hasManualWidgetLayout(widget),
@@ -588,10 +595,14 @@ const normalizeWidgetForDashboardJson = (widget = {}, resolvedLayout = {}, { per
     isActive: widget.is_active !== false,
     targetPageKey: widget.targetPageKey || "dashboard",
     targetPageModule: widget.targetPageModule || null,
-    linkType: widget.linkType || "NONE",
+    linkType: normalizeWidgetLinkType(widget.linkType),
     linkUrl: widget.linkUrl || "",
     linkAppId: widget.linkAppId || "",
     linkPageId: widget.linkPageId || "",
+    drawerTitle: String(widget.drawerTitle || "").trim(),
+    drawerWidget: normalizeWidgetLinkType(widget.linkType) === "DRAWER"
+      ? serializeDrawerWidget(widget.drawerWidget, widget.id)
+      : null,
     // Required for Hybrid publish/runtime — without this, hybrid_mssql_query is lost
     // and live load runs plain PG against {{temp_erp_data}} (query error).
     chart_config: chartConfigFromWidgetStyle(widget),
@@ -804,6 +815,10 @@ function buildStateFingerprint(widgets = [], layout = [], mobileLayout = []) {
       linkUrl: String(widget.linkUrl || ""),
       linkAppId: String(widget.linkAppId || ""),
       linkPageId: String(widget.linkPageId || ""),
+      drawerTitle: String(widget.drawerTitle || ""),
+      drawerWidget: normalizeWidgetLinkType(widget.linkType) === "DRAWER"
+        ? serializeDrawerWidget(widget.drawerWidget, widget.id)
+        : null,
       deviceTarget: normalizeWidgetDeviceTarget(widget.deviceTarget),
       emptyText: String(widget.emptyText || ""),
       tableSearchEnabled: widget.tableSearchEnabled === true,
@@ -1089,6 +1104,8 @@ export default function DashboardBuilder({
   const [targetAppKey, setTargetAppKey] = useState(String(appKey || "ims").toLowerCase());
   const [selectedWidgetId, setSelectedWidgetId] = useState(null);
   const [panelWidgetSnapshot, setPanelWidgetSnapshot] = useState(null);
+  const [editingDrawerForId, setEditingDrawerForId] = useState(null);
+  const [widgetClickDrawer, setWidgetClickDrawer] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [userOptions, setUserOptions] = useState([]);
   const [dashboardOptions, setDashboardOptions] = useState([
@@ -1486,10 +1503,22 @@ export default function DashboardBuilder({
     const updateWidth = () => {
       const measured = Math.max(
         0,
-        Math.floor(node.clientWidth || 0),
+        Math.floor(node.getBoundingClientRect?.().width || node.clientWidth || 0),
       );
-      // Window resize can briefly report 0 — keep last good width so the canvas never blanks.
       if (measured < 200) return;
+      if (Math.abs(measured - LAPTOP_DESIGN_CANVAS_WIDTH) <= 16) {
+        if (typeof window !== "undefined") {
+          const vvW = Math.floor(window.visualViewport?.width || 0);
+          const layoutW = vvW >= 200 ? vvW : Math.floor(window.innerWidth);
+          const collapsed = localStorage.getItem("sidebarCollapsed") === "true";
+          const sidebarW = collapsed ? 56 : 224;
+          const shellW = Math.max(320, layoutW - sidebarW);
+          if (shellW >= 200) {
+            setContainerWidth((prev) => (Math.abs(prev - shellW) <= 1 ? prev : shellW));
+          }
+        }
+        return;
+      }
       setContainerWidth((prev) => (Math.abs(prev - measured) <= 1 ? prev : measured));
     };
 
@@ -1501,27 +1530,43 @@ export default function DashboardBuilder({
     observer.observe(node);
 
     window.addEventListener("resize", updateWidth);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", updateWidth);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", updateWidth);
+      vv?.removeEventListener("resize", updateWidth);
     };
-  }, [readOnly, selectedWidgetId, busy, widgets.length, isPhoneView]);
+  }, [readOnly, selectedWidgetId, busy, widgets.length, isPhoneView, propertyPanelOpen, propertyPanelDock]);
 
   useLayoutEffect(() => {
     if (busy) return undefined;
     const node = canvasContainerRef.current;
     if (!node) return undefined;
     const measure = () => {
-      const width = Math.max(0, Math.floor(node.clientWidth || 0));
+      const width = Math.max(0, Math.floor(node.getBoundingClientRect?.().width || node.clientWidth || 0));
       if (width >= 200) {
-        setContainerWidth((prev) => (Math.abs(prev - width) <= 1 ? prev : width));
+        if (Math.abs(width - LAPTOP_DESIGN_CANVAS_WIDTH) <= 16) {
+          if (typeof window !== "undefined") {
+            const vvW = Math.floor(window.visualViewport?.width || 0);
+            const layoutW = vvW >= 200 ? vvW : Math.floor(window.innerWidth);
+            const collapsed = localStorage.getItem("sidebarCollapsed") === "true";
+            const sidebarW = collapsed ? 56 : 224;
+            const shellW = Math.max(320, layoutW - sidebarW);
+            if (shellW >= 200) {
+              setContainerWidth((prev) => (Math.abs(prev - shellW) <= 1 ? prev : shellW));
+            }
+          }
+        } else {
+          setContainerWidth((prev) => (Math.abs(prev - width) <= 1 ? prev : width));
+        }
       }
       liveGridMeasure.measureWidth();
     };
     measure();
     const raf = window.requestAnimationFrame(measure);
     return () => window.cancelAnimationFrame(raf);
-  }, [readOnly, isPhoneView, busy, widgets.length, liveGridMeasure.measureWidth]);
+  }, [readOnly, isPhoneView, busy, widgets.length, liveGridMeasure.measureWidth, propertyPanelOpen, propertyPanelDock]);
 
   useLayoutEffect(() => {
     if (!readOnly || typeof window === "undefined") return undefined;
@@ -1610,14 +1655,14 @@ export default function DashboardBuilder({
       mobilePaddingBottom: chartConfig.mobile_padding_bottom ?? 8,
       targetPageKey: row?.target_page_key || row?.targetPageKey || "dashboard",
       targetPageModule: row?.target_page_module || row?.targetPageModule || null,
-      linkType: String(chartConfig.link_type || row?.linkType || "NONE").toUpperCase() === "APP"
-        ? "APP"
-        : String(chartConfig.link_type || row?.linkType || "NONE").toUpperCase() === "URL"
-          ? "URL"
-          : "NONE",
+      linkType: normalizeWidgetLinkType(chartConfig.link_type || row?.linkType),
       linkUrl: String(chartConfig.link_url || row?.linkUrl || "").trim(),
       linkAppId: String(chartConfig.link_app_id || row?.linkAppId || "").trim(),
       linkPageId: String(chartConfig.link_page_id || row?.linkPageId || "").trim(),
+      drawerTitle: String(chartConfig.drawer_title || row?.drawerTitle || "").trim(),
+      drawerWidget: chartConfig.drawer_widget || row?.drawerWidget
+        ? normalizeDrawerWidget(chartConfig.drawer_widget || row?.drawerWidget, row?.id)
+        : null,
       deviceTarget: normalizeWidgetDeviceTarget(row?.device_target || row?.deviceTarget),
       layout: normalizeLayoutItem(
         enforceLayoutByType(rawType, row.layout && typeof row.layout === "object" ? row.layout : {}),
@@ -2251,7 +2296,32 @@ export default function DashboardBuilder({
   }, [readOnly, appKey, pageKey, targetAppKey, resolvedPageKey, selectedDashboardKey, runtimeDashboardKey, filters.fromDate, filters.toDate, filters.userId, filters.username, filters.name, filters.fyuid, filterRefreshToken]);
 
   const selectedWidget = widgets.find((w) => String(w.id) === String(selectedWidgetId));
-  const panelWidget = selectedWidget || (busy ? panelWidgetSnapshot : null);
+  const hostWidgetForPanel = selectedWidget || (busy ? panelWidgetSnapshot : null);
+  const isEditingDrawerContent = Boolean(
+    editingDrawerForId
+    && hostWidgetForPanel
+    && String(hostWidgetForPanel.id) === String(editingDrawerForId),
+  );
+  const panelWidget = useMemo(() => {
+    if (!hostWidgetForPanel) return null;
+    if (!isEditingDrawerContent) return hostWidgetForPanel;
+    const drawer = normalizeDrawerWidget(hostWidgetForPanel.drawerWidget, hostWidgetForPanel.id);
+    return {
+      ...drawer,
+      __drawerHostId: hostWidgetForPanel.id,
+      __isDrawerEditor: true,
+    };
+  }, [hostWidgetForPanel, isEditingDrawerContent]);
+
+  useEffect(() => {
+    if (!selectedWidgetId) {
+      setEditingDrawerForId(null);
+      return;
+    }
+    if (editingDrawerForId && String(editingDrawerForId) !== String(selectedWidgetId)) {
+      setEditingDrawerForId(null);
+    }
+  }, [selectedWidgetId, editingDrawerForId]);
 
   useEffect(() => {
     setTargetAppKey(String(appKey || "ims").toLowerCase());
@@ -3211,6 +3281,8 @@ export default function DashboardBuilder({
       linkUrl: "",
       linkAppId: "",
       linkPageId: "",
+      drawerTitle: "",
+      drawerWidget: null,
     };
 
     if (isPhoneBuilderMode && USE_FLOATING_BUILDER) {
@@ -3445,6 +3517,8 @@ export default function DashboardBuilder({
           linkUrl: "",
           linkAppId: "",
           linkPageId: "",
+          drawerTitle: "",
+          drawerWidget: null,
           mobileLayout: mobileNestedItem,
         };
 
@@ -3521,6 +3595,8 @@ export default function DashboardBuilder({
         linkUrl: "",
         linkAppId: "",
         linkPageId: "",
+        drawerTitle: "",
+        drawerWidget: null,
         ...(mobileNestedItem ? { mobileLayout: mobileNestedItem } : {}),
       };
 
@@ -4027,6 +4103,77 @@ export default function DashboardBuilder({
   };
 
   const updateWidgetLocal = (updatedWidget) => {
+    if (editingDrawerForId) {
+      if (!updatedWidget) return;
+      markHistoryGroupedEdit();
+      const STYLE_ONLY_KEYS = new Set(["id", "rawType", "type", "style", "title", "emptyText"]);
+      const updatedKeys = Object.keys(updatedWidget || {});
+      const styleOnly = Boolean(updatedWidget?.style)
+        && updatedKeys.length > 0
+        && updatedKeys.every((key) => STYLE_ONLY_KEYS.has(key));
+
+      const commitDrawer = () => {
+        setWidgets((prev) => {
+          let changed = false;
+          const next = prev.map((w) => {
+            if (String(w.id) !== String(editingDrawerForId)) return w;
+            const prevDrawer = normalizeDrawerWidget(w.drawerWidget, w.id);
+            const {
+              __drawerHostId: _host,
+              __isDrawerEditor: _flag,
+              ...rest
+            } = updatedWidget;
+            const mergedDrawer = {
+              ...prevDrawer,
+              ...rest,
+              id: prevDrawer.id,
+              style: {
+                ...(prevDrawer.style || {}),
+                ...(rest.style || {}),
+              },
+              chart_config: rest.chart_config
+                ? {
+                  ...(prevDrawer.chart_config || {}),
+                  ...rest.chart_config,
+                }
+                : prevDrawer.chart_config,
+            };
+            if (
+              styleOnly
+              && JSON.stringify(prevDrawer.style || {}) === JSON.stringify(mergedDrawer.style || {})
+              && prevDrawer.title === mergedDrawer.title
+              && prevDrawer.emptyText === mergedDrawer.emptyText
+              && prevDrawer.type === mergedDrawer.type
+            ) {
+              return w;
+            }
+            changed = true;
+            return {
+              ...w,
+              linkType: "DRAWER",
+              drawerWidget: mergedDrawer,
+            };
+          });
+          return changed ? next : prev;
+        });
+      };
+
+      if (styleOnly) {
+        const styleKeys = Object.keys(updatedWidget.style || {});
+        const needsSync = styleKeys.some((k) => (
+          k === "graphYKeys" || k === "graphYKey" || k === "graphYKey2" || k === "graphComparisonMode"
+        ));
+        if (needsSync) {
+          commitDrawer();
+          return;
+        }
+        startTransition(commitDrawer);
+        return;
+      }
+      commitDrawer();
+      return;
+    }
+
     if (!updatedWidget) {
       captureHistoryBeforeChange();
       setWidgets((prev) => prev.filter((w) => String(w.id) !== String(selectedWidgetId)));
@@ -4071,6 +4218,13 @@ export default function DashboardBuilder({
                 ...updatedWidget.chart_config,
               }
               : w.chart_config,
+            drawerWidget: updatedWidget.drawerWidget !== undefined
+              ? (
+                updatedWidget.drawerWidget
+                  ? normalizeDrawerWidget(updatedWidget.drawerWidget, w.id)
+                  : null
+              )
+              : w.drawerWidget,
             layout: updatedWidget.layout
               ? { ...(w.layout || {}), ...updatedWidget.layout }
               : w.layout,
@@ -4095,6 +4249,15 @@ export default function DashboardBuilder({
     };
 
     if (styleOnly) {
+      // Series order / graph keys must commit sync — startTransition left UI stuck on old order.
+      const styleKeys = Object.keys(updatedWidget.style || {});
+      const needsSync = styleKeys.some((k) => (
+        k === "graphYKeys" || k === "graphYKey" || k === "graphYKey2" || k === "graphComparisonMode"
+      ));
+      if (needsSync) {
+        commitWidgets();
+        return;
+      }
       startTransition(commitWidgets);
       return;
     }
@@ -4157,9 +4320,25 @@ export default function DashboardBuilder({
 
   const handlePreview = async (widget, options = {}) => {
     const quiet = options?.quiet === true;
+    const drawerHostId = editingDrawerForId || widget?.__drawerHostId || null;
     try {
       if (!requiresDataQuery(widget.rawType) || !isConfiguredWidgetQuery(widget.query)) {
         // Keep any existing rows (e.g. copied preview from clone) — don't force empty.
+        if (drawerHostId) {
+          setWidgets((prev) =>
+            prev.map((w) => {
+              if (String(w.id) !== String(drawerHostId)) return w;
+              const drawer = normalizeDrawerWidget(w.drawerWidget, w.id);
+              const hasRows = Array.isArray(drawer.previewData) && drawer.previewData.length > 0;
+              if (hasRows) return { ...w, drawerWidget: { ...drawer, previewError: null } };
+              return {
+                ...w,
+                drawerWidget: { ...drawer, previewData: drawer.previewData ?? [], previewError: null },
+              };
+            }),
+          );
+          return;
+        }
         setWidgets((prev) =>
           prev.map((w) => {
             if (String(w.id) !== String(widget.id)) return w;
@@ -4189,22 +4368,57 @@ export default function DashboardBuilder({
         });
       }
 
-      setWidgets((prev) =>
-        prev.map((w) =>
-          String(w.id) === String(widget.id)
-            ? { ...w, previewData: res?.data || [], previewError: null }
-            : w,
-        ),
-      );
+      if (drawerHostId) {
+        setWidgets((prev) =>
+          prev.map((w) => {
+            if (String(w.id) !== String(drawerHostId)) return w;
+            const drawer = normalizeDrawerWidget(w.drawerWidget, w.id);
+            return {
+              ...w,
+              linkType: "DRAWER",
+              drawerWidget: {
+                ...drawer,
+                ...widget,
+                id: drawer.id,
+                __drawerHostId: undefined,
+                __isDrawerEditor: undefined,
+                previewData: res?.data || [],
+                previewError: null,
+              },
+            };
+          }),
+        );
+      } else {
+        setWidgets((prev) =>
+          prev.map((w) =>
+            String(w.id) === String(widget.id)
+              ? { ...w, previewData: res?.data || [], previewError: null }
+              : w,
+          ),
+        );
+      }
     } catch (err) {
       const message = String(err?.message || err?.payload?.message || "Preview failed.").trim() || "Preview failed.";
-      setWidgets((prev) =>
-        prev.map((w) =>
-          String(w.id) === String(widget.id)
-            ? { ...w, previewError: message }
-            : w,
-        ),
-      );
+      if (drawerHostId) {
+        setWidgets((prev) =>
+          prev.map((w) => {
+            if (String(w.id) !== String(drawerHostId)) return w;
+            const drawer = normalizeDrawerWidget(w.drawerWidget, w.id);
+            return {
+              ...w,
+              drawerWidget: { ...drawer, previewError: message },
+            };
+          }),
+        );
+      } else {
+        setWidgets((prev) =>
+          prev.map((w) =>
+            String(w.id) === String(widget.id)
+              ? { ...w, previewError: message }
+              : w,
+          ),
+        );
+      }
       if (!quiet) {
         toast.error(message, { autoClose: 8000 });
       }
@@ -4214,13 +4428,38 @@ export default function DashboardBuilder({
   };
 
   const handleSaveWidget = async (widget, options = {}) => {
+    const drawerHostId = editingDrawerForId || widget?.__drawerHostId || null;
+    let sourceWidget = widget;
+    if (drawerHostId) {
+      const host = widgets.find((w) => String(w.id) === String(drawerHostId));
+      if (!host) {
+        toast.error("Parent widget not found for drawer save.");
+        return;
+      }
+      const {
+        __drawerHostId: _host,
+        __isDrawerEditor: _flag,
+        ...drawerFields
+      } = widget || {};
+      sourceWidget = {
+        ...host,
+        linkType: "DRAWER",
+        drawerWidget: normalizeDrawerWidget(
+          {
+            ...normalizeDrawerWidget(host.drawerWidget, host.id),
+            ...drawerFields,
+          },
+          host.id,
+        ),
+      };
+    }
     const widgetForSave = {
-      ...widget,
-      layoutLocked: widget.layoutLocked === true
+      ...sourceWidget,
+      layoutLocked: sourceWidget.layoutLocked === true
         || options?.widthPx != null
         || options?.heightPx != null,
       style: {
-        ...(widget.style || {}),
+        ...(sourceWidget.style || {}),
         ...(options?.widthPx != null && Number.isFinite(Number(options.widthPx))
           ? { layoutWidthPx: Math.round(Number(options.widthPx)) }
           : {}),
@@ -4442,14 +4681,17 @@ export default function DashboardBuilder({
               layoutLocked: widgetForSave.layoutLocked === true || saved?.chart_config?.layout_locked === true,
               targetPageKey: saved?.target_page_key || widgetForSave.targetPageKey || "dashboard",
               targetPageModule: saved?.target_page_module || widgetForSave.targetPageModule || null,
-              linkType: String(saved?.chart_config?.link_type || widgetForSave.linkType || "NONE").toUpperCase() === "APP"
-                ? "APP"
-                : String(saved?.chart_config?.link_type || widgetForSave.linkType || "NONE").toUpperCase() === "URL"
-                  ? "URL"
-                  : "NONE",
+              linkType: normalizeWidgetLinkType(saved?.chart_config?.link_type || widgetForSave.linkType),
               linkUrl: String(saved?.chart_config?.link_url || widgetForSave.linkUrl || "").trim(),
               linkAppId: String(saved?.chart_config?.link_app_id || widgetForSave.linkAppId || "").trim(),
               linkPageId: String(saved?.chart_config?.link_page_id || widgetForSave.linkPageId || "").trim(),
+              drawerTitle: String(saved?.chart_config?.drawer_title || widgetForSave.drawerTitle || "").trim(),
+              drawerWidget: (saved?.chart_config?.drawer_widget || widgetForSave.drawerWidget)
+                ? normalizeDrawerWidget(
+                  saved?.chart_config?.drawer_widget || widgetForSave.drawerWidget,
+                  saved?.id || widgetForSave.id,
+                )
+                : null,
               deviceTarget: normalizeWidgetDeviceTarget(saved?.device_target || widgetForSave.deviceTarget),
               layout: resolvedDesktopLayout,
               mobileLayout: resolvedMobileLayout,
@@ -6033,7 +6275,6 @@ export default function DashboardBuilder({
         ? "min-h-0"
         : readOnly
           ? (isPhoneView
-            // Live phone: full-bleed into the side gutters (no shell letterbox).
             ? "w-full min-h-0 min-w-0 overflow-x-hidden max-md:w-full"
             : "w-full min-h-0 min-w-0 overflow-x-hidden")
           : "flex-1 h-full min-h-0 w-full overflow-hidden"
@@ -6621,9 +6862,7 @@ export default function DashboardBuilder({
               readOnly={readOnly}
               phoneMode={isPhoneFloatingView}
               hostViewportWidth={
-                isPhoneFloatingView
-                  ? 0
-                  : (containerWidth || liveGridMeasure.width || 0)
+                isPhoneFloatingView ? 0 : (containerWidth || 0)
               }
               canvasWidth={lockPhoneDesignWidth
                 ? (isPhonePreviewFrame
@@ -6643,6 +6882,7 @@ export default function DashboardBuilder({
               onNestedLayoutChange={readOnly ? () => {} : handleNestedLayoutChange}
               onAddChildWidget={readOnly ? () => {} : addWidgetInContainer}
               onCloneChildWidget={readOnly ? () => {} : cloneWidgetInContainer}
+              onOpenWidgetDrawer={readOnly ? (payload) => setWidgetClickDrawer(payload) : undefined}
             />
             </div>
             </div>
@@ -6691,14 +6931,22 @@ export default function DashboardBuilder({
           open={propertyPanelOpen && Boolean(panelWidget)}
           onOpenChange={setPropertyPanelOpen}
           selectedWidget={panelWidget}
+          isDrawerContentEditor={isEditingDrawerContent}
+          onEditDrawerContent={() => {
+            if (hostWidgetForPanel?.id != null) {
+              setEditingDrawerForId(hostWidgetForPanel.id);
+              setPropertyPanelOpen(true);
+            }
+          }}
+          onBackFromDrawerEditor={() => setEditingDrawerForId(null)}
           onUpdate={updateWidgetLocal}
           onPreview={handlePreview}
           onSave={handleSaveWidget}
           onDelete={handleDeleteWidget}
-          onPixelSizeChange={handlePixelSizeChange}
-          onAddChildWidget={addWidgetInContainer}
-          onMoveWidgetIntoContainer={moveWidgetIntoContainer}
-          movableWidgets={movableWidgetsForContainer}
+          onPixelSizeChange={isEditingDrawerContent ? undefined : handlePixelSizeChange}
+          onAddChildWidget={isEditingDrawerContent ? undefined : addWidgetInContainer}
+          onMoveWidgetIntoContainer={isEditingDrawerContent ? undefined : moveWidgetIntoContainer}
+          movableWidgets={isEditingDrawerContent ? [] : movableWidgetsForContainer}
           isPhoneBuilderMode={isPhoneBuilderMode}
           appKey={targetAppKey}
           pageOptions={pageOptions}
@@ -6708,6 +6956,7 @@ export default function DashboardBuilder({
           minWidthPx={isPhoneBuilderMode ? 20 : (selectedWidget?.containerId ? 20 : minLayoutWidthPx)}
           minHeightPx={isPhoneBuilderMode ? 20 : (selectedWidget?.containerId ? 20 : minLayoutHeightPx)}
           onClose={() => {
+            setEditingDrawerForId(null);
             setSelectedWidgetId(null);
             setPanelWidgetSnapshot(null);
             setPropertyPanelOpen(false);
@@ -6716,6 +6965,16 @@ export default function DashboardBuilder({
           canFilterByUser={canFilterByUser}
         />
       )}
+
+      {readOnly ? (
+        <WidgetClickDrawer
+          open={Boolean(widgetClickDrawer)}
+          title={widgetClickDrawer?.title || "Details"}
+          widgetConfig={widgetClickDrawer?.widget || null}
+          filters={filters}
+          onClose={() => setWidgetClickDrawer(null)}
+        />
+      ) : null}
 
       {!readOnly && showPublishModal && (
         <>

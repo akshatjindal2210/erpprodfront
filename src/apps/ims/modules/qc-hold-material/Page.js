@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, ShieldAlert, X, Printer } from "lucide-react";
+import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, ShieldAlert, X, Printer, Activity } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { qcHoldMaterialService } from "@/apps/ims/lib/services/qcHoldMaterial";
@@ -11,6 +11,7 @@ import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 
 import QcHoldMaterialModal from "./QcHoldMaterialModal";
 import QcHoldPrintStickersDrawer from "./QcHoldPrintStickersDrawer";
+import QcHoldActivityDrawer from "./QcHoldActivityDrawer";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
@@ -68,6 +69,7 @@ export default function QcHoldMaterialPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [printDrawerOpen, setPrintDrawerOpen] = useState(false);
   const [printDrawerData, setPrintDrawerData] = useState(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const loadGenRef = useRef(0);
 
   const apiDateFrom = statusTab === "pending" ? "" : params.fromDate;
@@ -292,6 +294,23 @@ export default function QcHoldMaterialPage() {
                   module="qc_hold_material"
                   action="view"
                   variant="outline"
+                  label="History"
+                  icon={Activity}
+                  disabled={!selectedId}
+                  onClick={() => {
+                    if (!selectedRecord) {
+                      toast.info("Select a QC hold row first.");
+                      return;
+                    }
+                    setHistoryOpen(true);
+                  }}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                />
+
+                <ActionButton
+                  module="qc_hold_material"
+                  action="view"
+                  variant="outline"
                   label="Print Stickers"
                   icon={Printer}
                   disabled={!selectedId || !canPrintQcHoldStickersRow(selectedRecord)}
@@ -442,6 +461,12 @@ export default function QcHoldMaterialPage() {
           submission_id: printDrawerData?.submission?.submission_id,
         }}
         initialStickers={printDrawerData?.stickers}
+      />
+
+      <QcHoldActivityDrawer
+        open={historyOpen}
+        hold={selectedRecord}
+        onClose={() => setHistoryOpen(false)}
       />
 
       {isDeleting && (

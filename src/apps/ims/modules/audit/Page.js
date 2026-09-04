@@ -24,6 +24,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey, nextSortParams } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
+import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { useSelector } from "react-redux";
 import { selectUser, selectRole } from "@/platform/store/slices/authSlice";
 import { getAuditExecutionStatusLabel } from "./auditStatusHelpers";
@@ -82,6 +83,8 @@ export default function AuditPage() {
   const [pageTab, setPageTab] = useState(PAGE_TABS.LOCATION);
   const isLocationView = isAuditScannerOnly || pageTab === PAGE_TABS.LOCATION;
 
+  const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
+
   const [params, setParams] = useState({
     pageSize: LIST_PAGE_SIZE,
     status: "all",
@@ -89,9 +92,25 @@ export default function AuditPage() {
     locationAuditFilter: "all",
     locationUserFilter: "all",
     locationStatusFilter: "pending",
+    fromDate: dateFilterDefaults.from,
+    toDate: dateFilterDefaults.to,
     sortKey: "audit_id",
     sortDir: "desc",
   });
+
+  useEffect(() => {
+    if (!dateFilterDefaults.from && !dateFilterDefaults.to) return;
+    setParams((prev) => {
+      if (prev.fromDate === dateFilterDefaults.from && prev.toDate === dateFilterDefaults.to) {
+        return prev;
+      }
+      return {
+        ...prev,
+        fromDate: dateFilterDefaults.from,
+        toDate: dateFilterDefaults.to,
+      };
+    });
+  }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
@@ -160,6 +179,17 @@ export default function AuditPage() {
       }
       setSelected(locationRow.row_id);
       setExecutionLocationRow(locationRow);
+      try {
+        // Freeze expected boxes for this assigned location at the moment user starts
+        await auditService.startLocation({
+          audit_id: locationRow.audit_id,
+          location_id: locationRow.location_id,
+        });
+      } catch (err) {
+        toast.error(err?.message || "Failed to lock expected boxes for this location");
+        setExecutionLocationRow(null);
+        return;
+      }
       const row = await loadExecutionAudit(locationRow.audit_id);
       if (row) {
         setExecutionOpen(true);
@@ -192,7 +222,7 @@ export default function AuditPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.status, params.authorization, appliedSearch]);
+  }, [params.pageSize, params.status, params.authorization, params.fromDate, params.toDate, appliedSearch]);
 
   const flattenContext = useMemo(
     () => ({ userId: currentUser?.id, userName: currentUser?.name, isSuperAdmin, canManageAudit }),
@@ -334,6 +364,8 @@ export default function AuditPage() {
       locationAuditFilter: data.locationAudit ?? prev.locationAuditFilter,
       locationUserFilter: data.locationUser ?? prev.locationUserFilter,
       locationStatusFilter: data.locationStatus ?? prev.locationStatusFilter,
+      fromDate: data.fromDate ?? prev.fromDate,
+      toDate: data.toDate ?? prev.toDate,
     }));
   };
 
@@ -346,6 +378,8 @@ export default function AuditPage() {
       locationAuditFilter: "all",
       locationUserFilter: defaultLocationUserFilter,
       locationStatusFilter: "pending",
+      fromDate: dateFilterDefaults.from,
+      toDate: dateFilterDefaults.to,
       sortKey: "audit_id",
       sortDir: "desc",
     });
@@ -705,7 +739,12 @@ export default function AuditPage() {
 
         <ListPageFilterStrip>
           <DateRangeFilter
-            showDate={false}
+            key={`${params.fromDate}-${params.toDate}`}
+            showDate
+            fromDate={params.fromDate}
+            toDate={params.toDate}
+            minDate={dateFilterDefaults.minDate}
+            maxDate={dateFilterDefaults.maxDate}
             applyExtrasOnChange
             extraFilters={extraFilters}
             onApply={handleFilterApply}
@@ -719,6 +758,8 @@ export default function AuditPage() {
                 locationAudit: params.locationAuditFilter,
                 locationUser: params.locationUserFilter,
                 locationStatus: params.locationStatusFilter,
+                fromDate: params.fromDate,
+                toDate: params.toDate,
               })
             }
             searchPlaceholder={isLocationView ? "Search location, audit id, person..." : "Search remarks, person..."}

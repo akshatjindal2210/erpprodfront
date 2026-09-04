@@ -13,6 +13,7 @@ import { NAV_REGISTRY } from "@/apps/ims/lib/config/navRegistry";
 import { SETTINGS_NAV_REGISTRY } from "@/apps/settings/configuration/config/settingsNavRegistry";
 import { TASK_NAV_REGISTRY } from "@/apps/task/lib/config/navRegistry";
 import { RM_STORE_NAV_REGISTRY } from "@/apps/rmstore/lib/config/navRegistry";
+import { HRMS_NAV_REGISTRY } from "@/apps/hrms/lib/config/navRegistry";
 import { canShowTaskReportMenu } from "@/apps/task/lib/config/appConfig";
 import { useSelector } from "react-redux";
 import { selectRole, selectUser } from "@/platform/store/slices/authSlice";
@@ -144,6 +145,20 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
           }
         }
         pageName = rmName || "RM Store";
+      } else if (pathname?.startsWith("/hrms/")) {
+        let hrmsName = null;
+        for (const item of HRMS_NAV_REGISTRY) {
+          if (item.href === pathname) {
+            hrmsName = item.name;
+            break;
+          }
+          const sub = item.subItems?.find((s) => s.href === pathname);
+          if (sub) {
+            hrmsName = item.name && item.subItems?.length ? `${item.name} > ${sub.name}` : sub.name;
+            break;
+          }
+        }
+        pageName = hrmsName || "HRMS";
       } else {
         pageName = "Dashboard";
       }
@@ -157,11 +172,21 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
     const items = [];
     const isTaskPath = pathname?.startsWith("/task/");
     const isRmStorePath = pathname?.startsWith("/rmstore/");
+    const isHrmsPath = pathname?.startsWith("/hrms/");
 
     if (isRmStorePath) {
       RM_STORE_NAV_REGISTRY.forEach((item) => {
         if (item.href && !item.subItems?.length) {
           items.push({ name: item.name, path: item.href, type: "RM Store", icon: item.icon });
+        }
+        (item.subItems || []).forEach((sub) => {
+          if (sub.href) items.push({ name: sub.name, path: sub.href, type: item.name, icon: sub.icon });
+        });
+      });
+    } else if (isHrmsPath) {
+      HRMS_NAV_REGISTRY.forEach((item) => {
+        if (item.href && !item.subItems?.length) {
+          items.push({ name: item.name, path: item.href, type: "HRMS", icon: item.icon });
         }
         (item.subItems || []).forEach((sub) => {
           if (sub.href) items.push({ name: sub.name, path: sub.href, type: item.name, icon: sub.icon });

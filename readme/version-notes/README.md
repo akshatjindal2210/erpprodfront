@@ -2,7 +2,8 @@
 
 | Note | Topic |
 |------|--------|
-| [v3.4.39.md](./v3.4.39.md) | Forwarding Note (dispatch customer · IMS Ready save · bill anytime · vehicle suggest) · Gate Entry OUT-id · QC Hold Partial tab |
+| [v4.1.0.md](./v4.1.0.md) | **HRMS (new)** · Attendance · IMS Audit · **QC Hold History** drawer / activity-log POST |
+| [v3.4.39.md](./v3.4.39.md) | Forwarding Note · Gate Entry · QC Hold · Dispatch Plan · Stock Adjustment · CL Task Report (due-only rows; no create-time spawn) |
 | [v3.4.38.md](./v3.4.38.md) | CL Task Report · Verification · Include Sunday · Holiday import · Tasks stat order · Not Viewed · IMS Box SA-id dispatch |
 | [v3.4.38.box-dispatch-sa-id.md](./v3.4.38.box-dispatch-sa-id.md) | IMS Boxes — SA-add box with colliding `out_uid`/`sa_id` shown as 13C |
 | [v3.4.37.md](./v3.4.37.md) | Shortage month filter · Schedule Planning Default IMS · Today Dispatch Recommended |

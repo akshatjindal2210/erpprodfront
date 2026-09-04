@@ -507,6 +507,8 @@ export default function InProcessRequestPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by request, coil, item, or MRN"
             searchLabel="Search In-process Request"
+            minDate={dateFilterDefaults.minDate}
+            maxDate={dateFilterDefaults.maxDate}
           />
         </ListPageFilterStrip>
 

@@ -6,7 +6,7 @@ import { Rnd } from "react-rnd";
 import WidgetRenderer from "./WidgetRenderer";
 import { HANDLE_STYLES, resizeHandleStylesForSelection, selectionStyle, parityWidgetBodyShellStyle, SimpleWidgetToolbar } from "./simpleBuilderChrome";
 import { boxToInlineStyle, boxesFromChildren, boxWithId, containerContentHeightPx, defaultBoxForType, fitNestedLayoutForPhoneEdit, fitNestedLayoutPxToWidth, fitNestedPhoneBoxes, layoutPxFingerprint, normalizeBox, readWidgetBoxPx, sanitizeNestedLayoutPx } from "../utils/floatingLayoutEngine";
-import { getWidgetClickUrl, navigateWidgetClickUrl, shouldIgnoreWidgetLinkClick, widgetHasClickLink } from "../utils/widgetClickLink";
+import { getWidgetClickUrl, navigateWidgetClickUrl, resolveWidgetDrawerOpenPayload, shouldIgnoreWidgetLinkClick, widgetHasClickLink, widgetOpensDrawer } from "../utils/widgetClickLink";
 
 const CANCEL_SELECTOR = ".simple-no-drag, button, a, input, textarea, select";
 const PHONE_NESTED_BOTTOM_ROOM = 160;
@@ -29,6 +29,7 @@ export default function SimpleNestedCanvas({
   canvasScale = 1,
   dragScale = 1,
   isPhoneMode = false,
+  onOpenWidgetDrawer,
 }) {
   const router = useRouter();
   const scale = Number(canvasScale) > 0 ? Number(canvasScale) : 1;
@@ -268,6 +269,15 @@ export default function SimpleNestedCanvas({
 
         if (readOnly) {
           const clickable = widgetHasClickLink(child);
+          const handleChildActivate = () => {
+            if (!clickable) return;
+            if (widgetOpensDrawer(child)) {
+              const payload = resolveWidgetDrawerOpenPayload(child);
+              if (payload) onOpenWidgetDrawer?.(payload);
+              return;
+            }
+            navigateWidgetClickUrl(getWidgetClickUrl(child), router);
+          };
           const nestedShell = parityWidgetBodyShellStyle(child.style || {}, { nested: true, publish: readOnly });
           const shellRadius = nestedShell.borderRadius || "6px";
           return (
@@ -294,13 +304,13 @@ export default function SimpleNestedCanvas({
                 if (!clickable) return;
                 if (shouldIgnoreWidgetLinkClick(e)) return;
                 e.stopPropagation();
-                navigateWidgetClickUrl(getWidgetClickUrl(child), router);
+                handleChildActivate();
               }}
               onKeyDown={(e) => {
                 if (!clickable) return;
                 if (e.key !== "Enter" && e.key !== " ") return;
                 e.preventDefault();
-                navigateWidgetClickUrl(getWidgetClickUrl(child), router);
+                handleChildActivate();
               }}
             >
               <div
@@ -313,7 +323,7 @@ export default function SimpleNestedCanvas({
                   padding: nestedShell.padding,
                 }}
               >
-                <WidgetRenderer widget={child} readOnly nested designParity pureSavedStyle suppressChrome isPhoneMode={isPhoneMode} />
+                <WidgetRenderer widget={child} readOnly nested designParity pureSavedStyle suppressChrome isPhoneMode={isPhoneMode} onOpenWidgetDrawer={onOpenWidgetDrawer} />
               </div>
             </div>
           );

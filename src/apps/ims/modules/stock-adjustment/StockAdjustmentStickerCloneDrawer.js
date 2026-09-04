@@ -30,11 +30,11 @@ import { STICKER, formatSaBoxNoUid } from "@/apps/ims/lib/stickerUidFormat";
 import { parseStickerBoxIndex } from "@/apps/ims/lib/stickerUidHelpers";
 
 const FIELD_ORDER = ["addNumBoxes", "addExtraBoxes", "addPerBoxQty", "category", "minusBoxes", "updateQty", "updateAction"];
-import { parseOptionalStandardQtyPerBox, resolveDefaultStockAdjustmentCategoryId, resolveStockAdjustmentPackingNo, summarizeAddBoxBreakup, buildStockAdjustmentAddPreviewRows } from "@/apps/ims/lib/utils/stockAdjustmentPacking";
+import { parseOptionalStandardQtyPerBox, resolveDefaultStockAdjustmentCategoryId, resolveStockAdjustmentPackingNo, summarizeAddBoxBreakup, buildStockAdjustmentAddPreviewRows, normalizeStockAdjustmentPackingNo } from "@/apps/ims/lib/utils/stockAdjustmentPacking";
 import { categoryService } from "@/apps/ims/lib/services/category";
 import { hydrateStockAdjustmentStickerView } from "./hydrateStockAdjustmentStickerView";
 import { boxInventoryStatus, isBoxAvailableForMinus, isBoxVisibleForStockAdjustmentMinus, isValidMinusDrawerBoxRow, isStockAdjustmentIn, isStockAdjustmentOut, isBoxInHand } from "@/apps/ims/lib/utils/boxInventory";
-import { isMinusBoxUidSelected, parseRemovedBoxUids, normalizeMinusSelectedUidSet } from "./stockAdjustmentViewBoxes";
+import { isMinusBoxUidSelected, parseRemovedBoxUids, normalizeMinusSelectedUidSet, parseStoredAddAllBoxesLoose } from "./stockAdjustmentViewBoxes";
 import { printFromBackendHtml } from "@/apps/ims/lib/utils/printHtmlDocument";
 import { parseStickerScan, parseBoxScanRaw, detectQrType, boxNoUidDisplayLabel, extractBoxCode, normalizeScanInput } from "@/apps/ims/lib/helpers/qrScan";
 import { pickBoxFromViewsResponse } from "@/apps/ims/lib/helpers/boxViewsLookup";
@@ -544,6 +544,11 @@ function AddBreakdownTable({
               Use <span className="font-bold">All boxes</span> dropdown — applies to every box in this entry.
             </p>
           ) : null}
+          {editMode && showBulkKindDropdown && n > 0 ? (
+            <p className="text-[8px] font-semibold text-emerald-700/90 mt-1 max-w-xl">
+              Use <span className="font-bold">All Full</span> / <span className="font-bold">All Loose</span> to change box kind. Quantity and sticker IDs stay the same.
+            </p>
+          ) : null}
           {!savedView && !editMode && !n ? (
             <p className="text-[8px] font-semibold text-emerald-700/90 mt-1 max-w-xl">
               Preview IDs use <span className="font-mono">SA?</span>; after save they become <span className="font-mono">SA</span> plus the new adjustment id (e.g.{" "}
@@ -766,7 +771,7 @@ export default function StockAdjustmentStickerCloneDrawer({
 
   const [addNumBoxes, setAddNumBoxes] = useState("");
   const [addPerBoxQty, setAddPerBoxQty] = useState("");
-  const [addAllBoxesLoose, setAddAllBoxesLoose] = useState(false);
+  const [addAllBoxesLoose, setAddAllBoxesLoose] = useState(true);
   const [savedAddBoxRows, setSavedAddBoxRows] = useState([]);
   const [addRemoveUids, setAddRemoveUids] = useState(() => new Set());
   const [addExtraBoxes, setAddExtraBoxes] = useState("0");
@@ -857,7 +862,7 @@ export default function StockAdjustmentStickerCloneDrawer({
       setGatePassed(false);
       setAddNumBoxes("");
       setAddPerBoxQty("");
-      setAddAllBoxesLoose(false);
+      setAddAllBoxesLoose(true);
       setSavedAddBoxRows([]);
       setAddRemoveUids(new Set());
       setAddExtraBoxes("0");
@@ -929,7 +934,8 @@ export default function StockAdjustmentStickerCloneDrawer({
               const looseN = savedRows.filter((r) => r.is_loose).length;
               setAddAllBoxesLoose(looseN > 0 && looseN === savedRows.length);
             } else {
-              setAddAllBoxesLoose(false);
+              const storedLoose = parseStoredAddAllBoxesLoose(hydrated.row?.removed_box_ids);
+              setAddAllBoxesLoose(storedLoose !== null ? storedLoose : false);
             }
           } else {
             setAddAllBoxesLoose(false);
@@ -976,15 +982,7 @@ export default function StockAdjustmentStickerCloneDrawer({
   const handleApprove = async () => {
     let pendingRemovals = 0;
     if (savedRow?.removed_box_ids) {
-      try {
-        const parsed =
-          typeof savedRow.removed_box_ids === "string"
-            ? JSON.parse(savedRow.removed_box_ids)
-            : savedRow.removed_box_ids;
-        pendingRemovals = Array.isArray(parsed) ? parsed.length : 0;
-      } catch {
-        pendingRemovals = 0;
-      }
+      pendingRemovals = parseRemovedBoxUids(savedRow).length;
     }
     const needsDeleteToApprove =
       gateEntryType === "minus" || (gateEntryType === "add" && pendingRemovals > 0);
@@ -1133,7 +1131,19 @@ export default function StockAdjustmentStickerCloneDrawer({
   );
 
   const setAddBulkBoxKind = useCallback((kind) => {
-    setAddAllBoxesLoose(String(kind).toLowerCase() === "loose");
+    const loose = String(kind).toLowerCase() === "loose";
+    setAddAllBoxesLoose(loose);
+    // Edit: apply Full/Loose to all add rows; qty and sticker IDs unchanged.
+    setSavedAddBoxRows((prev) =>
+      Array.isArray(prev) && prev.length
+        ? prev.map((r) => ({ ...r, is_loose: loose }))
+        : prev
+    );
+    setViewAddRows((prev) =>
+      Array.isArray(prev) && prev.length
+        ? prev.map((r) => ({ ...r, is_loose: loose }))
+        : prev
+    );
   }, []);
 
   useEffect(() => {
@@ -1213,7 +1223,7 @@ export default function StockAdjustmentStickerCloneDrawer({
     if (!kept.length && extra < 1) return [];
 
     const adjId = editData?.adjustment_id;
-    const rows = kept.map((r) => ({ ...r, is_saved: true }));
+    const rows = kept.map((r) => ({ ...r, is_loose: addAllBoxesLoose, is_saved: true }));
     if (!Number.isFinite(pb) || pb < 1 || !pn) return rows;
 
     const maxIdx = kept.reduce((m, r) => Math.max(m, parseStickerBoxIndex(r.box_no_uid)), 0);
@@ -1766,10 +1776,13 @@ export default function StockAdjustmentStickerCloneDrawer({
         return;
       }
     }
-    const pn = gatePackingNo.trim();
+    const pn = normalizeStockAdjustmentPackingNo(gatePackingNo);
     if (!pn) {
       toast.warn("Enter packing number");
       return;
+    }
+    if (pn !== String(gatePackingNo ?? "").trim()) {
+      setGatePackingNo(pn);
     }
     setPackLoading(true);
     try {
@@ -1796,7 +1809,22 @@ export default function StockAdjustmentStickerCloneDrawer({
           return;
         }
         imsRes = { ...imsRes, records: recs };
+        const imsDoc = normalizeStockAdjustmentPackingNo(
+          recs[0]?.docno ?? recs[0]?.doc_no ?? recs[0]?.DocNo
+        );
+        if (imsDoc) {
+          if (imsDoc !== pn) setGatePackingNo(imsDoc);
+        }
       }
+
+      const packNo =
+        gateEntryType === "add"
+          ? normalizeStockAdjustmentPackingNo(
+              imsRes?.records?.[0]?.docno ??
+                imsRes?.records?.[0]?.doc_no ??
+                imsRes?.records?.[0]?.DocNo
+            ) || pn
+          : pn;
 
       let prefillMeta = null;
       if (gateEntryType === "add" && imsRes?.records?.length) {
@@ -1810,7 +1838,7 @@ export default function StockAdjustmentStickerCloneDrawer({
           job_card_no: first.jobcardno ?? first.job_card_no ?? null,
           total_qty: first.QTY != null ? String(first.QTY) : null,
           doc_dt: first.doc_dt || first.docdt || null,
-          doc_no: first.docno != null ? String(first.docno) : pn,
+          doc_no: packNo,
           party_rate_cust_code:
             imsRes.party_rate_cust_code != null &&
             String(imsRes.party_rate_cust_code).trim() !== ""
@@ -1820,7 +1848,7 @@ export default function StockAdjustmentStickerCloneDrawer({
         };
       }
 
-      const data = await loadPackingContext(pn, {
+      const data = await loadPackingContext(packNo, {
         forMinus: gateEntryType === "minus",
         financialYear: fySelected || undefined,
         prefillMeta,
@@ -2060,11 +2088,14 @@ export default function StockAdjustmentStickerCloneDrawer({
             payload.acc_name = String(form.acc_name).trim();
           }
           payload.category_id = Number(selectedCategoryId);
+          payload.all_boxes_loose = addAllBoxesLoose;
           if (isAddEditRebuild) {
-            payload.add_extra_boxes = parseInt(String(addExtraBoxes).trim(), 10) || 0;
-            payload.remove_add_box_uids = [...addRemoveUids]
+            const extra = parseInt(String(addExtraBoxes).trim(), 10) || 0;
+            const removeUids = [...addRemoveUids]
               .map((u) => parseInt(u, 10))
               .filter((n) => Number.isFinite(n));
+            payload.add_extra_boxes = extra;
+            payload.remove_add_box_uids = removeUids;
           } else {
             const nb = parseInt(String(addNumBoxes).trim(), 10);
             payload.box_count_impact = nb;
@@ -2104,7 +2135,7 @@ export default function StockAdjustmentStickerCloneDrawer({
           per_box_qty: pb,
           box_count_impact: nb,
           no_of_boxes: nb,
-          ...(showApproval && form.approved === true ? { all_boxes_loose: addAllBoxesLoose } : {}),
+          all_boxes_loose: addAllBoxesLoose,
           unit: "PCS",
           remarks: remarksForApi,
           acc_code: form.acc_code,
@@ -2307,6 +2338,9 @@ export default function StockAdjustmentStickerCloneDrawer({
                 type="text"
                 value={gatePackingNo}
                 onChange={(e) => setGatePackingNo(e.target.value)}
+                onBlur={() =>
+                  setGatePackingNo((prev) => normalizeStockAdjustmentPackingNo(prev) || prev)
+                }
                 disabled={structureLocked}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !structureLocked) {
@@ -2407,6 +2441,9 @@ export default function StockAdjustmentStickerCloneDrawer({
                 type="text"
                 value={gatePackingNo}
                 onChange={(e) => setGatePackingNo(e.target.value)}
+                onBlur={() =>
+                  setGatePackingNo((prev) => normalizeStockAdjustmentPackingNo(prev) || prev)
+                }
                 disabled={gatePassed || structureLocked}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !structureLocked) {
@@ -2873,7 +2910,9 @@ export default function StockAdjustmentStickerCloneDrawer({
             allowRemove={canRemoveStickerBoxes}
             removeUids={addRemoveUids}
             onToggleRemove={toggleAddRemove}
-            showBulkKindDropdown={gateEntryType === "add" && !isView && !isEdit && (!structureLocked || isApprove)}
+            showBulkKindDropdown={
+              gateEntryType === "add" && !isView && !isApprove && (isAddEdit || !isEdit)
+            }
             bulkBoxKind={addAllBoxesLoose ? "loose" : "full"}
             onBulkBoxKindChange={setAddBulkBoxKind}
           />
@@ -3037,7 +3076,7 @@ export default function StockAdjustmentStickerCloneDrawer({
         torchOn={torchOn}
         onToggleTorch={toggleTorch}
       />
-      <div className="flex h-full min-h-0 flex-col w-full max-w-full min-w-0 overflow-hidden bg-slate-50 antialiased">
+      <div className="flex h-full min-h-0 flex-col w-full max-w-full min-w-0 overflow-hidden bg-slate-50">
         {viewHydrating || packLoading ? (
           <FormPanelLoader
             className="flex-1 border-0 rounded-none min-h-0"

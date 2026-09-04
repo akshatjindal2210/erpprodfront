@@ -104,12 +104,20 @@ export function taskHasStoredDay(task, ymd) {
   );
 }
 
-/** Report grid: show cell only on scheduled days (or days with stored instance data). */
-export function shouldShowTaskDayCell(task, ymd) {
+/** Report grid: show cell on due/past occurrence days (or days with stored instance data). */
+export function shouldShowTaskDayCell(task, ymd, today = null) {
   if (!ymd || !task) return false;
   if (taskHasStoredDay(task, ymd)) return true;
   const type = String(task.task_type || "").toLowerCase();
   if (type === "open") return false;
-  if (type === "frequently") return isFrequentTaskOccurrenceDay(task, ymd);
+  if (type === "frequently") {
+    const t =
+      today ||
+      (typeof window !== "undefined"
+        ? new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+        : "");
+    if (t && ymd > t) return false;
+    return isFrequentTaskOccurrenceDay(task, ymd);
+  }
   return false;
 }

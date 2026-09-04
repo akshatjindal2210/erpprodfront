@@ -137,6 +137,70 @@ export function hasActivityLogDetails(data) {
   return getActivityLogSections(data).length > 0;
 }
 
+const ACTION_LABELS = {
+  CREATE: "Create",
+  UPDATE: "Update",
+  DELETE: "Delete",
+  APPROVE: "Approve",
+  SUBMIT: "Submit",
+  MODIFY: "Update",
+  LOCK: "Lock",
+  UNLOCK: "Unlock",
+};
+
+const ACTION_BADGE_CLASS = {
+  CREATE: "bg-indigo-50 text-indigo-600 border-indigo-100",
+  UPDATE: "bg-blue-50 text-blue-600 border-blue-100",
+  MODIFY: "bg-blue-50 text-blue-600 border-blue-100",
+  DELETE: "bg-rose-50 text-rose-600 border-rose-100",
+  APPROVE: "bg-emerald-50 text-emerald-600 border-emerald-100",
+  SUBMIT: "bg-amber-50 text-amber-700 border-amber-100",
+};
+
+const MODULE_LABELS = {
+  qc_hold_material: "QC Hold Material",
+  stock_adjustment: "Stock Adjustment",
+  out_entry: "Out Entry",
+  inventory_inwards: "Inventory Inward",
+  forwarding_note_master: "Forwarding Note",
+  packing_standard: "Packing Standard",
+  location_master: "Location Master",
+  boxes: "Boxes",
+  box_table: "Boxes",
+  change_override_customer: "Customer Override",
+  ims_box_override_request: "Customer Override",
+  activity_logs: "Activity Logs",
+  audit: "Audit",
+};
+
+export function formatActivityLogActionLabel(action) {
+  const key = String(action || "").trim().toUpperCase();
+  if (!key) return "—";
+  return ACTION_LABELS[key] || key.replace(/_/g, " ");
+}
+
+export function getActivityLogActionBadgeClass(action) {
+  const key = String(action || "").trim().toUpperCase();
+  return ACTION_BADGE_CLASS[key] || "bg-slate-50 text-slate-600 border-slate-100";
+}
+
+export function formatActivityLogModuleLabel(module) {
+  const key = String(module || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (!key) return "—";
+  return MODULE_LABELS[key] || key.replace(/_/g, " ");
+}
+
+/** Event chip from log_data.info.Event (e.g. Partial submit awaiting approval). */
+export function getActivityLogEventLabel(data) {
+  const payload = parsePayload(data);
+  const event = payload?.info?.Event ?? payload?.info?.event ?? null;
+  if (event == null || String(event).trim() === "") return null;
+  return String(event).trim();
+}
+
 function formatObjectRef(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const ref =
@@ -150,8 +214,8 @@ function formatObjectRef(value) {
 }
 
 export function formatActivityLogValue(value) {
-  if (value === true || value === 1 || value === "1") return "Yes";
-  if (value === false || value === 0 || value === "0") return "No";
+  if (value === true) return "Yes";
+  if (value === false) return "No";
   if (value == null || value === "") return "—";
   if (Array.isArray(value)) {
     if (!value.length) return "—";

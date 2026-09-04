@@ -47,11 +47,13 @@ export function auditLocationSearchParts(row) {
   return parts.filter((p) => p != null && p !== "");
 }
 
-export function buildAuditApiFilters({ status, authorization }) {
+export function buildAuditApiFilters({ status, authorization, fromDate, toDate }) {
   return {
     ...(status !== "all" && { status }),
     ...(authorization === "pending" && { approved: false }),
     ...(authorization === "authorized" && { approved: true }),
+    ...(fromDate && { from_date: `${fromDate} 00:00:00` }),
+    ...(toDate && { to_date: `${toDate} 23:59:59` }),
   };
 }
 

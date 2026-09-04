@@ -8,8 +8,17 @@ Hold / release saleable boxes (`qc_hold_id`). Optional completion stickers.
 | Permission    | `qc_hold_material`                                                                      |
 | FE            | `modules/qc-hold-material/`                                                             |
 | BE            | `modules/qc-hold-material/`                                                             |
-| API           | `POST /api/qc-hold-material/` (`list|create|submit|approve-submission|update|delete|…`) |
+| API           | `POST /api/qc-hold-material/` (`list|create|submit|approve-submission|update|delete|activity-log|…`) |
 | Table         | `ims_qc_hold_material`                                                                  |
+
+**Activity history**
+
+|               |                                                                 |
+|---------------|-----------------------------------------------------------------|
+| UI            | List → **History** → `QcHoldActivityDrawer`                     |
+| API           | `POST /api/qc-hold-material/activity-log` `{ hold_id }`         |
+| Note          | Separate from shared `GET /api/core/activity-logs`              |
+| Version note  | [v4.1.0.md](../../version-notes/v4.1.0.md)                      |
 
 **Files**
 

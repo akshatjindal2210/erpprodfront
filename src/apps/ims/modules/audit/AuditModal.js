@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSelector } from "react-redux";
-import { Check, AlertCircle, Loader2, Shield, User, Calendar, MapPin, Plus, Trash2, MessageSquareQuote } from "lucide-react";
+import { Check, AlertCircle, Loader2, Shield, User, Calendar, MapPin, Plus, Trash2, MessageSquareQuote, Shuffle } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { auditService } from "@/apps/ims/lib/services/audit";
@@ -89,6 +89,26 @@ function makeAssignmentRow() {
     assigned_user_id: "",
     location_ids: [],
   };
+}
+
+/** Unique locations per user; reshuffle every click so picks are not always same side. */
+function assignLocationsByCount(locations, assignments, count) {
+  const users = (assignments || []).filter((r) => r.assigned_user_id);
+  if (!users.length) return { error: "Select users first" };
+
+  const pool = [...(locations || [])].filter((l) => l?.location_id != null);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+
+  if (pool.length < users.length * count) {
+    return { error: `Need ${users.length * count} locations, only ${pool.length} available` };
+  }
+
+  let i = 0;
+  const map = new Map(users.map((u) => [u.row_id, Array.from({ length: count }, () => pool[i++].location_id)]));
+  return { assignments: assignments.map((r) => (map.has(r.row_id) ? { ...r, location_ids: map.get(r.row_id) } : r)) };
 }
 
 const INITIAL_FORM = {
@@ -188,6 +208,7 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
   const sopPermissionType = isAdd ? "authorize" : isEdit ? "edit" : "add";
 
   const [loading, setLoading] = useState(false);
+  const [randomCount, setRandomCount] = useState(5);
   const [form, setForm] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
   const sopAckRef = useRef(null);
@@ -282,6 +303,23 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
         assignments: prev.assignments.filter((row) => row.row_id !== rowId),
       };
     });
+  };
+
+  const handleRandomAssign = async () => {
+    const count = Math.floor(Number(randomCount));
+    if (!count || count < 1) return toast.error("Enter a valid count");
+    if (!form.assignments.some((r) => r.assigned_user_id)) return toast.error("Select users first");
+    try {
+      const res = await locationService.getViews({ page: 1, limit: 5000, permission_module: "audit", permission_action: "view" });
+      const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+      const result = assignLocationsByCount(list, form.assignments, count);
+      if (result.error) return toast.error(result.error);
+      setForm((prev) => ({ ...prev, assignments: result.assignments }));
+      setErrors((prev) => ({ ...prev, assignments: "" }));
+      toast.success(`Assigned ${count} per user`);
+    } catch (err) {
+      toast.error(err?.message || "Random assign failed");
+    }
   };
 
   const validate = () => {
@@ -436,9 +474,23 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
         </div>
 
         <div className="space-y-3" data-field="assignments">
-          <label className={`${FORM_LABEL_CLASS} !ml-0`}>
-            User assignments <span className="text-rose-500">*</span>
-          </label>
+          <div className="flex flex-wrap items-center gap-2 justify-between">
+            <label className={`${FORM_LABEL_CLASS} !ml-0`}>
+              User assignments <span className="text-rose-500">*</span>
+            </label>
+            <div className="flex items-center gap-2">
+              <input type="number" min={1} value={randomCount} onChange={(e) => setRandomCount(e.target.value)}
+                className="h-8 w-16 rounded-lg border border-slate-200 px-2 text-xs font-semibold"
+                title="Count / user"
+              />
+              <button type="button" onClick={handleRandomAssign} className="h-8 px-2.5 text-[11px] font-bold uppercase rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 inline-flex items-center gap-1">
+                <Shuffle size={12} /> Random
+              </button>
+              <button type="button" onClick={addAssignmentRow} className="h-8 px-2.5 text-[11px] font-bold uppercase rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 inline-flex items-center gap-1">
+                <Plus size={12} /> Add
+              </button>
+            </div>
+          </div>
 
           {errors.assignments && (
             <p className={FORM_ERROR_CLASS}>
@@ -452,28 +504,23 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
               const takenUserIds = getTakenIdsExcludingRow(form.assignments, row.row_id, "assigned_user_id");
               if (excludeCreatorUserId != null) takenUserIds.add(String(excludeCreatorUserId));
               const takenLocationIds = getTakenIdsExcludingRow(form.assignments, row.row_id, "location_ids");
-
               return (
               <div
                 key={row.row_id}
                 className="p-3 rounded-lg border border-slate-200 bg-slate-50/60 space-y-3"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className={FORM_MICRO_LABEL_CLASS}>
-                    Row {index + 1}
-                  </span>
+                <div className="flex items-center justify-between">
+                  <span className={FORM_MICRO_LABEL_CLASS}>Row {index + 1}</span>
                   {form.assignments.length > 1 && (
                     <button
                       type="button"
                       onClick={() => removeAssignmentRow(row.row_id)}
-                      className="p-1 text-rose-400 hover:bg-rose-50 rounded-md transition-colors"
-                      aria-label={`Remove row ${index + 1}`}
+                      className="p-1 text-rose-400 hover:bg-rose-50 rounded-md"
                     >
                       <Trash2 size={12} />
                     </button>
                   )}
                 </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <SearchableSelect
                     label="Assigned User"
@@ -489,7 +536,6 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
                     icon={User}
                     placeholder="Select user…"
                   />
-
                   <SearchableSelect
                     label="Locations"
                     multiple
@@ -509,7 +555,7 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
             })}
           </div>
 
-          <div className="flex justify-end">
+          {/* <div className="flex justify-end">
             <button
               type="button"
               onClick={addAssignmentRow}
@@ -517,7 +563,7 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
             >
               <Plus size={13} /> Add row
             </button>
-          </div>
+          </div> */}
         </div>
 
         <FormTextarea

@@ -283,16 +283,14 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
     coreModules,
     taskModules,
     rmStoreModules,
+    hrmsModules,
   } = useMemo(() => partitionModulesForUserForm(modules), [modules]);
 
   const syncAppAccessFromPermissions = useCallback(
     (permSource = []) => {
-      const next = {
-        core: resolveAppAccessEnabled("core", permSource),
-        ims: resolveAppAccessEnabled("ims", permSource),
-        rmstore: resolveAppAccessEnabled("rmstore", permSource),
-        task: resolveAppAccessEnabled("task", permSource),
-      };
+      const next = Object.fromEntries(
+        PORTAL_APP_KEYS.map((key) => [key, resolveAppAccessEnabled(key, permSource)])
+      );
       setAppAccess(next);
       // On prefill, land on the first app the user actually has access to
       // (otherwise editing an IMS-only user opens on Admin Console and looks empty).
@@ -1371,6 +1369,7 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
               imsModules={imsModules}
               taskModules={taskModules}
               rmStoreModules={rmStoreModules}
+              hrmsModules={hrmsModules}
               appAccess={appAccess}
               activePermTab={activePermTab}
               onActivePermTabChange={setActivePermTab}

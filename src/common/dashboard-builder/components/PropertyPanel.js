@@ -1,14 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getTables, hybridPreviewWidget } from "../services/dashboardApi";
-import { Database, Palette, Table2, Code, Trash2, Info, Eye, Save, X, ChevronRight, ChevronDown, Copy, Check, SlidersHorizontal } from "lucide-react";
+import { Database, Palette, Table2, Code, Trash2, Info, Eye, Save, X, ChevronRight, ChevronDown, ChevronUp, Copy, Check, SlidersHorizontal } from "lucide-react";
 import { DASHBOARD_WIDGET_QUERY_PLACEHOLDER, getDashboardQueryRuntimeFilters } from "../utils/widgetQuery.js";
 import { EXTERNAL_MSSQL_QUERY_PLACEHOLDER, HYBRID_EXTERNAL_DB_OPTIONS, buildHybridPreviewRequest, isExternalMssqlDbSource, isHybridDbSource, isHybridUrlExternalSource, isUrlJsonDbSource, isWidgetHybridMode, resolveHybridExternalDbSource } from "../utils/dashboardDbSources.js";
 import { APPS } from "@/config/appsRegistry";
 import { getAppNavPages } from "../utils/appNavPages";
 import { DEFAULT_WIDGET_BOX_SHADOW, STRONG_WIDGET_BOX_SHADOW } from "../utils/floatingLayoutEngine";
 import { normalizeWidgetLinkType } from "../utils/widgetClickLink";
+import { createDefaultDrawerWidget, normalizeDrawerWidget } from "../utils/drawerWidgetConfig";
 import { normalizeTableSearchPosition, normalizeTableSearchWidth, TABLE_SEARCH_POSITION_OPTIONS } from "../utils/tableToolbar.js";
-import { GRAPH_COMPARISON_MODE_OPTIONS, GRAPH_VALUE_FORMAT_OPTIONS, GRAPH_DISPLAY_VALUE_OPTIONS, GRAPH_DECIMAL_OPTIONS, GRAPH_LEGEND_POSITION_OPTIONS, normalizeGraphComparisonMode, normalizeGraphValueFormat, normalizeGraphDisplayValue, normalizeGraphDecimalPlaces, normalizeGraphLegendPosition, isGraphComparisonEnabled, resolveGraphShowDataLabels } from "../utils/graphAdvancedConfig.js";
+import { GRAPH_COMPARISON_MODE_OPTIONS, GRAPH_VALUE_FORMAT_OPTIONS, GRAPH_DISPLAY_VALUE_OPTIONS, GRAPH_DECIMAL_OPTIONS, GRAPH_LEGEND_POSITION_OPTIONS, GRAPH_VIEW_MODE_OPTIONS, GRAPH_BAR_LAYOUT_OPTIONS, GRAPH_MAX_SERIES, normalizeGraphComparisonMode, normalizeGraphValueFormat, normalizeGraphDisplayValue, normalizeGraphDecimalPlaces, normalizeGraphLegendPosition, normalizeGraphViewMode, normalizeGraphBarLayout, normalizeGraphYKeys, syncLegacyYKeysFromList, resolveGraphYKeys, isGraphComparisonEnabled, resolveGraphShowDataLabels } from "../utils/graphAdvancedConfig.js";
 
 const BLOCKED_SQL = /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke)\b/i;
 const REQUIRES_SQL = new Set(["kpi", "table", "graph"]);
@@ -340,6 +341,10 @@ const PropertyPanel = ({
   busy = false,
   hideHeader = false,
   canFilterByUser = false,
+  /** When true, panel is editing the nested drawer widget (not the parent). */
+  isDrawerContentEditor = false,
+  onEditDrawerContent,
+  onBackFromDrawerEditor,
 }) => {
   const [tables, setTables] = useState([]);
   const [activeTab, setActiveTab] = useState("data");
@@ -402,6 +407,19 @@ const PropertyPanel = ({
       styleFlushTimerRef.current = null;
     }
   }, [selectedWidget?.id]);
+
+  // Drop optimistic style draft once parent widget.style has caught up.
+  useEffect(() => {
+    if (!draftStyle) return undefined;
+    const committed = selectedWidget?.style || {};
+    const keys = Object.keys(draftStyle);
+    if (!keys.length) return undefined;
+    const caughtUp = keys.every((key) => (
+      JSON.stringify(committed[key]) === JSON.stringify(draftStyle[key])
+    ));
+    if (caughtUp) setDraftStyle(null);
+    return undefined;
+  }, [selectedWidget?.style, draftStyle]);
 
   useEffect(() => () => {
     if (styleFlushTimerRef.current) window.clearTimeout(styleFlushTimerRef.current);
@@ -529,7 +547,8 @@ const PropertyPanel = ({
         style: nextStyle,
       };
       selectedWidgetRef.current = next;
-      setDraftStyle(null);
+      // Keep draft until parent props catch up (style-only uses startTransition).
+      setDraftStyle((prev) => ({ ...(prev || {}), ...(pending || {}), ...(patch.style || {}) }));
       onUpdate({
         id: widget.id,
         rawType: patch.rawType ?? widget.rawType,
@@ -842,8 +861,22 @@ const PropertyPanel = ({
       onClick={(e) => e.stopPropagation()}
     >
       {!hideHeader && (
-      <div className="px-2.5 py-2 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
-        <h3 className="font-bold text-[11px] uppercase tracking-widest text-slate-800">Widget Builder</h3>
+      <div className="px-2.5 py-2 border-b border-slate-100 flex items-center justify-between bg-white shrink-0 gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {isDrawerContentEditor ? (
+            <button
+              type="button"
+              title="Back to parent widget"
+              onClick={() => onBackFromDrawerEditor?.()}
+              className="h-7 px-1.5 shrink-0 grid place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:text-slate-700"
+            >
+              <ChevronRight size={14} className="rotate-180" />
+            </button>
+          ) : null}
+          <h3 className="font-bold text-[11px] uppercase tracking-widest text-slate-800 truncate">
+            {isDrawerContentEditor ? "Drawer Widget" : "Widget Builder"}
+          </h3>
+        </div>
         <button
           type="button"
           title="Close panel"
@@ -864,20 +897,20 @@ const PropertyPanel = ({
           <>
             <div className="space-y-1">
               <PanelFieldLabel>Widget Type</PanelFieldLabel>
-              <div className="grid grid-cols-5 gap-1.5">
+              <div className={`grid gap-1.5 ${isDrawerContentEditor ? "grid-cols-4" : "grid-cols-5"}`}>
                 {[
                   { key: "kpi", label: "KPI" },
                   { key: "table", label: "Table" },
                   { key: "graph", label: "Graph" },
                   { key: "heading", label: "Head" },
-                  { key: "container", label: "Box" },
+                  ...(isDrawerContentEditor ? [] : [{ key: "container", label: "Box" }]),
                 ].map((t) => (
                   <button
                     type="button"
                     key={t.key}
                     onClick={() => {
                       setValidationError("");
-                      const currentGraphType = ["bar", "line", "pie"].includes(selectedWidget.type)
+                      const currentGraphType = ["bar", "line", "pie", "area"].includes(selectedWidget.type)
                         ? selectedWidget.type
                         : "bar";
                       if (t.key === "kpi") {
@@ -911,6 +944,7 @@ const PropertyPanel = ({
             </div>
 
             <div className="grid grid-cols-2 gap-2">
+              {!isDrawerContentEditor && (
               <div>
                 <PanelFieldLabel>Page Access</PanelFieldLabel>
                 <select
@@ -931,7 +965,8 @@ const PropertyPanel = ({
                   ))}
                 </select>
               </div>
-              <div>
+              )}
+              <div className={isDrawerContentEditor ? "col-span-2" : undefined}>
                 <PanelFieldLabel>Database</PanelFieldLabel>
                 <select
                   value={selectedWidget.dataSource || "ims_postgresql"}
@@ -947,25 +982,36 @@ const PropertyPanel = ({
               </div>
             </div>
 
-            {selectedWidget.rawType !== "container" && (
+            {selectedWidget.rawType !== "container" && !isDrawerContentEditor && (
               <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2.5 space-y-2">
                 <PanelFieldLabel>Click Link (open on click)</PanelFieldLabel>
                 <select
                   value={linkType}
                   onChange={(e) => {
                     const next = normalizeWidgetLinkType(e.target.value);
-                    applyWidgetPatch({
+                    const patch = {
                       linkType: next,
-                      linkUrl: next === "NONE" ? "" : (selectedWidget.linkUrl || ""),
+                      linkUrl: next === "NONE" || next === "DRAWER" ? "" : (selectedWidget.linkUrl || ""),
                       linkAppId: next === "APP" ? (selectedWidget.linkAppId || "") : "",
                       linkPageId: next === "APP" ? (selectedWidget.linkPageId || "") : "",
-                    });
+                    };
+                    if (next === "DRAWER") {
+                      patch.drawerWidget = normalizeDrawerWidget(
+                        selectedWidget.drawerWidget,
+                        selectedWidget.id,
+                      );
+                      if (!selectedWidget.drawerTitle) {
+                        patch.drawerTitle = selectedWidget.title || "";
+                      }
+                    }
+                    applyWidgetPatch(patch);
                   }}
                   className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
                 >
                   <option value="NONE">No link</option>
                   <option value="URL">External / Custom URL</option>
                   <option value="APP">ERP Module Page</option>
+                  <option value="DRAWER">Open Drawer</option>
                 </select>
 
                 {linkType === "URL" && (
@@ -1029,6 +1075,37 @@ const PropertyPanel = ({
                         {selectedWidget.linkUrl}
                       </p>
                     ) : null}
+                  </div>
+                )}
+
+                {linkType === "DRAWER" && (
+                  <div className="grid grid-cols-1 gap-2">
+                    <div>
+                      <PanelFieldLabel>Drawer Title</PanelFieldLabel>
+                      <input
+                        type="text"
+                        value={selectedWidget.drawerTitle || ""}
+                        onChange={(e) => applyWidgetPatch({ drawerTitle: e.target.value, linkType: "DRAWER" })}
+                        placeholder="Details"
+                        className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-semibold text-slate-700"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!selectedWidget.drawerWidget) {
+                          applyWidgetPatch({
+                            linkType: "DRAWER",
+                            drawerWidget: createDefaultDrawerWidget(selectedWidget.id),
+                          });
+                        }
+                        onEditDrawerContent?.();
+                      }}
+                      className="w-full inline-flex items-center justify-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-blue-700 hover:bg-blue-100"
+                    >
+                      Configure Drawer Widget
+                      <ChevronRight size={12} />
+                    </button>
                   </div>
                 )}
               </div>
@@ -1095,7 +1172,23 @@ const PropertyPanel = ({
                       <select
                         className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
                         value={selectedWidget.style?.graphYKey || columns[1] || columns[0]}
-                        onChange={(e) => handleChange("style.graphYKey", e.target.value)}
+                        onChange={(e) => {
+                          const y = e.target.value;
+                          if (isGraphComparisonEnabled(selectedWidget.style || {})) {
+                            const xKey = selectedWidget.style?.graphXKey || columns[0];
+                            const current = normalizeGraphYKeys(selectedWidget.style?.graphYKeys);
+                            const rest = current.filter((k) => k !== y && k !== xKey);
+                            const nextList = [y, ...rest].slice(0, GRAPH_MAX_SERIES);
+                            applyWidgetPatch({
+                              style: {
+                                ...syncLegacyYKeysFromList(nextList),
+                                graphComparisonMode: "comparison",
+                              },
+                            });
+                            return;
+                          }
+                          handleChange("style.graphYKey", y);
+                        }}
                       >
                         {columns.map((col) => (
                           <option key={`y-${col}`} value={col}>{col}</option>
@@ -1977,7 +2070,29 @@ const PropertyPanel = ({
                     <SegmentControl
                       value={normalizeGraphComparisonMode(displayStyle.graphComparisonMode)}
                       options={GRAPH_COMPARISON_MODE_OPTIONS}
-                      onChange={(mode) => handleChange("style.graphComparisonMode", mode)}
+                      onChange={(mode) => {
+                        if (mode === "comparison") {
+                          const xKey = displayStyle.graphXKey || columns[0];
+                          const primaryY = displayStyle.graphYKey || columns[1] || columns[0];
+                          const seeded = resolveGraphYKeys({
+                            style: displayStyle,
+                            columnKeys: columns,
+                            xKey,
+                            yKey: primaryY,
+                            comparisonOn: true,
+                          });
+                          const list = seeded.length ? seeded : [primaryY].filter(Boolean);
+                          const synced = syncLegacyYKeysFromList(list);
+                          applyWidgetPatch({
+                            style: {
+                              ...synced,
+                              graphComparisonMode: "comparison",
+                            },
+                          });
+                          return;
+                        }
+                        handleChange("style.graphComparisonMode", mode);
+                      }}
                     />
                     {comparisonOn && !comparisonSupported ? (
                       <p className="text-[9px] text-amber-600">
@@ -1985,39 +2100,154 @@ const PropertyPanel = ({
                       </p>
                     ) : null}
                     {comparisonOn && comparisonSupported ? (
-                      columns.length ? (
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-[9px] font-semibold text-slate-500 mb-1">Series A (Y)</label>
-                            <select
-                              className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
-                              value={displayStyle.graphYKey || columns[1] || columns[0]}
-                              onChange={(e) => handleChange("style.graphYKey", e.target.value)}
-                            >
-                              {columns.map((col) => (
-                                <option key={`adv-ya-${col}`} value={col}>{col}</option>
-                              ))}
-                            </select>
+                      columns.length ? (() => {
+                        const xKey = displayStyle.graphXKey || columns[0];
+                        const primaryY = displayStyle.graphYKey || columns[1] || columns[0];
+                        const resolved = resolveGraphYKeys({
+                          style: displayStyle,
+                          columnKeys: columns,
+                          xKey,
+                          yKey: primaryY,
+                          comparisonOn: true,
+                        });
+                        const savedOrder = normalizeGraphYKeys(displayStyle.graphYKeys)
+                          .filter((k) => columns.includes(k) && k !== xKey);
+                        // Prefer explicit saved order so ↑↓ always reflects what user set.
+                        const editableSeries = (savedOrder.length ? savedOrder : resolved).length
+                          ? (savedOrder.length ? savedOrder : resolved)
+                          : [primaryY].filter(Boolean);
+                        const unused = columns.filter((c) => c !== xKey && !editableSeries.includes(c));
+                        const applySeriesList = (nextList) => {
+                          const synced = syncLegacyYKeysFromList(nextList);
+                          applyWidgetPatch({
+                            style: {
+                              ...synced,
+                              graphComparisonMode: "comparison",
+                            },
+                          });
+                        };
+                        const moveSeries = (fromIdx, toIdx) => {
+                          if (toIdx < 0 || toIdx >= editableSeries.length) return;
+                          const next = [...editableSeries];
+                          const [item] = next.splice(fromIdx, 1);
+                          next.splice(toIdx, 0, item);
+                          applySeriesList(next);
+                        };
+                        return (
+                          <div className="space-y-1.5">
+                            <p className="text-[9px] text-slate-400">
+                              First series appears first in the legend and on the left of grouped bars. Set First to stock_minus to show it before stock_add.
+                            </p>
+                            {editableSeries.map((key, idx) => (
+                              <div key={`series-${key}-${idx}`} className="flex items-center gap-1">
+                                <span className="w-[52px] shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                                  {idx === 0 ? "First" : idx === 1 ? "Second" : `#${idx + 1}`}
+                                </span>
+                                <select
+                                  className="min-w-0 flex-1 bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                                  value={key}
+                                  onChange={(e) => {
+                                    const picked = e.target.value;
+                                    const next = [...editableSeries];
+                                    const existingIdx = next.indexOf(picked);
+                                    if (existingIdx >= 0 && existingIdx !== idx) {
+                                      // Swap with the row that already has this column
+                                      next[existingIdx] = next[idx];
+                                    }
+                                    next[idx] = picked;
+                                    applySeriesList(next);
+                                  }}
+                                >
+                                  {columns.filter((c) => c !== xKey).map((col) => (
+                                    <option key={`ser-${idx}-${col}`} value={col}>{col}</option>
+                                  ))}
+                                </select>
+                                {editableSeries.length > 1 ? (
+                                  <div className="flex shrink-0 items-center gap-0.5">
+                                    <button
+                                      type="button"
+                                      title="Move earlier"
+                                      disabled={idx === 0}
+                                      onClick={() => moveSeries(idx, idx - 1)}
+                                      className="rounded border border-slate-200 bg-white p-1 text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-white"
+                                    >
+                                      <ChevronUp size={12} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      title="Move later"
+                                      disabled={idx === editableSeries.length - 1}
+                                      onClick={() => moveSeries(idx, idx + 1)}
+                                      className="rounded border border-slate-200 bg-white p-1 text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-white"
+                                    >
+                                      <ChevronDown size={12} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      title="Remove series"
+                                      onClick={() => applySeriesList(editableSeries.filter((_, i) => i !== idx))}
+                                      className="rounded border border-rose-200 bg-white px-1.5 py-1 text-[9px] font-bold text-rose-500 hover:bg-rose-50"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ))}
+                            {editableSeries.length >= 2 ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = [...editableSeries];
+                                  const tmp = next[0];
+                                  next[0] = next[1];
+                                  next[1] = tmp;
+                                  applySeriesList(next);
+                                }}
+                                className="w-full rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-indigo-700 hover:bg-indigo-100"
+                              >
+                                Swap First and Second
+                              </button>
+                            ) : null}
+                            {editableSeries.length < GRAPH_MAX_SERIES && unused.length ? (
+                              <button
+                                type="button"
+                                onClick={() => applySeriesList([...editableSeries, unused[0]])}
+                                className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:bg-slate-100"
+                              >
+                                + Add series ({editableSeries.length}/{GRAPH_MAX_SERIES})
+                              </button>
+                            ) : null}
+                            {chartType === "bar" ? (
+                              <div className="pt-1">
+                                <label className="block text-[9px] font-semibold text-slate-500 mb-1">Bar layout</label>
+                                <SegmentControl
+                                  value={normalizeGraphBarLayout(displayStyle.graphBarLayout)}
+                                  options={GRAPH_BAR_LAYOUT_OPTIONS}
+                                  onChange={(layout) => handleChange("style.graphBarLayout", layout)}
+                                />
+                              </div>
+                            ) : null}
                           </div>
-                          <div>
-                            <label className="block text-[9px] font-semibold text-slate-500 mb-1">Series B (Y)</label>
-                            <select
-                              className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
-                              value={displayStyle.graphYKey2 || columns.find((c) => c !== (displayStyle.graphYKey || columns[1] || columns[0])) || columns[0]}
-                              onChange={(e) => handleChange("style.graphYKey2", e.target.value)}
-                            >
-                              {columns.map((col) => (
-                                <option key={`adv-yb-${col}`} value={col}>{col}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                      ) : (
+                        );
+                      })() : (
                         <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-2.5 py-2 text-[10px] text-slate-500">
-                          Run Preview to load columns, then map Series A / Series B.
+                          Run Preview to load columns, then add comparison series.
                         </div>
                       )
                     ) : null}
+                  </div>
+
+                  <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
+                    <PanelFieldLabel>Chart view</PanelFieldLabel>
+                    <SegmentControl
+                      value={normalizeGraphViewMode(displayStyle.graphViewMode)}
+                      options={GRAPH_VIEW_MODE_OPTIONS}
+                      onChange={(mode) => handleChange("style.graphViewMode", mode)}
+                    />
+                    <p className="text-[9px] text-slate-400">
+                      3D adds depth styling on bar / line / area (still interactive Recharts). Pie stays flat.
+                    </p>
                   </div>
 
                   <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
@@ -2088,6 +2318,79 @@ const PropertyPanel = ({
                   </div>
 
                   <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
+                    <PanelFieldLabel>Y-axis scale</PanelFieldLabel>
+                    <p className="text-[9px] text-slate-400">
+                      Gap controls Y-axis tick spacing (e.g. 1, 2, 0.5). Min and Max are optional; leave blank for auto.
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-[9px] font-semibold text-slate-500 mb-1">Min</label>
+                        <input
+                          type="number"
+                          step="any"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                          value={displayStyle.graphYAxisMin ?? ""}
+                          onChange={(e) => handleChange("style.graphYAxisMin", e.target.value)}
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-semibold text-slate-500 mb-1">Max</label>
+                        <input
+                          type="number"
+                          step="any"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                          value={displayStyle.graphYAxisMax ?? ""}
+                          onChange={(e) => handleChange("style.graphYAxisMax", e.target.value)}
+                          placeholder="auto"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-semibold text-slate-500 mb-1">Gap</label>
+                        <input
+                          type="number"
+                          step="any"
+                          min={0}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
+                          value={displayStyle.graphYTickStep ?? ""}
+                          onChange={(e) => handleChange("style.graphYTickStep", e.target.value)}
+                          placeholder="auto"
+                          title="Y tick gap: 1, 2, 0.5…"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1 pt-0.5">
+                      {[
+                        { label: "1", step: "1" },
+                        { label: "2", step: "2" },
+                        { label: "0.5", step: "0.5" },
+                        { label: "5", step: "5" },
+                        { label: "10", step: "10" },
+                      ].map((preset) => (
+                        <button
+                          key={`ygap-${preset.step}`}
+                          type="button"
+                          onClick={() => handleChange("style.graphYTickStep", preset.step)}
+                          className={`rounded border px-2 py-0.5 text-[9px] font-bold ${
+                            String(displayStyle.graphYTickStep ?? "") === preset.step
+                              ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                              : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          Gap {preset.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => handleChange("style.graphYTickStep", "")}
+                        className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-500 hover:bg-slate-50"
+                      >
+                        Auto
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
                     <PanelFieldLabel>Display value</PanelFieldLabel>
                     <SegmentControl
                       value={normalizeGraphDisplayValue(displayStyle.graphDisplayValue)}
@@ -2095,7 +2398,9 @@ const PropertyPanel = ({
                       onChange={(mode) => handleChange("style.graphDisplayValue", mode)}
                     />
                     {normalizeGraphDisplayValue(displayStyle.graphDisplayValue) === "difference" && !comparisonOn ? (
-                      <p className="text-[9px] text-slate-400">Diff uses Series A − Series B (enable Compare).</p>
+                      <p className="text-[9px] text-slate-400">Diff uses First − Second (enable Compare).</p>
+                    ) : normalizeGraphDisplayValue(displayStyle.graphDisplayValue) === "difference" && comparisonOn ? (
+                      <p className="text-[9px] text-slate-400">Diff shows First − Second on the primary series.</p>
                     ) : null}
                     <SimpleToggle
                       label="Show data labels"
@@ -2594,16 +2899,27 @@ const PropertyPanel = ({
           disabled={busy}
           className="w-full bg-blue-600 border border-blue-600 text-white py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
         >
-          <Save size={14} /> Save Draft
+          <Save size={14} /> {isDrawerContentEditor ? "Save Parent Draft" : "Save Draft"}
         </button>
-        <button
-          type="button"
-          onClick={() => onDelete?.(selectedWidget)}
-          disabled={busy}
-          className="w-full bg-white border border-rose-200 text-rose-500 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest hover:bg-rose-500 hover:text-white hover:border-rose-500 transition-all flex items-center justify-center gap-2"
-        >
-          <Trash2 size={14} /> Delete Widget
-        </button>
+        {isDrawerContentEditor ? (
+          <button
+            type="button"
+            onClick={() => onBackFromDrawerEditor?.()}
+            disabled={busy}
+            className="w-full bg-white border border-slate-200 text-slate-600 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+          >
+            Back to Parent Widget
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onDelete?.(selectedWidget)}
+            disabled={busy}
+            className="w-full bg-white border border-rose-200 text-rose-500 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest hover:bg-rose-500 hover:text-white hover:border-rose-500 transition-all flex items-center justify-center gap-2"
+          >
+            <Trash2 size={14} /> Delete Widget
+          </button>
+        )}
       </div>
     </div>
   );

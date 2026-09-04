@@ -7,13 +7,9 @@ import { useSelector } from "react-redux";
 import { selectUser, selectPermissions, selectRole } from "@/platform/store/slices/authSlice";
 import { usePathname } from "next/navigation";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
-import { NAV_REGISTRY } from "@/apps/ims/lib/config/navRegistry";
 import { ShieldAlert, Lock } from "lucide-react";
-import { APP_SHELL, isPortalShell, isSettingsShell, isTaskShell, isRmStoreShell } from "@/config/appsRegistry";
-import { SETTINGS_NAV_REGISTRY } from "@/apps/settings/configuration/config/settingsNavRegistry";
-import { TASK_NAV_REGISTRY } from "@/apps/task/lib/config/navRegistry";
-import { RM_STORE_NAV_REGISTRY } from "@/apps/rmstore/lib/config/navRegistry";
-import { canShowTaskReportMenu } from "@/apps/task/lib/config/appConfig";
+import { APP_SHELL, isPortalShell, isTaskShell } from "@/config/appsRegistry";
+import { resolveShellBrand, resolveShellNavRegistry, ALL_SHELL_NAV_REGISTRIES } from "@/config/shellNav";
 import { ROUTES } from "@/config/routes";
 import { useEscapeKey } from "@/platform/hooks/system/useEscapeKey";
 
@@ -32,26 +28,15 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
   const pathname = usePathname();
   const canAccess = useCanAccess();
   const isPortal = isPortalShell(shell, pathname);
-  const isSettings = isSettingsShell(shell, pathname);
   const isTask = isTaskShell(shell, pathname);
-  const isRmStore = isRmStoreShell(shell, pathname);
   const hideNav = isPortal || shell === APP_SHELL.STANDALONE;
   // Show Quick Access on all shells; each link still filtered by view permission.
   const hideQuickLinks = false;
-  const sidebarNav = useMemo(() => {
-    if (isSettings) return SETTINGS_NAV_REGISTRY;
-    if (isTask) {
-      return TASK_NAV_REGISTRY.filter((item) => {
-        if (item.href === "/task/dashboard/reports") {
-          return canShowTaskReportMenu(role, userData);
-        }
-        return true;
-      });
-    }
-    if (isRmStore) return RM_STORE_NAV_REGISTRY;
-    return undefined;
-  }, [isSettings, isTask, isRmStore, role, userData]);
-  const sidebarBrand = isSettings ? "Settings" : isRmStore ? "RM Store" : "ERP Portal";
+  const sidebarNav = useMemo(
+    () => resolveShellNavRegistry(shell, { role, userData }),
+    [shell, role, userData]
+  );
+  const sidebarBrand = resolveShellBrand(shell);
   const accessState = useMemo(() => {
     // 1. Find the module associated with current path
     let currentModule = null;
@@ -73,10 +58,9 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
         }
       }
     };
-    findModule(NAV_REGISTRY);
-    findModule(SETTINGS_NAV_REGISTRY);
-    findModule(TASK_NAV_REGISTRY);
-    findModule(RM_STORE_NAV_REGISTRY);
+    for (const registry of ALL_SHELL_NAV_REGISTRIES) {
+      findModule(registry);
+    }
 
     // Task app: RouteGuard + feature map own access. Do not block with portal
     // module canAccess here — that was causing CL Verification / module pages
@@ -129,6 +113,7 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
     pathname === "/ims/dashboard" ||
     pathname === "/task/dashboard" ||
     pathname === "/rmstore/dashboard" ||
+    pathname === "/hrms/dashboard" ||
     pathname === "/settings/dashboard" ||
     pathname === "/settings/dashboard-builder";
 

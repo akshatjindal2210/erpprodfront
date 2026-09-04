@@ -1,4 +1,4 @@
-import { Boxes, Home, ListTodo, Settings, Warehouse } from "lucide-react";
+import { Boxes, Home, ListTodo, Settings, Warehouse, Users } from "lucide-react";
 import { ROUTES } from "@/config/routes";
 import { userHasAppAccess } from "@/config/moduleAppRegistry";
 import { getTaskHomePath } from "@/apps/task/lib/config/appConfig";
@@ -10,6 +10,7 @@ export const APP_SHELL = {
   SETTINGS: "settings",
   TASK: "task",
   RM_STORE: "rmstore",
+  HRMS: "hrms",
 };
 
 /** Top navbar 9-dot launcher — fixed order: Home → IMS → RM Store → Task → Settings. */
@@ -51,6 +52,16 @@ export const APPS = [
     shell: APP_SHELL.TASK,
     icon: ListTodo,
     accent: "from-violet-500 to-violet-700",
+    inLauncher: true,
+  },
+  {
+    id: "hrms",
+    name: "HRMS",
+    subtitle: "People",
+    href: ROUTES.HRMS_DASHBOARD,
+    shell: APP_SHELL.HRMS,
+    icon: Users,
+    accent: "from-rose-500 to-rose-700",
     inLauncher: true,
   },
   {
@@ -123,6 +134,18 @@ export function isRmStoreShell(shell, pathname) {
   return shell === APP_SHELL.RM_STORE || isRmStoreShellPath(pathname);
 }
 
+export function isHrmsShellPath(pathname) {
+  return (
+    pathname === ROUTES.HRMS_DASHBOARD ||
+    pathname?.startsWith(`${ROUTES.HRMS_DASHBOARD}/`) ||
+    pathname?.startsWith("/hrms/")
+  );
+}
+
+export function isHrmsShell(shell, pathname) {
+  return shell === APP_SHELL.HRMS || isHrmsShellPath(pathname);
+}
+
 /** Resolve launcher app label + home href for navbar breadcrumbs. */
 export function getShellAppFromPathname(pathname) {
   if (isPortalShellPath(pathname)) {
@@ -136,6 +159,9 @@ export function getShellAppFromPathname(pathname) {
   }
   if (isRmStoreShellPath(pathname)) {
     return { id: "rmstore", name: "RM Store", href: ROUTES.RM_STORE_DASHBOARD };
+  }
+  if (isHrmsShellPath(pathname)) {
+    return { id: "hrms", name: "HRMS", href: ROUTES.HRMS_DASHBOARD };
   }
   if (pathname?.startsWith("/ims")) {
     return { id: "ims", name: "IMS", href: ROUTES.IMS_DASHBOARD };

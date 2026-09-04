@@ -19,12 +19,7 @@ import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
-import {
-  formatActivityLogValue,
-  getActivityLogSections,
-  getActivityLogMoreSections,
-  hasActivityLogDetails,
-} from "@/platform/utils/core/activityLogDisplay";
+import { formatActivityLogValue, getActivityLogSections, getActivityLogMoreSections, hasActivityLogDetails, formatActivityLogActionLabel, getActivityLogActionBadgeClass } from "@/platform/utils/core/activityLogDisplay";
 import ActivityLogModuleEntityCell from "@/ui/common/list/ActivityLogModuleEntityCell";
 
 export default function LogsPage() {
@@ -126,16 +121,10 @@ export default function LogsPage() {
     ["#", "id", (_v, _row, i) => <span className={IMS_TABLE_CELL_TEXT}>{i + 1}</span>, { fixed: true, width: '50px', align: 'center'}],
 
     ["Action", "action_type", (v) => {
-        const colors = {
-          CREATE: "bg-indigo-50 text-indigo-600 border-indigo-100",
-          UPDATE: "bg-blue-50 text-blue-600 border-blue-100",
-          DELETE: "bg-rose-50 text-rose-600 border-rose-100",
-          APPROVE: "bg-emerald-50 text-emerald-600 border-emerald-100",
-        };
-        const cls = colors[v] || "bg-slate-50 text-slate-600 border-slate-100";
+        const cls = getActivityLogActionBadgeClass(v);
         return (
           <span className={`px-2 py-0.5 border text-[9px] font-black uppercase tracking-widest ${cls}`}>
-            {v}
+            {formatActivityLogActionLabel(v)}
           </span>
         );
       }, { width: '100px', align: 'center' }

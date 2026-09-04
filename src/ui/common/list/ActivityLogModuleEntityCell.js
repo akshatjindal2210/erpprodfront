@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Layers } from "lucide-react";
 import { IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
-import { resolveActivityLogRef, resolveActivityLogEntityHref } from "@/platform/utils/core/activityLogDisplay";
+import { resolveActivityLogRef, resolveActivityLogEntityHref, formatActivityLogModuleLabel } from "@/platform/utils/core/activityLogDisplay";
 
 function cleanRef(value) {
   const id = String(value ?? "").trim();
@@ -28,7 +28,7 @@ function RefLine({ ref, href }) {
 
 export default function ActivityLogModuleEntityCell({ row, appType, moduleKey, moduleLabel, refValue }) {
   const module = moduleKey ?? row?.module ?? row?.entity;
-  const label = moduleLabel ?? module?.replace(/_/g, " ") ?? "—";
+  const label = moduleLabel ?? formatActivityLogModuleLabel(module);
   const ref = cleanRef(refValue ?? resolveActivityLogRef(row));
   const href = resolveActivityLogEntityHref(appType, module);
 

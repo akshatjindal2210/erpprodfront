@@ -225,6 +225,7 @@ export const ENDPOINTS = {
     EXPAND_FULL_HOLD: "/qc-hold-material/expand-full-hold",
     COMPLETION_BOXES: "/qc-hold-material/completion-boxes",
     REASONS: "/qc-hold-material/reason-helper",
+    ACTIVITY_LOG: "/qc-hold-material/activity-log",
   },
   AUDIT: {
     LIST: "/audit/list",
@@ -233,6 +234,7 @@ export const ENDPOINTS = {
     UPDATE: "/audit/update",
     DELETE: "/audit/delete",
     SUBMIT_SCAN: "/audit/submit-scan",
+    START_LOCATION: "/audit/start-location",
     REMOVE_SCAN: "/audit/remove-scan",
     COMPARISON_REPORT: "/audit/comparison-report",
     COMPARISON_ADJUSTMENT: "/audit/comparison-adjustment",

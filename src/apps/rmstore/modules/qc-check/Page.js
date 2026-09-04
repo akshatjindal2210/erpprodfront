@@ -640,6 +640,8 @@ export default function QcCheckPage() {
             showSearchButton={!isPendingTab}
             applyOnSearchEnter={!isPendingTab}
             applyExtrasOnChange={false}
+            minDate={dateFilterDefaults.minDate}
+            maxDate={dateFilterDefaults.maxDate}
           />
         </ListPageFilterStrip>
 

@@ -30,13 +30,7 @@ const PAGE_TABS = {
   PENDING: "pending",
 };
 
-const PENDING_HEADERS = [
-  ["Bill Number", "billno", (v, row) => (
-    <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{v || row?.bill_no || "—"}</span>
-  ), { fixed: true, width: "160px" }],
-  ["Bill Date", "billdt", (v, row) => (
-    <span className="text-[10px] text-slate-500 font-medium">{v || row?.bill_dt || "—"}</span>
-  ), { width: "140px" }],
+const IMS_BILL_META_HEADERS = [
   ["Customer", "acc_name", (v) => (
     <span className="text-[10px] font-medium text-slate-500 uppercase italic whitespace-normal break-words leading-snug block" title={v || ""}>
       {v || "—"}
@@ -47,17 +41,26 @@ const PENDING_HEADERS = [
   ["Items", "total_item_count", (v) => <span className="font-bold text-slate-700 text-[11px] tabular-nums">{v ?? "—"}</span>, { width: "80px" }],
 ];
 
+const PENDING_HEADERS = [
+  ["Bill Number", "billno", (v, row) => (
+    <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{v || row?.bill_no || "—"}</span>
+  ), { fixed: true, width: "160px" }],
+  ["Bill Date", "billdt", (v, row) => (
+    <span className="text-[10px] text-slate-500 font-medium">{v || row?.bill_dt || "—"}</span>
+  ), { width: "140px" }],
+  ...IMS_BILL_META_HEADERS,
+];
+
 const COMPLETE_HEADERS = [
   ["ID", "uid", (v, row) => (
     <span className="font-mono text-indigo-600 font-bold text-[10px]">
       {`${String(row?.type || "out").toLowerCase() === "in" ? "IN" : "OUT"}-${v}`}
     </span>
   ), { fixed: true, width: "80px" }],
-  ["Type", "type", (v) => (
-    <span className="text-[10px] font-bold text-slate-700 uppercase">{v || "out"}</span>
-  ), { width: "70px" }],
+  // ["Type", "type", (v) => (<span className="text-[10px] font-bold text-slate-700 uppercase">{v || "out"}</span>), { width: "70px" }],
   ["Bill Number", "bill_no", (v) => <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{v || "—"}</span>, { width: "160px" }],
   ["Bill Date", "bill_dt", (v) => <span className="text-[10px] text-slate-500 font-medium">{v || "—"}</span>, { width: "140px" }],
+  ...IMS_BILL_META_HEADERS,
   ["Transporter", "transporter_name", (v) => <span className="text-[10px] font-medium text-slate-600 uppercase">{v || "—"}</span>, { width: "180px" }],
   ["Vehicle", "vehicle_number", (v) => <span className="text-[10px] font-bold text-slate-700 uppercase">{v || "—"}</span>, { width: "120px" }],
   ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 truncate block italic">{v || "—"}</span>, { width: "180px" }],
@@ -395,7 +398,7 @@ export default function GateEntryPage() {
             onSearchChange={setTempSearch}
             onSearchEnter={applySearchFromInput}
             applyOnSearchEnter={false}
-            searchPlaceholder={isPending ? "Search bill, customer..." : "Search bill, transporter, vehicle..."}
+            searchPlaceholder={isPending ? "Search bill, customer..." : "Search bill, customer, transporter, vehicle..."}
             searchLabel={isPending ? "Search Pending" : "Search Complete"}
           />
         </ListPageFilterStrip>
@@ -438,7 +441,7 @@ export default function GateEntryPage() {
                 : {
                     titleKey: "bill_no",
                     badgeIndices: [0, 1],
-                    detailIndices: [3, 4, 5],
+                    detailIndices: [4, 5, 6, 7],
                     footerKey: "created_at",
                   }
             }

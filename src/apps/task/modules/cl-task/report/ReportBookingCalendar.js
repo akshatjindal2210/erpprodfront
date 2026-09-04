@@ -125,7 +125,7 @@ function resolveDayState(task, ymd, today, score) {
   const start = toYmdClient(task?.startDate) || toYmdClient(task?.scheduled_date);
   if (start && ymd < start) return "none";
 
-  if (!shouldShowTaskDayCell(task, ymd)) return "none";
+  if (!shouldShowTaskDayCell(task, ymd, today)) return "none";
 
   const applyRedIfNeeded = (kind) => {
     if (task?.is_red_flag && (kind === "done" || Number(score) > 0)) return "red";

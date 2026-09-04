@@ -174,11 +174,7 @@ export default function CoilTablePage() {
   const handleFilterApply = (data) => {
     applySearchFromInput();
     const nextJourney = String(journeyInput ?? "").trim();
-    if (nextJourney) {
-      setAppliedJourney(nextJourney);
-      return;
-    }
-    setAppliedJourney("");
+    setAppliedJourney(nextJourney);
     setParams((prev) => ({
       ...prev,
       fromDate: data?.fromDate ?? prev.fromDate,
@@ -203,8 +199,6 @@ export default function CoilTablePage() {
     rows: filteredRows,
     headers: COIL_HEADERS,
   });
-
-  const journeyTyping = Boolean(String(journeyInput ?? "").trim());
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
@@ -261,7 +255,6 @@ export default function CoilTablePage() {
             toDate={params.toDate}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
-            dateDisabled={journeyTyping}
             extraFilters={[
               {
                 type: "text",

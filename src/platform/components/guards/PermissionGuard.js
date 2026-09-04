@@ -8,6 +8,7 @@ import { selectRole } from "@/platform/store/slices/authSlice";
 import { NAV_REGISTRY } from "@/apps/ims/lib/config/navRegistry";
 import { SETTINGS_NAV_REGISTRY } from "@/apps/settings/configuration/config/settingsNavRegistry";
 import { RM_STORE_NAV_REGISTRY } from "@/apps/rmstore/lib/config/navRegistry";
+import { HRMS_NAV_REGISTRY } from "@/apps/hrms/lib/config/navRegistry";
 import { ROUTES } from "@/config/routes";
 import { useAppLogout } from "@/platform/hooks/auth/useLogout";
 import { THEME_CONFIG } from "@/config/theme";
@@ -66,6 +67,7 @@ export default function PermissionGuard({ children }) {
     collectFromRegistry(NAV_REGISTRY);
     collectFromRegistry(SETTINGS_NAV_REGISTRY);
     collectFromRegistry(RM_STORE_NAV_REGISTRY);
+    collectFromRegistry(HRMS_NAV_REGISTRY);
     return list;
   }, [hasPermissionOnly, canSeeNavItem]);
 
@@ -100,6 +102,7 @@ export default function PermissionGuard({ children }) {
     resolveModule(NAV_REGISTRY);
     resolveModule(SETTINGS_NAV_REGISTRY);
     resolveModule(RM_STORE_NAV_REGISTRY);
+    resolveModule(HRMS_NAV_REGISTRY);
 
     if (currentPath === "/") {
       return { authorized: false, noAccessAtAll: false };
@@ -128,6 +131,7 @@ export default function PermissionGuard({ children }) {
       currentPath === "/ims/dashboard" ||
       currentPath === "/ims/dashboard/builder" ||
       currentPath === "/rmstore/dashboard" ||
+      currentPath === "/hrms/dashboard" ||
       currentPath === "/task/dashboard" ||
       currentPath === "/settings" ||
       currentPath === normalizePath(ROUTES.SETTINGS_DASHBOARD) ||

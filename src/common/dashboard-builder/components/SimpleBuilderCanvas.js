@@ -1,22 +1,15 @@
-"use client";
-
-/**
- * Full-bleed canvas (builder + live).
- * Laptop: 1366px design coords, identical scale-to-fit in builder + publish (responsive, WYSIWYG).
- */
+﻿"use client";
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Rnd } from "react-rnd";
 import WidgetRenderer from "./WidgetRenderer";
 import { DRAG_HANDLE_CLASS, HANDLE_STYLES, resizeHandleStylesForSelection, selectionStyle, builderWidgetTypeLabel, parityWidgetBodyShellStyle, SimpleWidgetToolbar } from "./simpleBuilderChrome";
-import { boxWithId, contentBoundsPx, defaultTopLevelBoxForType, fitNestedLayoutPxToWidth, layoutPxFingerprint, normalizeBox, PHONE_CONTENT_WIDTH, PHONE_FRAME_INSET, LAPTOP_DESIGN_CANVAS_WIDTH, LAPTOP_CANVAS_INSET, placeNextBoxPx, snapCanvasFitScale, clampLayoutPxToLaptopFrame, phoneContentBoxesFromFrame, readWidgetBoxPx, resolveTopLevelBoxes, sanitizeNestedLayoutPx, scaleLayoutPx } from "../utils/floatingLayoutEngine";
+import { boxWithId, contentBoundsPx, defaultTopLevelBoxForType, fitNestedLayoutPxToWidth, layoutPxFingerprint, normalizeBox, PHONE_CONTENT_WIDTH, PHONE_FRAME_INSET, LAPTOP_DESIGN_CANVAS_WIDTH, LAPTOP_CANVAS_INSET, placeNextBoxPx, clampLayoutPxToLaptopFrame, phoneContentBoxesFromFrame, readWidgetBoxPx, resolveTopLevelBoxes, sanitizeNestedLayoutPx, scaleLayoutPx } from "../utils/floatingLayoutEngine";
 import { DASHBOARD_CANVAS_BG, DASHBOARD_CANVAS_GRID_DOT } from "../utils/dashboardBuilderTheme";
-import { getWidgetClickUrl, navigateWidgetClickUrl, shouldIgnoreWidgetLinkClick, widgetHasClickLink } from "../utils/widgetClickLink";
+import { getWidgetClickUrl, navigateWidgetClickUrl, resolveWidgetDrawerOpenPayload, shouldIgnoreWidgetLinkClick, widgetHasClickLink, widgetOpensDrawer } from "../utils/widgetClickLink";
 
-// Cancel chrome buttons + nested children (parent container moves via toolbar grip only).
 const CANCEL_SELECTOR = `.simple-no-drag, button, a, input, textarea, select, .simple-nested-canvas .simple-rnd`;
-/** Extra room below content for dropping widgets in the builder (keep modest to avoid endless vertical scroll). */
 const BOTTOM_ROOM_PX = 320;
 const MIN_BUILDER_HEIGHT = 560;
 const EDGE_SCROLL_PX = 72;
@@ -46,10 +39,10 @@ export default function SimpleBuilderCanvas({
   canvasWidth = 1200,
   hostViewportWidth = 0,
   phoneMode = false,
+  onOpenWidgetDrawer,
 }) {
   const router = useRouter();
   const topLevel = useMemo(() => {
-    // Keep saved order so builder + publish paint the same way (no container re-sort).
     return (widgets || []).filter((w) => !w.containerId && !w.sectionId);
   }, [widgets]);
 
@@ -67,8 +60,6 @@ export default function SimpleBuilderCanvas({
   const designW = Number(canvasWidth) >= 200 ? Math.floor(Number(canvasWidth)) : LAPTOP_DESIGN_CANVAS_WIDTH;
   const isLaptopFixedFrame = !phoneMode;
 
-  // Saved designer coords — builder + publish share the same scale-to-fit formula.
-  // Phone: parent (resolvedLayoutPx) already scaled/clamped — trust layoutPx directly.
   const sourceBoxes = useMemo(
     () => {
       if (phoneMode) {
@@ -84,22 +75,42 @@ export default function SimpleBuilderCanvas({
   const sourceBoxesRef = useRef(sourceBoxes);
   sourceBoxesRef.current = sourceBoxes;
 
+  const isDesignWidthLeak = useCallback((w) => (
+    isLaptopFixedFrame && w >= 200 && Math.abs(w - designW) <= 16
+  ), [isLaptopFixedFrame, designW]);
+
+  const readShellViewportWidth = useCallback(() => {
+    if (typeof window === "undefined") return 0;
+    const vvW = Math.floor(window.visualViewport?.width || 0);
+    const layoutW = vvW >= 200 ? vvW : Math.floor(window.innerWidth);
+    if (phoneMode || layoutW < 768) {
+      return Math.max(320, layoutW);
+    }
+    const collapsed = localStorage.getItem("sidebarCollapsed") === "true";
+    const sidebarW = collapsed ? 56 : 224;
+    return Math.max(320, layoutW - sidebarW);
+  }, [phoneMode]);
+
   const viewportW = useMemo(() => {
     const fromHost = Number(hostViewportWidth) >= 200 ? Math.floor(Number(hostViewportWidth)) : 0;
     const fromParent = parentWidth >= 200 ? parentWidth : 0;
-    const measured = fromHost || fromParent;
-    if (measured >= 200) return measured;
-    if (typeof window !== "undefined") {
-      return Math.max(320, Math.floor(window.innerWidth - 240));
+    let domW = Math.max(fromHost, fromParent);
+    if (isDesignWidthLeak(domW)) domW = 0;
+    const shellW = readShellViewportWidth();
+    if (isLaptopFixedFrame) {
+      if (domW >= 200) return domW;
+      return Math.max(shellW, 320);
     }
+    if (domW >= 200) return domW;
+    if (shellW >= 200) return shellW;
     return 320;
-  }, [hostViewportWidth, parentWidth]);
+  }, [hostViewportWidth, parentWidth, isLaptopFixedFrame, isDesignWidthLeak, readShellViewportWidth]);
 
   const fitScale = useMemo(() => {
     if (phoneMode || designW < 200) return 1;
     const vw = Math.max(200, viewportW);
-    // clientWidth excludes scrollbar; extra 4px blocks sub-pixel right clip.
-    return snapCanvasFitScale((vw - 4) / designW);
+    const raw = (vw - 4) / designW;
+    return Math.max(0.05, Math.min(3, Math.round(raw * 1000) / 1000));
   }, [phoneMode, designW, viewportW]);
 
   const boxes = useMemo(
@@ -108,7 +119,6 @@ export default function SimpleBuilderCanvas({
         if (!readOnly) {
           const bounds = contentBoundsPx(sourceBoxes, 0);
           const span = Math.max(bounds.width, 40);
-          // Stale laptop coords leak into phone builder — scale down instead of clip-only equalize.
           if (span > phoneFitWidth + 32) {
             return scaleLayoutPx(sourceBoxes, span, phoneFitWidth);
           }
@@ -116,7 +126,6 @@ export default function SimpleBuilderCanvas({
         }
         return phoneContentBoxesFromFrame(sourceBoxes, phoneFitWidth, { fill: true });
       }
-      // layoutPx from parent is already clamped (resolvedLayoutPx) — do not re-clamp (avoids drift).
       return sourceBoxes;
     },
     [sourceBoxes, phoneMode, phoneFitWidth, readOnly],
@@ -131,13 +140,6 @@ export default function SimpleBuilderCanvas({
     setLiveBoxes(null);
   }, [boxesFp]);
 
-  useEffect(() => {
-    const w = Number(hostViewportWidth);
-    if (w >= 200) {
-      setParentWidth(Math.floor(w));
-    }
-  }, [hostViewportWidth]);
-
   const measureParent = useCallback(() => {
     const node = measureRef.current;
     if (!node) return;
@@ -147,6 +149,8 @@ export default function SimpleBuilderCanvas({
       ? (node.closest("[data-dashboard-phone-frame]") || node)
       : (canvasHost || node.closest("[data-dashboard-laptop-frame]") || node);
     const hostW = Math.max(0, Math.floor(host.clientWidth || 0));
+    const hostRectW = Math.max(0, Math.floor(host.getBoundingClientRect?.().width || 0));
+    const selfW = Math.max(0, Math.floor(node.getBoundingClientRect?.().width || node.clientWidth || 0));
     const hostH = Math.floor(
       host.getBoundingClientRect?.().height
       || host.clientHeight
@@ -157,22 +161,24 @@ export default function SimpleBuilderCanvas({
     }
     let resolved = 0;
     if (phoneMode) {
-      const selfW = Math.floor(node.getBoundingClientRect?.().width || node.clientWidth || 0);
-      const w = Math.max(hostW, selfW);
+      const w = Math.max(hostW, hostRectW, selfW);
       resolved = w >= 200 ? w : (fromProp >= 200 ? fromProp : PHONE_CONTENT_WIDTH);
     } else if (isLaptopFixedFrame) {
-      // Never use measureRef/inner 1366px width — that inflated fitScale and clipped the right edge.
-      resolved = hostW >= 200 ? hostW : 0;
+      const pick = (w) => (w >= 200 && !isDesignWidthLeak(w) ? w : 0);
+      resolved = Math.max(pick(selfW), pick(hostRectW), pick(hostW));
+      if (!resolved) {
+        const shellW = readShellViewportWidth();
+        if (shellW >= 200) resolved = shellW;
+      }
     } else {
-      const selfW = Math.floor(node.getBoundingClientRect?.().width || node.clientWidth || 0);
-      const w = Math.max(hostW, selfW);
+      const w = Math.max(hostW, hostRectW, selfW);
       if (w >= 200) resolved = w;
       else if (fromProp >= 200) resolved = fromProp;
     }
     if (resolved >= 200) {
       setParentWidth((prev) => (Math.abs(prev - resolved) <= 1 ? prev : resolved));
     }
-  }, [canvasWidth, phoneMode, isLaptopFixedFrame]);
+  }, [canvasWidth, phoneMode, isLaptopFixedFrame, isDesignWidthLeak, readShellViewportWidth]);
 
   useLayoutEffect(() => {
     measureParent();
@@ -185,6 +191,7 @@ export default function SimpleBuilderCanvas({
       ? (node.closest("[data-dashboard-phone-frame]") || node)
       : (node.closest("[data-dashboard-canvas-host]") || node.closest("[data-dashboard-laptop-frame]") || node);
     const ro = new ResizeObserver(() => window.requestAnimationFrame(measureParent));
+    ro.observe(node);
     ro.observe(host);
     if (!phoneMode) {
       const laptopFrame = node.closest("[data-dashboard-laptop-frame]");
@@ -195,9 +202,14 @@ export default function SimpleBuilderCanvas({
       if (frame && frame !== host) ro.observe(frame);
     }
     window.addEventListener("resize", measureParent);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", measureParent);
+    vv?.addEventListener("scroll", measureParent);
     return () => {
       ro.disconnect();
       window.removeEventListener("resize", measureParent);
+      vv?.removeEventListener("resize", measureParent);
+      vv?.removeEventListener("scroll", measureParent);
     };
   }, [measureParent, phoneMode]);
 
@@ -211,7 +223,6 @@ export default function SimpleBuilderCanvas({
       if (!host || !scroller) return;
       const hostRect = host.getBoundingClientRect();
       const scrollerRect = scroller.getBoundingClientRect();
-      // Vertical scroll only — never pan horizontally (was shifting edge widgets on select).
       if (hostRect.top < scrollerRect.top || hostRect.bottom > scrollerRect.bottom) {
         host.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
       }
@@ -219,13 +230,11 @@ export default function SimpleBuilderCanvas({
     return () => window.cancelAnimationFrame(timer);
   }, [selectedWidgetId, readOnly, topLevel.length]);
 
-  // Absolute design coords only — never shift the frame (that caused drag jumps / empty left).
   const designSize = useMemo(() => contentSizeOf(boxes), [boxes]);
 
   const designHeight = useMemo(() => {
     const contentH = designSize.height;
     if (readOnly && isLaptopFixedFrame) {
-      // Match builder widget positions — no viewport stretch on publish.
       return contentH;
     }
     if (readOnly) return contentH;
@@ -238,6 +247,9 @@ export default function SimpleBuilderCanvas({
   const scaledHeight = isLaptopFixedFrame
     ? Math.ceil(designHeight * fitScale)
     : designHeight;
+  const scaledWidth = isLaptopFixedFrame
+    ? Math.ceil(designW * fitScale)
+    : null;
   const canvasInnerWidth = isLaptopFixedFrame ? designW : "100%";
   const laptopScaled = isLaptopFixedFrame && fitScale > 0;
 
@@ -283,7 +295,6 @@ export default function SimpleBuilderCanvas({
   const commitCanvasBox = useCallback((id, patch) => {
     const frameW = getFrameWidth();
     const minEdge = phoneMode ? PHONE_FRAME_INSET : LAPTOP_CANVAS_INSET;
-    // Commit against saved source boxes — never against display-fitted coords.
     let next = sanitizeNestedLayoutPx(
       sourceBoxesRef.current.map((box) => {
         if (String(box.i) !== String(id)) return box;
@@ -369,8 +380,6 @@ export default function SimpleBuilderCanvas({
     );
   }
 
-  // Always paint widgets. A temporary 0-width measure during window resize used to
-  // return an empty stub and then never recover (blank canvas until hard refresh).
   return (
     <div
       ref={measureRef}
@@ -389,13 +398,21 @@ export default function SimpleBuilderCanvas({
       >
         <div
           className="absolute left-0 top-0 overflow-hidden"
+          style={
+            laptopScaled
+              ? { width: scaledWidth, height: scaledHeight, maxWidth: "100%" }
+              : { width: "100%", height: scaledHeight }
+          }
+        >
+        <div
+          className="absolute left-0 top-0"
           data-dashboard-design-canvas
           style={{
             width: canvasInnerWidth,
             height: designHeight,
-            zoom: undefined,
             transform: laptopScaled ? `scale(${fitScale})` : undefined,
             transformOrigin: laptopScaled ? "top left" : undefined,
+            overflow: laptopScaled ? "visible" : "hidden",
             backgroundColor: DASHBOARD_CANVAS_BG,
             backgroundImage: readOnly
               ? undefined
@@ -404,11 +421,9 @@ export default function SimpleBuilderCanvas({
           }}
         onMouseDownCapture={(e) => {
           if (readOnly) return;
-          // Toolbar actions (clone/delete/edit) — do not steal the event for selection.
           if (e.target?.closest?.("[data-simple-toolbar], .simple-widget-toolbar, .simple-no-drag, button")) {
             return;
           }
-          // Nested child: select it (do not select the parent container instead).
           const nestedHost = e.target?.closest?.(".simple-nested-canvas .simple-rnd [data-widget-id]")
             || e.target?.closest?.(".simple-nested-canvas .simple-rnd")?.querySelector?.("[data-widget-id]");
           if (nestedHost) {
@@ -423,7 +438,6 @@ export default function SimpleBuilderCanvas({
             if (id) onSelectWidget?.(id);
             return;
           }
-          // Empty canvas only — do not clear on the later click (avoids select→deselect race).
           if (e.target === e.currentTarget || !e.target?.closest?.(".simple-rnd")) {
             onSelectWidget?.(null);
           }
@@ -506,7 +520,6 @@ export default function SimpleBuilderCanvas({
               boxShadow: "none",
             }
             : shellCss;
-          // Stable stacking (same in builder + live). Selection only boosts in builder.
           const stackZ = isSelected ? 40 : (10 + idx);
 
           const rndX = isLaptopFixedFrame
@@ -517,6 +530,15 @@ export default function SimpleBuilderCanvas({
             : canvasBox.top;
 
           const clickable = readOnly && widgetHasClickLink(widget);
+          const handleWidgetActivate = () => {
+            if (!clickable) return;
+            if (widgetOpensDrawer(widget)) {
+              const payload = resolveWidgetDrawerOpenPayload(widget);
+              if (payload) onOpenWidgetDrawer?.(payload);
+              return;
+            }
+            navigateWidgetClickUrl(getWidgetClickUrl(widget), router);
+          };
           const widgetBody = (
             <div
               data-widget-id={String(widget.id)}
@@ -547,6 +569,7 @@ export default function SimpleBuilderCanvas({
                 onAddChildWidget={readOnly ? undefined : onAddChildWidget}
                 onCloneChildWidget={readOnly ? undefined : onCloneChildWidget}
                 onCloneWidget={readOnly ? undefined : onCloneWidget}
+                onOpenWidgetDrawer={readOnly ? onOpenWidgetDrawer : undefined}
                 pureSavedStyle
                 suppressChrome
                 canvasScale={1}
@@ -562,7 +585,7 @@ export default function SimpleBuilderCanvas({
                 className={`simple-rnd simple-rnd-readonly${isContainer ? " simple-container-rnd" : ""}`}
                 disableDragging
                 enableResizing={false}
-                scale={fitScale}
+                scale={laptopScaled ? fitScale : 1}
                 position={{ x: rndX, y: rndY }}
                 size={{ width: canvasBox.width, height: canvasBox.height }}
                 bounds="parent"
@@ -583,13 +606,13 @@ export default function SimpleBuilderCanvas({
                   if (!clickable) return;
                   if (shouldIgnoreWidgetLinkClick(e)) return;
                   e.stopPropagation();
-                  navigateWidgetClickUrl(getWidgetClickUrl(widget), router);
+                  handleWidgetActivate();
                 }}
                 onKeyDown={(e) => {
                   if (!clickable) return;
                   if (e.key !== "Enter" && e.key !== " ") return;
                   e.preventDefault();
-                  navigateWidgetClickUrl(getWidgetClickUrl(widget), router);
+                  handleWidgetActivate();
                 }}
               >
                 {widgetBody}
@@ -601,7 +624,7 @@ export default function SimpleBuilderCanvas({
             <Rnd
               key={String(widget.id)}
               className={`simple-rnd group${isContainer ? " simple-container-rnd" : ""}${isSelected ? " simple-rnd-selected" : ""}`}
-              scale={fitScale}
+              scale={laptopScaled ? fitScale : 1}
               position={{ x: rndX, y: rndY }}
               size={{ width: canvasBox.width, height: canvasBox.height }}
               minWidth={isContainer ? 160 : 80}
@@ -702,6 +725,7 @@ export default function SimpleBuilderCanvas({
         })}
         </div>
       </div>
+        </div>
       </div>
     </div>
   );

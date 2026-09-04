@@ -713,29 +713,29 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-slate-50 text-slate-400 z-10 shadow-sm">
                   <tr className="border-b border-slate-100">
-                    <th className="text-left p-3 font-semibold">Sticker (box_no_uid)</th>
-                    <th className="text-left p-3 font-semibold">Current Customer</th>
-                    <th className="text-right p-3 pr-5 font-semibold">Action</th>
+                    <th className="text-left px-3 py-1.5 font-semibold">Sticker (box_no_uid)</th>
+                    <th className="text-left px-3 py-1.5 font-semibold">Current Customer</th>
+                    <th className="text-right px-3 py-1.5 pr-5 font-semibold">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {scanRows.map((row, idx) => (
                     <tr key={row.box_uid || idx} className="group hover:bg-indigo-50/30 transition-colors">
-                      <td className="p-3">
+                      <td className="px-3 py-1.5">
                         <span className="font-bold text-slate-700 font-mono text-[10px]">{row.box_no_uid}</span>
                       </td>
-                      <td className="p-3 text-slate-700 min-w-0 max-w-[240px]">
+                      <td className="px-3 py-1.5 text-slate-700 min-w-0 max-w-[240px]">
                         <span className="block truncate font-medium" title={currentCustomerDisplay(row)}>
                           {currentCustomerDisplay(row)}
                         </span>
                       </td>
-                      <td className="p-3 text-right pr-4">
+                      <td className="px-3 py-1.5 text-right pr-4">
                         {canRemoveScannedSticker ? (
                           <button
                             type="button"
                             onClick={() => setScanRows((prev) => prev.filter((_, i) => i !== idx))}
                             title="Remove from list"
-                            className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                            className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
                           >
                             <Trash2 size={14} />
                           </button>

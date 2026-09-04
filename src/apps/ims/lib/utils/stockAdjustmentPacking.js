@@ -19,15 +19,27 @@ export function parseOptionalStandardQtyPerBox(value) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** Packing no for SA gate / stickers — trim, drop trailing +, normalize 36618.0 → 36618. */
+export function normalizeStockAdjustmentPackingNo(v) {
+  let s = String(v ?? "").trim();
+  if (!s) return "";
+  s = s.replace(/[+\s]+$/g, "");
+  if (/^-?\d+(\.0+)?$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) return String(Math.trunc(n));
+  }
+  return s;
+}
+
 export function resolveStockAdjustmentPackingNo(gatePackingNo, packingPreview, savedRow = null) {
-  const fromRow = String(savedRow?.packing_number ?? "").trim();
+  const fromRow = normalizeStockAdjustmentPackingNo(savedRow?.packing_number);
   const st = packingPreview?.stickerRow;
   return (
-    String(gatePackingNo ?? "").trim() ||
+    normalizeStockAdjustmentPackingNo(gatePackingNo) ||
     fromRow ||
-    String(packingPreview?.dailyprod?.doc_no ?? "").trim() ||
-    String(st?.doc_no ?? st?.package_no ?? "").trim() ||
-    String(packingPreview?.boxes?.[0]?.packing_number ?? "").trim()
+    normalizeStockAdjustmentPackingNo(packingPreview?.dailyprod?.doc_no) ||
+    normalizeStockAdjustmentPackingNo(st?.doc_no ?? st?.package_no) ||
+    normalizeStockAdjustmentPackingNo(packingPreview?.boxes?.[0]?.packing_number)
   );
 }
 

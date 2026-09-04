@@ -8,6 +8,7 @@ export const auditService = {
   update: (id, data) => api(ENDPOINTS.AUDIT.UPDATE, { method: "POST", body: { id, ...data } }),
   delete: (id) => api(ENDPOINTS.AUDIT.DELETE, { method: "POST", body: { id } }),
   submitScan: (data) => api(ENDPOINTS.AUDIT.SUBMIT_SCAN, { method: "POST", body: data }),
+  startLocation: (data) => api(ENDPOINTS.AUDIT.START_LOCATION, { method: "POST", body: data }),
   removeScan: (data) => api(ENDPOINTS.AUDIT.REMOVE_SCAN, { method: "POST", body: data }),
   getComparisonReport: (id, locationId = null) =>
     api(ENDPOINTS.AUDIT.COMPARISON_REPORT, {

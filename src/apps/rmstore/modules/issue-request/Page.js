@@ -783,6 +783,8 @@ export default function IssueRequestPage() {
             showSearchButton
             applyOnSearchEnter={isSummary}
             applyExtrasOnChange={false}
+            minDate={dateFilterDefaults.minDate}
+            maxDate={dateFilterDefaults.maxDate}
           />
         </ListPageFilterStrip>
 

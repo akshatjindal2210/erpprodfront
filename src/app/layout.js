@@ -43,7 +43,7 @@ export default function RootLayout({ children }) {
       <head>
         <link rel="manifest" href="/manifest.webmanifest" crossOrigin="use-credentials" />
       </head>
-      <body className="antialiased">
+      <body>
         <ReduxProvider>
           <SocketProvider>
             {children}

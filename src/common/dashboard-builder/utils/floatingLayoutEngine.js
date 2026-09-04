@@ -14,9 +14,12 @@ export const LAPTOP_CANVAS_INSET = 8;
 /** Snap scale to device pixels so scaled text/widgets stay sharp (avoids blur from sub-pixel transform). */
 export function snapCanvasFitScale(rawScale) {
   const raw = Math.max(0.05, Number(rawScale) || 0.05);
-  if (typeof window === "undefined") return raw;
+  // Viewport barely wider than design — stay 1:1 to keep text sharp.
+  if (raw >= 0.97 && raw < 1.03) return 1;
+  if (typeof window === "undefined") return Math.round(raw * 1000) / 1000;
   const dpr = window.devicePixelRatio || 1;
-  return Math.max(0.05, Math.round(raw * dpr * 500) / (dpr * 500));
+  const snapped = Math.round(raw * dpr * 2) / (dpr * 2);
+  return Math.max(0.05, Math.round(snapped * 1000) / 1000);
 }
 /** Phone side gutter — slight equal gap (≈4px), not edge-to-edge. */
 export const PHONE_FRAME_INSET = 4;

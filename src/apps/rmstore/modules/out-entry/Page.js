@@ -978,6 +978,8 @@ export default function StoreOutPage() {
             showSearchButton
             applyOnSearchEnter={isStoreOut}
             applyExtrasOnChange={false}
+            minDate={dateFilterDefaults.minDate}
+            maxDate={dateFilterDefaults.maxDate}
           />
         </ListPageFilterStrip>
 

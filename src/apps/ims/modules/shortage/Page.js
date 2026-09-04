@@ -40,6 +40,19 @@ const STATUS_FILTER_OPTIONS = [
   { label: "Pending", value: "pending" },
 ];
 
+function clampYmdRange(range, bounds = {}) {
+  let from = String(range?.from ?? "").trim();
+  let to = String(range?.to ?? "").trim();
+  const minDate = String(bounds?.minDate ?? "").trim();
+  const maxDate = String(bounds?.maxDate ?? "").trim();
+  if (minDate && from && from < minDate) from = minDate;
+  if (maxDate && to && to > maxDate) to = maxDate;
+  if (minDate && !from) from = minDate;
+  if (maxDate && !to) to = maxDate;
+  if (from && to && from > to) from = to;
+  return { from, to };
+}
+
 function buildShortageDefaultMonthRange() {
   const from = dayjs().startOf("month");
   const to = dayjs().endOf("month");
@@ -53,10 +66,10 @@ function monthBoundsInCurrentYear(monthNum) {
   return { from: from.format("YYYY-MM-DD"), to: from.endOf("month").format("YYYY-MM-DD") };
 }
 
-function resolveShortageDateFilters(params) {
+function resolveShortageDateFilters(params, viewBounds = {}) {
   const reportType = String(params.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT).toLowerCase();
   if (reportType !== SCHEDULE_REPORT_FILTER.CUSTOM) {
-    return buildShortageDefaultMonthRange();
+    return clampYmdRange(buildShortageDefaultMonthRange(), viewBounds);
   }
 
   const month = params.month;
@@ -66,7 +79,7 @@ function resolveShortageDateFilters(params) {
   const hasDate = Boolean(fromDate) || Boolean(toDate);
 
   if (hasMonth && !hasDate) {
-    return monthBoundsInCurrentYear(month);
+    return clampYmdRange(monthBoundsInCurrentYear(month), viewBounds);
   }
 
   let from = fromDate;
@@ -78,17 +91,17 @@ function resolveShortageDateFilters(params) {
     from = userFrom > bounds.from ? userFrom : bounds.from;
     to = userTo < bounds.to ? userTo : bounds.to;
   }
-  return { from, to };
+  return clampYmdRange({ from, to }, viewBounds);
 }
 
-const buildShortageListFilters = (params) => {
+const buildShortageListFilters = (params, viewBounds = {}) => {
   const filters = {
     ...(params.type !== "all" && { type: params.type }),
     ...(params.status === "approved" && { approved: true }),
     ...(params.status === "pending" && { approved: false }),
   };
 
-  const { from, to } = resolveShortageDateFilters(params);
+  const { from, to } = resolveShortageDateFilters(params, viewBounds);
   if (from) filters.from_date = `${from} 00:00:00`;
   if (to) filters.to_date = `${to} 23:59:59`;
   return filters;
@@ -109,6 +122,16 @@ export default function ShortagePage() {
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
 
+  const viewDateBounds = useMemo(
+    () => ({ minDate: dateFilterDefaults.minDate, maxDate: dateFilterDefaults.maxDate }),
+    [dateFilterDefaults.minDate, dateFilterDefaults.maxDate]
+  );
+
+  const shortageBuildFilters = useCallback(
+    (listParams) => buildShortageListFilters(listParams, viewDateBounds),
+    [viewDateBounds]
+  );
+
   const {
     loading,
     params,
@@ -123,7 +146,7 @@ export default function ShortagePage() {
     handleSort,
   } = useImsCrudList({
     service: shortageService,
-    buildFilters: buildShortageListFilters,
+    buildFilters: shortageBuildFilters,
     errorMessage: "Failed to load shortage records",
     extraParams: {
       type: "all",

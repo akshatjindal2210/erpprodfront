@@ -61,6 +61,7 @@ export default function SchedulePlanningPage() {
     String(currentUser?.type || currentUser?.role || "").toLowerCase() === "super_admin";
   const viewAccess = useMemo(() => canAccess("schedule_planning", "view"), [canAccess]);
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
+  const hasViewDaysCap = Number(viewAccess?.days) > 0;
   const [viewMode, handleViewMode] = useViewMode();
 
   const canRemovePlan = useMemo(() => canAccess("schedule_planning", "delete").allowed, [canAccess]);
@@ -107,10 +108,35 @@ export default function SchedulePlanningPage() {
     setAppliedQuery({
       reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
       status: SCHEDULE_LIST_FILTER.ALL,
+      ...(hasViewDaysCap && dateFilterDefaults.from ? { fromDate: dateFilterDefaults.from } : {}),
+      ...(hasViewDaysCap && dateFilterDefaults.to ? { toDate: dateFilterDefaults.to } : {}),
     });
     setDraftReportType(SCHEDULE_REPORT_FILTER.DEFAULT);
     setStatusFilter(defaultStatusFilter);
-  }, [defaultStatusFilter]);
+  }, [defaultStatusFilter, hasViewDaysCap, dateFilterDefaults.from, dateFilterDefaults.to]);
+
+  useEffect(() => {
+    if (!hasViewDaysCap) return;
+    if (!dateFilterDefaults.from && !dateFilterDefaults.to) return;
+    setAppliedQuery((prev) => {
+      if (!prev) return prev;
+      const nextFrom = dateFilterDefaults.from;
+      const nextTo = dateFilterDefaults.to;
+      if (prev.fromDate === nextFrom && prev.toDate === nextTo) return prev;
+      const fromDate = prev.fromDate || nextFrom;
+      const toDate = prev.toDate || nextTo;
+      const clampedFrom =
+        dateFilterDefaults.minDate && fromDate && fromDate < dateFilterDefaults.minDate
+          ? dateFilterDefaults.minDate
+          : fromDate;
+      const clampedTo =
+        dateFilterDefaults.maxDate && toDate && toDate > dateFilterDefaults.maxDate
+          ? dateFilterDefaults.maxDate
+          : toDate;
+      if (prev.fromDate === clampedFrom && prev.toDate === clampedTo) return prev;
+      return { ...prev, fromDate: clampedFrom, toDate: clampedTo };
+    });
+  }, [hasViewDaysCap, dateFilterDefaults.from, dateFilterDefaults.to, dateFilterDefaults.minDate, dateFilterDefaults.maxDate]);
 
   const isCustomReport = String(draftReportType) === SCHEDULE_REPORT_FILTER.CUSTOM;
 

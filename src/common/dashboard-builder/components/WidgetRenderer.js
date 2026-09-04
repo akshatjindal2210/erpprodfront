@@ -10,7 +10,7 @@ import { boxesFromChildren, savedStyleToCss } from "../utils/floatingLayoutEngin
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
 import { resolveWidgetSpacingPx, spacingPxToCss } from "../utils/dashboardLayoutEngine";
 import { normalizeTableSearchPosition, normalizeTableSearchWidth } from "../utils/tableToolbar.js";
-import { formatGraphValue, resolveGraphDisplayNumber, resolveGraphShowDataLabels, resolveGraphChartMargins, resolveGraphLegendProps, isGraphComparisonEnabled, sumSeriesTotal, normalizeGraphDisplayValue, normalizeGraphValueFormat } from "../utils/graphAdvancedConfig.js";
+import { formatGraphValue, formatGraphAxisTick, resolveGraphDisplayNumber, resolveGraphShowDataLabels, resolveGraphChartMargins, resolveGraphLegendProps, resolveGraphYAxisProps, coerceGraphChartData, isGraphComparisonEnabled, resolveGraphYKeys, normalizeGraphViewMode, normalizeGraphBarLayout, sumSeriesTotal, normalizeGraphDisplayValue, normalizeGraphValueFormat } from "../utils/graphAdvancedConfig.js";
 import { DASHBOARD_TABLE_BODY_BG, DASHBOARD_TABLE_HEADER_BG, DASHBOARD_WIDGET_BG } from "../utils/dashboardBuilderTheme";
 
 const resolveKpiValueFontPx = (style = {}, displayVal = "", readOnly = false, nested = false) => {
@@ -98,6 +98,60 @@ function ChartResponsiveContainer({ children }) {
       ) : null}
     </div>
   );
+}
+
+/** Lightweight isometric bar face — used when Advanced → Chart view = 3D. */
+function Bar3DShape(props) {
+  const {
+    x = 0,
+    y = 0,
+    width = 0,
+    height = 0,
+    fill = "#3b82f6",
+  } = props;
+  if (!(height > 0) || !(width > 0)) return null;
+  const depth = Math.max(3, Math.min(10, width * 0.28));
+  const front = fill;
+  const top = fill;
+  const side = fill;
+  return (
+    <g>
+      <path
+        d={`M${x},${y} L${x + depth},${y - depth} L${x + width + depth},${y - depth} L${x + width},${y} Z`}
+        fill={top}
+        opacity={0.85}
+        stroke="rgba(15,23,42,0.12)"
+        strokeWidth={0.5}
+      />
+      <path
+        d={`M${x + width},${y} L${x + width + depth},${y - depth} L${x + width + depth},${y + height - depth} L${x + width},${y + height} Z`}
+        fill={side}
+        opacity={0.55}
+        stroke="rgba(15,23,42,0.12)"
+        strokeWidth={0.5}
+      />
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill={front}
+        rx={1}
+        ry={1}
+      />
+    </g>
+  );
+}
+
+function lightenHex(hex, amount = 0.35) {
+  const raw = String(hex || "").replace("#", "");
+  if (!/^[0-9a-fA-F]{6}$/.test(raw)) return hex || "#93c5fd";
+  const n = parseInt(raw, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const mix = (c) => Math.round(c + (255 - c) * amount);
+  return `#${[mix(r), mix(g), mix(b)].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
 }
 
 const renderTitleOnlyKpi = (label, style = {}, alignClass = "items-center text-center") => {
@@ -623,6 +677,7 @@ const WidgetRenderer = ({
   onAddChildWidget,
   onCloneChildWidget,
   onCloneWidget,
+  onOpenWidgetDrawer,
   pureSavedStyle = false,
   suppressChrome = false,
   onContainerShellPointerDown,
@@ -807,6 +862,7 @@ const WidgetRenderer = ({
               onDeleteWidget={onDeleteWidget}
               onAddChildWidget={onAddChildWidget}
               onCloneChildWidget={onCloneChildWidget}
+              onOpenWidgetDrawer={onOpenWidgetDrawer}
               onCanvasBackgroundClick={() => onSelectWidget?.(widget.id)}
               onContainerShellPointerDown={onContainerShellPointerDown}
             />
@@ -885,39 +941,110 @@ const WidgetRenderer = ({
     const tickFill = style.color || "#64748b";
     const chartType = type;
     const comparisonOn = isGraphComparisonEnabled(style) && chartType !== "pie";
-    const graphYKey2 = String(style.graphYKey2 || "").trim();
-    let yKey2 = null;
-    if (comparisonOn) {
-      if (graphYKey2 && keys.includes(graphYKey2) && graphYKey2 !== yKey) {
-        yKey2 = graphYKey2;
-      } else {
-        yKey2 = keys.find((k) => k !== xKey && k !== yKey) || null;
-      }
-    }
+    const yKeys = resolveGraphYKeys({
+      style,
+      columnKeys: keys,
+      xKey,
+      yKey,
+      comparisonOn,
+    });
+    const seriesKeys = yKeys.length ? yKeys : (yKey ? [yKey] : []);
+    const yKey2 = seriesKeys[1] || null;
+    const viewMode = normalizeGraphViewMode(style.graphViewMode);
+    const is3d = viewMode === "3d" && chartType !== "pie";
+    const barLayout = normalizeGraphBarLayout(style.graphBarLayout);
+    const barStackId = comparisonOn && barLayout === "stacked" ? "stack" : undefined;
     const showDataLabels = resolveGraphShowDataLabels(style, chartType);
-    const chartMargins = resolveGraphChartMargins(style, { showLegend, chartType });
+    const chartData = chartType === "pie"
+      ? data
+      : coerceGraphChartData(data, seriesKeys);
+    const chartMargins = resolveGraphChartMargins(style, { showLegend, chartType, showDataLabels });
+    const yAxisProps = chartType === "pie"
+      ? null
+      : resolveGraphYAxisProps({
+        data: chartData,
+        seriesKeys,
+        style,
+        stacked: Boolean(barStackId),
+      });
     const legendProps = resolveGraphLegendProps(style, { showLegend, fontSize: graphTextPx });
-    const renderChartLegend = () => (legendProps ? <Legend {...legendProps} /> : null);
-    const seriesTotal = sumSeriesTotal(data, yKey);
-    const displayMode = normalizeGraphDisplayValue(style.graphDisplayValue);
-    const axisFormatStyle = displayMode === "difference"
-      ? { ...style, graphDisplayValue: "raw" }
-      : style;
-
-    const formatAxisTick = (raw) => {
-      const n = resolveGraphDisplayNumber({ value: raw, total: seriesTotal, style: axisFormatStyle });
-      const fmtStyle = displayMode === "percent_total" && normalizeGraphValueFormat(axisFormatStyle.graphValueFormat) === "number"
-        ? { ...axisFormatStyle, graphValueFormat: "percent" }
-        : axisFormatStyle;
-      return formatGraphValue(n ?? raw, fmtStyle);
+    const seriesOrderKey = seriesKeys.join("|");
+    const OrderedLegendContent = (legendContentProps) => {
+      const rawPayload = Array.isArray(legendContentProps?.payload) ? legendContentProps.payload : [];
+      const byKey = new Map();
+      rawPayload.forEach((item) => {
+        const key = String(item?.dataKey ?? item?.value ?? "");
+        if (key) byKey.set(key, item);
+      });
+      const ordered = seriesKeys.map((key, idx) => {
+        const found = byKey.get(key);
+        return {
+          key,
+          label: key,
+          color: found?.color || palette[idx % palette.length] || "#64748b",
+        };
+      });
+      const layout = legendProps?.layout || "horizontal";
+      const isVertical = layout === "vertical";
+      return (
+        <ul
+          style={{
+            display: "flex",
+            flexDirection: isVertical ? "column" : "row",
+            flexWrap: "wrap",
+            justifyContent: "center",
+            alignItems: isVertical ? "flex-start" : "center",
+            gap: isVertical ? 6 : 12,
+            margin: 0,
+            padding: 0,
+            listStyle: "none",
+            ...(legendProps?.wrapperStyle || {}),
+          }}
+        >
+          {ordered.map((item) => (
+            <li
+              key={`leg-${item.key}`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                color: item.color,
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span
+                style={{
+                  width: chartType === "line" || chartType === "area" ? 14 : 10,
+                  height: chartType === "line" || chartType === "area" ? 3 : 10,
+                  borderRadius: 2,
+                  background: item.color,
+                  display: "inline-block",
+                  flexShrink: 0,
+                }}
+              />
+              {item.label}
+            </li>
+          ))}
+        </ul>
+      );
     };
+    const renderChartLegend = () => (
+      legendProps
+        ? <Legend key={`legend-${seriesOrderKey}`} {...legendProps} content={OrderedLegendContent} />
+        : null
+    );
+    const seriesTotal = sumSeriesTotal(chartData, seriesKeys[0] || yKey);
+    const displayMode = normalizeGraphDisplayValue(style.graphDisplayValue);
+
+    const formatAxisTick = (raw) => formatGraphAxisTick(raw, style);
 
     const formatSeriesValue = (raw, row, seriesKey) => {
-      const compareValue = yKey2 && seriesKey === yKey ? row?.[yKey2] : undefined;
+      const compareValue = yKey2 && seriesKey === seriesKeys[0] ? row?.[yKey2] : undefined;
       const n = resolveGraphDisplayNumber({
         value: raw,
         compareValue,
-        total: seriesKey === yKey ? seriesTotal : sumSeriesTotal(data, seriesKey),
+        total: seriesKey === seriesKeys[0] ? seriesTotal : sumSeriesTotal(chartData, seriesKey),
         style,
       });
       const fmtStyle = displayMode === "percent_total" && normalizeGraphValueFormat(style.graphValueFormat) === "number"
@@ -936,6 +1063,11 @@ const WidgetRenderer = ({
 
     const GraphTooltip = ({ active, payload, label }) => {
       if (!active || !Array.isArray(payload) || !payload.length) return null;
+      const byKey = new Map(payload.map((entry) => [entry?.dataKey, entry]));
+      const orderedPayload = seriesKeys
+        .map((key) => byKey.get(key))
+        .filter(Boolean);
+      const rows = orderedPayload.length ? orderedPayload : payload;
       return (
         <div style={tooltipContentStyle} className="px-2.5 py-1.5">
           {label != null && label !== "" ? (
@@ -943,7 +1075,7 @@ const WidgetRenderer = ({
               {String(label)}
             </div>
           ) : null}
-          {payload.map((entry) => {
+          {rows.map((entry) => {
             const row = entry?.payload || {};
             const seriesKey = entry?.dataKey;
             const text = formatSeriesValue(entry?.value, row, seriesKey);
@@ -966,80 +1098,136 @@ const WidgetRenderer = ({
       return formatSeriesValue(raw, row, seriesKey);
     };
 
-    const wrapChart = (chart) => (
-      <ChartResponsiveContainer>
-        {chart}
-      </ChartResponsiveContainer>
-    );
+    const wrapChart = (chart) => {
+      // Never CSS-rotate the whole chart — that blurs axis/legend SVG text.
+      // 3D look comes from Bar3DShape / thicker strokes only.
+      return (
+        <ChartResponsiveContainer>
+          {chart}
+        </ChartResponsiveContainer>
+      );
+    };
 
     if (type === "bar") {
       return wrapChart(
-        <BarChart data={data} margin={chartMargins}>
+        <BarChart
+          key={`barchart-${seriesOrderKey}`}
+          data={chartData}
+          margin={chartMargins}
+          barCategoryGap="18%"
+          barGap={seriesKeys.length > 1 ? 4 : 2}
+        >
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-          <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
-          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} tickFormatter={formatAxisTick} width={56} />
+          <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} interval="preserveStartEnd" />
+          <YAxis
+            {...(yAxisProps || {})}
+            fontSize={graphTextPx}
+            tickLine={false}
+            axisLine={false}
+            tick={{ fill: tickFill, fontSize: graphTextPx }}
+            tickFormatter={formatAxisTick}
+            width={yAxisProps?.width || 48}
+          />
           <Tooltip content={<GraphTooltip />} />
           {renderChartLegend()}
-          <Bar dataKey={yKey} fill={palette[0] || "#3b82f6"} radius={[2, 2, 0, 0]}>
-            {showDataLabels ? (
-              <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey)} />
-            ) : null}
-          </Bar>
-          {yKey2 ? (
-            <Bar dataKey={yKey2} fill={palette[1] || "#60a5fa"} radius={[2, 2, 0, 0]}>
+          {seriesKeys.map((seriesKey, idx) => (
+            <Bar
+              key={`bar-${seriesOrderKey}-${seriesKey}`}
+              dataKey={seriesKey}
+              name={seriesKey}
+              fill={palette[idx % palette.length] || "#3b82f6"}
+              radius={is3d || barStackId ? [0, 0, 0, 0] : [2, 2, 0, 0]}
+              stackId={barStackId}
+              maxBarSize={seriesKeys.length > 1 ? 48 : 64}
+              shape={is3d && !barStackId ? Bar3DShape : undefined}
+              isAnimationActive={false}
+            >
               {showDataLabels ? (
-                <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey2)} />
+                <LabelList position="top" offset={6} fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(seriesKey)} />
               ) : null}
             </Bar>
-          ) : null}
+          ))}
         </BarChart>,
       );
     }
 
     if (type === "line") {
       return wrapChart(
-        <LineChart data={data} margin={chartMargins}>
+        <LineChart key={`linechart-${seriesOrderKey}`} data={chartData} margin={chartMargins}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-          <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
-          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} tickFormatter={formatAxisTick} width={56} />
+          <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} interval="preserveStartEnd" />
+          <YAxis
+            {...(yAxisProps || {})}
+            fontSize={graphTextPx}
+            tickLine={false}
+            axisLine={false}
+            tick={{ fill: tickFill, fontSize: graphTextPx }}
+            tickFormatter={formatAxisTick}
+            width={yAxisProps?.width || 48}
+          />
           <Tooltip content={<GraphTooltip />} />
           {renderChartLegend()}
-          <Line type="monotone" dataKey={yKey} stroke={palette[0] || "#3b82f6"} strokeWidth={2} dot={{ r: 3, fill: palette[0] || "#3b82f6" }} activeDot={{ r: 5 }}>
-            {showDataLabels ? (
-              <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey)} />
-            ) : null}
-          </Line>
-          {yKey2 ? (
-            <Line type="monotone" dataKey={yKey2} stroke={palette[1] || "#60a5fa"} strokeWidth={2} dot={{ r: 3, fill: palette[1] || "#60a5fa" }} activeDot={{ r: 5 }}>
-              {showDataLabels ? (
-                <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey2)} />
-              ) : null}
-            </Line>
-          ) : null}
+          {seriesKeys.map((seriesKey, idx) => {
+            const color = palette[idx % palette.length] || "#3b82f6";
+            return (
+              <Line
+                key={`line-${seriesOrderKey}-${seriesKey}`}
+                type="monotone"
+                dataKey={seriesKey}
+                name={seriesKey}
+                stroke={color}
+                strokeWidth={is3d ? 3 : 2}
+                dot={{ r: is3d ? 4 : 3, fill: color }}
+                activeDot={{ r: 5 }}
+                isAnimationActive={false}
+              >
+                {showDataLabels ? (
+                  <LabelList position="top" offset={6} fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(seriesKey)} />
+                ) : null}
+              </Line>
+            );
+          })}
         </LineChart>,
       );
     }
 
     if (type === "area") {
       return wrapChart(
-        <AreaChart data={data} margin={chartMargins}>
+        <AreaChart key={`areachart-${seriesOrderKey}`} data={chartData} margin={chartMargins}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-          <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} />
-          <YAxis fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} tickFormatter={formatAxisTick} width={56} />
+          <XAxis dataKey={xKey} fontSize={graphTextPx} tickLine={false} axisLine={false} tick={{ fill: tickFill, fontSize: graphTextPx }} interval="preserveStartEnd" />
+          <YAxis
+            {...(yAxisProps || {})}
+            fontSize={graphTextPx}
+            tickLine={false}
+            axisLine={false}
+            tick={{ fill: tickFill, fontSize: graphTextPx }}
+            tickFormatter={formatAxisTick}
+            width={yAxisProps?.width || 48}
+          />
           <Tooltip content={<GraphTooltip />} />
           {renderChartLegend()}
-          <Area type="monotone" dataKey={yKey} stroke={palette[0] || "#3b82f6"} fill={palette[1] || palette[0] || "#93c5fd"} fillOpacity={0.35}>
-            {showDataLabels ? (
-              <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey)} />
-            ) : null}
-          </Area>
-          {yKey2 ? (
-            <Area type="monotone" dataKey={yKey2} stroke={palette[2] || "#34d399"} fill={palette[3] || palette[2] || "#6ee7b7"} fillOpacity={0.25}>
-              {showDataLabels ? (
-                <LabelList position="top" fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(yKey2)} />
-              ) : null}
-            </Area>
-          ) : null}
+          {seriesKeys.map((seriesKey, idx) => {
+            const color = palette[idx % palette.length] || "#3b82f6";
+            return (
+              <Area
+                key={`area-${seriesOrderKey}-${seriesKey}`}
+                type="monotone"
+                dataKey={seriesKey}
+                name={seriesKey}
+                stroke={color}
+                fill={lightenHex(color, 0.4)}
+                fillOpacity={is3d ? 0.45 : 0.32}
+                strokeWidth={is3d ? 2.5 : 1.5}
+                stackId={barStackId}
+                isAnimationActive={false}
+              >
+                {showDataLabels ? (
+                  <LabelList position="top" offset={6} fontSize={graphTextPx} fill={tickFill} valueAccessor={labelValueAccessor(seriesKey)} />
+                ) : null}
+              </Area>
+            );
+          })}
         </AreaChart>,
       );
     }

@@ -9,6 +9,25 @@ import { pickBoxFromViewsResponse } from "@/apps/ims/lib/helpers/boxViewsLookup"
 
 const STOCK_ADJ_PERMS = { permission_module: "stock_adjustment", permission_action: "view" };
 
+/** Pending Add Full/Loose from `removed_box_ids`. Returns null if unset. */
+export function parseStoredAddAllBoxesLoose(raw) {
+  if (raw == null || raw === "") return null;
+  try {
+    let parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (typeof parsed === "string") parsed = JSON.parse(parsed);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "all_boxes_loose" in parsed) {
+      return (
+        parsed.all_boxes_loose === true ||
+        parsed.all_boxes_loose === "true" ||
+        parsed.all_boxes_loose === 1
+      );
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 export function parseRemovedBoxUids(row) {
   return parseRemovedBoxIdentifiers(row).uids;
 }
@@ -288,6 +307,8 @@ export function buildViewAddRowsFromAdjustment(row, dbBoxes, packingNo) {
   const perBox = parseInt(String(row?.per_box_qty ?? ""), 10);
   const unit = row?.unit || "PCS";
   const n = resolveAddBoxCountForView(row, dbBoxes, adjId);
+  const storedLoose = parseStoredAddAllBoxesLoose(row?.removed_box_ids);
+  const pendingIsLoose = storedLoose !== null ? storedLoose : false;
 
   if (!Number.isFinite(adjId) || adjId < 1 || !pn || !Number.isFinite(n) || n < 1) {
     return mapSavedBoxesToAddRows(dbBoxes, pn);
@@ -311,7 +332,7 @@ export function buildViewAddRowsFromAdjustment(row, dbBoxes, packingNo) {
             ? perBox
             : Math.abs(parseInt(String(row?.qty ?? ""), 10) || 0) / n || row?.qty,
       unit: db?.unit || unit,
-      is_loose: db?.box_uid != null ? !!db.is_loose : false,
+      is_loose: db?.box_uid != null ? !!db.is_loose : pendingIsLoose,
       is_saved: !!db?.box_uid,
       is_removed: removed,
     });

@@ -55,6 +55,8 @@ export default function WidgetBuilderPanel({
   onOpenChange,
   onClose,
   selectedWidget,
+  isDrawerContentEditor = false,
+  onBackFromDrawerEditor,
   ...panelProps
 }) {
   const dragRef = useRef({ active: false, offsetX: 0, offsetY: 0 });
@@ -205,8 +207,18 @@ export default function WidgetBuilderPanel({
             <GripHorizontal size={14} />
           </div>
         )}
+        {isDrawerContentEditor ? (
+          <button
+            type="button"
+            title="Back to parent widget"
+            onClick={() => onBackFromDrawerEditor?.()}
+            className="h-6 px-1.5 shrink-0 grid place-items-center rounded border border-slate-200 bg-white text-slate-500 hover:text-slate-700"
+          >
+            ←
+          </button>
+        ) : null}
         <span className="text-[10px] font-bold uppercase tracking-widest text-slate-700 truncate">
-          Widget Builder
+          {isDrawerContentEditor ? "Drawer Widget" : "Widget Builder"}
         </span>
       </div>
       <div className="flex items-center gap-1 shrink-0">
@@ -250,7 +262,13 @@ export default function WidgetBuilderPanel({
 
   const panelBody = (
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-      <PropertyPanel selectedWidget={selectedWidget} {...panelProps} hideHeader />
+      <PropertyPanel
+        selectedWidget={selectedWidget}
+        {...panelProps}
+        hideHeader
+        isDrawerContentEditor={isDrawerContentEditor}
+        onBackFromDrawerEditor={onBackFromDrawerEditor}
+      />
     </div>
   );
 
