@@ -99,10 +99,12 @@ export const hybridPreviewWidget = async ({
   });
 };
 
-export const getDashboardWidgets = async (appKey = "ims", pageKey = "default", filters = {}, dashboardKey = "default") => {
+export const getDashboardWidgets = async (appKey = "ims", pageKey = "default", filters = {}, dashboardKey = "default", parentWidgetId = null) => {
+  const body = { app_key: appKey, page_key: pageKey, dashboard_key: dashboardKey, filters };
+  if (parentWidgetId) body.parent_widget_id = String(parentWidgetId);
   return api(`${BASE_PATH}/dashboard/widgets`, {
     method: "POST",
-    body: { app_key: appKey, page_key: pageKey, dashboard_key: dashboardKey, filters },
+    body,
   });
 };
 

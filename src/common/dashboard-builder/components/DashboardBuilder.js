@@ -2564,6 +2564,7 @@ export default function DashboardBuilder({
           canvasWidth: phoneW,
           pad: PHONE_FRAME_INSET,
           gap: FLOAT_GAP,
+          force: true,
         }),
         { phoneWidth: phoneW, desktopPx: deskPxForPhone },
       );
@@ -6882,7 +6883,13 @@ export default function DashboardBuilder({
               onNestedLayoutChange={readOnly ? () => {} : handleNestedLayoutChange}
               onAddChildWidget={readOnly ? () => {} : addWidgetInContainer}
               onCloneChildWidget={readOnly ? () => {} : cloneWidgetInContainer}
-              onOpenWidgetDrawer={readOnly ? (payload) => setWidgetClickDrawer(payload) : undefined}
+              onOpenWidgetDrawer={readOnly ? (payload) => setWidgetClickDrawer({
+                ...payload,
+                appKey: String(appKey || "ims").toLowerCase(),
+                pageKey: resolvedPageKey,
+                dashboardKey: runtimeDashboardKey,
+                filters,
+              }) : undefined}
             />
             </div>
             </div>
@@ -6969,9 +6976,7 @@ export default function DashboardBuilder({
       {readOnly ? (
         <WidgetClickDrawer
           open={Boolean(widgetClickDrawer)}
-          title={widgetClickDrawer?.title || "Details"}
-          widgetConfig={widgetClickDrawer?.widget || null}
-          filters={filters}
+          drawer={widgetClickDrawer}
           onClose={() => setWidgetClickDrawer(null)}
         />
       ) : null}

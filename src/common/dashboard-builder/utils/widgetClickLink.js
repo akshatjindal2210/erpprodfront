@@ -42,6 +42,7 @@ export function resolveWidgetDrawerOpenPayload(widget = {}) {
   return {
     title: getDrawerTitle(widget),
     widget: drawerWidget,
+    parentWidgetId: String(widget?.id || ""),
   };
 }
 

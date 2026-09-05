@@ -88,6 +88,7 @@ export default function ServerListPage({
     rows: displayRows,
     total,
     page,
+    params,
   };
   const extraActions = typeof toolbarActions === "function"
     ? toolbarActions(listApi)

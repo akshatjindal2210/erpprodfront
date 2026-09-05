@@ -7,6 +7,7 @@ import { IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listP
 import { getTaskRowColor, getRowMeta } from "@/apps/task/lib/ui/tasks_common_component/TaskHelper";
 import { TaskRatingCell, taskRatingExportLabel } from "@/apps/task/modules/tasks/SubPageExtra";
 import { getTaskRowManageFlags } from "@/apps/task/lib/helpers/taskManageAccess";
+import { openTaskOnPhone } from "@/apps/task/lib/helpers/taskRouteHelper";
 
 function statusExportLabel(status) {
   return (
@@ -151,8 +152,8 @@ export function buildTaskListHeaders({
     [
       "#",
       "task_id",
-      (v) => <span className={`${IMS_TABLE_CELL_TEXT} font-mono tabular-nums`}>{v ?? "—"}</span>,
-      { fixed: true, width: "70px", align: "center", copyValue: (row) => row.task_id ?? "" },
+      (v, row) => <span onClick={(e) => { e.stopPropagation(); openTaskOnPhone(row, onNavigate); }} className={`${IMS_TABLE_CELL_TEXT} font-mono tabular-nums max-md:cursor-pointer max-md:text-indigo-600`}>{v ?? "—"}</span>,
+      { fixed: true, mobileUnfixed: true, width: "70px", align: "center", copyValue: (row) => row.task_id ?? "" },
     ],
     [
       "Title",
@@ -405,7 +406,7 @@ export function buildTaskListHeaders({
           </div>
         );
       },
-      { width: showReassign ? "140px" : "120px", sortable: false, fixedRight: true, export: false },
+      { width: showReassign ? "140px" : "120px", sortable: false, fixedRight: true, mobileUnfixed: true, export: false },
     ],
   ];
 }

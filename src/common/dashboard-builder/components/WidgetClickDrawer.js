@@ -3,34 +3,23 @@
 import React, { useEffect, useState } from "react";
 import Drawer from "@/ui/primitives/Drawer";
 import WidgetRenderer from "./WidgetRenderer";
-import { hybridPreviewWidget, previewWidget } from "../services/dashboardApi";
-import { buildHybridPreviewRequest, isWidgetHybridMode } from "../utils/dashboardDbSources";
+import { getDashboardWidgets } from "../services/dashboardApi";
 import { normalizeDrawerWidget } from "../utils/drawerWidgetConfig";
 
 function requiresDataQuery(rawType) {
   return rawType === "kpi" || rawType === "table" || rawType === "graph";
 }
 
-function isConfiguredWidgetQuery(query) {
-  return Boolean(String(query || "").trim());
-}
-
-/**
- * Published-dashboard side panel that renders a nested drawer widget config.
- */
-export default function WidgetClickDrawer({
-  open = false,
-  title = "Details",
-  widgetConfig = null,
-  filters = {},
-  onClose,
-}) {
+export default function WidgetClickDrawer({ open = false, drawer = null, onClose }) {
   const [liveWidget, setLiveWidget] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const title = drawer?.title || "Details";
+  const widgetConfig = drawer?.widget || null;
+  const parentWidgetId = drawer?.parentWidgetId || null;
 
   useEffect(() => {
-    if (!open || !widgetConfig) {
+    if (!open || !widgetConfig || !parentWidgetId) {
       setLiveWidget(null);
       setError("");
       setLoading(false);
@@ -39,73 +28,47 @@ export default function WidgetClickDrawer({
 
     let cancelled = false;
     const base = normalizeDrawerWidget(widgetConfig, widgetConfig.id || "drawer");
-    const filtersKey = JSON.stringify(filters || {});
 
-    const run = async () => {
+    (async () => {
       setLoading(true);
       setError("");
       setLiveWidget({ ...base, previewData: [], previewError: null });
-
-      if (!requiresDataQuery(base.rawType) || !isConfiguredWidgetQuery(base.query)) {
-        if (!cancelled) {
-          setLiveWidget({ ...base, previewData: [], previewError: null });
-          setLoading(false);
-        }
+      if (!requiresDataQuery(base.rawType)) {
+        if (!cancelled) setLoading(false);
         return;
       }
-
       try {
-        const runtimeFilters = filtersKey ? JSON.parse(filtersKey) : {};
-        let response;
-        if (isWidgetHybridMode(base)) {
-          response = await hybridPreviewWidget(
-            buildHybridPreviewRequest(base, {
-              pgQuery: base.query || "",
-              filters: runtimeFilters,
-            }),
-          );
-        } else {
-          response = await previewWidget(base.query, {
-            dbSource: base.dataSource || "ims_postgresql",
-            filters: runtimeFilters,
-            chartConfig: base.chart_config || {},
-          });
-        }
+        const response = await getDashboardWidgets(
+          drawer.appKey || "ims",
+          drawer.pageKey || "dashboard",
+          drawer.filters || {},
+          drawer.dashboardKey || "default",
+          parentWidgetId,
+        );
         if (cancelled) return;
-        setLiveWidget({
-          ...base,
-          previewData: response?.data || [],
-          data: response?.data || [],
-          previewError: null,
-        });
+        const rows = response?.data || [];
+        setLiveWidget({ ...base, previewData: rows, data: rows, previewError: null });
       } catch (err) {
         if (cancelled) return;
         const message = String(err?.message || err?.payload?.message || "Failed to load drawer widget.").trim();
-        setError(message || "Failed to load drawer widget.");
-        setLiveWidget({
-          ...base,
-          previewData: [],
-          data: [],
-          previewError: message,
-        });
+        setError(message);
+        setLiveWidget({ ...base, previewData: [], data: [], previewError: message });
       } finally {
         if (!cancelled) setLoading(false);
       }
-    };
+    })();
 
-    run();
-    return () => {
-      cancelled = true;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- filters compared via JSON key
-  }, [open, widgetConfig, JSON.stringify(filters || {})]);
+    return () => { cancelled = true; };
+  }, [open, widgetConfig, parentWidgetId, drawer?.appKey, drawer?.pageKey, drawer?.dashboardKey, JSON.stringify(drawer?.filters || {})]);
 
   return (
     <Drawer
       isOpen={open}
       onClose={onClose}
-      title={title || "Details"}
-      maxWidth="max-w-4xl"
+      title={title}
+      maxWidth="max-w-[min(90vw,110rem)]"
+      // maxWidth="max-w-7xl"
+      // maxWidth="max-w-[min(55vw,52rem)]"
       closeOnOutside
       noPadding
       bodyScrollable={false}
@@ -121,7 +84,6 @@ export default function WidgetClickDrawer({
           </div>
         ) : liveWidget ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
-            {/* Full-height only for drawer content — dashboard canvas widgets are unchanged. */}
             <div
               className={
                 liveWidget.rawType === "table"
@@ -129,14 +91,7 @@ export default function WidgetClickDrawer({
                   : "min-h-[280px] h-[min(70vh,640px)] w-full overflow-hidden rounded-md border border-slate-200 bg-white"
               }
             >
-              <WidgetRenderer
-                widget={liveWidget}
-                readOnly
-                nested={false}
-                designParity
-                pureSavedStyle
-                suppressChrome
-              />
+              <WidgetRenderer widget={liveWidget} readOnly nested={false} designParity pureSavedStyle suppressChrome />
             </div>
           </div>
         ) : null}

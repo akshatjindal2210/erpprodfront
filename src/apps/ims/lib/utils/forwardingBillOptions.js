@@ -42,6 +42,7 @@ export function billHelperItemFromRow(row = {}) {
   const item_dcode = row.item_dcode ?? row.itemdcode;
   if (acc_code == null || item_dcode == null) return null;
   return {
+    id: row.id ?? null,
     acc_code,
     item_dcode,
     packing_number: row.packing_number ?? row.packing ?? null,

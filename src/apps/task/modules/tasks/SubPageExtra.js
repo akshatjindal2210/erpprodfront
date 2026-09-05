@@ -428,7 +428,7 @@ export function ChatMembers({ taskDetail }) {
       {/* Badge Button */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 rounded-xl transition-all">
+        className="flex items-center gap-1 lg:gap-1.5 px-1.5 lg:px-2.5 py-1 lg:py-1.5 bg-slate-100 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 rounded-xl transition-all">
         {/* Avatar stack */}
         <div className="flex -space-x-1.5">
           {members.slice(0, 3).map((m) => (
@@ -443,7 +443,7 @@ export function ChatMembers({ taskDetail }) {
             </div>
           )}
         </div>
-        <span className="text-xs font-semibold text-slate-600">{members.length} Members</span>
+        <span className="hidden lg:inline text-xs font-semibold text-slate-600">{members.length} Members</span>
         <ChevronDown size={11} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
@@ -867,6 +867,7 @@ const ACTION_CONFIG = {
   completion_approved:       { label: "Completion Approved",    color: "bg-emerald-100 border-emerald-200 text-emerald-700",dot: "bg-emerald-500" },
   completion_rejected:       { label: "Completion Rejected",    color: "bg-rose-100 border-rose-200 text-rose-700",         dot: "bg-rose-500"    },
   target_date_set:           { label: "Target Date Set",        color: "bg-sky-100 border-sky-200 text-sky-700",            dot: "bg-sky-500"     },
+  chat_message_sent:         { label: "Chat Message",           color: "bg-blue-100 border-blue-200 text-blue-700",         dot: "bg-blue-500"    },
   task_forwarded:            { label: "Task Forwarded",         color: "bg-violet-100 border-violet-200 text-violet-700",   dot: "bg-violet-500"  },
   task_completed:            { label: "Task Completed",         color: "bg-emerald-100 border-emerald-200 text-emerald-700",dot: "bg-emerald-500" },
 };

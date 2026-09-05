@@ -614,6 +614,16 @@ export function phoneContentBoxesFromFrame(
   });
 }
 
+/** Remove empty space above the first phone widget (live dashboard). */
+export function shiftLayoutPxToTop(items = [], pad = PHONE_FRAME_INSET) {
+  const list = sanitizeNestedLayoutPx(items);
+  if (!list.length) return list;
+  const minTop = list.reduce((min, box) => Math.min(min, box.top), Infinity);
+  const shift = Number.isFinite(minTop) ? Math.max(0, minTop - pad) : 0;
+  if (shift <= 0) return list;
+  return list.map((box) => ({ ...box, top: Math.max(pad, box.top - shift) }));
+}
+
 /**
  * Fit nested phone children inside a container width.
  * @param {{ fill?: boolean }} options
@@ -751,18 +761,18 @@ export function placeNextBoxPx(existing = [], nextBox = DEFAULT_KPI_BOX, canvasW
  *
  * @param {Array} visibleBoxes  boxes for widgets the user can see
  * @param {Array|null} fullBlueprint  full saved layout_px (incl. hidden) for hole detection
- * @param {{ gap?: number, pad?: number, canvasWidth?: number|null }} options
+ * @param {{ gap?: number, pad?: number, canvasWidth?: number|null, force?: boolean }} options
  */
 export function packLayoutPxGaps(
   visibleBoxes = [],
   fullBlueprint = null,
-  { gap = FLOAT_GAP, pad = 12, canvasWidth = null, activeWidgetIds = null } = {},
+  { gap = FLOAT_GAP, pad = 12, canvasWidth = null, activeWidgetIds = null, force = false } = {},
 ) {
   const visible = sanitizeNestedLayoutPx(visibleBoxes);
   if (!visible.length) return [];
 
   const blueprint = sanitizeNestedLayoutPx(fullBlueprint || []);
-  if (blueprint.length) {
+  if (blueprint.length && !force) {
     const visibleIds = new Set(visible.map((box) => String(box.i)));
     const activeIds = activeWidgetIds instanceof Set
       ? activeWidgetIds

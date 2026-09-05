@@ -23,6 +23,7 @@ const TEMPLATE_TABS = [
   { id: "personal_reminder", label: "Personal" },
   { id: "target_date_set", label: "Target Date" },
   { id: "status_changed", label: "Status" },
+  { id: "chat_message", label: "Chat" },
   { id: "logs", label: "Logs" },
 ];
 

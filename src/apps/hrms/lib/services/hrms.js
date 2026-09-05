@@ -5,6 +5,9 @@ export const attendanceLogService = {
   list(body = {}) {
     return api(ENDPOINTS.ATTENDANCE_LOG.LIST, { method: "POST", body });
   },
+  sync(body = {}) {
+    return api(ENDPOINTS.ATTENDANCE_LOG.SYNC, { method: "POST", body });
+  },
 };
 
 export const attendanceService = {

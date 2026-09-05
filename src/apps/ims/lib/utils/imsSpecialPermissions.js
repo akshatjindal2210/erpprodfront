@@ -30,7 +30,7 @@ export function canCreateDirectForwardingNote(user) {
   return Boolean(parseImsSpecialPermissions(user)?.ims?.direct_forwarding_note);
 }
 
-/** Assign / manage FN item-wise bills (super_admin always). */
+/** Attach FN item-wise bills (super_admin always). Update also needs module edit. */
 export function canManageForwardingBill(user) {
   if (isImsSuperAdmin(user)) return true;
   return Boolean(parseImsSpecialPermissions(user)?.ims?.manage_forwarding_bill);

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Rnd } from "react-rnd";
 import WidgetRenderer from "./WidgetRenderer";
 import { DRAG_HANDLE_CLASS, HANDLE_STYLES, resizeHandleStylesForSelection, selectionStyle, builderWidgetTypeLabel, parityWidgetBodyShellStyle, SimpleWidgetToolbar } from "./simpleBuilderChrome";
-import { boxWithId, contentBoundsPx, defaultTopLevelBoxForType, fitNestedLayoutPxToWidth, layoutPxFingerprint, normalizeBox, PHONE_CONTENT_WIDTH, PHONE_FRAME_INSET, LAPTOP_DESIGN_CANVAS_WIDTH, LAPTOP_CANVAS_INSET, placeNextBoxPx, clampLayoutPxToLaptopFrame, phoneContentBoxesFromFrame, readWidgetBoxPx, resolveTopLevelBoxes, sanitizeNestedLayoutPx, scaleLayoutPx } from "../utils/floatingLayoutEngine";
+import { boxWithId, contentBoundsPx, defaultTopLevelBoxForType, fitNestedLayoutPxToWidth, layoutPxFingerprint, normalizeBox, PHONE_CONTENT_WIDTH, PHONE_FRAME_INSET, LAPTOP_DESIGN_CANVAS_WIDTH, LAPTOP_CANVAS_INSET, placeNextBoxPx, clampLayoutPxToLaptopFrame, phoneContentBoxesFromFrame, readWidgetBoxPx, resolveTopLevelBoxes, sanitizeNestedLayoutPx, scaleLayoutPx, shiftLayoutPxToTop } from "../utils/floatingLayoutEngine";
 import { DASHBOARD_CANVAS_BG, DASHBOARD_CANVAS_GRID_DOT } from "../utils/dashboardBuilderTheme";
 import { getWidgetClickUrl, navigateWidgetClickUrl, resolveWidgetDrawerOpenPayload, shouldIgnoreWidgetLinkClick, widgetHasClickLink, widgetOpensDrawer } from "../utils/widgetClickLink";
 
@@ -130,8 +130,12 @@ export default function SimpleBuilderCanvas({
     },
     [sourceBoxes, phoneMode, phoneFitWidth, readOnly],
   );
-  const boxesRef = useRef(boxes);
-  boxesRef.current = boxes;
+  const displayBoxes = useMemo(() => {
+    if (!phoneMode || !readOnly || !boxes.length) return boxes;
+    return shiftLayoutPxToTop(boxes, PHONE_FRAME_INSET);
+  }, [boxes, phoneMode, readOnly]);
+  const boxesRef = useRef(displayBoxes);
+  boxesRef.current = displayBoxes;
   const onLayoutChangeRef = useRef(onLayoutChange);
   onLayoutChangeRef.current = onLayoutChange;
   const boxesFp = useMemo(() => layoutPxFingerprint(boxes), [boxes]);
@@ -230,7 +234,7 @@ export default function SimpleBuilderCanvas({
     return () => window.cancelAnimationFrame(timer);
   }, [selectedWidgetId, readOnly, topLevel.length]);
 
-  const designSize = useMemo(() => contentSizeOf(boxes), [boxes]);
+  const designSize = useMemo(() => contentSizeOf(displayBoxes), [displayBoxes]);
 
   const designHeight = useMemo(() => {
     const contentH = designSize.height;
@@ -262,8 +266,8 @@ export default function SimpleBuilderCanvas({
   const getBox = useCallback((id) => {
     const key = String(id);
     if (liveBoxes?.has(key)) return liveBoxes.get(key);
-    return boxes.find((b) => String(b.i) === key) || null;
-  }, [boxes, liveBoxes]);
+    return displayBoxes.find((b) => String(b.i) === key) || null;
+  }, [displayBoxes, liveBoxes]);
 
   const patchLiveBox = useCallback((id, patch) => {
     setLiveBoxes((prev) => {

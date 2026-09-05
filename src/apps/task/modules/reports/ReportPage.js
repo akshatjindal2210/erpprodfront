@@ -855,7 +855,7 @@ export default function ReportPage({ reportPage }) {
               hasMore={hasMore}
               totalItems={displayCount}
               allowCopy
-              onRowDoubleClick={(row) => navigateToTask(row)}
+              // onRowDoubleClick={(row) => navigateToTask(row)}
               hotkeysDisabled={tableHotkeyProps.hotkeysDisabled}
             />
           )}

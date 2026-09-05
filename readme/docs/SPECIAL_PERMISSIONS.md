@@ -150,36 +150,39 @@ Dispatch leads / planners who handle exceptions (urgent orders, corrections).
 |  | |
 |--|--|
 | **UI label**    | Manage Forwarding Bill |
-| **UI detail**   | Assign or change the bill on Forwarding Note Item-wise lines from the matching bill list. Only store-out complete lines can be updated. |
+| **UI detail**   | Attach a bill on Forwarding Note Item-wise. Updating a saved bill also needs Edit on Forwarding Note. |
 | **JSON key**    | `special_permissions.ims.manage_forwarding_bill` |
-| **Who gets it** | Users who may **assign / change** bill numbers on Forwarding Note **Item-wise** lines. |
-| **Super admin** | Always allowed |
+| **Who gets it** | Users who may **attach** bill numbers on Forwarding Note **Item-wise** lines. |
+| **Super admin** | Always allowed (attach + update) |
 
 #### Why it exists
 
-Bill numbers from invfnote are commercial documents. Assigning the wrong bill to a packing / FN line causes gate, accounts, and customer issues.
-
-Previously, any FN editor could first-save a bill; changing a saved bill needed super admin. Now **add and change** of line bills are both gated by this permission so only trusted users manage bills.
+Bill numbers from invfnote are commercial documents. Only trusted users attach bills. Changing a saved bill also needs module **Edit**.
 
 #### What it allows (UI)
 
 On **Forwarding Note → Item-wise**:
 
-- Select a row that is **store-out complete**.
-- Choose a bill from the matching bill dropdown only (no free text or QR scan on FN).
-- Save the bill onto the selected item line.
+| User has | Can attach (no saved bill) | Can update saved bill |
+|----------|----------------------------|------------------------|
+| Special permission | Yes | No |
+| Special + Edit | Yes | Yes |
+| Edit only | No | No |
 
-Users without this permission see no bill-assign controls or related messages.
+- Choose a bill from the matching bill dropdown only.
+- Save attaches; Update needs edit.
+
+Users without this permission see no bill-assign controls.
 
 #### What it allows (API)
 
-- `POST /forwarding-notes/assign-item-bill` requires `hasManageForwardingBillPermission`.
+- `POST /forwarding-notes/assign-item-bill` — special permission to attach; special + `can_edit` to change a saved `bill_no`.
 
 #### Prerequisites (functional)
 
 1. User has this special permission (or is super admin).
 2. Item-wise row selected.
-3. Out entry for that FN is **complete**.
+3. To **update** a saved bill: also has Edit on `forwarding_note_master`.
 4. Selected bill must be a valid, assignable (green) invfnote bill for that line.
 
 #### Typical roles
@@ -311,7 +314,7 @@ Assign employee → set their usual supervisor / CL verifier in User Management.
 | `ims.inventory_out` | IMS | bool | Yes | Create inventory-out store outs |
 | `ims.inventory_approve` | IMS | bool | Yes | Approve inventory outs |
 | `ims.direct_forwarding_note` | IMS | bool | Yes | Create FN without schedule |
-| `ims.manage_forwarding_bill` | IMS | bool | Yes | Assign / change FN item bills |
+| `ims.manage_forwarding_bill` | IMS | bool | Yes | Attach FN item bills (update also needs Edit) |
 | `rmstore.type_spec_values` | RM Store | bool | Yes | Free-type spec master fields |
 | `rmstore.issue_rm_mapped` | RM Store | bool | N/A (uses `all` mode) | Pick any mapped RM on issue |
 | `rmstore.in_process_rejection` | RM Store | bool | Yes | Submit in-process rejection |

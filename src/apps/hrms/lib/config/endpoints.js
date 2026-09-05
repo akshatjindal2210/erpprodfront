@@ -5,6 +5,7 @@ export const ENDPOINTS = {
   ATTENDANCE_LOG: {
     LIST: `${BASE}/attendance-log/list`,
     EVENTS: `${BASE}/attendance-log/events`,
+    SYNC: `${BASE}/attendance-log/sync`,
   },
   ATTENDANCE: {
     LIST: `${BASE}/attendance/list`,

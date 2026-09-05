@@ -196,8 +196,11 @@ function formatExternalBillStatus(status) {
   };
 }
 
-/** Bill dropdown row — color only (no status label). Green = selectable. */
+/** Bill dropdown row — color only (no status label). Green = selectable. DB saved = blue. */
 function billDropdownOptionClasses(item) {
+  if (item?.bill_source === "db") {
+    return "bg-blue-50 border-l-[3px] border-l-blue-500 [&>div>span:first-child]:!text-blue-600 [&>div>span:first-child]:font-semibold";
+  }
   const statusKey = String(item?.status ?? "").trim().toLowerCase();
   const st = formatExternalBillStatus(item?.status);
   const labelColor = st.textClass.replace(/^text-/, "!text-");
@@ -239,12 +242,17 @@ function billOptionFromForwardingRow(row) {
   const billNo = billNoFromForwardingRow(row);
   if (!billNo) return null;
   const status = String(row?.status ?? "").trim() || null;
+  const item = row?.item_code ?? row?.item_dcode ?? row?.itemdcode;
+  const pack = row?.packing_number ?? row?.packing;
+  const qty = row?.total_qty ?? row?.qty;
   return {
     bill_no: billNo,
     billno: billNo,
     billdt: billDtFromForwardingRow(row),
     status,
     is_green: String(status ?? "").toLowerCase() === "green",
+    bill_source: String(row?.line_bill_no ?? "").trim() || row?.bill_source === "db" ? "db" : (row?.bill_source || null),
+    bill_hint: [item && `Item ${item}`, pack && `Pack ${pack}`, qty != null && qty !== "" && `Qty ${qty}`].filter(Boolean).join(" · "),
   };
 }
 
@@ -289,6 +297,7 @@ export default function ForwardingPage() {
   const role = useSelector(state => state.auth.role);
   const canDirectCreate = useMemo(() => canCreateDirectForwardingNote(user), [user]);
   const canManageBill = useMemo(() => canManageForwardingBill(user), [user]);
+  const canEditFn = useMemo(() => canAccess("forwarding_note_master", "edit").allowed, [canAccess]);
 
   const [outerTab, setOuterTab] = useState("dispatch_plan");
 
@@ -498,13 +507,13 @@ export default function ForwardingPage() {
   const hasSavedDbBill = Boolean(
     selectedRecord?.bill_source === "db" || String(selectedRecord?.line_bill_no ?? "").trim()
   );
-  // Bill assign as soon as FN exists — out-entry complete/approved not required (re-enable later if needed).
+  // Special perm: attach. Special + edit: update saved bill.
   const canAssignLineBill = Boolean(
     reportType === "item_wise" &&
       canManageBill &&
       selectedRecord?.id &&
-      selectedBillItem
-      // && selectedRecord?.out_entry_complete === true
+      selectedBillItem &&
+      (!hasSavedDbBill || canEditFn)
   );
 
   const selectedBillOption = useMemo(
@@ -630,6 +639,11 @@ export default function ForwardingPage() {
       toast.info("Select an Item-wise or Summary row with a valid FUID to print the master bill.");
       return;
     }
+    const rec = rowOrEvent && typeof rowOrEvent === "object" && rowOrEvent.fuid != null ? rowOrEvent : selectedRecord;
+    if (!rec?.approved) {
+      toast.info("Approve the forwarding note before printing.");
+      return;
+    }
     if (billPrinting) return;
     setBillPrinting(true);
     try {
@@ -644,7 +658,8 @@ export default function ForwardingPage() {
     }
   }, [selectedRecord, billPrinting]);
 
-  const canPrintMasterBill = Boolean(resolveMasterFuid(selectedRecord)) && !billPrinting;
+  const isSelectedApproved = Boolean(selectedRecord?.approved);
+  const canPrintMasterBill = Boolean(resolveMasterFuid(selectedRecord)) && isSelectedApproved && !billPrinting;
 
   const { openEditModal, openPrintModal, openApproveModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "forwarding_note_master",
@@ -664,7 +679,7 @@ export default function ForwardingPage() {
     canEditSelection: useCallback(() => Boolean(selectedId) && !isSelectedLocked, [selectedId, isSelectedLocked]),
     onPrint: handlePrintBill,
     canPrintSelection: useCallback(() => canPrintMasterBill, [canPrintMasterBill]),
-    printBlockedMessage: "Select a forwarding note (Summary or Item-wise) to print the master bill (Ctrl+P).",
+    printBlockedMessage: "Approve the forwarding note first, then print the master bill (Ctrl+P).",
     printModule: "forwarding_note_master",
     printAction: "view",
     openApprove: useCallback(() => {
@@ -765,6 +780,24 @@ export default function ForwardingPage() {
     }
   };
 
+  const handleClearLineBill = async () => {
+    const itemId = selectedRecord?.id;
+    if (!itemId || !hasSavedDbBill || !canAssignLineBill) return;
+    setBillSaving(true);
+    try {
+      const res = await forwardingNoteService.assignItemBill({ item_ids: [itemId], clear: true });
+      if (!res?.success) throw new Error(res?.message || "Failed to clear bill.");
+      toast.success("Bill cleared successfully.");
+      setBillDraftNo(null);
+      setBillDraftDt(null);
+      await fetchData();
+    } catch (err) {
+      toast.error(err?.message || "Failed to clear bill.");
+    } finally {
+      setBillSaving(false);
+    }
+  };
+
   const extraFilters = useMemo(() => [
     { 
       label: "Status",
@@ -826,11 +859,11 @@ export default function ForwardingPage() {
 
     const masterHeaders = [
       ["Bill No.", "billno", (v, row) => {
-        const color = row?.bill_source === "db" ? "text-emerald-600" : formatExternalBillStatus(row?.status).textClass;
+        const color = row?.bill_source === "db" ? "text-blue-600" : formatExternalBillStatus(row?.status).textClass;
         return <span className={`font-bold uppercase text-[11px] whitespace-normal break-words leading-snug ${color}`} title={v || ""}>{v || "-"}</span>;
       }, { width: reportType === "summary" ? "200px" : "140px", wrap: true }],
       ["Bill Date", "billdt", (v, row) => {
-        const color = row?.bill_source === "db" ? "text-emerald-600" : formatExternalBillStatus(row?.status).textClass;
+        const color = row?.bill_source === "db" ? "text-blue-600" : formatExternalBillStatus(row?.status).textClass;
         return <span className={`text-[10px] font-semibold whitespace-normal break-words leading-snug ${color}`} title={v || ""}>{v || "-"}</span>;
       }, { width: reportType === "summary" ? "160px" : "110px", wrap: true }],
       ["Customer", "acc_name", (v) => <span className="text-[10px] font-medium text-slate-500 uppercase italic whitespace-normal break-words leading-snug block" title={v}>{v || "—"}</span>, { width: "250px", wrap: true }],
@@ -990,16 +1023,18 @@ export default function ForwardingPage() {
                   <ActionButton module="forwarding_note_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selectedId || isSelectedLocked} record={modalRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selectedId || isSelectedLocked} onClick={() => openModal("approve")} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedId || isSelectedLocked} onClick={() => setIsDeleting(true)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
-                  <PrintActionButton
-                    module="forwarding_note_master"
-                    variant="outline"
-                    label={billPrinting ? "…" : "Print Bill"}
-                    icon={Printer}
-                    disabled={!canPrintMasterBill}
-                    onClick={() => handlePrintBill(selectedRecord)}
-                    title="Print full master bill for this FUID (works from Item-wise too)"
-                    className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-3 border-slate-300 shadow-none shrink-0"
-                  />
+                  {isSelectedApproved ? (
+                    <PrintActionButton
+                      module="forwarding_note_master"
+                      variant="outline"
+                      label={billPrinting ? "…" : "Print Bill"}
+                      icon={Printer}
+                      disabled={!canPrintMasterBill}
+                      onClick={() => handlePrintBill(selectedRecord)}
+                      title="Print full master bill for this FUID (works from Item-wise too)"
+                      className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-3 border-slate-300 shadow-none shrink-0"
+                    />
+                  ) : null}
                   {role === "super_admin" && (
                     <>
                       <button
@@ -1131,6 +1166,7 @@ export default function ForwardingPage() {
                         resolvedOption={selectedBillOption}
                         dataKey="bill_no"
                         labelKey="bill_no"
+                        subLabelKey="bill_hint"
                         labelOnlyDisplay
                         preserveApiOrder
                         placeholder="Select bill..."
@@ -1148,6 +1184,16 @@ export default function ForwardingPage() {
                     >
                       {billSaving ? "…" : hasSavedDbBill ? "Update Bill" : "Save Bill"}
                     </button>
+                    {hasSavedDbBill ? (
+                      <button
+                        type="button"
+                        onClick={handleClearLineBill}
+                        disabled={billSaving}
+                        className="h-9 w-full sm:w-auto sm:shrink-0 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 text-xs font-bold uppercase disabled:opacity-50"
+                      >
+                        Clear
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               ) : null}

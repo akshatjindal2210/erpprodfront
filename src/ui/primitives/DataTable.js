@@ -17,6 +17,8 @@ const TABLE_STICKY_HEAD_PX = 48;
 const SCROLL_EDGE_PADDING = 6;
 /** Reserve space for the horizontal scrollbar at the bottom of the table scroller. */
 const SCROLLBAR_RESERVE_PX = 18;
+const MOB_UNFREEZE_HDR = "max-md:!left-auto max-md:!right-auto max-md:!z-[55]";
+const MOB_UNFREEZE_TD = "max-md:!static max-md:!left-auto max-md:!right-auto";
 
 function parseColWidthPx(w, fallback = 150) {
   if (typeof w === "number" && Number.isFinite(w)) return w;
@@ -41,6 +43,12 @@ function isFixedLeft(config = {}) {
 
 function isFixedRight(config = {}) {
   return config.fixedRight === true || config.fixed === "right";
+}
+
+/** Phone par scroll karne ke liye column config par `mobileUnfixed: true` set karo. */
+function unfreezeColOnMobile(config = {}) {
+  if (!config.mobileUnfixed) return false;
+  return isFixedLeft(config) || isFixedRight(config);
 }
 
 function measureStickyLeftPx(showSelection, colIndex, headers, columnWidths, selW) {
@@ -1059,7 +1067,8 @@ export default function DataTable({
                       className={`relative px-3 py-2 sm:py-2.5 md:py-3 text-xs sm:text-[11px] font-bold uppercase tracking-tight select-none border-b border-slate-200 sticky top-0
                       ${config.headerClass || "bg-slate-50 text-slate-600 sm:text-slate-500"}
                       ${stickyRightCol ? "border-l border-r-0" : "border-r"}
-                      ${stickyLeftCol ? "z-[65]" : stickyRightCol ? "z-[66]" : "z-[55]"}`}
+                      ${stickyLeftCol ? "z-[65]" : stickyRightCol ? "z-[66]" : "z-[55]"}
+                      ${unfreezeColOnMobile(config) ? MOB_UNFREEZE_HDR : ""}`}
                     >
                       <div 
                         className={`flex items-center ${isSortable ? "cursor-pointer hover:text-slate-700 transition-colors" : ""}`}
@@ -1210,6 +1219,7 @@ export default function DataTable({
                               ${stickyRightCol ? "border-l border-r-0" : "border-r"}
                               ${allowWrap ? "whitespace-normal break-words min-w-0 overflow-hidden" : "whitespace-nowrap overflow-hidden text-ellipsis"}
                               ${stickyLeftCol ? "sticky z-20" : stickyRightCol ? "sticky z-[25]" : "text-slate-600"}
+                              ${unfreezeColOnMobile(config) ? MOB_UNFREEZE_TD : ""}
                               ${cellSelectActive ? "cursor-cell" : ""} ${cellBg}`}
                               onMouseDown={
                                 cellSelectActive

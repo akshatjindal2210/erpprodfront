@@ -20,6 +20,7 @@ const MESSAGE_TYPES = [
   { value: "personal_reminder", label: "Personal Reminder" },
   { value: "target_date_set", label: "Target Date" },
   { value: "status_changed", label: "Status Update" },
+  { value: "chat_message", label: "Task Chat" },
 ];
 
 const SEND_VIA_OPTIONS = [

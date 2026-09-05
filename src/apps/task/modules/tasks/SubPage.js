@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -19,11 +19,7 @@ import { formatDateTime, formatDateTimeLocalLabel, toDateTimeLocalInput } from "
 import { SIDEBAR_TABS, TASK_COLORS } from "@/apps/task/lib/ui/tasks_common_component/TaskConstant"
 import { filterSidebarTasks, getTaskColor, SidebarCounts } from "@/apps/task/lib/ui/tasks_common_component/TaskHelper"
 import { buildTaskDetailUrl, resolveTaskId } from "@/apps/task/lib/helpers/taskRouteHelper";
-import {
-  readReportFilterStateFromSession,
-  buildReportTaskListApiParams,
-  applyReportDisplayTaskFilter,
-} from "@/apps/task/lib/helpers/reportTaskListParams";
+import { readReportFilterStateFromSession, buildReportTaskListApiParams, applyReportDisplayTaskFilter } from "@/apps/task/lib/helpers/reportTaskListParams";
 import { usePersistedScroll } from "@/apps/task/lib/hooks/usePersistedScroll";
 
 
@@ -40,7 +36,13 @@ function ActionBtn({ onClick, cls, icon: Icon, label, pulse }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+function resolveDefaultRightTab(task) {
+  if (task?.task_type !== "assigned") return "chat";
+  return task?.has_valid_target === true ? "chat" : "detail";
+}
+
+const TASK_DT_INPUT = "flex-1 min-w-0 w-full max-w-full max-sm:min-w-full sm:min-w-[11.5rem] box-border rounded-lg border pl-3 pr-10 py-1.5 text-[11px] leading-normal text-slate-700 bg-white outline-none [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-90";
+
 export default function TaskDetailPage() {
   const params = useParams();
   const routeId = Array.isArray(params?.id) ? params.id[0] : params?.id;
@@ -272,7 +274,7 @@ export default function TaskDetailPage() {
   const canAdminOverrideTarget = isAssignedTask && !isTaskDone && task?.can_admin_override_target_date === true;
   const hasValidTarget   = task?.has_valid_target === true;
   const isChatLockedByTarget = isAssignedTask && !hasValidTarget && !isAssigner && !isTaskDone;
-  /** Assigned To must set target before chat unlocks — highlight Target Date card. */
+  /** Assigned To must set target before chat unlocks - highlight Target Date card. */
   const needsTargetFirst = canSetTargetDate && !hasValidTarget && !canAdminOverrideTarget;
   const isCurrentHolder = task && Number(task.current_holder_id)    === Number(currentUserId);
   const isTaskFinalDone = task?.status === "completed";
@@ -334,6 +336,20 @@ export default function TaskDetailPage() {
     detailScrollRef.current.scrollTop = 0;
   }, [id]);
 
+  const defaultTabKey = task && String(task.task_id) === String(id)
+    ? `${task.has_valid_target === true}|${task.current_target?.target_at ?? ""}`
+    : null;
+
+  useEffect(() => {
+    if (!task || defaultTabKey === null) return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const apply = () => setRightTab(mq.matches ? resolveDefaultRightTab(task) : "chat");
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, defaultTabKey]);
+
   const handleSaveSelf = useCallback(async ({ includeReminder = false } = {}) => {
     setSelfSaving(true);
     try {
@@ -392,6 +408,7 @@ export default function TaskDetailPage() {
       await taskService.sendChatMessage(id, fd);
       setChatMsg(""); setChatFiles([]); setReplyTo(null);
       await fetchChat();
+      await fetchTask();
     } catch { toast.error("Failed to send message"); }
     finally  { setChatSending(false); }
   };
@@ -407,8 +424,8 @@ export default function TaskDetailPage() {
     const valid   = files.filter((f) => ALLOWED_FILE_TYPES.includes(f.type) && f.size <= MAX_MB * 1024 * 1024);
     const invalid = files.filter((f) => !ALLOWED_FILE_TYPES.includes(f.type));
     const tooBig  = files.filter((f) => ALLOWED_FILE_TYPES.includes(f.type) && f.size > MAX_MB * 1024 * 1024);
-    if (invalid.length > 0) toast.error(`${invalid.length} file(s) rejected — only images & documents allowed`);
-    if (tooBig.length  > 0) toast.error(`${tooBig.length} file(s) rejected — max size is ${MAX_MB}MB`);
+    if (invalid.length > 0) toast.error(`${invalid.length} file(s) rejected - only images & documents allowed`);
+    if (tooBig.length  > 0) toast.error(`${tooBig.length} file(s) rejected - max size is ${MAX_MB}MB`);
     if (valid.length   > 0) onValid(valid.map((f) => ({
       file: f,
       name: f.name,
@@ -485,7 +502,7 @@ export default function TaskDetailPage() {
       toast.success("Sub-user request rejected");
     } else if (task?.status === "creator_pending" && canAssignerReject) {
       await taskService.creatorDecision(id, { decision: "rejected", rejection_note: note });
-      toast.success("Rejected — task back to In Progress");
+      toast.success("Rejected - task back to In Progress");
     }
     setRejectOpen(false);
   });
@@ -601,7 +618,7 @@ export default function TaskDetailPage() {
     };
   }, [isResizingPanels]);
 
-  // ── Sidebar Content JSX ──────────────────────────────────────────────────
+  // â”€â”€ Sidebar Content JSX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const sidebarContentJSX = (
     <div className="flex flex-col h-full overflow-hidden bg-white">
       <div className="px-1.5 pt-1.5 pb-1.5 flex-shrink-0 space-y-1.5 border-b border-slate-200">
@@ -610,7 +627,7 @@ export default function TaskDetailPage() {
           <input
             value={sidebarSearch}
             onChange={(e) => setSidebarSearchPersist(e.target.value)}
-            placeholder="Search…"
+            placeholder="Search..."
             className="flex-1 bg-transparent text-[11px] text-slate-700 placeholder-slate-400 outline-none min-w-0"
           />
           {sidebarSearch && (
@@ -668,7 +685,7 @@ export default function TaskDetailPage() {
         )}
       </div>
 
-      {/* Bottom details — count + legend (original) */}
+      {/* Bottom details - count + legend (original) */}
       <div className="flex-shrink-0 px-2 py-1.5 border-t border-slate-200 bg-white space-y-1.5">
         <div className="flex items-center justify-between gap-1.5">
           <p className="text-[10px] text-slate-400 tabular-nums">
@@ -699,153 +716,8 @@ export default function TaskDetailPage() {
     </div>
   );
 
-  return (
-    <div className="flex overflow-hidden bg-slate-100" style={{ height: "100%" }}>
-
-      {mobileSidebar && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setMobileSidebar(false)} />
-          <div className="absolute left-0 top-0 bottom-0 w-60 bg-white flex flex-col shadow-2xl">
-            <div className="flex items-center justify-between px-2 py-2 border-b border-slate-200 flex-shrink-0">
-              <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">{report ? "Report list" : "All Tasks"}</span>
-              <button onClick={() => setMobileSidebar(false)} className="p-1 rounded-none text-slate-400 hover:bg-slate-100"><X size={14} /></button>
-            </div>
-            {sidebarContentJSX}
-          </div>
-        </div>
-      )}
-
-      <div className={`flex-shrink-0 flex-col bg-white border-r border-slate-300 transition-all duration-300 hidden md:flex ${sidebarCollapsed ? "w-9" : "w-60"}`}>
-        <div className="h-12 flex items-center justify-between px-3 border-b border-slate-200 flex-shrink-0 bg-white">
-          {!sidebarCollapsed && (
-            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">{report ? "Report" : "Tasks"}</span>
-          )}
-          <button
-            type="button"
-            onClick={() => setSidebarCollapsedPersist(!sidebarCollapsed)}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors ml-auto"
-            title={sidebarCollapsed ? "Expand list" : "Collapse list"}
-          >
-            {sidebarCollapsed ? <ChevronRight size={14} /> : <ArrowLeft size={14} />}
-          </button>
-        </div>
-        {!sidebarCollapsed && sidebarContentJSX}
-      </div>
-
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-
-        {/* Top bar — same h-12 as sidebar Tasks header */}
-        <div className="h-12 flex-shrink-0 bg-white border-b border-slate-200 px-3 md:px-5 flex items-center gap-2 z-20 shadow-sm">
-          <button onClick={() => router.back()}
-            className="p-1.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500 transition-all flex-shrink-0">
-            <ArrowLeft size={15} />
-          </button>
-          <button onClick={() => setMobileSidebar(v => !v)}
-            className="md:hidden p-1.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500 transition-all flex-shrink-0">
-            <ClipboardList size={15} />
-          </button>
-          <div className="flex items-center gap-1 text-xs text-slate-400 min-w-0 flex-1">
-            <span className="hidden sm:inline flex-shrink-0">{report ? "Reports" : "Tasks"}</span>
-            <ChevronRight size={10} className="hidden sm:inline flex-shrink-0" />
-            {loading ? <Sk className="h-4 w-32" /> : <span className="text-slate-600 font-semibold truncate">{task?.title}</span>}
-          </div>
-          {task && (
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              {topActionButtons.map((btn) => (
-                <ActionBtn
-                  key={btn.key}
-                  onClick={btn.onClick}
-                  icon={btn.icon}
-                  label={btn.label}
-                  cls={btn.cls}
-                  pulse={btn.pulse}
-                />
-              ))}
-              <div className="w-px h-5 bg-slate-200 mx-0.5" />
-              <button
-                type="button"
-                onClick={handleRefreshAll}
-                disabled={loading}
-                style={{ borderRadius: 12 }}
-                className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-500 transition-all"
-              >
-                <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-              </button>
-              {((task.task_type === "self" && task.created_by_id === currentUserId) || (task.task_type !== "self" && task.assigned_by_id === currentUserId) || isStaffFullAccess) && (
-                <button
-                  type="button"
-                  onClick={() => { if (!isReadOnlyDone) setEditOpen(true); }}
-                  disabled={isReadOnlyDone}
-                  style={{ borderRadius: 12 }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all shadow-sm ${
-                    isReadOnlyDone ? "bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed opacity-60" : "bg-slate-800 text-white hover:bg-slate-900"
-                  }`}
-                >
-                  <Edit2 size={12} /><span className="hidden sm:inline">Edit</span>
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Status banners */}
-        <div className="flex-shrink-0">
-          {isTaskDone && (
-            <div className={`flex items-center gap-3 px-4 py-3 border-b ${isStaffFullAccess ? "bg-amber-50 border-amber-100" : "bg-emerald-50 border-emerald-100"}`}>
-              <div className={`p-1 rounded-full ${isStaffFullAccess ? "bg-amber-100" : "bg-emerald-100"}`}>
-                <CheckCheck size={14} className={isStaffFullAccess ? "text-amber-600" : "text-emerald-600"} />
-              </div>
-              <div>
-                <p className={`text-[13px] font-bold leading-none mb-1 ${isStaffFullAccess ? "text-amber-900" : "text-emerald-900"}`}>Task Successfully Completed</p>
-                <p className={`text-[11px] font-medium ${isStaffFullAccess ? "text-amber-700" : "text-emerald-700"}`}>
-                  {isStaffFullAccess
-                    ? "Staff can still edit, update details, and send messages on this completed task."
-                    : "This record is now read-only. Editing, assignments, and messaging are permanently disabled."}
-                </p>
-              </div>
-            </div>
-          )}
-          {(task?.status === "pending_approval" || task?.status === "creator_pending") && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border-b border-amber-100">
-              <div className="p-1 bg-amber-100 rounded-full animate-pulse"><AlertTriangle size={14} className="text-amber-600" /></div>
-              <div className="flex-1">
-                <p className="text-[13px] font-bold text-amber-900 leading-none mb-1">
-                  {task?.status === "creator_pending" ? "Final Approval Required" : "L1 Review Pending"}
-                </p>
-                <p className="text-[11px] text-amber-700 font-medium leading-tight">
-                  {task?.status === "creator_pending"
-                    ? "Level-1 has submitted this task for your final closure. Review the work and approve or reject."
-                    : "A sub-user has requested task completion. Please verify the submission and take necessary action."}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div ref={detailScrollRef} className="flex-1 overflow-y-auto lg:overflow-hidden p-2 md:p-3 grid grid-cols-12 gap-2">
-          {loading ? (
-            <>
-              <div className="col-span-12 lg:col-span-5 space-y-3"><Sk className="h-48 rounded-2xl" /><Sk className="h-32 rounded-2xl" /></div>
-              <div className="col-span-12 lg:col-span-7"><Sk className="h-full rounded-2xl" /></div>
-            </>
-          ) : !task ? (
-            <div className="col-span-12 flex items-center justify-center">
-              <div className="bg-white rounded-2xl p-12 text-center text-slate-400 shadow-sm">
-                <AlertCircle size={32} className="mx-auto mb-2 opacity-30" /><p className="text-sm">Task not found</p>
-              </div>
-            </div>
-          ) : (
-            <div ref={mainSplitRef} className="col-span-12 min-h-0 flex flex-col lg:flex-row gap-2">
-              {/* CENTER PANEL — same vertical flow, sharp ERP styling */}
-              <div
-                className="flex flex-col gap-2 overflow-y-auto min-h-0 pb-1 w-full lg:flex-none lg:min-w-[320px] lg:max-w-[65%]"
-                style={{
-                  flexBasis: `${leftPanelWidth}%`,
-                  scrollbarWidth: "thin",
-                  scrollbarColor: "#e2e8f0 transparent",
-                }}
-              >
-                {/* 1. Target Date — compact bar at top (matches reminder style) */}
+  const taskDetailInner = !task ? null : (
+    <>
                 {isAssignedTask && (
                   <div
                     className={`order-1 flex-shrink-0 rounded-none border overflow-hidden shadow-sm ${
@@ -891,7 +763,7 @@ export default function TaskDetailPage() {
                             min={getCurrentDateTime()}
                             onChange={(e) => setTargetDateInput(e.target.value)}
                             title="Select target completion date and time"
-                            className={`flex-1 min-w-[150px] border rounded-lg px-2 py-1 text-[11px] text-slate-700 bg-white outline-none focus:border-sky-400 ${
+                            className={`${TASK_DT_INPUT} focus:border-sky-400 ${
                               needsTargetFirst ? "border-amber-300" : "border-sky-200"
                             }`}
                           />
@@ -980,7 +852,7 @@ export default function TaskDetailPage() {
                   </div>
                 </div>
 
-                {/* 3. Personal Reminder — compact violet bar (2 steps prior) */}
+                {/* 3. Personal Reminder - compact violet bar */}
                 <div className="order-3 flex-shrink-0 rounded-none border border-violet-200 overflow-hidden bg-white shadow-sm">
                   <div className="flex items-center gap-1.5 px-2.5 py-1 bg-violet-50 border-b border-violet-100">
                     <Bell size={11} className="text-violet-600 shrink-0" />
@@ -998,7 +870,7 @@ export default function TaskDetailPage() {
                       min={getCurrentDateTime()}
                       onChange={(e) => { setSelfReminder(e.target.value); setReminderDirty(true); }}
                       title="Select a personal reminder date and time"
-                      className="flex-1 min-w-[150px] border border-violet-200 rounded-lg px-2 py-1 text-[11px] text-slate-700 bg-white outline-none focus:border-violet-400"
+                      className={`${TASK_DT_INPUT} border-violet-200 focus:border-violet-400`}
                     />
                     {selfReminder ? (
                       <button
@@ -1101,8 +973,157 @@ export default function TaskDetailPage() {
                     </div>
                   )}
                 </div>
-              </div>
+    </>
+  );
 
+  return (
+    <div className="flex overflow-hidden bg-slate-100" style={{ height: "100%" }}>
+
+      {mobileSidebar && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setMobileSidebar(false)} />
+          <div className="absolute left-0 top-0 bottom-0 w-60 bg-white flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-2 py-2 border-b border-slate-200 flex-shrink-0">
+              <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">{report ? "Report list" : "All Tasks"}</span>
+              <button onClick={() => setMobileSidebar(false)} className="p-1 rounded-none text-slate-400 hover:bg-slate-100"><X size={14} /></button>
+            </div>
+            {sidebarContentJSX}
+          </div>
+        </div>
+      )}
+
+      <div className={`flex-shrink-0 flex-col bg-white border-r border-slate-300 transition-all duration-300 hidden md:flex ${sidebarCollapsed ? "w-9" : "w-60"}`}>
+        <div className="h-12 flex items-center justify-between px-3 border-b border-slate-200 flex-shrink-0 bg-white">
+          {!sidebarCollapsed && (
+            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">{report ? "Report" : "Tasks"}</span>
+          )}
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsedPersist(!sidebarCollapsed)}
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors ml-auto"
+            title={sidebarCollapsed ? "Expand list" : "Collapse list"}
+          >
+            {sidebarCollapsed ? <ChevronRight size={14} /> : <ArrowLeft size={14} />}
+          </button>
+        </div>
+        {!sidebarCollapsed && sidebarContentJSX}
+      </div>
+
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+        {/* Top bar - same h-12 as sidebar Tasks header */}
+        <div className="h-12 flex-shrink-0 bg-white border-b border-slate-200 px-3 md:px-5 flex items-center gap-2 z-20 shadow-sm">
+          <button onClick={() => router.back()}
+            className="p-1.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500 transition-all flex-shrink-0">
+            <ArrowLeft size={15} />
+          </button>
+          <button onClick={() => setMobileSidebar(v => !v)}
+            className="md:hidden p-1.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500 transition-all flex-shrink-0">
+            <ClipboardList size={15} />
+          </button>
+          <div className="flex items-center gap-1 text-xs text-slate-400 min-w-0 flex-1">
+            <span className="hidden sm:inline flex-shrink-0">{report ? "Reports" : "Tasks"}</span>
+            <ChevronRight size={10} className="hidden sm:inline flex-shrink-0" />
+            {loading ? <Sk className="h-4 w-32" /> : <span className="text-slate-600 font-semibold truncate">{task?.title}</span>}
+          </div>
+          {task && (
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              {topActionButtons.map((btn) => (
+                <ActionBtn
+                  key={btn.key}
+                  onClick={btn.onClick}
+                  icon={btn.icon}
+                  label={btn.label}
+                  cls={btn.cls}
+                  pulse={btn.pulse}
+                />
+              ))}
+              <div className="w-px h-5 bg-slate-200 mx-0.5" />
+              <button
+                type="button"
+                onClick={handleRefreshAll}
+                disabled={loading}
+                style={{ borderRadius: 12 }}
+                className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-500 transition-all"
+              >
+                <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+              </button>
+              {((task.task_type === "self" && task.created_by_id === currentUserId) || (task.task_type !== "self" && task.assigned_by_id === currentUserId) || isStaffFullAccess) && (
+                <button
+                  type="button"
+                  onClick={() => { if (!isReadOnlyDone) setEditOpen(true); }}
+                  disabled={isReadOnlyDone}
+                  style={{ borderRadius: 12 }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all shadow-sm ${
+                    isReadOnlyDone ? "bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed opacity-60" : "bg-slate-800 text-white hover:bg-slate-900"
+                  }`}
+                >
+                  <Edit2 size={12} /><span className="hidden sm:inline">Edit</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Status banners */}
+        <div className="flex-shrink-0">
+          {isTaskDone && (
+            <div className={`flex items-center gap-3 px-4 py-3 border-b ${isStaffFullAccess ? "bg-amber-50 border-amber-100" : "bg-emerald-50 border-emerald-100"}`}>
+              <div className={`p-1 rounded-full ${isStaffFullAccess ? "bg-amber-100" : "bg-emerald-100"}`}>
+                <CheckCheck size={14} className={isStaffFullAccess ? "text-amber-600" : "text-emerald-600"} />
+              </div>
+              <div>
+                <p className={`text-[13px] font-bold leading-none mb-1 ${isStaffFullAccess ? "text-amber-900" : "text-emerald-900"}`}>Task Successfully Completed</p>
+                <p className={`text-[11px] font-medium ${isStaffFullAccess ? "text-amber-700" : "text-emerald-700"}`}>
+                  {isStaffFullAccess
+                    ? "Staff can still edit, update details, and send messages on this completed task."
+                    : "This record is now read-only. Editing, assignments, and messaging are permanently disabled."}
+                </p>
+              </div>
+            </div>
+          )}
+          {(task?.status === "pending_approval" || task?.status === "creator_pending") && (
+            <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border-b border-amber-100">
+              <div className="p-1 bg-amber-100 rounded-full animate-pulse"><AlertTriangle size={14} className="text-amber-600" /></div>
+              <div className="flex-1">
+                <p className="text-[13px] font-bold text-amber-900 leading-none mb-1">
+                  {task?.status === "creator_pending" ? "Final Approval Required" : "L1 Review Pending"}
+                </p>
+                <p className="text-[11px] text-amber-700 font-medium leading-tight">
+                  {task?.status === "creator_pending"
+                    ? "Level-1 has submitted this task for your final closure. Review the work and approve or reject."
+                    : "A sub-user has requested task completion. Please verify the submission and take necessary action."}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div ref={detailScrollRef} className="flex-1 min-h-0 overflow-hidden px-0 py-2 md:p-3 flex flex-col lg:grid lg:grid-cols-12 gap-0 md:gap-2">
+          {loading ? (
+            <>
+              <div className="col-span-12 lg:col-span-5 space-y-3"><Sk className="h-48 rounded-2xl" /><Sk className="h-32 rounded-2xl" /></div>
+              <div className="col-span-12 lg:col-span-7"><Sk className="h-full rounded-2xl" /></div>
+            </>
+          ) : !task ? (
+            <div className="col-span-12 flex items-center justify-center">
+              <div className="bg-white rounded-2xl p-12 text-center text-slate-400 shadow-sm">
+                <AlertCircle size={32} className="mx-auto mb-2 opacity-30" /><p className="text-sm">Task not found</p>
+              </div>
+            </div>
+          ) : (
+            <div ref={mainSplitRef} className="flex-1 min-h-0 flex flex-col lg:flex-row gap-0 lg:gap-2 lg:col-span-12">
+              {/* CENTER PANEL - same vertical flow, sharp ERP styling */}
+              <div
+                className="hidden lg:flex flex-col gap-2 overflow-y-auto min-h-0 pb-1 w-full lg:flex-none lg:min-w-[320px] lg:max-w-[65%]"
+                style={{
+                  flexBasis: `${leftPanelWidth}%`,
+                  scrollbarWidth: "thin",
+                  scrollbarColor: "#e2e8f0 transparent",
+                }}
+              >
+                {taskDetailInner}
+              </div>
               <div
                 onMouseDown={() => setIsResizingPanels(true)}
                 className="hidden lg:flex w-2 items-center justify-center cursor-col-resize select-none"
@@ -1112,28 +1133,37 @@ export default function TaskDetailPage() {
               </div>
 
               {/* RIGHT PANEL */}
-              <div className="flex-1 flex flex-col bg-white border border-slate-300 rounded-none shadow-sm overflow-hidden min-h-0">
-                <div className="flex-shrink-0 flex items-center px-2 pt-2 pb-0 border-b border-slate-200 gap-0.5">
-                  <div className="flex gap-0 flex-1">
-                    {[
-                      { id: "chat", label: "Chat",    icon: MessageSquare, badge: chatMessages.length > 0 ? chatMessages.length : null },
-                      { id: "self", label: "My Note", icon: Lock,          badge: null },
-                    ].map(({ id: tid, label, icon: Icon, badge }) => (
-                      <button key={tid} onClick={() => setRightTab(tid)}
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-t-xl text-xs font-semibold transition-all border-b-2 -mb-px ${
-                          rightTab === tid ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50"
-                        }`}>
-                        <Icon size={12} /> {label}
-                        {badge !== null && <span className={`text-[10px] px-1.5 rounded-full ${rightTab === tid ? "bg-indigo-100 text-indigo-600" : "bg-slate-200 text-slate-500"}`}>{badge}</span>}
-                      </button>
-                    ))}
+              <div className="flex-1 flex flex-col bg-white border border-slate-300 max-lg:border-x-0 rounded-none shadow-sm overflow-hidden min-h-0">
+                <div className="flex-shrink-0 border-b border-slate-200 overflow-hidden">
+                  <div className="flex items-end px-3 pt-2 pb-0 gap-1 min-w-0 overflow-hidden">
+                    <div className="flex gap-0 flex-1 min-w-0 overflow-hidden">
+                      {[
+                        { id: "detail", label: "Task Detail", icon: ClipboardList, badge: null, mobOnly: true },
+                        { id: "chat", label: "Chat", icon: MessageSquare, badge: chatMessages.length > 0 ? chatMessages.length : null },
+                        { id: "self", label: "My Note", icon: Lock, badge: null },
+                      ].map(({ id: tid, label, icon: Icon, badge, mobOnly }) => (
+                        <button key={tid} type="button" onClick={() => setRightTab(tid)}
+                          className={`flex items-center justify-center gap-0.5 sm:gap-1 px-1 sm:px-2.5 py-2 rounded-t-xl text-[10px] sm:text-xs font-semibold transition-all border-b-2 -mb-px min-w-0 flex-1 sm:flex-none sm:shrink-0 whitespace-nowrap overflow-hidden ${mobOnly ? "lg:hidden" : ""} ${
+                            rightTab === tid ? "border-indigo-600 text-indigo-600 bg-indigo-50/50" : "border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                          }`}>
+                          <Icon size={12} className="shrink-0" /> <span className="truncate">{label}</span>
+                          {badge !== null && <span className={`shrink-0 text-[10px] px-1 sm:px-1.5 rounded-full ${rightTab === tid ? "bg-indigo-100 text-indigo-600" : "bg-slate-200 text-slate-500"}`}>{badge}</span>}
+                        </button>
+                      ))}
+                    </div>
+                    {rightTab === "chat" && <div className="shrink-0 pb-0.5"><ChatMembers taskDetail={task} /></div>}
                   </div>
-                  {rightTab === "chat" && <div className="flex-shrink-0 mb-1"><ChatMembers taskDetail={task} /></div>}
                 </div>
+
+                {rightTab === "detail" && (
+                  <div className="lg:hidden flex-1 overflow-y-auto min-h-0 flex flex-col gap-1.5 px-3 py-3 pb-1" style={{ scrollbarWidth: "thin", scrollbarColor: "#e2e8f0 transparent" }}>
+                    {taskDetailInner}
+                  </div>
+                )}
 
                 {rightTab === "chat" && (
                   <div className="flex flex-col flex-1 overflow-hidden min-h-0">
-                    <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4"
+                    <div className="flex-1 overflow-y-auto min-h-0 px-3 py-4 md:px-4"
                       style={{ background: "linear-gradient(180deg,#f8fafc 0%,#f1f5f9 100%)", scrollbarWidth: "thin", scrollbarColor: "#e2e8f0 transparent" }}>
                       {chatLoading ? (
                         <div className="flex items-center justify-center h-full"><Loader2 size={20} className="animate-spin text-slate-300" /></div>
@@ -1177,12 +1207,12 @@ export default function TaskDetailPage() {
                       </div>
                     )}
                     {isReadOnlyDone ? (
-                      <div className="flex-shrink-0 px-4 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-center gap-2">
+                      <div className="flex-shrink-0 px-3 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-center gap-2">
                         <Lock size={13} className="text-slate-400" />
                         <p className="text-xs text-slate-400 font-medium">Chat is locked. This task is completed.</p>
                       </div>
                     ) : isChatLockedByTarget ? (
-                      <div className="flex-shrink-0 px-4 py-3 border-t border-sky-100 bg-sky-50 flex items-center justify-center gap-2 text-center">
+                      <div className="flex-shrink-0 px-3 py-3 border-t border-sky-100 bg-sky-50 flex items-center justify-center gap-2 text-center">
                         <Lock size={13} className="text-sky-500 flex-shrink-0" />
                         <p className="text-xs text-sky-700 font-medium">Chat is locked until Assigned To sets a Target Date. Only Assigned By can message until then.</p>
                       </div>
@@ -1221,14 +1251,14 @@ export default function TaskDetailPage() {
 
                 {rightTab === "self" && (
                   <div className="flex flex-col flex-1 overflow-hidden min-h-0">
-                    <div className="flex-1 overflow-y-auto min-h-0 p-4 space-y-4"
+                    <div className="flex-1 overflow-y-auto min-h-0 px-3 py-4 md:p-4 space-y-4"
                       style={{ scrollbarWidth: "thin", scrollbarColor: "#e2e8f0 transparent" }}>
                       <div className="flex items-center gap-2.5 p-3 bg-amber-50 border border-amber-100 rounded-xl">
                         <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center flex-shrink-0">
                           <Lock size={14} className="text-amber-600" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-amber-800">Private note — only you can see this</p>
+                          <p className="text-xs font-semibold text-amber-800">Private note only you can see this</p>
                           <p className="text-[10px] text-amber-600 mt-0.5">Saved per task for your account only.</p>
                         </div>
                         {autoSaving
@@ -1245,7 +1275,7 @@ export default function TaskDetailPage() {
                           {autoSaveEnabled && <span className="text-[10px] text-slate-400 flex items-center gap-1"><RefreshCw size={8} /> Auto-save on</span>}
                         </div>
                         <textarea value={selfNote} onChange={(e) => { setSelfNote(e.target.value); setSelfDirty(true); }}
-                          placeholder="Write your private notes for this task…"
+                          placeholder="Write your private notes for this task..."
                           className="w-full border rounded-xl px-4 py-3 text-sm text-slate-700 placeholder-slate-400 outline-none transition-all resize-none leading-relaxed bg-amber-50/40 border-amber-200/70 focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
                           style={{ minHeight: 380 }} />
                       </div>
@@ -1267,7 +1297,7 @@ export default function TaskDetailPage() {
                           <div onClick={() => selfFileRef.current?.click()} className="px-4 py-8 text-center cursor-pointer hover:bg-slate-50">
                             <Paperclip size={20} className="mx-auto text-slate-300 mb-2" />
                             <p className="text-xs text-slate-400">Click to attach files</p>
-                            <p className="text-[10px] text-slate-300 mt-0.5">Images (JPG, PNG, WEBP) · Documents (PDF, DOC, DOCX)</p>
+                            <p className="text-[10px] text-slate-300 mt-0.5">Images (JPG, PNG, WEBP) Â· Documents (PDF, DOC, DOCX)</p>
                           </div>
                         ) : (
                           <div className="p-3">
@@ -1294,11 +1324,11 @@ export default function TaskDetailPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex-shrink-0 px-4 py-3 border-t border-slate-100 bg-white flex items-center justify-between">
+                    <div className="flex-shrink-0 px-3 py-3 md:px-4 border-t border-slate-100 bg-white flex items-center justify-between">
                       <p className="text-[10px] text-slate-400">
                         {selfNoteExists ? "Updates saved on server" : "Will create new private note"}
-                        {selfNewFiles.length > 0 && ` · ${selfNewFiles.length} file(s) pending`}
-                        {selfRemove.length > 0   && ` · ${selfRemove.length} file(s) to remove`}
+                        {selfNewFiles.length > 0 && ` Â· ${selfNewFiles.length} file(s) pending`}
+                        {selfRemove.length > 0   && ` Â· ${selfRemove.length} file(s) to remove`}
                       </p>
                       <button onClick={() => handleSaveSelf()}
                         disabled={selfSaving || (!selfNote.trim() && selfNewFiles.length === 0 && selfRemove.length === 0)}

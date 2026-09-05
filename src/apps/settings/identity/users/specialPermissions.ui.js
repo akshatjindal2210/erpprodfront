@@ -18,7 +18,7 @@ export const IMS_SPECIAL_PERMS = [
   {
     key: "manage_forwarding_bill",
     label: "Manage Forwarding Bill",
-    desc: "Assign or change the bill on Forwarding Note Item-wise lines from the matching bill list. Only store-out complete lines can be updated.",
+    desc: "Attach a bill on Forwarding Note Item-wise. Updating an already saved bill also needs Edit on Forwarding Note.",
   },
   {
     key: "packing_deviation",

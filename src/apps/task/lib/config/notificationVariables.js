@@ -19,6 +19,8 @@ export const TASK_NOTIFY_VARIABLE_KEYS = [
   "created_at",
   "completed_at",
   "task_type",
+  "sender_name",
+  "message_preview",
   ...DASHBOARD_STAT_KEYS,
 ];
 
@@ -29,7 +31,11 @@ export const TASK_NOTIFY_VARIABLE_GROUPS = [
   },
   {
     label: "People",
-    keys: ["user_name", "assigned_by", "assigned_to_name", "created_by_name", "current_holder_name"],
+    keys: ["user_name", "assigned_by", "assigned_to_name", "created_by_name", "current_holder_name", "sender_name"],
+  },
+  {
+    label: "Chat",
+    keys: ["message_preview"],
   },
   {
     label: "Status",

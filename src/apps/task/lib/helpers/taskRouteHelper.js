@@ -33,3 +33,7 @@ export function isValidTaskRouteId(routeId) {
   if (!routeId) return false;
   return resolveTaskId(routeId) !== null;
 }
+
+export function openTaskOnPhone(row, navigate) {
+  if (navigate && row?.task_id && typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) navigate(row);
+}
