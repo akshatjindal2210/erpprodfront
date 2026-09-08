@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { isFilePreviewOpen } from "@/platform/utils/system/filePreviewGate";
@@ -61,7 +61,7 @@ const Drawer = ({
     return () => clearTimeout(t);
   }, [isOpen, mounted]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!alive) {
       document.documentElement.removeAttribute("data-app-drawer-open");
       return undefined;
@@ -157,6 +157,7 @@ const Drawer = ({
   const drawerTree = (
     <div
       ref={drawerRootRef}
+      data-app-overlay-root
       data-app-drawer-root
       data-drawer-stack-level={stackLevel}
       className="fixed inset-0 isolate"

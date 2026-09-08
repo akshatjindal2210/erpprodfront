@@ -8,14 +8,14 @@ export const attendanceLogService = {
   sync(body = {}) {
     return api(ENDPOINTS.ATTENDANCE_LOG.SYNC, { method: "POST", body });
   },
+  image(body = {}) {
+    return api(ENDPOINTS.ATTENDANCE_LOG.IMAGE, { method: "POST", body });
+  },
 };
 
 export const attendanceService = {
   list(body = {}) {
     return api(ENDPOINTS.ATTENDANCE.LIST, { method: "POST", body });
-  },
-  mark(body) {
-    return api(ENDPOINTS.ATTENDANCE.MARK, { method: "POST", body });
   },
   preview(body) {
     return api(ENDPOINTS.ATTENDANCE.PREVIEW, { method: "POST", body });
@@ -29,19 +29,22 @@ export const attendanceService = {
   delete(id) {
     return api(ENDPOINTS.ATTENDANCE.DELETE, { method: "POST", body: typeof id === "object" ? id : { id } });
   },
-  approve(body) {
-    return api(ENDPOINTS.ATTENDANCE.APPROVE, { method: "POST", body });
-  },
 };
 
 export const employeeService = {
   list(body = {}) {
     return api(ENDPOINTS.EMPLOYEE.LIST, { method: "POST", body });
   },
-  get(body) {
-    return api(ENDPOINTS.EMPLOYEE.GET, { method: "POST", body });
+  sync(body = {}) {
+    return api(ENDPOINTS.EMPLOYEE.SYNC, { method: "POST", body });
   },
   helper(body = {}) {
     return api(ENDPOINTS.EMPLOYEE.HELPER, { method: "POST", body });
+  },
+  updateMachine(body = {}) {
+    return api(ENDPOINTS.EMPLOYEE.MACHINE_UPDATE, { method: "POST", body });
+  },
+  deactivateMachine(body = {}) {
+    return api(ENDPOINTS.EMPLOYEE.MACHINE_DEACTIVATE, { method: "POST", body });
   },
 };

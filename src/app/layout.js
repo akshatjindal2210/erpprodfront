@@ -14,6 +14,7 @@ import PwaSecurityGuards from "@/common/pwa/components/PwaSecurityGuards";
 import AppKeyboardShortcutGuard from "@/ui/common/system/AppKeyboardShortcutGuard";
 import ListPageFilterFocusHotkey from "@/ui/common/list/ListPageFilterFocusHotkey";
 import DisableSelectAllShortcut from "@/ui/common/system/DisableSelectAllShortcut";
+import OverlayFocusGuard from "@/ui/common/system/OverlayFocusGuard";
 
 export const metadata = {
   title: "JFL IT Services",
@@ -59,6 +60,7 @@ export default function RootLayout({ children }) {
           <AppKeyboardShortcutGuard />
           <ListPageFilterFocusHotkey />
           <DisableSelectAllShortcut />
+          <OverlayFocusGuard />
           <AppToastContainer />
         </ReduxProvider>
       </body>

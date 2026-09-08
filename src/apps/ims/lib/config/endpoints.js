@@ -79,6 +79,7 @@ export const ENDPOINTS = {
 
   SHORTAGE: {
     LIST: "/shortage/list",
+    MASTER_LIST: "/shortage/master-list",
     GET: "/shortage/get",
     CREATE: "/shortage/create",
     UPDATE: "/shortage/update",

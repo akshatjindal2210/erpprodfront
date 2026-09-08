@@ -2,6 +2,7 @@
 
 | Note | Topic |
 |------|--------|
+| [v4.1.2.md](./v4.1.2.md) | HRMS refactor · Dashboard · FN edit/approve FIFO hydrate |
 | [v4.1.1.md](./v4.1.1.md) | DB backup — 15-minute interval · Task chat auto-notify · FN bills + print after approve |
 | [v4.1.0.md](./v4.1.0.md) | **HRMS (new)** · Attendance · IMS Audit · **QC Hold History** drawer / activity-log POST |
 | [v3.4.39.md](./v3.4.39.md) | Forwarding Note · Gate Entry · QC Hold · Dispatch Plan · Stock Adjustment · CL Task Report (due-only rows; no create-time spawn) |

@@ -93,7 +93,7 @@ function StaticSearchableFilter({
 
   return (
     <SearchableSelect
-      key={`${filter.key}-${options.length}`}
+      key={filter.key}
       variant="toolbar"
       filterVariant={filterVariant === "quick" ? "quick" : "server"}
       className="w-full min-w-0"
@@ -116,6 +116,48 @@ function StaticSearchableFilter({
       disabled={disabled}
       emptyMessage="No results found"
       clearSearchOnOpen={hasAllOption}
+    />
+  );
+}
+
+function LazyApiSearchableFilter({
+  filter,
+  filterVariant,
+  value,
+  disabled,
+  onValueChange,
+}) {
+  const dataKey = filter.dataKey || "value";
+  const labelKey = filter.labelKey || "label";
+  const subLabelKey = filter.subLabelKey || "";
+  const selectValue = value === "" || value == null || String(value).trim().toLowerCase() === "all" ? "" : String(value);
+
+  return (
+    <SearchableSelect
+      key={filter.key}
+      variant="toolbar"
+      filterVariant={filterVariant === "quick" ? "quick" : "server"}
+      className="w-full min-w-0"
+      label={filter.label}
+      placeholder={filter.placeholder || `Search ${filter.label || ""}…`}
+      value={selectValue || null}
+      onChange={(id, item) => {
+        if (id == null || id === "") {
+          onValueChange("");
+          return;
+        }
+        onValueChange(item?.rawValue ?? item?.[dataKey] ?? id);
+      }}
+      fetchService={filter.fetchService}
+      getByIdService={filter.getByIdService}
+      dataKey={dataKey}
+      labelKey={labelKey}
+      subLabelKey={subLabelKey}
+      disabled={disabled}
+      emptyMessage={filter.emptyMessage || "No results found"}
+      clearSearchOnOpen
+      preserveApiOrder={Boolean(filter.preserveOrder)}
+      resolvedOption={filter.resolvedOption}
     />
   );
 }
@@ -316,6 +358,23 @@ export default function DateRangeFilter({
             }
           }}
           containerClassName="w-full min-w-0 space-y-0 md:space-y-1"
+        />
+      </div>
+    ) : filter.searchable && typeof filter.fetchService === "function" ? (
+      <div
+        key={index}
+        className={`${LIST_PAGE_FILTER_FIELD_WRAP_CLASS} ${
+          stacked
+            ? "w-full min-w-0"
+            : filter.className || "md:min-w-[12rem] md:flex-1 md:max-w-[16rem]"
+        }`.trim()}
+      >
+        <LazyApiSearchableFilter
+          filter={filter}
+          filterVariant={getExtraFilterVariant(filter)}
+          value={localExtras[filter.key] ?? filter.value ?? ""}
+          disabled={Boolean(filter.disabled)}
+          onValueChange={(v) => applyExtraValue(filter, v)}
         />
       </div>
     ) : filter.searchable ? (

@@ -1,6 +1,5 @@
-import { hrmsApproveCell, hrmsEmpCodeCell, hrmsEmpty, hrmsNameCell, hrmsTimeCell } from "./hrmsListCells";
+import { hrmsApproveCell, hrmsEmpCodeCell, hrmsEmpty, hrmsMachineSyncCell, hrmsNameCell, hrmsTimeCell } from "./hrmsListCells";
 
-/** ERP employee master — table columns (display fields only). */
 export const EMPLOYEE_HEADERS = [
   ["Emp Code", "emp_code", hrmsEmpCodeCell, { fixed: true, width: "100px" }],
   ["Name", "emp_name", hrmsNameCell, { width: "160px" }],
@@ -8,29 +7,24 @@ export const EMPLOYEE_HEADERS = [
   ["Branch", "brcode", hrmsEmpty, { width: "80px" }],
   ["In Time", "emp_intime_display", hrmsTimeCell, { width: "90px" }],
   ["Out Time", "emp_outtime_display", hrmsTimeCell, { width: "90px" }],
+  ["Machine", "machine_sync_display", hrmsMachineSyncCell, { width: "100px" }],
   ["Status", "pauthorise", hrmsApproveCell, { width: "110px" }],
   ["OT Allow", "ot_allow", hrmsEmpty, { width: "80px" }],
 ];
-
-/** Detail modal — all mapped fields (no raw ERP duplicates). */
+/** ERP list fields — modal uses same keys, each shown once. */
 export const EMPLOYEE_DETAIL_FIELDS = [
   ["Emp Code", "emp_code"],
   ["Name", "emp_name"],
-  ["Father Name", "emp_fname"],
-  ["Emp Dcode", "emp_dcode"],
-  ["Dept", "deptcode"],
-  ["Department", "deptname"],
   ["Branch", "brcode"],
+  ["Dept Code", "deptcode"],
+  ["Department", "deptname"],
   ["In Time", "emp_intime_display"],
   ["Out Time", "emp_outtime_display"],
-  ["Lunch In", "emp_lintime_display"],
-  ["Lunch Out", "emp_louttime_display"],
   ["Calc OT Alw1", "calc_ot_alw1"],
   ["OT Alw2 Less", "ot_alw2_less"],
   ["Lrd Code", "lrdcode"],
   ["OT Allow", "ot_allow"],
   ["Status", "pauthorise"],
-  ["Authorise", "authorise"],
   ["Stop OT Sun", "stop_ot_calc_except_sund"],
 ];
 

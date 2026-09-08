@@ -1,6 +1,9 @@
-import { redirect } from "next/navigation";
-import { ROUTES } from "@/apps/hrms/lib/utils/routes";
+import HrmsDashboardPage from "@/apps/hrms/modules/dashboard/Page";
 
-export default function HrmsDashboardHome() {
-  redirect(ROUTES.HRMS_ATTENDANCE);
+export const metadata = {
+  title: "Dashboard",
+};
+
+export default function Page() {
+  return <HrmsDashboardPage />;
 }

@@ -8,6 +8,12 @@ export const shortageService = createCrudService(ENDPOINTS.SHORTAGE);
 export const SHORTAGE_TYPES = ["PPC", "WIP", "Deviation", "Additional"];
 export const SHORTAGE_BULK_IMPORT_TYPES = ["PPC", "WIP"];
 
+shortageService.getMasterList = (body = {}) =>
+  api(ENDPOINTS.SHORTAGE.MASTER_LIST, {
+    method: "POST",
+    body,
+  });
+
 shortageService.bulkCreate = (records, month, type = "PPC") =>
   api(ENDPOINTS.SHORTAGE.BULK, {
     method: "POST",

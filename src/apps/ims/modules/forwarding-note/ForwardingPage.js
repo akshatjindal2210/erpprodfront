@@ -241,6 +241,7 @@ function billDtFromForwardingRow(row) {
 function billOptionFromForwardingRow(row) {
   const billNo = billNoFromForwardingRow(row);
   if (!billNo) return null;
+  const savedBill = String(row?.line_bill_no ?? "").trim();
   const status = String(row?.status ?? "").trim() || null;
   const item = row?.item_code ?? row?.item_dcode ?? row?.itemdcode;
   const pack = row?.packing_number ?? row?.packing;
@@ -250,8 +251,8 @@ function billOptionFromForwardingRow(row) {
     billno: billNo,
     billdt: billDtFromForwardingRow(row),
     status,
-    is_green: String(status ?? "").toLowerCase() === "green",
-    bill_source: String(row?.line_bill_no ?? "").trim() || row?.bill_source === "db" ? "db" : (row?.bill_source || null),
+    is_green: Boolean(savedBill) || String(status ?? "").toLowerCase() === "green",
+    bill_source: savedBill ? "db" : (row?.bill_source || null),
     bill_hint: [item && `Item ${item}`, pack && `Pack ${pack}`, qty != null && qty !== "" && `Qty ${qty}`].filter(Boolean).join(" · "),
   };
 }

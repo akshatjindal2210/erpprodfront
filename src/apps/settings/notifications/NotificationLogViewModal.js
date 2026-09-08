@@ -2,6 +2,7 @@
 
 import { X, MessageSquare, Clock, User, Hash, AlertTriangle } from "lucide-react";
 import { useEscapeKey } from "@/platform/hooks/system/useEscapeKey";
+import OverlayModal from "@/ui/primitives/OverlayModal";
 
 const CHANNEL_LABELS = {
   pwa_push: "PWA Push",
@@ -178,13 +179,9 @@ export default function NotificationLogViewModal({ log, onClose, statusLabel }) 
     : null;
 
   return (
-    <div className="fixed inset-0 z-[500] flex items-center justify-center p-2 sm:p-4">
-      <div className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" onClick={onClose} aria-hidden />
-
+    <OverlayModal open={!!log} onBackdropClick={onClose} className="p-2 sm:p-4">
       <div
         className="relative w-full max-w-3xl max-h-[90vh] bg-white shadow-2xl border border-slate-200 flex flex-col overflow-hidden"
-        role="dialog"
-        aria-modal="true"
         aria-labelledby="notification-log-title"
       >
         <div className="shrink-0 px-3 py-2 border-b border-slate-200 bg-slate-50/80">
@@ -293,6 +290,6 @@ export default function NotificationLogViewModal({ log, onClose, statusLabel }) 
           </button>
         </div>
       </div>
-    </div>
+    </OverlayModal>
   );
 }

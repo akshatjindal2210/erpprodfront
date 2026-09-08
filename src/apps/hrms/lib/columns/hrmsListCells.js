@@ -1,5 +1,3 @@
-/** Shared HRMS DataTable cell renderers (IMS-style). */
-
 export function hrmsEmpty(v) {
   if (v === 0) return <span className="text-[10px] text-slate-600 tabular-nums">0</span>;
   if (v == null || v === "") return <span className="text-[10px] text-slate-400">—</span>;
@@ -45,6 +43,17 @@ export function hrmsPresentCell(v) {
 
 export function hrmsCountCell(v) {
   return <span className="font-bold text-slate-700 text-[11px] tabular-nums">{v ?? "—"}</span>;
+}
+
+export function hrmsMachineSyncCell(v) {
+  if (!v) return null;
+  const synced = String(v).toLowerCase() === "synced";
+  if (!synced) return null;
+  return (
+    <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-emerald-50 text-emerald-600 border-emerald-100">
+      {v}
+    </span>
+  );
 }
 
 export function hrmsApproveCell(v) {

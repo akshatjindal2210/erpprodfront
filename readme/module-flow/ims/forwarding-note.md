@@ -37,4 +37,4 @@ Items `fuid` CASCADE on hard parent delete (UI uses soft). Soft delete frees res
 | Create / Update | `ims_forwarding_note_master` + `ims_forwarding_note_item_wise` |
 | Delete          | soft both; boxes not updated                                   |
 
-Detail: `frontend/readme/app-flow/FORWARDING-NOTE-FLOW.md`
+Detail: `FORWARDING-NOTE-FLOW.md` · Edit/FIFO: `v4.1.2.md` section 6–7 · Bill/print: section 8–9 · Drawer Tab focus: section 10

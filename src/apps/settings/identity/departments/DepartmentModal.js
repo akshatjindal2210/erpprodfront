@@ -4,6 +4,7 @@ import { X, Save, Briefcase } from "lucide-react";
 import { toast } from "react-toastify";
 import { departmentService } from "@/apps/settings/lib/services/departmentService";
 import { useEscapeKey } from "@/platform/hooks/system/useEscapeKey";
+import OverlayModal from "@/ui/primitives/OverlayModal";
 
 export default function DepartmentModal({ open, onClose, onSuccess, editData }) {
   const [loading, setLoading] = useState(false);
@@ -51,8 +52,13 @@ export default function DepartmentModal({ open, onClose, onSuccess, editData }) 
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-md shadow-2xl border border-slate-200 rounded-none overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+    <OverlayModal
+      open={open}
+      zIndex={100}
+      onBackdropClick={onClose}
+      className="bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200"
+    >
+      <div className="relative bg-white w-full max-w-md shadow-2xl border border-slate-200 rounded-none overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
         
         {/* Header */}
         <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
@@ -119,7 +125,7 @@ export default function DepartmentModal({ open, onClose, onSuccess, editData }) 
           </div>
         </form>
       </div>
-    </div>
+    </OverlayModal>
   );
 }
 

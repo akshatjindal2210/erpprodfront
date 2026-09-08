@@ -1,24 +1,23 @@
-/** HRMS API endpoints — mounted at `/api/hrms/...` (client prepends `/api`). */
 const BASE = "/hrms";
 
 export const ENDPOINTS = {
   ATTENDANCE_LOG: {
     LIST: `${BASE}/attendance-log/list`,
-    EVENTS: `${BASE}/attendance-log/events`,
     SYNC: `${BASE}/attendance-log/sync`,
+    IMAGE: `${BASE}/attendance-log/image`,
   },
   ATTENDANCE: {
     LIST: `${BASE}/attendance/list`,
-    MARK: `${BASE}/attendance/mark`,
     PREVIEW: `${BASE}/attendance/preview`,
     SUBMIT: `${BASE}/attendance/submit`,
     UPDATE: `${BASE}/attendance/update`,
     DELETE: `${BASE}/attendance/delete`,
-    APPROVE: `${BASE}/attendance/approve`,
   },
   EMPLOYEE: {
     LIST: `${BASE}/employees/list`,
-    GET: `${BASE}/employees/get`,
+    SYNC: `${BASE}/employees/sync`,
     HELPER: `${BASE}/employees/helper`,
+    MACHINE_UPDATE: `${BASE}/employees/machine/update`,
+    MACHINE_DEACTIVATE: `${BASE}/employees/machine/deactivate`,
   },
 };

@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { X, Trash2, AlertTriangle } from "lucide-react";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { useEscapeKey } from "@/platform/hooks/system/useEscapeKey";
+import OverlayModal from "@/ui/primitives/OverlayModal";
 
 export default function SchedulePlanRemoveConfirmModal({
   open,
@@ -26,7 +27,7 @@ export default function SchedulePlanRemoveConfirmModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4" data-app-drawer-root>
+    <OverlayModal open={open} zIndex={1100}>
       <div
         role="presentation"
         className="absolute inset-0 bg-slate-900/50 touch-none"
@@ -95,6 +96,6 @@ export default function SchedulePlanRemoveConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </OverlayModal>
   );
 }

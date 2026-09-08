@@ -1,6 +1,6 @@
-import { useEffect } from "react";
 import { X } from "lucide-react";
 import { useEscapeKey } from "@/platform/hooks/system/useEscapeKey";
+import OverlayModal from "@/ui/primitives/OverlayModal";
 
 /** Shared detail dialog shell (masters and read-only previews). */
 export default function GlobalDetailModal({ open, onClose, title, icon: Icon, children, size = "default", footer }) {
@@ -14,11 +14,15 @@ export default function GlobalDetailModal({ open, onClose, title, icon: Icon, ch
     "max-w-lg";
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-6 animate-in fade-in duration-200">
+    <OverlayModal
+      open={open}
+      onBackdropClick={onClose}
+      zIndex={9999}
+      className="bg-black/60 backdrop-blur-sm px-4 py-6 animate-in fade-in duration-200"
+      backdropClassName="absolute inset-0"
+    >
       <div
-        className={`w-full ${sizeClass} max-h-[min(90vh,720px)] bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col border border-slate-200`}
-        role="dialog"
-        aria-modal="true"
+        className={`relative w-full ${sizeClass} max-h-[min(90vh,720px)] bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col border border-slate-200`}
         aria-labelledby="global-detail-modal-title"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-white shrink-0">
@@ -54,6 +58,6 @@ export default function GlobalDetailModal({ open, onClose, title, icon: Icon, ch
           </div>
         )}
       </div>
-    </div>
+    </OverlayModal>
   );
 }

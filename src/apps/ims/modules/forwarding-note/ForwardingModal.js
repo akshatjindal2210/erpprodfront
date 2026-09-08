@@ -229,13 +229,42 @@ function scheduleCatalogSelectionKey(row) {
 
 /** Box count / breakdown source — never revert to saved breakdown after user edits selection. */
 const itemBoxDisplay = (item) => {
-  if (item.selected_boxes.length > 0 || item.boxes_edited) {
+  if (item.boxes_edited) {
     return { boxes: item.selected_boxes, fromSelection: true };
   }
   if (item.original_breakdowns?.length > 0) {
     return { boxes: [], fromSelection: false, breakdowns: item.original_breakdowns };
   }
+  if (item.selected_boxes.length > 0) {
+    return { boxes: item.selected_boxes, fromSelection: true };
+  }
   return { boxes: [], fromSelection: true };
+};
+
+/** Edit/approve hydrate: map saved packing breakdowns onto the exclude_fuid stock pool (FIFO order). */
+const bootstrapSelectionFromSavedBreakdowns = (item, orderedBoxes) => {
+  const breakdowns = item.original_breakdowns || [];
+  if (!breakdowns.length || !orderedBoxes?.length) return [];
+
+  const qtyByPacking = new Map();
+  for (const bd of breakdowns) {
+    const pNo = String(bd.packing_number ?? "").trim();
+    if (!pNo) continue;
+    qtyByPacking.set(pNo, (qtyByPacking.get(pNo) || 0) + (Number(bd.total_qty) || 0));
+  }
+  if (!qtyByPacking.size) return [];
+
+  const selected = [];
+  for (const box of orderedBoxes) {
+    const pNo = String(box.packing_number ?? "").trim();
+    const rem = qtyByPacking.get(pNo) || 0;
+    if (rem <= 0) continue;
+    const boxQty = Number(box.qty) || 0;
+    if (boxQty <= 0) continue;
+    selected.push(box);
+    qtyByPacking.set(pNo, rem - boxQty);
+  }
+  return selected;
 };
 
 const itemSelectedBoxCount = (item) => {
@@ -350,7 +379,10 @@ const canAddMoreFifoBoxes = (item) => {
   if (!item?.available_boxes?.length) return false;
   const orderedBoxes = reorderBoxesForSelection(item.available_boxes, item.loose_priority);
   const fifoLimit = maxFifoBoxesForItem(item, orderedBoxes);
-  const current = getFifoSelectionCount(item, orderedBoxes);
+  const current =
+    !item.boxes_edited && item.original_breakdowns?.length > 0
+      ? itemSelectedBoxCount(item)
+      : getFifoSelectionCount(item, orderedBoxes);
   return current < fifoLimit && current < orderedBoxes.length;
 };
 
@@ -493,6 +525,8 @@ const reconcileRowSelectionToBalance = (row, balanceCap) => {
   if (!(balanceCap > 0)) return row;
   const withBal = { ...row, source_dispatch_qty: balanceCap };
   if (withBal.boxes_edited) return withBal;
+  // Edit/approve: keep saved packing lines — do not re-FIFO from live stock.
+  if (withBal.original_breakdowns?.length > 0) return withBal;
 
   const pool = withBal.available_boxes || [];
   if (!pool.length) return withBal;
@@ -1245,15 +1279,17 @@ export default function ForwardingModal({
               const fifoBoxes = bundle.fifoBoxes || [];
               // Keep saved breakdown path (boxes_edited false). Only attach pool for +/- later.
               const orderedBoxes = reorderBoxesForSelection(fifoBoxes, cur.loose_priority);
+              const hasSavedBreakdowns =
+                !cur.boxes_edited && (cur.original_breakdowns?.length || 0) > 0;
               const previewTarget = fifoPreviewTargetForRow(cur);
               const previewSelected =
-                !cur.boxes_edited && previewTarget > 0
+                !hasSavedBreakdowns && previewTarget > 0
                   ? selectBoxesByQty(orderedBoxes, previewTarget)
                   : cur.selected_boxes;
               return {
                 ...cur,
                 available_boxes: fifoBoxes,
-                selected_boxes: cur.boxes_edited ? cur.selected_boxes : previewSelected,
+                selected_boxes: cur.boxes_edited || hasSavedBreakdowns ? cur.selected_boxes : previewSelected,
                 fg_qty: sumQty(fifoBoxes),
                 erp_qty: bundle.erp_qty,
                 erp_by_packing: bundle.erp_by_packing,
@@ -1754,8 +1790,9 @@ export default function ForwardingModal({
 
       let prefix = getFifoPrefixFromSelection(orderedBoxes, item.selected_boxes);
 
-      if (
-        isEdit &&
+      if (!item.boxes_edited && item.original_breakdowns?.length > 0 && prefix.length === 0) {
+        prefix = bootstrapSelectionFromSavedBreakdowns(item, orderedBoxes);
+      } else if (
         !item.boxes_edited &&
         prefix.length === 0 &&
         getItemFifoTarget(item) > 0
@@ -1803,6 +1840,7 @@ export default function ForwardingModal({
               use_system_std:
                 balanceCap > 0 && targetForRow === balanceCap && stdQty > balanceCap,
               boxes_edited: true,
+              original_breakdowns: [],
             }
           : row
       );
@@ -1894,20 +1932,8 @@ export default function ForwardingModal({
             i.schno != null && String(i.schno).trim() !== ""
               ? String(i.schno).trim()
               : form.schno?.trim() || null;
-          if (i.selected_boxes.length > 0) {
-            return [{
-              item_dcode: i.item_dcode,
-              item_code:  i.item_code,
-              itemdesc:   i.itemdesc,
-              schno:      itemSchno,
-              qty:        sumQty(i.selected_boxes),
-              dispatch_target: i.dispatch_target !== "" && i.dispatch_target != null
-                ? Number(i.dispatch_target)
-                : null,
-              use_system_std: Boolean(i.use_system_std),
-              selected_boxes: i.selected_boxes,
-            }];
-          }
+          // Edit/approve hydrate may hold preview selected_boxes.
+          // If user has not edited this row, always keep the saved breakdown payload.
           if (!i.boxes_edited && i.original_breakdowns?.length > 0) {
             return i.original_breakdowns.map(bd => ({
               item_dcode: i.item_dcode,
@@ -1923,6 +1949,20 @@ export default function ForwardingModal({
               total_qty:  bd.total_qty,
               is_pre_calculated: true
             }));
+          }
+          if (i.selected_boxes.length > 0) {
+            return [{
+              item_dcode: i.item_dcode,
+              item_code:  i.item_code,
+              itemdesc:   i.itemdesc,
+              schno:      itemSchno,
+              qty:        sumQty(i.selected_boxes),
+              dispatch_target: i.dispatch_target !== "" && i.dispatch_target != null
+                ? Number(i.dispatch_target)
+                : null,
+              use_system_std: Boolean(i.use_system_std),
+              selected_boxes: i.selected_boxes,
+            }];
           }
           return [];
         }),
@@ -2495,7 +2535,7 @@ export default function ForwardingModal({
                     <div className="flex items-center justify-between gap-1 h-[38px] px-1.5 border border-slate-200 rounded-lg bg-white shadow-sm">
                       <button
                         onClick={() => handleBoxChange(idx, 'remove')}
-                        disabled={!item.selected_boxes.length}
+                        disabled={itemSelectedBoxCount(item) === 0}
                         className="w-7 h-7 flex items-center justify-center text-rose-500 hover:bg-rose-50 rounded-md transition-all disabled:opacity-30 font-black text-lg border border-rose-50"
                       >-</button>
                       <div className="flex flex-col items-center justify-center min-w-[40px]">

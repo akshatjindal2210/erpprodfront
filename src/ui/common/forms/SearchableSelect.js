@@ -428,6 +428,13 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         return;
       }
 
+      if (typeof getByIdServiceRef.current !== "function") {
+        if (!open) {
+          setSearch(labelOnlyDisplay ? "" : String(value ?? ""));
+        }
+        return;
+      }
+
       const seeded =
         resolvedOption &&
         typeof resolvedOption === "object" &&
@@ -654,6 +661,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       setSearch(normalizeInput(getDisplayLabel(item, resolvedSelectedLabelKey) || (labelOnlyDisplay ? "" : toSearchText(item[resolvedSelectedLabelKey]))));
       onChange(item[dataKey], item);
       setOpen(false);
+      lastFetchedQueryRef.current = "__selected__";
     }
   };
 
@@ -758,7 +766,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   const dropdownEl = open && dropPos.width > 0 ? (
     <div
       ref={dropdownRef}
-      className="searchable-select-dropdown"
+      data-searchable-select-portal=""
       style={
         usePortal
           ? {
@@ -779,7 +787,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
               ...(openUp ? { bottom: "calc(100% + 4px)" } : { top: "calc(100% + 4px)" }),
             }
       }
-      className={`bg-white border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-100 ${dropdownSurface}`}
+      className={`searchable-select-dropdown bg-white border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-100 ${dropdownSurface}`}
     >
       {pinSelectedAtTop && selectedCount > 0 ? (
         <div className="border-b border-slate-200 bg-slate-50/60">
@@ -798,7 +806,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
               Clear all
             </button>
           </div>
-          <ul className="max-h-[96px] overflow-y-auto">
+          <ul className="max-h-[96px] overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar">
             {(selected || []).map((item, idx) => renderOptionRow(item, idx, "sel-"))}
           </ul>
         </div>
@@ -806,7 +814,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
 
       <ul
         ref={listRef}
-        className={`overflow-y-auto ${pinSelectedAtTop && selectedCount > 0 ? "max-h-[124px]" : "max-h-[220px]"}`}
+        className={`overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar ${pinSelectedAtTop && selectedCount > 0 ? "max-h-[124px]" : "max-h-[220px]"}`}
         onScroll={(e) => {
           const el = e.currentTarget;
           if (el.scrollTop + el.clientHeight >= el.scrollHeight - 20 && hasMore && !loadingMore && !loading) {
