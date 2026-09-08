@@ -87,7 +87,14 @@ export default function AttendancePage() {
       emptyIcon={Clock}
       fetchList={attendanceService.list}
       headers={ATTENDANCE_HEADERS}
+      moduleName="Daily Attendance"
       getRowId={(row) => row.id ?? `${row.employee_code}-${row.attendance_date}`}
+      cardConfig={{
+        titleKey: "employee_code",
+        badgeIndices: [8],
+        detailKeys: ["name", "attendance_date_display", "shift_display", "in_display", "out_display", "punch_count", "entry_type_display"],
+        footerKey: "name",
+      }}
       extraFilterKeys={["employee_code", "shift", "approval_status"]}
       extraFilters={extraFilters}
       searchPlaceholder="Code, name, shift, approval…"

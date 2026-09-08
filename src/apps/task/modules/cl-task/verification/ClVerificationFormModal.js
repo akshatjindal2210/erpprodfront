@@ -648,37 +648,6 @@ export default function ClVerificationFormModal({
             ) : null}
           </div>
 
-          {submissionFills.length > 0 ? (
-            <ClTaskSubmissionFillsList
-              fills={submissionFills}
-              schema={schema}
-              clTaskId={task.cl_task_id}
-              personId={task.person_id}
-              currentInstanceId={task.instance_id}
-              currentFillId={task.fill_id || null}
-              excludeCurrent={!reportVariant}
-              defaultCollapsed={false}
-              title={reportVariant ? "All submissions" : "Previous submits"}
-              onOpenFill={
-                typeof onSwitchFill === "function"
-                  ? (fill) => {
-                      const fillId =
-                        fill.fill_id != null && fill.fill_id !== ""
-                          ? fill.fill_id
-                          : fill.id != null && String(fill.id).startsWith("fill_")
-                            ? fill.id
-                            : undefined;
-                      onSwitchFill({
-                        instance_id: fill.instance_id,
-                        fill_id: fillId,
-                        title: fill.title || task?.title,
-                        scheduled_date: fill.scheduled_date,
-                      });
-                    }
-                  : undefined
-              }
-            />
-          ) : null}
 
           {task.sop_description ? (
             <ClFormSection title="SOP — Follow These Steps">
@@ -872,6 +841,39 @@ export default function ClVerificationFormModal({
               </ClFormSection>
             </>
           ) : null}
+
+          {submissionFills.length > 0 ? (
+            <ClTaskSubmissionFillsList
+              fills={submissionFills}
+              schema={schema}
+              clTaskId={task.cl_task_id}
+              personId={task.person_id}
+              currentInstanceId={task.instance_id}
+              currentFillId={task.fill_id || null}
+              excludeCurrent={!reportVariant}
+              defaultCollapsed={false}
+              title={reportVariant ? "All submissions" : "Previous submits"}
+              onOpenFill={
+                typeof onSwitchFill === "function"
+                  ? (fill) => {
+                      const fillId =
+                        fill.fill_id != null && fill.fill_id !== ""
+                          ? fill.fill_id
+                          : fill.id != null && String(fill.id).startsWith("fill_")
+                            ? fill.id
+                            : undefined;
+                      onSwitchFill({
+                        instance_id: fill.instance_id,
+                        fill_id: fillId,
+                        title: fill.title || task?.title,
+                        scheduled_date: fill.scheduled_date,
+                      });
+                    }
+                  : undefined
+              }
+            />
+          ) : null}
+          
         </div>
       )}
     </Drawer>

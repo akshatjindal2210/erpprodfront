@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { RotateCcw, Send, SlidersHorizontal } from "lucide-react";
 import FilterDateInput from "@/ui/common/date/FilterDateInput";
 import ListPageSearchField, { listPageFilterLabelClass, LIST_PAGE_FILTER_VALUE_CLASS, LIST_PAGE_FILTER_FIELD_WRAP_CLASS, LIST_PAGE_FILTER_ACTION_BTN_CLASS, listPageFilterBoxClass } from "@/ui/common/list/ListPageSearchField";
+import CheckboxDropdownFilter from "@/ui/common/list/CheckboxDropdownFilter";
 import { useMobileFilterStrip } from "@/ui/common/list/ListPageFilterStrip";
 import { sortFilterOptionsAsc } from "@/platform/utils/form/sortSelectOptions";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
@@ -23,6 +24,11 @@ function isAllFilterOption(opt) {
 function isFilterValueActive(v) {
   if (v == null || v === "") return false;
   return String(v).trim().toLowerCase() !== "all";
+}
+
+function isCheckboxGroupActive(value, options = []) {
+  if (!value || typeof value !== "object") return false;
+  return options.some((opt) => value[opt.value] === false);
 }
 
 function resolveExtraFilterVariant(filter, { showInstantExtras = false, applyExtrasOnChange = false, isQuickSearch = false } = {}) {
@@ -219,9 +225,13 @@ export default function DateRangeFilter({
   );
 
   const extraFilterCount = primaryFilters.length + secondaryFilters.length;
-  const moreActiveCount = secondaryFilters.filter((f) =>
-    isFilterValueActive(localExtras[f.key] ?? f.value),
-  ).length;
+  const isExtraFilterActive = (f) => {
+    const v = localExtras[f.key] ?? f.value;
+    if (f.type === "checkboxGroup") return isCheckboxGroupActive(v, f.options);
+    return isFilterValueActive(v);
+  };
+
+  const moreActiveCount = secondaryFilters.filter((f) => isExtraFilterActive(f)).length;
   const showInstantExtras = Boolean(instantClientExtras && !showDate);
   const allowSearchButton = showSearchButton !== false;
   const isQuickSearch = searchVariant === "quick";
@@ -342,7 +352,27 @@ export default function DateRangeFilter({
   const filtersAfterDate = primaryFilters.filter((f) => !beforeDateKeys.has(f.key));
 
   const renderExtraFilter = (filter, index, { stacked = false } = {}) =>
-    filter.type === "text" ? (
+    filter.type === "checkboxGroup" ? (
+      <div
+        key={index}
+        className={`${LIST_PAGE_FILTER_FIELD_WRAP_CLASS} ${
+          stacked
+            ? "w-full min-w-0"
+            : filter.className || "md:min-w-[11rem] md:max-w-[13rem]"
+        }`.trim()}
+      >
+        <CheckboxDropdownFilter
+          label={filter.label}
+          options={filter.options}
+          value={localExtras[filter.key] ?? filter.value ?? {}}
+          allLabel={filter.allLabel}
+          variant={getExtraFilterVariant(filter)}
+          disabled={Boolean(filter.disabled)}
+          stacked={stacked}
+          onChange={(v) => applyExtraValue(filter, v)}
+        />
+      </div>
+    ) : filter.type === "text" ? (
       <div key={index} className={stacked ? "w-full min-w-0" : "min-w-0"}>
         <ListPageSearchField
           label={filter.label}

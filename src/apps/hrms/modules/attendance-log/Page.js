@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { ImageOff, Loader2, ScrollText } from "lucide-react";
+import { ImageOff, Loader2, RefreshCw, ScrollText, Eye } from "lucide-react";
 import { toast } from "react-toastify";
 import { attendanceLogService } from "@/apps/hrms/lib/services/hrms";
 import { ATTENDANCE_LOG_HEADERS } from "@/apps/hrms/lib/columns/attendanceLogColumns";
@@ -71,7 +71,16 @@ export default function AttendanceLogPage() {
         emptyIcon={ScrollText}
         fetchList={attendanceLogService.list}
         headers={ATTENDANCE_LOG_HEADERS}
+        moduleName="Attendance Log"
         getRowId={(row) => row.id}
+        cardConfig={{
+          titleKey: "employee_code",
+          badgeIndices: [4],
+          detailKeys: ["name", "event_datetime_display", "auth_method", "sub_event_type", "event_name", "card_reader_no"],
+          footerKey: "event_datetime_display",
+        }}
+        searchPlaceholder="Code, name, status, event, reader…"
+        clientQuickSearch
         toolbarActions={(api) => {
           reloadRef.current = api.reload;
           return (
@@ -80,6 +89,7 @@ export default function AttendanceLogPage() {
                 module="hrms_attendance_log"
                 action="view"
                 label="Sync"
+                icon={RefreshCw}
                 onClick={() =>
                   handleSync({
                     from: api.params?.fromDate || "",
@@ -92,6 +102,7 @@ export default function AttendanceLogPage() {
                 module="hrms_attendance_log"
                 action="view"
                 label="View"
+                icon={Eye}
                 disabled={!api.selectedRecord}
                 onClick={() => openView(api.selectedRecord)}
                 className={LIST_PAGE_PRIMARY_ACTION}

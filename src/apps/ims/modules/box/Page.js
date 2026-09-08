@@ -26,7 +26,17 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
-import { getBoxRowClassName, getBoxStockZone, getBoxClientSearchParts, renderBoxForwardNoteCustomerCell, renderBoxLocationCell, renderBoxQcHoldIdCell, resolveBoxLocationLabel } from "./boxTableVisuals";
+import { BOX_ZONE_FILTER_OPTIONS, defaultBoxZoneIncludes, filterBoxRowsByZone, getBoxRowClassName, getBoxStockZone, getBoxClientSearchParts, renderBoxForwardNoteCustomerCell, renderBoxLocationCell, renderBoxQcHoldIdCell, resolveBoxLocationLabel } from "./boxTableVisuals";
+
+const BOX_ZONE_FILTER = {
+  type: "checkboxGroup",
+  key: "zoneIncludes",
+  label: "Zone",
+  variant: "quick",
+  options: BOX_ZONE_FILTER_OPTIONS,
+  className: "md:min-w-[11rem] md:max-w-[13rem]",
+  allLabel: "All zones",
+};
 
 export default function BoxTablePage() {
   const canAccess = useCanAccess();
@@ -60,6 +70,7 @@ export default function BoxTablePage() {
   const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
   const [journeyInput, setJourneyInput] = useState("");
   const [appliedJourney, setAppliedJourney] = useState("");
+  const [zoneIncludes, setZoneIncludes] = useState(defaultBoxZoneIncludes);
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
@@ -103,14 +114,15 @@ export default function BoxTablePage() {
     fetchBoxes();
   }, [fetchBoxes]);
 
+  const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
+
   const filteredRows = useMemo(() => {
-    const q = String(tempSearch || "").trim();
-    let data = allRows;
-    if (q) {
-      data = applyClientSearch(allRows, tempSearch, { getParts: getBoxClientSearchParts, skipSort: !!params.sortKey });
+    let data = filterBoxRowsByZone(allRows, zoneIncludes);
+    if (String(tempSearch || "").trim()) {
+      data = applyClientSearch(data, tempSearch, { getParts: getBoxClientSearchParts, skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir, zoneIncludes]);
 
   const applyJourneyFilter = useCallback(() => {
     const journey = String(journeyInput ?? "").trim();
@@ -148,6 +160,7 @@ export default function BoxTablePage() {
     resetSearch();
     setJourneyInput("");
     setAppliedJourney("");
+    setZoneIncludes(defaultBoxZoneIncludes());
     setParams({
       pageSize: 1000,
       status: "all",
@@ -159,7 +172,11 @@ export default function BoxTablePage() {
   };
 
   const journeyTyping = Boolean(String(journeyInput ?? "").trim());
-  const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
+
+  const handleZoneIncludesChange = useCallback((value) => {
+    setZoneIncludes(value && typeof value === "object" ? value : defaultBoxZoneIncludes());
+    setDisplayLimit(100);
+  }, []);
 
   const extraFilters = useMemo(
     () => [
@@ -171,8 +188,9 @@ export default function BoxTablePage() {
         onChange: setJourneyInput,
         onEnter: applyJourneyFilter,
       },
+      { ...BOX_ZONE_FILTER, value: zoneIncludes },
     ],
-    [journeyInput, applyJourneyFilter]
+    [journeyInput, applyJourneyFilter, zoneIncludes]
   );
 
   const selectedRecord = useMemo(() => filteredRows.find((u) => u.box_uid === selected), [filteredRows, selected]);
@@ -320,6 +338,9 @@ export default function BoxTablePage() {
             extraFilters={extraFilters}
             onApply={handleFilterApply}
             onReset={handleReset}
+            onExtraFilterChange={(key, value) => {
+              if (key === "zoneIncludes") handleZoneIncludesChange(value);
+            }}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             onSearchEnter={() =>

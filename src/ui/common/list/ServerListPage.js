@@ -6,7 +6,9 @@ import DataTable from "@/ui/primitives/DataTable";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import GlobalDetailModal from "@/ui/common/modals/GlobalDetailModal";
-import { ListPageDetailGrid, ListPageToolbarBlock } from "@/ui/common/list/listPageToolbarBlock";
+import { useViewMode } from "@/platform/hooks/list/useViewMode";
+import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
+import { ListPageDetailGrid, ListPageExportViewToggle, ListPageToolbarBlock } from "@/ui/common/list/listPageToolbarBlock";
 import { ListPageServerFooter, ListPageShell, ListPageTableArea } from "@/ui/common/list/listPageUi";
 import { buildAllFieldHeaders } from "@/ui/common/list/buildAllFieldHeaders";
 import { useServerList } from "@/ui/common/list/useServerList";
@@ -24,6 +26,8 @@ export default function ServerListPage({
   headerConfig,
   getRowId,
   pageSize = 100,
+  moduleName,
+  cardConfig,
   searchPlaceholder = "Code, name, status...",
   defaultToday = true,
   clientQuickSearch = false,
@@ -39,6 +43,8 @@ export default function ServerListPage({
   const resolvedExtraKeys = extraFilterKeys ?? (Array.isArray(extraFilters) ? extraFilters.map((f) => f.key).filter(Boolean) : []);
   const moreKeys = Array.isArray(moreFilters) ? moreFilters.map((f) => f.key).filter(Boolean) : [];
   const allFilterKeys = [...resolvedExtraKeys, ...moreKeys.filter((k) => !resolvedExtraKeys.includes(k))];
+
+  const [viewMode, handleViewMode] = useViewMode();
 
   const {
     loading,
@@ -78,6 +84,12 @@ export default function ServerListPage({
     return buildAllFieldHeaders(displayRows, headerConfig ?? {});
   }, [fixedHeaders, displayRows, headerConfig]);
 
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: moduleName || "Export",
+    rows: displayRows,
+    headers,
+  });
+
   const showSelection = !!(toolbarActions || detailModal);
   const listApi = {
     selected,
@@ -98,6 +110,8 @@ export default function ServerListPage({
   const bindFilterValues = (defs = []) =>
     (defs || []).map((filter) => ({
       ...filter,
+      // Hybrid lists: quick search is client-side (indigo); date + extras hit API (white).
+      ...(clientQuickSearch && filter.variant == null ? { variant: "server" } : {}),
       value: filter.value ?? params[filter.key] ?? "",
     }));
 
@@ -107,6 +121,17 @@ export default function ServerListPage({
         actions={extraActions}
         loading={loading}
         onRefresh={load}
+        viewToggle={
+          moduleName ? (
+            <ListPageExportViewToggle
+              viewMode={viewMode}
+              setMode={handleViewMode}
+              exporting={exporting}
+              disabled={loading || exportDisabled}
+              onExport={handleExport}
+            />
+          ) : null
+        }
         selected={selected}
         selectedRecord={selectedRecord}
         selectionLabel={selectionLabel}
@@ -149,7 +174,7 @@ export default function ServerListPage({
           headers={headers}
           data={displayRows}
           loading={loading}
-          viewMode="table"
+          viewMode={viewMode}
           showSelection={showSelection}
           allowCopy
           selectedId={selected}
@@ -157,6 +182,7 @@ export default function ServerListPage({
           emptyIcon={EmptyIcon}
           getRowId={getRowId}
           totalItems={quickActive ? displayRows.length : total}
+          cardConfig={cardConfig}
         />
       </ListPageTableArea>
 

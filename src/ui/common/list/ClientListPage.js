@@ -26,6 +26,7 @@ export default function ClientListPage({
   noun = "Records",
   searchPlaceholder = "Search...",
   pageSize,
+  cardConfig,
   toolbarActions,
   selectionLabel,
   detailModal,
@@ -86,7 +87,7 @@ export default function ClientListPage({
 
       <ListPageFilterStrip>
         <ListPageSearchField
-          label="Search Database"
+          label="Quick Search"
           placeholder={searchPlaceholder}
           value={tempSearch}
           onChange={(v) => { setTempSearch(v); resetDisplayLimit(); }}
@@ -112,6 +113,7 @@ export default function ClientListPage({
           onLoadMore={handleLoadMore}
           hasMore={items.length < totalItems}
           totalItems={totalItems}
+          cardConfig={cardConfig}
         />
       </ListPageTableArea>
 

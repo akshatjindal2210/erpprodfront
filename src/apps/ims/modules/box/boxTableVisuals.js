@@ -10,6 +10,31 @@ export function getBoxStockZone(row) {
   return "other";
 }
 
+/** Box list — zone checkbox filter (client-side only). */
+export const BOX_ZONE_FILTER_OPTIONS = [
+  { label: "Dispatch", value: "dispatched" },
+  { label: "Packing Area", value: "packing_area" },
+  { label: "Location", value: "in_store" },
+  { label: "QC Area", value: "qc_hold" },
+];
+
+const BOX_ZONE_IDS = BOX_ZONE_FILTER_OPTIONS.map(({ value }) => value);
+
+export function defaultBoxZoneIncludes() {
+  return Object.fromEntries(BOX_ZONE_IDS.map((id) => [id, true]));
+}
+
+export function filterBoxRowsByZone(rows, includes) {
+  if (!includes || typeof includes !== "object") return rows;
+
+  const allowed = BOX_ZONE_IDS.filter((id) => includes[id] !== false);
+  if (allowed.length === BOX_ZONE_IDS.length) return rows;
+  if (!allowed.length) return [];
+
+  const allowedSet = new Set(allowed);
+  return rows.filter((row) => allowedSet.has(getBoxStockZone(row)));
+}
+
 function hasBoxLocationId(row) {
   return row?.location_id != null && String(row.location_id).trim() !== "";
 }

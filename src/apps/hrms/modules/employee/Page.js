@@ -87,6 +87,12 @@ export default function EmployeePage() {
         moduleName="Employee Master"
         noun="Employees"
         searchPlaceholder="Code, name, dept..."
+        cardConfig={{
+          titleKey: "emp_code",
+          badgeIndices: [7],
+          detailKeys: ["emp_name", "deptname", "brcode", "machine_sync_display", "emp_intime_display", "emp_outtime_display"],
+          footerKey: "emp_name",
+        }}
         toolbarActions={({ selected, selectedRecord, reload }) => (
           <>
             <ActionButton
