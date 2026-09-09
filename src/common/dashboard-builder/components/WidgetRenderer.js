@@ -513,11 +513,9 @@ const DashboardTableView = ({
           )}
         </div>
       )}
-      <div className="flex-1 min-h-0 min-w-0 overflow-auto overscroll-x-contain">
+      <div className="flex-1 min-h-0 min-w-0 max-w-full overflow-x-auto overflow-y-auto overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch]">
         <table
-          className={`w-full min-w-max border-collapse ${
-            compact ? "table-auto" : "table-fixed sm:table-auto"
-          }`}
+          className={`w-full min-w-max border-collapse table-auto`}
           style={{ borderColor: tableVisual.borderColor }}
         >
           <thead className="sticky top-0 z-10" style={{ backgroundColor: tableVisual.headerBg }}>
@@ -525,12 +523,13 @@ const DashboardTableView = ({
               {keys.map((col) => (
                 <th
                   key={col}
-                  className={`text-left font-bold uppercase tracking-wide sm:tracking-widest border-b align-top whitespace-nowrap sm:whitespace-normal ${headTextClass}`}
+                  className={`text-left font-bold uppercase tracking-wide sm:tracking-widest border-b align-top whitespace-nowrap ${headTextClass}`}
                   style={{
                     color: tableVisual.headerColor,
                     borderColor: tableVisual.borderColor,
                     fontSize: `${tableVisual.headerFontPx}px`,
                     backgroundColor: tableVisual.headerBg,
+                    minWidth: compact ? 88 : 112,
                     ...cellPadStyle,
                   }}
                 >
@@ -545,11 +544,11 @@ const DashboardTableView = ({
                       }}
                       onMouseDown={(e) => e.stopPropagation()}
                     >
-                      <span className="break-words">{col}</span>
+                      <span className="whitespace-nowrap">{col}</span>
                       {renderSortIcon(col)}
                     </button>
                   ) : (
-                    <span className="break-words">{col}</span>
+                    <span className="whitespace-nowrap">{col}</span>
                   )}
                 </th>
               ))}
@@ -571,11 +570,12 @@ const DashboardTableView = ({
                 {keys.map((col) => (
                   <td
                     key={col}
-                    className={`break-words align-top font-medium ${bodyTextClass}`}
+                    className={`whitespace-nowrap align-top font-medium ${bodyTextClass}`}
                     style={{
                       color: tableVisual.bodyColor,
                       fontSize: `${tableVisual.bodyFontPx}px`,
                       borderBottom: `1px solid ${tableVisual.borderColor}`,
+                      minWidth: compact ? 88 : 112,
                       ...cellPadStyle,
                     }}
                   >
@@ -1414,11 +1414,11 @@ const WidgetRenderer = ({
       ) : null;
       return (
         <div
-          className={`h-full w-full min-h-0 flex flex-col overflow-hidden${nested && !readOnly ? " pointer-events-none" : ""}`}
+          className={`h-full w-full min-h-0 min-w-0 max-w-full flex flex-col overflow-hidden${nested && !readOnly ? " pointer-events-none" : ""}`}
           style={showTitle ? { gap: `${contentGapPx}px` } : undefined}
         >
           {titlePosition === "top" ? titleEl : null}
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="min-h-0 min-w-0 max-w-full flex-1 overflow-hidden">
             {renderContent()}
           </div>
           {titlePosition === "bottom" ? titleEl : null}

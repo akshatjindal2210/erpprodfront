@@ -221,22 +221,22 @@ const Drawer = ({
         </div>
 
         <div
-          className={`flex flex-1 min-h-0 flex-col overflow-x-hidden bg-white ${
+          className={`flex flex-1 min-h-0 min-w-0 max-w-full flex-col bg-white ${
             bodyScrollable
-              ? "overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar"
+              ? "overflow-x-hidden overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar"
               : "overflow-hidden"
           }`}
         >
           {banner ? <div className="shrink-0">{banner}</div> : null}
 
-          {/* When bodyScrollable=false, children manage scroll — wrapper must constrain height. */}
+          {/* When bodyScrollable=false, children manage scroll — wrapper must constrain height + width. */}
           <div
             className={
               bodyScrollable
                 ? noPadding
                   ? "p-0"
                   : "p-3 sm:p-4"
-                : `flex flex-1 min-h-0 flex-col overflow-hidden ${noPadding ? "p-0" : "p-3 sm:p-4"}`
+                : `flex flex-1 min-h-0 min-w-0 max-w-full flex-col overflow-hidden ${noPadding ? "p-0" : "p-3 sm:p-4"}`
             }
           >
             {children}

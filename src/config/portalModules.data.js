@@ -78,6 +78,7 @@ export const MODULES = {
     { name: "hrms_attendance_log", label: "Attendance Log" },
     { name: "hrms_attendance", label: "Attendance" },
     { name: "hrms_employee", label: "Employee Master" },
+    { name: "hrms_activity_logs", label: "Activity Logs" },
   ],
 };
 

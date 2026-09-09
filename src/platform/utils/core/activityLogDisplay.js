@@ -1,5 +1,6 @@
 import { ROUTES as RM_ROUTES } from "@/apps/rmstore/lib/utils/routes";
 import { ROUTES as IMS_ROUTES } from "@/apps/ims/lib/utils/routes";
+import { ROUTES as HRMS_ROUTES } from "@/apps/hrms/lib/utils/routes";
 
 const SKIP_KEYS = new Set([
   "success",
@@ -171,6 +172,10 @@ const MODULE_LABELS = {
   ims_box_override_request: "Customer Override",
   activity_logs: "Activity Logs",
   audit: "Audit",
+  hrms_attendance: "Daily Attendance",
+  hrms_attendance_log: "Attendance Log",
+  hrms_employee: "Employee Master",
+  hrms_activity_logs: "Activity Logs",
 };
 
 export function formatActivityLogActionLabel(action) {
@@ -327,11 +332,19 @@ const TASK_MODULE_ROUTES = {
   recurring_task: `${TASK_BASE}/recurring-task`,
 };
 
+const HRMS_MODULE_ROUTES = {
+  hrms_attendance: HRMS_ROUTES.HRMS_ATTENDANCE,
+  hrms_attendance_log: HRMS_ROUTES.HRMS_ATTENDANCE_LOG,
+  hrms_employee: HRMS_ROUTES.HRMS_EMPLOYEES,
+  hrms_activity_logs: HRMS_ROUTES.HRMS_ACTIVITY_LOGS,
+};
+
 function moduleRouteMap(appType) {
   const app = String(appType ?? "").trim().toLowerCase();
   if (app === "rmstore") return RMSTORE_MODULE_ROUTES;
   if (app === "ims") return IMS_MODULE_ROUTES;
   if (app === "task") return TASK_MODULE_ROUTES;
+  if (app === "hrms") return HRMS_MODULE_ROUTES;
   return null;
 }
 

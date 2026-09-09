@@ -104,12 +104,11 @@ export function taskHasStoredDay(task, ymd) {
   );
 }
 
-/** Report grid: show cell on due/past occurrence days (or days with stored instance data). */
+/** Report grid: frequently tasks on schedule only; open tasks only when filled that day. */
 export function shouldShowTaskDayCell(task, ymd, today = null) {
   if (!ymd || !task) return false;
-  if (taskHasStoredDay(task, ymd)) return true;
   const type = String(task.task_type || "").toLowerCase();
-  if (type === "open") return false;
+  if (type === "open") return taskHasStoredDay(task, ymd);
   if (type === "frequently") {
     const t =
       today ||

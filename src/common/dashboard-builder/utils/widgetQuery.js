@@ -36,6 +36,22 @@ export const DASHBOARD_QUERY_RUNTIME_FILTERS = [
     hint: "Use with name columns",
     superAdminOnly: true,
   },
+  // Session filters — also add key in backend DASHBOARD_SESSION_STRING_FILTERS
+  {
+    token: "{{type}}",
+    label: "Type",
+    hint: "Logged-in auth type (admin, user, …)",
+  },
+  {
+    token: "{{designationId}}",
+    label: "Designation ID",
+    hint: "Logged-in designation_id (mst_users)",
+  },
+  {
+    token: "{{departmentId}}",
+    label: "Department ID",
+    hint: "Logged-in department_id (mst_users)",
+  },
 ];
 
 export function getDashboardQueryRuntimeFilters({ canFilterByUser = false } = {}) {

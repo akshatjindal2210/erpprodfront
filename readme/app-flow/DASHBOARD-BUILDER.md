@@ -253,7 +253,9 @@ All dashboard routes are **POST** (body params; no GET / PUT / DELETE).
 Allowed `app_key`: `home`, `ims`, `task`, `settings`.  
 DB sources: `ims_postgresql`, `erp_mssql`, `hrms_mssql`, `hybrid`.
 
-SQL placeholders: `{{fromDate}}`, `{{toDate}}`, `{{userId}}`, `{{username}}`, `{{name}}`, `{{fyuid}}`, and Hybrid `{{temp_erp_data}}`.
+SQL placeholders: `{{fromDate}}`, `{{toDate}}`, `{{userId}}`, `{{username}}`, `{{name}}`, `{{fyuid}}`, `{{type}}`, `{{designationId}}`, `{{departmentId}}`, and Hybrid `{{temp_erp_data}}`.
+
+**Session filters** (`{{type}}`, `{{designationId}}` / `{{designation_id}}`, `{{departmentId}}` / `{{department_id}}`): always from `req.user` via `DASHBOARD_SESSION_STRING_FILTERS`. Numbers are unquoted (for `mst_users.designation_id` / `department_id`). To add another later: (1) one row with `fromUser` (+ `kind: "number"` for ids), (2) one FE chip.
 
 ### Runtime SQL filters (user + date)
 

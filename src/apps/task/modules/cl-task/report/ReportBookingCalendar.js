@@ -47,6 +47,13 @@ function taskSectionKey(task) {
   return "other";
 }
 
+export { taskSectionKey };
+
+export const TASK_SECTION_FILTER_OPTIONS = [
+  { label: "All Tasks", value: "" },
+  ...SECTION_ORDER.filter((k) => k !== "other").map((k) => ({ label: SECTION_LABEL[k], value: k })),
+];
+
 function groupTasksBySection(tasks = []) {
   const buckets = Object.fromEntries(SECTION_ORDER.map((k) => [k, []]));
   for (const t of tasks) {

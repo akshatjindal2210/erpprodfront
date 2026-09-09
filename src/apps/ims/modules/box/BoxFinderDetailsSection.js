@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, History, Loader2 } from "lucide-react";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
-import { boxJourneyKey, fetchBoxFinderData } from "@/apps/ims/lib/finder/boxFinderData";
+import { boxJourneyKey, buildBoxDetailRows, fetchBoxFinderData } from "@/apps/ims/lib/finder/boxFinderData";
 import { getBoxKindStickerChipClass } from "@/apps/ims/lib/utils/boxTransactionVisuals";
 
 function Panel({ title, sub, count, children }) {
@@ -134,18 +134,21 @@ export default function BoxFinderDetailsSection({ box }) {
     }
 
     let cancelled = false;
+    const fallbackDetails = buildBoxDetailRows(box);
+    setDetails(fallbackDetails);
+    setEvents([]);
     setLoading(true);
 
     void fetchBoxFinderData(box)
       .then((data) => {
         if (!cancelled) {
-          setDetails(data.details);
+          setDetails(data.details?.length ? data.details : fallbackDetails);
           setEvents(data.events);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setDetails([]);
+          setDetails(fallbackDetails);
           setEvents([]);
         }
       })

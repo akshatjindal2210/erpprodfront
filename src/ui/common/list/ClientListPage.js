@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import DataTable from "@/ui/primitives/DataTable";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import ListPageSearchField from "@/ui/common/list/ListPageSearchField";
@@ -31,6 +32,10 @@ export default function ClientListPage({
   selectionLabel,
   detailModal,
   children,
+  /** Spread onto DataTable (e.g. `{ hotkeysDisabled }` from useListDrawerHotkeys). */
+  tableHotkeyProps,
+  /** Notify parent when row selection changes (for list hotkeys). */
+  onSelectionChange,
 }) {
   const [viewMode, handleViewMode] = useViewMode();
 
@@ -44,6 +49,10 @@ export default function ClientListPage({
     initialSort,
     pageSize,
   });
+
+  useEffect(() => {
+    onSelectionChange?.(selected, selectedRecord ?? null);
+  }, [selected, selectedRecord, onSelectionChange]);
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName,
@@ -114,6 +123,7 @@ export default function ClientListPage({
           hasMore={items.length < totalItems}
           totalItems={totalItems}
           cardConfig={cardConfig}
+          {...(tableHotkeyProps || {})}
         />
       </ListPageTableArea>
 

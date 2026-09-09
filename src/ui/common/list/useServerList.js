@@ -16,11 +16,18 @@ export function useServerList({
   pageSize = 100,
   defaultToday = true,
   extraFilterKeys = [],
+  /**
+   * Keys that hit the API. When set, other extraFilterKeys stay in params for client-only filters.
+   * When omitted, all extraFilterKeys go to the API (legacy).
+   */
+  serverExtraFilterKeys,
   /** When true, search box filters loaded rows in the browser (not sent to API). */
   clientQuickSearch = false,
 }) {
   const extraKeys = Array.isArray(extraFilterKeys) ? extraFilterKeys : [];
+  const serverKeys = Array.isArray(serverExtraFilterKeys) ? serverExtraFilterKeys : null;
   const extraSig = extraKeys.join("|");
+  const serverSig = serverKeys ? serverKeys.join("|") : "";
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -35,19 +42,27 @@ export function useServerList({
     return { fromDate: from, toDate: to, ...extras };
   });
 
+  // Only server extras (not client/quick keys) belong in the API payload signature.
+  const serverExtrasSnapshot = useMemo(() => {
+    const keys = serverKeys ?? extraKeys;
+    return keys.map((key) => `${key}=${params[key] ?? ""}`).join("&");
+  }, [params, extraSig, serverSig]);
+
   const listFilters = useMemo(() => {
     const f = {};
     if (params.fromDate) f.from_date = params.fromDate;
     if (params.toDate) f.to_date = params.toDate;
     if (!clientQuickSearch && appliedSearch?.trim()) f.search = appliedSearch.trim();
-    extraKeys.forEach((key) => {
+    const keysToSend = serverKeys ?? extraKeys;
+    keysToSend.forEach((key) => {
       const value = params[key];
       if (value != null && String(value).trim() !== "" && String(value).trim().toLowerCase() !== "all") {
         f[key] = value;
       }
     });
     return f;
-  }, [params, appliedSearch, extraSig, clientQuickSearch]);
+    // Omit full `params` so client-only filter changes do not refetch
+  }, [params.fromDate, params.toDate, appliedSearch, clientQuickSearch, serverExtrasSnapshot, extraSig, serverSig]);
 
   const load = useCallback(async () => {
     setLoading(true);

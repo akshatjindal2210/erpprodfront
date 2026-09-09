@@ -78,6 +78,8 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
   getOptionClassName,
   /** Return true to block selecting an option (still shown in list). */
   isOptionDisabled,
+  /** Optional short label when an option is disabled (e.g. "Selected", "Saved"). */
+  getOptionDisabledLabel,
   /**
    * Pre-resolved option when value is known but getByIdService may not find it
    * (e.g. supplier prefilled from ERP MRN before ledger master sync).
@@ -539,6 +541,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     const optionStyle = typeof getOptionStyle === "function" ? getOptionStyle(item) || undefined : undefined;
     const hasCustomOptionStyle = Boolean(optionStyle?.backgroundColor);
     const optionDisabled = typeof isOptionDisabled === "function" ? Boolean(isOptionDisabled(item)) : false;
+    const disabledLabel = optionDisabled && typeof getOptionDisabledLabel === "function" ? String(getOptionDisabledLabel(item) || "").trim() : "";
 
     return (
       <li
@@ -552,7 +555,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         style={optionStyle}
         className={`px-3 py-2 border-b border-slate-50 last:border-0 transition-colors flex flex-col ${
           optionDisabled
-            ? "cursor-not-allowed opacity-80"
+            ? "cursor-not-allowed bg-slate-50/80 opacity-70"
             : hasCustomOptionStyle
               ? activeIndex === idx
                 ? "cursor-pointer ring-1 ring-inset ring-indigo-300"
@@ -562,9 +565,14 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
                 : "cursor-pointer hover:bg-slate-50"
         } ${extraOptionClass}`}
       >
-        <div className="flex items-center justify-between">
-          <span className={rowTitleClass}>{rowLabel}</span>
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className={`${rowTitleClass} ${optionDisabled ? "text-slate-500" : ""}`}>{rowLabel}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            {disabledLabel ? (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide bg-slate-200 text-slate-600 border border-slate-300">
+                {disabledLabel}
+              </span>
+            ) : null}
             {item.box_count != null && (
               <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] sm:text-xs font-bold border border-slate-200">
                 {item.box_count} Boxes

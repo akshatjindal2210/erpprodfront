@@ -31,10 +31,10 @@ function isCheckboxGroupActive(value, options = []) {
   return options.some((opt) => value[opt.value] === false);
 }
 
-function resolveExtraFilterVariant(filter, { showInstantExtras = false, applyExtrasOnChange = false, isQuickSearch = false } = {}) {
+function resolveExtraFilterVariant(filter, { showInstantExtras = false } = {}) {
+  // Explicit wins — "quick" = indigo (client), "server" = white (API)
   if (filter?.variant === "quick" || filter?.variant === "server") return filter.variant;
   if (showInstantExtras) return "quick";
-  if (applyExtrasOnChange && isQuickSearch) return "quick";
   return "server";
 }
 
@@ -238,8 +238,8 @@ export default function DateRangeFilter({
   const hasSearchField = onSearchChange !== undefined;
 
   const extraFilterVariantContext = useMemo(
-    () => ({ showInstantExtras, applyExtrasOnChange, isQuickSearch }),
-    [showInstantExtras, applyExtrasOnChange, isQuickSearch],
+    () => ({ showInstantExtras }),
+    [showInstantExtras],
   );
   const getExtraFilterVariant = useCallback(
     (filter) => resolveExtraFilterVariant(filter, extraFilterVariantContext),

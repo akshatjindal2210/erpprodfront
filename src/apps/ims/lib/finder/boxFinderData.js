@@ -4,6 +4,7 @@ import { getBoxStickerEntries } from "@/apps/ims/lib/utils/boxTransactionSticker
 import { getBoxTxTypeBadgeClass, resolveBoxTxTypeLabel } from "@/apps/ims/lib/utils/boxTransactionVisuals";
 import { boxTransactionLogService } from "@/apps/ims/lib/services/boxTransactionLog";
 import { docNoFromStandardBoxNoUid } from "@/apps/ims/lib/stickerUidHelpers";
+import { getBoxStockZone } from "@/apps/ims/modules/box/boxTableVisuals";
 
 const TX_SKIP = new Set([
   "count", "total_qty", "qty", "per_box_qty", "box_kind", "standard_count", "loose_count",
@@ -47,6 +48,9 @@ export function boxJourneyKey(box) {
 }
 
 export function buildBoxDetailRows(box) {
+  const isDispatched = getBoxStockZone(box) === "dispatched";
+  const dispatchCustomer = box?.forward_note_customer_name ?? box?.acc_name ?? null;
+
   if (!box) return [];
   return [
     ["Box Sticker No", box.box_no_uid],
@@ -61,6 +65,9 @@ export function buildBoxDetailRows(box) {
     ["Box Type", box.box_kind],
     ["Inward UID", box.in_uid != null ? `IN-${box.in_uid}` : null],
     ["Outward UID", box.out_uid != null ? `OUT-${box.out_uid}` : null],
+    ["Dispatch FUID", isDispatched && box.fuid != null ? `FUID-${box.fuid}` : null],
+    ["Dispatch Customer", isDispatched ? dispatchCustomer : null],
+    ["Dispatch Entry Type", isDispatched ? box.out_entry_type : null],
     ["Stock Adjustment ID", box.sa_id],
     ["Location ID", box.location_id],
     ["Doc Date", box.doc_dt ? formatDocDate(box.doc_dt) : null],

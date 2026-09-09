@@ -464,10 +464,10 @@ export default function VerificationClTaskPage() {
         "task_type",
         (v, row) => (
           <div className="flex flex-col leading-tight">
-            <span className="text-[10px] font-bold text-slate-600 uppercase">{capitalize(v)}</span>
             {row.recurrence_type ? (
-              <span className="text-[9px] text-slate-400 uppercase">{row.recurrence_type}</span>
+              <span className="text-[10px] font-bold text-slate-600 uppercase">{row.recurrence_type}</span>
             ) : null}
+            <span className="text-[9px] text-slate-400 uppercase">{capitalize(v)}</span>
           </div>
         ),
         { width: "100px" },

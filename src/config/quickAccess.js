@@ -1,6 +1,7 @@
 import { ROUTES } from "@/config/routes";
 import { ROUTES as RMSTORE_ROUTES } from "@/apps/rmstore/lib/utils/routes";
-import { FileText, Activity, Shield, Clock, History, Zap, ClipboardCheck, ShieldCheck, ShieldX, LogOut, BarChart3, CheckSquare, Recycle, LayoutDashboard, ListTodo, AlertTriangle, Truck, Boxes, ClipboardList, FileSearch, Layers, Warehouse, UserCheck, ListCheck, Briefcase, Award, Video, PencilRuler, Package } from "lucide-react";
+import { ROUTES as HRMS_ROUTES } from "@/apps/hrms/lib/utils/routes";
+import { FileText, Activity, Shield, Clock, History, Zap, ClipboardCheck, ShieldCheck, ShieldX, LogOut, BarChart3, CheckSquare, Recycle, LayoutDashboard, ListTodo, AlertTriangle, Truck, Boxes, ClipboardList, FileSearch, Layers, Warehouse, UserCheck, ListCheck, Briefcase, Award, Video, PencilRuler, Package, Users, CalendarCheck, ScrollText } from "lucide-react";
 import { getShellAppFromPathname } from "@/config/appsRegistry";
 
 /** Permission-filtered; Home / role-only links when no module. */
@@ -24,6 +25,7 @@ const HOME = [
   { id: "ims", label: "IMS", icon: <Package size={13} />, path: ROUTES.DASHBOARD, appKey: "ims" },
   { id: "rmstore", label: "RM Store", icon: <Warehouse size={13} />, path: RMSTORE_ROUTES.RM_STORE_DASHBOARD, appKey: "rmstore" },
   { id: "task", label: "Task", icon: <CheckSquare size={13} />, path: "/task/dashboard", appKey: "task" },
+  { id: "hrms", label: "HRMS", icon: <Users size={13} />, path: HRMS_ROUTES.HRMS_DASHBOARD, appKey: "hrms" },
   { id: "users", label: "User Management", icon: <Shield size={13} />, path: ROUTES.USERS, module: "users" },
   { id: "modules", label: "Module", icon: <Activity size={13} />, path: ROUTES.MODULES, module: "modules" },
   { id: "logs", label: "Activity Logs", icon: <Clock size={13} />, path: ROUTES.LOGS, module: "activity_logs" },
@@ -54,6 +56,14 @@ const TASK = [
   { id: "red-ticket", label: "Red Ticket", icon: <AlertTriangle size={13} />, path: "/task/dashboard/red-ticket", module: "red_ticket" },
 ];
 
+const HRMS = [
+  { id: "home", label: "Dashboard", icon: <Zap size={13} />, path: HRMS_ROUTES.HRMS_DASHBOARD },
+  { id: "employees", label: "Employee Master", icon: <Users size={13} />, path: HRMS_ROUTES.HRMS_EMPLOYEES, module: "hrms_employee" },
+  { id: "attendance", label: "Daily Attendance", icon: <CalendarCheck size={13} />, path: HRMS_ROUTES.HRMS_ATTENDANCE, module: "hrms_attendance" },
+  { id: "attendance-log", label: "Attendance Log", icon: <ScrollText size={13} />, path: HRMS_ROUTES.HRMS_ATTENDANCE_LOG, module: "hrms_attendance_log" },
+  { id: "logs", label: "Activity Logs", icon: <History size={13} />, path: HRMS_ROUTES.HRMS_ACTIVITY_LOGS, module: "hrms_activity_logs" },
+];
+
 const SETTINGS = [
   { id: "home", label: "Dashboard", icon: <LayoutDashboard size={13} />, path: ROUTES.SETTINGS_DASHBOARD, roles: ["super_admin", "super admin"] },
   { id: "builder", label: "Dashboard Builder", icon: <PencilRuler size={13} />, path: ROUTES.SETTINGS_DASHBOARD_BUILDER, roles: ["super_admin", "super admin"] },
@@ -64,7 +74,7 @@ const SETTINGS = [
   { id: "training", label: "Training", icon: <Video size={13} />, path: ROUTES.TRAINING, module: "training_videos" },
 ];
 
-const BY_APP = { home: HOME, ims: IMS, rmstore: RMSTORE, task: TASK, settings: SETTINGS };
+const BY_APP = { home: HOME, ims: IMS, rmstore: RMSTORE, task: TASK, hrms: HRMS, settings: SETTINGS };
 
 export function getQuickLinksForPathname(pathname) {
   return BY_APP[getShellAppFromPathname(pathname)?.id] ?? IMS;

@@ -19,7 +19,7 @@ import { reportPanelService, defaultReportDateRange, toYmdClient } from "@/apps/
 import { formatScheduledDate } from "@/apps/task/lib/helpers/utilHelper";
 import { StatCard } from "@/apps/task/lib/common";
 import TaskReportFormModal from "./TaskReportFormModal";
-import ReportBookingCalendar, { SCORE_CELL_TONES } from "./ReportBookingCalendar";
+import ReportBookingCalendar, { SCORE_CELL_TONES, taskSectionKey, TASK_SECTION_FILTER_OPTIONS } from "./ReportBookingCalendar";
 import ScoreFormulaPanel, { ScoreFormulaTrigger } from "./ScoreFormulaPanel";
 import { buildClReportExportRows, buildClReportXlsxRowStyles } from "./reportExcelExport";
 import { FILTER_DATE_RANGE_MAX_DAYS, FILTER_DATE_RANGE_MAX_YEARS, filterDateRangeDayCount, parseFilterDateInput } from "@/platform/utils/core/utilHelper";
@@ -71,6 +71,7 @@ export default function ClTaskReportPage() {
   const [dateTo, setDateTo] = useState(() => defaultReportDateRange().dateTo);
   /** Quick search — filters already-loaded rows on the client only. */
   const [quickSearch, setQuickSearch] = useState("");
+  const [selectedTaskSection, setSelectedTaskSection] = useState("");
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
@@ -215,6 +216,7 @@ export default function ClTaskReportPage() {
   const handleReset = () => {
     const next = defaultReportDateRange();
     setQuickSearch("");
+    setSelectedTaskSection("");
     if (canSeeAll) {
       clearFilters();
     } else if (isManagerScope) {
@@ -234,7 +236,12 @@ export default function ClTaskReportPage() {
   };
 
   const extraFilters = useMemo(() => {
-    if (!canUseOrgFilters) return [];
+    const taskTypeFilter = {
+      label: "Task Type", key: "task_section", value: selectedTaskSection || "",
+      preserveOrder: true, variant: "quick", className: "md:min-w-[10rem] md:max-w-[12rem]",
+      options: TASK_SECTION_FILTER_OPTIONS,
+    };
+    if (!canUseOrgFilters) return [taskTypeFilter];
     const filters = [];
     if (canSeeAll) {
       filters.push(
@@ -279,8 +286,9 @@ export default function ClTaskReportPage() {
         ...personOptions.map((p) => ({ label: p.name, value: String(p.id) })),
       ],
     });
-    return filters;
+    return [taskTypeFilter, ...filters];
   }, [
+    selectedTaskSection,
     canSeeAll,
     canUseOrgFilters,
     isManagerScope,
@@ -373,7 +381,8 @@ export default function ClTaskReportPage() {
           String(u.person_name || "")
             .toLowerCase()
             .includes(q);
-        let tasks = (u.tasks || []).filter(taskInDateWindow);
+        const sectionOk = (t) => !selectedTaskSection || taskSectionKey(t) === selectedTaskSection;
+        let tasks = (u.tasks || []).filter(taskInDateWindow).filter(sectionOk);
         if (q) {
           tasks = tasks.filter(
             (t) =>
@@ -390,8 +399,8 @@ export default function ClTaskReportPage() {
           );
         }
         if (!personHit && tasks.length === 0) return null;
-        if (!q && tasks.length === 0) return null;
-        return { ...u, tasks: q && personHit ? (u.tasks || []).filter(taskInDateWindow) : tasks };
+        if (tasks.length === 0) return null;
+        return { ...u, tasks: q && personHit ? (u.tasks || []).filter(taskInDateWindow).filter(sectionOk) : tasks };
       })
       .filter(Boolean)
       .map((u, idx) => ({ ...u, sno: idx + 1 }));
@@ -401,6 +410,7 @@ export default function ClTaskReportPage() {
     selectedDepartment,
     selectedDesignation,
     selectedPerson,
+    selectedTaskSection,
     deptNameById,
     desigNameById,
     taskInDateWindow,
@@ -423,6 +433,7 @@ export default function ClTaskReportPage() {
           return null;
         }
         const tasks = (day.tasks || []).filter((t) => {
+          if (selectedTaskSection && taskSectionKey(t) !== selectedTaskSection) return false;
           if (personWant && String(t.person_id) !== personWant) return false;
           if (deptWant && String(t.department_name || "").trim().toLowerCase() !== deptWant) {
             return false;
@@ -448,6 +459,7 @@ export default function ClTaskReportPage() {
     days,
     quickSearch,
     selectedPerson,
+    selectedTaskSection,
     selectedDepartment,
     selectedDesignation,
     deptNameById,
@@ -607,6 +619,7 @@ export default function ClTaskReportPage() {
             onApply={handleFilterApply}
             onReset={handleReset}
             onExtraFilterChange={(key, v) => {
+              if (key === "task_section") return setSelectedTaskSection(v || "");
               if (!canUseOrgFilters) return;
               if (key === "department_id" && canSeeAll) setSelectedDepartment(v);
               else if (key === "designation_id" && canSeeAll) setSelectedDesignation(v);

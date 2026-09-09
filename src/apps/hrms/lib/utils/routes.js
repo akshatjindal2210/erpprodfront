@@ -5,4 +5,5 @@ export const ROUTES = {
   HRMS_ATTENDANCE_LOG: `${HRMS}/attendance-log`,
   HRMS_ATTENDANCE: `${HRMS}/attendance`,
   HRMS_EMPLOYEES: `${HRMS}/employees`,
+  HRMS_ACTIVITY_LOGS: `${HRMS}/logs`,
 };

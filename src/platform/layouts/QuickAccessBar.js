@@ -8,6 +8,7 @@ import { useSelector } from "react-redux";
 import { getQuickLinksForPathname } from "@/config/quickAccess";
 import { NAV_REGISTRY } from "@/apps/ims/lib/config/navRegistry";
 import { RM_STORE_NAV_REGISTRY } from "@/apps/rmstore/lib/config/navRegistry";
+import { HRMS_NAV_REGISTRY } from "@/apps/hrms/lib/config/navRegistry";
 import { THEME_CONFIG } from "@/config/theme";
 import Drawer from "@/ui/primitives/Drawer";
 import { trainingVideoService } from "@/apps/settings/lib/services/trainingService";
@@ -367,7 +368,8 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   }, [isPwa, isSuperAdmin]);
 
   const isRmStorePath = pathname?.startsWith("/rmstore/");
-  const navRegistry = isRmStorePath ? RM_STORE_NAV_REGISTRY : NAV_REGISTRY;
+  const isHrmsPath = pathname?.startsWith("/hrms/");
+  const navRegistry = isRmStorePath ? RM_STORE_NAV_REGISTRY : isHrmsPath ? HRMS_NAV_REGISTRY : NAV_REGISTRY;
   const currentModule = useMemo(() => {
     for (const item of navRegistry) {
       if (item.href === pathname) return item;

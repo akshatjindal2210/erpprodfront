@@ -2,6 +2,7 @@
 
 | Note | Topic |
 |------|--------|
+| [v4.1.3.md](./v4.1.3.md) | IMS Box Journey · List Ctrl+F · Sticker PRINT ALL · HRMS · Dashboard drawer / session filters |
 | [v4.1.2.md](./v4.1.2.md) | HRMS refactor · Dashboard · FN edit/approve FIFO hydrate |
 | [v4.1.1.md](./v4.1.1.md) | DB backup — 15-minute interval · Task chat auto-notify · FN bills + print after approve |
 | [v4.1.0.md](./v4.1.0.md) | **HRMS (new)** · Attendance · IMS Audit · **QC Hold History** drawer / activity-log POST |

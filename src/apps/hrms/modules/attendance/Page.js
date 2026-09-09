@@ -7,6 +7,7 @@ import { attendanceService } from "@/apps/hrms/lib/services/hrms";
 import { fetchEmployeeViews } from "@/apps/hrms/lib/helpers/employeeHelper";
 import { isUnapproved } from "@/apps/hrms/lib/attendanceUtils";
 import { ATTENDANCE_HEADERS } from "@/apps/hrms/lib/columns/attendanceColumns";
+import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import ServerListPage from "@/ui/common/list/ServerListPage";
 import { ListPageAddButton, ListPageApproveButton, ListPageDeleteButton, ListPageEditButton, ListPageViewButton } from "@/ui/common/list/listPageCrud";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
@@ -35,6 +36,8 @@ function toFilterRow(row) {
 export default function AttendancePage() {
   const [drawer, setDrawer] = useState({ open: false, mode: "add", record: null });
   const [deleteItem, setDeleteItem] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
   const reloadRef = useRef(null);
   const employeeCache = useRef(new Map());
 
@@ -72,15 +75,46 @@ export default function AttendancePage() {
 
   const extraFilters = useMemo(
     () => [
-      { label: "User", key: "employee_code", searchable: true, fetchService: fetchEmployeeFilterOptions, getByIdService: getEmployeeFilterById, dataKey: "value", labelKey: "label", preserveOrder: true },
-      { label: "Shift", key: "shift", options: SHIFT_OPTIONS, preserveOrder: true },
-      { label: "Approval", key: "approval_status", options: APPROVAL_OPTIONS, preserveOrder: true },
+      // Client (indigo) — filter rows already loaded for the date range
+      {
+        label: "User",
+        key: "employee_code",
+        variant: "quick",
+        searchable: true,
+        fetchService: fetchEmployeeFilterOptions,
+        getByIdService: getEmployeeFilterById,
+        dataKey: "value",
+        labelKey: "label",
+        preserveOrder: true,
+      },
+      { label: "Shift", key: "shift", variant: "quick", options: SHIFT_OPTIONS, preserveOrder: true },
+      { label: "Approval", key: "approval_status", variant: "quick", options: APPROVAL_OPTIONS, preserveOrder: true },
     ],
     [fetchEmployeeFilterOptions, getEmployeeFilterById]
   );
 
   const openDrawer = useCallback((mode, record = null) => setDrawer({ open: true, mode, record }), []);
   const closeDrawer = useCallback(() => setDrawer({ open: false, mode: "add", record: null }), []);
+
+  const onSelectionChange = useCallback((id, record) => {
+    setSelectedId(id ?? null);
+    setSelectedRecord(record ?? null);
+  }, []);
+
+  const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
+
+  const { openNewModal, openEditModal, openApproveModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
+    module: MODULE,
+    modalOpen: drawer.open || Boolean(deleteItem),
+    selectedId,
+    getSelectedRow,
+    openAdd: () => openDrawer("add"),
+    openEdit: (row) => openDrawer("edit", row),
+    openApprove: (row) => openDrawer("approve", row),
+    canApproveSelection: () => Boolean(selectedRecord && isUnapproved(selectedRecord)),
+    openDelete: (row) => setDeleteItem(row),
+    canDeleteSelection: () => Boolean(selectedRecord),
+  });
 
   return (
     <ServerListPage
@@ -101,16 +135,18 @@ export default function AttendancePage() {
       clientQuickSearch
       applyExtrasOnChange
       selectionLabel={(row) => `Selected: ${row.employee_code} | ${row.name || "—"} | ${row.attendance_date_display || row.attendance_date}`}
+      tableHotkeyProps={tableHotkeyProps}
+      onSelectionChange={onSelectionChange}
       toolbarActions={(api) => {
         reloadRef.current = api.reload;
-        const { selected, selectedRecord } = api;
+        const { selected, selectedRecord: row } = api;
         return (
           <>
-            <ListPageAddButton module={MODULE} onClick={() => openDrawer("add")} />
-            <ListPageEditButton module={MODULE} disabled={!selected} record={selectedRecord} onClick={() => openDrawer("edit", selectedRecord)} />
-            <ListPageViewButton module={MODULE} disabled={!selected} record={selectedRecord} onClick={() => openDrawer("view", selectedRecord)} />
-            <ListPageApproveButton module={MODULE} disabled={!selected || !isUnapproved(selectedRecord)} record={selectedRecord} onClick={() => openDrawer("approve", selectedRecord)} />
-            <ListPageDeleteButton module={MODULE} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)} />
+            <ListPageAddButton module={MODULE} onClick={openNewModal} />
+            <ListPageEditButton module={MODULE} disabled={!selected} record={row} onClick={openEditModal} />
+            <ListPageViewButton module={MODULE} disabled={!selected} record={row} onClick={() => openDrawer("view", row)} />
+            <ListPageApproveButton module={MODULE} disabled={!selected || !isUnapproved(row)} record={row} onClick={openApproveModal} />
+            <ListPageDeleteButton module={MODULE} disabled={!selected} onClick={openDeleteModal} />
           </>
         );
       }}

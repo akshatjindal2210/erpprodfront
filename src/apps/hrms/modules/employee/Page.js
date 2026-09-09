@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 
 import { employeeService } from "@/apps/hrms/lib/services/hrms";
 import { EMPLOYEE_HEADERS } from "@/apps/hrms/lib/columns/employeeColumns";
+import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import ClientListPage from "@/ui/common/list/ClientListPage";
 import { LIST_PAGE_OUTLINE_ACTION, LIST_PAGE_PRIMARY_ACTION, ListPageAddButton, ListPageViewButton } from "@/ui/common/list/listPageCrud";
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -23,6 +24,8 @@ export default function EmployeePage() {
   const [pushing, setPushing] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
 
   const loadData = useCallback(async () => {
     const body = await employeeService.list({ page: 1, limit: 50000, sortBy: "emp_code", order: "ASC" });
@@ -58,6 +61,7 @@ export default function EmployeePage() {
   }, []);
 
   const openView = useCallback((record) => {
+    if (!record) return;
     setViewRecord(record);
     setViewOpen(true);
   }, []);
@@ -67,13 +71,31 @@ export default function EmployeePage() {
     try {
       await employeeService.sync({ page: 1, limit: 50000, sortBy: "emp_code", order: "ASC" });
       await reload?.();
-      toast.success("Machine + master data synced.");
+      toast.success("Machine data synced.");
     } catch (err) {
       toast.error(err?.message || "Machine sync failed.");
     } finally {
       setSyncing(false);
     }
   }, []);
+
+  const onSelectionChange = useCallback((id, record) => {
+    setSelectedId(id ?? null);
+    setSelectedRecord(record ?? null);
+  }, []);
+
+  const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
+
+  // F2 / Edit → View Details (no standard New/Delete on this list)
+  const { openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
+    module: MODULE,
+    editAction: "view",
+    modalOpen: viewOpen,
+    selectedId,
+    getSelectedRow,
+    openEdit: (row) => openView(row),
+    canEditSelection: () => Boolean(selectedRecord),
+  });
 
   return (
     <>
@@ -93,7 +115,9 @@ export default function EmployeePage() {
           detailKeys: ["emp_name", "deptname", "brcode", "machine_sync_display", "emp_intime_display", "emp_outtime_display"],
           footerKey: "emp_name",
         }}
-        toolbarActions={({ selected, selectedRecord, reload }) => (
+        tableHotkeyProps={tableHotkeyProps}
+        onSelectionChange={onSelectionChange}
+        toolbarActions={({ selected, selectedRecord: row, reload }) => (
           <>
             <ActionButton
               module={MODULE}
@@ -108,8 +132,8 @@ export default function EmployeePage() {
               module={MODULE}
               label="Update Machine"
               disabled={!selected || pushing || syncing || deactivating}
-              record={selectedRecord}
-              onClick={() => handleUpdateMachine(selectedRecord, reload)}
+              record={row}
+              onClick={() => handleUpdateMachine(row, reload)}
               className="rounded-none h-9 text-[11px] font-bold uppercase tracking-wider px-4 shadow-none"
             />
             <ActionButton
@@ -118,16 +142,16 @@ export default function EmployeePage() {
               label={deactivating ? "Deactivating..." : "Deactivate Machine"}
               variant="outline"
               disabled={!selected || syncing || pushing || deactivating}
-              record={selectedRecord}
-              onClick={() => handleDeactivateMachine(selectedRecord, reload)}
+              record={row}
+              onClick={() => handleDeactivateMachine(row, reload)}
               className={`${LIST_PAGE_OUTLINE_ACTION} rounded-none h-9 text-[11px] font-bold uppercase tracking-wider px-4`}
             />
             <ListPageViewButton
               module={MODULE}
               label="View Details"
               disabled={!selected || syncing || pushing || deactivating}
-              record={selectedRecord}
-              onClick={() => openView(selectedRecord)}
+              record={row}
+              onClick={openEditModal}
               className="rounded-none h-9 text-[11px] font-bold uppercase tracking-wider px-4 border-slate-300 shadow-none"
             />
           </>

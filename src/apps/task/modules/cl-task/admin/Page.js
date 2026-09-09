@@ -392,11 +392,12 @@ export default function ClTaskPage() {
           },
         },
       ],
+      /*
       [
         "Type",
         "task_type",
         (v, row) => (
-          <span className="text-[10px] font-bold text-slate-600 uppercase whitespace-nowrap" title={formatTypeLabel(v, row.recurrence_type)}>
+          <span className="text-[10px] font-bold text-slate-600 uppercase whitespace-nowrap" title={p(v, row.recurrence_type)}>
             {formatTypeLabel(v, row.recurrence_type)}
           </span>
         ),
@@ -408,6 +409,20 @@ export default function ClTaskPage() {
             </span>
           ),
         },
+      ],
+      */
+      [
+        "Type",
+        "task_type",
+        (v, row) => (
+          <div className="flex flex-col leading-tight">
+            {row.recurrence_type ? (
+              <span className="text-[10px] font-bold text-slate-600 uppercase">{row.recurrence_type}</span>
+            ) : null}
+            <span className="text-[9px] text-slate-400 uppercase">{capitalize(v)}</span>
+          </div>
+        ),
+        { width: "100px" },
       ],
       [
         "Status",

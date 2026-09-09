@@ -38,9 +38,9 @@ function formatLocationNo(loc) {
 
 function parseBoxSku(box) {
   if (!box) return { customer: null, itemCode: null, itemDesc: null };
-  const customerRaw = [box.acc_name, box.override_cust, box.party_rate_cust_code].find(
-    (x) => x != null && String(x).trim() !== "" && String(x).trim() !== "—"
-  );
+  const isDispatched = getBoxStockZone(box) === "dispatched";
+  const customerPriority = isDispatched ? [box.forward_note_customer_name, box.acc_name, box.override_cust, box.party_rate_cust_code] : [box.acc_name, box.override_cust, box.party_rate_cust_code];
+  const customerRaw = customerPriority.find((x) => x != null && String(x).trim() !== "" && String(x).trim() !== "—");
   const customer = customerRaw != null ? String(customerRaw).trim() : null;
   const itemCode =
     box.item_code != null && String(box.item_code).trim() !== ""
@@ -135,6 +135,12 @@ function LocationRackDetail({ loc }) {
       ) : null}
     </div>
   );
+}
+
+function formatDispatchEntryType(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "—";
+  return raw.replace(/_/g, " ");
 }
 
 export default function BoxFinderDrawer({ open, onClose }) {
@@ -359,10 +365,37 @@ export default function BoxFinderDrawer({ open, onClose }) {
 
               {getBoxStockZone(boxData) === "dispatched" ? (
                 <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
-                  <p className="text-xs font-semibold text-blue-900">Dispatched</p>
-                  <p className="text-[11px] text-blue-800 mt-0.5 leading-snug">
-                    Store location is not shown. Customer and other details are below.
-                  </p>
+                  <p className="text-xs font-semibold text-blue-900">Dispatched Details</p>
+                  {/* <p className="text-[11px] text-blue-800 mt-0.5 leading-snug">Store location is not shown. Customer and other details are below.</p> */}
+                  <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+                    <div className="min-w-0">
+                      <dt className="text-[9px] font-bold uppercase text-blue-500">Outward UID</dt>
+                      <dd className="text-[11px] font-semibold text-blue-900 break-words">
+                        {boxData?.out_uid != null ? `OUT-${boxData.out_uid}` : "—"}
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[9px] font-bold uppercase text-blue-500">FUID</dt>
+                      <dd className="text-[11px] font-semibold text-blue-900 break-words">
+                        {boxData?.fuid != null ? `FUID-${boxData.fuid}` : "—"}
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[9px] font-bold uppercase text-blue-500">Customer</dt>
+                      <dd
+                        className="text-[11px] font-semibold text-blue-900 break-words"
+                        title={boxData?.forward_note_customer_name || boxData?.acc_name || "—"}
+                      >
+                        {boxData?.forward_note_customer_name || boxData?.acc_name || "—"}
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[9px] font-bold uppercase text-blue-500">Entry Type</dt>
+                      <dd className="text-[11px] font-semibold text-blue-900 break-words uppercase">
+                        {formatDispatchEntryType(boxData?.out_entry_type)}
+                      </dd>
+                    </div>
+                  </dl>
                 </div>
               ) : locationData ? (
                 <div className="space-y-4">

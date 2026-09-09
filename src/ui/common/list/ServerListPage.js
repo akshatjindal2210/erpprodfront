@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import DataTable from "@/ui/primitives/DataTable";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
@@ -14,10 +14,42 @@ import { buildAllFieldHeaders } from "@/ui/common/list/buildAllFieldHeaders";
 import { useServerList } from "@/ui/common/list/useServerList";
 import { applyClientSearch } from "@/ui/common/list/clientListSearch";
 
+function isBlankFilterValue(value) {
+  if (value == null) return true;
+  const s = String(value).trim();
+  return !s || s.toLowerCase() === "all";
+}
+
+/** Match a client (quick) filter against a loaded row — IMS-style. */
+function rowMatchesClientFilter(row, key, value) {
+  if (isBlankFilterValue(value)) return true;
+  const want = String(value).trim();
+  const wantLower = want.toLowerCase();
+
+  if (key === "approval_status" || key === "approval") {
+    const status = String(row?.approval_status ?? "").trim().toLowerCase();
+    if (wantLower === "unapproved" || wantLower === "pending") {
+      return !status || status === "unapproved" || status === "pending";
+    }
+    return status === wantLower;
+  }
+
+  if (key === "shift") {
+    return String(row?.shift ?? "").trim().toUpperCase() === want.toUpperCase();
+  }
+
+  const cell = row?.[key];
+  return String(cell ?? "").trim().toLowerCase() === wantLower;
+}
+
 /**
  * Reusable server-paginated list page (IMS-style).
- * Pass toolbarActions / detailModal / children for future add-edit modules.
- * clientQuickSearch: type-to-filter loaded rows in the browser; date/extras still hit API on Search.
+ *
+ * Filter colors / behavior (IMS):
+ * - `variant: "quick"`  → indigo — filters loaded rows in the browser
+ * - `variant: "server"` → white  — sent to API (default for extras)
+ * - Quick Search (`clientQuickSearch`) → indigo — client text filter
+ * - Date range → always server (white)
  */
 export default function ServerListPage({
   emptyIcon: EmptyIcon,
@@ -39,10 +71,28 @@ export default function ServerListPage({
   moreFilters = [],
   detailModal,
   children,
+  /** Spread onto DataTable (e.g. `{ hotkeysDisabled }` from useListDrawerHotkeys). */
+  tableHotkeyProps,
+  /** Notify parent when row selection changes (for list hotkeys). */
+  onSelectionChange,
 }) {
-  const resolvedExtraKeys = extraFilterKeys ?? (Array.isArray(extraFilters) ? extraFilters.map((f) => f.key).filter(Boolean) : []);
-  const moreKeys = Array.isArray(moreFilters) ? moreFilters.map((f) => f.key).filter(Boolean) : [];
-  const allFilterKeys = [...resolvedExtraKeys, ...moreKeys.filter((k) => !resolvedExtraKeys.includes(k))];
+  const allFilterKeys = useMemo(() => {
+    const resolvedExtraKeys =
+      extraFilterKeys ?? (Array.isArray(extraFilters) ? extraFilters.map((f) => f.key).filter(Boolean) : []);
+    const moreKeys = Array.isArray(moreFilters) ? moreFilters.map((f) => f.key).filter(Boolean) : [];
+    return [...resolvedExtraKeys, ...moreKeys.filter((k) => !resolvedExtraKeys.includes(k))];
+  }, [extraFilterKeys, extraFilters, moreFilters]);
+
+  const clientFilterKeys = useMemo(() => {
+    const fromArr = (defs) =>
+      Array.isArray(defs) ? defs.filter((f) => f?.variant === "quick" && f?.key).map((f) => f.key) : [];
+    return [...new Set([...fromArr(extraFilters), ...fromArr(moreFilters)])];
+  }, [extraFilters, moreFilters]);
+
+  const serverFilterKeys = useMemo(
+    () => allFilterKeys.filter((k) => !clientFilterKeys.includes(k)),
+    [allFilterKeys, clientFilterKeys]
+  );
 
   const [viewMode, handleViewMode] = useViewMode();
 
@@ -58,7 +108,6 @@ export default function ServerListPage({
     setParams,
     selected,
     setSelected,
-    selectedRecord,
     load,
     applyFilters,
     resetFilters,
@@ -68,16 +117,35 @@ export default function ServerListPage({
     pageSize,
     defaultToday,
     extraFilterKeys: allFilterKeys,
+    serverExtraFilterKeys: serverFilterKeys,
     clientQuickSearch,
   });
 
-  const filterDefs = typeof extraFilters === "function" ? extraFilters(params) : extraFilters;
-  const moreFilterDefs = typeof moreFilters === "function" ? moreFilters(params) : moreFilters;
+  const resolvedFilterDefs = typeof extraFilters === "function" ? extraFilters(params) : extraFilters;
+  const resolvedMoreFilterDefs = typeof moreFilters === "function" ? moreFilters(params) : moreFilters;
 
   const displayRows = useMemo(() => {
-    if (!clientQuickSearch) return rows;
-    return applyClientSearch(rows, tempSearch, { skipSort: true });
-  }, [clientQuickSearch, rows, tempSearch]);
+    let next = rows;
+    if (clientQuickSearch) {
+      next = applyClientSearch(next, tempSearch, { skipSort: true });
+    }
+    clientFilterKeys.forEach((key) => {
+      const value = params[key];
+      if (isBlankFilterValue(value)) return;
+      next = next.filter((row) => rowMatchesClientFilter(row, key, value));
+    });
+    return next;
+  }, [rows, tempSearch, clientQuickSearch, clientFilterKeys, params]);
+
+  const selectedRecord = useMemo(() => {
+    if (selected == null) return null;
+    const match = (row) => String(getRowId ? getRowId(row) : row.id) === String(selected);
+    return displayRows.find(match) ?? rows.find(match) ?? null;
+  }, [displayRows, rows, selected, getRowId]);
+
+  useEffect(() => {
+    onSelectionChange?.(selected, selectedRecord ?? null);
+  }, [selected, selectedRecord, onSelectionChange]);
 
   const headers = useMemo(() => {
     if (fixedHeaders?.length) return fixedHeaders;
@@ -106,14 +174,47 @@ export default function ServerListPage({
     ? toolbarActions(listApi)
     : toolbarActions;
 
-  const quickActive = clientQuickSearch && Boolean(String(tempSearch || "").trim());
-  const bindFilterValues = (defs = []) =>
-    (defs || []).map((filter) => ({
-      ...filter,
-      // Hybrid lists: quick search is client-side (indigo); date + extras hit API (white).
-      ...(clientQuickSearch && filter.variant == null ? { variant: "server" } : {}),
-      value: filter.value ?? params[filter.key] ?? "",
-    }));
+  const clientFilterActive = clientFilterKeys.some((key) => !isBlankFilterValue(params[key]));
+  const quickActive =
+    (clientQuickSearch && Boolean(String(tempSearch || "").trim())) || clientFilterActive;
+
+  const bindFilterValues = useCallback(
+    (defs = []) =>
+      (defs || []).map((filter) => ({
+        ...filter,
+        // Explicit variant wins; otherwise API extras = server (white)
+        variant: filter.variant === "quick" || filter.variant === "server" ? filter.variant : "server",
+        value: filter.value ?? params[filter.key] ?? "",
+      })),
+    [params]
+  );
+
+  const handleApply = useCallback(
+    (data) => {
+      const prev = params;
+      const next = {
+        ...prev,
+        fromDate: data.fromDate ?? prev.fromDate,
+        toDate: data.toDate ?? prev.toDate,
+      };
+      allFilterKeys.forEach((key) => {
+        if (key in data) next[key] = data[key] ?? "";
+      });
+      setParams(next);
+
+      const dateChanged =
+        String(next.fromDate || "") !== String(prev.fromDate || "") ||
+        String(next.toDate || "") !== String(prev.toDate || "");
+      const serverChanged = serverFilterKeys.some(
+        (key) => String(next[key] ?? "") !== String(prev[key] ?? "")
+      );
+      // Client-only filter changes stay in-browser; server/date changes reload API
+      if (dateChanged || serverChanged || data.searchSubmit) {
+        applyFilters();
+      }
+    },
+    [params, allFilterKeys, serverFilterKeys, setParams, applyFilters]
+  );
 
   return (
     <ListPageShell>
@@ -142,23 +243,10 @@ export default function ServerListPage({
         <DateRangeFilter
           fromDate={params.fromDate}
           toDate={params.toDate}
-          extraFilters={bindFilterValues(filterDefs)}
-          moreFilters={bindFilterValues(moreFilterDefs)}
+          extraFilters={bindFilterValues(resolvedFilterDefs)}
+          moreFilters={bindFilterValues(resolvedMoreFilterDefs)}
           applyExtrasOnChange={applyExtrasOnChange}
-          onApply={(data) => {
-            setParams((prev) => {
-              const next = {
-                ...prev,
-                fromDate: data.fromDate ?? prev.fromDate,
-                toDate: data.toDate ?? prev.toDate,
-              };
-              allFilterKeys.forEach((key) => {
-                if (key in data) next[key] = data[key] ?? "";
-              });
-              return next;
-            });
-            applyFilters();
-          }}
+          onApply={handleApply}
           onReset={resetFilters}
           searchValue={tempSearch}
           onSearchChange={setTempSearch}
@@ -183,6 +271,7 @@ export default function ServerListPage({
           getRowId={getRowId}
           totalItems={quickActive ? displayRows.length : total}
           cardConfig={cardConfig}
+          {...(tableHotkeyProps || {})}
         />
       </ListPageTableArea>
 

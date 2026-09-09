@@ -1,6 +1,7 @@
 "use client";
 
 import { isBoxOnQcHold, isBoxOutwardDispatch, isBoxInHand } from "@/apps/ims/lib/utils/boxInventory";
+import { formatDocDate } from "@/platform/utils/core/utilHelper";
 
 export function getBoxStockZone(row) {
   if (isBoxOnQcHold(row)) return "qc_hold";
@@ -80,11 +81,17 @@ const BOX_ZONE_SEARCH_LABELS = {
 export function getBoxClientSearchParts(row) {
   const zone = getBoxStockZone(row);
   const locationLabel = resolveBoxLocationLabel(row);
+  const docDisplay = formatDocDate(row?.doc_dt); // DD/MM/YYYY (table)
+  const docYmd = docDisplay && /^\d{2}\/\d{2}\/\d{4}$/.test(docDisplay) ? `${docDisplay.slice(6, 10)}-${docDisplay.slice(3, 5)}-${docDisplay.slice(0, 2)}` : null;
 
   return [
     row?.box_uid,
     row?.box_no_uid,
     row?.packing_number,
+    row?.job_card_no,
+    row?.doc_dt,
+    docDisplay,
+    docYmd,
     row?.acc_name,
     row?.acc_code,
     row?.location_no,

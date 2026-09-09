@@ -14,9 +14,19 @@ export default function WidgetClickDrawer({ open = false, drawer = null, onClose
   const [liveWidget, setLiveWidget] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isPhoneMode, setIsPhoneMode] = useState(false);
   const title = drawer?.title || "Details";
   const widgetConfig = drawer?.widget || null;
   const parentWidgetId = drawer?.parentWidgetId || null;
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsPhoneMode(mq.matches);
+    sync();
+    mq.addEventListener?.("change", sync);
+    return () => mq.removeEventListener?.("change", sync);
+  }, []);
 
   useEffect(() => {
     if (!open || !widgetConfig || !parentWidgetId) {
@@ -61,19 +71,19 @@ export default function WidgetClickDrawer({ open = false, drawer = null, onClose
     return () => { cancelled = true; };
   }, [open, widgetConfig, parentWidgetId, drawer?.appKey, drawer?.pageKey, drawer?.dashboardKey, JSON.stringify(drawer?.filters || {})]);
 
+  const isTable = liveWidget?.rawType === "table";
+
   return (
     <Drawer
       isOpen={open}
       onClose={onClose}
       title={title}
-      maxWidth="max-w-[min(90vw,110rem)]"
-      // maxWidth="max-w-7xl"
-      // maxWidth="max-w-[min(55vw,52rem)]"
+      maxWidth={isPhoneMode ? "max-w-full" : "max-w-[min(90vw,110rem)]"}
       closeOnOutside
       noPadding
       bodyScrollable={false}
     >
-      <div className="flex h-full min-h-0 flex-col" data-no-widget-link>
+      <div className="flex h-full min-h-0 min-w-0 max-w-full flex-col" data-no-widget-link>
         {loading ? (
           <div className="flex flex-1 items-center justify-center p-6 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
             Loading…
@@ -83,15 +93,23 @@ export default function WidgetClickDrawer({ open = false, drawer = null, onClose
             {error}
           </div>
         ) : liveWidget ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
+          <div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden p-2 sm:p-4">
             <div
               className={
-                liveWidget.rawType === "table"
-                  ? "min-h-0 flex-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white"
-                  : "min-h-[280px] h-[min(70vh,640px)] w-full overflow-hidden rounded-md border border-slate-200 bg-white"
+                isTable
+                  ? "min-h-0 min-w-0 max-w-full flex-1 overflow-hidden rounded-md border border-slate-200 bg-white"
+                  : "min-h-[280px] h-[min(70vh,640px)] w-full min-w-0 max-w-full overflow-hidden rounded-md border border-slate-200 bg-white"
               }
             >
-              <WidgetRenderer widget={liveWidget} readOnly nested={false} designParity pureSavedStyle suppressChrome />
+              <WidgetRenderer
+                widget={liveWidget}
+                readOnly
+                nested={false}
+                designParity
+                pureSavedStyle
+                suppressChrome
+                isPhoneMode={isPhoneMode}
+              />
             </div>
           </div>
         ) : null}
