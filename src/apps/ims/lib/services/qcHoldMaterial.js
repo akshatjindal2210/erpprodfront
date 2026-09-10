@@ -20,9 +20,5 @@ export const qcHoldMaterialService = {
   expandFullHold: (body) => api(ENDPOINTS.QC_HOLD_MATERIAL.EXPAND_FULL_HOLD, { method: "POST", body }),
   getCompletionBoxes: (body) => api(ENDPOINTS.QC_HOLD_MATERIAL.COMPLETION_BOXES, { method: "POST", body }),
   getReasons: (params) => imsApiViews(ENDPOINTS.QC_HOLD_MATERIAL.REASONS, params, "reason"),
-  getActivityLog: (hold_id, opts = {}) =>
-    api(ENDPOINTS.QC_HOLD_MATERIAL.ACTIVITY_LOG, {
-      method: "POST",
-      body: { hold_id, ...(opts.limit != null ? { limit: opts.limit } : {}) },
-    }),
+  getTransactionLog: (body = {}) => api(ENDPOINTS.QC_HOLD_MATERIAL.TRANSACTION_LOG, { method: "POST", body }),
 };

@@ -29,13 +29,9 @@ import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys
 import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { SCHEDULE_REPORT_FILTER, SCHEDULE_REPORT_FILTER_OPTIONS } from "@/apps/ims/modules/schedule-planning/schedulePlanStatus";
 import { MONTH_FILTER_OPTIONS } from "@/apps/ims/modules/schedule-planning/schedulePlanningColumns";
-import {
-  SHORTAGE_PAGE_TABS,
-  buildShortageMasterHeaders,
-  buildShortageItemWiseHeaders,
-  shortageMasterSearchParts,
-  shortageItemWiseSearchParts,
-} from "@/apps/ims/modules/shortage/shortageColumns";
+import { getSelectedFinancialYear } from "@/platform/utils/global/financialYear";
+import { clampRangeToIndianFy, defaultRangeInIndianFy, indianFyMonthRange } from "@/platform/utils/core/indianFinancialYear";
+import { SHORTAGE_PAGE_TABS, buildShortageMasterHeaders, buildShortageItemWiseHeaders, formatShortageMonthDate, shortageYearMonthKey, shortageMasterSearchParts, shortageItemWiseSearchParts } from "@/apps/ims/modules/shortage/shortageColumns";
 
 const TYPE_FILTER_OPTIONS = [
   { label: "All Types", value: "all" },
@@ -61,45 +57,29 @@ function clampYmdRange(range, bounds = {}) {
   return { from, to };
 }
 
-function buildShortageDefaultMonthRange() {
-  const from = dayjs().startOf("month");
-  const to = dayjs().endOf("month");
-  return { from: from.format("YYYY-MM-DD"), to: to.format("YYYY-MM-DD") };
-}
-
-function monthBoundsInCurrentYear(monthNum) {
-  const m = Number(monthNum);
-  if (!Number.isFinite(m) || m < 1 || m > 12) return { from: "", to: "" };
-  const from = dayjs().month(m - 1).startOf("month");
-  return { from: from.format("YYYY-MM-DD"), to: from.endOf("month").format("YYYY-MM-DD") };
-}
-
 function resolveShortageDateFilters(params, viewBounds = {}) {
-  const reportType = String(params.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT).toLowerCase();
-  if (reportType !== SCHEDULE_REPORT_FILTER.CUSTOM) {
-    return clampYmdRange(buildShortageDefaultMonthRange(), viewBounds);
+  const fy = getSelectedFinancialYear().name;
+  const custom = String(params.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT).toLowerCase() === SCHEDULE_REPORT_FILTER.CUSTOM;
+  let range = defaultRangeInIndianFy(fy);
+  if (custom) {
+    const month = params.month;
+    const fromDate = String(params.fromDate ?? "").trim();
+    const toDate = String(params.toDate ?? "").trim();
+    const hasMonth = month && String(month).toLowerCase() !== "all";
+    const hasDate = Boolean(fromDate) || Boolean(toDate);
+    if (hasMonth && !hasDate) range = indianFyMonthRange(month, fy);
+    else {
+      let from = fromDate;
+      let to = toDate || fromDate;
+      if (hasMonth && hasDate) {
+        const b = indianFyMonthRange(month, fy);
+        from = (fromDate || b.from) > b.from ? (fromDate || b.from) : b.from;
+        to = (toDate || fromDate || b.to) < b.to ? (toDate || fromDate || b.to) : b.to;
+      }
+      range = { from, to };
+    }
   }
-
-  const month = params.month;
-  const fromDate = String(params.fromDate ?? "").trim();
-  const toDate = String(params.toDate ?? "").trim();
-  const hasMonth = month && String(month).toLowerCase() !== "all";
-  const hasDate = Boolean(fromDate) || Boolean(toDate);
-
-  if (hasMonth && !hasDate) {
-    return clampYmdRange(monthBoundsInCurrentYear(month), viewBounds);
-  }
-
-  let from = fromDate;
-  let to = toDate || fromDate;
-  if (hasMonth && hasDate) {
-    const bounds = monthBoundsInCurrentYear(month);
-    const userFrom = fromDate || bounds.from;
-    const userTo = toDate || fromDate || bounds.to;
-    from = userFrom > bounds.from ? userFrom : bounds.from;
-    to = userTo < bounds.to ? userTo : bounds.to;
-  }
-  return clampYmdRange({ from, to }, viewBounds);
+  return clampYmdRange(clampRangeToIndianFy(range, fy), viewBounds);
 }
 
 const buildShortageListFilters = (params, viewBounds = {}) => {
@@ -211,8 +191,8 @@ export default function ShortagePage() {
       fromDate: "",
       toDate: "",
       month: "all",
-      sortKey: isMasterTab ? "item_code" : "id",
-      sortDir: isMasterTab ? "asc" : "desc",
+      sortKey: isMasterTab ? "year_month" : "id",
+      sortDir: isMasterTab ? "desc" : "desc",
     }));
   };
 
@@ -236,11 +216,24 @@ export default function ShortagePage() {
 
   const drillToItemWise = useCallback((masterRow) => {
     const code = masterRow?.itemdcode;
+    const ym = String(masterRow?.year_month ?? "").trim();
     if (code == null || String(code).trim() === "") return;
     setItemWiseItemdcodeFilter(String(code).trim());
+    if (/^\d{4}-\d{2}$/.test(ym)) {
+      const from = `${ym}-01`;
+      const to = dayjs(from).endOf("month").format("YYYY-MM-DD");
+      setDraftReportType(SCHEDULE_REPORT_FILTER.CUSTOM);
+      setParams((prev) => ({
+        ...prev,
+        reportType: SCHEDULE_REPORT_FILTER.CUSTOM,
+        month: "all",
+        fromDate: from,
+        toDate: to,
+      }));
+    }
     setPageTab("item-wise");
     setSelected(null);
-  }, []);
+  }, [setParams]);
 
   const masterFilteredRows = useMemo(() => {
     let data = masterRows;
@@ -250,7 +243,7 @@ export default function ShortagePage() {
         skipSort: !!params.sortKey,
       });
     }
-    return sortRowsByKey(data, params.sortKey || "item_code", params.sortDir || "asc");
+    return sortRowsByKey(data, params.sortKey || "year_month", params.sortDir || "desc");
   }, [masterRows, tempSearch, params.sortKey, params.sortDir]);
 
   const masterItems = useMemo(
@@ -259,9 +252,15 @@ export default function ShortagePage() {
   );
 
   const itemFilteredRows = useMemo(() => {
-    let data = itemWiseItemdcodeFilter
-      ? allRows.filter((row) => String(row.itemdcode ?? "").trim() === String(itemWiseItemdcodeFilter).trim())
-      : allRows;
+    let data = allRows;
+    if (itemWiseItemdcodeFilter) {
+      const code = String(itemWiseItemdcodeFilter).trim();
+      const ym = shortageYearMonthKey(params.fromDate || params.toDate);
+      data = allRows.filter((row) => {
+        if (String(row.itemdcode ?? "").trim() !== code) return false;
+        return !ym || shortageYearMonthKey(row.month) === ym;
+      });
+    }
     if (String(tempSearch || "").trim()) {
       data = applyClientSearch(data, tempSearch, {
         getParts: shortageItemWiseSearchParts,
@@ -269,7 +268,7 @@ export default function ShortagePage() {
       });
     }
     return sortRowsByKey(data, params.sortKey || "id", params.sortDir || "desc");
-  }, [allRows, itemWiseItemdcodeFilter, tempSearch, params.sortKey, params.sortDir]);
+  }, [allRows, itemWiseItemdcodeFilter, params.fromDate, params.toDate, tempSearch, params.sortKey, params.sortDir]);
 
   const [itemDisplayLimit, setItemDisplayLimit] = useState(100);
   useEffect(() => {
@@ -370,13 +369,14 @@ export default function ShortagePage() {
     setSelected(null);
   };
 
-  const drilledItemLabel = useMemo(() => {
+  const drillBannerText = useMemo(() => {
     if (!itemWiseItemdcodeFilter) return "";
-    const hit =
-      masterRows.find((r) => String(r.itemdcode).trim() === String(itemWiseItemdcodeFilter).trim()) ||
-      allRows.find((r) => String(r.itemdcode).trim() === String(itemWiseItemdcodeFilter).trim());
-    return hit?.item_code || hit?.itemcode || itemWiseItemdcodeFilter;
-  }, [itemWiseItemdcodeFilter, masterRows, allRows]);
+    const code = String(itemWiseItemdcodeFilter).trim();
+    const hit = masterRows.find((r) => String(r.itemdcode).trim() === code) || allRows.find((r) => String(r.itemdcode).trim() === code);
+    const label = hit?.item_code || hit?.itemcode || itemWiseItemdcodeFilter;
+    const month = formatShortageMonthDate(params.fromDate || params.toDate);
+    return month !== "—" ? `${label} · ${month}` : label;
+  }, [itemWiseItemdcodeFilter, masterRows, allRows, params.fromDate, params.toDate]);
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
@@ -392,8 +392,8 @@ export default function ShortagePage() {
                   if (id === "master") setItemWiseItemdcodeFilter(null);
                   setParams((prev) => ({
                     ...prev,
-                    sortKey: id === "master" ? "item_code" : "id",
-                    sortDir: id === "master" ? "asc" : "desc",
+                    sortKey: id === "master" ? "year_month" : "id",
+                    sortDir: "desc",
                   }));
                 }}
                 tabs={SHORTAGE_PAGE_TABS}
@@ -460,7 +460,7 @@ export default function ShortagePage() {
           {!isMasterTab && itemWiseItemdcodeFilter ? (
             <div className="flex items-center justify-between px-3 py-1.5 bg-cyan-50 border border-cyan-100">
               <span className="text-[10px] font-bold text-cyan-800 uppercase flex items-center gap-2">
-                <Info size={12} /> Item-wise entries for {drilledItemLabel}
+                <Info size={12} /> Item-wise entries for {drillBannerText}
               </span>
               <button
                 type="button"

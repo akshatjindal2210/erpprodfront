@@ -35,7 +35,6 @@ function parseHoldDataRaw(raw) {
   return raw;
 }
 
-/** Hide empty noise: 0, [], {}, "", null, false. */
 function isEmptyActivityValue(value) {
   if (value == null || value === "") return true;
   if (value === false) return true;
@@ -88,7 +87,6 @@ function FieldChip({ label, children, wide = false }) {
   );
 }
 
-/** Readable nested details — no raw [], {}, or JSON dumps for end users. */
 function ReadableFields({ data, nestLabel = null }) {
   const entries = activityFieldEntries(data);
   if (!entries.length) return null;
@@ -155,7 +153,6 @@ function ReadableFields({ data, nestLabel = null }) {
   );
 }
 
-/** Legacy logs: hold_data was `{...}` — show proper readable fields from current hold. */
 function HoldDataExpand({ holdData }) {
   const [open, setOpen] = useState(false);
   const hasFields = useMemo(() => activityFieldEntries(holdData).length > 0, [holdData]);
@@ -209,7 +206,7 @@ export default function QcHoldActivityDrawer({ open, hold, onClose }) {
     if (!holdId) return;
     setLoading(true);
     try {
-      const res = await qcHoldMaterialService.getActivityLog(holdId, { limit: 200 });
+      const res = await qcHoldMaterialService.getTransactionLog({ hold_id: holdId, limit: 200 });
       const list = Array.isArray(res?.data) ? res.data : [];
       setRows(list);
       setExpandedId(null);
@@ -232,14 +229,14 @@ export default function QcHoldActivityDrawer({ open, hold, onClose }) {
     if (hold?.packing_number) bits.push(`Packing ${hold.packing_number}`);
     if (hold?.item_code || hold?.item_dcode) bits.push(String(hold.item_code || hold.item_dcode));
     if (hold?.status) bits.push(String(hold.status).replace(/_/g, " "));
-    return bits.join(" · ") || "Activity timeline for this QC hold";
+    return bits.join(" · ") || "QC hold activity";
   }, [hold, holdId]);
 
   return (
     <Drawer
       isOpen={!!open}
       onClose={onClose}
-      title="Activity log"
+      title="Transaction log"
       description={description}
       maxWidth="max-w-lg"
       closeOnOutside
@@ -248,24 +245,25 @@ export default function QcHoldActivityDrawer({ open, hold, onClose }) {
           {loading
             ? "Loading…"
             : rows.length
-              ? `${rows.length} event${rows.length === 1 ? "" : "s"} · newest first`
+              ? `${rows.length} event${rows.length === 1 ? "" : "s"}`
               : "No events"}
         </div>
       }
     >
       {loading ? (
-        <div className="flex items-center justify-center gap-2 py-20 text-slate-500 text-xs font-bold uppercase">
-          <Loader2 size={14} className="animate-spin" /> Loading timeline
+        <div className="flex items-center justify-center gap-2 py-12 text-slate-500 text-xs font-bold uppercase">
+          <Loader2 size={14} className="animate-spin" /> Loading
         </div>
       ) : rows.length === 0 ? (
-        <div className="py-16 text-center px-2">
-          <p className="text-xs text-slate-500 font-semibold">No activity logged for this hold yet.</p>
-          <p className="text-[10px] text-slate-400 mt-1">
-            Create / submit / approve actions will show here as a timeline.
-          </p>
+        <div className="py-8 text-center px-2">
+          <p className="text-xs text-slate-500 font-semibold">No transactions recorded.</p>
         </div>
       ) : (
-        <ol className="relative ml-2 border-l-2 border-slate-200 pl-5">
+        <>
+          <div className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">
+            Events
+          </div>
+          <ol className="relative ml-2 border-l-2 border-slate-200 pl-5">
           {rows.map((row, idx) => {
             const isOpen = expandedId === row.id;
             const isLast = idx === rows.length - 1;
@@ -351,6 +349,7 @@ export default function QcHoldActivityDrawer({ open, hold, onClose }) {
             );
           })}
         </ol>
+        </>
       )}
     </Drawer>
   );

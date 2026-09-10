@@ -226,7 +226,7 @@ export const ENDPOINTS = {
     EXPAND_FULL_HOLD: "/qc-hold-material/expand-full-hold",
     COMPLETION_BOXES: "/qc-hold-material/completion-boxes",
     REASONS: "/qc-hold-material/reason-helper",
-    ACTIVITY_LOG: "/qc-hold-material/activity-log",
+    TRANSACTION_LOG: "/qc-hold-material/transaction-log",
   },
   AUDIT: {
     LIST: "/audit/list",

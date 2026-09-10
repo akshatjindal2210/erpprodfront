@@ -53,6 +53,7 @@ const INITIAL_ITEM_ROW = {
   dispatch_target: "", // user target for FIFO calc (balance cap)
   dispatch_std:    "", // dispatch according to standard
   source_dispatch_qty: 0,
+  shortage_qty_percentage: 0,
   use_system_std:  false, // FIFO / Std suggestion active (save uses Std QTY)
   fetching:        false,
   boxes_edited:    false, // true once user changes box selection (prevents edit fallback)
@@ -174,6 +175,7 @@ function skeletonItemFromDispatchRow(row) {
     itemdesc: row?.itemdesc || "",
     schno: rowSchno,
     source_dispatch_qty: balanceQty,
+    shortage_qty_percentage: Math.max(0, Math.min(100, Number(row?.shortage_qty_percentage) || 0)),
     dispatch_target: balanceQty > 0 ? String(balanceQty) : "",
     fetching: Boolean(itemDcode),
     boxes_edited: false,
@@ -204,6 +206,7 @@ function scheduleLineToCatalogItem(row) {
     schno,
     balance_qty: balanceQty,
     source_dispatch_qty: balanceQty,
+    shortage_qty_percentage: Math.max(0, Math.min(100, Number(row?.shortage_qty_percentage) || 0)),
     fg_stock_qty: fg,
     fg_zero: fgZero,
     balance_zero: balanceZero,
@@ -309,29 +312,43 @@ const erpPackingEntries = (item) => {
 // Total qty of a box array
 const sumQty = (boxes) => boxes.reduce((s, b) => s + Number(b.qty), 0);
 
-/** Max manual dispatch qty — balance cap from schedule plan, else FG stock. */
+const getItemShortagePct = (item) => Math.max(0, Math.min(100, Number(item?.shortage_qty_percentage) || 0));
+
+const getScheduleMaxExtraQty = (item) => {
+  const balanceCap = Number(item?.source_dispatch_qty ?? 0);  // 196
+  if (!(balanceCap > 0)) return 0;
+  return Math.floor((balanceCap * getItemShortagePct(item)) / 100); // floor(196 * 10 / 100) = 19
+};
+
+const getScheduleMaxAllowedQty = (item) => {
+  const balanceCap = Number(item?.source_dispatch_qty ?? 0);
+  if (!(balanceCap > 0)) return 0;
+  return balanceCap + getScheduleMaxExtraQty(item);  // 196 + 19 = 215  
+};
+
+/** Manual typed cap: balance (+ % extra when config set). FIFO itself is never hard-stopped. */
 const getDispatchQtyCap = (item) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
   const fgCap = Number(item?.fg_qty ?? 0);
-  if (balanceCap > 0) return Math.min(fgCap, balanceCap);
+  if (balanceCap > 0) return Math.min(fgCap, getScheduleMaxAllowedQty(item));
   return fgCap;
 };
 
-/** Cap typed dispatch qty; empty string allowed while editing. */
-const formatDispatchQtyInput = (item, rawVal) => {
+/** Normalize typed dispatch qty; empty string allowed while editing. */
+const formatDispatchQtyInput = (_item, rawVal) => {
   if (rawVal === "" || rawVal == null) return "";
   const n = Number(rawVal);
   if (!Number.isFinite(n)) return "";
-  const cap = getDispatchQtyCap(item);
-  return String(Math.min(Math.max(0, n), cap));
+  return String(Math.max(0, n));
 };
 
 /** User / balance target for FIFO — never treat system dispatch_qty as target on schedule rows. */
 const getItemFifoTarget = (item) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
+  const scheduleCap = getScheduleMaxAllowedQty(item);
   const targetQty = Number(item.dispatch_target || 0);
   if (targetQty > 0) {
-    return balanceCap > 0 ? Math.min(targetQty, balanceCap) : targetQty;
+    return balanceCap > 0 ? Math.min(targetQty, scheduleCap) : targetQty;
   }
   if (balanceCap > 0) return balanceCap;
   return Number(item.dispatch_qty || 0) || 0;
@@ -357,13 +374,13 @@ const getFifoPrefixFromSelection = (orderedBoxes, selectedBoxes) => {
 
 /**
  * Max boxes for +/- stepper (FIFO, full boxes).
- * - Schedule (balance > 0): stop at boxes needed for balance qty
+ * - Schedule (balance > 0): stop at boxes needed for balance / max-allowed target
  * - Direct / no schedule: all available boxes so + can grow dispatch qty freely
  */
 const maxFifoBoxesForItem = (item, orderedBoxes) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
   if (balanceCap > 0) {
-    return selectBoxesByQty(orderedBoxes, balanceCap).length;
+    return selectBoxesByQty(orderedBoxes, getScheduleMaxAllowedQty(item)).length;
   }
   return orderedBoxes.length;
 };
@@ -386,7 +403,7 @@ const canAddMoreFifoBoxes = (item) => {
   return current < fifoLimit && current < orderedBoxes.length;
 };
 
-/** FIFO pick; always takes full boxes (never partial) to avoid breaking boxes. */
+/** FIFO pick; always takes full boxes (never partial) — same as before. */
 const selectBoxesByQty = (boxes, targetQty) =>
   calculateFifoBoxes(boxes, targetQty).selectedBoxes;
 
@@ -480,6 +497,7 @@ const reorderBoxesForSelection = (boxes = [], loosePriority = false) => {
 /** Build row state from user target — dispatch_qty = system FIFO total sent. */
 const buildDispatchFromTarget = (item, targetQty) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
+  const scheduleCap = getScheduleMaxAllowedQty(item);
   const ordered = reorderBoxesForSelection(item.available_boxes || [], item.loose_priority);
   const target = Number(targetQty) || 0;
 
@@ -494,7 +512,7 @@ const buildDispatchFromTarget = (item, targetQty) => {
     };
   }
 
-  const fifoTarget = balanceCap > 0 && target > balanceCap ? balanceCap : target;
+  const fifoTarget = balanceCap > 0 && target > scheduleCap ? scheduleCap : target;
   const selected = selectBoxesByQty(ordered, fifoTarget);
   const stdQty = sumQty(selected);
 
@@ -513,7 +531,7 @@ const fifoPreviewTargetForRow = (row) => {
   const balanceCap = Number(row?.source_dispatch_qty ?? 0);
   const savedQty = Number(row.dispatch_qty) || Number(row.dispatch_target) || 0;
   if (savedQty <= 0) return 0;
-  if (balanceCap > 0) return Math.min(savedQty, balanceCap);
+  if (balanceCap > 0) return Math.min(savedQty, getScheduleMaxAllowedQty(row));
   return savedQty;
 };
 
@@ -541,21 +559,24 @@ const reconcileRowSelectionToBalance = (row, balanceCap) => {
           0
         );
   const savedQty = Number(withBal.dispatch_qty) || 0;
-  const needsTrim = currentCount > maxBoxes || savedQty > balanceCap;
+  // Do not treat normal FIFO full-box overshoot as needing trim when % = 0.
+  const needsTrim =
+    currentCount > maxBoxes ||
+    (getItemShortagePct(withBal) > 0 && savedQty > getScheduleMaxAllowedQty(withBal) + 0.0001);
   if (!needsTrim) return withBal;
 
   const target = getItemFifoTarget(withBal);
-  const built = buildDispatchFromTarget(withBal, target > 0 ? target : balanceCap);
   return {
     ...withBal,
-    ...built,
+    ...buildDispatchFromTarget(withBal, target > 0 ? target : balanceCap),
     original_breakdowns: [],
   };
 };
 
-/** Apply dispatch qty input → FIFO boxes (never breaks boxes; caps at balance). */
+/** Apply dispatch qty input → FIFO boxes (never breaks boxes; caps typed qty at schedule max-allowed). */
 const resolveDispatchQtySelection = (item, rawVal, { emptyMeansSystem = false } = {}) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
+  const scheduleCap = getScheduleMaxAllowedQty(item);
   const ordered = reorderBoxesForSelection(item.available_boxes || [], item.loose_priority);
 
   if (rawVal === "" || rawVal == null) {
@@ -573,14 +594,11 @@ const resolveDispatchQtySelection = (item, rawVal, { emptyMeansSystem = false } 
   }
 
   const n = Number(rawVal);
-  if (!Number.isFinite(n) || n < 0) {
-    return null;
-  }
+  if (!Number.isFinite(n) || n < 0) return null;
 
-  if (balanceCap > 0 && n > balanceCap) {
-    return buildDispatchFromTarget(item, balanceCap);
+  if (balanceCap > 0 && n > scheduleCap) {
+    return buildDispatchFromTarget(item, scheduleCap);
   }
-
   return buildDispatchFromTarget(item, n);
 };
 
@@ -736,7 +754,7 @@ export default function ForwardingModal({
         const catalogBal = Math.max(0, Number(match.balance_qty ?? match.source_dispatch_qty ?? 0));
         if (!(catalogBal > 0)) return row;
         changed = true;
-        return reconcileRowSelectionToBalance(row, catalogBal);
+        return reconcileRowSelectionToBalance({...row, shortage_qty_percentage: Math.max(0, Math.min(100, Number(match.shortage_qty_percentage) || 0))}, catalogBal);
       });
       if (!changed) return prev;
       formItemsRef.current = nextItems;
@@ -794,6 +812,7 @@ export default function ForwardingModal({
               schno,
               balance_qty: bal,
               source_dispatch_qty: bal,
+              shortage_qty_percentage: Math.max(0, Math.min(100, Number(fromForm.shortage_qty_percentage) || 0)),
               fg_stock_qty: fg,
               fg_zero: !(fg > 0),
               schedule_hint: [
@@ -1218,6 +1237,7 @@ export default function ForwardingModal({
             dispatch_qty: i.total_qty || "",
             dispatch_std: i.total_qty || "",
             source_dispatch_qty: 0,
+            shortage_qty_percentage: 0,
             use_system_std: false,
             fetching: Boolean(i.item_dcode && resolvedCategoryId),
             boxes_edited: false,
@@ -1444,11 +1464,11 @@ export default function ForwardingModal({
     });
   };
 
+  const focusLoose = (i) => setTimeout(() => formRef.current?.querySelector(`[data-fn-loose="${i}"]`)?.focus(), 0);
   const addRow = () => {
-    setForm(prev => ({
-      ...prev,
-      items: [...prev.items, { ...INITIAL_ITEM_ROW }]
-    }));
+    const i = form.items.length;
+    setForm((p) => ({ ...p, items: [...p.items, { ...INITIAL_ITEM_ROW }] }));
+    focusLoose(i);
   };
 
   const removeRow = (idx) => {
@@ -1456,10 +1476,7 @@ export default function ForwardingModal({
       updateItemRow(0, INITIAL_ITEM_ROW);
       return;
     }
-    setForm(prev => ({
-      ...prev,
-      items: prev.items.filter((_, i) => i !== idx)
-    }));
+    setForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }));
   };
 
   const fetchItemStock = useCallback(
@@ -1698,6 +1715,7 @@ export default function ForwardingModal({
       itemdesc:        rawData?.itemdesc  || "",
       schno:           scheduleCatalogActive ? scheduleSchno : "",
       source_dispatch_qty: scheduleCatalogActive ? balanceQty : 0,
+      shortage_qty_percentage: Math.max(0, Math.min(100, Number(rawData?.shortage_qty_percentage) || 0)),
       available_boxes: [],
       selected_boxes:  [],
       loose_priority:  false,
@@ -1731,30 +1749,49 @@ export default function ForwardingModal({
   };
 
   const handleDispatchQtyBlur = (idx) => {
+    const item = form.items[idx];
+    if (!item) {
+      setEditingDispatchIdx((cur) => (cur === idx ? null : cur));
+      return;
+    }
+
+    let raw =
+      item.dispatch_target === "" || item.dispatch_target == null
+        ? ""
+        : String(item.dispatch_target);
+    const pooled = { ...item, available_boxes: fifoPoolForRow(form.items, idx) };
+    const cap = getDispatchQtyCap(pooled);
+    // Toast only when over-dispatch % is set — FIFO full-box overshoot is not an error when % = 0.
+    let overMax = false;
+    if (raw !== "" && getItemShortagePct(pooled) > 0) {
+      const typed = Number(raw);
+      if (Number.isFinite(typed) && typed > cap) {
+        overMax = true;
+        raw = String(cap);
+      }
+    }
+    const cappedRaw = raw;
+
     setEditingDispatchIdx((cur) => (cur === idx ? null : cur));
     setForm((prev) => {
-      const item = prev.items[idx];
-      if (!item) return prev;
-      const balanceCap = Number(item.source_dispatch_qty ?? 0);
-      const raw =
-        item.dispatch_target === "" || item.dispatch_target == null
-          ? ""
-          : String(item.dispatch_target);
-      const pooled = { ...item, available_boxes: fifoPoolForRow(prev.items, idx) };
+      const row = prev.items[idx];
+      if (!row) return prev;
+      const pooledPrev = { ...row, available_boxes: fifoPoolForRow(prev.items, idx) };
+      const bal = Number(row.source_dispatch_qty ?? 0);
 
       let nextItems;
-      if (balanceCap > 0 || raw !== "") {
-        const next = resolveDispatchQtySelection(pooled, raw, {
-          emptyMeansSystem: balanceCap > 0,
+      if (bal > 0 || cappedRaw !== "") {
+        const next = resolveDispatchQtySelection(pooledPrev, cappedRaw, {
+          emptyMeansSystem: bal > 0,
         });
         if (!next) return prev;
         // Qty / boxes only — never touch schno or source_dispatch_qty (original balance).
-        nextItems = prev.items.map((row, i) => (i === idx ? { ...row, ...next } : row));
+        nextItems = prev.items.map((r, i) => (i === idx ? { ...r, ...next } : r));
       } else {
-        nextItems = prev.items.map((row, i) =>
+        nextItems = prev.items.map((r, i) =>
           i === idx
             ? {
-                ...row,
+                ...r,
                 dispatch_target: "",
                 dispatch_qty: "",
                 selected_boxes: [],
@@ -1762,7 +1799,7 @@ export default function ForwardingModal({
                 use_system_std: false,
                 boxes_edited: true,
               }
-            : row
+            : r
         );
       }
 
@@ -1776,6 +1813,10 @@ export default function ForwardingModal({
       formItemsRef.current = nextItems;
       return { ...prev, items: nextItems };
     });
+    // Defer toast past React's event flush — ToastContainer (`dt`) must not update mid-modal-render.
+    if (overMax) {
+      setTimeout(() => toast.error("Cannot exceed maximum allowed quantity"), 0);
+    }
   };
 
   const handleBoxChange = (idx, type) => {
@@ -1823,11 +1864,7 @@ export default function ForwardingModal({
       const newSelected = orderedBoxes.slice(0, newCount);
       const stdQty = sumQty(newSelected);
       const balanceCap = Number(item.source_dispatch_qty ?? 0);
-      const fifoTarget = getItemFifoTarget(item);
-      const targetForRow =
-        balanceCap > 0
-          ? (fifoTarget > 0 ? Math.min(fifoTarget, balanceCap) : balanceCap)
-          : stdQty;
+      const targetForRow = stdQty;
 
       let nextItems = prev.items.map((row, i) =>
         i === idx
@@ -2194,6 +2231,11 @@ export default function ForwardingModal({
                 onFocus={() => setTransporterOpen(true)}
                 onBlur={() => setTimeout(() => setTransporterOpen(false), 120)}
                 onKeyDown={(e) => {
+                  if (e.key === "Tab") {
+                    setTransporterOpen(false);
+                    setTransporterHighlight(-1);
+                    return;
+                  }
                   if (!transporterOpen || transporterOpts.length === 0) return;
                   if (e.key === "ArrowDown") {
                     e.preventDefault();
@@ -2242,6 +2284,7 @@ export default function ForwardingModal({
                     <button
                       key={o.id}
                       type="button"
+                      tabIndex={-1}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         handleTransporterPick(o);
@@ -2307,6 +2350,11 @@ export default function ForwardingModal({
               onFocus={() => setVehicleOpen(true)}
               onBlur={() => setTimeout(() => setVehicleOpen(false), 120)}
               onKeyDown={(e) => {
+                if (e.key === "Tab") {
+                  setVehicleOpen(false);
+                  setVehicleHighlight(-1);
+                  return;
+                }
                 if (!vehicleOpen || vehicleOpts.length === 0) return;
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
@@ -2331,6 +2379,7 @@ export default function ForwardingModal({
                   <button
                     key={o.id || o.vehicle_number}
                     type="button"
+                    tabIndex={-1}
                     onMouseDown={(e) => {
                       e.preventDefault();
                       handleVehiclePick(o);
@@ -2356,6 +2405,9 @@ export default function ForwardingModal({
               type="number"
               value={form.cartage}
               onChange={(e) => handleInputChange("cartage", e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); focusLoose(0); }
+              }}
               placeholder="0"
               className={`${OK_INPUT} w-full rounded-lg border-slate-200`}
             />
@@ -2420,6 +2472,7 @@ export default function ForwardingModal({
                     <label className={`inline-flex items-center gap-1.5 ${FORM_MICRO_LABEL_CLASS} text-slate-500`}>
                       <input
                         type="checkbox"
+                        data-fn-loose={idx}
                         checked={!!item.loose_priority}
                         onChange={(e) => handleLoosePriorityToggle(idx, e.target.checked)}
                         className="h-3.5 w-3.5 rounded border-slate-300 accent-amber-600"
@@ -2428,6 +2481,8 @@ export default function ForwardingModal({
                     </label>
                     {form.items.length > 1 && (
                       <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => removeRow(idx)}
                         className="p-1 text-rose-400 hover:bg-rose-50 rounded-md transition-colors"
                       >
@@ -2518,10 +2573,10 @@ export default function ForwardingModal({
                       onChange={(e) => handleDispatchQtyChange(idx, e.target.value)}
                       onBlur={() => handleDispatchQtyBlur(idx)}
                       min={0}
-                      max={item.source_dispatch_qty > 0 ? item.source_dispatch_qty : item.fg_qty || undefined}
+                      max={getDispatchQtyCap(item) || undefined}
                       title={
                         item.source_dispatch_qty > 0
-                          ? "Type up to balance qty — on blur system FIFO total may exceed balance (full boxes)"
+                          ? "Type qty up to maximum allowed quantity"
                           : "Type qty, then Tab/click away — system FIFO total fills here"
                       }
                       className={`${OK_INPUT} text-center font-bold text-slate-700 h-[38px] text-[11px] rounded-lg border-slate-200`}
@@ -2551,7 +2606,9 @@ export default function ForwardingModal({
                         title={
                           !canAddMoreFifoBoxes(item)
                             ? Number(item.source_dispatch_qty) > 0
-                              ? `FIFO max for balance ${Number(item.source_dispatch_qty).toLocaleString()}`
+                              ? getItemShortagePct(item) > 0
+                                ? `Cannot exceed maximum allowed quantity (${getDispatchQtyCap(item).toLocaleString()})`
+                                : undefined
                               : Number(item.fg_qty) > 0
                                 ? `FIFO max for FG stock ${Number(item.fg_qty).toLocaleString()}`
                                 : undefined
@@ -2691,6 +2748,7 @@ export default function ForwardingModal({
           </div>
           <div className="pt-1 flex justify-end">
             <button
+              type="button"
               onClick={addRow}
               className="w-full md:w-auto flex items-center justify-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-md transition-all shadow-sm"
             >

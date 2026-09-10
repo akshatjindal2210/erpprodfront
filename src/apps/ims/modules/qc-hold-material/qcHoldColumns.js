@@ -5,19 +5,43 @@
  * Used by Page.js (same pattern as masterColumns.js for Daily Production).
  */
 
-import { CheckCircle, Clock /*, Layers */ } from "lucide-react";
+import { Activity, Clock } from "lucide-react";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
+import { formatActivityLogActionLabel, getActivityLogActionBadgeClass, getActivityLogEventLabel } from "@/platform/utils/core/activityLogDisplay";
 import { QC_HOLD_PARTIAL_ENABLED } from "@/apps/ims/lib/utils/qcHoldTypes";
 
 export const QC_HOLD_STATUS_TABS = [
-  { id: "complete", label: "Complete", icon: CheckCircle },
-  // { id: "partial", label: "Partial", icon: Layers },
+  { id: "transactions", label: "Transaction", icon: Activity },
   { id: "pending", label: "Pending", icon: Clock },
 ];
 
-/** List tabs — hides Partial when QC_HOLD_PARTIAL_ENABLED is false. */
-export function activeQcHoldStatusTabs() {
-  return QC_HOLD_STATUS_TABS.filter((tab) => QC_HOLD_PARTIAL_ENABLED || tab.id !== "partial");
+export const QC_HOLD_PENDING_FILTERS = [
+  { id: "all", label: "All Open" },
+  { id: "awaiting_approval", label: "Awaiting Approval" },
+  { id: "partial", label: "Partial Progress" },
+  { id: "complete", label: "Complete" },
+];
+
+/** Pending dropdown — hides Partial when partial QC is off. */
+export function activeQcHoldPendingFilters() {
+  return QC_HOLD_PENDING_FILTERS.filter((tab) => QC_HOLD_PARTIAL_ENABLED || tab.id !== "partial");
+}
+
+export function qcHoldPendingFilterOptions() {
+  return activeQcHoldPendingFilters().map((tab) => ({ label: tab.label, value: tab.id }));
+}
+
+export const QC_HOLD_TX_ACTION_FILTER_OPTIONS = [
+  { label: "All", value: "all" },
+  { label: "Create", value: "CREATE" },
+  { label: "Submit", value: "SUBMIT" },
+  { label: "Approve", value: "APPROVE" },
+  { label: "Delete", value: "DELETE" },
+];
+
+export function matchesQcHoldTxActionFilter(row, actionFilter) {
+  if (!actionFilter || actionFilter === "all") return true;
+  return String(row?.action_type || "").toUpperCase() === String(actionFilter).toUpperCase();
 }
 
 export const QC_HOLD_CARD_CONFIG = {
@@ -101,9 +125,8 @@ export function qcHoldSearchParts(row) {
   return parts;
 }
 
-export function buildQcHoldApiFilters(statusTab) {
-  if (statusTab === "complete") return { status: "complete" };
-  if (statusTab === "partial") return { status: "partial" };
+export function buildQcHoldApiFilters(pendingFilter) {
+  if (pendingFilter === "complete") return { status: "complete", date_on: "activity" };
   return { open_only: true };
 }
 
@@ -120,16 +143,14 @@ export function rowHoldStatus(row) {
   return String(row?.status || "pending").toLowerCase();
 }
 
-export function isIncompleteQcHoldRow(row) {
-  return rowHoldStatus(row) !== "complete";
-}
-
-/** Keep Partial / Complete tabs aligned with balance, not a stale status badge. */
-export function matchesQcHoldStatusTab(row, statusTab) {
+/** Pending dropdown — All Open / Awaiting Approval / Partial Progress / Complete. */
+export function matchesQcHoldPendingFilter(row, pendingFilter) {
   const status = rowHoldStatus(row);
-  if (statusTab === "complete") return status === "complete";
-  if (statusTab === "partial") return status === "partial";
-  return status !== "complete";
+  if (pendingFilter === "complete") return status === "complete";
+  if (status === "complete") return false;
+  if (pendingFilter === "partial") return status === "partial";
+  if (pendingFilter === "awaiting_approval") return Boolean(row?.has_pending_submission);
+  return true;
 }
 
 export function canEditQcHoldRow(row) {
@@ -170,14 +191,21 @@ export function canPrintQcHoldStickersRow(row) {
   return (Number(row.completed_qty) || 0) > 0;
 }
 
-export function getQcHoldEmptyState(statusTab, pendingFilter) {
-  if (statusTab === "partial") {
+export function getQcHoldEmptyState(statusTab, pendingFilter, txActionFilter) {
+  if (statusTab === "transactions") {
+    if (txActionFilter && txActionFilter !== "all") {
+      const label = QC_HOLD_TX_ACTION_FILTER_OPTIONS.find((o) => o.value === txActionFilter)?.label || txActionFilter;
+      return {
+        message: `No ${String(label).toLowerCase()} transactions`,
+        subMessage: "No matching records in this date range",
+      };
+    }
     return {
-      message: "No partial holds",
-      subMessage: "Only open holds with some qty already approved — once balance is 0 they move to Complete",
+      message: "No transactions",
+      subMessage: "No QC hold activity in this date range",
     };
   }
-  if (statusTab === "complete") {
+  if (pendingFilter === "complete") {
     return {
       message: "No completed holds",
       subMessage: "Fully cleared holds — print completion stickers or re-print original boxes after revert",
@@ -262,6 +290,135 @@ export const QC_HOLD_HEADERS = [
   ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
   ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+  ["Approved By", "approved_by_name", (_v, row) => {
+    const name = row?.last_approved_submission?.approved_by || row?.approved_by_name || null;
+    return <span className="text-[10px] text-slate-500">{name || "—"}</span>;
+  }, { width: "110px" }],
+  ["Approved At", "approved_at", (_v, row) => {
+    const at = row?.last_approved_submission?.approved_at || row?.approved_at || null;
+    return <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(at)}</span>;
+  }, { width: "150px" }],
+];
+
+function parseTxPayload(data) {
+  if (!data) return null;
+  if (typeof data === "string") {
+    try {
+      return JSON.parse(data);
+    } catch {
+      return null;
+    }
+  }
+  return typeof data === "object" ? data : null;
+}
+
+function txInfoValue(row, key) {
+  const info = parseTxPayload(row?.log_data)?.info;
+  if (!info || typeof info !== "object") return null;
+  const v = info[key];
+  if (v == null || v === "") return null;
+  return String(v);
+}
+
+function txDisplayPacking(row) {
+  return row?.packing_number || txInfoValue(row, "Packing no") || null;
+}
+
+function txDisplayItem(row) {
+  return row?.item_code || txInfoValue(row, "Item code") || null;
+}
+
+function txDisplayQty(row) {
+  const completed = Number(txInfoValue(row, "Completed qty")) || 0;
+  const rejected = Number(txInfoValue(row, "Rejected qty")) || 0;
+  const snap = parseTxPayload(row?.log_data)?.more?.hold_data;
+  const snapQty = snap && typeof snap === "object" ? snap.qty : null;
+  const candidates = [
+    completed + rejected,
+    txInfoValue(row, "Completed qty"),
+    txInfoValue(row, "Qty"),
+    row?.qty,
+    snapQty,
+  ];
+  for (const raw of candidates) {
+    if (raw == null || raw === "") continue;
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return n.toLocaleString();
+  }
+  return null;
+}
+
+function txEventLabel(row) {
+  const fromLog = getActivityLogEventLabel(row?.log_data);
+  if (fromLog) return fromLog;
+  const action = String(row?.action_type || "").toUpperCase();
+  if (action === "CREATE") return "Put on hold";
+  if (action === "SUBMIT") return "Submitted — awaiting approval";
+  if (action === "APPROVE") return "Approved";
+  if (action === "DELETE") return "Hold deleted";
+  return row?.description || null;
+}
+
+export function qcHoldTxSearchParts(row) {
+  return [
+    row?.user_name,
+    row?.action_type,
+    row?.description,
+    row?.entity_id,
+    row?.packing_number,
+    row?.item_code,
+    txEventLabel(row),
+    txDisplayPacking(row),
+    txDisplayItem(row),
+    row?.created_by_name,
+    row?.updated_by_name,
+    row?.approved_by_name,
+    row?.user_name,
+    txDisplayQty(row),
+    formatDateTime(row?.hold_created_at),
+    formatDateTime(row?.hold_updated_at),
+    formatDateTime(row?.hold_approved_at),
+    formatDateTime(row?.created_at),
+  ].filter((v) => v != null && v !== "");
+}
+
+export const QC_HOLD_TX_CARD_CONFIG = {
+  titleKey: "description",
+  badgeIndices: [3],
+  detailIndices: [0, 1, 4],
+  footerKey: "hold_created_at",
+  className: "rounded-none border border-slate-200 shadow-none",
+};
+
+export const QC_HOLD_TX_HEADERS = [
+  ["ID", "entity_id", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v || "—"}</span>, { fixed: true, width: "72px" }],
+  ["Packing No.", "packing_number", (_v, row) => (
+    <span className="font-mono font-bold text-[10px] text-slate-700">{txDisplayPacking(row) || "—"}</span>
+  ), { width: "110px" }],
+  ["Item Code", "item_code", (_v, row) => (
+    <span className="font-bold text-[11px] uppercase">{txDisplayItem(row) || "—"}</span>
+  ), { width: "200px" }],
+  ["Action", "action_type", (v) => (
+    <span className={`px-2 py-0.5 text-[9px] font-black uppercase border w-fit ${getActivityLogActionBadgeClass(v)}`}>
+      {formatActivityLogActionLabel(v)}
+    </span>
+  ), { width: "110px" }],
+  ["Event", "log_data", (_v, row) => {
+    const text = txEventLabel(row) || "—";
+    return (
+      <span className="text-[10px] font-bold text-slate-800 leading-snug block max-w-[240px]" title={text}>
+        {text}
+      </span>
+    );
+  }, { width: "240px" }],
+  ["Qty", "qty", (_v, row) => (
+    <span className="font-black text-slate-800 text-[11px]">{txDisplayQty(row) || "—"}</span>
+  ), { width: "100px", align: "center" }],
+  ["Remark", "description", (v) => <span className="text-[10px] text-slate-500 truncate block max-w-[200px]" title={v || ""}>{v || "—"}</span>, { width: "200px" }],
+  ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+  ["Created At", "hold_created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+  ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+  ["Updated At", "hold_updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-  ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+  ["Approved At", "hold_approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
 ];

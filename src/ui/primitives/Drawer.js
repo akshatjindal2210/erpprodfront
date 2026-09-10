@@ -3,6 +3,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { isFilePreviewOpen } from "@/platform/utils/system/filePreviewGate";
+import { focusFirstFormField } from "@/platform/utils/form/formFocus";
 
 function drawerIsTypingTarget(target) {
   if (!target?.tagName) return false;
@@ -60,6 +61,26 @@ const Drawer = ({
     const t = setTimeout(() => setAlive(false), 180);
     return () => clearTimeout(t);
   }, [isOpen, mounted]);
+
+  // Open → first enabled field (short retry for hydrate). No MutationObserver (avoids jump on dropdowns).
+  useEffect(() => {
+    if (!isOpen || !openAnim) return undefined;
+    const root = drawerRootRef.current;
+    if (!root) return undefined;
+    let n = 0;
+    const id = setInterval(() => {
+      focusFirstFormField(root);
+      if (++n >= 15) clearInterval(id);
+    }, 80);
+    const stop = () => clearInterval(id);
+    root.addEventListener("pointerdown", stop, true);
+    root.addEventListener("keydown", stop, true);
+    return () => {
+      clearInterval(id);
+      root.removeEventListener("pointerdown", stop, true);
+      root.removeEventListener("keydown", stop, true);
+    };
+  }, [isOpen, openAnim]);
 
   useLayoutEffect(() => {
     if (!alive) {

@@ -18,6 +18,7 @@ import { focusFirstError } from "@/platform/utils/form/formFocus";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 
 const FIELD_ORDER = ["itemdcode", "type", "qty", "month", "remarks"];
+const DISABLED_INPUT = "disabled:bg-slate-50 disabled:text-slate-600 disabled:cursor-not-allowed";
 
 function todayYmd() {
   const d = new Date();
@@ -87,12 +88,14 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
 
   const isEdit = mode === "edit";
   const isApprove = mode === "approve";
+  const limitedEdit = isEdit && !showMonthField;
   const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
   const showApproval = canApprove && (mode === "add" || mode === "approve");
 
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(() => ({ ...INITIAL_FORM, month: todayYm() }));
   const [errors, setErrors] = useState({});
+  const typeOptions = showMonthField ? (form.type && !SHORTAGE_TYPES.includes(form.type) ? [...SHORTAGE_TYPES, form.type] : SHORTAGE_TYPES) : (form.type ? [form.type] : ["Additional"]);
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
 
@@ -110,17 +113,17 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
           approved: isApprove ? Boolean(editData?.approved) : false,
         });
       } else {
-        setForm({ ...INITIAL_FORM, month: todayYm() });
+        setForm({ ...INITIAL_FORM, month: todayYm(), type: showMonthField ? "" : "Additional" });
       }
       setErrors({});
     } else {
       timeoutId = setTimeout(() => {
-        setForm({ ...INITIAL_FORM, month: todayYm() });
+        setForm({ ...INITIAL_FORM, month: todayYm(), type: showMonthField ? "" : "Additional" });
         setErrors({});
       }, 300);
     }
     return () => clearTimeout(timeoutId);
-  }, [open, editData?.id, isEdit, isApprove]);
+  }, [open, editData?.id, isEdit, isApprove, showMonthField]);
 
   const handleChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -278,38 +281,45 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
         )}
 
         <div data-field="itemdcode">
-          <SearchableSelect
-            label="Item"
-            value={form.itemdcode}
-            onChange={(id, item) => {
-              setForm((prev) => ({
-                ...prev,
-                itemdcode: id ?? "",
-                itemcode: item?.item_code ? String(item.item_code).trim() : prev.itemcode,
-              }));
-              if (errors.itemdcode) setErrors((prev) => ({ ...prev, itemdcode: "" }));
-            }}
-            fetchService={(params) =>
-              masterService.getItemsViews({
-                ...params,
-                permission_module: "shortage",
-                permission_action: isApprove ? "authorize" : isEdit ? "edit" : "add",
-                filters: "fg",
-              })
-            }
-            getByIdService={(id) =>
-              masterService.getItemViewById(id, {
-                permission_module: "shortage",
-                permission_action: isApprove ? "authorize" : isEdit ? "edit" : "add",
-              })
-            }
-            dataKey="id"
-            labelKey="item_code"
-            subLabelKey="itemdesc"
-            error={errors.itemdcode}
-            required
-            disabled={loading}
-          />
+          {limitedEdit ? (
+            <>
+              <FormLabel required>Item</FormLabel>
+              <input readOnly disabled value={form.itemcode || editData?.item_code || "—"} className={`w-full px-3 py-2.5 text-sm border rounded-lg ${OK_INPUT} ${DISABLED_INPUT}`} />
+            </>
+          ) : (
+            <SearchableSelect
+              label="Item"
+              value={form.itemdcode}
+              onChange={(id, item) => {
+                setForm((prev) => ({
+                  ...prev,
+                  itemdcode: id ?? "",
+                  itemcode: item?.item_code ? String(item.item_code).trim() : prev.itemcode,
+                }));
+                if (errors.itemdcode) setErrors((prev) => ({ ...prev, itemdcode: "" }));
+              }}
+              fetchService={(params) =>
+                masterService.getItemsViews({
+                  ...params,
+                  permission_module: "shortage",
+                  permission_action: isApprove ? "authorize" : isEdit ? "edit" : "add",
+                  filters: "fg",
+                })
+              }
+              getByIdService={(id) =>
+                masterService.getItemViewById(id, {
+                  permission_module: "shortage",
+                  permission_action: isApprove ? "authorize" : isEdit ? "edit" : "add",
+                })
+              }
+              dataKey="id"
+              labelKey="item_code"
+              subLabelKey="itemdesc"
+              error={errors.itemdcode}
+              required
+              disabled={loading}
+            />
+          )}
         </div>
 
         <div data-field="type">
@@ -318,11 +328,11 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
             <select
               value={form.type}
               onChange={(e) => handleChange("type", e.target.value)}
-              disabled={loading}
-              className={`w-full appearance-none px-3 py-2.5 text-sm border rounded-lg pr-10 ${errors.type ? ERR_INPUT : OK_INPUT}`}
+              disabled={loading || limitedEdit}
+              className={`w-full appearance-none px-3 py-2.5 text-sm border rounded-lg pr-10 ${DISABLED_INPUT} ${errors.type ? ERR_INPUT : OK_INPUT}`}
             >
-              <option value="">Select type...</option>
-              {SHORTAGE_TYPES.map((t) => (
+              {showMonthField ? <option value="">Select type...</option> : null}
+              {typeOptions.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
@@ -380,7 +390,7 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
           <div
             className={`p-3 rounded-xl border transition-all flex items-center justify-between ${
               form.approved || isApprove ? "bg-emerald-600 border-emerald-700 shadow-sm" : "bg-slate-50 border-slate-200"
-            }`}
+            } ${limitedEdit ? "opacity-60 pointer-events-none" : ""}`}
           >
             <div className="flex items-center gap-3">
               <div
@@ -413,6 +423,7 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
                   type="checkbox"
                   checked={form.approved}
                   onChange={(e) => handleChange("approved", e.target.checked)}
+                  disabled={limitedEdit}
                   className="sr-only peer"
                 />
                 <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-400" />

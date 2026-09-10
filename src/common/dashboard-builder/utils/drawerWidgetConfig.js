@@ -14,6 +14,7 @@ export function createDefaultDrawerWidget(parentId = "new") {
     dataSource: "ims_postgresql",
     emptyText: "No data",
     tableSearchEnabled: false,
+    tableSearchMode: "global",
     tableSearchPlaceholder: "",
     tableSearchPosition: "right",
     tableSearchWidth: 180,
@@ -67,12 +68,26 @@ export function normalizeDrawerWidget(raw, parentId = "new") {
     query: String(raw.query || ""),
     dataSource: String(raw.dataSource || chartConfig.data_source || "ims_postgresql"),
     emptyText: String(raw.emptyText || chartConfig.emptyText || "No data"),
-    tableSearchEnabled: raw.tableSearchEnabled === true || chartConfig.table_search_enabled === true,
-    tableSearchPlaceholder: String(raw.tableSearchPlaceholder || chartConfig.table_search_placeholder || "").trim(),
+    // Prefer live widget fields; chart_config is fallback only when unset (avoids sticky toggles).
+    tableSearchEnabled: raw.tableSearchEnabled !== undefined
+      ? raw.tableSearchEnabled === true
+      : chartConfig.table_search_enabled === true,
+    tableSearchMode: raw.tableSearchMode != null && raw.tableSearchMode !== ""
+      ? raw.tableSearchMode
+      : (chartConfig.table_search_mode || "global"),
+    tableSearchPlaceholder: String(
+      raw.tableSearchPlaceholder !== undefined
+        ? raw.tableSearchPlaceholder
+        : (chartConfig.table_search_placeholder || ""),
+    ).trim(),
     tableSearchPosition: raw.tableSearchPosition || chartConfig.table_search_position || "right",
     tableSearchWidth: raw.tableSearchWidth ?? chartConfig.table_search_width ?? 180,
-    tableColumnSortEnabled: raw.tableColumnSortEnabled === true || chartConfig.table_column_sort_enabled === true,
-    tableExportEnabled: raw.tableExportEnabled === true || chartConfig.table_export_enabled === true,
+    tableColumnSortEnabled: raw.tableColumnSortEnabled !== undefined
+      ? raw.tableColumnSortEnabled === true
+      : chartConfig.table_column_sort_enabled === true,
+    tableExportEnabled: raw.tableExportEnabled !== undefined
+      ? raw.tableExportEnabled === true
+      : chartConfig.table_export_enabled === true,
     style: {
       ...base.style,
       ...(raw.style && typeof raw.style === "object" ? raw.style : {}),
@@ -81,6 +96,26 @@ export function normalizeDrawerWidget(raw, parentId = "new") {
       ...base.chart_config,
       ...chartConfig,
       data_source: String(raw.dataSource || chartConfig.data_source || "ims_postgresql"),
+      // Keep nested chart_config in sync with live toggles so UI doesn't fight stale flags.
+      table_search_enabled: raw.tableSearchEnabled !== undefined
+        ? raw.tableSearchEnabled === true
+        : chartConfig.table_search_enabled === true,
+      table_search_mode: raw.tableSearchMode != null && raw.tableSearchMode !== ""
+        ? raw.tableSearchMode
+        : (chartConfig.table_search_mode || "global"),
+      table_search_placeholder: String(
+        raw.tableSearchPlaceholder !== undefined
+          ? raw.tableSearchPlaceholder
+          : (chartConfig.table_search_placeholder || ""),
+      ).trim(),
+      table_search_position: raw.tableSearchPosition || chartConfig.table_search_position || "right",
+      table_search_width: raw.tableSearchWidth ?? chartConfig.table_search_width ?? 180,
+      table_column_sort_enabled: raw.tableColumnSortEnabled !== undefined
+        ? raw.tableColumnSortEnabled === true
+        : chartConfig.table_column_sort_enabled === true,
+      table_export_enabled: raw.tableExportEnabled !== undefined
+        ? raw.tableExportEnabled === true
+        : chartConfig.table_export_enabled === true,
     },
     linkType: "NONE",
     linkUrl: "",
@@ -102,6 +137,7 @@ export function serializeDrawerWidget(raw, parentId = "new") {
     dataSource: widget.dataSource,
     emptyText: widget.emptyText,
     tableSearchEnabled: widget.tableSearchEnabled === true,
+    tableSearchMode: widget.tableSearchMode || "global",
     tableSearchPlaceholder: widget.tableSearchPlaceholder || "",
     tableSearchPosition: widget.tableSearchPosition || "right",
     tableSearchWidth: widget.tableSearchWidth ?? 180,
@@ -113,6 +149,7 @@ export function serializeDrawerWidget(raw, parentId = "new") {
       data_source: widget.dataSource || "ims_postgresql",
       emptyText: widget.emptyText || "No data",
       table_search_enabled: widget.tableSearchEnabled === true,
+      table_search_mode: widget.tableSearchMode || "global",
       table_search_placeholder: widget.tableSearchPlaceholder || "",
       table_search_position: widget.tableSearchPosition || "right",
       table_search_width: widget.tableSearchWidth ?? 180,

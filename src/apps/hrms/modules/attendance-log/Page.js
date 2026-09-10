@@ -24,7 +24,8 @@ export default function AttendanceLogPage() {
   const handleSync = useCallback(async (range = {}) => {
     try {
       const res = await attendanceLogService.sync(range);
-      toast.success(res?.message || "Done.");
+      const n = Number(res?.total);
+      toast.success(res?.message || (Number.isFinite(n) && n > 0 ? `Synced ${n} new log(s).` : "No new logs."));
       reloadRef.current?.();
     } catch (err) {
       toast.error(err?.message || "Sync failed.");
@@ -81,6 +82,7 @@ export default function AttendanceLogPage() {
         }}
         searchPlaceholder="Code, name, status, event, reader…"
         clientQuickSearch
+        onRowDoubleClick={openView}
         toolbarActions={(api) => {
           reloadRef.current = api.reload;
           return (

@@ -9,7 +9,7 @@ import { notifyListPageExportResult } from "@/platform/utils/list/listPageExport
 import { boxesFromChildren, savedStyleToCss } from "../utils/floatingLayoutEngine";
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
 import { resolveWidgetSpacingPx, spacingPxToCss } from "../utils/dashboardLayoutEngine";
-import { normalizeTableSearchPosition, normalizeTableSearchWidth } from "../utils/tableToolbar.js";
+import { normalizeTableSearchPosition, normalizeTableSearchWidth, normalizeTableSearchMode } from "../utils/tableToolbar.js";
 import { formatGraphValue, formatGraphAxisTick, resolveGraphDisplayNumber, resolveGraphShowDataLabels, resolveGraphChartMargins, resolveGraphLegendProps, resolveGraphYAxisProps, coerceGraphChartData, isGraphComparisonEnabled, resolveGraphYKeys, normalizeGraphViewMode, normalizeGraphBarLayout, sumSeriesTotal, normalizeGraphDisplayValue, normalizeGraphValueFormat } from "../utils/graphAdvancedConfig.js";
 import { DASHBOARD_TABLE_BODY_BG, DASHBOARD_TABLE_HEADER_BG, DASHBOARD_WIDGET_BG } from "../utils/dashboardBuilderTheme";
 
@@ -191,26 +191,62 @@ const formatDisplayValue = (value) => {
   return String(value);
 };
 
-const filterTableRows = (rows = [], columns = [], query = "") => {
-  const needle = String(query || "").trim().toLowerCase();
-  if (!needle) return rows;
-  return rows.filter((row) =>
-    columns.some((col) => formatDisplayValue(row[col]).toLowerCase().includes(needle)),
-  );
+/** Raw text for search/filter — numbers without locale commas. */
+const cellFilterText = (value) => {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return String(value);
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
+  if (typeof value === "string") return value.trim();
+  return formatDisplayValue(value);
+};
+
+const getSortableValue = (value) => {
+  if (value === null || value === undefined || value === "") return { kind: "empty", v: 0 };
+  if (typeof value === "number" && Number.isFinite(value)) return { kind: "num", v: value };
+  if (typeof value === "boolean") return { kind: "num", v: value ? 1 : 0 };
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return { kind: "num", v: value.getTime() };
+  const s = String(value).trim();
+  if (!s || s === "-") return { kind: "empty", v: 0 };
+  if (/^-?\d+(\.\d+)?$/.test(s)) return { kind: "num", v: Number(s) };
+  const bare = s.replace(/,/g, "");
+  if (/^-?\d+(\.\d+)?$/.test(bare)) return { kind: "num", v: Number(bare) };
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const t = Date.parse(s);
+    if (!Number.isNaN(t)) return { kind: "num", v: t };
+  }
+  return { kind: "str", v: s.toLowerCase() };
+};
+
+const filterTableRows = (rows = [], columns = [], query = "", columnFilters = {}) => {
+  const globalNeedle = String(query || "").trim().toLowerCase();
+  const activeCols = Object.entries(columnFilters || {}).filter(([, v]) => String(v || "").trim() !== "");
+  if (!globalNeedle && !activeCols.length) return rows;
+
+  return rows.filter((row) => {
+    if (globalNeedle) {
+      const hit = columns.some((col) => cellFilterText(row[col]).toLowerCase().includes(globalNeedle));
+      if (!hit) return false;
+    }
+    for (const [col, raw] of activeCols) {
+      const needle = String(raw).trim().toLowerCase();
+      if (!cellFilterText(row[col]).toLowerCase().includes(needle)) return false;
+    }
+    return true;
+  });
 };
 
 const sortTableRows = (rows = [], column = "", direction = "asc") => {
   if (!column) return rows;
   const dir = direction === "desc" ? -1 : 1;
   return [...rows].sort((left, right) => {
-    const a = formatDisplayValue(left[column]).toLowerCase();
-    const b = formatDisplayValue(right[column]).toLowerCase();
-    const aNum = Number(a);
-    const bNum = Number(b);
-    if (Number.isFinite(aNum) && Number.isFinite(bNum) && a !== "" && b !== "") {
-      return (aNum - bNum) * dir;
-    }
-    return a.localeCompare(b) * dir;
+    const a = getSortableValue(left[column]);
+    const b = getSortableValue(right[column]);
+    if (a.kind === "empty" && b.kind === "empty") return 0;
+    if (a.kind === "empty") return 1 * dir;
+    if (b.kind === "empty") return -1 * dir;
+    if (a.kind === "num" && b.kind === "num") return (a.v - b.v) * dir;
+    return String(a.v).localeCompare(String(b.v), undefined, { numeric: true, sensitivity: "base" }) * dir;
   });
 };
 
@@ -257,6 +293,7 @@ const DashboardTableView = ({
   titleAlign = "left",
   titleFontPx = 11,
   tableSearchEnabled = false,
+  tableSearchMode = "global",
   tableSearchPlaceholder = "",
   tableSearchPosition = "right",
   tableSearchWidth = 280,
@@ -270,6 +307,7 @@ const DashboardTableView = ({
   tableExportClassName = "",
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
+  const [columnFilters, setColumnFilters] = useState({});
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
   const [exporting, setExporting] = useState(false);
@@ -279,7 +317,10 @@ const DashboardTableView = ({
     ),
   ));
   const resolvedSearchPlaceholder = String(tableSearchPlaceholder || "").trim() || "Search...";
-  const showSearch = tableSearchEnabled === true;
+  const searchMode = normalizeTableSearchMode(tableSearchMode);
+  const searchFeatureOn = tableSearchEnabled === true;
+  const showGlobalSearch = searchFeatureOn && (searchMode === "global" || searchMode === "both");
+  const showColumnSearch = searchFeatureOn && (searchMode === "columns" || searchMode === "both");
   const showExport = tableExportEnabled === true;
   const showColumnSort = tableColumnSortEnabled === true;
   const searchPos = normalizeTableSearchPosition(tableSearchPosition);
@@ -305,13 +346,43 @@ const DashboardTableView = ({
   };
 
   const displayRows = useMemo(() => {
-    const filtered = showSearch
-      ? filterTableRows(data, keys, searchQuery)
+    const filtered = searchFeatureOn
+      ? filterTableRows(
+          data,
+          keys,
+          showGlobalSearch ? searchQuery : "",
+          showColumnSearch ? columnFilters : {},
+        )
       : data;
     return showColumnSort
       ? sortTableRows(filtered, sortKey, sortDir)
       : filtered;
-  }, [data, keys, searchQuery, sortKey, sortDir, showSearch, showColumnSort]);
+  }, [
+    data,
+    keys,
+    searchQuery,
+    columnFilters,
+    sortKey,
+    sortDir,
+    searchFeatureOn,
+    showGlobalSearch,
+    showColumnSearch,
+    showColumnSort,
+  ]);
+
+  const setColumnFilter = (col, value) => {
+    setColumnFilters((prev) => {
+      const next = { ...prev };
+      const trimmed = String(value ?? "");
+      if (!trimmed.trim()) delete next[col];
+      else next[col] = trimmed;
+      return next;
+    });
+  };
+
+  const hasActiveColumnFilter = Object.values(columnFilters).some((v) => String(v || "").trim() !== "");
+  const hasActiveFilter =
+    (showGlobalSearch && searchQuery.trim()) || (showColumnSearch && hasActiveColumnFilter);
 
   const handleExport = useCallback(async (format) => {
     if (!displayRows.length || !keys.length) {
@@ -384,9 +455,9 @@ const DashboardTableView = ({
   const showTitleBottom = Boolean(displayTitle) && titleOnBottom;
   const titleLeft = showTitleTop && titleAlign !== "right";
   const titleRight = showTitleTop && titleAlign === "right";
-  const showTopBar = showTitleTop || showSearch || showExport;
+  const showTopBar = showTitleTop || showGlobalSearch || showExport;
   const totalRows = Array.isArray(data) ? data.length : 0;
-  const searchActive = showSearch && Boolean(String(searchQuery || "").trim());
+  const searchActive = hasActiveFilter;
   const countLabel = searchActive
     ? `Showing ${displayRows.length} of ${totalRows}`
     : `Total ${totalRows} ${totalRows === 1 ? "row" : "rows"}`;
@@ -412,7 +483,7 @@ const DashboardTableView = ({
     </div>
   );
 
-  const searchControl = showSearch ? (
+  const searchControl = showGlobalSearch ? (
     <label
       className={`relative block ${searchSizeClass} ${tableSearchClassName}`.trim()}
       style={searchFull ? undefined : { width: effectiveSearchWidth, maxWidth: "100%" }}
@@ -513,7 +584,13 @@ const DashboardTableView = ({
           )}
         </div>
       )}
-      <div className="flex-1 min-h-0 min-w-0 max-w-full overflow-x-auto overflow-y-auto overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch]">
+      <div
+        className="flex-1 min-h-0 min-w-0 max-w-full overflow-x-auto overflow-y-auto overscroll-contain"
+        style={{
+          WebkitOverflowScrolling: "touch",
+          touchAction: "pan-x pan-y",
+        }}
+      >
         <table
           className={`w-full min-w-max border-collapse table-auto`}
           style={{ borderColor: tableVisual.borderColor }}
@@ -529,27 +606,66 @@ const DashboardTableView = ({
                     borderColor: tableVisual.borderColor,
                     fontSize: `${tableVisual.headerFontPx}px`,
                     backgroundColor: tableVisual.headerBg,
-                    minWidth: compact ? 88 : 112,
-                    ...cellPadStyle,
+                    minWidth: isPhoneMode ? 72 : compact ? 88 : 112,
+                    ...(isPhoneMode && showColumnSearch
+                      ? {
+                          paddingLeft: `${Math.min(tableVisual.cellPadX, 4)}px`,
+                          paddingRight: `${Math.min(tableVisual.cellPadX, 4)}px`,
+                          paddingTop: `${Math.min(tableVisual.cellPadY, 3)}px`,
+                          paddingBottom: `${Math.min(tableVisual.cellPadY, 3)}px`,
+                        }
+                      : cellPadStyle),
                   }}
                 >
-                  {showColumnSort ? (
-                    <button
-                      type="button"
-                      className="inline-flex max-w-full items-center gap-1 text-left hover:opacity-80"
-                      style={{ color: tableVisual.headerColor }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleSort(col);
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
+                  <div className={`flex flex-col min-w-0 ${isPhoneMode && showColumnSearch ? "gap-0.5" : "gap-1"}`}>
+                    {showColumnSort ? (
+                      <button
+                        type="button"
+                        className="inline-flex max-w-full items-center gap-1 text-left hover:opacity-80"
+                        style={{ color: tableVisual.headerColor }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSort(col);
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
+                        <span className="whitespace-nowrap">{col}</span>
+                        {renderSortIcon(col)}
+                      </button>
+                    ) : (
                       <span className="whitespace-nowrap">{col}</span>
-                      {renderSortIcon(col)}
-                    </button>
-                  ) : (
-                    <span className="whitespace-nowrap">{col}</span>
-                  )}
+                    )}
+                    {showColumnSearch ? (
+                      <input
+                        type="search"
+                        inputMode="search"
+                        enterKeyHint="search"
+                        value={columnFilters[col] || ""}
+                        onChange={(e) => setColumnFilter(col, e.target.value)}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        placeholder="Filter…"
+                        className="w-full min-w-0 rounded border px-1 font-normal normal-case tracking-normal focus:outline-none focus:ring-1 focus:ring-blue-400/40"
+                        style={{
+                          borderColor: tableVisual.borderColor,
+                          backgroundColor: tableVisual.searchBg,
+                          color: tableVisual.searchColor,
+                          fontSize: isPhoneMode
+                            ? 11
+                            : `${Math.max(8, tableVisual.searchFontPx - 1)}px`,
+                          height: isPhoneMode ? 18 : compact ? 22 : 24,
+                          lineHeight: isPhoneMode ? "18px" : undefined,
+                          paddingTop: 0,
+                          paddingBottom: 0,
+                          margin: 0,
+                          boxSizing: "border-box",
+                          WebkitAppearance: "none",
+                          appearance: "none",
+                        }}
+                        aria-label={`Filter column ${col}`}
+                      />
+                    ) : null}
+                  </div>
                 </th>
               ))}
             </tr>
@@ -586,9 +702,9 @@ const DashboardTableView = ({
             ))}
           </tbody>
         </table>
-        {searchQuery.trim() && displayRows.length === 0 ? (
+        {hasActiveFilter && displayRows.length === 0 ? (
           <div className="px-3 py-4 text-center text-[10px] font-medium text-slate-400">
-            No rows match &quot;{searchQuery.trim()}&quot;
+            No rows match the current filter
           </div>
         ) : null}
       </div>
@@ -1289,6 +1405,7 @@ const WidgetRenderer = ({
           titleAlign={style.contentAlign === "right" ? "right" : "left"}
           titleFontPx={resolveTitleFontPx(style, nested ? 10 : 11)}
           tableSearchEnabled={widget.tableSearchEnabled === true}
+          tableSearchMode={widget.tableSearchMode || "global"}
           tableSearchPlaceholder={widget.tableSearchPlaceholder || ""}
           tableSearchPosition={widget.tableSearchPosition || "right"}
           tableSearchWidth={widget.tableSearchWidth}

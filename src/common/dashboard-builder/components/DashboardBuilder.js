@@ -26,7 +26,7 @@ import { DASHBOARD_CANVAS_BG, DASHBOARD_CONTAINER_BG, DASHBOARD_CONTAINER_BORDER
 import { buildDashboardRuntimeFilters, canFilterDashboardByUser } from "../utils/dashboardFilterAccess";
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
 import { DASHBOARD_DB_SOURCE_OPTIONS, buildHybridPreviewRequest, isWidgetHybridMode, resolveHybridExternalDbSource } from "../utils/dashboardDbSources.js";
-import { normalizeTableSearchPosition, normalizeTableSearchWidth } from "../utils/tableToolbar.js";
+import { normalizeTableSearchMode, normalizeTableSearchPosition, normalizeTableSearchWidth } from "../utils/tableToolbar.js";
 import { getDefaultGraphAdvancedStyle, mergeGraphAdvancedFromConfig, graphAdvancedToChartConfig } from "../utils/graphAdvancedConfig.js";
 import { isPwaStandalone, getListHotkeyParts } from "@/platform/utils/pwa/pwa";
 import { normalizeWidgetLinkType } from "../utils/widgetClickLink";
@@ -435,6 +435,7 @@ function chartConfigFromWidgetStyle(widget = {}) {
     box_height: Number.isFinite(Number(widget.style?.boxPx?.height)) ? Math.round(Number(widget.style.boxPx.height)) : undefined,
     emptyText: widget.emptyText || "Click edit and add query",
     table_search_enabled: widget.tableSearchEnabled === true,
+    table_search_mode: normalizeTableSearchMode(widget.tableSearchMode),
     table_search_placeholder: String(widget.tableSearchPlaceholder || "").trim(),
     table_search_position: normalizeTableSearchPosition(widget.tableSearchPosition),
     table_search_width: normalizeTableSearchWidth(widget.tableSearchWidth),
@@ -569,6 +570,7 @@ const normalizeWidgetForDashboardJson = (widget = {}, resolvedLayout = {}, { per
     erpFilter: widget.erpFilter && typeof widget.erpFilter === "object" ? widget.erpFilter : {},
     emptyText: widget.emptyText || "Click edit and add query",
     tableSearchEnabled: widget.tableSearchEnabled === true,
+    tableSearchMode: normalizeTableSearchMode(widget.tableSearchMode),
     tableSearchPlaceholder: String(widget.tableSearchPlaceholder || "").trim(),
     tableSearchPosition: normalizeTableSearchPosition(widget.tableSearchPosition),
     tableSearchWidth: normalizeTableSearchWidth(widget.tableSearchWidth),
@@ -823,6 +825,7 @@ function buildStateFingerprint(widgets = [], layout = [], mobileLayout = []) {
       deviceTarget: normalizeWidgetDeviceTarget(widget.deviceTarget),
       emptyText: String(widget.emptyText || ""),
       tableSearchEnabled: widget.tableSearchEnabled === true,
+      tableSearchMode: normalizeTableSearchMode(widget.tableSearchMode),
       tableSearchPlaceholder: String(widget.tableSearchPlaceholder || "").trim(),
       tableSearchPosition: normalizeTableSearchPosition(widget.tableSearchPosition),
       tableSearchWidth: normalizeTableSearchWidth(widget.tableSearchWidth),
@@ -1615,6 +1618,7 @@ export default function DashboardBuilder({
       style: mergeWidgetStyle(rawType, row?.chart_config),
       emptyText: row?.chart_config?.emptyText || "Click edit and add query",
       tableSearchEnabled: chartConfig.table_search_enabled === true,
+      tableSearchMode: normalizeTableSearchMode(chartConfig.table_search_mode),
       tableSearchPlaceholder: String(chartConfig.table_search_placeholder || "").trim(),
       tableSearchPosition: normalizeTableSearchPosition(chartConfig.table_search_position),
       tableSearchWidth: normalizeTableSearchWidth(chartConfig.table_search_width),
@@ -4670,6 +4674,7 @@ export default function DashboardBuilder({
               erpFilter: saved?.chart_config?.erp_filter || {},
               emptyText: saved?.chart_config?.emptyText || "Click edit and add query",
               tableSearchEnabled: saved?.chart_config?.table_search_enabled === true,
+              tableSearchMode: normalizeTableSearchMode(saved?.chart_config?.table_search_mode),
               tableSearchPlaceholder: String(saved?.chart_config?.table_search_placeholder || "").trim(),
               tableSearchPosition: normalizeTableSearchPosition(saved?.chart_config?.table_search_position),
               tableSearchWidth: normalizeTableSearchWidth(saved?.chart_config?.table_search_width),
@@ -6246,6 +6251,7 @@ export default function DashboardBuilder({
         erpFilter: saved?.chart_config?.erp_filter || {},
         emptyText: saved?.chart_config?.emptyText || "Click edit and add query",
         tableSearchEnabled: saved?.chart_config?.table_search_enabled === true,
+        tableSearchMode: normalizeTableSearchMode(saved?.chart_config?.table_search_mode),
         tableSearchPlaceholder: String(saved?.chart_config?.table_search_placeholder || "").trim(),
         tableSearchPosition: normalizeTableSearchPosition(saved?.chart_config?.table_search_position),
         tableSearchWidth: normalizeTableSearchWidth(saved?.chart_config?.table_search_width),

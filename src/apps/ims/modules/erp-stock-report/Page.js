@@ -291,6 +291,8 @@ export default function ErpStockReportPage() {
                     ? "100px"
                     : key === "job_card_no"
                       ? "120px"
+                      : key === "customer_name"
+                        ? "160px"
                     : "88px",
         },
       ]),
@@ -455,7 +457,7 @@ export default function ErpStockReportPage() {
                 }))
               )
             }
-            getRowId={(row, i) =>`${row.packing_number}-${row.doc_dt || ""}-${row.job_card_no || ""}-${row.item_dcode}-${row.customer_code || ""}-${i}`}
+            getRowId={(row, i) =>`${row.packing_number}-${row.doc_dt || ""}-${row.job_card_no || ""}-${row.item_dcode}-${i}`}
             getRowClassName={erpStockRowClassName}
             onLoadMore={() => setDisplayLimit((n) => n + TABLE_RENDER_CHUNK)}
             hasMore={tableHasMore}

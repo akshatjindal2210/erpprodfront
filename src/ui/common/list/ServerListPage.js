@@ -75,6 +75,7 @@ export default function ServerListPage({
   tableHotkeyProps,
   /** Notify parent when row selection changes (for list hotkeys). */
   onSelectionChange,
+  onRowDoubleClick,
 }) {
   const allFilterKeys = useMemo(() => {
     const resolvedExtraKeys =
@@ -271,6 +272,7 @@ export default function ServerListPage({
           getRowId={getRowId}
           totalItems={quickActive ? displayRows.length : total}
           cardConfig={cardConfig}
+          onRowDoubleClick={onRowDoubleClick}
           {...(tableHotkeyProps || {})}
         />
       </ListPageTableArea>

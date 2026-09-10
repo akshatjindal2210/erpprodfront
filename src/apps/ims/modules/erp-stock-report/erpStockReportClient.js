@@ -250,7 +250,7 @@ export function hasActiveErpStockFilters(filters = {}) {
   );
 }
 
-const SESSION_CACHE_KEY = "ims:erp-stock-report:v1";
+const SESSION_CACHE_KEY = "ims:erp-stock-report:v7";
 const SESSION_CACHE_TTL_MS = 3 * 60 * 1000;
 
 /** Show last report instantly on revisit (same browser tab session). */

@@ -1,20 +1,18 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCcw, Box, Edit3, Trash2, CheckCircle, X, Locate } from "lucide-react";
+import { RefreshCcw, Box, X, Locate } from "lucide-react";
 import { toast } from "react-toastify";
 import { boxService } from "@/apps/ims/lib/services/box";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 
 // Components
-import ActionButton from "@/ui/primitives/ActionButton";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
 import DataTable from "@/ui/primitives/DataTable";
-import BoxModal from "./BoxModal";
 import BoxFinderDrawer from "./BoxFinderDrawer";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
@@ -74,9 +72,6 @@ export default function BoxTablePage() {
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState("add"); 
-  const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
   const [finderOpen, setFinderOpen] = useState(false);
 
@@ -197,21 +192,15 @@ export default function BoxTablePage() {
 
   const getSelectedRow = useCallback(() => filteredRows.find((u) => u.box_uid === selected), [filteredRows, selected]);
 
-  const { openNewModal, openEditModal, tableHotkeyProps, openDeleteModal } = useListDrawerHotkeys({
+  // Boxes list is view/finder only — no create/edit drawer. Disable New/Edit hotkeys
+  // so Ctrl+Alt+N / Insert does not open a form that has no toolbar entry.
+  const { tableHotkeyProps } = useListDrawerHotkeys({
     module: "boxes",
-    modalOpen: modalOpen || finderOpen || !!deleteItem,
+    modalOpen: finderOpen || !!deleteItem,
     selectedId: selected,
     getSelectedRow,
-    openAdd: useCallback(() => {
-      setEditItem(null);
-      setModalMode("add");
-      setModalOpen(true);
-    }, []),
-    openEdit: useCallback((row) => {
-      setEditItem(row);
-      setModalMode("edit");
-      setModalOpen(true);
-    }, []),
+    openAdd: null,
+    openEdit: null,
     openDelete: useCallback((row) => {
       setDeleteItem(row);
     }, []),
@@ -424,7 +413,6 @@ export default function BoxTablePage() {
         </div>
       </div>
 
-      <BoxModal open={modalOpen} onClose={() => setModalOpen(false)} onSuccess={() => { fetchBoxes(); setSelected(null); }} editData={editItem} mode={modalMode} />
       {finderOpen && <BoxFinderDrawer open={finderOpen} onClose={() => setFinderOpen(false)} />}
       <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={() => { fetchBoxes(); setSelected(null); }} service={boxService} entityLabel="Box Record" idKey="box_uid" moduleSlug="boxes" />
     </div>

@@ -8,7 +8,7 @@ import { getAppNavPages } from "../utils/appNavPages";
 import { DEFAULT_WIDGET_BOX_SHADOW, STRONG_WIDGET_BOX_SHADOW } from "../utils/floatingLayoutEngine";
 import { normalizeWidgetLinkType } from "../utils/widgetClickLink";
 import { createDefaultDrawerWidget, normalizeDrawerWidget } from "../utils/drawerWidgetConfig";
-import { normalizeTableSearchPosition, normalizeTableSearchWidth, TABLE_SEARCH_POSITION_OPTIONS } from "../utils/tableToolbar.js";
+import { normalizeTableSearchMode, normalizeTableSearchPosition, normalizeTableSearchWidth, TABLE_SEARCH_POSITION_OPTIONS } from "../utils/tableToolbar.js";
 import { GRAPH_COMPARISON_MODE_OPTIONS, GRAPH_VALUE_FORMAT_OPTIONS, GRAPH_DISPLAY_VALUE_OPTIONS, GRAPH_DECIMAL_OPTIONS, GRAPH_LEGEND_POSITION_OPTIONS, GRAPH_VIEW_MODE_OPTIONS, GRAPH_BAR_LAYOUT_OPTIONS, GRAPH_MAX_SERIES, normalizeGraphComparisonMode, normalizeGraphValueFormat, normalizeGraphDisplayValue, normalizeGraphDecimalPlaces, normalizeGraphLegendPosition, normalizeGraphViewMode, normalizeGraphBarLayout, normalizeGraphYKeys, syncLegacyYKeysFromList, resolveGraphYKeys, isGraphComparisonEnabled, resolveGraphShowDataLabels } from "../utils/graphAdvancedConfig.js";
 
 const BLOCKED_SQL = /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke)\b/i;
@@ -218,7 +218,7 @@ function ColorPickerInput({
 function SimpleToggle({ checked = false, onChange, label, hint = "" }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
-      <label className="flex items-center justify-between gap-2 cursor-pointer">
+      <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <span className="block text-[11px] font-semibold text-slate-700">{label}</span>
           {hint ? <span className="block text-[9px] text-slate-400 mt-0.5">{hint}</span> : null}
@@ -227,14 +227,19 @@ function SimpleToggle({ checked = false, onChange, label, hint = "" }) {
           type="button"
           role="switch"
           aria-checked={checked}
-          onClick={() => onChange?.(!checked)}
+          aria-label={label}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onChange?.(!checked);
+          }}
           className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${checked ? "bg-blue-600" : "bg-slate-200"}`}
         >
           <span
             className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${checked ? "left-[18px]" : "left-0.5"}`}
           />
         </button>
-      </label>
+      </div>
     </div>
   );
 }
@@ -1823,21 +1828,60 @@ const PropertyPanel = ({
           <div className="space-y-2">
             <SimpleToggle
               label="Search bar"
-              hint="Show search bar above the table"
-              checked={selectedWidget.tableSearchEnabled === true}
+              hint="Top search above the table"
+              checked={
+                selectedWidget.tableSearchEnabled === true
+                && normalizeTableSearchMode(selectedWidget.tableSearchMode) !== "columns"
+              }
               onChange={(enabled) => {
-                if (!enabled) {
-                  applyWidgetPatch({
-                    tableSearchEnabled: false,
-                    tableSearchPlaceholder: "",
-                  });
+                const colOn =
+                  selectedWidget.tableSearchEnabled === true
+                  && (normalizeTableSearchMode(selectedWidget.tableSearchMode) === "columns"
+                    || normalizeTableSearchMode(selectedWidget.tableSearchMode) === "both");
+                if (!enabled && !colOn) {
+                  applyWidgetPatch({ tableSearchEnabled: false, tableSearchPlaceholder: "", tableSearchMode: "global" });
                   return;
                 }
-                applyWidgetPatch({ tableSearchEnabled: true });
+                if (!enabled && colOn) {
+                  applyWidgetPatch({ tableSearchEnabled: true, tableSearchMode: "columns" });
+                  return;
+                }
+                applyWidgetPatch({
+                  tableSearchEnabled: true,
+                  tableSearchMode: colOn ? "both" : "global",
+                });
               }}
             />
 
-            {selectedWidget.tableSearchEnabled === true && (
+            <SimpleToggle
+              label="Column search"
+              hint="Filter box under each column header"
+              checked={
+                selectedWidget.tableSearchEnabled === true
+                && (normalizeTableSearchMode(selectedWidget.tableSearchMode) === "columns"
+                  || normalizeTableSearchMode(selectedWidget.tableSearchMode) === "both")
+              }
+              onChange={(enabled) => {
+                const globalOn =
+                  selectedWidget.tableSearchEnabled === true
+                  && normalizeTableSearchMode(selectedWidget.tableSearchMode) !== "columns";
+                if (!enabled && !globalOn) {
+                  applyWidgetPatch({ tableSearchEnabled: false, tableSearchMode: "global" });
+                  return;
+                }
+                if (!enabled && globalOn) {
+                  applyWidgetPatch({ tableSearchEnabled: true, tableSearchMode: "global" });
+                  return;
+                }
+                applyWidgetPatch({
+                  tableSearchEnabled: true,
+                  tableSearchMode: globalOn ? "both" : "columns",
+                });
+              }}
+            />
+
+            {selectedWidget.tableSearchEnabled === true
+              && normalizeTableSearchMode(selectedWidget.tableSearchMode) !== "columns" && (
               <div className="space-y-1.5 rounded border border-slate-200 bg-white p-2">
                 <div>
                   <PanelFieldLabel>Placeholder <span className="font-normal normal-case text-slate-400">(opt)</span></PanelFieldLabel>
@@ -1871,43 +1915,8 @@ const PropertyPanel = ({
                         tableSearchWidth: normalizeTableSearchWidth(e.target.value),
                       })}
                     />
-                    <p className="text-[8px] text-slate-400 mt-0.5">160–600px (Full align ignores width)</p>
                   </div>
                 )}
-                <p className="text-[9px] text-slate-400">
-                  Search uses body text/background colors by default. Override below if needed.
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[9px] font-semibold text-slate-500 mb-1">Search text</label>
-                    <ColorPickerInput
-                      className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                      value={displayStyle.tableSearchColor || displayStyle.tableBodyColor}
-                      fallback="#475569"
-                      onCommit={(color) => handleChange("style.tableSearchColor", color, { debounceMs: 220 })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[9px] font-semibold text-slate-500 mb-1">Search background</label>
-                    <ColorPickerInput
-                      className="w-full h-8 bg-slate-50 border border-slate-200 rounded-md cursor-pointer"
-                      value={displayStyle.tableSearchBg || displayStyle.tableBodyBg}
-                      fallback="#ffffff"
-                      onCommit={(color) => handleChange("style.tableSearchBg", color, { debounceMs: 220 })}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-[9px] font-semibold text-slate-500 mb-1">Search font size (px)</label>
-                    <input
-                      type="number"
-                      min={8}
-                      max={24}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700"
-                      value={selectedWidget.style?.tableSearchFontSize ?? selectedWidget.style?.tableBodyFontSize ?? 10}
-                      onChange={(e) => handleChange("style.tableSearchFontSize", Math.max(8, Math.min(24, Number(e.target.value) || 10)))}
-                    />
-                  </div>
-                </div>
               </div>
             )}
 

@@ -1,5 +1,21 @@
 import { Layers, List } from "lucide-react";
-import { formatDateTime } from "@/platform/utils/core/utilHelper";
+import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
+
+/** Calendar YYYY-MM (date prefix, no TZ shift). */
+export function shortageYearMonthKey(value) {
+  const m = String(value ?? "").trim().match(/^(\d{4}-\d{2})(?:-\d{2})?/);
+  return m ? m[1] : "";
+}
+
+export function formatShortageMonthDate(value) {
+  const ym = shortageYearMonthKey(value);
+  return ym ? (formatDocDate(`${ym}-01`) || "—") : "—";
+}
+
+const monthCell = (v) => (
+  <span className="text-[10px] font-bold text-indigo-700 tabular-nums whitespace-nowrap">{formatShortageMonthDate(v)}</span>
+);
+const monthCol = (field) => ["Month", field, monthCell, { width: "110px", copyValue: (row) => formatShortageMonthDate(row[field]) }];
 
 export const SHORTAGE_PAGE_TABS = [
   { id: "master", label: "Master-wise", icon: Layers },
@@ -43,7 +59,8 @@ export function shortageMasterSearchParts(row) {
     row.produced_qty,
     row.remaining_balance,
     row.entry_count,
-    ...(Array.isArray(row.types) ? row.types : []),
+    row.year_month,
+    ...(row.type_qty || []).map((x) => `${x.type} ${x.qty}`),
   ];
 }
 
@@ -92,23 +109,26 @@ export function buildShortageMasterHeaders({ onDrillToItems } = {}) {
           onDrillToItems ? () => onDrillToItems(row) : null,
           `Open ${Number(v ?? 0).toLocaleString()} entr${Number(v ?? 0) === 1 ? "y" : "ies"} in Item-wise`
         ),
-      { width: "90px", align: "center" },
+      { width: "60px", align: "center" },
     ],
-    ["Types", "types", (v) => {
+    monthCol("year_month"),
+    ["Types", "type_qty", (v) => {
       const list = Array.isArray(v) ? v : [];
       if (!list.length) return <span className="text-[10px] text-slate-400">—</span>;
       return (
         <div className="flex flex-wrap gap-1">
-          {list.map((t) => (
-            <span key={t} className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${typeBadgeClass(t)}`}>{t}</span>
+          {list.map(({ type, qty }) => (
+            <span key={type} className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${typeBadgeClass(type)}`}>
+              {type} ({Number(qty).toLocaleString()})
+            </span>
           ))}
         </div>
       );
-    }, { width: "160px", copyValue: (row) => (Array.isArray(row.types) ? row.types.join(", ") : "") }],
+    }, { width: "180px", copyValue: (row) => (row.type_qty || []).map(({ type, qty }) => `${type} (${qty})`).join(", ") }],
     ["Total Shortage", "total_shortage_qty", (v) => (
       <span className="font-black text-slate-800 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
     ), { width: "120px", align: "center" }],
-    ["Produced", "produced_qty", (v) => (
+    ["Plan", "produced_qty", (v) => (
       <span className="font-bold text-indigo-700 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
     ), { width: "110px", align: "center" }],
     ["Balance", "remaining_balance", (v) => {
@@ -116,12 +136,6 @@ export function buildShortageMasterHeaders({ onDrillToItems } = {}) {
       const tone = n < 0 ? "text-rose-600" : n === 0 ? "text-slate-500" : "text-emerald-700";
       return <span className={`font-black text-[11px] tabular-nums ${tone}`}>{n.toLocaleString()}</span>;
     }, { width: "110px", align: "center" }],
-    ["Authorized Qty", "approved_qty", (v) => (
-      <span className="text-[10px] font-semibold text-emerald-700 tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
-    ), { width: "110px", align: "center" }],
-    ["Pending Qty", "pending_qty", (v) => (
-      <span className="text-[10px] font-semibold text-amber-700 tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
-    ), { width: "100px", align: "center" }],
   ];
 }
 
@@ -138,15 +152,11 @@ export function buildShortageItemWiseHeaders() {
       <span className="text-[10px] font-medium text-slate-500 uppercase">{v || "—"}</span>
     ), { width: "120px" }],
     ["Description", "item_desc", (v) => <span className="text-[10px] text-slate-500 truncate block italic">{v || "—"}</span>, { width: "180px" }],
+    monthCol("month"),
     ["Type", "type", (v) => (
       <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${typeBadgeClass(v)}`}>{v}</span>
     ), { width: "110px" }],
     ["Qty", "qty", (v) => <span className="font-black text-slate-700 text-[11px]">{v}</span>, { width: "80px", align: "center" }],
-    ["Month", "month", (v) => (
-      <span className="text-[10px] font-bold text-indigo-700 tabular-nums">
-        {v ? String(v).slice(0, 10) : "—"}
-      </span>
-    ), { width: "110px" }],
     ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 truncate block">{v || "—"}</span>, { width: "160px" }],
     ["Status", "approved", (v) => (
       <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
