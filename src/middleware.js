@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { COOKIE_NAME } from "@/platform/utils/core/lib";
 
-const PROTECTED_PREFIXES = ["/home", "/ims", "/rmstore", "/settings", "/task"];
+const PROTECTED_PREFIXES = ["/home", "/ims", "/rmstore", "/settings", "/task", "/hrms", "/purchase", "/production"];
 
 function isProtectedPath(pathname) {
   return PROTECTED_PREFIXES.some(
@@ -70,6 +70,9 @@ export const config = {
     "/rmstore/:path*",
     "/settings/:path*",
     "/task/:path*",
+    "/hrms/:path*",
+    "/purchase/:path*",
+    "/production/:path*",
   ],
 };
 

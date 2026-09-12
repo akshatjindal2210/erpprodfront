@@ -315,22 +315,54 @@ const sumQty = (boxes) => boxes.reduce((s, b) => s + Number(b.qty), 0);
 const getItemShortagePct = (item) => Math.max(0, Math.min(100, Number(item?.shortage_qty_percentage) || 0));
 
 const getScheduleMaxExtraQty = (item) => {
-  const balanceCap = Number(item?.source_dispatch_qty ?? 0);  // 196
+  const balanceCap = Number(item?.source_dispatch_qty ?? 0);
   if (!(balanceCap > 0)) return 0;
-  return Math.floor((balanceCap * getItemShortagePct(item)) / 100); // floor(196 * 10 / 100) = 19
+  return Math.floor((balanceCap * getItemShortagePct(item)) / 100);
 };
 
+/** Hidden tolerance cap: balance + % extra (not shown separately in UI). */
+const getToleranceCapQty = (item) => {
+  const balanceCap = Number(item?.source_dispatch_qty ?? 0);
+  if (!(balanceCap > 0)) return 0;
+  if (getItemShortagePct(item) <= 0) return balanceCap;
+  return balanceCap + getScheduleMaxExtraQty(item);
+};
+
+/** FIFO std qty at balance target — full-box overshoot (case 1 baseline). */
+const getStandardFifoQtyAtBalance = (item) => {
+  const balanceCap = Number(item?.source_dispatch_qty ?? 0);
+  if (!(balanceCap > 0)) return 0;
+  const ordered = reorderBoxesForSelection(item.available_boxes || [], item.loose_priority);
+  if (!ordered.length) return 0;
+  return sumQty(selectBoxesByQty(ordered, balanceCap));
+};
+
+/**
+ * % = 0 → balance target only (FIFO may overshoot via full boxes).
+ * % > 0 → max(hidden tolerance cap, standard FIFO at balance).
+ */
 const getScheduleMaxAllowedQty = (item) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
   if (!(balanceCap > 0)) return 0;
-  return balanceCap + getScheduleMaxExtraQty(item);  // 196 + 19 = 215  
+  if (getItemShortagePct(item) <= 0) return balanceCap;
+  const stdCap = Math.max(getStandardFifoQtyAtBalance(item), itemStdQty(item));
+  return Math.max(getToleranceCapQty(item), stdCap);
 };
 
-/** Manual typed cap: balance (+ % extra when config set). FIFO itself is never hard-stopped. */
+/** FG cap for direct (no schedule) rows. */
 const getDispatchQtyCap = (item) => {
+  const fgCap = Number(item?.fg_qty ?? 0);
+  return fgCap;
+};
+
+/** Typed dispatch target cap — schedule rows may target balance even when std qty is lower (full boxes). */
+const getTypedDispatchCap = (item) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
   const fgCap = Number(item?.fg_qty ?? 0);
-  if (balanceCap > 0) return Math.min(fgCap, getScheduleMaxAllowedQty(item));
+  if (balanceCap > 0) {
+    if (getItemShortagePct(item) > 0) return getScheduleMaxAllowedQty(item);
+    return Math.min(fgCap, balanceCap);
+  }
   return fgCap;
 };
 
@@ -612,6 +644,7 @@ export default function ForwardingModal({
   customerSchedulePicker = false,
 }) {
   const [saving, setSaving]           = useState(false);
+  const [activeSubmit, setActiveSubmit] = useState(null);
   const [formReady, setFormReady]     = useState(false);
   const [form, setForm]               = useState(INITIAL_FORM);
   const [errors, setErrors]           = useState({});
@@ -1734,6 +1767,13 @@ export default function ForwardingModal({
   };
 
   const handleDispatchQtyFocus = (idx) => {
+    const item = form.items[idx];
+    if (item) {
+      const displayQty = item.dispatch_qty || item.dispatch_target || "";
+      if (displayQty && String(item.dispatch_target ?? "") !== String(displayQty)) {
+        updateItemRow(idx, { dispatch_target: String(displayQty) });
+      }
+    }
     setEditingDispatchIdx(idx);
   };
 
@@ -1760,8 +1800,8 @@ export default function ForwardingModal({
         ? ""
         : String(item.dispatch_target);
     const pooled = { ...item, available_boxes: fifoPoolForRow(form.items, idx) };
-    const cap = getDispatchQtyCap(pooled);
-    // Toast only when over-dispatch % is set — FIFO full-box overshoot is not an error when % = 0.
+    const cap = getTypedDispatchCap(pooled);
+    // Toast only when over-dispatch % is set — balance target may exceed std qty (full-box FIFO).
     let overMax = false;
     if (raw !== "" && getItemShortagePct(pooled) > 0) {
       const typed = Number(raw);
@@ -1918,7 +1958,7 @@ export default function ForwardingModal({
   };
 
   // ── Save ───────────────────────────────────────────────────────────────────
-  const handleSave = async (statusOverride = null) => {
+  const handleSave = async (statusOverride = null, actionKey = "save") => {
     const newErrors = {};
     if (!form.acc_code?.toString().trim()) newErrors.acc_code = "Customer / Account required";
     if (!form.po_number?.trim()) newErrors.po_number = "PO Number required";
@@ -1942,6 +1982,7 @@ export default function ForwardingModal({
     if (!validItems.length) return toast.error("Please add at least one item with boxes to proceed.");
     if (!sopAckRef.current?.assertAcknowledged()) return;
 
+    setActiveSubmit(actionKey);
     setSaving(true);
     try {
       let finalApproved = form.approved;
@@ -1964,7 +2005,7 @@ export default function ForwardingModal({
         customer_qty: parseInt(form.customer_qty) || 0,
         approved: finalApproved,
         total_items: validItems.reduce((s, i) => s + itemStdQty(i), 0),
-        items:       validItems.flatMap(i => {
+        items:       isApprove && !form.items.some((i) => i.boxes_edited) ? [] : validItems.flatMap(i => {
           const itemSchno =
             i.schno != null && String(i.schno).trim() !== ""
               ? String(i.schno).trim()
@@ -2018,6 +2059,7 @@ export default function ForwardingModal({
       toast.error(err?.message || "An unexpected error occurred.");
     } finally {
       setSaving(false);
+      setActiveSubmit(null);
     }
   };
 
@@ -2067,32 +2109,45 @@ export default function ForwardingModal({
         {isApprove ? (
           <>
             <button
-              onClick={() => handleSave(false)}
+              onClick={() => handleSave(false, "keep_pending")}
               disabled={saveDisabled}
               className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-40 w-full sm:w-auto"
             >
-              Keep Pending
+              {saving && activeSubmit === "keep_pending" ? (
+                <span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Saving...</span>
+              ) : "Keep Pending"}
             </button>
             <button
-              onClick={() => handleSave(true)}
+              onClick={() => handleSave(true, "approve")}
               disabled={saveDisabled}
               className="min-w-[140px] w-full sm:w-auto px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40"
             >
-              {saving ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
+              {saving && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
             </button>
           </>
         ) : (
-          <button
-            onClick={() => handleSave()}
-            disabled={saveDisabled || isQtyExceeded}
-            className="min-w-[140px] w-full sm:w-auto px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400 disabled:cursor-not-allowed"
-          >
-            {saving ? (
-              <><Loader2 size={18} className="animate-spin" /> Processing</>
-            ) : (
-              <><Check size={18} /> Save</>
+          <>
+            {isEdit && canAuthorize && (
+              <button
+                onClick={() => handleSave(true, "approve")}
+                disabled={saveDisabled || isQtyExceeded}
+                className="min-w-[160px] w-full sm:w-auto px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40"
+              >
+                {saving && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Save & Approve
+              </button>
             )}
-          </button>
+            <button
+              onClick={() => handleSave(null, "save")}
+              disabled={saveDisabled || isQtyExceeded}
+              className="min-w-[140px] w-full sm:w-auto px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400 disabled:cursor-not-allowed"
+            >
+              {saving && activeSubmit === "save" ? (
+                <><Loader2 size={18} className="animate-spin" /> Saving...</>
+              ) : (
+                <><Check size={18} /> Save</>
+              )}
+            </button>
+          </>
         )}
       </div>
     </div>
@@ -2573,7 +2628,7 @@ export default function ForwardingModal({
                       onChange={(e) => handleDispatchQtyChange(idx, e.target.value)}
                       onBlur={() => handleDispatchQtyBlur(idx)}
                       min={0}
-                      max={getDispatchQtyCap(item) || undefined}
+                      max={getTypedDispatchCap(item) || undefined}
                       title={
                         item.source_dispatch_qty > 0
                           ? "Type qty up to maximum allowed quantity"
@@ -2607,7 +2662,7 @@ export default function ForwardingModal({
                           !canAddMoreFifoBoxes(item)
                             ? Number(item.source_dispatch_qty) > 0
                               ? getItemShortagePct(item) > 0
-                                ? `Cannot exceed maximum allowed quantity (${getDispatchQtyCap(item).toLocaleString()})`
+                                ? `Cannot exceed maximum allowed quantity (${getTypedDispatchCap(item).toLocaleString()})`
                                 : undefined
                               : Number(item.fg_qty) > 0
                                 ? `FIFO max for FG stock ${Number(item.fg_qty).toLocaleString()}`

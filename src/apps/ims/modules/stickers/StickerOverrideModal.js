@@ -125,6 +125,7 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
 
   // States
   const [loading, setLoading] = useState(false);
+  const [activeSubmit, setActiveSubmit] = useState(null);
   const [scanValue, setScanValue] = useState("");
   const [scanRows, setScanRows] = useState([]);
   const [form, setForm] = useState(INITIAL_FORM);
@@ -461,7 +462,10 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
     },
   });
 
-  const handleSave = async (statusOverride = null) => {
+  const isRecordApproved =
+    editData?.status === "approved" || editData?.approved === true || editData?.approved === "true";
+
+  const handleSave = async (statusOverride = null, submitKey = "save") => {
     if (!scanRows.length) return toast.error("Please add at least one box");
     if (!form.to_customer_code) {
       const e = { to_customer_code: "Target customer is required" };
@@ -475,19 +479,21 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
     if (!sopAckRef.current?.assertAcknowledged()) return;
 
     setLoading(true);
+    setActiveSubmit(submitKey);
     try {
       let finalApproved = form.approved;
 
       if (statusOverride !== null) {
         finalApproved = statusOverride;
-      } 
-      else if (isEdit && !canApprove) {
-        finalApproved = false; 
+      } else if (isEdit && isRecordApproved) {
+        finalApproved = false;
+      } else if (isEdit && !canApprove) {
+        finalApproved = false;
       }
 
       const payload = {
         request_id: editData?.request_id,
-        box_uids: scanRows.map((r) => r.box_uid || r.id), 
+        box_uids: scanRows.map((r) => r.box_uid || r.id),
         from_customer: scanRows[0].override_cust || scanRows[0].acc_code || editData?.from_customer,
         to_customer: form.to_customer_code,
         packing_number: scanRows[0].packing_number,
@@ -495,10 +501,11 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
         approved: finalApproved,
       };
 
-      const request = (isEdit || isApprove) 
-        ? boxService.updateOverrideRequest(editData?.request_id, payload) 
-        : boxService.createOverrideRequest(payload);
-      
+      const request =
+        isEdit || isApprove
+          ? boxService.updateOverrideRequest(editData?.request_id, payload)
+          : boxService.createOverrideRequest(payload);
+
       const res = await request;
       toast.success(res?.message || "Successfully processed");
       onSuccess();
@@ -507,6 +514,7 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
       toast.error(err?.message || "Operation failed");
     } finally {
       setLoading(false);
+      setActiveSubmit(null);
     }
   };
 
@@ -520,30 +528,50 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
         <>
           <button
             type="button"
-            onClick={() => handleSave(false)}
+            onClick={() => handleSave(false, "keep_pending")}
             disabled={loading}
-            className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+            className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-40"
           >
-            Keep Pending
+            {loading && activeSubmit === "keep_pending" ? (
+              <span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Saving...</span>
+            ) : "Keep Pending"}
           </button>
           <button
             type="button"
-            onClick={() => handleSave(true)}
-            disabled={
-              loading ||
-              editData?.status === "approved" ||
-              editData?.approved === true
-            }
+            onClick={() => handleSave(true, "approve")}
+            disabled={loading || isRecordApproved}
             className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
+            {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
+          </button>
+        </>
+      ) : isEdit && canApprove ? (
+        <>
+          <button
+            type="button"
+            onClick={() => handleSave(true, "approve")}
+            disabled={loading}
+            className="min-w-[160px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40"
+          >
+            {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Save & Approve
+          </button>
+          <button
+            onClick={() => handleSave(null, "save")}
+            disabled={loading}
+            className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-40"
+          >
+            {loading && activeSubmit === "save" ? (
+              <><Loader2 size={18} className="animate-spin" /> Saving...</>
+            ) : (
+              <><Check size={18} /> Save</>
+            )}
           </button>
         </>
       ) : (
         <button
-          onClick={() => handleSave()}
+          onClick={() => handleSave(null, "save")}
           disabled={loading}
-          className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
+          className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-40"
         >
           {loading ? (
             <><Loader2 size={18} className="animate-spin" /> Processing</>
@@ -582,8 +610,7 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
         />
 
         {/* Warning Alert */}
-        {isApprove &&
-          (editData?.status === "approved" || editData?.approved === true) && (
+        {isApprove && isRecordApproved && (
             <div className="flex items-start gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
               <AlertCircle size={18} className="text-slate-500 mt-0.5 shrink-0" />
               <p className="text-xs text-slate-700 font-medium">
@@ -592,7 +619,7 @@ export default function OverrideRequestDrawer({ open, onClose, onSuccess, editDa
               </p>
             </div>
           )}
-        {isEdit && editData?.status === "approved" && (
+        {isEdit && isRecordApproved && (
           <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
             <AlertCircle size={18} className="text-amber-500 mt-0.5 shrink-0" />
             <p className="text-xs text-amber-700 font-medium">

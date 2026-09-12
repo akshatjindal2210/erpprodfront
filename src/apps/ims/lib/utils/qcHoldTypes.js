@@ -13,6 +13,7 @@ export const QC_HOLD_STATUS = {
 };
 
 export const QC_HOLD_MODE_PENDING = "pending";
+export const QC_HOLD_MODE_SUBMIT = "submit";
 export const QC_HOLD_MODE_PARTIAL = "partial";
 export const QC_HOLD_MODE_FULL = "full";
 export const QC_HOLD_MODE_REVERT = "revert";
@@ -114,6 +115,15 @@ const QC_HOLD_MODE_PENDING_OPTION = {
   icon: "clock",
 };
 
+const QC_HOLD_MODE_SUBMIT_OPTION = {
+  id: QC_HOLD_MODE_SUBMIT,
+  title: "Submit",
+  cardTitle: "On Submit",
+  description: "Choose submit type for pending holds.",
+  accent: "indigo",
+  icon: "layers",
+};
+
 const QC_HOLD_MODE_FULL_OPTION = {
   id: QC_HOLD_MODE_FULL,
   title: "Full Submit",
@@ -134,8 +144,7 @@ const QC_HOLD_MODE_REVERT_OPTION = {
 
 export const QC_HOLD_MODE_PICKER_OPTIONS = [
   QC_HOLD_MODE_PENDING_OPTION,
-  ...(QC_HOLD_PARTIAL_ENABLED ? [QC_HOLD_MODE_PARTIAL_OPTION] : []),
-  QC_HOLD_MODE_FULL_OPTION,
+  QC_HOLD_MODE_SUBMIT_OPTION,
   QC_HOLD_MODE_REVERT_OPTION,
 ];
 
@@ -143,8 +152,21 @@ export function activeQcHoldModePickerOptions() {
   return QC_HOLD_MODE_PICKER_OPTIONS;
 }
 
+export const QC_HOLD_SUBMIT_PICKER_OPTIONS = [
+  ...(QC_HOLD_PARTIAL_ENABLED ? [QC_HOLD_MODE_PARTIAL_OPTION] : []),
+  QC_HOLD_MODE_FULL_OPTION,
+];
+
+export function activeQcHoldSubmitModeOptions() {
+  return QC_HOLD_SUBMIT_PICKER_OPTIONS;
+}
+
 export function getQcHoldPickerOption(id) {
-  return QC_HOLD_MODE_PICKER_OPTIONS.find((o) => o.id === id) || null;
+  return (
+    QC_HOLD_MODE_PICKER_OPTIONS.find((o) => o.id === id) ||
+    QC_HOLD_SUBMIT_PICKER_OPTIONS.find((o) => o.id === id) ||
+    null
+  );
 }
 
 export function isPendingHoldMode(mode) {

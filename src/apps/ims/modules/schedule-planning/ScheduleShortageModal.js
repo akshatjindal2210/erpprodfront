@@ -75,8 +75,8 @@ export default function ScheduleShortageModal({
     const payloads = [];
     for (const r of toSubmit) {
       const shortageQty = Number(r.qty);
-      if (!Number.isFinite(shortageQty) || shortageQty < 0) {
-        toast.error(`Enter a valid shortage qty for ${r.row.item_code || r.row.itemdcode}.`);
+      if (!Number.isFinite(shortageQty) || shortageQty < 1) {
+        toast.error(`Enter shortage qty at least 1 for ${r.row.item_code || r.row.itemdcode}.`);
         return;
       }
       const remark = String(r.remark || globalRemark || "").trim();
@@ -91,6 +91,7 @@ export default function ScheduleShortageModal({
           schdt: r.row.schdt,
           acc_code: r.row.acc_code,
           acc_name: r.row.acc_name,
+          totalqty: r.originalQty,
           original_qty: r.originalQty,
           shortage_qty: shortageQty,
           item_remark: remark || null,
@@ -169,6 +170,7 @@ export default function ScheduleShortageModal({
     <Drawer
       isOpen={open}
       onClose={onClose}
+      onSubmit={() => void handleSubmit()}
       title={isBulk ? "Create Shortage (All Items)" : "Create Shortage"}
       maxWidth={isBulk ? "max-w-3xl" : "max-w-md"}
       stackLevel={stackLevel}
@@ -275,7 +277,7 @@ export default function ScheduleShortageModal({
                         ) : (
                           <input
                             type="number"
-                            min={0}
+                            min={1}
                             step={1}
                             value={r.qty}
                             onChange={(e) => setRowField(r.key, "qty", e.target.value)}
@@ -336,7 +338,7 @@ export default function ScheduleShortageModal({
                   <label className={`${IMS_MODAL_LABEL} block mb-1`}>Shortage Qty</label>
                   <input
                     type="number"
-                    min={0}
+                    min={1}
                     step={1}
                     value={rows[0]?.qty ?? ""}
                     onChange={(e) => setRowField(rows[0].key, "qty", e.target.value)}

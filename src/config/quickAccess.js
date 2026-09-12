@@ -1,7 +1,9 @@
 import { ROUTES } from "@/config/routes";
 import { ROUTES as RMSTORE_ROUTES } from "@/apps/rmstore/lib/utils/routes";
 import { ROUTES as HRMS_ROUTES } from "@/apps/hrms/lib/utils/routes";
-import { FileText, Activity, Shield, Clock, History, Zap, ClipboardCheck, ShieldCheck, ShieldX, LogOut, BarChart3, CheckSquare, Recycle, LayoutDashboard, ListTodo, AlertTriangle, Truck, Boxes, ClipboardList, FileSearch, Layers, Warehouse, UserCheck, ListCheck, Briefcase, Award, Video, PencilRuler, Package, Users, CalendarCheck, ScrollText } from "lucide-react";
+import { ROUTES as PURCHASE_ROUTES } from "@/apps/purchase/lib/utils/routes";
+import { ROUTES as PRODUCTION_ROUTES } from "@/apps/production/lib/utils/routes";
+import { FileText, Activity, Shield, Clock, History, Zap, ClipboardCheck, ShieldCheck, ShieldX, LogOut, BarChart3, CheckSquare, Recycle, LayoutDashboard, ListTodo, AlertTriangle, Truck, Boxes, ClipboardList, FileSearch, Layers, Warehouse, UserCheck, ListCheck, Briefcase, Award, Video, PencilRuler, Package, Users, CalendarCheck, ScrollText, ShoppingCart, Factory } from "lucide-react";
 import { getShellAppFromPathname } from "@/config/appsRegistry";
 
 /** Permission-filtered; Home / role-only links when no module. */
@@ -26,6 +28,8 @@ const HOME = [
   { id: "rmstore", label: "RM Store", icon: <Warehouse size={13} />, path: RMSTORE_ROUTES.RM_STORE_DASHBOARD, appKey: "rmstore" },
   { id: "task", label: "Task", icon: <CheckSquare size={13} />, path: "/task/dashboard", appKey: "task" },
   { id: "hrms", label: "HRMS", icon: <Users size={13} />, path: HRMS_ROUTES.HRMS_DASHBOARD, appKey: "hrms" },
+  { id: "purchase", label: "Purchase", icon: <ShoppingCart size={13} />, path: PURCHASE_ROUTES.PURCHASE_DASHBOARD, appKey: "purchase" },
+  { id: "production", label: "Production", icon: <Factory size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_DASHBOARD, appKey: "production" },
   { id: "users", label: "User Management", icon: <Shield size={13} />, path: ROUTES.USERS, module: "users" },
   { id: "modules", label: "Module", icon: <Activity size={13} />, path: ROUTES.MODULES, module: "modules" },
   { id: "logs", label: "Activity Logs", icon: <Clock size={13} />, path: ROUTES.LOGS, module: "activity_logs" },
@@ -64,6 +68,20 @@ const HRMS = [
   { id: "logs", label: "Activity Logs", icon: <History size={13} />, path: HRMS_ROUTES.HRMS_ACTIVITY_LOGS, module: "hrms_activity_logs" },
 ];
 
+const PURCHASE = [
+  { id: "home", label: "Dashboard", icon: <Zap size={13} />, path: PURCHASE_ROUTES.PURCHASE_DASHBOARD },
+  { id: "product-master", label: "Product Master", icon: <Layers size={13} />, path: PURCHASE_ROUTES.PURCHASE_MASTER, module: "purchase_master" },
+  { id: "shortage", label: "Shortage", icon: <AlertTriangle size={13} />, path: PURCHASE_ROUTES.PURCHASE_SHORTAGE, module: "purchase_shortage" },
+  { id: "logs", label: "Activity Logs", icon: <History size={13} />, path: PURCHASE_ROUTES.PURCHASE_ACTIVITY_LOGS, module: "purchase_activity_logs" },
+];
+
+const PRODUCTION = [
+  { id: "home", label: "Dashboard", icon: <Zap size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_DASHBOARD },
+  { id: "product-master", label: "Product Master", icon: <Layers size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_MASTER, module: "production_master" },
+  { id: "shortage", label: "Shortage", icon: <AlertTriangle size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_SHORTAGE, module: "production_shortage" },
+  { id: "logs", label: "Activity Logs", icon: <History size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_ACTIVITY_LOGS, module: "production_activity_logs" },
+];
+
 const SETTINGS = [
   { id: "home", label: "Dashboard", icon: <LayoutDashboard size={13} />, path: ROUTES.SETTINGS_DASHBOARD, roles: ["super_admin", "super admin"] },
   { id: "builder", label: "Dashboard Builder", icon: <PencilRuler size={13} />, path: ROUTES.SETTINGS_DASHBOARD_BUILDER, roles: ["super_admin", "super admin"] },
@@ -74,7 +92,7 @@ const SETTINGS = [
   { id: "training", label: "Training", icon: <Video size={13} />, path: ROUTES.TRAINING, module: "training_videos" },
 ];
 
-const BY_APP = { home: HOME, ims: IMS, rmstore: RMSTORE, task: TASK, hrms: HRMS, settings: SETTINGS };
+const BY_APP = { home: HOME, ims: IMS, rmstore: RMSTORE, task: TASK, hrms: HRMS, purchase: PURCHASE, production: PRODUCTION, settings: SETTINGS };
 
 export function getQuickLinksForPathname(pathname) {
   return BY_APP[getShellAppFromPathname(pathname)?.id] ?? IMS;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, MapPin, RefreshCcw, Printer, Edit3, Trash2, CheckCircle, X, Info, Layers } from "lucide-react";
+import { Plus, MapPin, RefreshCcw, Printer, Edit3, Trash2, CheckCircle, X, Info, Layers, Copy } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
@@ -148,17 +148,25 @@ export default function LocationMasterPage() {
       setModalOpen(true);
     }, []),
     openApprove: useCallback((row) => {
+      if (row?.approved) {
+        toast.info("This record is already approved. Edit it before approving again.");
+        return;
+      }
       setEditItem(row);
       setModalMode("approve");
       setModalOpen(true);
     }, []),
     canApproveSelection: useCallback(
-      () => Boolean(selected && selectedRecord),
+      () => Boolean(selected && selectedRecord && !selectedRecord.approved),
       [selected, selectedRecord]
     ),
     onApproveBlocked: useCallback(() => {
-      toast.info("Select a row to open approve (Ctrl+A).");
-    }, []),
+      if (selectedRecord?.approved) {
+        toast.info("This record is already approved. Edit it before approving again.");
+        return;
+      }
+      toast.info("Select a pending row to open approve (Ctrl+A).");
+    }, [selectedRecord]),
     onPrint: useCallback((row) => {
       setQrData(row);
       setQrModalOpen(true);
@@ -244,9 +252,18 @@ export default function LocationMasterPage() {
           <ListPageToolbarLayout
             actions={
               <>
-              <ActionButton module="location_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
+              <ActionButton module="location_master" action="add" label="New" icon={Plus} onClick={openNewModal} title="Ctrl+Alt+N" className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
+              <ActionButton module="location_master" action="add" variant="outline" label="Clone" icon={Copy} disabled={!selected}
+                onClick={() => {
+                  if (!selectedRecord) return;
+                  setEditItem(selectedRecord);
+                  setModalMode("add");
+                  setModalOpen(true);
+                }}
+                className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none"
+              />
               <ActionButton module="location_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none" />
-              <ActionButton module="location_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected} onClick={() => { setEditItem(selectedRecord); setModalMode("approve"); setModalOpen(true); }} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none" />
+              <ActionButton module="location_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected || !!selectedRecord?.approved} onClick={() => { if (selectedRecord?.approved) { toast.info("This record is already approved. Edit it before approving again."); return; } setEditItem(selectedRecord); setModalMode("approve"); setModalOpen(true); }} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none" />
               <ActionButton module="location_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
               
               <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
@@ -329,7 +346,7 @@ export default function LocationMasterPage() {
               totalItems={totalItems}
               cardConfig={{
                 titleKey: "location_no",
-                badgeIndices: [11],
+                badgeIndices: [10],
                 detailIndices: [1, 2, 3, 4, 5, 6],
                 footerKey: "created_at",
                 className: "rounded-none border border-slate-200 shadow-none"

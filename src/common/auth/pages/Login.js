@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useDispatch } from "react-redux";
 import { useSearchParams } from "next/navigation";
 import { toast } from "react-toastify";
@@ -43,6 +43,11 @@ export default function UserLogin() {
   const [showPass, setShowPass] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const usernameRef = useRef(null);
+
+  useEffect(() => {
+    usernameRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     const html = document.documentElement;
@@ -106,10 +111,9 @@ export default function UserLogin() {
         } catch {}
         void linkPushSubscriptionToUser({ userId: profile.id }).catch(() => {});
         toast.success("Welcome to JFL Portal");
-        let redirectPath = searchParams.get("redirect") || "/home";
-        if (redirectPath.startsWith("/login")) {
-          redirectPath = "/home";
-        }
+        const rawRedirect = searchParams.get("redirect") || "/home";
+        // Block open-redirects: only allow same-origin paths, reject `//host` and `/login`.
+        const redirectPath = rawRedirect.startsWith("/") && !rawRedirect.startsWith("//") && !rawRedirect.startsWith("/login") ? rawRedirect : "/home";
         window.location.assign(redirectPath);
         return;
       }
@@ -172,11 +176,14 @@ export default function UserLogin() {
                 className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#4f637a] pointer-events-none"
               />
               <input
+                ref={usernameRef}
                 type="text"
                 placeholder="Username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoFocus
+                autoComplete="username"
                 className={inputClass}
                 style={loginFont}
               />
@@ -204,9 +211,9 @@ export default function UserLogin() {
                 aria-label={showPass ? "Hide password" : "Show password"}
               >
                 {showPass ? (
-                  <Eye size={16} strokeWidth={1.75} />
-                ) : (
                   <EyeOff size={16} strokeWidth={1.75} />
+                ) : (
+                  <Eye size={16} strokeWidth={1.75} />
                 )}
               </button>
             </div>

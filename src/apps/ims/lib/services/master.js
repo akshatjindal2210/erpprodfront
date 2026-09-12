@@ -133,6 +133,60 @@ const getFilteredFromCache = (data, params = {}) => {
   };
 };
 
+function normalizeItemRow(row = {}) {
+  return {
+    itemdcode: row.itemdcode ?? row.ItemDcode ?? row.Itemdcode ?? null,
+    item_code: row.item_code ?? row.Item_Code ?? null,
+    itemdesc: row.itemdesc ?? row.ItemDesc ?? row.Itemdesc ?? null,
+    grpname: row.grpname ?? row.Grpname ?? null,
+    minqty: row.minqty ?? row.Minqty ?? 0,
+    maxqty: row.maxqty ?? row.Maxqty ?? 0,
+    reorderqty: row.reorderqty ?? row.Reorderqty ?? 0,
+    primitem_code: row.primitem_code ?? row.Primitem_code ?? row.PrimItem_Code ?? null,
+    primitemdesc: row.primitemdesc ?? row.primItemDesc ?? row.PrimItemdesc ?? null,
+    weight: row.weight ?? row.Weight ?? null,
+    apvitem: row.apvitem ?? row.Apvitem ?? row.ITAPV ?? null,
+  };
+}
+
+function normalizeLedgerRow(row = {}) {
+  return {
+    acc_code: row.acc_code ?? row.Acc_Code ?? row.Acc_code ?? null,
+    acc_name: row.acc_name ?? row.Acc_Name ?? row.Acc_name ?? null,
+    city: row.city ?? row.City ?? null,
+  };
+}
+
+function normalizePartyRateRow(row = {}) {
+  return {
+    acc_code: row.acc_code ?? row.Acc_code ?? row.Acc_Code ?? null,
+    itemdcode: row.itemdcode ?? row.ItemDcode ?? row.Itemdcode ?? null,
+    narr1: row.narr1 ?? row.Narr1 ?? null,
+    itapv: row.itapv ?? row.ITAPV ?? row.ItApv ?? null,
+    acc_name: row.acc_name ?? row.Acc_Name ?? row.Acc_name ?? null,
+    item_code: row.item_code ?? row.Item_Code ?? row.ItemCode ?? null,
+    itemdesc: row.itemdesc ?? row.ItemDesc ?? row.Itemdesc ?? null,
+    grpname: row.grpname ?? row.Grpname ?? null,
+  };
+}
+
+function normalizeDailyProdRow(row = {}) {
+  return {
+    ...row,
+    doc_no: row.doc_no ?? row.docno ?? row.Doc_No ?? null,
+    doc_dt: row.doc_dt ?? row.docdt ?? row.Doc_Dt ?? null,
+    job_card_no: row.job_card_no ?? row.jobcardno ?? row.Job_Card_No ?? null,
+    acc_code: row.acc_code ?? row.Acc_Code ?? row.Acc_code ?? null,
+    acc_name: row.acc_name ?? row.Acc_Name ?? row.Acc_name ?? null,
+    itemdcode: row.itemdcode ?? row.ItemDcode ?? row.Itemdcode ?? null,
+    item_code: row.item_code ?? row.Item_Code ?? row.ItemCode ?? null,
+    item_desc: row.item_desc ?? row.itemdesc ?? row.ItemDesc ?? row.Itemdesc ?? null,
+    total_qty: row.total_qty ?? row.QTY ?? row.qty ?? null,
+    internal_create_user: row.internal_create_user ?? row.userc ?? row.UserC ?? null,
+    internal_create_date: row.internal_create_date ?? row.datec ?? row.DateC ?? null,
+  };
+}
+
 export const masterService = {
   // Clear cache manually if needed
   clearCache: (key) => {
@@ -158,7 +212,10 @@ export const masterService = {
     };
     const res = await api(ENDPOINTS.MASTER.ITEMS.LIST, { method: "POST", body });
     if (res?.success && Array.isArray(res.data)) {
-      const mapped = res.data.map((item) => ({ ...item, id: item.itemdcode }));
+      const mapped = res.data.map((item) => {
+        const norm = normalizeItemRow(item);
+        return { ...norm, id: norm.itemdcode };
+      });
       cache.items = mapped;
       res.data = mapped;
     }
@@ -172,6 +229,12 @@ export const masterService = {
         permission_module: perms.permission_module ?? "product_master",
         permission_action: perms.permission_action ?? "view",
       },
+    }).then((res) => {
+      if (res?.success && res?.data) {
+        const norm = normalizeItemRow(res.data);
+        return { ...res, data: { ...norm, id: norm.itemdcode } };
+      }
+      return res;
     }),
 
   // Ledger — `MASTER.LEDGERS.LIST` requires Customer Master view.
@@ -183,19 +246,13 @@ export const masterService = {
     };
     const res = await api(ENDPOINTS.MASTER.LEDGERS.LIST, { method: "POST", body });
     if (res?.success) {
-      if (!Array.isArray(res.data) && Array.isArray(res.records)) {
-        res.data = res.records.map((r) => ({
-          acc_code: r.Acc_Code ?? r.acc_code,
-          acc_name: r.Acc_Name ?? r.acc_name,
-          city: r.City ?? r.city,
-          group_code: r.GrpCode ?? r.group_code,
-        }));
-      }
-      if (Array.isArray(res.data)) {
-        const mapped = res.data.map((l) => ({ ...l, id: l.acc_code }));
-        cache.ledgers = mapped;
-        res.data = mapped;
-      }
+      const sourceRows = Array.isArray(res.data) ? res.data : Array.isArray(res.records) ? res.records : [];
+      const mapped = sourceRows.map((l) => {
+        const norm = normalizeLedgerRow(l);
+        return { ...norm, id: norm.acc_code };
+      });
+      cache.ledgers = mapped;
+      res.data = mapped;
     }
     return res;
   },
@@ -207,6 +264,12 @@ export const masterService = {
         permission_module: perms.permission_module ?? "customer_master",
         permission_action: perms.permission_action ?? "view",
       },
+    }).then((res) => {
+      if (res?.success && res?.data) {
+        const norm = normalizeLedgerRow(res.data);
+        return { ...res, data: { ...norm, id: norm.acc_code } };
+      }
+      return res;
     }),
 
   // Helper Views (Optimized with Cache for Dropdowns)
@@ -218,7 +281,10 @@ export const masterService = {
       rest?.filters?.sticker_generated === true ||
       String(rest?.filters?.sticker_generated || "").toLowerCase() === "true" ||
       inHandOnly ||
-      rest?.filters === "fg";
+      rest?.filters === "fg" ||
+      rest?.filters?.type === "fg" ||
+      rest?.filters?.fg === true ||
+      Boolean(String(rest?.filters?.grpname || rest?.grpname || "").trim());
 
     if (!mustUseServerFilter && cache.items) {
       return getFilteredFromCache(cache.items, rest);
@@ -341,10 +407,10 @@ export const masterService = {
     const res = await api(ENDPOINTS.MASTER.PARTY_RATES.VIEWS, { method: "POST", body });
     if (res?.success && Array.isArray(res.data)) {
       cache.partyRates = sortSelectRowsAsc(
-        res.data.map((pr) => ({
-          ...pr,
-          id: pr.id ?? `${pr.acc_code}_${pr.itemdcode}`,
-        })),
+        res.data.map((pr) => {
+          const norm = normalizePartyRateRow(pr);
+          return { ...norm, id: norm.id ?? `${norm.acc_code}_${norm.itemdcode}` };
+        }),
         "item_code"
       );
       return getFilteredFromCache(cache.partyRates, params);
@@ -365,7 +431,10 @@ export const masterService = {
     const res = await api(ENDPOINTS.MASTER.DAILY_PROD.VIEWS, { method: "POST", body });
     if (res?.success && Array.isArray(res.data)) {
       cache.dailyProd = sortSelectRowsAsc(
-        res.data.map((dp) => ({ ...dp, id: dp.doc_no ?? dp.id })),
+        res.data.map((dp) => {
+          const norm = normalizeDailyProdRow(dp);
+          return { ...norm, id: norm.doc_no ?? norm.id };
+        }),
         "doc_no"
       );
       return getFilteredFromCache(cache.dailyProd, params);
@@ -384,7 +453,10 @@ export const masterService = {
   getPartyRates: async (params) => {
     const res = await api(ENDPOINTS.MASTER.PARTY_RATES.LIST, { method: "POST", body: params });
     if (res?.success && Array.isArray(res.data)) {
-      const mapped = res.data.map((pr) => ({ ...pr, id: `${pr.acc_code}_${pr.itemdcode}` }));
+      const mapped = res.data.map((pr) => {
+        const norm = normalizePartyRateRow(pr);
+        return { ...norm, id: `${norm.acc_code}_${norm.itemdcode}` };
+      });
       cache.partyRates = mapped;
       res.data = mapped;
     }
@@ -395,7 +467,10 @@ export const masterService = {
   getDailyProd: async (params) => {
     const res = await api(ENDPOINTS.MASTER.DAILY_PROD.LIST, { method: "POST", body: params });
     if (res?.success && Array.isArray(res.data)) {
-      const mapped = res.data.map((dp) => ({ ...dp, id: dp.doc_no }));
+      const mapped = res.data.map((dp) => {
+        const norm = normalizeDailyProdRow(dp);
+        return { ...norm, id: norm.doc_no };
+      });
       cache.dailyProd = mapped;
       res.data = mapped;
       const key = dailyProdListCacheKey(params);

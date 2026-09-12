@@ -8,8 +8,8 @@ export const ERP_STOCK_REPORT_TABLE_COLUMNS = [
   { label: "Item Code", key: "item_code", type: "text" },
   { label: "Item Details", key: "item_desc", type: "text" },
   { label: "Customer", key: "customer_name", type: "text" },
-  { label: "DB Stock", key: "db_stock", type: "number", tone: "db" },
   { label: "ERP Stock", key: "erp_stock", type: "number", tone: "erp" },
+  { label: "DB Stock", key: "db_stock", type: "number", tone: "db" },
   { label: "Balance Stock (DB - ERP)", key: "stock_diff", type: "diff" },
 ];
 

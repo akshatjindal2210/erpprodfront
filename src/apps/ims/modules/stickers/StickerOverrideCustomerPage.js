@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCcw, Shield, X, FileText, Printer } from "lucide-react";
+import { Plus, RefreshCcw, Shield, X, FileText, Printer, Edit3 } from "lucide-react";
 import { toast } from "react-toastify";
 import { boxService } from "@/apps/ims/lib/services/box";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
@@ -219,6 +219,40 @@ export default function StickerOverrideCustomerPage() {
     }
   }, [selectedRecord, selectedStatus]);
 
+  const openEditModal = useCallback((row) => {
+    const rec = row ?? selectedRecord;
+    if (!rec) {
+      toast.info("Select a row to edit.");
+      return;
+    }
+    if (resolveOverrideRowStatus(rec) === "rejected") {
+      toast.info("Rejected requests cannot be edited.");
+      return;
+    }
+    setEditItem(rec);
+    setModalMode("edit");
+    setModalOpen(true);
+  }, [selectedRecord]);
+
+  const openApproveModal = useCallback((row) => {
+    const rec = row ?? selectedRecord;
+    if (!rec) {
+      toast.info("Select a pending row to approve.");
+      return;
+    }
+    if (resolveOverrideRowStatus(rec) === "approved") {
+      toast.info("Already approved. Edit first, then approve again.");
+      return;
+    }
+    if (resolveOverrideRowStatus(rec) !== "pending") {
+      toast.info("Only pending requests can be approved.");
+      return;
+    }
+    setEditItem(rec);
+    setModalMode("approve");
+    setModalOpen(true);
+  }, [selectedRecord]);
+
   const { openNewModal, openPrintModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "change_override_customer",
     modalOpen,
@@ -229,6 +263,19 @@ export default function StickerOverrideCustomerPage() {
       setModalMode("add");
       setModalOpen(true);
     }, []),
+    openEdit: openEditModal,
+    canEditSelection: useCallback(() => {
+      const row = getSelectedRow();
+      return Boolean(row && resolveOverrideRowStatus(row) !== "rejected");
+    }, [getSelectedRow]),
+    onEditBlocked: useCallback(() => {
+      const row = getSelectedRow();
+      if (row && resolveOverrideRowStatus(row) === "rejected") {
+        toast.info("Rejected requests cannot be edited.");
+        return;
+      }
+      toast.info("Select a row to edit (Ctrl+E).");
+    }, [getSelectedRow]),
     onPrint: useCallback(() => {
       handlePrintApproved();
     }, [handlePrintApproved]),
@@ -247,15 +294,19 @@ export default function StickerOverrideCustomerPage() {
     }, [selected, selectedStatus]),
     printModule: "change_override_customer",
     printAction: "view",
-    openApprove: useCallback((row) => {
-      setEditItem(row);
-      setModalMode("approve");
-      setModalOpen(true);
-    }, []),
-    canApproveSelection: useCallback(() => Boolean(selected && selectedRecord), [selected, selectedRecord]),
+    openApprove: openApproveModal,
+    canApproveSelection: useCallback(
+      () => Boolean(selected && selectedRecord && selectedStatus === "pending"),
+      [selected, selectedRecord, selectedStatus]
+    ),
     onApproveBlocked: useCallback(() => {
-      toast.info("Select a row to open approve (Ctrl+A).");
-    }, []),
+      const row = getSelectedRow();
+      if (row && resolveOverrideRowStatus(row) === "approved") {
+        toast.info("Already approved. Edit first, then approve again.");
+        return;
+      }
+      toast.info("Select a pending row to approve (Ctrl+A).");
+    }, [getSelectedRow]),
   });
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
@@ -283,17 +334,25 @@ export default function StickerOverrideCustomerPage() {
 
                   <ActionButton
                     module="change_override_customer"
+                    action="edit"
+                    variant="outline"
+                    label="Edit"
+                    icon={Edit3}
+                    disabled={!selected || selectedStatus === "rejected"}
+                    record={selectedRecord}
+                    onClick={() => openEditModal(selectedRecord)}
+                    className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none"
+                  />
+
+                  <ActionButton
+                    module="change_override_customer"
                     action="authorize"
                     variant="outline"
                     label="Approve"
                     icon={Shield}
-                    disabled={!selected}
-                    onClick={() => {
-                      setEditItem(selectedRecord);
-                      setModalMode("approve");
-                      setModalOpen(true);
-                    }}
-                    className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none text-indigo-600"
+                    disabled={!selected || selectedStatus !== "pending"}
+                    onClick={() => openApproveModal(selectedRecord)}
+                    className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none text-emerald-600 disabled:opacity-40"
                   />
 
                   <PrintActionButton

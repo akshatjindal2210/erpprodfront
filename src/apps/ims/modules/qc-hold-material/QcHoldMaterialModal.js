@@ -19,7 +19,7 @@ import { detectQrType, parseBoxScanRaw, boxNoUidDisplayLabel } from "@/apps/ims/
 import { prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
 import { SCAN_SNACK_MSG, notifyDecodeSuppressedScan, markRecentScanSuccess, shouldSilenceScanDuplicate, useScanSnackbarActions } from "@/platform/utils/global";
 import { OK_INPUT, ERR_INPUT, FORM_LABEL_CLASS } from "@/ui/common/Constants";
-import { activeQcHoldModePickerOptions, activeQcHoldPendingScanOptions, QC_HOLD_PICKER_ACCENT, QC_HOLD_PICKER_ICONS, QC_HOLD_MODE_PENDING, QC_HOLD_MODE_PARTIAL, QC_HOLD_MODE_FULL, QC_HOLD_MODE_REVERT, QC_HOLD_SCAN_PARTIAL, QC_HOLD_SCAN_FULL, defaultQcHoldScanMode, formatQcHoldActiveHoldLabel, getQcHoldPickerOption, isPendingHoldMode, isSubmitMode, isFullSubmitMode, isRevertSubmitMode, isFullPendingScanMode, mapQcHoldSelectRow, QC_HOLD_PARTIAL_ENABLED, submissionTypeForPickerMode, pickerIdFromSubmissionType } from "@/apps/ims/lib/utils/qcHoldTypes";
+import { activeQcHoldModePickerOptions, activeQcHoldPendingScanOptions, activeQcHoldSubmitModeOptions, QC_HOLD_PICKER_ACCENT, QC_HOLD_PICKER_ICONS, QC_HOLD_MODE_PENDING, QC_HOLD_MODE_SUBMIT, QC_HOLD_SCAN_PARTIAL, QC_HOLD_SCAN_FULL, defaultQcHoldScanMode, formatQcHoldActiveHoldLabel, getQcHoldPickerOption, isPendingHoldMode, isSubmitMode, isFullSubmitMode, isRevertSubmitMode, isFullPendingScanMode, mapQcHoldSelectRow, QC_HOLD_PARTIAL_ENABLED, submissionTypeForPickerMode, pickerIdFromSubmissionType } from "@/apps/ims/lib/utils/qcHoldTypes";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import TypeableSuggestField from "@/ui/common/forms/TypeableSuggestField";
 
@@ -52,6 +52,12 @@ const INITIAL_SUBMIT_FORM = {
   reason: "",
   remarks: "",
 };
+
+function needsApproval(submission) {
+  const type = String(submission?.submission_type || "").trim().toLowerCase();
+  if (type !== "partial") return true;
+  return !!submission?.requires_approval;
+}
 
 function fmtQty(qty) {
   return `${Number(qty || 0).toLocaleString()} qty`;
@@ -398,6 +404,8 @@ function CollapsiblePackingContext({
 
   const packingNumber = meta?.packing_number;
   const dispatchLines = meta?.dispatch_lines || [];
+  const jobCards = Array.isArray(meta?.job_card_nos) ? meta.job_card_nos.filter(Boolean) : [];
+  const jobCardText = jobCards.length ? jobCards.join(" | ") : meta?.job_card_no || "—";
   const dispatched = Number(meta?.dispatched_total_qty ?? meta?.dispatch_stock_qty ?? 0);
   const hasDispatch = dispatchLines.length > 0 && dispatched > 0;
 
@@ -475,6 +483,10 @@ function CollapsiblePackingContext({
               <div className="min-w-0">
                 <dt className="text-[8px] font-bold text-slate-400 uppercase">Item</dt>
                 <dd className="font-semibold text-slate-800 uppercase break-words">{item}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[8px] font-bold text-slate-400 uppercase">Job Card</dt>
+                <dd className="font-semibold text-slate-800 break-words" title={jobCardText}>{jobCardText}</dd>
               </div>
               <div className="min-w-0 col-span-2 sm:col-span-1">
                 <dt className="text-[8px] font-bold text-slate-400 uppercase">Description</dt>
@@ -718,6 +730,12 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
     isPendingHoldMode(pickerChoiceId) &&
     pendingScanMode == null &&
     holdMode != null;
+  const showSubmitTypePicker =
+    !isEdit &&
+    !isApprove &&
+    !readOnly &&
+    holdMode === QC_HOLD_MODE_SUBMIT &&
+    pickerChoiceId == null;
   const isPendingMode = isPendingHoldMode(pickerChoiceId);
   const isLegacyPartialHold =
     isEdit &&
@@ -790,7 +808,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
 
           if (isApprove) {
             setParentHold(data);
-            const pending = (data.submissions || data.pending_submissions || []).filter((s) => !s.approved);
+            const pending = (data.submissions || data.pending_submissions || []).filter((s) => !s.approved && needsApproval(s));
             setPendingSubmissions(pending.length ? pending : data.pending_submissions || []);
             const sub = pending[0] || (data.pending_submissions || [])[0] || null;
             if (sub) {
@@ -829,7 +847,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
           setHoldRecord(editData);
           if (isApprove) {
             setParentHold(editData);
-            const pending = (editData.pending_submissions || editData.submissions || []).filter((s) => !s.approved);
+            const pending = (editData.pending_submissions || editData.submissions || []).filter((s) => !s.approved && needsApproval(s));
             setPendingSubmissions(pending.length ? pending : editData.pending_submissions || []);
             const sub = pending[0] || (editData.pending_submissions || [])[0] || null;
             if (sub) {
@@ -859,8 +877,21 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
 
   const selectHoldMode = (option) => {
     setHoldMode(option.id);
-    setPickerChoiceId(option.id);
     setIsConfirmed(true);
+    if (option.id === QC_HOLD_MODE_SUBMIT) {
+      setPickerChoiceId(null);
+      setPendingScanMode(null);
+      setParentHold(null);
+      setSubmitForm(INITIAL_SUBMIT_FORM);
+      setForm(INITIAL_FORM);
+      setScannedBoxes([]);
+      scannedIdsRef.current = new Set();
+      lockedPackingRef.current = "";
+      setPackingMeta(null);
+      return;
+    }
+
+    setPickerChoiceId(option.id);
     setPendingScanMode(
       isPendingHoldMode(option.id)
         ? QC_HOLD_PARTIAL_ENABLED
@@ -877,6 +908,13 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
       lockedPackingRef.current = "";
       setPackingMeta(null);
     }
+  };
+
+  const selectSubmitMode = (option) => {
+    setPickerChoiceId(option.id);
+    setParentHold(null);
+    setSubmitForm(INITIAL_SUBMIT_FORM);
+    setErrors((prev) => ({ ...prev, hold_id: "", submit_qty: "", submit_reason: "" }));
   };
 
   const handleChangeHoldType = () => {
@@ -958,31 +996,32 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
   const loadFullHoldByPacking = useCallback(
     async (rawPackingNo) => {
       if (readOnly || !isFullPendingScan) return;
-      const pn = String(rawPackingNo ?? manualPackingNo ?? "").trim();
-      if (!pn) {
-        setErrors((prev) => ({ ...prev, scan: "Packing number is required." }));
+      const typed = String(rawPackingNo ?? manualPackingNo ?? "").trim();
+      if (!typed) {
+        setErrors((prev) => ({ ...prev, scan: "Packing number or Job Card is required." }));
         return;
       }
 
       setLoadingFullHold(true);
       setErrors((prev) => ({ ...prev, scan: "" }));
       try {
-        const expandRes = await qcHoldMaterialService.expandFullHold({ packing_number: pn });
+        const expandRes = await qcHoldMaterialService.expandFullHold({ packing_number: typed });
         const expanded = expandRes?.data?.boxes;
         if (!expandRes?.success || !Array.isArray(expanded) || !expanded.length) {
           throw new Error(expandRes?.message || "No in-hand stock for this packing");
         }
 
-        lockedPackingRef.current = pn;
-        setManualPackingNo(pn);
+        const resolvedPacking = String(expandRes?.data?.packing_number ?? "").trim() || typed;
+        lockedPackingRef.current = resolvedPacking;
+        setManualPackingNo(resolvedPacking);
         if (expandRes.data.packing_meta) setPackingMeta(expandRes.data.packing_meta);
         else {
-          const meta = (await qcHoldMaterialService.getPackingMeta(pn))?.data;
+          const meta = (await qcHoldMaterialService.getPackingMeta(resolvedPacking))?.data;
           setPackingMeta(meta || null);
         }
         syncBoxes(expanded);
         showScanSuccess(
-          `qc-hold-full-${pn}`,
+          `qc-hold-full-${resolvedPacking}`,
           `Full hold: ${expanded.length} in-hand stock boxes (${expanded.reduce((s, b) => s + (Number(b.qty) || 0), 0).toLocaleString()} qty)`
         );
       } catch (err) {
@@ -991,7 +1030,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
         setPackingMeta(null);
         const msg = err?.message || "Could not load boxes for full hold";
         setErrors((prev) => ({ ...prev, scan: msg }));
-        showScanToast("error", `qc-hold-full-fail-${pn}`, msg, 2800);
+        showScanToast("error", `qc-hold-full-fail-${typed}`, msg, 2800);
       } finally {
         setLoadingFullHold(false);
       }
@@ -1432,9 +1471,19 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
   }, [isApprove, pickerChoiceId, accent]);
   const drawerTitle = isApprove
     ? "Authorize Submission"
-    : isConfirmed
-      ? activePicker?.title || "QC Hold"
-      : "New QC Hold";
+    : showModePicker
+      ? "New QC Hold"
+      : showPendingScanPicker
+        ? "On Hold - Select Scan Type"
+        : showSubmitTypePicker
+          ? "On Submit - Select Type"
+          : isSubmitFlow
+            ? activePicker?.cardTitle || activePicker?.title || "Submit"
+            : isPendingMode
+              ? isFullPendingScan
+                ? "Full Hold"
+                : "Partial Hold"
+              : activePicker?.cardTitle || activePicker?.title || "QC Hold";
 
   const drawerDescription = showModePicker ? (
     "Select action"
@@ -1443,10 +1492,14 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
       <span className="uppercase tracking-tight font-bold">
         {isApprove
           ? "Adjust qty, reason or remark — then authorize"
+          : showPendingScanPicker
+            ? "Select hold scan type"
+          : showSubmitTypePicker
+            ? "Select submit type"
           : isSubmitFlow
             ? "Submit completed / rejected qty"
             : isFullPendingScan
-              ? "Enter packing number & save pending hold"
+              ? "Enter packing number or Job Card & save pending hold"
               : "Scan boxes & save pending hold"}
       </span>
       {!isEdit && !isApprove ? (
@@ -1591,6 +1644,34 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
                         </span>
                         <span className="text-xs font-black uppercase tracking-tight leading-snug break-words min-w-0 pt-1.5">
                           {option.title}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-600 mt-2 leading-snug flex-1">{option.description}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : showSubmitTypePicker ? (
+            <div className="space-y-3 py-2">
+              <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">On Submit — type</p>
+              <div className={`grid grid-cols-1 gap-3 ${activeQcHoldSubmitModeOptions().length >= 2 ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
+                {activeQcHoldSubmitModeOptions().map((option) => {
+                  const cardAccent = QC_HOLD_PICKER_ACCENT[option.accent] || QC_HOLD_PICKER_ACCENT.indigo;
+                  const Icon = QC_HOLD_PICKER_ICONS[option.icon] || Package;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => selectSubmitMode(option)}
+                      className={`p-3 rounded-xl border-2 text-left transition-all active:scale-[0.98] min-w-0 h-full flex flex-col ${cardAccent.card}`}
+                    >
+                      <div className={`flex items-start gap-2 min-w-0 ${cardAccent.title}`}>
+                        <span className="inline-flex shrink-0 items-center justify-center w-8 h-8 rounded-lg bg-white/70 border border-current/10">
+                          <Icon size={16} />
+                        </span>
+                        <span className="text-xs font-black uppercase tracking-tight leading-snug break-words min-w-0 pt-1.5">
+                          {option.cardTitle || option.title}
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-600 mt-2 leading-snug flex-1">{option.description}</p>
@@ -1805,7 +1886,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
 
               {showFullHoldPackingUi && !isEdit && scannedBoxes.length === 0 ? (
                 <div className="space-y-2 bg-yellow-50/40 p-2 rounded-lg border border-yellow-200 shadow-sm">
-                  <p className="text-[10px] font-bold text-yellow-900 uppercase px-0.5">Full hold — packing</p>
+                  <p className="text-[10px] font-bold text-yellow-900 uppercase px-0.5">Full hold — packing / job card</p>
                   {(showPhoneQr || showLaserUi) ? (
                     <div className="flex items-stretch gap-2 w-full min-w-0 p-1.5 bg-white border border-yellow-100 rounded-lg">
                       {showPhoneQr && (
@@ -1847,7 +1928,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
                           if (manualPackingNo.trim()) void loadFullHoldByPacking(manualPackingNo);
                         }
                       }}
-                      placeholder="Type packing number…"
+                      placeholder="Type packing number or Job Card…"
                       disabled={loadingFullHold}
                       className={`${OK_INPUT} flex-1 min-w-0 font-mono`}
                     />
@@ -1866,7 +1947,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
 
               {showFullHoldPackingUi && !isEdit && scannedBoxes.length > 0 ? (
                 <p className={`text-[8px] font-bold uppercase px-1.5 py-1 rounded border leading-tight ${accent.banner}`}>
-                  Full hold · Packing #{lockedPackingRef.current || manualPackingNo} · {scannedCount} in-hand stock boxes
+                  Full hold · Packing/Job Card #{lockedPackingRef.current || manualPackingNo} · {scannedCount} in-hand stock boxes
                 </p>
               ) : null}
 

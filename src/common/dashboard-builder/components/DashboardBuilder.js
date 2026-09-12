@@ -496,6 +496,8 @@ const DASHBOARD_APP_OPTIONS = [
   { value: "ims", label: "IMS Dashboard" },
   { value: "rmstore", label: "RM Store Dashboard" },
   { value: "hrms", label: "HRMS Dashboard" },
+  { value: "purchase", label: "Purchase Dashboard" },
+  { value: "production", label: "Production Dashboard" },
   { value: "task", label: "Task Dashboard" },
   { value: "settings", label: "Admin Console Dashboard" },
 ];

@@ -1,0 +1,8 @@
+const PRODUCTION = "/production/dashboard";
+
+export const ROUTES = {
+  PRODUCTION_DASHBOARD: PRODUCTION,
+  PRODUCTION_MASTER: `${PRODUCTION}/master`,
+  PRODUCTION_SHORTAGE: `${PRODUCTION}/shortage`,
+  PRODUCTION_ACTIVITY_LOGS: `${PRODUCTION}/logs`,
+};

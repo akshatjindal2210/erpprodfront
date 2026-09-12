@@ -52,7 +52,7 @@ export function shouldIgnoreWidgetLinkClick(event) {
   if (!target?.closest) return false;
   return Boolean(
     target.closest(
-      "a, button, input, textarea, select, label, [role='button'], [contenteditable='true'], table th, [data-no-widget-link]",
+      "a, button, input, textarea, select, label, [role='button'], [contenteditable='true'], table th, [data-no-widget-link], [data-dashboard-column-filter], [data-dashboard-column-filter-menu], [data-searchable-select-portal], .searchable-select-dropdown",
     ),
   );
 }

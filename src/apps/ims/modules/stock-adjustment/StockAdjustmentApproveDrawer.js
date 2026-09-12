@@ -9,7 +9,6 @@ import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment"
 import { stockAdjustmentService } from "@/apps/ims/lib/services/stockAdjustment";
 import { plainRemarksForDisplay } from "@/apps/ims/modules/stock-adjustment/StockAdjustmentModal";
 import { loadBoxesForStockAdjustmentAdd, printStockAdjustmentAddStickers } from "./stockAdjustmentStickerPrint";
-import { parseStoredAddAllBoxesLoose } from "./stockAdjustmentViewBoxes";
 
 export default function StockAdjustmentApproveDrawer({ open, onClose, onSuccess, editData, printOnly = false, viewOnly = false }) {
   const [loading, setLoading] = useState(false);
@@ -103,16 +102,7 @@ export default function StockAdjustmentApproveDrawer({ open, onClose, onSuccess,
     if (!sopAckRef.current?.assertAcknowledged()) return;
     setLoading(true);
     try {
-      const payload = { approved: true };
-      if (detail?.entry_type === "add") {
-        if (boxes.length > 0) {
-          payload.all_boxes_loose = boxes.every((b) => !!b.is_loose);
-        } else {
-          const stored = parseStoredAddAllBoxesLoose(detail?.removed_box_ids);
-          payload.all_boxes_loose = stored !== null ? stored : false;
-        }
-      }
-      await stockAdjustmentService.update(detail.adjustment_id, payload);
+      await stockAdjustmentService.update(detail.adjustment_id, { approved: true });
       toast.success("Adjustment approved");
       onSuccess?.();
       onClose?.();

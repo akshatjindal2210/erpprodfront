@@ -49,7 +49,12 @@ function defaultSelectedKeys(rows = []) {
   return new Set(rows.filter(isRowImportable).map((r) => r.key));
 }
 
-export default function ShortageBulkImport({ onSuccess, onOpenChange }) {
+export default function ShortageBulkImport({
+  onSuccess,
+  onOpenChange,
+  service = shortageService,
+  permissionModule = "shortage",
+}) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState(null);
   const [importType, setImportType] = useState("PPC");
@@ -109,12 +114,12 @@ export default function ShortageBulkImport({ onSuccess, onOpenChange }) {
       throw new Error("No valid rows. Qty must be greater than 0.");
     }
 
-    const res = await shortageService.bulkPreview(raw, monthValue, type);
+    const res = await service.bulkPreview(raw, monthValue, type);
     if (!res?.success) throw new Error(res?.message || "Preview failed.");
     const rows = Array.isArray(res.data) ? res.data : [];
     setPreviewRows(rows);
     if (!rows.length) toast.warning("No valid rows found.");
-  }, []);
+  }, [service]);
 
   const handleFileChange = async (e) => {
     const selectedFile = e.target.files?.[0];
@@ -187,7 +192,7 @@ export default function ShortageBulkImport({ onSuccess, onOpenChange }) {
         month: r.month || month,
       }));
 
-      const res = await shortageService.bulkCreate(payload, month, importType);
+      const res = await service.bulkCreate(payload, month, importType);
       if (!res?.success) throw new Error(res?.message || "Import failed.");
 
       toast.success(res.message || `${res.count || 0} ${importType} shortage saved.`);
@@ -276,7 +281,7 @@ export default function ShortageBulkImport({ onSuccess, onOpenChange }) {
           <ModuleSopAcknowledgment
             ref={sopAckRef}
             isOpen={open}
-            moduleSlug="shortage"
+            moduleSlug={permissionModule}
             permissionType="add"
             onGateReadyChange={setSopGateReady}
           />

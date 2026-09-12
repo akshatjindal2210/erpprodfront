@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useDeferredValue } from "react";
 import { useSelector } from "react-redux";
 import { Plus, AlertTriangle, RefreshCcw, Edit3, Trash2, X, CheckCircle, Info } from "lucide-react";
 import { toast } from "react-toastify";
@@ -30,7 +30,7 @@ import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSea
 import { SCHEDULE_REPORT_FILTER, SCHEDULE_REPORT_FILTER_OPTIONS } from "@/apps/ims/modules/schedule-planning/schedulePlanStatus";
 import { MONTH_FILTER_OPTIONS } from "@/apps/ims/modules/schedule-planning/schedulePlanningColumns";
 import { getSelectedFinancialYear } from "@/platform/utils/global/financialYear";
-import { clampRangeToIndianFy, defaultRangeInIndianFy, indianFyMonthRange } from "@/platform/utils/core/indianFinancialYear";
+import { resolveShortageListDateRange } from "@/platform/utils/core/indianFinancialYear";
 import { SHORTAGE_PAGE_TABS, buildShortageMasterHeaders, buildShortageItemWiseHeaders, formatShortageMonthDate, shortageYearMonthKey, shortageMasterSearchParts, shortageItemWiseSearchParts } from "@/apps/ims/modules/shortage/shortageColumns";
 
 const TYPE_FILTER_OPTIONS = [
@@ -44,65 +44,35 @@ const STATUS_FILTER_OPTIONS = [
   { label: "Pending", value: "pending" },
 ];
 
-function clampYmdRange(range, bounds = {}) {
-  let from = String(range?.from ?? "").trim();
-  let to = String(range?.to ?? "").trim();
-  const minDate = String(bounds?.minDate ?? "").trim();
-  const maxDate = String(bounds?.maxDate ?? "").trim();
-  if (minDate && from && from < minDate) from = minDate;
-  if (maxDate && to && to > maxDate) to = maxDate;
-  if (minDate && !from) from = minDate;
-  if (maxDate && !to) to = maxDate;
-  if (from && to && from > to) from = to;
-  return { from, to };
-}
+const DEFAULT_PAGE_TAB = "master";
+const DEFAULT_ITEM_WISE_STATUS = "pending";
+const MASTER_STATUS = "approved";
 
-function resolveShortageDateFilters(params, viewBounds = {}) {
-  const fy = getSelectedFinancialYear().name;
-  const custom = String(params.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT).toLowerCase() === SCHEDULE_REPORT_FILTER.CUSTOM;
-  let range = defaultRangeInIndianFy(fy);
-  if (custom) {
-    const month = params.month;
-    const fromDate = String(params.fromDate ?? "").trim();
-    const toDate = String(params.toDate ?? "").trim();
-    const hasMonth = month && String(month).toLowerCase() !== "all";
-    const hasDate = Boolean(fromDate) || Boolean(toDate);
-    if (hasMonth && !hasDate) range = indianFyMonthRange(month, fy);
-    else {
-      let from = fromDate;
-      let to = toDate || fromDate;
-      if (hasMonth && hasDate) {
-        const b = indianFyMonthRange(month, fy);
-        from = (fromDate || b.from) > b.from ? (fromDate || b.from) : b.from;
-        to = (toDate || fromDate || b.to) < b.to ? (toDate || fromDate || b.to) : b.to;
-      }
-      range = { from, to };
-    }
-  }
-  return clampYmdRange(clampRangeToIndianFy(range, fy), viewBounds);
-}
-
-const buildShortageListFilters = (params, viewBounds = {}) => {
-  const filters = {
+const buildShortageListFilters = (params, viewBounds = {}, groupName = null) => {
+  const { from, to } = resolveShortageListDateRange(params, getSelectedFinancialYear().name, viewBounds);
+  const grpname = String(groupName || "").trim();
+  return {
     ...(params.type !== "all" && { type: params.type }),
     ...(params.status === "approved" && { approved: true }),
     ...(params.status === "pending" && { approved: false }),
+    ...(from && { from_date: `${from} 00:00:00` }),
+    ...(to && { to_date: `${to} 23:59:59` }),
+    ...(grpname && { grpname }),
   };
-
-  const { from, to } = resolveShortageDateFilters(params, viewBounds);
-  if (from) filters.from_date = `${from} 00:00:00`;
-  if (to) filters.to_date = `${to} 23:59:59`;
-  return filters;
 };
 
-export default function ShortagePage() {
+export default function ShortagePage({
+  groupName = null,
+  permissionModule = "shortage",
+  service = shortageService,
+} = {}) {
   const user = useSelector(selectUser);
   const canBulkImport = isImsSuperAdmin(user);
   const canAccess = useCanAccess();
-  const viewAccess = useMemo(() => canAccess("shortage", "view"), [canAccess]);
+  const viewAccess = useMemo(() => canAccess(permissionModule, "view"), [canAccess, permissionModule]);
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
   const [viewMode, handleViewMode] = useViewMode();
-  const [pageTab, setPageTab] = useState("item-wise");
+  const [pageTab, setPageTab] = useState(DEFAULT_PAGE_TAB);
   const [itemWiseItemdcodeFilter, setItemWiseItemdcodeFilter] = useState(null);
   const [draftReportType, setDraftReportType] = useState(SCHEDULE_REPORT_FILTER.DEFAULT);
   const [selected, setSelected] = useState(null);
@@ -123,8 +93,8 @@ export default function ShortagePage() {
   );
 
   const shortageBuildFilters = useCallback(
-    (listParams) => buildShortageListFilters(listParams, viewDateBounds),
-    [viewDateBounds]
+    (listParams) => buildShortageListFilters(listParams, viewDateBounds, groupName),
+    [viewDateBounds, groupName]
   );
 
   const {
@@ -137,12 +107,12 @@ export default function ShortagePage() {
     fetchRows,
     handleSort: handleItemSort,
   } = useImsCrudList({
-    service: shortageService,
+    service,
     buildFilters: shortageBuildFilters,
     errorMessage: "Failed to load shortage records",
     extraParams: {
       type: "all",
-      status: "all",
+      status: DEFAULT_ITEM_WISE_STATUS,
       reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
       fromDate: "",
       toDate: "",
@@ -150,11 +120,14 @@ export default function ShortagePage() {
     },
   });
 
+  const deferredSearch = useDeferredValue(tempSearch);
+
   const fetchMasterRows = useCallback(async () => {
     setMasterLoading(true);
     try {
-      const filters = shortageBuildFilters(params);
-      const res = await shortageService.getMasterList({ filters });
+      // Master aggregate counts only authorized (approved) shortage entries.
+      const filters = shortageBuildFilters({ ...params, status: MASTER_STATUS });
+      const res = await service.getMasterList({ filters });
       setMasterRows(Array.isArray(res?.data) ? res.data : []);
       setMasterDisplayLimit(100);
       if (res && res.success === false) {
@@ -166,7 +139,7 @@ export default function ShortagePage() {
     } finally {
       setMasterLoading(false);
     }
-  }, [params, shortageBuildFilters]);
+  }, [params, shortageBuildFilters, service]);
 
   useEffect(() => {
     void fetchMasterRows();
@@ -183,25 +156,34 @@ export default function ShortagePage() {
     setTempSearch("");
     setDraftReportType(SCHEDULE_REPORT_FILTER.DEFAULT);
     setItemWiseItemdcodeFilter(null);
+    setPageTab(DEFAULT_PAGE_TAB);
+    setSelected(null);
     setParams((prev) => ({
       ...prev,
       type: "all",
-      status: "all",
+      status: DEFAULT_ITEM_WISE_STATUS,
       reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
       fromDate: "",
       toDate: "",
       month: "all",
-      sortKey: isMasterTab ? "year_month" : "id",
-      sortDir: isMasterTab ? "desc" : "desc",
+      sortKey: "year_month",
+      sortDir: "desc",
     }));
   };
 
   const extraFilters = useMemo(() => {
     const filters = [
       { label: "Type", key: "typeFilter", value: params.type, options: TYPE_FILTER_OPTIONS },
-      { label: "Status", key: "approvedStatus", value: params.status, options: STATUS_FILTER_OPTIONS },
       { label: "Report", key: "reportType", value: draftReportType, options: SCHEDULE_REPORT_FILTER_OPTIONS, preserveOrder: false },
     ];
+    if (!isMasterTab) {
+      filters.splice(1, 0, {
+        label: "Status",
+        key: "approvedStatus",
+        value: params.status,
+        options: STATUS_FILTER_OPTIONS,
+      });
+    }
     if (isCustomReport) {
       filters.push({
         label: "Month",
@@ -212,7 +194,13 @@ export default function ShortagePage() {
       });
     }
     return filters;
-  }, [params.type, params.status, params.month, draftReportType, isCustomReport]);
+  }, [params.type, params.status, params.month, draftReportType, isCustomReport, isMasterTab]);
+
+  const extraFiltersBeforeDate = useMemo(() => {
+    const keys = isMasterTab ? ["typeFilter", "reportType"] : ["typeFilter", "approvedStatus", "reportType"];
+    if (isCustomReport) keys.push("month");
+    return keys;
+  }, [isCustomReport, isMasterTab]);
 
   const drillToItemWise = useCallback((masterRow) => {
     const code = masterRow?.itemdcode;
@@ -229,22 +217,29 @@ export default function ShortagePage() {
         month: "all",
         fromDate: from,
         toDate: to,
+        status: MASTER_STATUS,
+        sortKey: "id",
+        sortDir: "desc",
       }));
     }
     setPageTab("item-wise");
     setSelected(null);
   }, [setParams]);
 
+  const lockedGroup = String(groupName || "").trim().toLowerCase();
+
   const masterFilteredRows = useMemo(() => {
-    let data = masterRows;
-    if (String(tempSearch || "").trim()) {
-      data = applyClientSearch(masterRows, tempSearch, {
+    let data = lockedGroup
+      ? masterRows.filter((row) => String(row?.grpname || "").trim().toLowerCase() === lockedGroup)
+      : masterRows;
+    if (String(deferredSearch || "").trim()) {
+      data = applyClientSearch(data, deferredSearch, {
         getParts: shortageMasterSearchParts,
-        skipSort: !!params.sortKey,
+        skipSort: true,
       });
     }
     return sortRowsByKey(data, params.sortKey || "year_month", params.sortDir || "desc");
-  }, [masterRows, tempSearch, params.sortKey, params.sortDir]);
+  }, [masterRows, deferredSearch, params.sortKey, params.sortDir, lockedGroup]);
 
   const masterItems = useMemo(
     () => masterFilteredRows.slice(0, masterDisplayLimit),
@@ -252,28 +247,30 @@ export default function ShortagePage() {
   );
 
   const itemFilteredRows = useMemo(() => {
-    let data = allRows;
+    let data = lockedGroup
+      ? allRows.filter((row) => String(row?.grpname || "").trim().toLowerCase() === lockedGroup)
+      : allRows;
     if (itemWiseItemdcodeFilter) {
       const code = String(itemWiseItemdcodeFilter).trim();
       const ym = shortageYearMonthKey(params.fromDate || params.toDate);
-      data = allRows.filter((row) => {
+      data = data.filter((row) => {
         if (String(row.itemdcode ?? "").trim() !== code) return false;
         return !ym || shortageYearMonthKey(row.month) === ym;
       });
     }
-    if (String(tempSearch || "").trim()) {
-      data = applyClientSearch(data, tempSearch, {
+    if (String(deferredSearch || "").trim()) {
+      data = applyClientSearch(data, deferredSearch, {
         getParts: shortageItemWiseSearchParts,
-        skipSort: !!params.sortKey,
+        skipSort: true,
       });
     }
     return sortRowsByKey(data, params.sortKey || "id", params.sortDir || "desc");
-  }, [allRows, itemWiseItemdcodeFilter, params.fromDate, params.toDate, tempSearch, params.sortKey, params.sortDir]);
+  }, [allRows, itemWiseItemdcodeFilter, params.fromDate, params.toDate, deferredSearch, params.sortKey, params.sortDir, lockedGroup]);
 
   const [itemDisplayLimit, setItemDisplayLimit] = useState(100);
   useEffect(() => {
     setItemDisplayLimit(100);
-  }, [tempSearch, pageTab, itemWiseItemdcodeFilter, params.type, params.status, params.reportType, params.month, params.fromDate, params.toDate]);
+  }, [deferredSearch, pageTab, itemWiseItemdcodeFilter, params.type, params.status, params.reportType, params.month, params.fromDate, params.toDate]);
 
   const itemItems = useMemo(
     () => itemFilteredRows.slice(0, itemDisplayLimit),
@@ -288,6 +285,7 @@ export default function ShortagePage() {
     if (isMasterTab) return masterFilteredRows.find((row) => row.id === selected);
     return itemFilteredRows.find((row) => row.id === selected);
   }, [isMasterTab, masterFilteredRows, itemFilteredRows, selected]);
+  const selectedAlreadyApproved = !isMasterTab && Boolean(selectedRecord?.approved);
 
   const getSelectedRow = useCallback(() => {
     if (isMasterTab) return masterFilteredRows.find((row) => row.id === selected);
@@ -295,7 +293,7 @@ export default function ShortagePage() {
   }, [isMasterTab, masterFilteredRows, itemFilteredRows, selected]);
 
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
-    module: "shortage",
+    module: permissionModule,
     modalOpen: modalOpen || bulkImportOpen || !!deleteItem,
     selectedId: isMasterTab ? null : selected,
     getSelectedRow: isMasterTab ? () => null : getSelectedRow,
@@ -310,12 +308,16 @@ export default function ShortagePage() {
       setModalOpen(true);
     }, []),
     openApprove: useCallback((row) => {
+      if (row?.approved) {
+        toast.info("Already approved. Edit first, then approve.");
+        return;
+      }
       setEditItem(row);
       setModalMode("approve");
       setModalOpen(true);
     }, []),
     canApproveSelection: useCallback(
-      () => !isMasterTab && Boolean(selected && selectedRecord),
+      () => !isMasterTab && Boolean(selected && selectedRecord) && !selectedRecord?.approved,
       [isMasterTab, selected, selectedRecord]
     ),
     onApproveBlocked: useCallback(() => {
@@ -394,6 +396,7 @@ export default function ShortagePage() {
                     ...prev,
                     sortKey: id === "master" ? "year_month" : "id",
                     sortDir: "desc",
+                    ...(id !== "master" ? { status: DEFAULT_ITEM_WISE_STATUS } : {}),
                   }));
                 }}
                 tabs={SHORTAGE_PAGE_TABS}
@@ -401,9 +404,11 @@ export default function ShortagePage() {
             }
             actions={
               <>
-                <ActionButton module="shortage" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+                <ActionButton module={permissionModule} action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
                 {canBulkImport ? (
                   <ShortageBulkImport
+                    service={service}
+                    permissionModule={permissionModule}
                     onOpenChange={setBulkImportOpen}
                     onSuccess={() => {
                       refreshAll();
@@ -412,7 +417,7 @@ export default function ShortagePage() {
                   />
                 ) : null}
                 <ActionButton
-                  module="shortage"
+                  module={permissionModule}
                   action="edit"
                   variant="outline"
                   label="Edit"
@@ -423,13 +428,17 @@ export default function ShortagePage() {
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
                 />
                 <ActionButton
-                  module="shortage"
+                  module={permissionModule}
                   action="authorize"
                   variant="outline"
                   label="Approve"
                   icon={CheckCircle}
-                  disabled={isMasterTab || !selected}
+                  disabled={isMasterTab || !selected || selectedAlreadyApproved}
                   onClick={() => {
+                    if (selectedRecord?.approved) {
+                      toast.info("Already approved. Edit first, then approve.");
+                      return;
+                    }
                     setEditItem(selectedRecord);
                     setModalMode("approve");
                     setModalOpen(true);
@@ -437,7 +446,7 @@ export default function ShortagePage() {
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
                 />
                 <ActionButton
-                  module="shortage"
+                  module={permissionModule}
                   action="delete"
                   variant="danger"
                   label="Delete"
@@ -487,11 +496,11 @@ export default function ShortagePage() {
         <ListPageFilterStrip>
           <DateRangeFilter
             key={draftReportType}
+            showDate={isCustomReport}
             fromDate={isCustomReport ? (params.fromDate ?? "") : ""}
             toDate={isCustomReport ? (params.toDate ?? "") : ""}
-            dateDisabled={!isCustomReport}
             extraFilters={extraFilters}
-            extraFiltersBeforeDate={isCustomReport ? ["month"] : []}
+            extraFiltersBeforeDate={extraFiltersBeforeDate}
             applyOnSearchEnter={false}
             searchVariant="quick"
             onExtraFilterChange={(key, value) => {
@@ -528,7 +537,7 @@ export default function ShortagePage() {
                 ...prev,
                 reportType,
                 type: data.typeFilter || prev.type,
-                status: data.approvedStatus || prev.status,
+                ...(!isMasterTab ? { status: data.approvedStatus || prev.status } : {}),
                 ...(isCustom
                   ? { month, fromDate: hasDate ? fromDate : "", toDate: hasDate ? toDate : "" }
                   : { month: "all", fromDate: "", toDate: "" }),
@@ -586,18 +595,27 @@ export default function ShortagePage() {
       </div>
 
       {modalOpen && (
-        <ShortageModal open={modalOpen} onClose={() => setModalOpen(false)} onSuccess={onSaved} editData={editItem} mode={modalMode} />
+        <ShortageModal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          onSuccess={onSaved}
+          editData={editItem}
+          mode={modalMode}
+          groupName={groupName}
+          permissionModule={permissionModule}
+          service={service}
+        />
       )}
       {deleteItem && (
         <DeleteModal
           item={deleteItem}
           onClose={() => setDeleteItem(null)}
           onSuccess={onSaved}
-          service={shortageService}
+          service={service}
           entityLabel="Shortage"
           idKey="id"
           titleKey="itemcode"
-          moduleSlug="shortage"
+          moduleSlug={permissionModule}
         />
       )}
     </div>

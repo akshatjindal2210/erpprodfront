@@ -2060,6 +2060,32 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                 {isInventoryOutMode ? "Approve Inventory" : "Approve"}
               </button>
             </>
+          ) : isEdit && canApprove ? (
+            <>
+              {isFulfillmentComplete ? (
+                <button
+                  onClick={() => handleSave(true)}
+                  disabled={loading || isBlockingDataLoad || pendingScanCount > 0}
+                  className="min-w-[160px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40"
+                >
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
+                  Save & Approve
+                </button>
+              ) : null}
+              <button
+                onClick={() => handleSave()}
+                disabled={loading || !isConfirmed || isBlockingDataLoad || pendingScanCount > 0}
+                className={`min-w-[140px] px-6 py-2 text-sm font-bold text-white rounded-xl shadow-lg disabled:bg-slate-300 transition-all active:scale-95 ${
+                  isInventoryOutMode ? "bg-red-600 hover:bg-red-700" : "bg-indigo-600 hover:bg-indigo-700"
+                }`}
+              >
+                {loading
+                  ? "Processing..."
+                  : isFulfillmentComplete
+                    ? "Save"
+                    : `Save draft (${scannedCount}/${requiredBoxTotal || "?"})`}
+              </button>
+            </>
           ) : isAutoScanFlow || (isQcAreaMode && (fetchingQcHold || loading)) ? (
             <button
               onClick={() => handleSave()}

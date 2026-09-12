@@ -370,7 +370,6 @@ export default function BoxTransactionLogPage() {
             fromDate={params.fromDate}
             toDate={params.toDate}
             dateDisabled={journeyTyping}
-            applyExtrasOnChange
             extraFilters={extraFilters}
             onApply={handleFilterApply}
             onReset={handleReset}

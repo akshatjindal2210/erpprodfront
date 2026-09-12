@@ -405,8 +405,6 @@ export default function QcHoldMaterialPage() {
             toDate={params.toDate}
             showDate={isTxTab}
             extraFilters={extraFilters}
-            instantClientExtras
-            applyExtrasOnChange
             onApply={handleFilterApply}
             onReset={handleReset}
             searchValue={tempSearch}

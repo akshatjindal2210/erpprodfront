@@ -115,6 +115,7 @@ export function qcHoldSearchParts(row) {
   };
 
   push(row.hold_id, row.packing_number, row.item_code, row.item_dcode, row.remarks, row.reason, rowHoldStatus(row));
+  push(row.job_card_text, row.job_card_no);
   push(statusBadge(rowHoldStatus(row)).text);
   pushNum(row.qty, row.total_qty, row.completed_qty, row.rejected_qty, row.balance_qty);
   push(fmtApprovedSubmissions(row));
@@ -232,6 +233,10 @@ export function getQcHoldEmptyState(statusTab, pendingFilter, txActionFilter) {
 export const QC_HOLD_HEADERS = [
   ["ID", "hold_id", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "72px" }],
   ["Packing No.", "packing_number", (v) => <span className="font-mono font-bold text-[10px] text-slate-700">{v || "—"}</span>, { width: "110px" }],
+  ["Job Card", "job_card_text", (v, row) => {
+    const text = row?.job_card_no || v || "—";
+    return <span className="text-[10px] font-semibold text-slate-700 block max-w-[200px] truncate" title={text}>{text}</span>;
+  }, { width: "200px" }],
   ["Item Code", "item_code", (v) => <span className="font-bold text-[11px] uppercase">{v || "—"}</span>, { width: "200px" }],
   ["Reason", "reason", (v) => <span className="text-[10px] text-slate-700 truncate block max-w-[160px]" title={v || ""}>{v || "—"}</span>, { width: "160px" }],
   ["Status", "status", (v, row) => {
@@ -348,6 +353,25 @@ function txDisplayQty(row) {
   return null;
 }
 
+function txCompletedQty(row) {
+  const v = Number(txInfoValue(row, "Completed qty"));
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+function txRejectedQty(row) {
+  const v = Number(txInfoValue(row, "Rejected qty"));
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+function txReason(row) {
+  return (
+    txInfoValue(row, "Reason") ||
+    txInfoValue(row, "Remark") ||
+    row?.description ||
+    null
+  );
+}
+
 function txEventLabel(row) {
   const fromLog = getActivityLogEventLabel(row?.log_data);
   if (fromLog) return fromLog;
@@ -375,6 +399,9 @@ export function qcHoldTxSearchParts(row) {
     row?.approved_by_name,
     row?.user_name,
     txDisplayQty(row),
+    txCompletedQty(row),
+    txRejectedQty(row),
+    txReason(row),
     formatDateTime(row?.hold_created_at),
     formatDateTime(row?.hold_updated_at),
     formatDateTime(row?.hold_approved_at),
@@ -414,11 +441,16 @@ export const QC_HOLD_TX_HEADERS = [
   ["Qty", "qty", (_v, row) => (
     <span className="font-black text-slate-800 text-[11px]">{txDisplayQty(row) || "—"}</span>
   ), { width: "100px", align: "center" }],
-  ["Remark", "description", (v) => <span className="text-[10px] text-slate-500 truncate block max-w-[200px]" title={v || ""}>{v || "—"}</span>, { width: "200px" }],
-  ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-  ["Created At", "hold_created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-  ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-  ["Updated At", "hold_updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-  ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-  ["Approved At", "hold_approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+  ["Completed", "log_data", (_v, row) => (
+    <span className="text-[10px] font-bold text-emerald-700">{txCompletedQty(row).toLocaleString()}</span>
+  ), { width: "95px", align: "center" }],
+  ["Rejected", "log_data", (_v, row) => (
+    <span className="text-[10px] font-bold text-rose-700">{txRejectedQty(row).toLocaleString()}</span>
+  ), { width: "95px", align: "center" }],
+  ["Reason", "log_data", (_v, row) => {
+    const reason = txReason(row);
+    return <span className="text-[10px] text-slate-600 truncate block max-w-[220px]" title={reason || ""}>{reason || "—"}</span>;
+  }, { width: "220px" }],
+  ["Action By", "user_name", (v) => <span className="text-[10px] text-slate-600">{v || "—"}</span>, { width: "120px" }],
+  ["Action At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
 ];

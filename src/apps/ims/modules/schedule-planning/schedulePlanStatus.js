@@ -205,14 +205,44 @@ export function canReadyFromStatus(status) {
 
 export function isSalesDepartmentUser(user) {
   const dept = user?.department;
-  const name = String(
-    (typeof dept === "object" && dept != null ? dept.name : dept) ||
-      user?.department_name ||
-      ""
-  )
-    .trim()
-    .toLowerCase();
+  const name = String((typeof dept === "object" && dept != null ? dept.name : dept) || user?.department_name || "").trim().toLowerCase();
   return name === "sales" || name.includes("sales");
+}
+
+function normalizeCrmKey(v) {
+  return String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function userCrmMatchKeys(user) {
+  const keys = new Set();
+  for (const raw of [user?.name, user?.username, user?.display_name]) {
+    const k = normalizeCrmKey(raw);
+    if (k) keys.add(k);
+  }
+  return [...keys];
+}
+
+/** Proper match: same CRM name after trim, lowercase, collapsed spaces (LATHA ↔ latha). */
+export function scheduleCrmMatchesUser(crmValue, matchKey) {
+  const crm = normalizeCrmKey(crmValue);
+  const self = normalizeCrmKey(matchKey);
+  return Boolean(crm && self && crm === self);
+}
+
+export function isScheduleSalesCrmScoped({ isSalesDepartment = false, isSuperAdmin = false } = {}) {
+  return Boolean(isSalesDepartment && !isSuperAdmin);
+}
+
+/** Sales user → only rows whose CRM matches login name (super admin / others → all rows). */
+export function filterScheduleRowsBySalesCrm(
+  rows = [],
+  user = null,
+  { isSalesDepartment = false, isSuperAdmin = false } = {}
+) {
+  if (!isScheduleSalesCrmScoped({ isSalesDepartment, isSuperAdmin })) return rows;
+  const keys = userCrmMatchKeys(user);
+  if (!keys.length) return [];
+  return rows.filter((row) => keys.some((key) => scheduleCrmMatchesUser(row?.CRM, key)));
 }
 
 /** Default: Sales + Authorize → Hold/Reject; else Ready to Dispatch. */

@@ -14,6 +14,8 @@ import { SETTINGS_NAV_REGISTRY } from "@/apps/settings/configuration/config/sett
 import { TASK_NAV_REGISTRY } from "@/apps/task/lib/config/navRegistry";
 import { RM_STORE_NAV_REGISTRY } from "@/apps/rmstore/lib/config/navRegistry";
 import { HRMS_NAV_REGISTRY } from "@/apps/hrms/lib/config/navRegistry";
+import { PURCHASE_NAV_REGISTRY } from "@/apps/purchase/lib/config/navRegistry";
+import { PRODUCTION_NAV_REGISTRY } from "@/apps/production/lib/config/navRegistry";
 import { canShowTaskReportMenu } from "@/apps/task/lib/config/appConfig";
 import { useSelector } from "react-redux";
 import { selectRole, selectUser } from "@/platform/store/slices/authSlice";
@@ -159,6 +161,34 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
           }
         }
         pageName = hrmsName || "HRMS";
+      } else if (pathname?.startsWith("/purchase/")) {
+        let purchaseName = null;
+        for (const item of PURCHASE_NAV_REGISTRY) {
+          if (item.href === pathname) {
+            purchaseName = item.name;
+            break;
+          }
+          const sub = item.subItems?.find((s) => s.href === pathname);
+          if (sub) {
+            purchaseName = item.name && item.subItems?.length ? `${item.name} > ${sub.name}` : sub.name;
+            break;
+          }
+        }
+        pageName = purchaseName || "Purchase";
+      } else if (pathname?.startsWith("/production/")) {
+        let productionName = null;
+        for (const item of PRODUCTION_NAV_REGISTRY) {
+          if (item.href === pathname) {
+            productionName = item.name;
+            break;
+          }
+          const sub = item.subItems?.find((s) => s.href === pathname);
+          if (sub) {
+            productionName = item.name && item.subItems?.length ? `${item.name} > ${sub.name}` : sub.name;
+            break;
+          }
+        }
+        pageName = productionName || "Production";
       } else {
         pageName = "Dashboard";
       }
@@ -173,6 +203,8 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
     const isTaskPath = pathname?.startsWith("/task/");
     const isRmStorePath = pathname?.startsWith("/rmstore/");
     const isHrmsPath = pathname?.startsWith("/hrms/");
+    const isPurchasePath = pathname?.startsWith("/purchase/");
+    const isProductionPath = pathname?.startsWith("/production/");
 
     if (isRmStorePath) {
       RM_STORE_NAV_REGISTRY.forEach((item) => {
@@ -187,6 +219,24 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
       HRMS_NAV_REGISTRY.forEach((item) => {
         if (item.href && !item.subItems?.length) {
           items.push({ name: item.name, path: item.href, type: "HRMS", icon: item.icon });
+        }
+        (item.subItems || []).forEach((sub) => {
+          if (sub.href) items.push({ name: sub.name, path: sub.href, type: item.name, icon: sub.icon });
+        });
+      });
+    } else if (isPurchasePath) {
+      PURCHASE_NAV_REGISTRY.forEach((item) => {
+        if (item.href && !item.subItems?.length) {
+          items.push({ name: item.name, path: item.href, type: "Purchase", icon: item.icon });
+        }
+        (item.subItems || []).forEach((sub) => {
+          if (sub.href) items.push({ name: sub.name, path: sub.href, type: item.name, icon: sub.icon });
+        });
+      });
+    } else if (isProductionPath) {
+      PRODUCTION_NAV_REGISTRY.forEach((item) => {
+        if (item.href && !item.subItems?.length) {
+          items.push({ name: item.name, path: item.href, type: "Production", icon: item.icon });
         }
         (item.subItems || []).forEach((sub) => {
           if (sub.href) items.push({ name: sub.name, path: sub.href, type: item.name, icon: sub.icon });

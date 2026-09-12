@@ -527,7 +527,17 @@ export function productRowKey(row) {
 }
 
 export function productSearchParts(row) {
-  return [row.item_code, row.primitem_code, row.itemdesc, row.grpname];
+  const isActive = Number(row.apvitem) === 1 || row.apvitem === true;
+  return [
+    row.item_code,
+    row.primitem_code,
+    row.primitemdesc,
+    row.itemdesc,
+    row.grpname,
+    row.itemdcode,
+    isActive ? "active" : "inactive",
+    isActive ? "approved" : "pending",
+  ];
 }
 
 /* ─── 3. Customer Master (CustomerMaster.js) ─── */
@@ -593,7 +603,7 @@ export function partyRateRowKey(row) {
 }
 
 export function partyRateSearchParts(row) {
-  return [row.acc_name, row.itemdesc, row.item_code, row.narr1, row.grpname, row.itapv];
+  return [row.acc_name, row.acc_code, row.itemdesc, row.item_code, row.itemdcode, row.narr1, row.grpname, row.itapv];
 }
 
 export function sortPartyList(list, qRaw) {

@@ -58,9 +58,9 @@ Stock is **not** split by customer. Different customers on the same packing/date
 POST /api/erp-stock-report/list
   → erpStockReport.controller.js
   → erpStockComparisonList.js  (findErpStockComparisonReport)
-       ├─ sqlErpStockDbRows()        — one SQL row per in-hand box
+       ├─ ERP_STOCK_DB_SQL           — grouped in-hand rows (packing+date+job+item)
        ├─ fetchAllErpFgStock()       — ERP FG API
-       ├─ mergeDbAndErpRows()        — inline dedupe + ERP attach
+       ├─ mergeDbAndErpRows()        — ERP attach
        ├─ enrichRowsWithItemMaster() — item code/desc lookup
        └─ resolveCustomerNames()     — numeric acc codes → ledger names
 ```
@@ -70,9 +70,7 @@ POST /api/erp-stock-report/list
 | File | Role |
 |------|------|
 | `controllers/erpStockReport.controller.js` | Parses body (`page`, `limit`, `sortBy`, `order`, `refresh`, `refreshErp`) |
-| `utils/sql/erpStockDbSql.js` | SQL: one row per in-hand box |
-| `utils/list/erpStockComparisonList.js` | Merge, dedupe, cache, pagination |
-| `box/utils/inventory/boxInventorySql.js` | Shared helpers: `sqlDailyprodLateralForBox`, `sqlBoxCustomerNameReport`, `sqlBoxInHand` |
+| `utils/list/erpStockComparisonList.js` | SQL + merge, cache, pagination |
 | `lib/utils/erp-api/stock/erpFgStock.js` | ERP FG fetch + map by item/packing |
 
 ---
@@ -96,16 +94,16 @@ Implemented as `rowKey()` in `erpStockComparisonList.js`.
 
 ## Inline approach (simplest design)
 
-Deduping is done **in JavaScript**, not in SQL `GROUP BY`.
+Deduping is done in **SQL `GROUP BY`** (JS merge is a safety-net + ERP attach).
 
-### Step 1 — SQL: one row per box
+### Step 1 — SQL: one row per packing + date + job + item
 
-`sqlErpStockDbRows()` returns **one row per in-hand box**:
+`ERP_STOCK_DB_SQL` in `erpStockComparisonList.js`:
 
 - Join `ims_stock_adjustment` when `sa_id` is set
-- Use `sqlDailyprodLateralForBox` when `sa_id` is null — picks **one** dailyprod row per box (avoids row multiplication and wrong stock totals)
+- One dailyprod row per packing (`DISTINCT ON`) — **not** per-box LATERAL
 - Filter: in-hand, qty > 0, valid item dcode
-- Per box: packing, item, date, job card, customer name, qty as `db_stock`
+- `SUM(qty)` + comma-joined customer names
 
 **Do not** use a plain `LEFT JOIN ims_dailyprod ON packing = doc_no` — one packing can have many dailyprod rows and will inflate `SUM(qty)`.
 
@@ -212,13 +210,10 @@ One row — not two.
 ```
 ims_box_table (many boxes)
         │
-        ▼  sqlErpStockDbRows()
-   one row per box
-        │
-        ▼  mergeDbAndErpRows()  ← inline dedupe by rowKey
+        ▼  ERP_STOCK_DB_SQL  (GROUP BY packing+date+job+item)
    one row per packing+date+job+item
         │
-        ▼  attach ERP FG qty (packing+item)
+        ▼  mergeDbAndErpRows()  ← attach ERP FG qty (packing+item)
         │
         ▼  item master + ledger name resolve
         │

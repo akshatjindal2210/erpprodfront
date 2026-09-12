@@ -54,7 +54,6 @@ export default function InwardPage() {
 
   const [params, setParams] = useState({
     pageSize: 500,
-    status: "all",
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
     sortKey: "in_uid",
@@ -106,7 +105,6 @@ export default function InwardPage() {
         filters: {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
-          ...(params.status !== "all" && { approved: params.status === "approved" }),
         },
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
@@ -118,7 +116,12 @@ export default function InwardPage() {
         });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
-      setAllRows(data);
+      setAllRows(
+        (data || []).map((row) => ({
+          ...row,
+          activity_at: formatDateTime(row?.updated_at || row?.created_at),
+        }))
+      );
       setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load inwards");
@@ -126,7 +129,7 @@ export default function InwardPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.fromDate, params.toDate, params.status, appliedSearch]);
+  }, [params.pageSize, params.fromDate, params.toDate, appliedSearch]);
 
   const fetchPackingArea = useCallback(async () => {
     setLoading(true);
@@ -242,7 +245,6 @@ export default function InwardPage() {
         ...prev,
         fromDate: data.fromDate,
         toDate: data.toDate,
-        status: data.approvedStatus || prev.status,
       }));
       return;
     }
@@ -254,7 +256,6 @@ export default function InwardPage() {
     if (isStoreIn) {
       setParams({
         pageSize: 500,
-        status: "all",
         fromDate: dateFilterDefaults.from,
         toDate: dateFilterDefaults.to,
         sortKey: "in_uid",
@@ -310,24 +311,7 @@ export default function InwardPage() {
     else fetchPackingArea();
   };
 
-  const extraFilters = useMemo(
-    () =>
-      isStoreIn
-        ? [
-            {
-              label: "Status",
-              key: "approvedStatus",
-              value: params.status,
-              options: [
-                { label: "All Status", value: "all" },
-                { label: "Approved", value: "approved" },
-                { label: "Pending", value: "pending" },
-              ],
-            },
-          ]
-        : [],
-    [isStoreIn, params.status]
-  );
+  const extraFilters = useMemo(() => [], []);
 
   const getRowIdForList = useCallback(
     (item) => {
@@ -424,24 +408,10 @@ export default function InwardPage() {
       },
     ],
     ["Remarks", "remarks", (v) => <span className="text-slate-500 text-[10px] truncate block">{v || "—"}</span>, { width: "180px" }],
-    [
-      "Status",
-      "approved",
-      (v) => (
-        <span
-          className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}
-        >
-          {v ? "● AUTHORIZED" : "○ PENDING"}
-        </span>
-      ),
-      { width: "120px" },
-    ],
     ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
     ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
     ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
     ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-    ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-    ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 
   const packingSourceCell = (v) => {
@@ -514,12 +484,8 @@ export default function InwardPage() {
       ),
       { width: "80px" },
     ],
-    [
-      "Created At",
-      "created_at",
-      (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-      { width: "150px" },
-    ],
+    ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+    ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 
   const packingDetailCell = (v) => (
@@ -650,15 +616,15 @@ export default function InwardPage() {
   const cardConfig = isStoreIn
     ? {
         titleKey: "packing_number",
-        badgeIndices: [6],
+        badgeIndices: [],
         detailKeys: ["item_codes", "qtys", "total_qty"],
-        footerKey: "created_at",
+        footerKey: "activity_at",
       }
     : isPackingBoxView
       ? {
           titleKey: "box_no_uid",
           badgeIndices: [2],
-          detailKeys: ["doc_dt", "job_card_no", "packing_number", "item_code", "qty", "is_loose"],
+          detailKeys: ["source", "doc_dt", "job_card_no", "packing_number", "item_code", "qty", "is_loose", "created_by_name"],
           footerKey: "created_at",
         }
       : {
@@ -680,7 +646,7 @@ export default function InwardPage() {
                 onChange={handleTabChange}
                 tabs={[
                   { id: PAGE_TABS.STORE_IN, label: "Store In", icon: Warehouse },
-                  { id: PAGE_TABS.PACKING_AREA, label: "Packing Area", icon: PackageOpen },
+                  { id: PAGE_TABS.PACKING_AREA, label: "Pending", icon: PackageOpen },
                 ]}
               />
             }
@@ -841,7 +807,6 @@ export default function InwardPage() {
                 handleFilterApply({
                   fromDate: params.fromDate,
                   toDate: params.toDate,
-                  approvedStatus: params.status,
                 });
               } else {
                 applySearchFromInput();

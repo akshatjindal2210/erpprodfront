@@ -1,4 +1,4 @@
-import { Boxes, Home, ListTodo, Settings, Warehouse, Users } from "lucide-react";
+import { Boxes, Home, ListTodo, Settings, Warehouse, Users, ShoppingCart, Factory } from "lucide-react";
 import { ROUTES } from "@/config/routes";
 import { userHasAppAccess } from "@/config/moduleAppRegistry";
 import { getTaskHomePath } from "@/apps/task/lib/config/appConfig";
@@ -11,6 +11,8 @@ export const APP_SHELL = {
   TASK: "task",
   RM_STORE: "rmstore",
   HRMS: "hrms",
+  PURCHASE: "purchase",
+  PRODUCTION: "production",
 };
 
 /** Top navbar 9-dot launcher — fixed order: Home → IMS → RM Store → Task → Settings. */
@@ -62,6 +64,26 @@ export const APPS = [
     shell: APP_SHELL.HRMS,
     icon: Users,
     accent: "from-rose-500 to-rose-700",
+    inLauncher: true,
+  },
+  {
+    id: "purchase",
+    name: "Purchase",
+    subtitle: "Purchasing",
+    href: ROUTES.PURCHASE_DASHBOARD,
+    shell: APP_SHELL.PURCHASE,
+    icon: ShoppingCart,
+    accent: "from-orange-500 to-orange-700",
+    inLauncher: true,
+  },
+  {
+    id: "production",
+    name: "Production",
+    subtitle: "Manufacturing",
+    href: ROUTES.PRODUCTION_DASHBOARD,
+    shell: APP_SHELL.PRODUCTION,
+    icon: Factory,
+    accent: "from-cyan-500 to-cyan-700",
     inLauncher: true,
   },
   {
@@ -146,6 +168,30 @@ export function isHrmsShell(shell, pathname) {
   return shell === APP_SHELL.HRMS || isHrmsShellPath(pathname);
 }
 
+export function isPurchaseShellPath(pathname) {
+  return (
+    pathname === ROUTES.PURCHASE_DASHBOARD ||
+    pathname?.startsWith(`${ROUTES.PURCHASE_DASHBOARD}/`) ||
+    pathname?.startsWith("/purchase/")
+  );
+}
+
+export function isPurchaseShell(shell, pathname) {
+  return shell === APP_SHELL.PURCHASE || isPurchaseShellPath(pathname);
+}
+
+export function isProductionShellPath(pathname) {
+  return (
+    pathname === ROUTES.PRODUCTION_DASHBOARD ||
+    pathname?.startsWith(`${ROUTES.PRODUCTION_DASHBOARD}/`) ||
+    pathname?.startsWith("/production/")
+  );
+}
+
+export function isProductionShell(shell, pathname) {
+  return shell === APP_SHELL.PRODUCTION || isProductionShellPath(pathname);
+}
+
 /** Resolve launcher app label + home href for navbar breadcrumbs. */
 export function getShellAppFromPathname(pathname) {
   if (isPortalShellPath(pathname)) {
@@ -162,6 +208,12 @@ export function getShellAppFromPathname(pathname) {
   }
   if (isHrmsShellPath(pathname)) {
     return { id: "hrms", name: "HRMS", href: ROUTES.HRMS_DASHBOARD };
+  }
+  if (isPurchaseShellPath(pathname)) {
+    return { id: "purchase", name: "Purchase", href: ROUTES.PURCHASE_DASHBOARD };
+  }
+  if (isProductionShellPath(pathname)) {
+    return { id: "production", name: "Production", href: ROUTES.PRODUCTION_DASHBOARD };
   }
   if (pathname?.startsWith("/ims")) {
     return { id: "ims", name: "IMS", href: ROUTES.IMS_DASHBOARD };

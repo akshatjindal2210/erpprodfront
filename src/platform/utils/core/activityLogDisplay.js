@@ -1,6 +1,8 @@
 import { ROUTES as RM_ROUTES } from "@/apps/rmstore/lib/utils/routes";
 import { ROUTES as IMS_ROUTES } from "@/apps/ims/lib/utils/routes";
 import { ROUTES as HRMS_ROUTES } from "@/apps/hrms/lib/utils/routes";
+import { ROUTES as PURCHASE_ROUTES } from "@/apps/purchase/lib/utils/routes";
+import { ROUTES as PRODUCTION_ROUTES } from "@/apps/production/lib/utils/routes";
 
 const SKIP_KEYS = new Set([
   "success",
@@ -176,6 +178,12 @@ const MODULE_LABELS = {
   hrms_attendance_log: "Attendance Log",
   hrms_employee: "Employee Master",
   hrms_activity_logs: "Activity Logs",
+  purchase_master: "Product Master",
+  purchase_shortage: "Shortage",
+  purchase_activity_logs: "Activity Logs",
+  production_master: "Product Master",
+  production_shortage: "Shortage",
+  production_activity_logs: "Activity Logs",
 };
 
 export function formatActivityLogActionLabel(action) {
@@ -339,12 +347,26 @@ const HRMS_MODULE_ROUTES = {
   hrms_activity_logs: HRMS_ROUTES.HRMS_ACTIVITY_LOGS,
 };
 
+const PURCHASE_MODULE_ROUTES = {
+  purchase_master: PURCHASE_ROUTES.PURCHASE_MASTER,
+  purchase_shortage: PURCHASE_ROUTES.PURCHASE_SHORTAGE,
+  purchase_activity_logs: PURCHASE_ROUTES.PURCHASE_ACTIVITY_LOGS,
+};
+
+const PRODUCTION_MODULE_ROUTES = {
+  production_master: PRODUCTION_ROUTES.PRODUCTION_MASTER,
+  production_shortage: PRODUCTION_ROUTES.PRODUCTION_SHORTAGE,
+  production_activity_logs: PRODUCTION_ROUTES.PRODUCTION_ACTIVITY_LOGS,
+};
+
 function moduleRouteMap(appType) {
   const app = String(appType ?? "").trim().toLowerCase();
   if (app === "rmstore") return RMSTORE_MODULE_ROUTES;
   if (app === "ims") return IMS_MODULE_ROUTES;
   if (app === "task") return TASK_MODULE_ROUTES;
   if (app === "hrms") return HRMS_MODULE_ROUTES;
+  if (app === "purchase") return PURCHASE_MODULE_ROUTES;
+  if (app === "production") return PRODUCTION_MODULE_ROUTES;
   return null;
 }
 

@@ -49,6 +49,11 @@ export const GRAPH_BAR_LAYOUT_OPTIONS = [
   { value: "stacked", label: "Stacked" },
 ];
 
+export const GRAPH_PIE_LABEL_CONTENT_OPTIONS = [
+  { value: "name", label: "Name" },
+  { value: "value", label: "Value" },
+];
+
 /** Cap multi-series comparison (SQL wide columns). */
 export const GRAPH_MAX_SERIES = 8;
 
@@ -68,6 +73,7 @@ export const DEFAULT_GRAPH_ADVANCED_STYLE = {
   graphDisplayValue: "raw",
   /** null = auto: pie on, bar/line/area off (historical behavior) */
   graphShowDataLabels: null,
+  graphPieLabelContent: "name",
   /** bottom = historical Recharts Legend default */
   graphLegendPosition: "bottom",
   /** Empty / unset = auto from data (integer-friendly). */
@@ -90,6 +96,7 @@ const COMPARE_SET = new Set(GRAPH_COMPARISON_MODE_OPTIONS.map((o) => o.value));
 const LEGEND_POS_SET = new Set(GRAPH_LEGEND_POSITION_OPTIONS.map((o) => o.value));
 const VIEW_MODE_SET = new Set(GRAPH_VIEW_MODE_OPTIONS.map((o) => o.value));
 const BAR_LAYOUT_SET = new Set(GRAPH_BAR_LAYOUT_OPTIONS.map((o) => o.value));
+const PIE_LABEL_CONTENT_SET = new Set(GRAPH_PIE_LABEL_CONTENT_OPTIONS.map((o) => o.value));
 
 export function normalizeGraphComparisonMode(raw) {
   const v = String(raw || "single").trim().toLowerCase();
@@ -104,6 +111,11 @@ export function normalizeGraphViewMode(raw) {
 export function normalizeGraphBarLayout(raw) {
   const v = String(raw || "grouped").trim().toLowerCase();
   return BAR_LAYOUT_SET.has(v) ? v : "grouped";
+}
+
+export function normalizeGraphPieLabelContent(raw) {
+  const v = String(raw || "name").trim().toLowerCase();
+  return PIE_LABEL_CONTENT_SET.has(v) ? v : "name";
 }
 
 export function normalizeGraphYKeys(raw) {
@@ -265,6 +277,58 @@ export function resolveGraphShowDataLabels(style = {}, chartType = "bar") {
   if (style.graphShowDataLabels === true) return true;
   if (style.graphShowDataLabels === false) return false;
   return chartType === "pie";
+}
+
+export function columnHasNumericValues(rows = [], key = "") {
+  const col = String(key || "").trim();
+  if (!col || !Array.isArray(rows) || !rows.length) return false;
+  let numeric = 0;
+  let checked = 0;
+  rows.slice(0, 50).forEach((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return;
+    const v = row[col];
+    if (v === null || v === undefined || v === "") return;
+    checked += 1;
+    if (toNumber(v) !== null) numeric += 1;
+  });
+  return checked > 0 && numeric / checked >= 0.5;
+}
+
+export function resolvePieChartAxisKeys({ data = [], xKey = "", yKey = "", keys = [] } = {}) {
+  const resolvedX = String(xKey || keys[0] || "").trim();
+  let resolvedY = String(yKey || keys[1] || keys[0] || "").trim();
+  const xNumeric = columnHasNumericValues(data, resolvedX);
+  const yNumeric = columnHasNumericValues(data, resolvedY);
+
+  if (!yNumeric && xNumeric && resolvedX && resolvedY && resolvedX !== resolvedY) {
+    return {
+      xKey: resolvedY,
+      yKey: resolvedX,
+      swapped: true,
+      invalid: false,
+    };
+  }
+
+  if (!yNumeric) {
+    const numericKey = keys.find((k) => k !== resolvedX && columnHasNumericValues(data, k));
+    if (numericKey) {
+      return {
+        xKey: resolvedX,
+        yKey: numericKey,
+        swapped: false,
+        autoY: true,
+        invalid: false,
+      };
+    }
+    return {
+      xKey: resolvedX,
+      yKey: resolvedY,
+      swapped: false,
+      invalid: true,
+    };
+  }
+
+  return { xKey: resolvedX, yKey: resolvedY, swapped: false, invalid: false };
 }
 
 function toNumber(value) {
@@ -679,6 +743,9 @@ export function mergeGraphAdvancedFromConfig(cfg = {}, defaults = DEFAULT_GRAPH_
       read("graph_display_value", "graphDisplayValue") ?? defaults.graphDisplayValue,
     ),
     graphShowDataLabels,
+    graphPieLabelContent: normalizeGraphPieLabelContent(
+      read("graph_pie_label_content", "graphPieLabelContent") ?? defaults.graphPieLabelContent,
+    ),
     graphLegendPosition: normalizeGraphLegendPosition(
       read("graph_legend_position", "graphLegendPosition") ?? defaults.graphLegendPosition,
     ),
@@ -742,6 +809,7 @@ export function graphAdvancedToChartConfig(style = {}) {
     graph_show_data_labels: s.graphShowDataLabels === true || s.graphShowDataLabels === false
       ? s.graphShowDataLabels
       : undefined,
+    graph_pie_label_content: normalizeGraphPieLabelContent(s.graphPieLabelContent),
     graph_legend_position: normalizeGraphLegendPosition(s.graphLegendPosition),
     graph_y_axis_min: s.graphYAxisMin !== undefined && s.graphYAxisMin !== null && String(s.graphYAxisMin).trim() !== ""
       ? String(s.graphYAxisMin).trim()

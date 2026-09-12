@@ -323,9 +323,33 @@ function collectSearchParts(values) {
   return values.filter((v) => v != null && String(v).trim() !== "" && String(v).trim() !== "—").map(String);
 }
 
+export function buildScheduleCrmFilterOptions(rows = []) {
+  const values = [...new Set(rows.map((r) => String(r?.CRM ?? "").trim()).filter(Boolean))].sort();
+  return [{ label: "All", value: "all" }, ...values.map((v) => ({ label: v, value: v }))];
+}
+
+export function scheduleRowMatchesCrmFilter(row, crmFilter) {
+  if (!crmFilter || crmFilter === "all") return true;
+  const f = String(crmFilter).trim();
+  if (String(row?.CRM ?? "").trim() === f) return true;
+  return (row._items ?? []).some((i) => String(i?.CRM ?? "").trim() === f);
+}
+
+function joinUniqueCrm(items = []) {
+  const seen = new Set();
+  const out = [];
+  for (const row of items) {
+    const v = String(row?.CRM ?? "").trim();
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out.join(", ");
+}
+
 export function scheduleItemSearchParts(row) {
   return collectSearchParts([
-    row.schno, row.acc_name, row.acc_code, row.item_code, row.custitemcode, row.itemdesc, row.itemdcode,
+    row.schno, row.acc_name, row.acc_code, row.item_code, row.custitemcode, row.CRM, row.itemdesc, row.itemdcode,
     schMonthLabel(row.schmonth), schMonthShortLabel(row.schmonth), row.schmonth,
     formatSchHeaderDateForSearch(row.schdt), row.schdt,
     row.status_label, row.status, row.action_reason,
@@ -335,11 +359,15 @@ export function scheduleItemSearchParts(row) {
 
 export function scheduleItemWiseSearchParts(row) {
   const qty = row.totalqty ?? row.total_qty;
+  const dispatchQty = row.dispatch_qty;
+  const dispatchPct = row.dispatch_pct ?? scheduleDispatchPct(row);
   const remarksRaw = row.Remarks ?? row.remarks;
   return collectSearchParts([
     ...scheduleItemSearchParts(row),
     qty, qty != null ? Number(qty).toLocaleString() : null,
-    row.schedule_qty, row.dispatch_qty, row.balance_qty,
+    row.schedule_qty, dispatchQty, dispatchQty != null ? Number(dispatchQty).toLocaleString() : null,
+    dispatchPct, `${dispatchPct}%`,
+    row.balance_qty, row.balance_qty != null ? Number(row.balance_qty).toLocaleString() : null,
     row.fg_stock_qty, row.in_hand_qty,
     row.item_remark,
     formatScheduleRemarksForSearch(remarksRaw), remarksRaw,
@@ -353,7 +381,7 @@ export function scheduleItemWiseSearchParts(row) {
 export function scheduleUniqueSearchParts(row) {
   const parts = [
     row.schno, row.acc_name, row.acc_code, schMonthLabel(row.schmonth), schMonthShortLabel(row.schmonth),
-    row.schmonth, formatSchHeaderDateForSearch(row.schdt), row.schdt, row.item_count, row.total_qty,
+    row.schmonth, formatSchHeaderDateForSearch(row.schdt), row.schdt, row.item_count, row.total_qty, row.CRM,
     row.status_label, statusLabel(row.is_planned),
     row.created_by_name, row.updated_by_name, formatDateTime(row.created_at), formatDateTime(row.updated_at),
   ];
@@ -428,6 +456,7 @@ export function toUniqueScheduleRows(records) {
     acc_name: g.acc_name,
     schmonth: g.schmonth,
     acc_code: g.acc_code,
+    CRM: joinUniqueCrm(g.items),
     item_count: g.items.length,
     total_qty: g.items.reduce((sum, i) => sum + Number(i.totalqty ?? i.total_qty ?? 0), 0),
     _items: g.items,
@@ -714,11 +743,24 @@ export function buildScheduleUniqueHeaders({ onDrillToItems } = {}) {
     ],
     ["Total Qty", "total_qty", (v) => <span className="font-black text-slate-700 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>, { align: "center", width: "110px" }],
     ["Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { align: "center", width: "140px", copyValue: (row) => row.status_label || statusLabel(row.is_planned) }],
+    ["CRM", "CRM", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "90px" }],
     ...SCHEDULE_AUDIT_HEADERS,
   ];
 }
 
 export const SCHEDULE_UNIQUE_HEADERS = buildScheduleUniqueHeaders();
+
+export function scheduleDispatchPct(row) {
+  const sch = Number(row?.schedule_qty ?? row?.totalqty ?? row?.total_qty ?? 0);
+  return sch > 0 ? Math.round(Number(row?.dispatch_qty ?? 0) / sch * 100) : 0;
+}
+
+/** Client list sort — attach computed dispatch % (not stored on API row). */
+export function attachScheduleDispatchFields(row) {
+  if (!row || typeof row !== "object") return row;
+  const dispatch_pct = scheduleDispatchPct(row);
+  return row.dispatch_pct === dispatch_pct ? row : { ...row, dispatch_pct };
+}
 
 export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } = {}) {
   return [
@@ -728,8 +770,30 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
       (v, row) => scheduleDrillButton(row, v || "—", onDrillToItems, "Show all items in this schedule"),
       { fixed: true, width: "100px" },
     ],
-    ["Date", "schdt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatSchHeaderDate(v)}</span>, { width: "100px" }],
-    ["Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { align: "center", width: "160px", copyValue: (row) => row.status_label || statusLabel(row.is_planned) }],
+    ["Item Code", "item_code", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "100px" }],
+    ["Customer", "acc_name", (v) => (
+      <span className="font-bold text-slate-900 text-[10px] uppercase whitespace-normal break-words leading-snug" title={v}>{v || "—"}</span>
+    ), { width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" }],
+    ["Schedule Qty", "totalqty", (v, row) => (
+      <span className="font-black text-slate-700 text-[11px] tabular-nums">
+        {Number(v ?? row.schedule_qty ?? row.total_qty ?? 0).toLocaleString()}
+      </span>
+    ), { align: "center", width: "90px" }],
+    ["Balance Qty", "balance_qty", (v, row) => (
+      <span className="font-black text-slate-700 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
+    ), { align: "center", width: "90px" }],
+    ["FG Stock", "in_hand_qty", (v, row) => (
+      <span className="font-black text-emerald-700 text-[11px] tabular-nums">{Number(v ?? row.fg_stock_qty ?? 0).toLocaleString()}</span>
+    ), { align: "center", width: "90px" }],
+    ["Dispatch Qty", "dispatch_qty", (v, row) => (
+      <span className="font-black text-slate-600 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
+    ), { align: "center", width: "90px" }],
+    ["Dispatch %", "dispatch_pct", (_v, row) => (
+      <span className="font-black text-slate-600 text-[11px] tabular-nums">{scheduleDispatchPct(row)}%</span>
+    ), { align: "center", width: "90px", copyValue: (row) => `${scheduleDispatchPct(row)}%` }],
+    ["Cust. Item Code", "custitemcode", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "140px", copyValue: (row) => row.custitemcode || "—" }],
+    ["Description", "itemdesc", (v) => <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{v || "—"}</span>, { width: "220px", wrap: true }],
+    ["Month", "schmonth", (_v, row) => <span className="text-[10px] text-slate-600 font-medium">{schMonthLabel(row.schmonth)}</span>, { width: "100px" }],
     ["Last Action", "last_action_label", (_v, row) => {
         const label = row.last_action_label || "—";
         const meta = formatLastActionMeta(row);
@@ -766,33 +830,15 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
         },
       },
     ],
-    ["Customer", "acc_name", (v) => (
-      <span className="font-bold text-slate-900 text-[10px] uppercase whitespace-normal break-words leading-snug" title={v}>{v || "—"}</span>
-    ), { width: "220px", wrap: true, copyValue: (row) => row.acc_name || "—" }],
-    ["Month", "schmonth", (_v, row) => <span className="text-[10px] text-slate-600 font-medium">{schMonthLabel(row.schmonth)}</span>, { width: "100px" }],
-    ["Item Code", "item_code", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "160px" }],
-    ["Cust. Item Code", "custitemcode", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "140px", copyValue: (row) => row.custitemcode || "—" }],
-    ["Description", "itemdesc", (v) => <span className={`${IMS_TABLE_CELL_TEXT} break-words`}>{v || "—"}</span>, { width: "220px", wrap: true }],
-    ["Schedule Qty", "totalqty", (v, row) => (
-      <span className="font-black text-slate-700 text-[11px] tabular-nums">
-        {Number(v ?? row.schedule_qty ?? row.total_qty ?? 0).toLocaleString()}
-      </span>
-    ), { align: "center", width: "100px" }],
-    ["FG Stock", "in_hand_qty", (v, row) => (
-      <span className="font-black text-emerald-700 text-[11px] tabular-nums">{Number(v ?? row.fg_stock_qty ?? 0).toLocaleString()}</span>
-    ), { align: "center", width: "90px" }],
-    ["Balance Qty", "balance_qty", (v, row) => (
-      <span className="font-black text-slate-700 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
-    ), { align: "center", width: "95px" }],
-    ["Dispatch Qty", "dispatch_qty", (v, row) => (
-      <span className="font-black text-slate-600 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
-    ), { align: "center", width: "95px" }],
-    ["Shortage No", "shortage_no", (v) => (
-      <span className="font-bold text-amber-800 text-[10px] tabular-nums uppercase">{v || "—"}</span>
-    ), { align: "center", width: "110px", copyValue: (row) => row.shortage_no || "—" }],
     ["Cust. Request", "remarks", (_v, row) => (
       <ScheduleCustRequestCell raw={row.Remarks ?? row.remarks} />
     ), { width: "150px", wrap: true }],
+    ["Date", "schdt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatSchHeaderDate(v)}</span>, { width: "100px" }],
+    ["Status", "is_planned", (_v, row) => <ScheduleStatusBadge row={row} />, { align: "center", width: "160px", copyValue: (row) => row.status_label || statusLabel(row.is_planned) }],
+    ["Shortage No", "shortage_no", (v) => (
+      <span className="font-bold text-amber-800 text-[10px] tabular-nums uppercase">{v || "—"}</span>
+    ), { align: "center", width: "110px", copyValue: (row) => row.shortage_no || "—" }],
+    ["CRM", "CRM", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "90px" }],
     ...SCHEDULE_ACTION_HEADERS,
     ...SCHEDULE_AUDIT_HEADERS
   ];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Package, Eye } from "lucide-react";
 import { masterService } from "@/apps/ims/lib/services/master";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
@@ -11,23 +11,43 @@ import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPag
 import ActionButton from "@/ui/primitives/ActionButton";
 import GlobalDetailModal from "@/ui/common/modals/GlobalDetailModal";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
-import ListPageSearchField from "@/ui/common/list/ListPageSearchField";
+import ListPageSearchField, {
+  LIST_PAGE_FILTER_FIELD_WRAP_CLASS,
+  LIST_PAGE_FILTER_SELECT_CLASS,
+  listPageFilterLabelClass,
+} from "@/ui/common/list/ListPageSearchField";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailGrid, MasterDetailMetrics } from "./MasterDetailLayout";
 import { useMasterClientList } from "@/apps/ims/lib/helpers/useMasterClientList";
 import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
 import { PRODUCT_MASTER_HEADERS, PRODUCT_CARD_CONFIG, productRowKey, productSearchParts } from "./masterColumns";
 
-export default function ProductMasterPage() {
+function rowGroupName(row) {
+  return String(row?.grpname ?? row?.Grpname ?? "").trim();
+}
+
+export default function ProductMasterPage({ groupName = null } = {}) {
+  const lockedGroup = String(groupName || "").trim();
   const [viewMode, handleViewMode] = useViewMode();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [groupFilter, setGroupFilter] = useState(lockedGroup || "all");
 
   const loadData = useCallback(async () => {
     const body = await masterService.getItems();
     return body.data ?? [];
   }, []);
 
+  const preFilter = useCallback(
+    (rows) => {
+      const needle = (lockedGroup || (groupFilter !== "all" ? groupFilter : "")).trim().toLowerCase();
+      if (!needle) return rows;
+      return rows.filter((row) => rowGroupName(row).toLowerCase() === needle);
+    },
+    [lockedGroup, groupFilter]
+  );
+
   const {
+    allData,
     loading,
     reload,
     tempSearch,
@@ -47,7 +67,18 @@ export default function ProductMasterPage() {
     errorMessage: "Failed to load items",
     getSearchParts: productSearchParts,
     getRowKey: productRowKey,
+    preFilter,
   });
+
+  const groupOptions = useMemo(() => {
+    if (lockedGroup) return [lockedGroup];
+    const names = new Set();
+    for (const row of allData) {
+      const name = rowGroupName(row);
+      if (name) names.add(name);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [allData, lockedGroup]);
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: "Product Master",
@@ -93,15 +124,37 @@ export default function ProductMasterPage() {
         </ListPageToolbar>
 
         <ListPageFilterStrip className="space-y-2">
-          <ListPageSearchField
-            label="Product search"
-            placeholder="Item Code, Prim item, description, group"
-            value={tempSearch}
-            onChange={(v) => {
-              setTempSearch(v);
-              resetDisplayLimit();
-            }}
-          />
+          <div className="flex flex-wrap items-end gap-2">
+            <ListPageSearchField
+              label="Product search"
+              placeholder="Item Code, Prim item, description, group"
+              value={tempSearch}
+              onChange={(v) => {
+                setTempSearch(v);
+                resetDisplayLimit();
+              }}
+            />
+            <div className={`${LIST_PAGE_FILTER_FIELD_WRAP_CLASS} w-full min-w-0 max-w-[16rem]`}>
+              <label className={listPageFilterLabelClass("quick")}>Group name</label>
+              <select
+                value={lockedGroup || groupFilter}
+                disabled={Boolean(lockedGroup)}
+                onChange={(e) => {
+                  setGroupFilter(e.target.value);
+                  resetDisplayLimit();
+                  setSelected(null);
+                }}
+                className={LIST_PAGE_FILTER_SELECT_CLASS}
+              >
+                {lockedGroup ? null : <option value="all">All groups</option>}
+                {groupOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </ListPageFilterStrip>
 
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">

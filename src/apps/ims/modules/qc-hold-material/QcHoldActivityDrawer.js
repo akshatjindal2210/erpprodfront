@@ -275,6 +275,10 @@ export default function QcHoldActivityDrawer({ open, hold, onClose }) {
             const moreHasFields = moreSections.some((section) => activityFieldEntries(section.data).length > 0);
             const showMoreBtn = moreHasFields;
             const showHoldDataExpand = hasCollapsedHoldData(summary);
+            // Prefer the snapshot recorded when the event happened; only fall back to
+            // the current hold state if the log didn't persist a historical copy.
+            const snapshotHoldData = parseHoldDataRaw(payload?.more?.hold_data);
+            const holdDataForExpand = snapshotHoldData ?? liveHoldData;
             const summaryFields = activityFieldEntries(summary).filter(
               ([, value]) => !(showHoldDataExpand && isDenseDumpString(value))
             );
@@ -315,7 +319,7 @@ export default function QcHoldActivityDrawer({ open, hold, onClose }) {
                     <div className="px-3 py-2 text-[10px] text-slate-600 font-medium">{String(payload.summary)}</div>
                   ) : null}
 
-                  {showHoldDataExpand && liveHoldData ? <HoldDataExpand holdData={liveHoldData} /> : null}
+                  {showHoldDataExpand && holdDataForExpand ? <HoldDataExpand holdData={holdDataForExpand} /> : null}
 
                   {showMoreBtn ? (
                     <div className="px-3 pb-2">

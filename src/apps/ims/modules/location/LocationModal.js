@@ -52,6 +52,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
   const showApproval = canApprove && (mode === "add" || mode === "approve");
 
   const [loading, setLoading] = useState(false);
+  const [activeSubmit, setActiveSubmit] = useState(null);
   const [form, setForm] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
   const sopAckRef = useRef(null);
@@ -120,7 +121,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
     return e;
   };
 
-  const handleSave = async (statusOverride = null) => {
+  const handleSave = async (statusOverride = null, actionKey = "save") => {
     const e = validate();
     if (Object.keys(e).length) {
       setErrors(e);
@@ -131,6 +132,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
       return;
     }
     if (!sopAckRef.current?.assertAcknowledged()) return;
+    setActiveSubmit(actionKey);
     setLoading(true);
 
     try {
@@ -168,6 +170,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
       toast.error(err?.message || "Operation failed");
     } finally {
       setLoading(false);
+      setActiveSubmit(null);
     }
   };
 
@@ -180,32 +183,45 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
       {isApprove ? (
         <>
           <button
-            onClick={() => handleSave(false)}
+            onClick={() => handleSave(false, "keep_pending")}
             disabled={loading}
             className="w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
           >
-            Keep Pending
+            {loading && activeSubmit === "keep_pending" ? (
+              <span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Saving...</span>
+            ) : "Keep Pending"}
           </button>
           <button
-            onClick={() => handleSave(true)}
+            onClick={() => handleSave(true, "approve")}
             disabled={loading}
             className="w-full sm:w-auto sm:min-w-[140px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100"
           >
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
+            {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
           </button>
         </>
       ) : (
-        <button
-          onClick={() => handleSave()}
-          disabled={loading}
-          className="w-full sm:w-auto sm:min-w-[160px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
-        >
-          {loading ? (
-            <><Loader2 size={18} className="animate-spin" /> Saving...</>
-          ) : (
-            <><Check size={18} /> Save</>
+        <>
+          {isEdit && canApprove && (
+            <button
+              onClick={() => handleSave(true, "approve")}
+              disabled={loading}
+              className="w-full sm:w-auto sm:min-w-[160px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100"
+            >
+              {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Save & Approve
+            </button>
           )}
-        </button>
+          <button
+            onClick={() => handleSave(null, "save")}
+            disabled={loading}
+            className="w-full sm:w-auto sm:min-w-[160px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
+          >
+            {loading && activeSubmit === "save" ? (
+              <><Loader2 size={18} className="animate-spin" /> Saving...</>
+            ) : (
+              <><Check size={18} /> Save</>
+            )}
+          </button>
+        </>
       )}
     </div>
   );
@@ -214,7 +230,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={() => handleSave(isApprove ? true : undefined)}
+      onSubmit={() => handleSave(isApprove ? true : null, isApprove ? "approve" : "save")}
       title={isApprove ? "Approve Location" : isEdit ? "Edit Location" : "New Location"}
       description="Manage warehouse storage"
       footer={drawerFooter}

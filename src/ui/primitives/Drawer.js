@@ -122,10 +122,17 @@ const Drawer = ({
       }
       
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-        if (onSubmitRef.current) {
-          e.preventDefault();
-          onSubmitRef.current();
-        }
+        const roots = [...document.querySelectorAll("[data-app-drawer-root]")];
+        const topLevel = roots.reduce((max, el) => {
+          const level = Number(el.dataset.drawerStackLevel || 0);
+          return level > max ? level : max;
+        }, -1);
+        if (stackLevel < topLevel) return;
+        if (!onSubmitRef.current) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
+        onSubmitRef.current();
         return;
       }
 

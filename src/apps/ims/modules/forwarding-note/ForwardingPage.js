@@ -683,17 +683,16 @@ export default function ForwardingPage() {
     printBlockedMessage: "Approve the forwarding note first, then print the master bill (Ctrl+P).",
     printModule: "forwarding_note_master",
     printAction: "view",
-    openApprove: useCallback(() => {
-      openModal("approve");
-    }, [openModal]),
+    openApprove: useCallback(() => openModal("approve"), [openModal]),
     canApproveSelection: useCallback(
-      () => Boolean(selectedId) && !isSelectedLocked,
-      [selectedId, isSelectedLocked]
+      () => Boolean(selectedId) && !isSelectedLocked && !isSelectedApproved,
+      [selectedId, isSelectedLocked, isSelectedApproved]
     ),
     onApproveBlocked: useCallback(() => {
       if (!selectedId) toast.info("Select a row to approve (Ctrl+A).");
       else if (isSelectedLocked) toast.info("This forwarding note is locked for out entry.");
-    }, [selectedId, isSelectedLocked]),
+      else if (isSelectedApproved) toast.info("Already approved. Edit first, then approve again.");
+    }, [selectedId, isSelectedLocked, isSelectedApproved]),
     openDelete: useCallback(() => {
       setIsDeleting(true);
     }, []),
@@ -1022,7 +1021,7 @@ export default function ForwardingPage() {
                 <>
                   <ActionButton module="forwarding_note_master" action="add" label="New" icon={Plus} onClick={openMasterNew} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selectedId || isSelectedLocked} record={modalRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
-                  <ActionButton module="forwarding_note_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selectedId || isSelectedLocked} onClick={() => openModal("approve")} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
+                  <ActionButton module="forwarding_note_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selectedId || isSelectedLocked || isSelectedApproved} onClick={() => openModal("approve")} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
                   <ActionButton module="forwarding_note_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedId || isSelectedLocked} onClick={() => setIsDeleting(true)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
                   {isSelectedApproved ? (
                     <PrintActionButton

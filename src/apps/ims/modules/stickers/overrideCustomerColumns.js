@@ -74,10 +74,7 @@ export function buildOverrideApiFilters({ fromDate, toDate, status }) {
 }
 
 export const OVERRIDE_CUSTOMER_HEADERS = [
-  [
-    "Packing No",
-    "packing_number",
-    (v) => (
+  ["Packing No", "packing_number", (v) => (
       <div className="flex items-center gap-2">
         <ScanLine size={12} className="text-indigo-500" />
         <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{v}</span>
@@ -85,10 +82,7 @@ export const OVERRIDE_CUSTOMER_HEADERS = [
     ),
     { fixed: true, width: "140px" },
   ],
-  [
-    "Item Code",
-    "itemdcode",
-    (v, row) => (
+  ["Item Code", "itemdcode", (v, row) => (
       <span className="text-[10px] font-bold text-slate-600 uppercase max-w-[150px]">
         {row.item_name || "—"}
       </span>
@@ -98,10 +92,7 @@ export const OVERRIDE_CUSTOMER_HEADERS = [
       copyValue: (row) => row.item_name || row.itemdcode || "—",
     },
   ],
-  [
-    "Box No UIDs",
-    "box_no_uids",
-    (v) => (
+  ["Box No UIDs", "box_no_uids", (v) => (
       <div className="flex flex-wrap gap-1 max-w-[300px]">
         {v && Array.isArray(v) ? (
           v.map((code, idx) => (
@@ -119,10 +110,7 @@ export const OVERRIDE_CUSTOMER_HEADERS = [
     ),
     { width: "250px", sortable: false },
   ],
-  [
-    "Transfer Flow",
-    "from_customer",
-    (v, row) => (
+  ["Transfer Flow", "from_customer", (v, row) => (
       <div
         className="flex items-center gap-2 text-[10px] py-1 select-text"
         title={`${row.from_customer_name || "—"} → ${row.to_customer_name || "—"}`}
@@ -139,14 +127,11 @@ export const OVERRIDE_CUSTOMER_HEADERS = [
       </div>
     ),
     {
-      width: "340px",
+      width: "500px",
       copyValue: (row) => `${row.from_customer_name || "—"} → ${row.to_customer_name || "—"}`,
     },
   ],
-  [
-    "Status",
-    "status",
-    (v, row) => {
+  ["Status", "status", (v, row) => {
       const status = resolveOverrideRowStatus(row);
       return (
         <span
@@ -161,34 +146,7 @@ export const OVERRIDE_CUSTOMER_HEADERS = [
       copyValue: (row) => overrideStatusLabel(resolveOverrideRowStatus(row)),
     },
   ],
-  [
-    "Requested By",
-    "requested_by_name",
-    (v) => <span className="text-[10px] font-bold text-slate-500 uppercase">{v || "—"}</span>,
-    { width: "130px" },
-  ],
-  [
-    "Requested At",
-    "requested_at",
-    (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-    { width: "140px" },
-  ],
-  [
-    "Approved By",
-    "approved_by_name",
-    (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>,
-    { width: "110px" },
-  ],
-  [
-    "Approved At",
-    "approved_at",
-    (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-    { width: "150px" },
-  ],
-  [
-    "Remarks",
-    "remarks",
-    (v) => (
+  ["Remarks", "remarks", (v) => (
       <span
         className="block text-[10px] text-slate-500 line-clamp-4 whitespace-pre-wrap break-words min-w-0 max-w-full"
         title={v ? String(v) : ""}
@@ -196,6 +154,12 @@ export const OVERRIDE_CUSTOMER_HEADERS = [
         {v || "—"}
       </span>
     ),
-    { width: "220px", wrap: true },
+    { width: "120px", wrap: true },
   ],
+  ["Created By", "requested_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+  ["Created At", "requested_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+  ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+  ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+  ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "120px" }],
+  ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
 ];

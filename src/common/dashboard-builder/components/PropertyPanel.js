@@ -9,7 +9,7 @@ import { DEFAULT_WIDGET_BOX_SHADOW, STRONG_WIDGET_BOX_SHADOW } from "../utils/fl
 import { normalizeWidgetLinkType } from "../utils/widgetClickLink";
 import { createDefaultDrawerWidget, normalizeDrawerWidget } from "../utils/drawerWidgetConfig";
 import { normalizeTableSearchMode, normalizeTableSearchPosition, normalizeTableSearchWidth, TABLE_SEARCH_POSITION_OPTIONS } from "../utils/tableToolbar.js";
-import { GRAPH_COMPARISON_MODE_OPTIONS, GRAPH_VALUE_FORMAT_OPTIONS, GRAPH_DISPLAY_VALUE_OPTIONS, GRAPH_DECIMAL_OPTIONS, GRAPH_LEGEND_POSITION_OPTIONS, GRAPH_VIEW_MODE_OPTIONS, GRAPH_BAR_LAYOUT_OPTIONS, GRAPH_MAX_SERIES, normalizeGraphComparisonMode, normalizeGraphValueFormat, normalizeGraphDisplayValue, normalizeGraphDecimalPlaces, normalizeGraphLegendPosition, normalizeGraphViewMode, normalizeGraphBarLayout, normalizeGraphYKeys, syncLegacyYKeysFromList, resolveGraphYKeys, isGraphComparisonEnabled, resolveGraphShowDataLabels } from "../utils/graphAdvancedConfig.js";
+import { GRAPH_COMPARISON_MODE_OPTIONS, GRAPH_VALUE_FORMAT_OPTIONS, GRAPH_DISPLAY_VALUE_OPTIONS, GRAPH_DECIMAL_OPTIONS, GRAPH_LEGEND_POSITION_OPTIONS, GRAPH_VIEW_MODE_OPTIONS, GRAPH_BAR_LAYOUT_OPTIONS, GRAPH_PIE_LABEL_CONTENT_OPTIONS, GRAPH_MAX_SERIES, normalizeGraphComparisonMode, normalizeGraphValueFormat, normalizeGraphDisplayValue, normalizeGraphDecimalPlaces, normalizeGraphLegendPosition, normalizeGraphViewMode, normalizeGraphBarLayout, normalizeGraphPieLabelContent, normalizeGraphYKeys, syncLegacyYKeysFromList, resolveGraphYKeys, isGraphComparisonEnabled, resolveGraphShowDataLabels } from "../utils/graphAdvancedConfig.js";
 
 const BLOCKED_SQL = /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke)\b/i;
 const REQUIRES_SQL = new Set(["kpi", "table", "graph"]);
@@ -2413,10 +2413,20 @@ const PropertyPanel = ({
                     ) : null}
                     <SimpleToggle
                       label="Show data labels"
-                      hint={chartType === "pie" ? "Off hides slice labels; on shows formatted values" : "Values on bars / points"}
+                      hint="Values on bars / points / pie lines"
                       checked={dataLabelsOn}
                       onChange={(enabled) => handleChange("style.graphShowDataLabels", enabled)}
                     />
+                    {chartType === "pie" && dataLabelsOn ? (
+                      <>
+                        <PanelFieldLabel>Outside label (pie)</PanelFieldLabel>
+                        <SegmentControl
+                          value={normalizeGraphPieLabelContent(displayStyle.graphPieLabelContent)}
+                          options={GRAPH_PIE_LABEL_CONTENT_OPTIONS}
+                          onChange={(mode) => handleChange("style.graphPieLabelContent", mode)}
+                        />
+                      </>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2 rounded border border-slate-200 bg-white p-2">

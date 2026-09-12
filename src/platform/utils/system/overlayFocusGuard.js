@@ -8,6 +8,7 @@ function skipInert(el) {
   return (
     el.classList?.contains("searchable-select-dropdown") ||
     el.hasAttribute?.("data-searchable-select-portal") ||
+    el.hasAttribute?.("data-dashboard-column-filter-menu") ||
     el.hasAttribute?.("data-file-preview-overlay")
   );
 }
@@ -27,6 +28,54 @@ function getTopOverlay() {
   const overlays = getBodyOverlays();
   if (!overlays.length) return null;
   return overlays.reduce((top, el) => (overlayZ(el) >= overlayZ(top) ? el : top));
+}
+
+function visibleFocusables(root) {
+  if (!root) return [];
+  return [...root.querySelectorAll(FOCUSABLE)].filter((n) => n.getClientRects().length);
+}
+
+function getOpenDashboardColumnFilterChain() {
+  const menu = document.querySelector("[data-dashboard-column-filter-menu]");
+  const openInput = document.querySelector("[data-dashboard-column-filter] input[aria-expanded='true']");
+  if (!menu || !openInput) return null;
+  const menuItems = visibleFocusables(menu);
+  return menuItems.length ? [openInput, ...menuItems] : null;
+}
+
+function handleDashboardColumnFilterTab(e) {
+  const chain = getOpenDashboardColumnFilterChain();
+  if (!chain?.length) return false;
+
+  const activeEl = document.activeElement;
+  const idx = chain.indexOf(activeEl);
+  if (idx === -1) return false;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  if (e.shiftKey) {
+    chain[idx <= 0 ? chain.length - 1 : idx - 1]?.focus();
+    return true;
+  }
+
+  if (idx >= chain.length - 1) {
+    chain[0]?.dispatchEvent(new CustomEvent("dashboard-column-filter-tab-exit", { bubbles: true }));
+    const trapRoot = getTopOverlay();
+    if (trapRoot) {
+      const drawerList = visibleFocusables(trapRoot);
+      const inputIdx = drawerList.indexOf(chain[0]);
+      if (inputIdx >= 0 && inputIdx < drawerList.length - 1) {
+        drawerList[inputIdx + 1]?.focus();
+      } else {
+        chain[0]?.blur();
+      }
+    }
+    return true;
+  }
+
+  chain[idx + 1]?.focus();
+  return true;
 }
 
 /** One global Tab trap + inert for all portaled overlays (drawers + center modals). */
@@ -73,10 +122,12 @@ export function installOverlayFocusGuard() {
     const trapRoot = getTopOverlay();
     if (!trapRoot) return;
 
+    if (handleDashboardColumnFilterTab(e)) return;
+
     const activeEl = document.activeElement;
     if (activeEl?.closest?.(".searchable-select-dropdown")) return;
 
-    const list = [...trapRoot.querySelectorAll(FOCUSABLE)].filter((n) => n.getClientRects().length);
+    const list = visibleFocusables(trapRoot);
     if (!list.length) {
       e.preventDefault();
       return;

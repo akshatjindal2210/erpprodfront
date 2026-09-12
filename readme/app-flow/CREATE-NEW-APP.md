@@ -2,6 +2,8 @@
 
 This note is the checklist for adding a **new product app** inside the existing Next.js frontend (not a separate package). Follow the same **shell shape** as IMS / Task / RM Store.
 
+**Fastest path:** [CREATE-APP-FROM-TEMPLATE.md](./CREATE-APP-FROM-TEMPLATE.md) — copy the private `template` kit, rename, connect. The kit is not mounted and not shown to users.
+
 ---
 
 ## Design reference vs product data (critical)

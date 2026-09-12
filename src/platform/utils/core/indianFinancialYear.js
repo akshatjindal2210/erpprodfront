@@ -132,6 +132,59 @@ export function indianFyMonthRange(monthNum, fyStr) {
   return clampRangeToIndianFy({ from: ymd(new Date(y, m - 1, 1)), to: ymd(new Date(y, m, 0)) }, fyStr);
 }
 
+/** Full selected Indian FY as YYYY-MM-DD bounds. */
+export function fullRangeInIndianFy(fyStr) {
+  const fy = parseIndianFinancialYearBounds(fyStr);
+  if (!fy) return { from: "", to: "" };
+  return { from: ymd(fy.from), to: ymd(fy.to) };
+}
+
+const moKey = (s) => /^(\d{4})-(\d{2})/.exec(String(s ?? "").trim());
+const moStart = (s) => {
+  const m = moKey(s);
+  return m ? `${m[1]}-${m[2]}-01` : "";
+};
+const moEnd = (s) => {
+  const m = moKey(s);
+  return m ? ymd(new Date(+m[1], +m[2], 0)) : "";
+};
+
+/** Month-field list filter (e.g. ims_shortage.month) — snap to month bounds + view-days cap. */
+export function clampMonthFieldRange(range, bounds = {}) {
+  let from = moStart(range?.from);
+  let to = moEnd(range?.to || range?.from);
+  const min = moStart(bounds.minDate);
+  const max = moEnd(bounds.maxDate);
+  if (min && (!from || from < min)) from = min;
+  if (max && (!to || to > max)) to = max;
+  if (from && to && from > to) from = to;
+  return { from, to };
+}
+
+/** Shortage list date range: full FY (default) or custom month/dates, clipped to FY + permissions. */
+export function resolveShortageListDateRange(params = {}, fyStr, viewBounds = {}) {
+  const custom = String(params.reportType ?? "default").toLowerCase() === "custom";
+  let range = fullRangeInIndianFy(fyStr);
+  if (custom) {
+    const fromDate = String(params.fromDate ?? "").trim();
+    const toDate = String(params.toDate ?? "").trim();
+    const hasMonth = params.month && String(params.month).toLowerCase() !== "all";
+    const hasDate = Boolean(fromDate || toDate);
+    if (hasMonth && !hasDate) range = indianFyMonthRange(params.month, fyStr);
+    else {
+      let from = fromDate;
+      let to = toDate || fromDate;
+      if (hasMonth && hasDate) {
+        const b = indianFyMonthRange(params.month, fyStr);
+        from = (fromDate || b.from) > b.from ? fromDate || b.from : b.from;
+        to = (toDate || fromDate || b.to) < b.to ? toDate || fromDate || b.to : b.to;
+      }
+      range = { from, to };
+    }
+  }
+  return clampMonthFieldRange(clampRangeToIndianFy(range, fyStr), viewBounds);
+}
+
 /** Default list range: current calendar month clipped to FY (or full FY if month outside). */
 export function defaultRangeInIndianFy(fyStr) {
   const n = new Date();

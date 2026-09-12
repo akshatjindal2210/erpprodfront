@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState, useEffect, useRef } from "react";
-import { AlertCircle, Loader2, Shield } from "lucide-react";
+import { Loader2, Search, Shield } from "lucide-react";
 import {
   APP_ACCESS,
   PORTAL_APP_KEYS,
@@ -86,32 +86,40 @@ function ModulePermissionTable({
 }) {
   const [globalViewDays, setGlobalViewDays] = useState("");
   const [globalEditDays, setGlobalEditDays] = useState("");
+  const [moduleSearch, setModuleSearch] = useState("");
 
   useEffect(() => {
     setGlobalViewDays("");
     setGlobalEditDays("");
+    setModuleSearch("");
   }, [moduleList]);
+
+  const filteredModuleList = useMemo(() => {
+    const q = String(moduleSearch ?? "").trim().toLowerCase();
+    if (!q) return moduleList;
+    return moduleList.filter((m) => String(m.label ?? m.id ?? "").toLowerCase().includes(q));
+  }, [moduleList, moduleSearch]);
 
   const colState = useCallback(
     (key) => {
-      const total = moduleList.length;
-      const on = moduleList.reduce((n, m) => n + (permissions[m.id]?.[key] ? 1 : 0), 0);
+      const total = filteredModuleList.length;
+      const on = filteredModuleList.reduce((n, m) => n + (permissions[m.id]?.[key] ? 1 : 0), 0);
       return { all: total > 0 && on === total, some: on > 0 && on < total };
     },
-    [moduleList, permissions]
+    [filteredModuleList, permissions]
   );
 
   // Master "select all" across every module + every permission column.
   const masterState = useMemo(() => {
-    const total = moduleList.length * PERM_COLUMNS.length;
+    const total = filteredModuleList.length * PERM_COLUMNS.length;
     let on = 0;
-    moduleList.forEach((m) => {
+    filteredModuleList.forEach((m) => {
       PERM_COLUMNS.forEach(({ key }) => {
         if (permissions[m.id]?.[key]) on += 1;
       });
     });
     return { all: total > 0 && on === total, some: on > 0 && on < total };
-  }, [moduleList, permissions]);
+  }, [filteredModuleList, permissions]);
 
   if (!moduleList?.length) {
     return (
@@ -121,16 +129,36 @@ function ModulePermissionTable({
     );
   }
 
+  const hasModuleSearch = Boolean(String(moduleSearch ?? "").trim());
+
   return (
     <div>
-      <div className="flex justify-end px-3 py-1.5 border-b border-slate-100">
-        <button
-          type="button"
-          className="text-[11px] text-slate-500 hover:text-rose-600"
-          onClick={() => onClearAll?.(moduleList)}
-        >
-          Clear all
-        </button>
+      <div className="flex items-center justify-between gap-3 px-3 py-1.5 border-b border-slate-100 bg-slate-50/60">
+        <div className="relative min-w-0 flex-1 max-w-[220px]">
+          <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            type="search"
+            value={moduleSearch}
+            onChange={(e) => setModuleSearch(e.target.value)}
+            placeholder="Search module…"
+            aria-label="Search modules by name"
+            className="w-full h-7 pl-7 pr-2 text-xs text-slate-700 placeholder:text-slate-400 bg-white border border-slate-200 rounded-md outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10"
+          />
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          {hasModuleSearch ? (
+            <span className="text-[10px] text-slate-500 tabular-nums">
+              {filteredModuleList.length} / {moduleList.length}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="text-[11px] text-slate-500 hover:text-rose-600 whitespace-nowrap"
+            onClick={() => onClearAll?.(filteredModuleList)}
+          >
+            Clear all
+          </button>
+        </div>
       </div>
       <div className="overflow-auto max-h-[min(48vh,400px)]">
           <table className="w-full text-sm border-collapse min-w-[680px]">
@@ -141,7 +169,7 @@ function ModulePermissionTable({
                     <HeaderCheckbox
                       checked={masterState.all}
                       indeterminate={masterState.some}
-                      onChange={() => onSelectAll?.(moduleList, !masterState.all)}
+                      onChange={() => onSelectAll?.(filteredModuleList, !masterState.all)}
                       ariaLabel="Select all permissions for all modules"
                     />
                     <span>Module</span>
@@ -156,7 +184,7 @@ function ModulePermissionTable({
                         <HeaderCheckbox
                           checked={all}
                           indeterminate={some}
-                          onChange={() => onToggleAll(key, moduleList)}
+                          onChange={() => onToggleAll(key, filteredModuleList)}
                           ariaLabel={`Toggle ${label} for all modules`}
                         />
                       </div>
@@ -172,7 +200,7 @@ function ModulePermissionTable({
                       ariaLabel="Apply view days to all modules with view access"
                       onChange={(v) => {
                         setGlobalViewDays(v);
-                        onApplyGlobalDays?.("can_view", "can_view_days", v, moduleList);
+                        onApplyGlobalDays?.("can_view", "can_view_days", v, filteredModuleList);
                       }}
                     />
                   </div>
@@ -187,7 +215,7 @@ function ModulePermissionTable({
                       ariaLabel="Apply edit days to all modules with edit access"
                       onChange={(v) => {
                         setGlobalEditDays(v);
-                        onApplyGlobalDays?.("can_edit", "can_edit_days", v, moduleList);
+                        onApplyGlobalDays?.("can_edit", "can_edit_days", v, filteredModuleList);
                       }}
                     />
                   </div>
@@ -196,7 +224,14 @@ function ModulePermissionTable({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {moduleList.map((mod) => {
+              {filteredModuleList.length === 0 ? (
+                <tr>
+                  <td colSpan={PERM_COLUMNS.length + 3} className="py-6 text-center text-xs text-slate-400">
+                    No module matches &ldquo;{moduleSearch.trim()}&rdquo;
+                  </td>
+                </tr>
+              ) : null}
+              {filteredModuleList.map((mod) => {
                 const row = permissions[mod.id] || {};
                 return (
                   <tr key={mod.id} className="group hover:bg-indigo-50/40">
@@ -249,6 +284,8 @@ export default function UserPermissionsPanel({
   taskModules,
   rmStoreModules,
   hrmsModules,
+  purchaseModules,
+  productionModules,
   appAccess,
   activePermTab,
   onActivePermTabChange,
@@ -277,8 +314,10 @@ export default function UserPermissionsPanel({
         taskModules,
         rmStoreModules,
         hrmsModules,
+        purchaseModules,
+        productionModules,
       }),
-    [activePermTab, imsModules, coreModules, taskModules, rmStoreModules, hrmsModules]
+    [activePermTab, imsModules, coreModules, taskModules, rmStoreModules, hrmsModules, purchaseModules, productionModules]
   );
 
   const handleTabKeyDown = useCallback(

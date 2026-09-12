@@ -184,6 +184,8 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
 
   const isEdit = mode === "edit";
   const isAdd = mode === "add";
+  const isApprove = mode === "approve";
+  const isRecordActive = Boolean(editData?.approved);
 
   /** Audit creator cannot be assigned — they manage/activate the audit. */
   const excludeCreatorName = useMemo(() => {
@@ -204,10 +206,11 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
     return null;
   }, [isEdit, excludeCreatorName, currentUser?.id, currentUser?.name]);
   
-  const showApproval = canApprove && (isAdd || isEdit);
-  const sopPermissionType = isAdd ? "authorize" : isEdit ? "edit" : "add";
+  const showApproval = canApprove && isAdd && !isApprove;
+  const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
 
   const [loading, setLoading] = useState(false);
+  const [activeSubmit, setActiveSubmit] = useState(null);
   const [randomCount, setRandomCount] = useState(5);
   const [form, setForm] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
@@ -371,7 +374,30 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
     return e;
   };
 
-  const handleSave = async () => {
+  const handleApprove = async () => {
+    if (!isApprove || !editData?.audit_id) return;
+    if (isRecordActive) {
+      toast.info("This audit is already active.");
+      return;
+    }
+    if (!sopAckRef.current?.assertAcknowledged()) return;
+    setLoading(true);
+    setActiveSubmit("approve");
+    try {
+      await auditService.update(editData.audit_id, { approved: true });
+      toast.success("Audit activated");
+      onSuccess?.();
+      onClose?.();
+    } catch (err) {
+      toast.error(err?.message || "Activate failed");
+    } finally {
+      setLoading(false);
+      setActiveSubmit(null);
+    }
+  };
+
+  const handleSave = async (statusOverride = null, actionKey = "save") => {
+    if (isApprove) return handleApprove();
     const e = validate();
     if (Object.keys(e).length) {
       setErrors(e);
@@ -383,8 +409,16 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
     }
     if (!sopAckRef.current?.assertAcknowledged()) return;
     setLoading(true);
+    setActiveSubmit(actionKey);
 
     try {
+      let finalApproved = false;
+      if (statusOverride !== null) {
+        finalApproved = statusOverride;
+      } else if (isAdd && showApproval) {
+        finalApproved = form.approved === true;
+      }
+
       const payload = {
         start_date: form.start_date,
         end_date: form.end_date,
@@ -393,11 +427,8 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
           assigned_user_id,
           location_ids,
         })),
+        approved: finalApproved,
       };
-
-      if (showApproval) {
-        payload.approved = form.approved;
-      }
 
       const request = isEdit
         ? auditService.update(editData.audit_id, payload)
@@ -412,6 +443,7 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
       toast.error(err?.message || "Operation failed");
     } finally {
       setLoading(false);
+      setActiveSubmit(null);
     }
   };
 
@@ -424,21 +456,48 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
       >
         Cancel
       </button>
-      <button
-        onClick={handleSave}
-        disabled={loading}
-        className="w-full sm:w-auto min-w-[160px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400 active:scale-95"
-      >
-        {loading ? (
-          <>
-            <Loader2 size={18} className="animate-spin" /> Saving...
-          </>
-        ) : (
-          <>
-            <Check size={18} /> Save
-          </>
-        )}
-      </button>
+
+      {isApprove ? (
+        <>
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-40"
+          >
+            Keep Inactive
+          </button>
+          <button
+            onClick={handleApprove}
+            disabled={loading || isRecordActive}
+            className="w-full sm:w-auto sm:min-w-[140px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40"
+          >
+            {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Activate
+          </button>
+        </>
+      ) : (
+        <>
+          {isEdit && canApprove ? (
+            <button
+              onClick={() => handleSave(true, "approve")}
+              disabled={loading}
+              className="w-full sm:w-auto sm:min-w-[160px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40"
+            >
+              {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Save & Activate
+            </button>
+          ) : null}
+          <button
+            onClick={() => handleSave(null, "save")}
+            disabled={loading}
+            className="w-full sm:w-auto min-w-[160px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400 active:scale-95"
+          >
+            {loading && activeSubmit === "save" ? (
+              <><Loader2 size={18} className="animate-spin" /> Saving...</>
+            ) : (
+              <><Check size={18} /> {isEdit ? "Update" : "Save"}</>
+            )}
+          </button>
+        </>
+      )}
     </div>
   );
 
@@ -446,13 +505,13 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={handleSave}
-      title={isEdit ? "Edit Audit" : "New Audit"}
+      onSubmit={() => handleSave(isApprove ? true : null, isApprove ? "approve" : "save")}
+      title={isApprove ? "Activate Audit" : isEdit ? "Edit Audit" : "New Audit"}
       description="Schedule inventory location audit"
       footer={footer}
       maxWidth="max-w-4xl"
     >
-      <div ref={formRef} className="space-y-6 pb-6">
+      <div ref={formRef} className={`space-y-6 pb-6 ${isApprove ? "pointer-events-none opacity-80" : ""}`}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <AuditDateInput
             label="Start Date"
@@ -605,14 +664,14 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
               <div className="w-10 h-5.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-emerald-400" />
             </label>
           </div>
-        ) : isEdit ? (
+        ) : isEdit || isApprove ? (
           <div className={`p-3 rounded-xl border flex items-center justify-between ${editData?.approved ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
             <div className="flex items-center gap-3">
               <div className={`p-2 rounded-lg ${editData?.approved ? "bg-emerald-100 text-emerald-600" : "bg-slate-200 text-slate-500"}`}>
                 <Shield size={16} />
               </div>
               <div>
-                <p className="text-xs font-bold leading-none text-slate-700">Approval Status</p>
+                <p className="text-xs font-bold leading-none text-slate-700">Activation Status</p>
                 <p className={`${FORM_MICRO_LABEL_CLASS} mt-1 leading-none text-slate-400`}>
                   {getActiveLabel(Boolean(editData?.approved))}
                 </p>

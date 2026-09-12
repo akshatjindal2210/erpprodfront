@@ -10,8 +10,9 @@ import { boxesFromChildren, savedStyleToCss } from "../utils/floatingLayoutEngin
 import { isConfiguredWidgetQuery } from "../utils/widgetQuery.js";
 import { resolveWidgetSpacingPx, spacingPxToCss } from "../utils/dashboardLayoutEngine";
 import { normalizeTableSearchPosition, normalizeTableSearchWidth, normalizeTableSearchMode } from "../utils/tableToolbar.js";
-import { formatGraphValue, formatGraphAxisTick, resolveGraphDisplayNumber, resolveGraphShowDataLabels, resolveGraphChartMargins, resolveGraphLegendProps, resolveGraphYAxisProps, coerceGraphChartData, isGraphComparisonEnabled, resolveGraphYKeys, normalizeGraphViewMode, normalizeGraphBarLayout, sumSeriesTotal, normalizeGraphDisplayValue, normalizeGraphValueFormat } from "../utils/graphAdvancedConfig.js";
+import { formatGraphValue, formatGraphAxisTick, resolveGraphDisplayNumber, resolveGraphShowDataLabels, resolveGraphChartMargins, resolveGraphLegendProps, resolveGraphYAxisProps, coerceGraphChartData, isGraphComparisonEnabled, resolveGraphYKeys, normalizeGraphViewMode, normalizeGraphBarLayout, normalizeGraphPieLabelContent, resolvePieChartAxisKeys, sumSeriesTotal, normalizeGraphDisplayValue, normalizeGraphValueFormat } from "../utils/graphAdvancedConfig.js";
 import { DASHBOARD_TABLE_BODY_BG, DASHBOARD_TABLE_HEADER_BG, DASHBOARD_WIDGET_BG } from "../utils/dashboardBuilderTheme";
+import DashboardTableColumnFilter from "./DashboardTableColumnFilter.js";
 
 const resolveKpiValueFontPx = (style = {}, displayVal = "", readOnly = false, nested = false) => {
   const configured = Number(style.fontSize);
@@ -218,9 +219,13 @@ const getSortableValue = (value) => {
   return { kind: "str", v: s.toLowerCase() };
 };
 
+const isColumnFilterActive = (value) => (
+  Array.isArray(value) ? value.length > 0 : String(value || "").trim() !== ""
+);
+
 const filterTableRows = (rows = [], columns = [], query = "", columnFilters = {}) => {
   const globalNeedle = String(query || "").trim().toLowerCase();
-  const activeCols = Object.entries(columnFilters || {}).filter(([, v]) => String(v || "").trim() !== "");
+  const activeCols = Object.entries(columnFilters || {}).filter(([, v]) => isColumnFilterActive(v));
   if (!globalNeedle && !activeCols.length) return rows;
 
   return rows.filter((row) => {
@@ -229,8 +234,14 @@ const filterTableRows = (rows = [], columns = [], query = "", columnFilters = {}
       if (!hit) return false;
     }
     for (const [col, raw] of activeCols) {
-      const needle = String(raw).trim().toLowerCase();
-      if (!cellFilterText(row[col]).toLowerCase().includes(needle)) return false;
+      const cell = cellFilterText(row[col]).toLowerCase();
+      if (Array.isArray(raw)) {
+        const tokens = raw.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
+        if (!tokens.some((token) => cell === token)) return false;
+      } else {
+        const needle = String(raw).trim().toLowerCase();
+        if (!cell.includes(needle)) return false;
+      }
     }
     return true;
   });
@@ -373,6 +384,12 @@ const DashboardTableView = ({
   const setColumnFilter = (col, value) => {
     setColumnFilters((prev) => {
       const next = { ...prev };
+      if (Array.isArray(value)) {
+        const cleaned = value.map((item) => String(item ?? "").trim()).filter(Boolean);
+        if (!cleaned.length) delete next[col];
+        else next[col] = cleaned;
+        return next;
+      }
       const trimmed = String(value ?? "");
       if (!trimmed.trim()) delete next[col];
       else next[col] = trimmed;
@@ -380,7 +397,14 @@ const DashboardTableView = ({
     });
   };
 
-  const hasActiveColumnFilter = Object.values(columnFilters).some((v) => String(v || "").trim() !== "");
+  const readColumnFilterSelection = (col) => {
+    const raw = columnFilters[col];
+    if (Array.isArray(raw)) return raw;
+    const one = String(raw || "").trim();
+    return one ? [one] : [];
+  };
+
+  const hasActiveColumnFilter = Object.values(columnFilters).some((v) => isColumnFilterActive(v));
   const hasActiveFilter =
     (showGlobalSearch && searchQuery.trim()) || (showColumnSearch && hasActiveColumnFilter);
 
@@ -636,33 +660,14 @@ const DashboardTableView = ({
                       <span className="whitespace-nowrap">{col}</span>
                     )}
                     {showColumnSearch ? (
-                      <input
-                        type="search"
-                        inputMode="search"
-                        enterKeyHint="search"
-                        value={columnFilters[col] || ""}
-                        onChange={(e) => setColumnFilter(col, e.target.value)}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => e.stopPropagation()}
-                        placeholder="Filter…"
-                        className="w-full min-w-0 rounded border px-1 font-normal normal-case tracking-normal focus:outline-none focus:ring-1 focus:ring-blue-400/40"
-                        style={{
-                          borderColor: tableVisual.borderColor,
-                          backgroundColor: tableVisual.searchBg,
-                          color: tableVisual.searchColor,
-                          fontSize: isPhoneMode
-                            ? 11
-                            : `${Math.max(8, tableVisual.searchFontPx - 1)}px`,
-                          height: isPhoneMode ? 18 : compact ? 22 : 24,
-                          lineHeight: isPhoneMode ? "18px" : undefined,
-                          paddingTop: 0,
-                          paddingBottom: 0,
-                          margin: 0,
-                          boxSizing: "border-box",
-                          WebkitAppearance: "none",
-                          appearance: "none",
-                        }}
-                        aria-label={`Filter column ${col}`}
+                      <DashboardTableColumnFilter
+                        columnKey={col}
+                        data={data}
+                        getCellText={cellFilterText}
+                        selected={readColumnFilterSelection(col)}
+                        onChange={(next) => setColumnFilter(col, next)}
+                        compact={compact}
+                        isPhoneMode={isPhoneMode}
                       />
                     ) : null}
                   </div>
@@ -1046,8 +1051,8 @@ const WidgetRenderer = ({
     ));
     const graphXKey = String(style.graphXKey || "").trim();
     const graphYKey = String(style.graphYKey || "").trim();
-    const xKey = (graphXKey && keys.includes(graphXKey)) ? graphXKey : keys[0];
-    const yKey = (graphYKey && keys.includes(graphYKey)) ? graphYKey : (keys[1] || keys[0]);
+    let xKey = (graphXKey && keys.includes(graphXKey)) ? graphXKey : keys[0];
+    let yKey = (graphYKey && keys.includes(graphYKey)) ? graphYKey : (keys[1] || keys[0]);
     const graphTextPx = Math.max(8, Math.min(18, Number(style.graphTextSize) || Number(style.fontSize) || 10));
     const pieRadius = Math.max(40, Math.min(320, Number(style.graphPieRadius) || 70));
     const showLegend = style.graphShowLegend !== false;
@@ -1056,6 +1061,13 @@ const WidgetRenderer = ({
       : [style.color || "#3b82f6", "#60a5fa", "#93c5fd", "#1d4ed8", "#34d399", "#f59e0b", "#f43f5e", "#a855f7"];
     const tickFill = style.color || "#64748b";
     const chartType = type;
+    if (chartType === "pie") {
+      const pieAxes = resolvePieChartAxisKeys({ data, xKey, yKey, keys });
+      if (!pieAxes.invalid) {
+        xKey = pieAxes.xKey;
+        yKey = pieAxes.yKey;
+      }
+    }
     const comparisonOn = isGraphComparisonEnabled(style) && chartType !== "pie";
     const yKeys = resolveGraphYKeys({
       style,
@@ -1349,33 +1361,37 @@ const WidgetRenderer = ({
     }
 
     if (type === "pie") {
-      const pieLabelsExplicit = style.graphShowDataLabels === true || style.graphShowDataLabels === false;
-      let pieLabel;
-      if (!showDataLabels) {
-        pieLabel = false;
-      } else if (!pieLabelsExplicit) {
-        // Untouched widgets: keep historical name labels (not values).
-        pieLabel = { fontSize: graphTextPx, fill: tickFill };
-      } else {
-        pieLabel = (entry) => {
-          if (displayMode === "percent_total") {
-            const pct = typeof entry.percent === "number"
-              ? entry.percent * 100
-              : resolveGraphDisplayNumber({ value: entry.value, total: seriesTotal, style });
-            return formatGraphValue(pct ?? entry.value, {
-              ...style,
-              graphValueFormat: style.graphValueFormat === "number" ? "percent" : style.graphValueFormat,
-            });
+      const pieData = coerceGraphChartData(data, [yKey]);
+      const pieLabelMode = normalizeGraphPieLabelContent(style.graphPieLabelContent);
+      const pieLabelPx = Math.max(7, Math.min(10, graphTextPx - 2));
+      const pieLabel = showDataLabels
+        ? (labelProps) => {
+            const row = labelProps?.payload ?? labelProps;
+            const rawText = pieLabelMode === "value"
+              ? formatSeriesValue(row?.[yKey] ?? labelProps?.value, row, yKey)
+              : String(row?.[xKey] ?? labelProps?.name ?? row?.name ?? "");
+            const text = rawText.length > 24 ? `${rawText.slice(0, 22)}…` : rawText;
+            return (
+              <text
+                x={labelProps.x}
+                y={labelProps.y}
+                textAnchor={labelProps.textAnchor}
+                dominantBaseline="central"
+                fill={labelProps.fill || tickFill}
+                fontSize={pieLabelPx}
+                fontWeight={500}
+              >
+                {text}
+              </text>
+            );
           }
-          return formatSeriesValue(entry.value, entry, yKey);
-        };
-      }
+        : false;
       return wrapChart(
         <PieChart margin={chartMargins}>
           <Tooltip content={<GraphTooltip />} />
           {renderChartLegend()}
           <Pie
-            data={data}
+            data={pieData}
             dataKey={yKey}
             nameKey={xKey}
             outerRadius={pieRadius}

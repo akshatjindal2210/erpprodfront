@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, Package, RefreshCcw, Edit3, Trash2, CheckCircle, X } from "lucide-react";
+import { Plus, Package, RefreshCcw, Edit3, Trash2, CheckCircle, X, Copy } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
@@ -140,17 +140,25 @@ export default function PackingStandardPage() {
       setModalOpen(true);
     }, []),
     openApprove: useCallback((row) => {
+      if (row?.approved) {
+        toast.info("This record is already approved. Edit it before approving again.");
+        return;
+      }
       setEditItem(row);
       setModalMode("approve");
       setModalOpen(true);
     }, []),
     canApproveSelection: useCallback(
-      () => Boolean(selected && selectedRecord),
+      () => Boolean(selected && selectedRecord && !selectedRecord.approved),
       [selected, selectedRecord]
     ),
     onApproveBlocked: useCallback(() => {
-      toast.info("Select a row to open approve (Ctrl+A).");
-    }, []),
+      if (selectedRecord?.approved) {
+        toast.info("This record is already approved. Edit it before approving again.");
+        return;
+      }
+      toast.info("Select a pending row to open approve (Ctrl+A).");
+    }, [selectedRecord]),
     openDelete: useCallback((row) => {
       setDeleteItem(row);
     }, []),
@@ -217,9 +225,18 @@ export default function PackingStandardPage() {
           <ListPageToolbarLayout
             actions={
               <>
-              <ActionButton module="packing_standard" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+              <ActionButton module="packing_standard" action="add" label="New" icon={Plus} onClick={openNewModal} title="Ctrl+Alt+N" className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+              <ActionButton module="packing_standard" action="add" variant="outline" label="Clone" icon={Copy} disabled={!selected} 
+                onClick={() => {
+                  if (!selectedRecord) return;
+                  setEditItem(selectedRecord);
+                  setModalMode("add");
+                  setModalOpen(true);
+                }}
+                className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+              />
               <ActionButton module="packing_standard" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
-              <ActionButton module="packing_standard" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected} onClick={() => { setEditItem(selectedRecord); setModalMode("approve"); setModalOpen(true); }} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
+              <ActionButton module="packing_standard" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected || !!selectedRecord?.approved} onClick={() => { if (selectedRecord?.approved) { toast.info("This record is already approved. Edit it before approving again."); return; } setEditItem(selectedRecord); setModalMode("approve"); setModalOpen(true); }} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
               <ActionButton module="packing_standard" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
               <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
               <button onClick={() => fetchPackingStandards()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase shadow-none shrink-0">

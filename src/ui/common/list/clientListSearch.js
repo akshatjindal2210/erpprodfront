@@ -4,11 +4,36 @@ import { docDateToDayjs } from "@/platform/utils/core/utilHelper";
 /** Collect primitive values from a row for generic text search. */
 export function defaultSearchParts(row) {
   const parts = [];
-  for (const v of Object.values(row || {})) {
+  const obj = row || {};
+  for (const [k, v] of Object.entries(obj)) {
     if (v == null) continue;
     const t = typeof v;
-    if (t === "string" || t === "number") parts.push(v);
-    else if (t === "boolean") parts.push(v ? "true" : "false");
+    if (t === "string" || t === "number") {
+      parts.push(v);
+      if ((k === "approved" || k === "apvitem") && Number(v) === 1) {
+        parts.push("approved", "authorized", "active", "yes", "true");
+      } else if ((k === "approved" || k === "apvitem") && Number(v) === 0) {
+        parts.push("pending", "inactive", "no", "false");
+      }
+    } else if (t === "boolean") {
+      parts.push(v ? "true" : "false");
+      if (k === "approved") {
+        parts.push(v ? "approved" : "pending");
+        parts.push(v ? "authorized" : "unauthorized");
+        parts.push(v ? "active" : "inactive");
+      }
+    } else if (Array.isArray(v)) {
+      for (const item of v) {
+        if (item == null) continue;
+        const it = typeof item;
+        if (it === "string" || it === "number") parts.push(item);
+      }
+    }
+  }
+
+  // Location fallback display uses rack+shelf combo in UI ("48A"), include it for quick search.
+  if ((obj.location_no == null || obj.location_no === "") && obj.rack_no != null && obj.shelf_no != null) {
+    parts.push(`${obj.rack_no}${String(obj.shelf_no).toUpperCase()}`);
   }
   return parts;
 }

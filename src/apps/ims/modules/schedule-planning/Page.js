@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from "react";
 import { CalendarClock, Info, X, Calendar, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 
@@ -21,9 +21,9 @@ import { useSelector } from "react-redux";
 import { selectUser, selectRole } from "@/platform/store/slices/authSlice";
 import { applyClientSearch, sortRowsByKey, nextSortParams } from "@/ui/common/list/clientListSearch";
 import { schedulePlanningService } from "@/apps/ims/lib/services/schedulePlanning";
-import { SCHEDULE_LIST_FILTER, canOpenPlanModal, SCHEDULE_REPORT_FILTER, getDefaultScheduleStatusFilter, getScheduleStatusFilterOptions, filterScheduleItemsForPermission, isSalesDepartmentUser, isScheduleCompleteRow } from "./schedulePlanStatus";
+import { SCHEDULE_LIST_FILTER, canOpenPlanModal, SCHEDULE_REPORT_FILTER, getDefaultScheduleStatusFilter, getScheduleStatusFilterOptions, filterScheduleItemsForPermission, isSalesDepartmentUser, isScheduleCompleteRow, isScheduleSalesCrmScoped, filterScheduleRowsBySalesCrm } from "./schedulePlanStatus";
 import { SCHEDULE_PAGE_TABS, MONTH_FILTER_OPTIONS, SCHEDULE_REPORT_FILTER_OPTIONS, scheduleItemRowKey, scheduleSchnoKey, resolveScheduleItemdcode, canDeleteRow, scheduleItemWiseSearchParts,
-  scheduleUniqueSearchParts, toUniqueScheduleRows, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, getScheduleListRowClassName, SCHEDULE_LIST_ROW_LEGEND, hasScheduleComparisonMismatch } from "./schedulePlanningColumns";
+  scheduleUniqueSearchParts, toUniqueScheduleRows, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, getScheduleListRowClassName, SCHEDULE_LIST_ROW_LEGEND, hasScheduleComparisonMismatch, attachScheduleDispatchFields, buildScheduleCrmFilterOptions, scheduleRowMatchesCrmFilter } from "./schedulePlanningColumns";
 import SchedulePlanModal from "./SchedulePlanModal";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import SchedulePlanRemoveConfirmModal from "./SchedulePlanRemoveConfirmModal";
@@ -68,6 +68,7 @@ export default function SchedulePlanningPage() {
   const canAddPlan = useMemo(() => canAccess("schedule_planning", "add").allowed, [canAccess]);
   const canApprovePlan = useMemo(() => canAccess("schedule_planning", "authorize").allowed, [canAccess]);
   const isSalesDepartment = useMemo(() => isSalesDepartmentUser(currentUser), [currentUser]);
+  const salesCrmScoped = isScheduleSalesCrmScoped({ isSalesDepartment, isSuperAdmin });
   const defaultStatusFilter = useMemo(
     () =>
       getDefaultScheduleStatusFilter({
@@ -86,10 +87,16 @@ export default function SchedulePlanningPage() {
   const [displayLimit, setDisplayLimit] = useState(100);
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
+  const scopedRows = useMemo(
+    () => filterScheduleRowsBySalesCrm(rows, currentUser, { isSalesDepartment, isSuperAdmin }),
+    [rows, currentUser, isSalesDepartment, isSuperAdmin]
+  );
   const [tempSearch, setTempSearch] = useState("");
+  const deferredSearch = useDeferredValue(tempSearch);
   const [params, setParams] = useState({ sortKey: "", sortDir: "asc" });
   const [appliedQuery, setAppliedQuery] = useState(null);
   const [statusFilter, setStatusFilter] = useState(SCHEDULE_LIST_FILTER.READY_TO_DISPATCH);
+  const [crmFilter, setCrmFilter] = useState("all");
   const [draftReportType, setDraftReportType] = useState(SCHEDULE_REPORT_FILTER.DEFAULT);
   const initialQuerySet = useRef(false);
 
@@ -170,11 +177,14 @@ export default function SchedulePlanningPage() {
     if (!schno) return [];
     try {
       const res = await schedulePlanningService.list({ schno });
-      return Array.isArray(res?.data) ? res.data : [];
+      return filterScheduleRowsBySalesCrm(Array.isArray(res?.data) ? res.data : [], currentUser, {
+        isSalesDepartment,
+        isSuperAdmin,
+      });
     } catch {
       return [];
     }
-  }, []);
+  }, [currentUser, isSalesDepartment, isSuperAdmin]);
 
   const refreshModalScheduleItems = useCallback(
     async (schno) => {
@@ -190,13 +200,13 @@ export default function SchedulePlanningPage() {
 
   useEffect(() => {
     setDisplayLimit(100);
-  }, [tempSearch, pageTab]);
+  }, [deferredSearch, pageTab]);
 
   const isComparisonStatus =
     String(statusFilter ?? "").toLowerCase() === SCHEDULE_LIST_FILTER.COMPARISON;
 
   const uniqueSchedulesAll = useMemo(() => {
-    let list = toUniqueScheduleRows(rows);
+    let list = toUniqueScheduleRows(scopedRows);
     if (isComparisonStatus) {
       list = list.filter((row) => {
         const items = row._items ?? [];
@@ -204,30 +214,41 @@ export default function SchedulePlanningPage() {
         return items.some((item) => hasScheduleComparisonMismatch(item));
       });
     }
+    if (crmFilter !== "all") list = list.filter((row) => scheduleRowMatchesCrmFilter(row, crmFilter));
     return list;
-  }, [rows, isComparisonStatus]);
-  const uniqueSchedules = useMemo(() => {
-    const q = String(tempSearch || "").trim();
-    let data = uniqueSchedulesAll;
-    if (q) {
-      data = applyClientSearch(uniqueSchedulesAll, tempSearch, { getParts: scheduleUniqueSearchParts, skipSort: !!params.sortKey });
-    }
-    return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [uniqueSchedulesAll, tempSearch, params.sortKey, params.sortDir]);
-
-  const filteredRows = useMemo(() => {
-    const q = String(tempSearch || "").trim();
-    let data = itemWiseSchnoFilter
-      ? rows.filter((row) => scheduleSchnoKey(row) === itemWiseSchnoFilter)
-      : [...rows];
+  }, [scopedRows, isComparisonStatus, crmFilter]);
+  const itemWiseBaseRows = useMemo(() => {
+    let data = itemWiseSchnoFilter ? scopedRows.filter((row) => scheduleSchnoKey(row) === itemWiseSchnoFilter) : scopedRows;
     if (isComparisonStatus) {
       data = data.filter((row) => hasScheduleComparisonMismatch(row));
     }
+    if (crmFilter !== "all") data = data.filter((row) => scheduleRowMatchesCrmFilter(row, crmFilter));
+    return data.map(attachScheduleDispatchFields);
+  }, [scopedRows, itemWiseSchnoFilter, isComparisonStatus, crmFilter]);
+
+  const uniqueSchedules = useMemo(() => {
+    const q = String(deferredSearch || "").trim();
+    let data = uniqueSchedulesAll;
     if (q) {
-      data = applyClientSearch(data, tempSearch, { getParts: scheduleItemWiseSearchParts, skipSort: !!params.sortKey });
+      data = applyClientSearch(uniqueSchedulesAll, deferredSearch, {
+        getParts: scheduleUniqueSearchParts,
+        skipSort: true,
+      });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [rows, itemWiseSchnoFilter, tempSearch, params.sortKey, params.sortDir, isComparisonStatus]);
+  }, [uniqueSchedulesAll, deferredSearch, params.sortKey, params.sortDir]);
+
+  const filteredRows = useMemo(() => {
+    const q = String(deferredSearch || "").trim();
+    let data = itemWiseBaseRows;
+    if (q) {
+      data = applyClientSearch(itemWiseBaseRows, deferredSearch, {
+        getParts: scheduleItemWiseSearchParts,
+        skipSort: true,
+      });
+    }
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
+  }, [itemWiseBaseRows, deferredSearch, params.sortKey, params.sortDir]);
 
   const drillToItemWise = useCallback((scheduleRow) => {
     const schno = scheduleSchnoKey(scheduleRow);
@@ -338,15 +359,15 @@ export default function SchedulePlanningPage() {
     if (!isScheduleTab) return canDeleteRow(selectedRecord);
     const schedule = uniqueSchedules.find((row) => scheduleSchnoKey(row) === deleteSchno);
     if (schedule && canDeleteRow(schedule)) return true;
-    return rows.some((row) => scheduleSchnoKey(row) === deleteSchno && canDeleteRow(row));
-  }, [deleteSchno, isScheduleTab, selectedRecord, uniqueSchedules, rows]);
+    return scopedRows.some((row) => scheduleSchnoKey(row) === deleteSchno && canDeleteRow(row));
+  }, [deleteSchno, isScheduleTab, selectedRecord, uniqueSchedules, scopedRows]);
 
   const deleteItemCount = useMemo(() => {
     if (!deleteSchno) return 0;
     const schedule = uniqueSchedules.find((row) => scheduleSchnoKey(row) === deleteSchno);
     if (schedule?.item_count) return Number(schedule.item_count) || 0;
-    return rows.filter((row) => scheduleSchnoKey(row) === deleteSchno).length;
-  }, [deleteSchno, uniqueSchedules, rows]);
+    return scopedRows.filter((row) => scheduleSchnoKey(row) === deleteSchno).length;
+  }, [deleteSchno, uniqueSchedules, scopedRows]);
 
   const actionButtonLabel = canApprovePlan && !canAddPlan ? "Authorize" : "Plan";
 
@@ -508,8 +529,11 @@ export default function SchedulePlanningPage() {
       { label: "Status", key: "status", value: statusFilter, options: statusFilterOptions, variant: "quick" },
       { label: "Report", key: "reportType", value: draftReportType, options: SCHEDULE_REPORT_FILTER_OPTIONS, preserveOrder: false },
     ];
+    if (!salesCrmScoped) {
+      filters.push({ label: "CRM", key: "crmFilter", value: crmFilter, options: buildScheduleCrmFilterOptions(scopedRows), preserveOrder: true });
+    }
     if (isCustomReport) {
-      filters.unshift({
+      filters.push({
         label: "Month",
         key: "month",
         value: appliedQuery?.month ?? "all",
@@ -518,7 +542,14 @@ export default function SchedulePlanningPage() {
       });
     }
     return filters;
-  }, [appliedQuery?.month, draftReportType, isCustomReport, statusFilter, statusFilterOptions]);
+  }, [appliedQuery?.month, draftReportType, isCustomReport, statusFilter, statusFilterOptions, crmFilter, scopedRows, salesCrmScoped]);
+
+  const extraFiltersBeforeDate = useMemo(() => {
+    const keys = ["status", "reportType"];
+    if (!salesCrmScoped) keys.push("crmFilter");
+    if (isCustomReport) keys.push("month");
+    return keys;
+  }, [isCustomReport, salesCrmScoped]);
 
   const emptyState = useMemo(() => {
     const st = String(statusFilter ?? SCHEDULE_LIST_FILTER.ALL).toLowerCase();
@@ -663,11 +694,11 @@ export default function SchedulePlanningPage() {
         <ListPageFilterStrip>
           <DateRangeFilter
             key={draftReportType}
+            showDate={isCustomReport}
             fromDate={isCustomReport ? (appliedQuery?.fromDate ?? "") : ""}
             toDate={isCustomReport ? (appliedQuery?.toDate ?? "") : ""}
-            dateDisabled={!isCustomReport}
             extraFilters={extraFilters}
-            extraFiltersBeforeDate={isCustomReport ? ["month"] : []}
+            extraFiltersBeforeDate={extraFiltersBeforeDate}
             applyOnSearchEnter={false}
             onExtraFilterChange={(key, value) => {
               if (key === "status") {
@@ -675,6 +706,7 @@ export default function SchedulePlanningPage() {
                 setSelected(null);
                 setItemWiseSchnoFilter(null);
               }
+              if (key === "crmFilter") setCrmFilter(value ?? "all");
               if (key === "reportType") {
                 const next = value ?? SCHEDULE_REPORT_FILTER.DEFAULT;
                 setDraftReportType(next);
@@ -722,6 +754,7 @@ export default function SchedulePlanningPage() {
               setTempSearch("");
               setDraftReportType(SCHEDULE_REPORT_FILTER.DEFAULT);
               setStatusFilter(defaultStatusFilter);
+              setCrmFilter("all");
               setAppliedQuery({
                 reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
                 status: SCHEDULE_LIST_FILTER.ALL,

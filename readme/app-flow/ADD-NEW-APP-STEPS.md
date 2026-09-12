@@ -1,5 +1,7 @@
 # Add a New App — Complete Steps
 
+**Copy-kit (not live, not in the launcher):** follow **[CREATE-APP-FROM-TEMPLATE.md](./CREATE-APP-FROM-TEMPLATE.md)**. Source folders: `backend/src/apps/template/` and `frontend/src/apps/template/`. Copy, rename, then connect — users never see the kit itself.
+
 Professional checklist for adding a new product app to ERP (examples: `hrms`, `rmstore`).  
 Replace `<appkey>` with one lowercase token (`hrms`, `rmstore`). Keep frontend and backend portal registries in sync.
 
@@ -14,6 +16,7 @@ Replace `<appkey>` with one lowercase token (`hrms`, `rmstore`). Keep frontend a
 |-----------------|---------------------------------------------------------------------|
 | `rmstore`       | Full template (dashboard, quick access, app config, uploads, logs)  |
 | `hrms`          | Minimal product template (modules + API + shell)                    |
+| `template`      | Private copy-kit only — not launched. See [CREATE-APP-FROM-TEMPLATE.md](./CREATE-APP-FROM-TEMPLATE.md) |
 | `ims` / `task`  | Shell and UI patterns only — do not import their domain code        |
 
 ---

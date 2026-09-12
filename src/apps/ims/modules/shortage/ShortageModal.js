@@ -17,7 +17,7 @@ import { ERR_INPUT, OK_INPUT, FormLabel } from "@/ui/common/Constants";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 
-const FIELD_ORDER = ["itemdcode", "type", "qty", "month", "remarks"];
+const FIELD_ORDER = ["itemdcode", "grpname", "type", "qty", "month", "remarks"];
 const DISABLED_INPUT = "disabled:bg-slate-50 disabled:text-slate-600 disabled:cursor-not-allowed";
 
 function todayYmd() {
@@ -73,6 +73,7 @@ function monthToSaveDate(value) {
 const INITIAL_FORM = {
   itemdcode: "",
   itemcode: "",
+  grpname: "",
   type: "",
   qty: 1,
   month: todayYm(),
@@ -80,22 +81,39 @@ const INITIAL_FORM = {
   approved: false,
 };
 
-export default function ShortageModal({ open, onClose, onSuccess, editData, mode = "add" }) {
+export default function ShortageModal({
+  open,
+  onClose,
+  onSuccess,
+  editData,
+  mode = "add",
+  groupName = null,
+  permissionModule = "shortage",
+  service = shortageService,
+}) {
   const user = useSelector(selectUser);
   const canAccess = useCanAccess();
-  const canApprove = canAccess("shortage", "authorize").allowed;
+  const canApprove = canAccess(permissionModule, "authorize").allowed;
   const showMonthField = isImsSuperAdmin(user);
+  const lockedGroup = String(groupName || "").trim();
+  const itemFilters = lockedGroup ? { type: "fg", grpname: lockedGroup } : "fg";
 
   const isEdit = mode === "edit";
   const isApprove = mode === "approve";
   const limitedEdit = isEdit && !showMonthField;
   const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
+  const canEditAndApprove = isEdit && canApprove;
   const showApproval = canApprove && (mode === "add" || mode === "approve");
 
   const [loading, setLoading] = useState(false);
+  const [activeSubmit, setActiveSubmit] = useState(null);
   const [form, setForm] = useState(() => ({ ...INITIAL_FORM, month: todayYm() }));
+  const [groupOptions, setGroupOptions] = useState([]);
   const [errors, setErrors] = useState({});
   const typeOptions = showMonthField ? (form.type && !SHORTAGE_TYPES.includes(form.type) ? [...SHORTAGE_TYPES, form.type] : SHORTAGE_TYPES) : (form.type ? [form.type] : ["Additional"]);
+  const savedGroup = String(form.grpname || "").trim();
+  const groupChoices =
+    savedGroup && !groupOptions.includes(savedGroup) ? [savedGroup, ...groupOptions] : groupOptions;
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
 
@@ -106,6 +124,7 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
         setForm({
           itemdcode: editData.itemdcode != null ? String(editData.itemdcode) : "",
           itemcode: editData.itemcode || editData.item_code || "",
+          grpname: lockedGroup || editData.grpname || "",
           type: editData.type || "",
           qty: Number(editData.qty) > 0 ? Number(editData.qty) : 1,
           month: toMonthValue(editData.month || editData.shortage_month),
@@ -113,17 +132,38 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
           approved: isApprove ? Boolean(editData?.approved) : false,
         });
       } else {
-        setForm({ ...INITIAL_FORM, month: todayYm(), type: showMonthField ? "" : "Additional" });
+        setForm({ ...INITIAL_FORM, month: todayYm(), type: showMonthField ? "" : "Additional", grpname: lockedGroup });
       }
       setErrors({});
     } else {
       timeoutId = setTimeout(() => {
-        setForm({ ...INITIAL_FORM, month: todayYm(), type: showMonthField ? "" : "Additional" });
+        setForm({ ...INITIAL_FORM, month: todayYm(), type: showMonthField ? "" : "Additional", grpname: lockedGroup });
         setErrors({});
       }, 300);
     }
     return () => clearTimeout(timeoutId);
-  }, [open, editData?.id, isEdit, isApprove, showMonthField]);
+  }, [open, editData?.id, isEdit, isApprove, showMonthField, lockedGroup]);
+
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    masterService
+      .getItemsViews({
+        permission_module: permissionModule,
+        permission_action: sopPermissionType,
+        filters: itemFilters,
+        page: 1,
+        limit: 5000,
+      })
+      .then((res) => {
+        if (!live) return;
+        const names = [...new Set((res?.data ?? []).map((r) => String(r.grpname ?? "").trim()).filter(Boolean))].sort();
+        setGroupOptions(lockedGroup ? [lockedGroup] : names);
+      });
+    return () => {
+      live = false;
+    };
+  }, [open, sopPermissionType, permissionModule, lockedGroup]);
 
   const handleChange = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -133,6 +173,7 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
   const validate = () => {
     const newErrors = {};
     if (!form.itemdcode) newErrors.itemdcode = "Please select an item";
+    if (form.itemdcode && !String(form.grpname || "").trim()) newErrors.grpname = "Group is required";
     if (!form.type) newErrors.type = "Type is required";
     if (!Number.isFinite(Number(form.qty)) || Number(form.qty) < 1) {
       newErrors.qty = "Quantity must be at least 1";
@@ -143,7 +184,7 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
     return newErrors;
   };
 
-  const handleSave = async (statusOverride = null) => {
+  const handleSave = async (statusOverride = null, actionKey = "save") => {
     const newErrors = validate();
     if (Object.keys(newErrors).length) {
       setErrors(newErrors);
@@ -160,6 +201,7 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
       return;
     }
 
+    setActiveSubmit(actionKey);
     setLoading(true);
     try {
       let finalApproved = form.approved;
@@ -172,6 +214,7 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
       const payload = {
         itemdcode: parseInt(String(form.itemdcode), 10),
         itemcode: form.itemcode ? String(form.itemcode).trim() : String(form.itemdcode),
+        grpname: lockedGroup || String(form.grpname || "").trim(),
         type: form.type,
         qty: parseInt(String(form.qty), 10),
         // Always send calendar YYYY-MM-01 (month picker has no day/TZ)
@@ -181,9 +224,9 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
       };
 
       if (isEdit || isApprove) {
-        await shortageService.update(editData.id, payload);
+        await service.update(editData.id, payload);
       } else {
-        await shortageService.create(payload);
+        await service.create(payload);
       }
 
       toast.success("Successfully saved");
@@ -193,12 +236,13 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
       toast.error(err?.message || "Operation failed");
     } finally {
       setLoading(false);
+      setActiveSubmit(null);
     }
   };
 
   const footerContent = (
-    <div className="flex items-center justify-end gap-3 w-full">
-      <button type="button" onClick={onClose} disabled={loading} className="px-5 py-2.5 text-sm font-bold text-slate-500">
+    <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 sm:gap-3 w-full">
+      <button type="button" onClick={onClose} disabled={loading} className="w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 rounded-xl bg-white">
         Cancel
       </button>
 
@@ -206,36 +250,57 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
         <>
           <button
             type="button"
-            onClick={() => handleSave(false)}
+            onClick={() => handleSave(false, "keep_pending")}
             disabled={loading}
-            className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+            className="w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
           >
-            Keep Pending
+            {loading && activeSubmit === "keep_pending" ? (
+              <span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Saving...</span>
+            ) : "Keep Pending"}
           </button>
           <button
             type="button"
-            onClick={() => handleSave(true)}
+            onClick={() => handleSave(true, "approve")}
             disabled={loading}
-            className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100"
+            className="w-full sm:w-auto sm:min-w-[140px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100"
           >
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
+            {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
+          </button>
+        </>
+      ) : canEditAndApprove ? (
+        <>
+          <button
+            type="button"
+            onClick={() => handleSave(true, "approve")}
+            disabled={loading}
+            className="w-full sm:w-auto sm:min-w-[160px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100"
+          >
+            {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Save & Approve
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSave(null, "save")}
+            disabled={loading}
+            className="w-full sm:w-auto sm:min-w-[160px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
+          >
+            {loading && activeSubmit === "save" ? (
+              <><Loader2 size={18} className="animate-spin" /> Saving...</>
+            ) : (
+              <><Check size={18} /> Save</>
+            )}
           </button>
         </>
       ) : (
         <button
           type="button"
-          onClick={() => handleSave()}
+          onClick={() => handleSave(null, "save")}
           disabled={loading}
-          className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
+          className="w-full sm:w-auto sm:min-w-[160px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
         >
-          {loading ? (
-            <>
-              <Loader2 size={18} className="animate-spin" /> Processing
-            </>
+          {loading && activeSubmit === "save" ? (
+            <><Loader2 size={18} className="animate-spin" /> Saving...</>
           ) : (
-            <>
-              <Check size={18} /> Save
-            </>
+            <><Check size={18} /> Save</>
           )}
         </button>
       )}
@@ -246,11 +311,13 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={() => handleSave(isApprove ? true : null)}
+      onSubmit={() => handleSave(isApprove ? true : null, isApprove ? "approve" : "save")}
       title={isApprove ? "Approve Shortage" : isEdit ? "Edit Shortage" : "New Shortage"}
       description={
         isApprove
           ? "You can edit details here, then approve or keep pending."
+          : canEditAndApprove
+            ? "You can save changes or save with approval in one step."
           : "Record item shortage entries"
       }
       footer={footerContent}
@@ -260,7 +327,7 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
         <ModuleSopAcknowledgment
           ref={sopAckRef}
           isOpen={open}
-          moduleSlug="shortage"
+          moduleSlug={permissionModule}
           permissionType={sopPermissionType}
         />
 
@@ -291,24 +358,27 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
               label="Item"
               value={form.itemdcode}
               onChange={(id, item) => {
+                const grpname = String(item?.grpname ?? "").trim();
                 setForm((prev) => ({
                   ...prev,
                   itemdcode: id ?? "",
                   itemcode: item?.item_code ? String(item.item_code).trim() : prev.itemcode,
+                  grpname: id ? (lockedGroup || grpname) : "",
                 }));
                 if (errors.itemdcode) setErrors((prev) => ({ ...prev, itemdcode: "" }));
+                if (grpname && errors.grpname) setErrors((prev) => ({ ...prev, grpname: "" }));
               }}
               fetchService={(params) =>
                 masterService.getItemsViews({
                   ...params,
-                  permission_module: "shortage",
+                  permission_module: permissionModule,
                   permission_action: isApprove ? "authorize" : isEdit ? "edit" : "add",
-                  filters: "fg",
+                  filters: itemFilters,
                 })
               }
               getByIdService={(id) =>
                 masterService.getItemViewById(id, {
-                  permission_module: "shortage",
+                  permission_module: permissionModule,
                   permission_action: isApprove ? "authorize" : isEdit ? "edit" : "add",
                 })
               }
@@ -320,6 +390,36 @@ export default function ShortageModal({ open, onClose, onSuccess, editData, mode
               disabled={loading}
             />
           )}
+        </div>
+
+        <div data-field="grpname">
+          <FormLabel required>Group</FormLabel>
+          {limitedEdit ? (
+            <input
+              readOnly
+              disabled
+              value={form.grpname || editData?.grpname || "—"}
+              className={`w-full px-3 py-2.5 text-sm border rounded-lg ${OK_INPUT} ${DISABLED_INPUT}`}
+            />
+          ) : (
+            <div className="relative">
+              <select
+                value={lockedGroup || form.grpname}
+                onChange={(e) => handleChange("grpname", e.target.value)}
+                disabled={loading || !form.itemdcode || Boolean(lockedGroup)}
+                className={`w-full appearance-none px-3 py-2.5 text-sm border rounded-lg pr-10 ${DISABLED_INPUT} ${errors.grpname ? ERR_INPUT : OK_INPUT}`}
+              >
+                {lockedGroup ? null : (
+                  <option value="">{form.itemdcode ? "Select group..." : "Select item first"}</option>
+                )}
+                {groupChoices.map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+              <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+          )}
+          {errors.grpname && <p className="text-xs text-rose-500 mt-1">{errors.grpname}</p>}
         </div>
 
         <div data-field="type">

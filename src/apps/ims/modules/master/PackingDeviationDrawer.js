@@ -231,7 +231,20 @@ export default function PackingDeviationDrawer({ open, onClose, packingRow, onSu
               />
             </div>
           </div>
-
+        {/* 
+        //  Uncommenting this section as per in the future requirement, but currently it's commented out in the code.
+          <div>
+            <FormLabel>Schedule Qty</FormLabel>
+            <input
+              type="text"
+              value={fmtQty(limitInfo?.schedule_qty)}
+              readOnly
+              disabled
+              tabIndex={-1}
+              className={`${DISABLED_INPUT} tabular-nums`}
+            />
+          </div>
+        */}
           <div data-field="qty">
             <FormLabel required>Quantity</FormLabel>
             <input

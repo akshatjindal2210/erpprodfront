@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
-import { Plus, ClipboardCheck, RefreshCcw, Edit3, Trash2, X, Info, Play, MapPin, GitCompare, ClipboardList, RotateCcw, UserRoundCog } from "lucide-react";
+import { Plus, ClipboardCheck, RefreshCcw, Edit3, Trash2, X, Info, Play, MapPin, GitCompare, ClipboardList, RotateCcw, UserRoundCog, Shield } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { auditService } from "@/apps/ims/lib/services/audit";
@@ -495,6 +495,38 @@ export default function AuditPage() {
       setModalMode("edit");
       setModalOpen(true);
     }, []),
+    openApprove: useCallback((row) => {
+      const rec = row ?? selectedRecord;
+      if (!rec) {
+        toast.info("Select an inactive audit to activate.");
+        return;
+      }
+      if (rec.approved === true || rec.approved === "true" || rec.approved === 1) {
+        toast.info("This audit is already active.");
+        return;
+      }
+      setEditItem(rec);
+      setModalMode("approve");
+      setModalOpen(true);
+    }, [selectedRecord]),
+    canApproveSelection: useCallback(
+      () =>
+        Boolean(
+          selected &&
+            selectedRecord &&
+            !isLocationView &&
+            !(selectedRecord.approved === true || selectedRecord.approved === "true" || selectedRecord.approved === 1)
+        ),
+      [selected, selectedRecord, isLocationView]
+    ),
+    onApproveBlocked: useCallback(() => {
+      const row = getSelectedRow();
+      if (row && (row.approved === true || row.approved === "true" || row.approved === 1)) {
+        toast.info("This audit is already active.");
+        return;
+      }
+      toast.info("Select an inactive audit to activate (Ctrl+A).");
+    }, [getSelectedRow]),
     openDelete: useCallback((row) => {
       setDeleteItem(row);
     }, []),
@@ -608,6 +640,7 @@ export default function AuditPage() {
                 icon={Edit3} 
                 disabled={
                   !selected ||
+                  isLocationView ||
                   selectedRecord?.approved ||
                   (selectedRecord?.status === "verified" && currentRole?.toLowerCase() !== "super_admin")
                 }
@@ -619,6 +652,35 @@ export default function AuditPage() {
                 record={selectedRecord} 
                 onClick={openEditModal} 
                 className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none" 
+              />
+              <ActionButton
+                module="audit"
+                action="authorize"
+                variant="outline"
+                label="Activate"
+                icon={Shield}
+                disabled={
+                  !selected ||
+                  isLocationView ||
+                  selectedRecord?.approved === true ||
+                  selectedRecord?.approved === "true" ||
+                  selectedRecord?.approved === 1
+                }
+                record={selectedRecord}
+                onClick={() => {
+                  if (
+                    selectedRecord?.approved === true ||
+                    selectedRecord?.approved === "true" ||
+                    selectedRecord?.approved === 1
+                  ) {
+                    toast.info("This audit is already active.");
+                    return;
+                  }
+                  setEditItem(selectedRecord);
+                  setModalMode("approve");
+                  setModalOpen(true);
+                }}
+                className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-emerald-300 text-emerald-700 shadow-none"
               />
                 </>
               )}
@@ -745,23 +807,11 @@ export default function AuditPage() {
             toDate={params.toDate}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
-            applyExtrasOnChange
             extraFilters={extraFilters}
             onApply={handleFilterApply}
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            onSearchEnter={() =>
-              handleFilterApply({
-                auditStatus: params.status,
-                authorization: params.authorization,
-                locationAudit: params.locationAuditFilter,
-                locationUser: params.locationUserFilter,
-                locationStatus: params.locationStatusFilter,
-                fromDate: params.fromDate,
-                toDate: params.toDate,
-              })
-            }
             searchPlaceholder={isLocationView ? "Search location, audit id, person..." : "Search remarks, person..."}
             searchLabel={isLocationView ? "Search Locations" : "Search Audits"}
           />

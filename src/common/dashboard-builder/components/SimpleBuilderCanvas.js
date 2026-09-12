@@ -9,7 +9,7 @@ import { boxWithId, contentBoundsPx, defaultTopLevelBoxForType, fitNestedLayoutP
 import { DASHBOARD_CANVAS_BG, DASHBOARD_CANVAS_GRID_DOT } from "../utils/dashboardBuilderTheme";
 import { getWidgetClickUrl, navigateWidgetClickUrl, resolveWidgetDrawerOpenPayload, shouldIgnoreWidgetLinkClick, widgetHasClickLink, widgetOpensDrawer } from "../utils/widgetClickLink";
 
-const CANCEL_SELECTOR = `.simple-no-drag, button, a, input, textarea, select, .simple-nested-canvas .simple-rnd`;
+const CANCEL_SELECTOR = `.simple-no-drag, button, a, input, textarea, select, [data-dashboard-column-filter], [data-dashboard-column-filter-menu], [data-searchable-select-portal], .searchable-select-dropdown, .simple-nested-canvas .simple-rnd`;
 const BOTTOM_ROOM_PX = 320;
 const MIN_BUILDER_HEIGHT = 560;
 const EDGE_SCROLL_PX = 72;

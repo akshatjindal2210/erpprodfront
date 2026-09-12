@@ -815,6 +815,7 @@ export default function StockAdjustmentStickerCloneDrawer({
   }, []);
 
   const [loading, setLoading] = useState(false);
+  const [activeSubmit, setActiveSubmit] = useState(null);
   const [form, setForm] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
   const sopAckRef = useRef(null);
@@ -998,21 +999,9 @@ export default function StockAdjustmentStickerCloneDrawer({
     }
     if (!sopAckRef.current?.assertAcknowledged()) return;
     setLoading(true);
+    setActiveSubmit("approve");
     try {
-      const payload = { approved: true };
-      const approveAccCode =
-        gateEntryType === "minus"
-          ? resolveMinusAccCode(form, packingPreview, minusSelectedUids)
-          : form.acc_code;
-      if (approveAccCode) payload.acc_code = approveAccCode;
-      if (form.acc_name != null && String(form.acc_name).trim() !== "") {
-        payload.acc_name = String(form.acc_name).trim();
-      }
-      if (gateEntryType === "add") {
-        payload.all_boxes_loose = addAllBoxesLoose;
-      }
-      
-      await stockAdjustmentService.update(adjId, payload);
+      await stockAdjustmentService.update(adjId, { approved: true });
       toast.success(
         gateEntryType === "add"
           ? "Approved — boxes created in inventory. Print stickers from the list (Ctrl+P)."
@@ -1026,6 +1015,7 @@ export default function StockAdjustmentStickerCloneDrawer({
       toast.error(err?.message || "Approve failed");
     } finally {
       setLoading(false);
+      setActiveSubmit(null);
     }
   };
 
@@ -2048,7 +2038,7 @@ export default function StockAdjustmentStickerCloneDrawer({
     return e;
   };
 
-  const handleSave = async () => {
+  const handleSave = async (statusOverride = null) => {
     if (readOnly) return;
     const e = validate();
     if (Object.keys(e).length) {
@@ -2070,14 +2060,21 @@ export default function StockAdjustmentStickerCloneDrawer({
     }
 
     setLoading(true);
+    setActiveSubmit(statusOverride === true ? "approve" : "save");
     try {
       const remarksForApi = (form.remarks && String(form.remarks).trim()) || "";
 
       if (isEdit && editData?.adjustment_id) {
         const wasApproved = !!(savedRow?.approved ?? editData?.approved);
+        let finalApproved = false;
+        if (statusOverride !== null) {
+          finalApproved = statusOverride;
+        } else if (wasApproved) {
+          finalApproved = false;
+        }
         const payload = {
           remarks: remarksForApi,
-          approved: false,
+          approved: finalApproved,
         };
 
         if (gateEntryType === "add") {
@@ -2114,11 +2111,15 @@ export default function StockAdjustmentStickerCloneDrawer({
 
         await stockAdjustmentService.update(editData.adjustment_id, payload);
         toast.success(
-          wasApproved
-            ? "Saved — status set to pending; Approve again to apply box changes"
-            : gateEntryType === "update"
-              ? "Saved — Approve to apply qty change to the box"
-              : "Saved — Approve to create boxes and reflect in inventory"
+          finalApproved
+            ? gateEntryType === "update"
+              ? "Saved and approved — box qty updated."
+              : "Saved and approved — inventory updated."
+            : wasApproved
+              ? "Saved — status set to pending; Approve again to apply box changes"
+              : gateEntryType === "update"
+                ? "Saved — Approve to apply qty change to the box"
+                : "Saved — Approve to create boxes and reflect in inventory"
         );
         onSuccess?.();
         onClose?.();
@@ -2183,6 +2184,7 @@ export default function StockAdjustmentStickerCloneDrawer({
       toast.error(err?.message || "Operation failed");
     } finally {
       setLoading(false);
+      setActiveSubmit(null);
     }
   };
 
@@ -2232,36 +2234,79 @@ export default function StockAdjustmentStickerCloneDrawer({
         Cancel
       </button>
 
-      {gatePassed && !readOnly && !(isEdit && structureLocked) ? (
+      {gatePassed && !readOnly && isEdit && !structureLocked ? (
+        <>
+          {canApprove ? (
+            <button
+              type="button"
+              onClick={() => handleSave(true)}
+              disabled={loading}
+              className="col-span-2 h-8 lg:h-9 w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 text-white text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-emerald-700 disabled:opacity-50 px-3 lg:px-4 transition-all sm:col-span-1 sm:w-auto"
+            >
+              {loading && activeSubmit === "approve" ? (
+                <Loader2 className="w-3.5 h-3.5 lg:w-4 lg:h-4 animate-spin shrink-0" aria-hidden />
+              ) : (
+                <Shield className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" aria-hidden />
+              )}
+              Save & Approve
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => handleSave(null)}
+            disabled={loading}
+            className="h-8 lg:h-9 w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-white text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-black disabled:bg-slate-400 px-3 lg:px-4 transition-all sm:w-auto"
+          >
+            {loading && activeSubmit === "save" ? (
+              <Loader2 className="w-3.5 h-3.5 lg:w-4 lg:h-4 animate-spin shrink-0" aria-hidden />
+            ) : (
+              <Check className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" aria-hidden />
+            )}
+            Update
+          </button>
+        </>
+      ) : null}
+
+      {gatePassed && !readOnly && !isEdit ? (
         <button
           type="button"
-          onClick={handleSave}
+          onClick={() => handleSave(null)}
           disabled={loading}
           className="h-8 lg:h-9 w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-white text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-black disabled:bg-slate-400 px-3 lg:px-4 transition-all sm:w-auto"
         >
-          {loading ? (
+          {loading && activeSubmit === "save" ? (
             <Loader2 className="w-3.5 h-3.5 lg:w-4 lg:h-4 animate-spin shrink-0" aria-hidden />
           ) : (
             <Check className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" aria-hidden />
           )}
-          {isEdit ? "Update" : "Save"}
+          Save
         </button>
       ) : null}
 
       {gatePassed && isApprove ? (
-        <button
-          type="button"
-          onClick={handleApprove}
-          disabled={loading || !!(savedRow?.approved ?? editData?.approved)}
-          className="col-span-2 h-8 lg:h-9 w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 text-white text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-emerald-700 disabled:opacity-50 px-3 lg:px-4 transition-all sm:col-span-1 sm:w-auto"
-        >
-          {loading ? (
-            <Loader2 className="w-3.5 h-3.5 lg:w-4 lg:h-4 animate-spin shrink-0" aria-hidden />
-          ) : (
-            <Shield className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" aria-hidden />
-          )}
-          Approve
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="h-8 lg:h-9 w-full inline-flex items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-slate-700 text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-slate-200 disabled:opacity-50 px-3 lg:px-4 transition-all sm:w-auto"
+          >
+            Keep Pending
+          </button>
+          <button
+            type="button"
+            onClick={handleApprove}
+            disabled={loading || !!(savedRow?.approved ?? editData?.approved)}
+            className="col-span-2 h-8 lg:h-9 w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 text-white text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-emerald-700 disabled:opacity-50 px-3 lg:px-4 transition-all sm:col-span-1 sm:w-auto"
+          >
+            {loading && activeSubmit === "approve" ? (
+              <Loader2 className="w-3.5 h-3.5 lg:w-4 lg:h-4 animate-spin shrink-0" aria-hidden />
+            ) : (
+              <Shield className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" aria-hidden />
+            )}
+            Approve
+          </button>
+        </>
       ) : null}
 
       {readOnly && gatePassed && !isApprove ? (
@@ -3054,7 +3099,7 @@ export default function StockAdjustmentStickerCloneDrawer({
         isApprove && gatePassed
           ? handleApprove
           : !readOnly && gatePassed && !isApprove
-            ? handleSave
+            ? () => handleSave(null)
             : undefined
       }
       title={drawerTitle}

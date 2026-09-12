@@ -216,15 +216,34 @@ export default function StockAdjustmentPage() {
       toast.info("Select a stock adjustment row to edit.");
     }, []),
     openApprove: useCallback((row) => {
-      handleOpenModal("approve", row);
-    }, [handleOpenModal]),
+      const rec = row ?? selectedRecord;
+      if (!rec) {
+        toast.info("Select a pending row to approve.");
+        return;
+      }
+      if (rec.approved === true || rec.approved === "true" || rec.approved === 1) {
+        toast.info("Already approved. Edit first, then approve again.");
+        return;
+      }
+      handleOpenModal("approve", rec);
+    }, [handleOpenModal, selectedRecord]),
     canApproveSelection: useCallback(
-      () => Boolean(selected && selectedRecord),
+      () =>
+        Boolean(
+          selected &&
+            selectedRecord &&
+            !(selectedRecord.approved === true || selectedRecord.approved === "true" || selectedRecord.approved === 1)
+        ),
       [selected, selectedRecord]
     ),
     onApproveBlocked: useCallback(() => {
-      toast.info("Select a row to open approve (Ctrl+A).");
-    }, []),
+      const row = getSelectedRow();
+      if (row && (row.approved === true || row.approved === "true" || row.approved === 1)) {
+        toast.info("Already approved. Edit first, then approve again.");
+        return;
+      }
+      toast.info("Select a pending row to approve (Ctrl+A).");
+    }, [getSelectedRow]),
     onPrint: useCallback(() => {
       handlePrintStickers();
     }, [handlePrintStickers]),
@@ -270,9 +289,25 @@ export default function StockAdjustmentPage() {
                 onClick={() => handleOpenModal("view", selectedRecord)}
                 className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-slate-700 shadow-none shrink-0"
               />
-              <ActionButton module="stock_adjustment" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected}
-                onClick={() => handleOpenModal("approve", selectedRecord)}
-                className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
+              <ActionButton module="stock_adjustment" action="authorize" variant="outline" label="Approve" icon={CheckCircle}
+                disabled={
+                  !selected ||
+                  selectedRecord?.approved === true ||
+                  selectedRecord?.approved === "true" ||
+                  selectedRecord?.approved === 1
+                }
+                onClick={() => {
+                  if (
+                    selectedRecord?.approved === true ||
+                    selectedRecord?.approved === "true" ||
+                    selectedRecord?.approved === 1
+                  ) {
+                    toast.info("Already approved. Edit first, then approve again.");
+                    return;
+                  }
+                  handleOpenModal("approve", selectedRecord);
+                }}
+                className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0 disabled:opacity-40"
               />
               <PrintActionButton module="stock_adjustment" variant="outline" label="Print stickers" icon={Printer}
                 disabled={

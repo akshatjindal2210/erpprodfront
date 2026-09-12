@@ -39,11 +39,15 @@ const PAGE_TABS = {
   PENDING_FORWARDING: "pending_forwarding",
 };
 
+function isOutEntryApproved(row) {
+  return row?.approved === true || row?.approved === "true" || row?.approved === 1;
+}
+
 function isOutEntryApprovable(row) {
   if (!row) return false;
   if (isOutEntryAutoAuthorized(row.entry_type)) return false;
   if (isOutEntryScanDraft(row)) return false;
-  if (row.approved === true || row.approved === "true" || row.approved === 1) return false;
+  if (isOutEntryApproved(row)) return false;
   return true;
 }
 
@@ -390,6 +394,10 @@ export default function OutEntryPage() {
     onApproveBlocked: useCallback(() => {
       const row = getSelectedRow();
       const approveRow = row ? (isStoreOut ? row : pendingForwardingToOutEntryRow(row)) : null;
+      if (approveRow && isOutEntryApproved(approveRow)) {
+        toast.info("Already approved. Edit first, then approve again.");
+        return;
+      }
       if (approveRow && isOutEntryAutoAuthorized(approveRow.entry_type)) {
         toast.info("Auto-authorized — cannot re-approve.");
         return;
@@ -453,6 +461,10 @@ export default function OutEntryPage() {
 
   const openApproveForm = useCallback((rec) => {
     if (!rec) return;
+    if (isOutEntryApproved(rec)) {
+      toast.info("Already approved. Edit first, then approve again.");
+      return;
+    }
     if (isOutEntryScanDraft(rec)) {
       toast.error("Complete all box scans and submit before approving.");
       return;
@@ -481,7 +493,11 @@ export default function OutEntryPage() {
       return;
     }
     if (!isOutEntryApprovable(rec)) {
-      toast.error("Complete all box scans and submit before approving.");
+      if (isOutEntryApproved(rec)) {
+        toast.info("Already approved. Edit first, then approve again.");
+      } else {
+        toast.error("Complete all box scans and submit before approving.");
+      }
       return;
     }
     openApproveForm(rec);
