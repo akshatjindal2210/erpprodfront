@@ -19,9 +19,12 @@ export default function DeleteModal({
   nameKey,
   warningMessage,
   moduleSlug = null,
+  requireRemark = false,
+  remarkLabel = "Remark",
 }) {
   const resolvedTitleKey = nameKey ?? titleKey;
   const [loading, setLoading] = useState(false);
+  const [remark, setRemark] = useState("");
   const sopAckRef = useRef(null);
 
   useEscapeKey(onClose, !!item);
@@ -38,12 +41,17 @@ export default function DeleteModal({
 
   const handleDelete = async () => {
     if (moduleSlug && !sopAckRef.current?.assertAcknowledged()) return;
+    if (requireRemark && !String(remark).trim()) {
+      toast.error("Please enter a remark.");
+      return;
+    }
     setLoading(true);
     try {
       if (recordId === undefined || recordId === null) {
         throw new Error("Delete ID not found for selected record");
       }
-      await service.delete(recordId);
+      const trimmedRemark = String(remark).trim();
+      await service.delete(recordId, requireRemark ? trimmedRemark : undefined);
       toast.success(`${entityLabel} deleted`);
       onSuccess?.();
       onClose?.();
@@ -67,7 +75,13 @@ export default function DeleteModal({
 
   return (
     <OverlayModal open onBackdropClick={onClose}>
-      <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200">
+      <form
+        className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleDelete();
+        }}
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-rose-50 border border-rose-200 flex items-center justify-center">
@@ -99,6 +113,22 @@ export default function DeleteModal({
             Are you sure you want to delete{" "}
             <span className="font-semibold text-slate-800">&quot;{recordTitle}&quot;</span>?
           </p>
+          {requireRemark ? (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                {remarkLabel} <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                value={remark}
+                onChange={(e) => setRemark(e.target.value)}
+                rows={4}
+                autoFocus
+                disabled={loading}
+                placeholder="Enter remark..."
+                className="w-full resize-y min-h-[96px] rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:opacity-50"
+              />
+            </div>
+          ) : null}
           {moduleSlug ? (
             <ModuleSopAcknowledgment
               ref={sopAckRef}
@@ -120,9 +150,9 @@ export default function DeleteModal({
             Cancel
           </button>
           <button
-            type="button"
-            onClick={handleDelete}
-            disabled={loading}
+            type="submit"
+            disabled={loading || (requireRemark && !String(remark).trim())}
+            title="Ctrl+S"
             className="px-4 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-all flex items-center gap-2 disabled:opacity-60"
           >
             {loading ? (
@@ -151,7 +181,7 @@ export default function DeleteModal({
             )}
           </button>
         </div>
-      </div>
+      </form>
     </OverlayModal>
   );
 }

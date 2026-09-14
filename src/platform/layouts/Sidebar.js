@@ -11,11 +11,13 @@ import { THEME_CONFIG } from "@/config/theme";
 import { useAppLogout } from "@/platform/hooks/auth/useLogout";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useSelector } from "react-redux";
-import { selectRole, selectPermissions, selectUser } from "@/platform/store/slices/authSlice";
+import { selectRole, selectPermissions, selectUser, selectAppAccess } from "@/platform/store/slices/authSlice";
 import { APP_VERSION } from "@/config/appVersion";
 import { ROUTES } from "@/config/routes";
 import { useEscapeKey } from "@/platform/hooks/system/useEscapeKey";
 import { appConfigService } from "@/apps/settings/lib/services/appConfigService";
+import { buildPortalAppGroupsNav } from "@/config/portalNavRegistry";
+import { getQuickLaunchCodeForHref } from "@/config/quickLaunchCodes";
 
 const DYNAMIC_SHORTCUTS_KEY = "dynamic_shortcuts";
 
@@ -61,6 +63,21 @@ const ICON_MAP = {
   Wallet: <Wallet size={14} />,
 };
 
+function NavShortcutCode({ code, active = false }) {
+  if (!code) return null;
+  return (
+    <kbd
+      className={`shrink-0 min-w-[1.5rem] px-1 py-0.5 rounded border text-[8px] font-black uppercase tracking-widest leading-none ${
+        active
+          ? "border-white/35 text-white/80"
+          : "border-slate-700/80 text-slate-500 group-hover:border-slate-500 group-hover:text-slate-300"
+      }`}
+    >
+      {code}
+    </kbd>
+  );
+}
+
 export default function Sidebar({
   sidebarOpen,
   setSidebarOpen,
@@ -76,6 +93,7 @@ export default function Sidebar({
   const userData = useSelector(selectUser);
   const role = useSelector(selectRole);
   const permissions = useSelector(selectPermissions);
+  const appAccess = useSelector(selectAppAccess);
   const [openMenus, setOpenMenus] = useState({});
   const [dynamicShortcuts, setDynamicShortcuts] = useState([]);
 
@@ -100,8 +118,8 @@ export default function Sidebar({
   }, [role, permissions]);
 
   const PORTAL_NAV = [
-    { id: "home", name: "Home", href: ROUTES.HOME, icon: <LayoutDashboard size={14} /> },
-    { id: "logs", name: "Activity Logs", href: ROUTES.ACTIVITY_LOGS, icon: <History size={14} /> },
+    { id: "home", name: "Home", href: ROUTES.HOME, icon: <LayoutDashboard size={14} />, shortcutCode: "HM" },
+    { id: "logs", name: "Activity Logs", href: ROUTES.ACTIVITY_LOGS, icon: <History size={14} />, shortcutCode: "PAL" },
   ];
 
   const canSeeNavItem = (item) => {
@@ -163,6 +181,15 @@ export default function Sidebar({
     return roots;
   }, [role, permissions, userData, dynamicShortcuts]);
 
+  // Portal-shell sidebar app-groups — one expandable group per app the user
+  // has access to. Each group's subItems are still gated by canSeeNavItem +
+  // getAccess in renderNavItems below, so page-level permissions match the
+  // per-app sidebars exactly.
+  const portalAppGroupsNav = useMemo(
+    () => (hideNav ? buildPortalAppGroupsNav({ role, permissions, appAccess }) : []),
+    [hideNav, role, permissions, appAccess],
+  );
+
   const toggleAccordion = (id) => {
     setOpenMenus((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -186,13 +213,26 @@ export default function Sidebar({
 
   useEffect(() => {
     const newOpenMenus = {};
-    filteredNav.forEach((item) => {
-      if (item.subItems && item.subItems.some((sub) => pathname.startsWith(sub.href))) {
-        newOpenMenus[item.id || item.name] = true;
-      }
-    });
+    const pathMatches = (href) => {
+      if (!href) return false;
+      return pathname === href || pathname.startsWith(`${href}/`);
+    };
+    const autoExpand = (items) => {
+      let anyMatch = false;
+      (items || []).forEach((item) => {
+        const childMatch = item.subItems?.length ? autoExpand(item.subItems) : false;
+        const selfMatch = pathMatches(item.href);
+        if (item.subItems?.length && (childMatch || selfMatch)) {
+          newOpenMenus[item.id || item.name] = true;
+        }
+        if (childMatch || selfMatch) anyMatch = true;
+      });
+      return anyMatch;
+    };
+    autoExpand(filteredNav);
+    autoExpand(portalAppGroupsNav);
     setOpenMenus((prev) => ({ ...prev, ...newOpenMenus }));
-  }, [pathname, filteredNav]);
+  }, [pathname, filteredNav, portalAppGroupsNav]);
 
   const allHrefs = useMemo(() => {
     const hrefs = new Set();
@@ -205,8 +245,9 @@ export default function Sidebar({
     walk(filteredNav);
     walk(PORTAL_NAV);
     walk(dynamicNav);
+    walk(portalAppGroupsNav);
     return Array.from(hrefs);
-  }, [filteredNav, dynamicNav, PORTAL_NAV]);
+  }, [filteredNav, dynamicNav, PORTAL_NAV, portalAppGroupsNav]);
 
   const renderNavItems = (items, level = 1) => {
     return items.map((item) => {
@@ -214,15 +255,26 @@ export default function Sidebar({
 
       const isPublicHome = !item.module && item.href && !item.subItems?.length;
       const hasParentAccess = item.module ? getAccess(item.module) : isPublicHome;
-      const filteredSubs = (item.subItems || []).filter(
-        (sub) => canSeeNavItem(sub) && (sub.module ? getAccess(sub.module) : true)
-      );
+      const filteredSubs = (item.subItems || []).filter((sub) => {
+        if (!canSeeNavItem(sub)) return false;
+        if (sub.subItems?.length) {
+          return sub.subItems.some(
+            (nested) =>
+              canSeeNavItem(nested) &&
+              (nested.module
+                ? getAccess(nested.module)
+                : Boolean(nested.href) || nested.subItems?.length)
+          );
+        }
+        return sub.module ? getAccess(sub.module) : true;
+      });
       const hasSub = filteredSubs.length > 0;
 
       if (!hasParentAccess && !hasSub) return null;
 
       const isOpen = openMenus[key];
       const isCollapsed = collapsed && !sidebarOpen;
+      const shortcutCode = item.shortcutCode || getQuickLaunchCodeForHref(item.href);
       
       // Active logic: 
       // 1. Exact match
@@ -240,26 +292,32 @@ export default function Sidebar({
               className={`flex items-center justify-between px-2.5 py-2 rounded-md cursor-pointer transition-all group mb-0.5
               ${isOpen ? `bg-white/5 ${THEME_CONFIG.sidebarAccent}` : `${THEME_CONFIG.sidebarHover} ${THEME_CONFIG.sidebarText} ${THEME_CONFIG.sidebarHoverText}`}`}
             >
-              <div className="flex items-center gap-2.5 overflow-hidden">
+              <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
                 <span className={`shrink-0 ${isOpen ? THEME_CONFIG.sidebarAccent : `${THEME_CONFIG.sidebarIcon} group-hover:text-current`}`}>
                   {item.icon ? item.icon : <Circle size={4} />}
                 </span>
                 {!isCollapsed && <span className="text-[12px] font-semibold truncate tracking-tight">{item.name}</span>}
               </div>
-              {!isCollapsed && <ChevronDown size={12} className={`transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />}
+              {!isCollapsed && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <NavShortcutCode code={shortcutCode} />
+                  <ChevronDown size={12} className={`transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
+                </div>
+              )}
             </div>
           ) : (
             <Link href={item.href || "#"} prefetch={false} onClick={() => setSidebarOpen(false)}>
               <div
-                className={`flex items-center px-2.5 py-2 rounded-md transition-all group mb-0.5
+                className={`flex items-center justify-between gap-2 px-2.5 py-2 rounded-md transition-all group mb-0.5
               ${active ? `${THEME_CONFIG.primary} ${THEME_CONFIG.itemActiveText} shadow-md` : `${THEME_CONFIG.sidebarHover} ${THEME_CONFIG.sidebarText} ${THEME_CONFIG.sidebarHoverText}`}`}
               >
-                <div className="flex items-center gap-2.5 overflow-hidden">
+                <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
                   <span className={`shrink-0 ${active ? THEME_CONFIG.itemActiveText : `${THEME_CONFIG.sidebarIcon} group-hover:text-current`}`}>
                     {item.icon ? item.icon : <Circle size={4} />}
                   </span>
                   {!isCollapsed && <span className="text-[12px] font-semibold truncate tracking-tight">{item.name}</span>}
                 </div>
+                {!isCollapsed && <NavShortcutCode code={shortcutCode} active={active} />}
               </div>
             </Link>
           )}
@@ -314,6 +372,12 @@ export default function Sidebar({
           ) : (
             <>
               {renderNavItems(PORTAL_NAV)}
+              {portalAppGroupsNav.length > 0 && (
+                <div className="mt-6 pt-4 border-t border-slate-700/30">
+                  <p className="px-3 mb-0.5 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Applications</p>
+                  {renderNavItems(portalAppGroupsNav)}
+                </div>
+              )}
               {dynamicNav.length > 0 && (
                 <div className="mt-6 pt-4 border-t border-slate-700/30">
                   <p className="px-3 mb-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Shortcuts</p>

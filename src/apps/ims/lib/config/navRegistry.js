@@ -14,6 +14,7 @@ export const NAV_REGISTRY = [
       { id: "customer-item-code", name: "Customer Item Code", icon: <Map size={14} />, href: ROUTES.CUSTOMER_ITEM_CODE, module: "customer_item_code" },
       { id: "packing-standard", name: "Packing Standard", icon: <ClipboardList size={14} />, href: ROUTES.PACKING_STANDARD, module: "packing_standard" },
       { id: "location-master", name: "Store Location Master", icon: <Locate size={14} />, href: ROUTES.LOCATION_MASTER, module: "location_master" },
+      { id: "tray-master", name: "Tray Master", icon: <Locate size={14} />, href: ROUTES.TRAY_MASTER, module: "tray_master" },
     ],
   },
   { id: "packing-entry", name: "Packing Entry", icon: <Truck size={16} />, href: ROUTES.PACKING_ENTRY, module: "packing_entry" },

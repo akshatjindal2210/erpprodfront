@@ -3,6 +3,7 @@ import { ENDPOINTS } from "@/apps/purchase/lib/config/endpoints";
 import { api } from "@/platform/api/apiClient";
 
 export const SHORTAGE_TYPES = ["PPC", "WIP", "Deviation", "Additional"];
+export const SHORTAGE_LIST_TYPES = ["PPC", "Additional"];
 export const SHORTAGE_BULK_IMPORT_TYPES = ["PPC", "WIP"];
 
 export const shortageService = createCrudService(ENDPOINTS.SHORTAGE);

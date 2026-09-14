@@ -20,6 +20,10 @@ export const APP_META = {
   production: { label: "Production", permissions: true },
 };
 
+export const APP_TYPE_LABELS = Object.fromEntries(
+  Object.entries(APP_META).map(([key, meta]) => [key, meta.label])
+);
+
 export const MODULES = {
   core: [
     { name: "users", label: "User Management" },
@@ -34,6 +38,7 @@ export const MODULES = {
     { name: "customer_item_code", label: "Customer Item Code" },
     { name: "packing_standard", label: "Packing Standard" },
     { name: "location_master", label: "Store Location Master" },
+    { name: "tray_master", label: "Tray Master" },
     { name: "packing_entry", label: "Packing Entry" },
     { name: "boxes", label: "Boxes" },
     { name: "inventory_inwards", label: "Store In" },

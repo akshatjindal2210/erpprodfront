@@ -17,6 +17,8 @@ import { trainingVideoService } from "@/apps/settings/lib/services/trainingServi
 import { selectPermissions, selectUser, selectRole, selectAppAccess } from "@/platform/store/slices/authSlice";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { isPwaStandalone, getListHotkeyParts } from "@/platform/utils/pwa/pwa";
+import { isHotkeyTypingTarget, isAppOverlayOpen } from "@/platform/utils/core/appHotkeys";
+import { isFilePreviewOpen } from "@/platform/utils/system/filePreviewGate";
 import { APP_VERSION } from "@/config/appVersion";
 import { getDashboardStatus, getUserDashboards, getDashboardFilterUsers } from "@/common/dashboard-builder/services/dashboardApi";
 import { canFilterDashboardByUser, shouldDefaultDashboardFilterToSelf, getDashboardSelfFilter } from "@/common/dashboard-builder/utils/dashboardFilterAccess";
@@ -343,6 +345,8 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
         { id: "closeOverlay", label: "Close Modal / Form", parts: ["ESC"] },
         { id: "copyRow", label: "Copy Row Data", parts: ["CTRL", "C"] },
         { id: "listPrint", label: "Print Selected (list)", parts: ["CTRL", "P"] },
+        { id: "help", label: "Open Help", parts: ["SHIFT", "?"] },
+        { id: "quickLaunch", label: "Quick Launch (type IS, TR…)", parts: ["Type code"] },
       ]
       : [
         { id: "listNew", label: "New Form (list)", parts: getListHotkeyParts("n", false) },
@@ -352,6 +356,8 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
         { id: "copyRow", label: "Copy Row Data", parts: ["CTRL", "C"] },
         { id: "authorize", label: "Authorize Selected", parts: ["CTRL", "A"] },
         { id: "listPrint", label: "Print Selected (list)", parts: getListHotkeyParts("p", false) },
+        { id: "help", label: "Open Help", parts: ["SHIFT", "?"] },
+        { id: "quickLaunch", label: "Quick Launch (type IS, TR…)", parts: ["Type code"] },
       ];
 
     if (!isSuperAdmin) return base;
@@ -446,6 +452,20 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
       setTrainingData([]);
     }
   }, [helpOpen, fetchVideos]);
+
+  // Shift+? → Help drawer (blocked while typing / other overlay open)
+  useEffect(() => {
+    if (hideQuickLinks) return undefined;
+    const onKey = (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!(e.key === "?" || (e.shiftKey && e.code === "Slash"))) return;
+      if (isHotkeyTypingTarget(e.target)) return;
+      e.preventDefault();
+      setHelpOpen((open) => (open ? false : !(isAppOverlayOpen() || isFilePreviewOpen())));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hideQuickLinks]);
 
   useEffect(() => {
     if (!isDashboardRoute || dashboardActive !== true || !canFilterByUser) {
@@ -746,7 +766,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
                     <button
                       type="button"
                       onClick={() => setHelpOpen(true)}
-                      title="Help"
+                      title="Help (Shift + ?)"
                       className="sm:hidden flex items-center justify-center shrink-0 h-7 w-7 rounded bg-indigo-600/90 text-white hover:opacity-90 transition-all active:scale-95"
                     >
                       <HelpCircle size={13} />
@@ -760,7 +780,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
               <button
                 type="button"
                 onClick={() => setHelpOpen(true)}
-                title="Help"
+                title="Help (Shift + ?)"
                 className="hidden sm:flex items-center justify-center shrink-0 h-6 w-6 sm:h-7 sm:w-7 rounded-md bg-white text-indigo-600 hover:opacity-90 transition-all active:scale-95 shadow-sm"
               >
                 <HelpCircle size={14} className="md:animate-pulse" />

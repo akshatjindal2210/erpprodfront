@@ -12,6 +12,7 @@ import { APP_SHELL, isPortalShell, isTaskShell } from "@/config/appsRegistry";
 import { resolveShellBrand, resolveShellNavRegistry, ALL_SHELL_NAV_REGISTRIES } from "@/config/shellNav";
 import { ROUTES } from "@/config/routes";
 import { useEscapeKey } from "@/platform/hooks/system/useEscapeKey";
+import QuickLaunchDialog from "@/platform/components/QuickLaunchDialog";
 
 export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -173,6 +174,9 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[115] md:hidden" onClick={() => setSidebarOpen(false)} />
       )}
+
+      {/* Global Ctrl/Cmd+K quick launch — one instance mounted on every shell. */}
+      <QuickLaunchDialog />
     </div>
   );
 }

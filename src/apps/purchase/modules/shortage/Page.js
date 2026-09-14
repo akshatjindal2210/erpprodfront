@@ -5,7 +5,7 @@ import { AlertTriangle, RefreshCcw, X, Info } from "lucide-react";
 import { toast } from "react-toastify";
 import dayjs from "dayjs";
 
-import { shortageService, SHORTAGE_TYPES } from "@/apps/purchase/lib/services/shortage";
+import { shortageService, SHORTAGE_LIST_TYPES } from "@/apps/purchase/lib/services/shortage";
 import { PURCHASE_GROUP_NAME } from "@/apps/purchase/lib/config/groupFilter";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
@@ -27,7 +27,7 @@ import { SHORTAGE_PAGE_TABS, buildShortageMasterHeaders, buildShortageItemWiseHe
 
 const TYPE_FILTER_OPTIONS = [
   { label: "All Types", value: "all" },
-  ...SHORTAGE_TYPES.map((t) => ({ label: t, value: t })),
+  ...SHORTAGE_LIST_TYPES.map((t) => ({ label: t, value: t })),
 ];
 
 const STATUS_FILTER_OPTIONS = [

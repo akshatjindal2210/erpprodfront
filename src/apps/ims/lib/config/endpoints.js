@@ -54,6 +54,15 @@ export const ENDPOINTS = {
     VIEWS: "/locations/helper",
   },
 
+  TRAYS: {
+    TYPES: "/trays/types",
+    VIEWS: "/trays/helper",
+    LIST: "/trays/list",
+    CREATE: "/trays/create",
+    UPDATE: "/trays/update",
+    DELETE: "/trays/delete",
+  },
+
   BOX_TRANSACTION_LOGS: {
     LIST: "/box-transaction-logs/list",
   },

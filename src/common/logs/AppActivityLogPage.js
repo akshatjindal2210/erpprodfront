@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 
 import { activityLogService } from "@/common/services/activityLogService";
+import { useActivityLogFilters } from "@/common/logs/useActivityLogFilters";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
 import DataTable from "@/ui/primitives/DataTable";
@@ -18,10 +19,21 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { formatActivityLogValue, getActivityLogSections, getActivityLogMoreSections, hasActivityLogDetails, formatActivityLogActionLabel, getActivityLogActionBadgeClass } from "@/platform/utils/core/activityLogDisplay";
 import ActivityLogModuleEntityCell from "@/ui/common/list/ActivityLogModuleEntityCell";
+import { APP_TYPE_LABELS } from "@/config/portalModules.data";
 
-export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "Activity Log" }) {
+function formatLogAppLabel(appType) {
+  const key = String(appType || "").toLowerCase();
+  if (!key) return "—";
+  if (key === "portal") return "Portal";
+  return APP_TYPE_LABELS[key] || key;
+}
+
+export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "Activity Log", crossApp = false }) {
   const canAccess = useCanAccess();
-  const viewAccess = useMemo(() => canAccess(moduleSlug, "view"), [canAccess, moduleSlug]);
+  const viewAccess = useMemo(
+    () => (moduleSlug ? canAccess(moduleSlug, "view") : { allowed: true, days: 0 }),
+    [canAccess, moduleSlug],
+  );
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,8 +51,23 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
     search: "",
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
+    filterApp: "",
+    userId: "",
+    module: "",
+    actionType: "",
     sortKey: "created_at",
     sortDir: "desc",
+  });
+
+  const { extraFilters } = useActivityLogFilters({
+    appType,
+    crossApp,
+    values: {
+      app_type: params.filterApp,
+      user_id: params.userId,
+      module: params.module,
+      action_type: params.actionType,
+    },
   });
 
   useEffect(() => {
@@ -68,12 +95,15 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
         const currentPage = append ? params.page + 1 : 1;
 
         const response = await activityLogService.getLogs({
-          app_type: appType,
+          app_type: crossApp ? (params.filterApp || undefined) : appType,
           page: currentPage,
           limit: params.pageSize,
           search: params.search || undefined,
           date_from: params.fromDate ? `${params.fromDate} 00:00:00` : undefined,
           date_to: params.toDate ? `${params.toDate} 23:59:59` : undefined,
+          user_id: params.userId || undefined,
+          module: params.module || undefined,
+          action_type: params.actionType || undefined,
           all_users: "true",
         });
 
@@ -94,12 +124,12 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
         setLoading(false);
       }
     },
-    [appType, params.pageSize, params.search, params.fromDate, params.toDate, params.page]
+    [appType, crossApp, params.pageSize, params.search, params.fromDate, params.toDate, params.filterApp, params.userId, params.module, params.actionType, params.page]
   );
 
   useEffect(() => {
     void fetchLogs(false);
-  }, [params.pageSize, params.sortKey, params.sortDir, params.search, params.fromDate, params.toDate, fetchLogs]);
+  }, [params.pageSize, params.sortKey, params.sortDir, params.search, params.fromDate, params.toDate, params.filterApp, params.userId, params.module, params.actionType, fetchLogs]);
 
   const handleLoadMore = useCallback(() => {
     if (!loading && items.length < totalItems) {
@@ -114,6 +144,10 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
       search: tempSearch,
       fromDate: data.fromDate,
       toDate: data.toDate,
+      filterApp: data.app_type || "",
+      userId: data.user_id || "",
+      module: data.module || "",
+      actionType: data.action_type || "",
     }));
   };
 
@@ -125,6 +159,10 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
       search: "",
       fromDate: dateFilterDefaults.from,
       toDate: dateFilterDefaults.to,
+      filterApp: "",
+      userId: "",
+      module: "",
+      actionType: "",
     }));
   };
 
@@ -148,10 +186,18 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
       },
       { width: "100px", align: "center" },
     ],
+    ...(crossApp
+      ? [[
+          "App",
+          "app_type",
+          (v) => <span className={IMS_TABLE_CELL_TEXT}>{formatLogAppLabel(v)}</span>,
+          { width: "110px" },
+        ]]
+      : []),
     [
       "Module / Entity",
       "module",
-      (_v, row) => <ActivityLogModuleEntityCell row={row} appType={appType} />,
+      (_v, row) => <ActivityLogModuleEntityCell row={row} appType={appType || row.app_type} />,
       { width: "180px" },
     ],
     [
@@ -219,13 +265,16 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
     onExport: async () => {
       try {
         const response = await activityLogService.getLogs({
-          app_type: appType,
+          app_type: crossApp ? (params.filterApp || undefined) : appType,
           page: 1,
           limit: 100000,
           isExport: "true",
           search: params.search || undefined,
           date_from: params.fromDate ? `${params.fromDate} 00:00:00` : undefined,
           date_to: params.toDate ? `${params.toDate} 23:59:59` : undefined,
+          user_id: params.userId || undefined,
+          module: params.module || undefined,
+          action_type: params.actionType || undefined,
           all_users: "true",
         });
         return response.data || [];
@@ -281,6 +330,7 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
             searchLabel="Filter Logs"
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
+            extraFilters={extraFilters}
           />
         </ListPageFilterStrip>
 
@@ -309,7 +359,7 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
             cardConfig={{
               titleKey: "user_name",
               badgeIndices: [1],
-              detailIndices: [2, 3, 4],
+              detailIndices: crossApp ? [2, 3, 4, 5] : [2, 3, 4],
               footerKey: "created_at",
               className: "rounded-none border border-slate-200 shadow-none",
             }}

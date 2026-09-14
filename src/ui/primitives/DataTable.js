@@ -1071,7 +1071,7 @@ export default function DataTable({
                       ${unfreezeColOnMobile(config) ? MOB_UNFREEZE_HDR : ""}`}
                     >
                       <div 
-                        className={`flex items-center ${isSortable ? "cursor-pointer hover:text-slate-700 transition-colors" : ""}`}
+                        className={`flex items-center ${config.align === "center" ? "w-full justify-center" : ""} ${isSortable ? "cursor-pointer hover:text-slate-700 transition-colors" : ""}`}
                         onClick={() => {
                           if (isSortable && onSort) {
                             onSort(key);

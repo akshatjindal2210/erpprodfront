@@ -7,6 +7,7 @@ import dayjs from "dayjs";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 
 import { activityLogService } from "@/common/services/activityLogService";
+import { useActivityLogFilters } from "@/common/logs/useActivityLogFilters";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
 
@@ -25,6 +26,9 @@ import ActivityLogModuleEntityCell from "@/ui/common/list/ActivityLogModuleEntit
 export default function LogsPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess("activity_logs", "view"), [canAccess]);
+  // Super-admin gets user/module/action filters; normal users see nothing extra
+  // (backend already scopes non-super-admin queries to their own user_id).
+  const { extraFilters } = useActivityLogFilters({ appType: "ims" });
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +47,9 @@ export default function LogsPage() {
     search: "",
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
+    userId: "",
+    module: "",
+    actionType: "",
     sortKey: "created_at",
     sortDir: "desc"
   });
@@ -77,6 +84,9 @@ export default function LogsPage() {
         search: params.search || undefined,
         date_from: params.fromDate ? `${params.fromDate} 00:00:00` : undefined,
         date_to: params.toDate ? `${params.toDate} 23:59:59` : undefined,
+        user_id: params.userId || undefined,
+        module: params.module || undefined,
+        action_type: params.actionType || undefined,
         all_users: "true"
       });
 
@@ -96,11 +106,11 @@ export default function LogsPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.search, params.fromDate, params.toDate, params.page]);
+  }, [params.pageSize, params.search, params.fromDate, params.toDate, params.userId, params.module, params.actionType, params.page]);
 
   useEffect(() => { 
     fetchLogs(false); 
-  }, [params.pageSize, params.sortKey, params.sortDir, params.search, params.fromDate, params.toDate]);
+  }, [params.pageSize, params.sortKey, params.sortDir, params.search, params.fromDate, params.toDate, params.userId, params.module, params.actionType]);
 
   const handleLoadMore = useCallback(() => {
     if (!loading && items.length < totalItems) {
@@ -109,12 +119,30 @@ export default function LogsPage() {
   }, [loading, items.length, totalItems, fetchLogs]);
 
   const handleSearch = (data) => {
-    setParams(prev => ({ ...prev, page: 1, search: tempSearch, fromDate: data.fromDate, toDate: data.toDate }));
+    setParams(prev => ({
+      ...prev,
+      page: 1,
+      search: tempSearch,
+      fromDate: data.fromDate,
+      toDate: data.toDate,
+      userId: data.user_id || "",
+      module: data.module || "",
+      actionType: data.action_type || "",
+    }));
   };
 
   const handleReset = () => {
     setTempSearch("");
-    setParams(prev => ({ ...prev, page: 1, search: "", fromDate: dateFilterDefaults.from, toDate: dateFilterDefaults.to }));
+    setParams(prev => ({
+      ...prev,
+      page: 1,
+      search: "",
+      fromDate: dateFilterDefaults.from,
+      toDate: dateFilterDefaults.to,
+      userId: "",
+      module: "",
+      actionType: "",
+    }));
   };
 
   const HEADERS = [
@@ -203,6 +231,9 @@ export default function LogsPage() {
           search: params.search || undefined,
           date_from: params.fromDate ? `${params.fromDate} 00:00:00` : undefined,
           date_to: params.toDate ? `${params.toDate} 23:59:59` : undefined,
+          user_id: params.userId || undefined,
+          module: params.module || undefined,
+          action_type: params.actionType || undefined,
           all_users: "true"
         });
         return response.data || [];
@@ -262,6 +293,7 @@ export default function LogsPage() {
             searchLabel="Filter Logs"
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
+            extraFilters={extraFilters}
           />
         </ListPageFilterStrip>
 

@@ -30,7 +30,6 @@ export const SCHEDULE_LIST_FILTER = {
   ALL: "all",
   PENDING: "pending",
   READY_TO_DISPATCH: "ready_to_dispatch",
-  /** Sales default: Hold + Reject */
   PENDING_HOLD_REJECT: "pending_hold_reject",
   HOLD: "hold",
   PLAN: "plan",
@@ -245,7 +244,7 @@ export function filterScheduleRowsBySalesCrm(
   return rows.filter((row) => keys.some((key) => scheduleCrmMatchesUser(row?.CRM, key)));
 }
 
-/** Default: Sales + Authorize → Hold/Reject; else Ready to Dispatch. */
+/** Default: Sales + Authorize → All; else Ready to Dispatch. */
 export function getDefaultScheduleStatusFilter({
   canAdd = false,
   canApprove = false,
@@ -254,7 +253,7 @@ export function getDefaultScheduleStatusFilter({
 } = {}) {
   void canAdd;
   void isSuperAdmin;
-  if (isSalesDepartment && canApprove) return SCHEDULE_LIST_FILTER.PENDING_HOLD_REJECT;
+  if (isSalesDepartment && canApprove) return SCHEDULE_LIST_FILTER.ALL;
   return SCHEDULE_LIST_FILTER.READY_TO_DISPATCH;
 }
 

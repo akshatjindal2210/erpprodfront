@@ -135,6 +135,47 @@ export function scanBufferLooksIncomplete(rawValue) {
   return false;
 }
 
+const TRAY_CODE_RE = /^(FG|RM)\d+$/i;
+
+/** Tray label QR encodes tray code (e.g. FG12, RM5). */
+export function extractTrayCode(rawValue) {
+  const trimmed = normalizeScanInput(rawValue);
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed?.code != null && String(parsed.code).trim() !== "") {
+        return String(parsed.code).trim().toUpperCase();
+      }
+      if (parsed?.id != null && String(parsed.id).trim() !== "") {
+        return String(parsed.id).trim();
+      }
+      if (parsed?.tray_id != null && String(parsed.tray_id).trim() !== "") {
+        return String(parsed.tray_id).trim();
+      }
+    } catch {
+      // continue
+    }
+  }
+
+  const codeMatch = trimmed.match(/\btray[_\s]*(?:code|id)\s*[:=-]?\s*([A-Za-z0-9_-]+)\b/i);
+  if (codeMatch?.[1]) return codeMatch[1].trim().toUpperCase();
+
+  const upper = trimmed.toUpperCase();
+  if (TRAY_CODE_RE.test(upper)) return upper;
+  if (/^\d+$/.test(trimmed)) return trimmed;
+
+  return null;
+}
+
+export function parseTrayScan(rawValue) {
+  const extracted = extractTrayCode(rawValue);
+  if (!extracted) return { code: "", id: "" };
+  if (/^\d+$/.test(extracted)) return { code: "", id: extracted };
+  return { code: extracted, id: "" };
+}
+
 export function extractLocationNo(rawValue) {
   const normalizedValue = normalizeScanInput(rawValue);
   if (!normalizedValue) return null;
@@ -194,6 +235,8 @@ export function detectQrType(rawValue) {
 
   if (/\bbox(?:_no)?\s*uid\b/.test(normalized)) return "box";
   if (/\blocation[_\s]*(?:id|no)\b/.test(normalized)) return "location";
+  if (/\btray[_\s]*(?:code|id)\b/.test(normalized)) return "tray";
+  if (TRAY_CODE_RE.test(trimmed.toUpperCase())) return "tray";
   return "unknown";
 }
 

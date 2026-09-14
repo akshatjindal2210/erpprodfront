@@ -74,8 +74,11 @@ export function hasUserTextSelection() {
 
 export function isAppOverlayOpen() {
   if (typeof document === "undefined") return false;
+  // Parent drawer, nested/sub-drawer, or any center OverlayModal.
   if (document.documentElement.hasAttribute("data-app-drawer-open")) return true;
   if (document.querySelector("[data-app-drawer-root]")) return true;
+  if (document.querySelector("[data-app-overlay-root]")) return true;
+  if (document.querySelector('[role="dialog"][aria-modal="true"]')) return true;
   if (document.querySelector('[role="dialog"]')) return true;
   return false;
 }
