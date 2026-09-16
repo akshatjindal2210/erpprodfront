@@ -50,35 +50,6 @@ export function ListPageFooter({ shown, total, noun = "Records", extra = null })
   );
 }
 
-export function ListPageServerFooter({ shown, total, page, pageSize, loading, onPrev, onNext }) {
-  return (
-    <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-        Showing {shown} of {total} Records
-      </span>
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          disabled={page <= 1 || loading}
-          onClick={onPrev}
-          className="text-[10px] font-bold uppercase text-indigo-600 disabled:text-slate-300"
-        >
-          Previous
-        </button>
-        <span className="text-[10px] font-bold text-slate-500 uppercase">Page {page}</span>
-        <button
-          type="button"
-          disabled={page * pageSize >= total || loading}
-          onClick={onNext}
-          className="text-[10px] font-bold uppercase text-indigo-600 disabled:text-slate-300"
-        >
-          Next
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export function ListPageRefreshButton({ loading, onClick, iconOnly = true }) {
   return (
     <button

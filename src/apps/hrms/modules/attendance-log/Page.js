@@ -73,6 +73,7 @@ export default function AttendanceLogPage() {
         fetchList={attendanceLogService.list}
         headers={ATTENDANCE_LOG_HEADERS}
         moduleName="Attendance Log"
+        viewModule="hrms_attendance_log"
         getRowId={(row) => row.id}
         cardConfig={{
           titleKey: "employee_code",

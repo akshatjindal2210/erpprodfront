@@ -27,10 +27,10 @@ function RefLine({ ref, href }) {
 }
 
 export default function ActivityLogModuleEntityCell({ row, appType, moduleKey, moduleLabel, refValue }) {
-  const module = moduleKey ?? row?.module ?? row?.entity;
-  const label = moduleLabel ?? formatActivityLogModuleLabel(module);
+  const moduleName = moduleKey ?? row?.module ?? row?.entity;
+  const label = moduleLabel ?? formatActivityLogModuleLabel(moduleName);
   const ref = cleanRef(refValue ?? resolveActivityLogRef(row));
-  const href = resolveActivityLogEntityHref(appType, module);
+  const href = resolveActivityLogEntityHref(appType, moduleName);
 
   return (
     <div className="flex flex-col leading-tight min-w-[140px]">
@@ -44,10 +44,10 @@ export default function ActivityLogModuleEntityCell({ row, appType, moduleKey, m
 }
 
 export function TransactionLogModuleEntityCell({ row, appType = "rmstore" }) {
-  const module = row?.source_module;
-  const label = module?.replace(/_/g, " ") ?? "—";
+  const moduleName = row?.source_module;
+  const label = moduleName?.replace(/_/g, " ") ?? "—";
   const ref = cleanRef(row?.source_id);
-  const href = resolveActivityLogEntityHref(appType, module);
+  const href = resolveActivityLogEntityHref(appType, moduleName);
 
   return (
     <div className="flex flex-col leading-tight min-w-[140px]">

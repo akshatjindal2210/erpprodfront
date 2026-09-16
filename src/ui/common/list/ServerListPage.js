@@ -1,17 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import DataTable from "@/ui/primitives/DataTable";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import GlobalDetailModal from "@/ui/common/modals/GlobalDetailModal";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
+import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageDetailGrid, ListPageExportViewToggle, ListPageToolbarBlock } from "@/ui/common/list/listPageToolbarBlock";
-import { ListPageServerFooter, ListPageShell, ListPageTableArea } from "@/ui/common/list/listPageUi";
+import { ListPageFooter, ListPageShell, ListPageTableArea } from "@/ui/common/list/listPageUi";
 import { buildAllFieldHeaders } from "@/ui/common/list/buildAllFieldHeaders";
 import { useServerList } from "@/ui/common/list/useServerList";
+import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { applyClientSearch } from "@/ui/common/list/clientListSearch";
 
 function isBlankFilterValue(value) {
@@ -43,7 +45,7 @@ function rowMatchesClientFilter(row, key, value) {
 }
 
 /**
- * Reusable server-paginated list page (IMS-style).
+ * Reusable server list page (IMS-style infinite scroll — scroll to load the next page).
  *
  * Filter colors / behavior (IMS):
  * - `variant: "quick"`  → indigo — filters loaded rows in the browser
@@ -76,6 +78,8 @@ export default function ServerListPage({
   /** Notify parent when row selection changes (for list hotkeys). */
   onSelectionChange,
   onRowDoubleClick,
+  /** Permission module for view-days date range (IMS-style min/max + default span). */
+  viewModule,
 }) {
   const allFilterKeys = useMemo(() => {
     const resolvedExtraKeys =
@@ -96,13 +100,18 @@ export default function ServerListPage({
   );
 
   const [viewMode, handleViewMode] = useViewMode();
+  const [displayLimit, setDisplayLimit] = useState(pageSize);
+  const canAccess = useCanAccess();
+  const viewAccess = useMemo(
+    () => (viewModule ? canAccess(viewModule, "view") : null),
+    [canAccess, viewModule]
+  );
+  const dateFilterDefaults = useViewDateFilterDefaults(viewAccess || { allowed: false, days: 0 });
 
   const {
     loading,
     rows,
     total,
-    page,
-    setPage,
     tempSearch,
     setTempSearch,
     params,
@@ -115,11 +124,11 @@ export default function ServerListPage({
   } = useServerList({
     fetchList,
     getRowId,
-    pageSize,
     defaultToday,
     extraFilterKeys: allFilterKeys,
     serverExtraFilterKeys: serverFilterKeys,
     clientQuickSearch,
+    dateDefaults: viewModule ? dateFilterDefaults : null,
   });
 
   const resolvedFilterDefs = typeof extraFilters === "function" ? extraFilters(params) : extraFilters;
@@ -137,6 +146,17 @@ export default function ServerListPage({
     });
     return next;
   }, [rows, tempSearch, clientQuickSearch, clientFilterKeys, params]);
+
+  const visibleRows = useMemo(() => displayRows.slice(0, displayLimit), [displayRows, displayLimit]);
+
+  useEffect(() => {
+    setDisplayLimit(pageSize);
+  }, [rows, tempSearch, params, pageSize]);
+
+  const handleLoadMore = useCallback(() => {
+    if (loading || visibleRows.length >= displayRows.length) return;
+    setDisplayLimit((n) => n + pageSize);
+  }, [loading, visibleRows.length, displayRows.length, pageSize]);
 
   const selectedRecord = useMemo(() => {
     if (selected == null) return null;
@@ -168,16 +188,11 @@ export default function ServerListPage({
     loading,
     rows: displayRows,
     total,
-    page,
     params,
   };
   const extraActions = typeof toolbarActions === "function"
     ? toolbarActions(listApi)
     : toolbarActions;
-
-  const clientFilterActive = clientFilterKeys.some((key) => !isBlankFilterValue(params[key]));
-  const quickActive =
-    (clientQuickSearch && Boolean(String(tempSearch || "").trim())) || clientFilterActive;
 
   const bindFilterValues = useCallback(
     (defs = []) =>
@@ -255,13 +270,15 @@ export default function ServerListPage({
           searchLabel={clientQuickSearch ? "Quick Search" : "Search Database"}
           searchVariant={clientQuickSearch ? "quick" : "server"}
           applyOnSearchEnter={!clientQuickSearch}
+          minDate={viewModule ? dateFilterDefaults.minDate : ""}
+          maxDate={viewModule ? dateFilterDefaults.maxDate : ""}
         />
       </ListPageFilterStrip>
 
       <ListPageTableArea>
         <DataTable
           headers={headers}
-          data={displayRows}
+          data={visibleRows}
           loading={loading}
           viewMode={viewMode}
           showSelection={showSelection}
@@ -270,21 +287,19 @@ export default function ServerListPage({
           onSelect={setSelected}
           emptyIcon={EmptyIcon}
           getRowId={getRowId}
-          totalItems={quickActive ? displayRows.length : total}
+          onLoadMore={handleLoadMore}
+          hasMore={visibleRows.length < displayRows.length}
+          totalItems={displayRows.length}
           cardConfig={cardConfig}
           onRowDoubleClick={onRowDoubleClick}
           {...(tableHotkeyProps || {})}
         />
       </ListPageTableArea>
 
-      <ListPageServerFooter
-        shown={displayRows.length}
-        total={quickActive ? displayRows.length : total}
-        page={page}
-        pageSize={pageSize}
-        loading={loading}
-        onPrev={() => setPage((p) => Math.max(1, p - 1))}
-        onNext={() => setPage((p) => p + 1)}
+      <ListPageFooter
+        shown={visibleRows.length}
+        total={displayRows.length}
+        noun="Records"
       />
 
       {detailModal?.open ? (

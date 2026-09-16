@@ -752,7 +752,7 @@ export default function TasksPage() {
               hasMore={hasMore}
               totalItems={displayCount}
               allowCopy
-              // onRowDoubleClick={(row) => openTaskOnPhone(row, navigateToTask)}
+              onRowDoubleClick={(row) => navigateToTask(row)}
               hotkeysDisabled={tableHotkeyProps.hotkeysDisabled}
             />
           )}

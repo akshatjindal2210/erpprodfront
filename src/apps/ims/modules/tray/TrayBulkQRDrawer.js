@@ -5,7 +5,7 @@ import { CheckSquare, Download, Loader2, Printer, Square } from "lucide-react";
 import { toast } from "react-toastify";
 import Drawer from "@/ui/primitives/Drawer";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
-import { isTrayPrintable } from "@/apps/ims/lib/helpers/trayHelper";
+import { isTrayPrintable, sortTraysAsc } from "@/apps/ims/lib/helpers/trayHelper";
 import { runTrayLabelBulkExport } from "@/apps/ims/lib/helpers/trayQrLabel";
 
 export default function TrayBulkQRDrawer({
@@ -22,7 +22,7 @@ export default function TrayBulkQRDrawer({
   const [busy, setBusy] = useState(false);
   const selectAllRef = useRef(null);
 
-  const printable = useMemo(() => trays.filter(isTrayPrintable), [trays]);
+  const printable = useMemo(() => sortTraysAsc(trays.filter(isTrayPrintable)), [trays]);
   const selectedRows = useMemo(
     () => printable.filter((row) => selectedIds.has(row.id)),
     [printable, selectedIds]

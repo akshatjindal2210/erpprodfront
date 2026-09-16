@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useSelector } from "react-redux";
 import { selectUser } from "@/platform/store/slices/authSlice";
-import { Check, AlertCircle, Loader2, Shield, Hash, Truck, User, Package, ChevronRight, CheckCircle2, QrCode, ScanLine, Camera, X, MapPin, CheckCircle, LogOut } from "lucide-react";
+import { Check, AlertCircle, Loader2, Shield, Hash, Truck, User, Package, ChevronRight, CheckCircle2, QrCode, ScanLine, Camera, X, MapPin, CheckCircle, LogOut, Layers } from "lucide-react";
 import { toast } from "react-toastify";
 // Services & Components
 import { outEntryService } from "@/apps/ims/lib/services/outEntry";
@@ -22,7 +22,7 @@ import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettin
 import { isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import LaserScanField from "@/ui/common/scan/LaserScanField";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
-import { detectQrType, parseBoxScanRaw, parseStickerScan, boxNoUidDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
+import { detectQrType, parseBoxScanRaw, parseStickerScan, parseTrayScan, boxNoUidDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
 import { prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
 import { createScanBatchQueue } from "@/apps/ims/lib/helpers/scanBatchQueue";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
@@ -60,6 +60,12 @@ import { withSortedViewsData } from "@/apps/ims/lib/helpers/sortDropdownResponse
 import { isForwardingLooseBox } from "@/platform/utils/core/utilHelper";
 
 const OUT_ENTRY_SCANNER_ID = "out-entry-scanner-reader";
+
+function trayCodeOf(box) {
+  const raw = box?.tray_code;
+  const s = raw != null ? String(raw).trim() : "";
+  return s || null;
+}
 const FIELD_ORDER = ["fuid"];
 const SIMPLE_SCAN_FIELD_ORDER = ["reason"];
 
@@ -359,7 +365,19 @@ function CollapsibleInventoryItemBoxes({
                                         className="text-[11px] font-mono font-black text-slate-800 break-all leading-snug"
                                         title={uid}
                                       >
-                                        {boxNoUidDisplayLabel(uid) || uid}
+                                        {trayCodeOf(box) ? (
+                                          <span className="inline-flex flex-wrap items-center gap-1">
+                                            <Layers size={10} className="text-indigo-600 shrink-0" aria-hidden />
+                                            <span className="text-[8px] font-black text-white bg-indigo-600 px-1 py-px rounded uppercase">Tray</span>
+                                            <span className="text-indigo-800">{trayCodeOf(box)}</span>
+                                            {/* sticker on tray chip — bring back later
+                                            <span className="text-indigo-300">→</span>
+                                            <span>{boxNoUidDisplayLabel(uid) || uid}</span>
+                                            */}
+                                          </span>
+                                        ) : (
+                                          boxNoUidDisplayLabel(uid) || uid
+                                        )}
                                       </span>
                                       {isScanned ? (
                                         <span className="inline-flex items-center gap-0.5 shrink-0 text-[8px] font-black uppercase text-emerald-700">
@@ -1001,6 +1019,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                     if (b.box_no_uid) {
                       boxMap.set(b.box_no_uid, {
                         box_no_uid: b.box_no_uid,
+                        tray_code: b.tray_code ?? null,
                         packing_number: b.packing_number,
                         qty: b.qty,
                         is_loose: b.is_loose === true || b.is_loose === 1,
@@ -1244,7 +1263,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   }, [open, isConfirmed, form.fuid, packingProgressList, isEdit, isApprove, editData?.out_uid]);
 
   useEffect(() => {
-    if (!open || !isConfirmed || !hasMultiplePackings) return;
+    if (!open || !isConfirmed || !hasMultiplePackings || pendingScanCount > 0) return;
 
     packingProgressList.forEach((p, idx) => {
       const wasComplete = packingWasCompleteRef.current[idx];
@@ -1261,7 +1280,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       }
       packingWasCompleteRef.current[idx] = nowComplete;
     });
-  }, [packingProgressList, activePackingIdx, open, isConfirmed, hasMultiplePackings, packingGroups]);
+  }, [packingProgressList, activePackingIdx, open, isConfirmed, hasMultiplePackings, packingGroups, pendingScanCount]);
 
   const processScanBatch = useCallback(
     async (batch) => {
@@ -1276,7 +1295,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           fuid: Number(fuid),
           for_out_uid: scopedOutUid,
           session_scanned,
-          items: batch.map((item) => ({ id: item.id, code: item.code })),
+          items: batch.map((item) => ({ id: item.id, code: item.code, via_tray: item.viaTray === true })),
         });
 
         const resultMap = new Map((res?.results || []).map((row) => [String(row.id), row]));
@@ -1318,9 +1337,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           2800
         );
       } finally {
+        setScannedBoxIds(new Set(scannedBoxIdsRef.current));
         pendingCountRef.current = Math.max(0, pendingCountRef.current - batch.length);
         setPendingScanCount(pendingCountRef.current);
-        scheduleDisplaySync();
       }
     },
     [scopedOutUid, revertScanCount, scheduleDisplaySync, showScanToast]
@@ -1339,7 +1358,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
             : {}),
           for_out_uid: scopedOutUid,
           session_scanned,
-          items: batch.map((item) => ({ id: item.id, code: item.code })),
+          items: batch.map((item) => ({ id: item.id, code: item.code, via_tray: item.viaTray === true })),
         });
 
         const resultMap = new Map((res?.results || []).map((row) => [String(row.id), row]));
@@ -1357,6 +1376,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
             scannedBoxIdsRef.current.add(resolvedUid);
             otherBoxMapRef.current.set(resolvedUid, {
               box_no_uid: resolvedUid,
+              tray_code: result.tray_code ?? null,
               packing_number: result.packing_number ?? null,
               qty: result.qty ?? 0,
               is_loose: result.is_loose === true || result.is_loose === 1,
@@ -1401,9 +1421,9 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
           2800
         );
       } finally {
+        setScannedBoxIds(new Set(scannedBoxIdsRef.current));
         pendingCountRef.current = Math.max(0, pendingCountRef.current - batch.length);
         setPendingScanCount(pendingCountRef.current);
-        scheduleDisplaySync();
       }
     },
     [scopedOutUid, entryMode, isQcAreaMode, selectedQcHoldId, scheduleDisplaySync, showScanToast]
@@ -1430,9 +1450,18 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     };
   }, [open, isConfirmed, isAutoScanFlow, processOtherScanBatch, processScanBatch]);
 
+  const tryAddBoxRef = useRef(() => {});
+  const tryAddOtherBoxRef = useRef(() => {});
+  const tryAddTrayRef = useRef(async () => {});
+
   const tryAddOtherBox = useCallback(
-    (rawScanValue) => {
+    (rawScanValue, options = {}) => {
+      const viaTray = options.viaTray === true;
       const qrType = detectQrType(rawScanValue);
+      if (!viaTray && qrType === "tray") {
+        void tryAddTrayRef.current(rawScanValue);
+        return;
+      }
       if (qrType === "location") {
         showScanToast("error", "other-location-scan", SCAN_SNACK_MSG.REJECTED);
         return;
@@ -1455,9 +1484,14 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
       if (isInventoryOutMode) {
         // Item picker is optional info only — still enrich row details when the box is on the loaded list.
         const invHit = inventoryBoxIndexRef.current.get(bId.toLowerCase());
+        if (!viaTray && invHit?.tray_code) {
+          showScanToast("error", `scan-tray-${invHit.tray_code}`, "Scan the linked tray. Send out all stickers on this tray.", 2200);
+          return;
+        }
         if (invHit) {
           otherBoxMapRef.current.set(canonicalBoxId, {
             box_no_uid: canonicalBoxId,
+            tray_code: invHit.tray_code ?? null,
             packing_number: invHit.packing_number ?? null,
             qty: Number(invHit.qty) || 0,
             is_loose: normalizeIsLoose(invHit.is_loose),
@@ -1500,6 +1534,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         id: `other-scan-${++scanSeqRef.current}`,
         code: bId,
         canonicalBoxId,
+        viaTray,
       });
     },
     [
@@ -1512,8 +1547,13 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
   );
 
   const tryAddBox = useCallback(
-    (rawScanValue) => {
+    (rawScanValue, options = {}) => {
+      const viaTray = options.viaTray === true;
       const qrType = detectQrType(rawScanValue);
+      if (!viaTray && qrType === "tray") {
+        void tryAddTrayRef.current(rawScanValue);
+        return;
+      }
       if (qrType === "location") {
         showScanToast("error", "generic-scan-out-entry", SCAN_SNACK_MSG.REJECTED);
         return;
@@ -1534,6 +1574,10 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
       const boxData = hit.box;
       const canonicalBoxId = hit.canonicalBoxId;
+      if (!viaTray && trayCodeOf(boxData)) {
+        showScanToast("error", `scan-tray-${trayCodeOf(boxData)}`, "Scan the linked tray. Send out all stickers on this tray.", 2200);
+        return;
+      }
       const targetGroup = findPackingGroupByNumber(packingGroups, hit.packing_number);
       if (!targetGroup) {
         showScanToast("error", "box-not-found", SCAN_SNACK_MSG.BOX_NOT_IN_NOTE(bId));
@@ -1607,10 +1651,49 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
         id: `scan-${++scanSeqRef.current}`,
         code: bId,
         canonicalBoxId,
+        viaTray,
       });
     },
     [packingGroups, scopedOutUid, showScanSuccess, showScanToast, scheduleDisplaySync]
   );
+
+  tryAddBoxRef.current = tryAddBox;
+  tryAddOtherBoxRef.current = tryAddOtherBox;
+
+  const tryAddTray = useCallback(
+    async (rawScanValue) => {
+      const { code, id } = parseTrayScan(rawScanValue);
+      const trayKey = String(code || id || "").trim();
+      if (!trayKey) {
+        showScanToast("error", "invalid-tray", "Scan a tray QR code.", 2000);
+        return;
+      }
+      try {
+        const res = await outEntryService.batchScanTray({ code: trayKey });
+        if (res?.success === false) throw new Error(res?.message || "Tray scan failed");
+        const boxes = Array.isArray(res?.data?.boxes) ? res.data.boxes : [];
+        const trayCode = String(res?.data?.tray_code || trayKey).trim();
+        if (!boxes.length) throw new Error("No stickers on this tray");
+        let added = 0;
+        for (const box of boxes) {
+          const uid = String(box?.box_no_uid || "").trim();
+          if (!uid || scannedBoxIdsRef.current.has(uid)) continue;
+          if (isAutoScanFlow) tryAddOtherBoxRef.current(uid, { viaTray: true });
+          else tryAddBoxRef.current(uid, { viaTray: true });
+          if (scannedBoxIdsRef.current.has(uid)) added += 1;
+        }
+        if (!added) {
+          showScanToast("error", `tray-none-${trayCode}`, "These tray stickers are not part of this store out.", 2200);
+          return;
+        }
+        showScanSuccess(`tray-out-${trayCode}`, `${added} sticker(s) added`, 1800);
+      } catch (err) {
+        showScanToast("error", `tray-out-fail-${trayKey}`, err?.message || "Tray scan failed", 2400);
+      }
+    },
+    [isAutoScanFlow, showScanSuccess, showScanToast]
+  );
+  tryAddTrayRef.current = tryAddTray;
 
   const handleRemoveScannedBox = useCallback(
     (boxNoUid) => {
@@ -1675,6 +1758,10 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
   const handleCameraDecoded = useCallback(
     (decodedText) => {
+      if (detectQrType(decodedText) === "tray") {
+        void tryAddTrayRef.current(decodedText);
+        return;
+      }
       const code = parseBoxScanRaw(decodedText)?.trim();
       if (!code) {
         showScanToast("error", "camera-invalid-scan", SCAN_SNACK_MSG.REJECTED, 1800);
@@ -2445,6 +2532,12 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                           <div className="flex items-center gap-3 min-w-0">
                             <BoxKindBadge isLoose={box.is_loose} />
                             <div className="flex flex-col leading-tight min-w-0">
+                              {trayCodeOf(box) ? (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-black text-indigo-700 uppercase truncate">
+                                  <Layers size={10} aria-hidden />
+                                  Tray {trayCodeOf(box)}
+                                </span>
+                              ) : null}
                               <span className="text-[11px] font-mono font-black text-slate-700 truncate">
                                 {boxNoUidDisplayLabel(box.box_no_uid) || box.box_no_uid}
                               </span>
@@ -2786,12 +2879,15 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                                 const invStatus = boxInventoryStatus(box);
                                 const scannable = isBoxAvailableForOutEntryScan(box, { forOutUid: scopedOutUid });
                                 const isScanned = scannedBoxIds.has(box.box_no_uid);
+                                const tray = trayCodeOf(box);
                                 return (
                                 <div
                                   key={bidx}
                                 className={`px-1.5 py-0.5 rounded text-[8px] font-mono font-bold border transition-all flex items-center gap-1 flex-wrap ${
                                     isScanned
                                       ? "bg-slate-50 text-slate-300 border-slate-100 opacity-70"
+                                      : tray
+                                        ? "bg-indigo-50 text-indigo-900 border-indigo-200"
                                       : !scannable && invStatus === "stock_adjustment"
                                         ? "bg-orange-50 text-orange-700 border-orange-200 opacity-90"
                                         : !scannable && invStatus === "outward"
@@ -2802,7 +2898,19 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                                   }`}
                                   title={isScanned ? "Already scanned" : outEntryBoxStatusLabel(box)}
                                 >
-                                  {box.box_no_uid}
+                                  {tray ? (
+                                    <>
+                                      <Layers size={9} className="shrink-0 text-indigo-600" aria-hidden />
+                                      <span className="text-[7px] font-black uppercase text-white bg-indigo-600 px-1 rounded-sm">Tray</span>
+                                      <span>{tray}</span>
+                                      {/* sticker on tray chip — bring back later
+                                      <span className="text-indigo-300">→</span>
+                                      <span>{box.box_no_uid}</span>
+                                      */}
+                                    </>
+                                  ) : (
+                                    box.box_no_uid
+                                  )}
                                   {isFnLooseBox(box) && <span className="text-[7px] bg-amber-200 px-1 rounded-sm">L</span>}
                                 </div>
                                 );
@@ -2940,6 +3048,12 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
                                   {isFnLooseBox(box) ? "L" : "B"}
                                 </div>
                                 <div className="flex flex-col leading-tight">
+                                  {trayCodeOf(box) ? (
+                                    <span className="inline-flex items-center gap-1 text-[9px] font-black text-indigo-700 uppercase">
+                                      <Layers size={10} aria-hidden />
+                                      Tray {trayCodeOf(box)}
+                                    </span>
+                                  ) : null}
                                   <span className="text-[11px] font-mono font-black text-slate-700">
                                     {boxNoUidDisplayLabel(box.box_no_uid) || box.box_no_uid}
                                   </span>

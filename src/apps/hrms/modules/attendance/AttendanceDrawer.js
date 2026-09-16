@@ -10,6 +10,8 @@ import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { FormLabel, OK_INPUT } from "@/ui/common/Constants";
 import { attendanceService } from "@/apps/hrms/lib/services/hrms";
 import { fetchEmployeeViews } from "@/apps/hrms/lib/helpers/employeeHelper";
+import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { todayYmd, toTimeInput, rowIn, rowOut, rowFingerprint, defaultShift, defaultTimesFromEmployee, 
   isUnapproved, formatDefaultTimeLabel, rowTotals, toDateTimeInput, dateTimeFieldValue,
   normalizeInDateTime, normalizeOutDateTime, dateRangeForIn, dateRangeForOut, inOutOrderError,
@@ -61,6 +63,9 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
   const isEdit = mode === "edit";
   const isApprove = mode === "approve";
   const isAdd = mode === "add";
+  const canAccess = useCanAccess();
+  const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
+  const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [entryType, setEntryType] = useState("");
   const [date, setDate] = useState(todayYmd);
@@ -583,7 +588,8 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
               <div className="w-full min-[400px]:w-40">
                 <FormLabel htmlFor="att-gate-date">Date</FormLabel>
                 <input id="att-gate-date" type="date" value={date} disabled={loadingPreview || saving}
-                  max={todayYmd()}
+                  min={dateFilterDefaults.minDate || undefined}
+                  max={dateFilterDefaults.maxDate || todayYmd()}
                   onChange={(e) => { setDate(e.target.value); if (isAdd) clearLoaded(); }}
                   onKeyDown={(e) => { if (e.key === "Enter" && isAdd && !loaded) { e.preventDefault(); handleLoad(); } }}
                   className={`${FIELD} mt-1`} />

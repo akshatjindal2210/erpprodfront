@@ -22,4 +22,9 @@ export const inventoryInwardService = {
       method: "POST",
       body: { location_id, items },
     }),
+  batchScanTray: (location_id, code) =>
+    api(ENDPOINTS.INVENTORY_INWARDS.BATCH_SCAN_TRAY, {
+      method: "POST",
+      body: { location_id, code },
+    }),
 };

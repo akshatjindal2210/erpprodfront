@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState, startTransition } from "react";
+
 /** @typedef {"quick" | "server"} ListPageFilterVariant */
 
 const LABEL_BASE =
@@ -69,6 +71,8 @@ export function listPageFilterDisplayTextClass(hasValue) {
   return hasValue ? LIST_PAGE_FILTER_VALUE_CLASS : LIST_PAGE_FILTER_PLACEHOLDER_CLASS;
 }
 
+const QUICK_SEARCH_WAIT_MS = 180;
+
 export default function ListPageSearchField({
   label = "Search",
   placeholder = "Search...",
@@ -82,15 +86,51 @@ export default function ListPageSearchField({
   /** `quick` = client filter; `server` = DB / Search apply */
   variant = "quick",
 }) {
+  const isQuick = variant === "quick";
+  const [draft, setDraft] = useState(value ?? "");
+  const focusedRef = useRef(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (!isQuick || focusedRef.current) return;
+    setDraft(value ?? "");
+  }, [value, isQuick]);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  const emit = (next, immediate = false) => {
+    clearTimeout(timerRef.current);
+    const send = () => startTransition(() => onChange?.(next));
+    if (immediate) send();
+    else timerRef.current = setTimeout(send, QUICK_SEARCH_WAIT_MS);
+  };
+
   return (
     <div className={`${containerClassName} ${className}`.trim()}>
       <label className={listPageFilterLabelClass(variant)}>{label}</label>
       <div className="relative group">
         <input
           type="text"
-          value={value ?? ""}
-          onChange={(e) => onChange?.(e.target.value)}
-          onKeyDown={onKeyDown}
+          value={isQuick ? draft : (value ?? "")}
+          onFocus={() => { focusedRef.current = true; }}
+          onBlur={() => {
+            focusedRef.current = false;
+            if (!isQuick) return;
+            emit(draft, true);
+          }}
+          onChange={(e) => {
+            const next = e.target.value;
+            if (!isQuick) {
+              onChange?.(next);
+              return;
+            }
+            setDraft(next);
+            emit(next);
+          }}
+          onKeyDown={(e) => {
+            if (isQuick && e.key === "Enter") emit(draft, true);
+            onKeyDown?.(e);
+          }}
           placeholder={placeholder}
           disabled={disabled}
           className={`${listPageSearchInputClass(variant)} ${inputClassName}`.trim()}

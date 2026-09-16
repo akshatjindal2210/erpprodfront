@@ -19,11 +19,15 @@ import { getDashboardFilterUsers } from "@/common/dashboard-builder/services/das
 import { MODULES, APP_TYPE_LABELS, PORTAL_APP_KEYS } from "@/config/portalModules.data";
 import { userHasAppAccess } from "@/config/moduleAppRegistry";
 
-/** Action types written by platform/middleware/activityLogger.js + logActivity.js. */
-const ACTION_TYPE_OPTIONS = [
-  { value: "", label: "All Actions" },
+/** Auth events are platform-level, not per-app module actions. */
+const AUTH_ACTION_TYPE_OPTIONS = [
   { value: "LOGIN", label: "Login" },
   { value: "LOGOUT", label: "Logout" },
+];
+
+/** Action types written by platform/middleware/activityLogger.js + logActivity.js. */
+const APP_ACTION_TYPE_OPTIONS = [
+  { value: "", label: "All Actions" },
   { value: "CREATE", label: "Create" },
   // UPDATE also matches legacy MODIFY rows on the backend.
   { value: "UPDATE", label: "Update" },
@@ -33,6 +37,16 @@ const ACTION_TYPE_OPTIONS = [
   { value: "LOCK", label: "Lock" },
   { value: "UNLOCK", label: "Unlock" },
 ];
+
+function actionTypeOptions({ crossApp = false, appType = "" } = {}) {
+  const scopedToApp = !crossApp || Boolean(String(appType || "").trim());
+  if (scopedToApp) return APP_ACTION_TYPE_OPTIONS;
+  return [
+    APP_ACTION_TYPE_OPTIONS[0],
+    ...AUTH_ACTION_TYPE_OPTIONS,
+    ...APP_ACTION_TYPE_OPTIONS.slice(1),
+  ];
+}
 
 function moduleOptionsForApp(appType, allowedApps = null) {
   const key = String(appType || "").toLowerCase();
@@ -146,10 +160,11 @@ export function useActivityLogFilters({ appType, crossApp = false, values = {} }
       });
     }
 
+    const selectedApp = crossApp ? values.app_type : appType;
     filters.push({
       key: "action_type",
       label: "Action",
-      options: ACTION_TYPE_OPTIONS,
+      options: actionTypeOptions({ crossApp, appType: selectedApp }),
       preserveOrder: true,
       value: values.action_type || "",
     });
@@ -158,6 +173,7 @@ export function useActivityLogFilters({ appType, crossApp = false, values = {} }
   }, [
     isSuperAdmin,
     crossApp,
+    appType,
     appFilterOptions,
     userOptions,
     moduleOptions,

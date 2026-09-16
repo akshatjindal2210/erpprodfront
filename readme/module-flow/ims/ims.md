@@ -23,6 +23,8 @@ Daily Prod (stickers) → Boxes → Store In → Forwarding Note (reserve) → S
 | Packing Standard           | [packing-standard.md](./packing-standard.md)           |
 | Store Location Master      | [location-master.md](./location-master.md)             |
 | Packing Entry              | [packing-entry.md](./packing-entry.md)                 |
+| Manage Tray                | [tray-flow.md](./tray-flow.md)                           |
+| Tray Master                | Tray batches / QR — `modules/tray/`                      |
 | Boxes                      | [boxes.md](./boxes.md)                                 |
 | Store In                   | [store-in.md](./store-in.md)                           |
 | QC Hold Material           | [qc-hold-material.md](./qc-hold-material.md)           |

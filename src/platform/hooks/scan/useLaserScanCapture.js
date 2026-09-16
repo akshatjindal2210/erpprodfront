@@ -76,6 +76,7 @@ function restoreScrollPosition(scrollEl, scrollTop, winY) {
 export function useLaserScanCapture(active, onScanned, options = {}) {
   const {
     keyboardInputRef,
+    companionTypableRef,
     formatPreview,
     requireArmToCapture = false,
     showPreview = false,
@@ -408,6 +409,18 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
     const timers = [80, 250, 500].map((ms) => window.setTimeout(() => armLaserFocus(), ms));
     return () => timers.forEach(clearTimeout);
   }, [active, requireArmToCapture, autoArmOnActive, armLaserFocus, armScan, keyboardInputRef, resetLaser]);
+
+  /** Disarm when user focuses the companion keyboard field (Manage Tray, etc.). */
+  useEffect(() => {
+    if (!active || !requireArmToCapture) return undefined;
+    const el = companionTypableRef?.current;
+    if (!el) return undefined;
+    const onFocus = () => {
+      if (armedRef.current) disarmScan();
+    };
+    el.addEventListener("focus", onFocus);
+    return () => el.removeEventListener("focus", onFocus);
+  }, [active, requireArmToCapture, companionTypableRef, disarmScan]);
 
   /** Disarm when user taps outside the scan control or into a typing field. */
   useEffect(() => {

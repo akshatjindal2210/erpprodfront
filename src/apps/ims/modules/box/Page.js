@@ -265,6 +265,10 @@ export default function BoxTablePage() {
         </span>
       );
     }, { width: "120px" }],
+
+    ["Tray", "tray_code", (v) => (
+      <span className="font-mono text-[10px] font-bold text-indigo-800 uppercase">{v || "—"}</span>
+    ), { width: "100px" }],
   ];
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({

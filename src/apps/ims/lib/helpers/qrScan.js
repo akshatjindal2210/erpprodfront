@@ -148,11 +148,13 @@ export function extractTrayCode(rawValue) {
       if (parsed?.code != null && String(parsed.code).trim() !== "") {
         return String(parsed.code).trim().toUpperCase();
       }
-      if (parsed?.id != null && String(parsed.id).trim() !== "") {
-        return String(parsed.id).trim();
-      }
       if (parsed?.tray_id != null && String(parsed.tray_id).trim() !== "") {
         return String(parsed.tray_id).trim();
+      }
+      const locNo = parsed?.location_no != null ? String(parsed.location_no).trim().toUpperCase() : "";
+      if (TRAY_CODE_RE.test(locNo)) return locNo;
+      if (parsed?.id != null && String(parsed.id).trim() !== "") {
+        return String(parsed.id).trim();
       }
     } catch {
       // continue
@@ -227,6 +229,9 @@ export function detectQrType(rawValue) {
     try {
       const p = JSON.parse(trimmed);
       if (p?.box_uid != null || p?.box_no_uid) return "box";
+      const locNo = p?.location_no != null ? String(p.location_no).trim().toUpperCase() : "";
+      const trayCode = p?.code != null ? String(p.code).trim().toUpperCase() : "";
+      if (TRAY_CODE_RE.test(locNo) || TRAY_CODE_RE.test(trayCode) || p?.tray_id != null) return "tray";
       if ((p?.location_id != null || p?.location_no != null) && p?.box_uid == null && p?.box_no_uid == null) return "location";
     } catch {
       // continue

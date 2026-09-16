@@ -63,6 +63,22 @@ export const ENDPOINTS = {
     DELETE: "/trays/delete",
   },
 
+  MANAGE_TRAY: {
+    LIST: "/manage-tray/list",
+    GET: "/manage-tray/get",
+    REPORT_SUMMARY: "/manage-tray/report-summary",
+    REPORT_LEDGER: "/manage-tray/report-ledger",
+    SCAN_STICKER: "/manage-tray/scan-sticker",
+    SCAN_TRAY: "/manage-tray/scan-tray",
+    RECEIVE: "/manage-tray/receive",
+    REASSIGN_STICKER: "/manage-tray/reassign-sticker",
+    REASSIGN_TRAY: "/manage-tray/reassign-tray",
+    REASSIGN: "/manage-tray/reassign",
+    SAVE_LINKS: "/manage-tray/save-links",
+    MOVE_PENDING: "/manage-tray/move-pending",
+    DELETE: "/manage-tray/delete",
+  },
+
   BOX_TRANSACTION_LOGS: {
     LIST: "/box-transaction-logs/list",
   },
@@ -137,6 +153,7 @@ export const ENDPOINTS = {
     VIEWS: "/inventory-inwards/helper",
     VALIDATE_BOX_LOCATION: "/inventory-inwards/validate-box-location",
     BATCH_SCAN_BOXES: "/inventory-inwards/batch-scan-boxes",
+    BATCH_SCAN_TRAY: "/inventory-inwards/batch-scan-tray",
   },
 
   FORWARDING_NOTES: {
@@ -178,6 +195,7 @@ export const ENDPOINTS = {
     REASONS: "/out-entries/reason-helper",
     VERIFY_BOX: "/out-entries/verify-box",
     BATCH_SCAN_BOXES: "/out-entries/batch-scan-boxes",
+    BATCH_SCAN_TRAY: "/out-entries/batch-scan-tray",
     GET_FUID_DETAILS: "/out-entries/get-details",
     GET_QC_HOLD_DETAILS: "/out-entries/get-qc-hold-details",
     LINKED_BOXES: "/out-entries/linked-boxes",
@@ -201,6 +219,7 @@ export const ENDPOINTS = {
 
   ERP_STOCK_REPORT: {
     LIST: "/erp-stock-report/list",
+    ADJUST: "/erp-stock-report/adjust",
   },
 
   SCHEDULE_PLANNING: {

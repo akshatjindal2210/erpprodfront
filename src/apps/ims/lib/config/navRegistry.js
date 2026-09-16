@@ -1,4 +1,4 @@
-import { Zap, Package, Truck, Users, Database, FileSearch, BarChart3, Map, Boxes, ClipboardCheck, ListChecksIcon, Locate, ClipboardList, Scale, Sticker, Ship, History, ShieldAlert, DoorOpen, AlertTriangle } from "lucide-react";
+import { Zap, Package, Truck, Users, Database, FileSearch, BarChart3, Map, Boxes, ClipboardCheck, ListChecksIcon, Locate, ClipboardList, Scale, Sticker, Ship, History, ShieldAlert, DoorOpen, AlertTriangle, Layers } from "lucide-react";
 import { ROUTES } from "@/apps/ims/lib/utils/routes";
 
 export const NAV_REGISTRY = [
@@ -19,6 +19,7 @@ export const NAV_REGISTRY = [
   },
   { id: "packing-entry", name: "Packing Entry", icon: <Truck size={16} />, href: ROUTES.PACKING_ENTRY, module: "packing_entry" },
   { id: "inventory-box-table", name: "Boxes", icon: <Boxes size={16} />, href: ROUTES.BOX_TABLE, module: "boxes" },
+  { id: "manage-tray", name: "Manage Tray", icon: <Layers size={16} />, href: ROUTES.MANAGE_TRAY, module: "manage_tray" },
   { id: "inward-entry", name: "Store In", icon: <ClipboardCheck size={16} />, href: ROUTES.INVENTORY_INWARD, module: "inventory_inwards" },
   { id: "qc-hold-material", name: "QC Hold Material", icon: <ShieldAlert size={16} />, href: ROUTES.QC_HOLD_MATERIAL, module: "qc_hold_material" },
   { id: "schedule-planning", name: "Schedule Planning", icon: <ClipboardList size={16} />, href: ROUTES.SCHEDULE_PLANNING, module: "schedule_planning" },

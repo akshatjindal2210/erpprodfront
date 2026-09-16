@@ -98,6 +98,7 @@ export function getBoxClientSearchParts(row) {
     row?.rack_no,
     row?.shelf_no,
     locationLabel,
+    row?.tray_code,
     row?.in_uid,
     row?.out_uid,
     row?.item_code,

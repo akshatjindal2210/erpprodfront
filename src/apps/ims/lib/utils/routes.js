@@ -9,6 +9,7 @@ export const ROUTES = {
   CUSTOMER_MASTER: `${IMS}/master/customer-master`,
   CUSTOMER_ITEM_CODE: `${IMS}/master/customer-item-code`,
   PACKING_ENTRY: `${IMS}/master/packing-entry`,
+  MANAGE_TRAY: `${IMS}/manage-tray`,
   LOCATION_MASTER: `${IMS}/master/location-master`,
   TRAY_MASTER: `${IMS}/master/tray-master`,
 

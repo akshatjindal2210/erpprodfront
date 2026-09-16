@@ -19,23 +19,20 @@ import DataTable from "@/ui/primitives/DataTable";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
 import TrayModal from "./TrayModal";
 import TrayBatchDrawer from "./TrayBatchDrawer";
-import TrayQRDrawer from "./TrayQRDrawer";
 import TrayBulkQRDrawer from "./TrayBulkQRDrawer";
 import { trayService } from "@/apps/ims/lib/services/tray";
-import { getBatchNonDeletedCount, getBatchPendingCount, isTrayPrintable } from "@/apps/ims/lib/helpers/trayHelper";
+import { getBatchNonDeletedCount, getBatchPendingCount, isTrayPrintable, sortTraysAsc } from "@/apps/ims/lib/helpers/trayHelper";
 import { runTrayLabelBulkExport } from "@/apps/ims/lib/helpers/trayQrLabel";
 
 const batchStatusBadge = (row) => {
-  const pending = Number(row?.pending_count || 0);
-  const authorized = pending === 0 && Number(row?.active_count || row?.tray_count || 0) > 0;
-  return (
-    <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${authorized ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
-      {authorized ? "● AUTHORIZED" : "○ PENDING"}
-    </span>
-  );
+  const approved = row?.approved === true || row?.approved === 1 || String(row?.approved).toLowerCase() === "true";
+  if (approved) {
+    return <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-emerald-50 text-emerald-600 border-emerald-100">● AUTHORIZED</span>;
+  }
+  return <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-600 border-amber-100">○ PENDING</span>;
 };
 
-const batchDeleteService = { delete: (batch_id, remark) => trayService.deleteBatch(batch_id, remark) };
+const batchDeleteService = { delete: (batch_id) => trayService.deleteBatch(batch_id) };
 const IMS_BTN = "rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none";
 const IMS_OUT = `${IMS_BTN} bg-white border border-slate-300`;
 
@@ -54,6 +51,7 @@ function buildBatchRowFromCreate(created) {
     active_count: qty,
     pending_count: qty,
     approved_count: 0,
+    remark: batch.remark || "",
   };
 }
 
@@ -72,9 +70,7 @@ export default function TrayPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("add");
   const [editBatch, setEditBatch] = useState(null);
-  const [deleteItem, setDeleteItem] = useState(null);
   const [deleteBatchItem, setDeleteBatchItem] = useState(null);
-  const [qrData, setQrData] = useState(null);
   const [bulkQrOpen, setBulkQrOpen] = useState(false);
   const [bulkQrTrays, setBulkQrTrays] = useState([]);
   const [bulkQrLoading, setBulkQrLoading] = useState(false);
@@ -106,7 +102,7 @@ export default function TrayPage() {
     setLoading(true);
     try {
       const filters = {
-        status: "not_deleted",
+        status: "all",
         ...(params.type !== "all" && { type: params.type }),
       };
       const base = {
@@ -191,10 +187,10 @@ export default function TrayPage() {
       limit: 5000,
       sortBy: "serial_number",
       order: "ASC",
-      filters: { batch_id: batchId, status: "not_deleted" },
+          filters: { batch_id: batchId, status: "all" },
     });
     const rows = body?.data?.data ?? body?.data ?? [];
-    const list = Array.isArray(rows) ? rows : [];
+    const list = sortTraysAsc(Array.isArray(rows) ? rows : []);
     trayCacheRef.current.set(batchId, list);
     return list;
   }, []);
@@ -247,7 +243,6 @@ export default function TrayPage() {
     setBatchDetailOpen(false);
     setDrawerBatch(null);
     setSelectedTrayId(null);
-    setQrData(null);
   }, []);
 
   const clearSelection = useCallback(() => {
@@ -258,7 +253,6 @@ export default function TrayPage() {
     setBatchDetailOpen(false);
     setBatchTrays([]);
     setBatchTraysLoading(false);
-    setQrData(null);
   }, []);
 
   const handleBatchSelect = useCallback(
@@ -317,14 +311,6 @@ export default function TrayPage() {
     clearSelection();
     await fetchTrays();
   }, [clearSelection, fetchTrays]);
-
-  const handlePrintQr = useCallback((tray) => {
-    if (!isTrayPrintable(tray)) {
-      toast.info("Only active authorized trays can print QR.");
-      return;
-    }
-    setQrData(tray);
-  }, []);
 
   const getSelectedBatchRow = useCallback(
     () => batchRows.find((row) => row.batch_id === selectedBatchId) ?? selectedBatch,
@@ -425,7 +411,7 @@ export default function TrayPage() {
         view: "tray",
         page,
         limit,
-        sortBy: "code",
+        sortBy: "serial_number",
         order: "ASC",
         filters,
       });
@@ -435,7 +421,7 @@ export default function TrayPage() {
         total: body?.data?.total ?? body?.total ?? 0,
       };
     }, params.pageSize);
-    return data.filter(isTrayPrintable);
+    return sortTraysAsc(data.filter(isTrayPrintable));
   }, [params.pageSize, params.type]);
 
   const handleBatchPrintQr = useCallback(async () => {
@@ -446,7 +432,7 @@ export default function TrayPage() {
     setPrintBusy(true);
     try {
       const rows = await resolveBatchTrays(selectedBatchId);
-      const printable = rows.filter(isTrayPrintable);
+      const printable = sortTraysAsc(rows.filter(isTrayPrintable));
       if (!printable.length) {
         toast.info("No printable trays in this batch.");
         return;
@@ -477,7 +463,7 @@ export default function TrayPage() {
 
   const { openNewModal, openEditModal, openApproveModal, openPrintModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: "tray_master",
-    modalOpen: modalOpen || batchDetailOpen || !!qrData || !!deleteItem || !!deleteBatchItem || bulkQrOpen,
+    modalOpen: modalOpen || batchDetailOpen || !!deleteBatchItem || bulkQrOpen,
     selectedId: selectedBatchId,
     getSelectedRow: getSelectedBatchRow,
     openAdd: useCallback(() => {
@@ -513,7 +499,8 @@ export default function TrayPage() {
     ["Batch", "batch_id", (v) => <span className="font-mono font-black text-indigo-600 text-[11px]">{v || "—"}</span>, { fixed: true, width: "200px" }],
     ["Type", "type", (v) => <span className="font-bold text-slate-800 text-[11px]">{formatTypeLabel(v)}</span>, { width: "150px" }],
     ["Qty", "tray_count", (v) => <span className="font-bold text-slate-800 text-[11px]">{v ?? 0}</span>, { width: "70px", align: "center" }],
-    ["Status", "pending_count", (_v, row) => batchStatusBadge(row), { width: "110px" }],
+    ["Status", "status", (_v, row) => batchStatusBadge(row), { width: "110px" }],
+    ["Remark", "remark", (v) => <span className="text-[10px] text-slate-600 line-clamp-2">{v || "—"}</span>, { width: "180px" }],
     ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
     ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400">{formatDateTime(v)}</span>, { width: "140px" }],
     ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
@@ -570,7 +557,8 @@ export default function TrayPage() {
                 <ActionButton module="tray_master" action="add" label="New" icon={Plus} onClick={openNewModal} title="Ctrl+Alt+N" className={IMS_BTN} />
                 <ActionButton module="tray_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selectedBatch} record={selectedBatch} onClick={() => openEditModal()} className={IMS_OUT} />
                 <ActionButton module="tray_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selectedBatch || batchFullyAuthorized} onClick={() => openApproveModal()} className={`${IMS_OUT} text-emerald-600`} />
-                <ActionButton module="tray_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedBatch || !getBatchNonDeletedCount(selectedBatch)} onClick={() => setDeleteBatchItem(selectedBatch)} className={IMS_BTN} />
+                <ActionButton module="tray_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedBatch || !getBatchNonDeletedCount(selectedBatch) || Number(selectedBatch.in_use_count) > 0}
+                title={Number(selectedBatch?.in_use_count) > 0 ? "Cannot delete. A tray in this batch is already in use." : undefined} onClick={() => setDeleteBatchItem(selectedBatch)} className={IMS_BTN} />
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
                 <PrintActionButton module="tray_master" variant="outline" label="Print QR" icon={Printer} disabled={!selectedBatch || !batchFullyAuthorized || printBusy} onClick={() => void handleBatchPrintQr()} title="Print all QR labels in selected batch (Ctrl+Alt+P)" className={IMS_OUT} />
                 <ActionButton module="tray_master" action="view" variant="outline" label="Bulk QR" icon={Layers} onClick={() => void openBulkQr()} title="Select multiple trays — print or download QR labels" className={IMS_OUT} />
@@ -625,7 +613,7 @@ export default function TrayPage() {
             viewMode={viewMode}
             allowCopy={true}
             {...tableHotkeyProps}
-            hotkeysDisabled={modalOpen || batchDetailOpen || !!qrData || !!deleteItem || !!deleteBatchItem || bulkQrOpen}
+            hotkeysDisabled={modalOpen || batchDetailOpen || !!deleteBatchItem || bulkQrOpen}
             showSelection={true}
             emptyIcon={Download}
             sortKey={params.sortKey ?? ""}
@@ -677,10 +665,7 @@ export default function TrayPage() {
         selectedTrayId={selectedTrayId}
         onSelectTray={setSelectedTrayId}
         onUpdated={refreshBatchDetail}
-        onApproveBatch={openBatchApprove}
-        onDeleteTray={setDeleteItem}
-        onPrintQr={handlePrintQr}
-        hotkeysDisabled={modalOpen || !!qrData || !!deleteItem || !!deleteBatchItem}
+        hotkeysDisabled={modalOpen || !!deleteBatchItem}
       />
 
       {modalOpen ? (
@@ -699,38 +684,6 @@ export default function TrayPage() {
         />
       ) : null}
 
-      {deleteItem ? (
-        <DeleteModal
-          item={deleteItem}
-          onClose={() => setDeleteItem(null)}
-          onSuccess={async () => {
-            setSelectedTrayId(null);
-            await fetchTrays();
-            if (!selectedBatchId) return;
-            const body = await trayService.getAll({
-              view: "tray",
-              page: 1,
-              limit: 1,
-              filters: { batch_id: selectedBatchId, status: "not_deleted" },
-            });
-            const remaining = body?.data?.total ?? body?.total ?? 0;
-            if (!remaining) {
-              await handleBatchDeleted();
-              return;
-            }
-            trayCacheRef.current.delete(selectedBatchId);
-            await loadBatchTrays(selectedBatchId, { force: true });
-          }}
-          service={trayService}
-          entityLabel="Tray"
-          idKey="id"
-          titleKey="code"
-          moduleSlug="tray_master"
-          requireRemark
-          remarkLabel="Remark"
-        />
-      ) : null}
-
       {deleteBatchItem ? (
         <DeleteModal
           item={deleteBatchItem}
@@ -742,12 +695,8 @@ export default function TrayPage() {
           titleKey="batch_id"
           warningMessage={`This will delete all ${getBatchNonDeletedCount(deleteBatchItem)} tray(s) in batch ${deleteBatchItem.batch_id}.`}
           moduleSlug="tray_master"
-          requireRemark
-          remarkLabel="Remark"
         />
       ) : null}
-
-      {qrData ? <TrayQRDrawer isOpen={!!qrData} onClose={() => setQrData(null)} data={qrData} stackLevel={batchDetailOpen ? 1 : 0} /> : null}
 
       <TrayBulkQRDrawer
         isOpen={bulkQrOpen}

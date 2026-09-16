@@ -1,4 +1,3 @@
-import { bestTierForStrings } from "@/apps/ims/lib/helpers/liveSearchRank";
 import { docDateToDayjs } from "@/platform/utils/core/utilHelper";
 
 /** Collect primitive values from a row for generic text search. */
@@ -39,21 +38,41 @@ export function defaultSearchParts(row) {
 }
 
 /**
- * Filter rows where any part contains the query (case-insensitive), then sort by match strength:
- * exact → startsWith → word boundary → substring (same tiers as {@link bestTierForStrings}).
+ * Filter rows where any part contains the query (case-insensitive).
  */
+function rowMatchesQuery(row, ql, getParts) {
+  const parts = getParts(row);
+  for (let i = 0; i < parts.length; i++) {
+    if (String(parts[i]).toLowerCase().includes(ql)) return true;
+  }
+  return false;
+}
+
+function cheapMatchTier(row, q, getParts) {
+  const parts = getParts(row);
+  let best = 4;
+  for (let i = 0; i < parts.length; i++) {
+    const s = String(parts[i]).toLowerCase();
+    if (!s.includes(q)) continue;
+    if (s === q) return 0;
+    if (s.startsWith(q)) best = Math.min(best, 1);
+    else best = Math.min(best, 3);
+  }
+  return best;
+}
+
 export function applyClientSearch(rows, queryRaw, options = {}) {
   const { getParts = defaultSearchParts, tieBreaker, skipSort = false } = options;
-  const q = String(queryRaw ?? "").trim();
-  if (!q) return [...rows];
-  const ql = q.toLowerCase();
-  const filtered = rows.filter((row) =>
-    getParts(row).some((p) => String(p).toLowerCase().includes(ql))
-  );
-  if (skipSort) return filtered;
+  const q = String(queryRaw ?? "").trim().toLowerCase();
+  if (!q) return rows;
+  const filtered = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (rowMatchesQuery(rows[i], q, getParts)) filtered.push(rows[i]);
+  }
+  if (skipSort || filtered.length > 250) return filtered;
   return filtered.sort((a, b) => {
-    const ra = bestTierForStrings(q, getParts(a).map(String));
-    const rb = bestTierForStrings(q, getParts(b).map(String));
+    const ra = cheapMatchTier(a, q, getParts);
+    const rb = cheapMatchTier(b, q, getParts);
     if (ra !== rb) return ra - rb;
     if (tieBreaker) return tieBreaker(a, b);
     return 0;
@@ -162,7 +181,34 @@ export function sortRowsByKey(rows, sortKey, sortDir) {
     });
   }
 
-  return [...rows].sort((a, b) => compareSortValues(a, b, sortKey) * mul);
+  const dateKey = isDateSortKey(sortKey);
+  const keyed = new Array(rows.length);
+  for (let i = 0; i < rows.length; i++) {
+    const raw = rows[i]?.[sortKey];
+    let key = null;
+    if (raw != null && raw !== "") {
+      if (dateKey) key = parseSortTimestamp(raw, sortKey);
+      else {
+        const n = parseSortNumber(raw);
+        key = Number.isFinite(n) ? n : String(raw).toLowerCase();
+      }
+      if (typeof key === "number" && !Number.isFinite(key)) key = null;
+    }
+    keyed[i] = [key, rows[i]];
+  }
+  keyed.sort((a, b) => {
+    const va = a[0];
+    const vb = b[0];
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    if (va < vb) return -mul;
+    if (va > vb) return mul;
+    return 0;
+  });
+  const out = new Array(keyed.length);
+  for (let i = 0; i < keyed.length; i++) out[i] = keyed[i][1];
+  return out;
 }
 
 /**

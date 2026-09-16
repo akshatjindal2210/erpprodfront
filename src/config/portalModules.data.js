@@ -40,6 +40,7 @@ export const MODULES = {
     { name: "location_master", label: "Store Location Master" },
     { name: "tray_master", label: "Tray Master" },
     { name: "packing_entry", label: "Packing Entry" },
+    { name: "manage_tray", label: "Manage Tray" },
     { name: "boxes", label: "Boxes" },
     { name: "inventory_inwards", label: "Store In" },
     { name: "forwarding_note_master", label: "Forwarding Note" },

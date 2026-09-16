@@ -122,6 +122,7 @@ export default function AttendancePage() {
       fetchList={attendanceService.list}
       headers={ATTENDANCE_HEADERS}
       moduleName="Daily Attendance"
+      viewModule={MODULE}
       getRowId={(row) => row.id ?? `${row.employee_code}-${row.attendance_date}`}
       cardConfig={{
         titleKey: "employee_code",

@@ -30,6 +30,11 @@ function fmtQty(v) {
   return n.toLocaleString("en-IN");
 }
 
+function pairQty(total, balance) {
+  if (!Number.isFinite(Number(total))) return "—";
+  return `${fmtQty(total)} / ${fmtQty(balance)}`;
+}
+
 export default function PackingDeviationDrawer({ open, onClose, packingRow, onSuccess }) {
   const [loadingLimit, setLoadingLimit] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -150,7 +155,7 @@ export default function PackingDeviationDrawer({ open, onClose, packingRow, onSu
       title="Create Deviation"
       description="Record excess packing qty (auto-approved)"
       footer={footerContent}
-      maxWidth="max-w-2xl"
+      maxWidth="max-w-3xl"
     >
       {!packingRow ? (
         <p className="text-sm text-slate-500">Select a packing row first.</p>
@@ -164,9 +169,9 @@ export default function PackingDeviationDrawer({ open, onClose, packingRow, onSu
             <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg">
               <p className="text-[11px] text-amber-700 font-medium leading-normal">
                 Short by <span className="font-bold tabular-nums">{fmtQty(shortBy)}</span>
-                {" · "}Schedule {fmtQty(limitInfo?.schedule_qty)} · Shortage{" "}
-                {fmtQty(limitInfo?.shortage_buffer_qty ?? limitInfo?.base_qty)}
-                {" · "}FG {fmtQty(limitInfo?.fg_stock_qty ?? limitInfo?.in_hand_qty)}
+                {" · "}Schedule {pairQty(limitInfo?.schedule_qty, limitInfo?.schedule_balance_qty)} · Shortage{" "}
+                {pairQty(limitInfo?.shortage_buffer_qty ?? limitInfo?.base_qty, limitInfo?.shortage_balance_qty)}
+                {" · "}FG / Reorder {pairQty(limitInfo?.fg_stock_qty ?? limitInfo?.in_hand_qty, limitInfo?.reorder_qty)}
                 {" · "}Used {fmtQty(limitInfo?.month_used_qty)} · Batch {fmtQty(limitInfo?.requested_qty)} · Allowed{" "}
                 {fmtQty(limitInfo?.allowed_limit)}
               </p>
@@ -235,42 +240,38 @@ export default function PackingDeviationDrawer({ open, onClose, packingRow, onSu
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <FormLabel>Schedule Qty</FormLabel>
+              <FormLabel>Schedule / Balance Qty</FormLabel>
               <input
                 type="text"
-                value={fmtQty(limitInfo?.schedule_qty)}
+                value={pairQty(limitInfo?.schedule_qty, limitInfo?.schedule_balance_qty)}
                 readOnly
                 disabled
                 tabIndex={-1}
                 className={`${DISABLED_INPUT} tabular-nums`}
-                title="Item schedule qty for this month (from doc date)"
               />
             </div>
             <div>
-              <FormLabel>Shortage Qty</FormLabel>
+              <FormLabel>Shortage / Balance Qty</FormLabel>
               <input
                 type="text"
-                value={fmtQty(limitInfo?.shortage_buffer_qty ?? limitInfo?.base_qty)}
+                value={pairQty(limitInfo?.shortage_buffer_qty ?? limitInfo?.base_qty, limitInfo?.shortage_balance_qty)}
                 readOnly
                 disabled
                 tabIndex={-1}
                 className={`${DISABLED_INPUT} tabular-nums`}
-                title="Approved shortage qty for this item & month"
               />
             </div>
-
             <div>
-              <FormLabel>FG Stock</FormLabel>
+              <FormLabel>FG Stock / Reorder Qty</FormLabel>
               <input
                 type="text"
-                value={fmtQty(limitInfo?.fg_stock_qty ?? limitInfo?.in_hand_qty)}
+                value={pairQty(limitInfo?.fg_stock_qty ?? limitInfo?.in_hand_qty, limitInfo?.reorder_qty)}
                 readOnly
                 disabled
                 tabIndex={-1}
                 className={`${DISABLED_INPUT} tabular-nums`}
-                title="Current sellable in-hand FG stock for this item"
               />
             </div>
           </div>

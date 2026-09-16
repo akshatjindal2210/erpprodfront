@@ -1,6 +1,5 @@
 /** Outer shell for list/report pages — fills content area so the table scrolls (sticky headers). */
-export const IMS_LIST_PAGE_SHELL =
-  "flex flex-col flex-1 min-h-0 h-full max-h-full w-full bg-slate-100 overflow-hidden";
+export const IMS_LIST_PAGE_SHELL = "flex flex-col flex-1 min-h-0 w-full bg-slate-100 overflow-hidden";
 
 /** Table body text — reports, activity log, box transaction log, schedule modals. */
 export const IMS_TABLE_CELL_TEXT = "text-[11px] text-slate-700 font-medium";

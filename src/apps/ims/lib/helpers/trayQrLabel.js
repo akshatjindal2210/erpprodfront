@@ -1,4 +1,5 @@
 import { buildLocationLabelDataUrlFromSvg, buildLocationLabelDataUrlsForRows, printLocationLabelDataUrls } from "@/apps/ims/lib/helpers/locationQrLabel";
+import { isTrayPrintable, sortTraysAsc } from "@/apps/ims/lib/helpers/trayHelper";
 
 function asLocationShape(tray) {
   return {
@@ -41,9 +42,9 @@ function chunkRows(rows, size) {
   return chunks;
 }
 
-/** Bulk print or download tray QR labels (rows should already be authorized). */
+/** Bulk print or download tray QR labels — approved + active only, ASC print order. */
 export async function runTrayLabelBulkExport(mode, rows = []) {
-  const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  const list = sortTraysAsc((Array.isArray(rows) ? rows : []).filter(isTrayPrintable));
   if (!list.length) {
     return { ok: false, reason: "empty" };
   }

@@ -6,3 +6,4 @@
 | IMS           | [ims/](./ims/ims.md)                               |
 | Task          | [task/](./task/task.md)                            |
 | Admin Console | [admin-console/](./admin-console/admin-console.md) |
+| Hard delete  | [hard-delete.md](./hard-delete.md)                 |

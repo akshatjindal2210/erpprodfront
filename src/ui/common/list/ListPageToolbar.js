@@ -27,5 +27,4 @@ export function ListPageToolbarLayout({ tabs, subTabs, actions, viewToggle }) {
 }
 
 /** Optional shared button height — pages may keep their original className instead. */
-export const LIST_PAGE_ACTION_CLASS =
-  "rounded-none h-9 shrink-0 text-[11px] font-bold uppercase shadow-none";
+export const LIST_PAGE_ACTION_CLASS = "rounded-none h-9 shrink-0 text-[11px] font-bold uppercase shadow-none";

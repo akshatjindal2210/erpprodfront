@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { Check, Loader2, QrCode, MapPin, Package, Plus, X, Trash2, MessageSquare, CheckCircle2, XCircle, Search, ScanLine, Camera, Locate, Layers } from "lucide-react";
 import { inventoryInwardService } from "@/apps/ims/lib/services/inventoryInward";
 import { locationService }        from "@/apps/ims/lib/services/location";
-import { extractLocationNo, detectQrType, extractBoxCode, parseStickerScan, normalizeScanInput, boxNoUidDisplayLabel, locationNoDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
+import { extractLocationNo, detectQrType, extractBoxCode, parseStickerScan, parseTrayScan, normalizeScanInput, boxNoUidDisplayLabel, locationNoDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
 import { useHtml5QrScanner }      from "@/platform/hooks/scan/useHtml5QrScanner";
 import QrScannerOverlay           from "@/ui/common/scan/QrScannerOverlay";
 import Drawer                     from "@/ui/primitives/Drawer";
@@ -54,7 +54,7 @@ const MSG = {
   LOCATION_EMPTY_STATE_TITLE:      "No locations added yet.",
   LOCATION_EMPTY_STATE_SUBTITLE:   "Search or scan a location to start adding boxes.",
   BOX_DUPLICATE_OTHER:             (locName) => `This box is already assigned to "${locName}".`,
-  BOX_PLACEHOLDER:                 "Scan Box UID or type Box UID, then press Enter...",
+  BOX_PLACEHOLDER:                 "Scan a tray if linked, or scan the sticker, then press Enter.",
   INWARD_CREATED:                  "Inward entry recorded successfully.",
   INWARD_UPDATED:                  "Inward entry updated successfully.",
   INWARD_FAILED:                   "Operation failed. Please try again.",
@@ -63,12 +63,12 @@ const MSG = {
   BOX_REMOVED_OK:                  (boxNoUid) => `Box removed: ${boxNoUid}`,
 };
 
-/** @returns {{ boxNoUid: string, qty: number, packing_number: string | null } | null} */
+/** @returns {{ boxNoUid: string, qty: number, packing_number: string | null, tray_code: string | null } | null} */
 function normalizeInwardBoxEntry(b) {
   if (b == null) return null;
   if (typeof b === "string" || typeof b === "number") {
     const s = String(b).trim();
-    return s ? { boxNoUid: s, qty: 0, packing_number: null } : null;
+    return s ? { boxNoUid: s, qty: 0, packing_number: null, tray_code: null } : null;
   }
   if (typeof b === "object") {
     const id = b.boxNoUid ?? b.box_no_uid ?? "";
@@ -77,16 +77,28 @@ function normalizeInwardBoxEntry(b) {
     const q = b.qty != null ? Number(b.qty) : 0;
     const pnRaw = b.packing_number ?? b.packingNumber;
     const packing_number = pnRaw != null && String(pnRaw).trim() !== "" ? String(pnRaw).trim() : null;
+    const trayRaw = b.tray_code ?? b.trayCode;
+    const tray_code = trayRaw != null && String(trayRaw).trim() !== "" ? String(trayRaw).trim() : null;
     return {
       boxNoUid: s,
       qty: Number.isFinite(q) ? q : 0,
       packing_number,
+      tray_code,
       _pending: !!b._pending,
       _pendingId: b._pendingId ?? null,
       _candidate: b._candidate ?? null,
     };
   }
   return null;
+}
+
+function inwardLocationTrayCount(boxes) {
+  const trayCodes = new Set();
+  (boxes || []).forEach((b) => {
+    const e = normalizeInwardBoxEntry(b);
+    if (e?.tray_code) trayCodes.add(e.tray_code);
+  });
+  return trayCodes.size;
 }
 
 function boxEntryMatchesCode(entry, code) {
@@ -146,6 +158,7 @@ function buildLocationPackingBreakdown(locations) {
       return {
         locName: loc.name ?? "—",
         totalBoxes: rows.reduce((s, r) => s + r.boxCount, 0),
+        trayCount: inwardLocationTrayCount(loc.boxes),
         totalQty,
         rows,
       };
@@ -307,6 +320,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                     boxNoUid: row.boxNoUid,
                     qty: row.qty,
                     packing_number: row.packing_number,
+                    tray_code: row.tray_code,
                   })),
               }))
             );
@@ -766,7 +780,8 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
     if (!code || !mode) return;
 
     if (mode === "location") {
-      if (detectQrType(code) === "box") {
+      const qrType = detectQrType(code);
+      if (qrType === "box" || qrType === "tray") {
         showScanToast("error", "generic-scan-step1", SCAN_SNACK_MSG.REJECTED);
         return;
       }
@@ -786,7 +801,8 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
   }, [showScanToast]);
 
   const onLocationStepLaserScan = useCallback((code) => {
-    if (detectQrType(code) === "box") {
+    const qrType = detectQrType(code);
+    if (qrType === "box" || qrType === "tray") {
       showScanToast("error", "generic-scan-step1", SCAN_SNACK_MSG.REJECTED);
       return;
     }
@@ -827,11 +843,114 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
     setLocHasError((prev) => prev.filter((_, i) => i !== li));
   };
 
+  const tryAddTray = async (li, val, source = "manual") => {
+    const normalizedRaw = normalizeScanInput(val);
+    const { code, id } = parseTrayScan(normalizedRaw);
+    const trayKey = String(code || id || "").trim();
+    if (!trayKey) {
+      showScanToast("error", "generic-invalid-tray", "Scan a tray after you add a location.", 2000);
+      return;
+    }
+
+    const latestLocs = locationsRef.current;
+    if (!latestLocs[li]) return;
+    const locRow = latestLocs[li];
+    if (!locRow?.location_id) {
+      showScanToast("error", "no-location", "Please add a location before scanning a tray.", 2000);
+      return;
+    }
+
+    const scanLockKey = `${li}:tray:${trayKey.toLowerCase()}`;
+    if (source === "scanner" && inFlightScanRef.current.has(scanLockKey)) return;
+    if (source === "scanner") inFlightScanRef.current.add(scanLockKey);
+
+    setLastActiveLocIdx(li);
+    setValidatingBox(true);
+    try {
+      const res = await inventoryInwardService.batchScanTray(locRow.location_id, normalizedRaw);
+      if (res?.success === false) throw new Error(res?.message || "Tray scan failed");
+      const boxes = Array.isArray(res?.data?.boxes) ? res.data.boxes : [];
+      const trayCode = String(res?.data?.tray_code || trayKey).trim();
+      if (!boxes.length) throw new Error("No packing-area stickers on this tray");
+
+      const currentLocs = locationsRef.current;
+      const alreadyHere = new Set(
+        (currentLocs[li]?.boxes || [])
+          .map((b) => normalizeInwardBoxEntry(b))
+          .filter((e) => e && !e._pending)
+          .map((e) => String(e.boxNoUid).trim().toLowerCase())
+      );
+      const otherLocNameByBox = new Map();
+      currentLocs.forEach((loc, idx) => {
+        if (idx === li) return;
+        (loc.boxes || []).forEach((b) => {
+          const e = normalizeInwardBoxEntry(b);
+          if (!e || e._pending) return;
+          otherLocNameByBox.set(String(e.boxNoUid).trim().toLowerCase(), loc.name);
+        });
+      });
+
+      const toAdd = [];
+      for (const row of boxes) {
+        const uid = String(row?.box_no_uid || "").trim();
+        if (!uid) continue;
+        const key = uid.toLowerCase();
+        if (alreadyHere.has(key)) continue;
+        if (otherLocNameByBox.has(key)) {
+          showScanToast("error", `tray-dup-other-${key}`, MSG.BOX_DUPLICATE_OTHER(otherLocNameByBox.get(key)), 1800);
+          continue;
+        }
+        toAdd.push({
+          boxNoUid: uid,
+          qty: Number(row.qty) || 0,
+          packing_number: row.packing_number != null ? String(row.packing_number).trim() : null,
+          tray_code: trayCode,
+        });
+      }
+
+      if (!toAdd.length) {
+        if (!shouldSilenceScanDuplicate(recentSuccessRef, trayCode)) {
+          showScanToast("error", `tray-dup-${trayCode.toLowerCase()}`, "These tray stickers are already added.", 1800);
+        }
+        return;
+      }
+
+      setLocations((prev) => {
+        if (!prev[li]) return prev;
+        const have = new Set(
+          (prev[li].boxes || [])
+            .map((b) => normalizeInwardBoxEntry(b))
+            .filter(Boolean)
+            .map((e) => String(e.boxNoUid).trim().toLowerCase())
+        );
+        const extra = toAdd.filter((row) => !have.has(String(row.boxNoUid).toLowerCase()));
+        if (!extra.length) return prev;
+        return prev.map((loc, i) => (i === li ? { ...loc, boxes: [...loc.boxes, ...extra] } : loc));
+      });
+      setLocHasError((prev) => prev.map((e, i) => (i === li ? false : e)));
+      markRecentScanSuccess(recentSuccessRef, trayCode);
+      showScanSuccess(
+        `tray-added-${trayCode.toLowerCase()}`,
+        `${toAdd.length} sticker(s) added`,
+        1800
+      );
+    } catch (err) {
+      showScanToast("error", `tray-scan-${trayKey.toLowerCase()}`, err?.message || "Tray scan failed", 2400);
+    } finally {
+      setValidatingBox(false);
+      if (source === "scanner") inFlightScanRef.current.delete(scanLockKey);
+    }
+  };
+
   const tryAddBox = async (li, val, source = "manual") => {
     const normalizedRaw = normalizeScanInput(val);
     const detectedType = detectQrType(normalizedRaw);
     if (detectedType === "location") {
       showScanToast("error", "generic-scan-step2", SCAN_SNACK_MSG.REJECTED);
+      return;
+    }
+    if (detectedType === "tray" || /^(FG|RM)\d+$/i.test(parseTrayScan(normalizedRaw).code)) {
+      await tryAddTray(li, normalizedRaw, source);
       return;
     }
 
@@ -1102,9 +1221,25 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
     const locIdx = scanLocIdxRef.current;
     const locs = locationsRef.current;
 
+    if (locIdx !== null && detectQrType(decodedText) === "tray") {
+      const now = Date.now();
+      const trayKey = parseTrayScan(decodedText).code || parseTrayScan(decodedText).id || decodedText;
+      const scanKey = `tray:${String(trayKey).toLowerCase()}`;
+      if (
+        scanKey === lastScanRef.current.key &&
+        lastScanRef.current.mode === "tray" &&
+        now - lastScanRef.current.at < 2000
+      ) {
+        return;
+      }
+      lastScanRef.current = { key: scanKey, at: now, mode: "tray" };
+      tryAddBoxRef.current(locIdx, decodedText, "scanner");
+      return;
+    }
+
     if (locIdx === null) {
       const qrType = detectQrType(decodedText);
-      if (qrType === "box") {
+      if (qrType === "box" || qrType === "tray") {
         showScanToast("error", "generic-scan-step1", SCAN_SNACK_MSG.REJECTED);
         return;
       }
@@ -1389,7 +1524,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
         <div className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <label className="text-[10px] font-bold text-inward-box-label uppercase tracking-widest flex items-center gap-2">
-              <Package size={14} className="text-inward-box-btn" /> Step 2: Scan Boxes into Locations
+              <Package size={14} className="text-inward-box-btn" /> Step 2: Scan Boxes or Trays into Locations
             </label>
             {locations.length > 0 && (() => {
               const rollup = locations.reduce(
@@ -1398,10 +1533,11 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                   return {
                     locs: acc.locs + 1,
                     boxes: acc.boxes + t.boxCount,
+                    trays: acc.trays + inwardLocationTrayCount(loc.boxes),
                     qty: acc.qty + t.totalQty,
                   };
                 },
-                { locs: 0, boxes: 0, qty: 0 }
+                { locs: 0, boxes: 0, trays: 0, qty: 0 }
               );
               const packings = distinctPackingGroupCount(locations);
               return (
@@ -1409,8 +1545,13 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                   <span className="text-[9px] font-black text-inward-loc-badge-text bg-inward-loc-badge-bg px-2 py-0.5 rounded-md border border-inward-loc-badge-border whitespace-nowrap">
                     {rollup.locs} LOCATIONS
                   </span>
-                  <span className="text-[9px] font-black text-inward-box-chip-text bg-inward-box-chip-bg px-2 py-0.5 rounded-md border border-inward-box-chip-border whitespace-nowrap" title="Total scanned boxes (all locations)">
-                    {rollup.boxes} BOXES
+                  {rollup.trays > 0 ? (
+                    <span className="text-[9px] font-black text-inward-tray-code-text bg-inward-tray-row-bg px-2 py-0.5 rounded-md border border-inward-tray-row-border whitespace-nowrap" title="Trays scanned (store-in via tray QR)">
+                      {rollup.trays} TRAY{rollup.trays === 1 ? "" : "S"}
+                    </span>
+                  ) : null}
+                  <span className="text-[9px] font-black text-inward-box-chip-text bg-inward-box-chip-bg px-2 py-0.5 rounded-md border border-inward-box-chip-border whitespace-nowrap" title="Total scanned stickers (all locations)">
+                    {rollup.boxes} STICKERS
                   </span>
                   <span className="text-[9px] font-black text-violet-700 bg-violet-50 px-2 py-0.5 rounded-md border border-violet-100 whitespace-nowrap" title="Distinct packing numbers among scanned boxes">
                     {packings} PACKINGS
@@ -1424,6 +1565,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
             <div className="grid grid-cols-1 gap-3">
               {locations.map((loc, li) => {
                 const { boxCount, totalQty } = inwardLocationTotals(loc.boxes);
+                const trayCount = inwardLocationTrayCount(loc.boxes);
                 const activeBoxRow = laserBoxLocIdx ?? lastActiveLocIdx;
                 return (
                 <div key={li} className={`bg-white rounded-xl border transition-all overflow-hidden shadow-sm ${locHasError[li] ? "border-rose-200 shadow-rose-50" : "border-slate-200"}`}>
@@ -1440,8 +1582,14 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <div className="hidden xs:flex items-center gap-1.5" aria-live="polite">
+                        {trayCount > 0 ? (
+                          <div className="flex items-baseline gap-1 px-2 py-1 rounded-md bg-inward-tray-row-bg border border-inward-tray-row-border shadow-sm tabular-nums">
+                            <span className="text-[8px] font-bold text-inward-tray-meta-text uppercase">Trays</span>
+                            <span className="text-sm font-black text-inward-tray-code-text leading-none">{trayCount}</span>
+                          </div>
+                        ) : null}
                         <div className="flex items-baseline gap-1 px-2 py-1 rounded-md bg-white border border-slate-200 shadow-sm tabular-nums">
-                          <span className="text-[8px] font-bold text-slate-400 uppercase">Boxes</span>
+                          <span className="text-[8px] font-bold text-slate-400 uppercase">Stickers</span>
                           <span className="text-sm font-black text-inward-box-stat-text leading-none">{boxCount}</span>
                         </div>
                         <div className="flex items-baseline gap-1 px-2 py-1 rounded-md bg-white border border-emerald-100 shadow-sm tabular-nums">
@@ -1454,14 +1602,22 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                       </button>
                     </div>
                   </div>
-                  {/* Mobile-visible summary (match desktop: boxes + qty per location) */}
-                  <div className="xs:hidden px-3 py-2 bg-white border-b border-slate-100 flex items-center gap-4">
-                    <p className="text-[11px] font-black text-slate-800 tabular-nums">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase mr-1">Total Boxes</span> {boxCount}
-                    </p>
-                    <p className="text-[11px] font-black text-emerald-700 tabular-nums">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase mr-1">Total Qty</span> {totalQty}
-                    </p>
+                  {/* Mobile-visible summary */}
+                  <div className="xs:hidden px-3 py-2 bg-slate-50/80 border-b border-slate-100 flex flex-wrap items-center gap-2">
+                    {trayCount > 0 ? (
+                      <span className="inline-flex items-baseline gap-1 px-2 py-1 rounded-md bg-inward-tray-row-bg border border-inward-tray-row-border tabular-nums">
+                        <span className="text-[8px] font-bold text-inward-tray-meta-text uppercase">Trays</span>
+                        <span className="text-sm font-black text-inward-tray-code-text leading-none">{trayCount}</span>
+                      </span>
+                    ) : null}
+                    <span className="inline-flex items-baseline gap-1 px-2 py-1 rounded-md bg-white border border-inward-box-chip-border tabular-nums">
+                      <span className="text-[8px] font-bold text-slate-400 uppercase">Stickers</span>
+                      <span className="text-sm font-black text-inward-box-stat-text leading-none">{boxCount}</span>
+                    </span>
+                    <span className="inline-flex items-baseline gap-1 px-2 py-1 rounded-md bg-white border border-emerald-100 tabular-nums">
+                      <span className="text-[8px] font-bold text-slate-400 uppercase">Qty</span>
+                      <span className="text-sm font-black text-emerald-700 leading-none">{totalQty}</span>
+                    </span>
                   </div>
 
                   <div className="p-3 space-y-3 bg-inward-box-panel-bg border-t border-inward-box-panel-border/60">
@@ -1491,7 +1647,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                                 compact
                                 heightClass="h-10 sm:h-[38px]"
                                 fill={scanBtnCount > 0}
-                                armButtonLabel="Scan Box"
+                                armButtonLabel="Scan Box / Tray"
                               />
                             ) : (
                               <button
@@ -1500,7 +1656,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                                 className={`inline-flex items-center justify-center gap-1.5 rounded-lg border font-bold uppercase tracking-wide transition-all bg-white border-slate-200 text-slate-600 hover:bg-slate-50 px-2.5 text-[10px] h-10 sm:h-[38px] min-w-[4.25rem] ${scanBtnFill}`}
                               >
                                 <ScanLine size={14} className="shrink-0" aria-hidden />
-                                Scan Box
+                                Scan Box / Tray
                               </button>
                             )
                           )}
@@ -1563,27 +1719,66 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                       </div>
                     )}
 
-                    {/* Scanned Boxes List */}
+                    {/* Scanned — tray: indigo chip with code → sticker; box: amber chip */}
                     <div className="space-y-1.5">
-                     
                       {loc.boxes.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5 p-2 bg-inward-box-dash-bg rounded-lg border border-dashed border-inward-box-dash-border">
+                        <div className="flex flex-wrap gap-1.5 p-2 max-h-[200px] overflow-y-auto custom-scrollbar bg-inward-box-dash-bg rounded-lg border border-dashed border-inward-box-dash-border">
                           {loc.boxes.map((box, bi) => {
                             const entry = normalizeInwardBoxEntry(box);
-                            const label = entry?.boxNoUid ?? "—";
-                            const isPending = !!entry?._pending;
-                            return (
-                              <div key={`${label}-${bi}`} className={`flex items-start gap-1 pl-2 pr-1 py-1 bg-inward-box-chip-bg border border-inward-box-chip-border rounded-md shadow-sm animate-in zoom-in-95 max-w-[200px] ${isPending ? "opacity-70" : ""}`}>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1 flex-wrap">
-                                    {isPending && <Loader2 size={8} className="animate-spin text-inward-box-spinner shrink-0" />}
-                                    <span className="text-[10px] font-mono font-black text-inward-box-chip-text">{label}</span>
-                                    {/* {entry && entry.qty > 0 && (
-                                      <span className="text-[8px] font-bold text-emerald-600 tabular-nums px-1 py-px rounded bg-emerald-50 border border-emerald-100">{entry.qty}</span>
-                                    )} */}
-                                  </div>
+                            if (!entry) return null;
+                            const label = entry.boxNoUid ?? "—";
+                            const isPending = !!entry._pending;
+                            const fromTray = !!entry.tray_code;
+
+                            if (fromTray) {
+                              return (
+                                <div
+                                  key={`tray-${entry.tray_code}-${label}-${bi}`}
+                                  className={`inline-flex items-center gap-1 pl-1.5 pr-0.5 py-1 bg-inward-tray-row-bg border border-inward-tray-row-border rounded-md shadow-sm ${isPending ? "opacity-70" : ""}`}
+                                >
+                                  {isPending ? (
+                                    <Loader2 size={9} className="animate-spin text-inward-tray-meta-text shrink-0" />
+                                  ) : (
+                                    <Layers size={10} className="text-inward-tray-badge-bg shrink-0" aria-hidden />
+                                  )}
+                                  <span className="text-[8px] font-black text-white bg-inward-tray-badge-bg px-1 py-px rounded uppercase shrink-0">
+                                    Tray
+                                  </span>
+                                  <span className="font-mono text-[10px] font-black text-inward-tray-code-text shrink-0">{entry.tray_code}</span>
+                                  {/* sticker on tray chip — bring back later
+                                  <span className="text-[9px] text-inward-tray-meta-text shrink-0" aria-hidden>→</span>
+                                  <span className="font-mono text-[10px] font-semibold text-slate-700">{label}</span>
+                                  */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveBox(li, bi)}
+                                    className="p-0.5 text-slate-300 hover:text-rose-500 transition-colors shrink-0 ml-0.5"
+                                    aria-label={`Remove ${entry.tray_code} / ${label}`}
+                                  >
+                                    <X size={10} />
+                                  </button>
                                 </div>
-                                <button type="button" onClick={() => handleRemoveBox(li, bi)} className="p-0.5 text-slate-300 hover:text-rose-500 transition-colors shrink-0" aria-label={`Remove ${label}`}>
+                              );
+                            }
+
+                            return (
+                              <div
+                                key={`box-${label}-${bi}`}
+                                className={`inline-flex items-center gap-1 pl-1.5 pr-0.5 py-1 bg-inward-box-chip-bg border border-inward-box-chip-border rounded-md shadow-sm ${isPending ? "opacity-70" : ""}`}
+                              >
+                                {isPending ? (
+                                  <Loader2 size={9} className="animate-spin text-inward-box-spinner shrink-0" />
+                                ) : (
+                                  <Package size={10} className="text-inward-box-btn shrink-0" aria-hidden />
+                                )}
+                                <span className="text-[8px] font-black text-inward-box-btn uppercase shrink-0">Box</span>
+                                <span className="font-mono text-[10px] font-black text-inward-box-chip-text">{label}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveBox(li, bi)}
+                                  className="p-0.5 text-slate-300 hover:text-rose-500 transition-colors shrink-0 ml-0.5"
+                                  aria-label={`Remove ${label}`}
+                                >
                                   <X size={10} />
                                 </button>
                               </div>
@@ -1593,7 +1788,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                       ) : (
                         <div className="py-4 flex flex-col items-center justify-center bg-inward-box-empty-bg rounded-lg border border-dashed border-inward-box-empty-border">
                           <Package size={16} className="text-inward-box-empty-icon mb-1" />
-                          <p className="text-[9px] font-bold text-inward-box-empty-text uppercase italic">No boxes scanned yet</p>
+                          <p className="text-[9px] font-bold text-inward-box-empty-text uppercase italic">Scan a box or tray QR</p>
                         </div>
                       )}
                     </div>
@@ -1670,8 +1865,15 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
                       {block.locName}
                     </div>
                     <p className="text-[10px] font-bold text-slate-600 tabular-nums pl-4">
-                      <span className="text-slate-400 font-black uppercase text-[9px] mr-1">Total</span>
-                      {block.totalBoxes} box{block.totalBoxes === 1 ? "" : "es"}
+                      {block.trayCount > 0 ? (
+                        <>
+                          <span className="text-inward-tray-meta-text font-black uppercase text-[9px] mr-1">Trays</span>
+                          <span className="text-inward-tray-code-text">{block.trayCount}</span>
+                          <span className="text-slate-300 mx-1.5">·</span>
+                        </>
+                      ) : null}
+                      <span className="text-slate-400 font-black uppercase text-[9px] mr-1">Stickers</span>
+                      {block.totalBoxes}
                       <span className="text-slate-300 mx-1.5">·</span>
                       <span className="text-emerald-700">{block.totalQty}</span>
                       <span className="text-[9px] font-bold text-slate-400 uppercase ml-0.5">qty</span>

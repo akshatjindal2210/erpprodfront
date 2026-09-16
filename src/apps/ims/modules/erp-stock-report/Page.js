@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue, startTransition } from "react";
+import { useSelector } from "react-redux";
 import { BarChart3, RefreshCw } from "lucide-react";
 import { toast } from "react-toastify";
 import DataTable from "@/ui/primitives/DataTable";
@@ -46,12 +47,32 @@ function mismatchCountForId(id, rowCount, mismatchStats) {
   return 0;
 }
 
+function erpStockRowId(row) {
+  return `${row?.packing_number}-${row?.doc_dt || ""}-${row?.job_card_no || ""}-${row?.item_dcode}`;
+}
+
+function packingDocNo(value) {
+  const n = parseInt(String(value ?? "").trim(), 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function toIsoDate(value) {
+  const s = String(value ?? "").trim();
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+  const dmy = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+  return "";
+}
+
 function formatQty(n) {
   const x = Number(n);
   return (Number.isFinite(x) ? x : 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
 export default function ErpStockReportPage() {
+  const role = useSelector((state) => state.auth.role);
+  const isSuperAdmin = ["super_admin", "super admin"].includes(String(role || "").toLowerCase().trim());
   const initialCache = useMemo(() => readErpStockReportSessionCache(), []);
   const [allRows, setAllRows] = useState(() => initialCache?.rows ?? []);
   const [loading, setLoading] = useState(() => !initialCache?.rows?.length);
@@ -62,6 +83,8 @@ export default function ErpStockReportPage() {
   const [displayLimit, setDisplayLimit] = useState(TABLE_RENDER_CHUNK);
   const [params, setParams] = useState({ sortKey: "packing_number", sortDir: "desc" });
   const [exporting, setExporting] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
+  const [adjusting, setAdjusting] = useState(false);
   const loadGenRef = useRef(0);
   const allRowsRef = useRef(allRows);
   allRowsRef.current = allRows;
@@ -90,7 +113,13 @@ export default function ErpStockReportPage() {
     [sortedRows, displayLimit]
   );
 
+  const mismatchMode = Boolean(filters.mismatch);
   const mismatchStats = baseMeta.mismatchStats;
+  const selectedRow = useMemo(() => {
+    if (!selectedId) return null;
+    const idx = sortedRows.findIndex((row) => erpStockRowId(row) === selectedId);
+    return idx >= 0 ? sortedRows[idx] : null;
+  }, [selectedId, sortedRows]);
   const hasActiveFilters = useMemo(() => hasActiveErpStockFilters(deferredFilters), [deferredFilters]);
   const filtersPending = filters !== deferredFilters;
   const tableHasMore = displayRows.length < sortedRows.length;
@@ -239,8 +268,32 @@ export default function ErpStockReportPage() {
     startTransition(() => {
       setDisplayLimit(TABLE_RENDER_CHUNK);
       setFilters((prev) => ({ ...prev, mismatch: mismatch || "" }));
+      setSelectedId(null);
     });
   }, []);
+
+  const handleAdjust = useCallback(async () => {
+    if (!mismatchMode || !isSuperAdmin || !selectedRow || adjusting) return;
+    const docno = packingDocNo(selectedRow.packing_number);
+    const docdt = toIsoDate(selectedRow.doc_dt);
+    const qty = Number(selectedRow.stock_diff);
+    if (!docno || !docdt || !Number.isFinite(qty) || qty === 0) {
+      toast.error("Select a mismatch row with packing no, date, and balance qty.");
+      return;
+    }
+    setAdjusting(true);
+    try {
+      const body = await erpStockReportService.adjust({ docno, docdt, qty });
+      const rec = Array.isArray(body?.records) ? body.records[0] : null;
+      const newDoc = rec?.NewAdjDocNo ?? rec?.newAdjDocNo;
+      toast.success(newDoc ? `Adjusted. New doc ${newDoc}.` : body?.message || "Adjusted.");
+      await loadAllRows({ refresh: true });
+    } catch (err) {
+      toast.error(err?.message || "Stock adjust failed.");
+    } finally {
+      setAdjusting(false);
+    }
+  }, [adjusting, isSuperAdmin, loadAllRows, mismatchMode, selectedRow]);
 
   const handleExport = useCallback(
     async (format) => {
@@ -318,7 +371,7 @@ export default function ErpStockReportPage() {
                 <button
                   type="button"
                   onClick={() => void loadAllRows({ refresh: true })}
-                  disabled={loading || backgroundRefreshing}
+                  disabled={loading || backgroundRefreshing || adjusting}
                   className={`${LIST_PAGE_ACTION_CLASS} px-3 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 disabled:opacity-50`}
                   title="Reload report from server"
                 >
@@ -327,6 +380,17 @@ export default function ErpStockReportPage() {
                     {backgroundRefreshing ? "Updating…" : "Refresh"}
                   </span>
                 </button>
+                {mismatchMode && isSuperAdmin ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleAdjust()}
+                    disabled={!selectedRow || adjusting || loading || backgroundRefreshing}
+                    className={`${LIST_PAGE_ACTION_CLASS} px-3 border border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50`}
+                    title="Send selected mismatch to ERP stock adjust"
+                  >
+                    {adjusting ? "Adjusting…" : "Adjust"}
+                  </button>
+                ) : null}
               </>
             }
             viewToggle={
@@ -398,9 +462,7 @@ export default function ErpStockReportPage() {
           </div>
           <div className="flex items-center justify-end gap-2 flex-wrap pt-1">
             {filtersPending ? (
-              <span className="text-[10px] text-indigo-600 font-semibold animate-pulse mr-auto">
-                Updating…
-              </span>
+              <span className="text-[10px] text-indigo-600 font-semibold animate-pulse mr-auto">Updating…</span>
             ) : null}
             <button
               type="button"
@@ -408,6 +470,7 @@ export default function ErpStockReportPage() {
                 startTransition(() => {
                   setFilters(EMPTY_FILTERS);
                   setDisplayLimit(TABLE_RENDER_CHUNK);
+                  setSelectedId(null);
                 });
               }}
               disabled={loading}
@@ -418,25 +481,6 @@ export default function ErpStockReportPage() {
           </div>
         </ListPageFilterStrip>
 
-        {/* 
-        {!loading && allRows.length > 0 ? (
-          <div className="px-3 py-1.5 border-b border-slate-100 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-semibold text-slate-600">
-            <span>
-              <span className="text-slate-400 uppercase text-[9px] font-bold mr-1">Match</span>
-              {mismatchStats.match.toLocaleString()}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-sm bg-red-100 border border-red-300" />
-              DB &gt; ERP: {mismatchStats.red.toLocaleString()}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-sm bg-amber-100 border border-amber-200" />
-              ERP &gt; DB: {mismatchStats.yellow.toLocaleString()}
-            </span>
-          </div>
-        ) : null}
-        */}
-
         <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
           <DataTable
             headers={HEADERS}
@@ -446,7 +490,9 @@ export default function ErpStockReportPage() {
             suppressLoadingFooterRow
             viewMode={viewMode}
             allowCopy
-            showSelection={false}
+            showSelection={mismatchMode && isSuperAdmin}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
             sortKey={params.sortKey}
             sortDir={params.sortDir}
             onSort={(key) =>
@@ -457,7 +503,7 @@ export default function ErpStockReportPage() {
                 }))
               )
             }
-            getRowId={(row, i) =>`${row.packing_number}-${row.doc_dt || ""}-${row.job_card_no || ""}-${row.item_dcode}-${i}`}
+            getRowId={(row) => erpStockRowId(row)}
             getRowClassName={erpStockRowClassName}
             onLoadMore={() => setDisplayLimit((n) => n + TABLE_RENDER_CHUNK)}
             hasMore={tableHasMore}
@@ -495,6 +541,16 @@ export default function ErpStockReportPage() {
                 <p className="text-[9px] sm:text-lg font-black text-indigo-800 tabular-nums">{formatQty(totals.stock_diff)}</p>
                 <p className="hidden sm:block text-[8px] text-slate-400 font-medium mt-0.5">+ more in hand · − more in ERP</p>
               </div>
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-semibold text-slate-600">
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-sm bg-red-100 border border-red-300" />
+                Red: DB more than ERP
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-sm bg-amber-100 border border-amber-200" />
+                Yellow: ERP more than DB
+              </span>
             </div>
           </div>
         </div>

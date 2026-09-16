@@ -143,8 +143,8 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
 
         <main className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#f0f4f8]">
           <div className="w-full flex-1 flex flex-col min-h-0 overflow-hidden bg-[#f0f4f8]">
-            <div className={`mx-auto flex-1 flex flex-col min-h-0 w-full min-w-0 overflow-y-auto overflow-x-hidden ${
-              isDashboardHome ? "p-0" : "p-2"
+            <div className={`mx-auto flex-1 flex flex-col min-h-0 w-full min-w-0 overflow-x-hidden ${
+              isDashboardHome ? "overflow-y-auto p-0" : "overflow-hidden p-2"
             }`}>
               {accessState?.hasPageAccess ? (
                 children

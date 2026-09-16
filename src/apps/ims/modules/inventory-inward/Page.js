@@ -28,6 +28,7 @@ import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
 import { pipeMetaRenderers } from "@/apps/ims/lib/helpers/pipeMetaDisplay";
+import { isManageTraySourceBlocked } from "@/apps/ims/lib/helpers/manageTrayHelper";
 
 const PAGE_TABS = {
   STORE_IN: "store_in",
@@ -335,6 +336,10 @@ export default function InwardPage() {
   const openBoxesForSelectedPacking = () => {
     const row = getSelectedRow();
     if (!row?.packing_number) return;
+    if (isManageTraySourceBlocked(row)) {
+      toast.info("Link all stickers to trays in Manage Tray before Store In.");
+      return;
+    }
     setPackingFilterPn(String(row.packing_number).trim());
     setPackingFilterItem(null);
     setPackingFilterCust(null);
@@ -363,7 +368,10 @@ export default function InwardPage() {
     openDelete: useCallback((row) => {
       setDeleteItem(row);
     }, []),
-    canDeleteSelection: useCallback(() => (isStoreIn || isPackingBoxView) && !!selected, [isStoreIn, isPackingBoxView, selected]),
+    canDeleteSelection: useCallback(
+      () => (isStoreIn || isPackingBoxView) && !!selected && !isManageTraySourceBlocked(getSelectedRow()),
+      [isStoreIn, isPackingBoxView, selected, getSelectedRow]
+    ),
   });
 
   const inPackingMeta = pipeMetaRenderers("font-bold text-slate-800 text-[10px] leading-tight");
@@ -414,8 +422,34 @@ export default function InwardPage() {
     ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
   ];
 
+  const handleRowSelect = useCallback(
+    (id) => {
+      if (!isStoreIn) {
+        const row = filteredRows.find((item) => getRowIdForList(item) === id);
+        if (isManageTraySourceBlocked(row)) {
+          toast.info("Link all stickers to trays in Manage Tray before Store In.");
+          return;
+        }
+      }
+      setSelected(id);
+    },
+    [isStoreIn, filteredRows, getRowIdForList]
+  );
+
+  const manageTrayRowClassName = useCallback(
+    (row) => (isManageTraySourceBlocked(row) ? "opacity-55 cursor-not-allowed [&_td]:!bg-slate-50" : ""),
+    []
+  );
+
   const packingSourceCell = (v) => {
     const s = String(v || "PACKING ENTRY").toUpperCase();
+    if (s === "MANAGE TRAY") {
+      return (
+        <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-rose-50 text-rose-700 border-rose-200">
+          ● MANAGE TRAY
+        </span>
+      );
+    }
     if (s.startsWith("STOCK ADJ")) {
       return (
         <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-200">
@@ -674,7 +708,7 @@ export default function InwardPage() {
                   <span>Finder</span>
                 </button>
 
-                {!isStoreIn && packingView === PACKING_VIEWS.SUMMARY && selectedRecord?.packing_number && (
+                {!isStoreIn && packingView === PACKING_VIEWS.SUMMARY && selectedRecord?.packing_number && !isManageTraySourceBlocked(selectedRecord) && (
                   <button
                     type="button"
                     onClick={openBoxesForSelectedPacking}
@@ -845,9 +879,10 @@ export default function InwardPage() {
               sortKey={activeSortKey}
               sortDir={activeSortDir}
               selectedId={selected}
-              onSelect={setSelected}
+              onSelect={handleRowSelect}
               allowCopy={true}
               getRowId={getRowIdForList}
+              getRowClassName={!isStoreIn ? manageTrayRowClassName : undefined}
               onLoadMore={handleLoadMore}
               hasMore={items.length < totalItems}
               totalItems={totalItems}

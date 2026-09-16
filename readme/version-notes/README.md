@@ -2,6 +2,8 @@
 
 | Note | Topic |
 |------|--------|
+| [v4.3.6.md](./v4.3.6.md) | Manage Tray · Out Entry recheck · ERP Stock Adjust · Deviation qty |
+| [v4.2.6.md](./v4.2.6.md) | Dashboard Builder · Quick Launch · Purchase / Production |
 | [v4.1.5.md](./v4.1.5.md) | Login Username autofocus · ERP Stock Report **fast query** (no per-box LATERAL) |
 | [v4.1.4.md](./v4.1.4.md) | IMS **Shortage** master month-wise + FY · QC Hold Pending Show · Transaction Log · ERP Stock dedupe |
 | [v4.1.3.md](./v4.1.3.md) | IMS Box Journey · List Ctrl+F · Sticker PRINT ALL · HRMS · Dashboard drawer / session filters |

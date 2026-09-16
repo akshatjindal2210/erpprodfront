@@ -53,6 +53,15 @@
   --inward-box-stat-text: #a16207;
   --inward-box-scanner-frame: #facc15;
   --inward-box-focus-ring: rgb(234 179 8 / 0.28);
+
+  /* ── Tray scan rows (indigo — distinct from amber box chips) ─────────── */
+  --inward-tray-row-bg: rgb(238 242 255 / 0.85);
+  --inward-tray-row-border: #c7d2fe;
+  --inward-tray-badge-bg: #4f46e5;
+  --inward-tray-code-text: #312e81;
+  --inward-tray-meta-text: #6366f1;
+  --inward-tray-sticker-bg: #ffffff;
+  --inward-tray-sticker-border: #e0e7ff;
 }
 
 @theme inline {
@@ -98,4 +107,12 @@
   --color-inward-box-stat-text: var(--inward-box-stat-text);
   --color-inward-box-scanner-frame: var(--inward-box-scanner-frame);
   --color-inward-box-focus-ring: var(--inward-box-focus-ring);
+
+  --color-inward-tray-row-bg: var(--inward-tray-row-bg);
+  --color-inward-tray-row-border: var(--inward-tray-row-border);
+  --color-inward-tray-badge-bg: var(--inward-tray-badge-bg);
+  --color-inward-tray-code-text: var(--inward-tray-code-text);
+  --color-inward-tray-meta-text: var(--inward-tray-meta-text);
+  --color-inward-tray-sticker-bg: var(--inward-tray-sticker-bg);
+  --color-inward-tray-sticker-border: var(--inward-tray-sticker-border);
 }

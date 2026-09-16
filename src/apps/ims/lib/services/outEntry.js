@@ -12,6 +12,7 @@ export const outEntryService = {
   getViewById: (id, perms = {}) => api(ENDPOINTS.OUT_ENTRIES.VIEWS, { method: "POST", body: { id, ...perms } }),
   verifyBox:   (body) => api(ENDPOINTS.OUT_ENTRIES.VERIFY_BOX, { method: "POST", body }),
   batchScanBoxes: (body) => api(ENDPOINTS.OUT_ENTRIES.BATCH_SCAN_BOXES, { method: "POST", body }),
+  batchScanTray: (body) => api(ENDPOINTS.OUT_ENTRIES.BATCH_SCAN_TRAY, { method: "POST", body }),
   getFuidDetails: (fuid, for_out_uid) =>
     api(ENDPOINTS.OUT_ENTRIES.GET_FUID_DETAILS, {
       method: "POST",

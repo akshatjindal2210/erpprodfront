@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect, useLayoutEffect, startTransition } from "react";
 import { Inbox, Loader2 } from "lucide-react";
 import TableSkeleton from "@/ui/common/table/TableSkeleton";
 import CardSkeleton from "@/ui/common/table/CardSkeleton";
@@ -935,7 +935,7 @@ export default function DataTable({
    * cells already select on mousedown; a second toggle was breaking double-click.
    */
   const handleRowClickEvent = (e, item, id) => {
-    if ((e.ctrlKey || e.metaKey) && typeof onRowDoubleClick === "function") {
+    if ((e.ctrlKey || e.metaKey || e.detail > 1) && typeof onRowDoubleClick === "function") {
       e.preventDefault();
       e.stopPropagation();
       onRowDoubleClick(item, id);
@@ -1027,7 +1027,7 @@ export default function DataTable({
           </div>
         )}
 
-        <div ref={scrollContainerRef} className="overflow-x-auto overflow-y-auto flex-1 min-h-0 border-t border-slate-200">
+        <div ref={scrollContainerRef} className="overflow-x-auto overflow-y-auto overscroll-contain flex-1 min-h-0 h-0 border-t border-slate-200">
           <table className="w-full text-sm border-separate border-spacing-0 table-fixed min-w-full">
             <colgroup>
               {showSelection && (
@@ -1074,7 +1074,7 @@ export default function DataTable({
                         className={`flex items-center ${config.align === "center" ? "w-full justify-center" : ""} ${isSortable ? "cursor-pointer hover:text-slate-700 transition-colors" : ""}`}
                         onClick={() => {
                           if (isSortable && onSort) {
-                            onSort(key);
+                            startTransition(() => onSort(key));
                           }
                         }}
                       >
@@ -1153,14 +1153,6 @@ export default function DataTable({
                             : rowClickable
                               ? (e) => handleRowClickEvent(e, item, currentId)
                               : undefined
-                        }
-                        onDoubleClick={
-                          onRowDoubleClick
-                            ? (e) => {
-                                e.stopPropagation();
-                                onRowDoubleClick(item, currentId);
-                              }
-                            : undefined
                         }
                         className={`group ${trRowSelectedClass}${rowToneClass ? ` ${rowToneClass}` : ""}${!cellSelectActive && rowClickable ? " cursor-pointer" : ""}`}
                       >
@@ -1347,14 +1339,6 @@ export default function DataTable({
                       if (isLastElement) lastElementRef(el);
                     }}
                     onClick={rowClickable ? (e) => handleRowClickEvent(e, item, currentId) : undefined}
-                    onDoubleClick={
-                      onRowDoubleClick
-                        ? (e) => {
-                            e.stopPropagation();
-                            onRowDoubleClick(item, currentId);
-                          }
-                        : undefined
-                    }
                     className={`relative bg-white rounded-xl border transition-all duration-200 overflow-hidden ${rowClickable ? "cursor-pointer" : ""} ${isSelected ? "border-indigo-600 shadow-lg shadow-indigo-100 ring-[0.5px] ring-indigo-600" : "border-slate-200 hover:border-slate-300 hover:shadow-md"}`}
                   >
                     {isSelected && <div className="absolute top-0 left-0 right-0 h-[3px] bg-indigo-600" />}

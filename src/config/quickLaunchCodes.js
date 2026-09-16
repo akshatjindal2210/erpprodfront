@@ -31,6 +31,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "LM",  label: "Store Location Master",      route: ROUTES.LOCATION_MASTER,         module: "location_master",           app: "ims" },
   { code: "TM",  label: "Tray Master",                route: ROUTES.TRAY_MASTER,             module: "tray_master",               app: "ims" },
   { code: "PE",  label: "Packing Entry",              route: ROUTES.PACKING_ENTRY,           module: "packing_entry",             app: "ims" },
+  { code: "MGT", label: "Manage Tray",                route: ROUTES.MANAGE_TRAY,             module: "manage_tray",               app: "ims" },
   { code: "BX",  label: "Boxes",                      route: ROUTES.BOX_TABLE,               module: "boxes",                     app: "ims" },
   { code: "IS",  label: "Store In (Inventory Inward)",route: ROUTES.INVENTORY_INWARD,        module: "inventory_inwards",         app: "ims" },
   { code: "QH",  label: "QC Hold Material",           route: ROUTES.QC_HOLD_MATERIAL,        module: "qc_hold_material",          app: "ims" },

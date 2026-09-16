@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Check, Loader2, Shield } from "lucide-react";
+import { AlertCircle, Check, Loader2, MessageSquareQuote, Shield } from "lucide-react";
 import { toast } from "react-toastify";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { trayService } from "@/apps/ims/lib/services/tray";
 import { ERR_INPUT, OK_INPUT, FormLabel } from "@/ui/common/Constants";
@@ -15,6 +16,7 @@ const FIELD_INPUT_CLASS =
 const INITIAL_FORM = {
   type: "",
   quantity: "",
+  remark: "",
   approved: false,
 };
 
@@ -49,6 +51,7 @@ export default function TrayModal({ open, onClose, onSuccess, editData, mode = "
       setForm({
         type: editData.type || "",
         quantity: String(editData.tray_count ?? editData.active_count ?? ""),
+        remark: String(editData.remark || ""),
         approved: isApprove ? !!batchAuthorized : false,
       });
       return;
@@ -87,7 +90,7 @@ export default function TrayModal({ open, onClose, onSuccess, editData, mode = "
       setActiveSubmit(actionKey);
       setLoading(true);
       try {
-        const res = await trayService.approveBatch(editData.batch_id, true);
+        const res = await trayService.approveBatch(editData.batch_id, true, String(form.remark || "").trim());
         toast.success(res?.message || "Batch authorized successfully");
         onSuccess?.(res?.data);
         onClose?.();
@@ -115,6 +118,7 @@ export default function TrayModal({ open, onClose, onSuccess, editData, mode = "
         const payload = {
           type: String(form.type || "").trim().toUpperCase(),
           quantity: Number(form.quantity),
+          remark: String(form.remark || "").trim(),
         };
         if (statusOverride === true) {
           payload.approved = true;
@@ -128,22 +132,15 @@ export default function TrayModal({ open, onClose, onSuccess, editData, mode = "
         const res = await trayService.create({
           type: String(form.type || "").trim().toUpperCase(),
           quantity: Number(form.quantity),
+          remark: String(form.remark || "").trim(),
+          approved: Boolean(form.approved && canApprove),
         });
-        let data = res?.data;
-        if (form.approved && canApprove && data?.batch?.batch_id) {
-          const approveRes = await trayService.approveBatch(data.batch.batch_id, true);
-          toast.success(approveRes?.message || res?.message || "Tray batch created and authorized");
-          data = {
-            ...data,
-            batch: {
-              ...data.batch,
-              approved_count: data.batch.quantity,
-              pending_count: 0,
-            },
-          };
-        } else {
-          toast.success(res?.message || "Tray batch created");
-        }
+        const data = res?.data;
+        toast.success(
+          form.approved && canApprove
+            ? res?.message || "Tray batch created and authorized"
+            : res?.message || "Tray batch created"
+        );
         onSuccess?.(data);
       }
 
@@ -296,6 +293,19 @@ export default function TrayModal({ open, onClose, onSuccess, editData, mode = "
               </p>
             ) : null}
           </div>
+        </div>
+
+        <div data-field="remark">
+          <FormTextarea
+            label="Remarks"
+            labelIcon={<MessageSquareQuote size={12} className="text-indigo-500" />}
+            className="[&_textarea]:!text-[11px] [&_textarea]:!min-h-[4.5rem] [&_textarea]:!py-2"
+            value={form.remark}
+            onChange={(e) => handleInputChange("remark", e.target.value)}
+            placeholder="Optional — short note if needed..."
+            disabled={loading}
+            rows={4}
+          />
         </div>
 
         <div className="h-px bg-slate-100" />

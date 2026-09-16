@@ -18,6 +18,7 @@ import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPag
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { formatActivityLogValue, getActivityLogSections, getActivityLogMoreSections, hasActivityLogDetails, formatActivityLogActionLabel, getActivityLogActionBadgeClass } from "@/platform/utils/core/activityLogDisplay";
+import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
 import ActivityLogModuleEntityCell from "@/ui/common/list/ActivityLogModuleEntityCell";
 import { APP_TYPE_LABELS } from "@/config/portalModules.data";
 
@@ -35,9 +36,9 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
     [canAccess, moduleSlug],
   );
 
-  const [items, setItems] = useState([]);
+  const [allItems, setAllItems] = useState([]);
+  const [displayLimit, setDisplayLimit] = useState(100);
   const [loading, setLoading] = useState(true);
-  const [totalItems, setTotalItems] = useState(0);
   const [viewMode, handleViewMode] = useViewMode();
 
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
@@ -87,17 +88,15 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const fetchLogs = useCallback(
-    async (isLoadMore = false) => {
-      const append = isLoadMore === true;
-      if (!append) setLoading(true);
-      try {
-        const currentPage = append ? params.page + 1 : 1;
-
+  const fetchLogs = useCallback(async () => {
+    setLoading(true);
+    setDisplayLimit(100);
+    try {
+      const { data } = await fetchAllListPages(async (page, limit) => {
         const response = await activityLogService.getLogs({
           app_type: crossApp ? (params.filterApp || undefined) : appType,
-          page: currentPage,
-          limit: params.pageSize,
+          page,
+          limit,
           search: params.search || undefined,
           date_from: params.fromDate ? `${params.fromDate} 00:00:00` : undefined,
           date_to: params.toDate ? `${params.toDate} 23:59:59` : undefined,
@@ -106,36 +105,30 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
           action_type: params.actionType || undefined,
           all_users: "true",
         });
-
-        if (response.success) {
-          const newItems = response.data ?? [];
-          if (append) {
-            setItems((prev) => [...prev, ...newItems]);
-            setParams((prev) => ({ ...prev, page: currentPage }));
-          } else {
-            setItems(newItems);
-            setParams((prev) => ({ ...prev, page: 1 }));
-          }
-          setTotalItems(response.pagination?.total ?? 0);
-        }
-      } catch (err) {
-        toast.error(err?.message || "Could not load the activity logs. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [appType, crossApp, params.pageSize, params.search, params.fromDate, params.toDate, params.filterApp, params.userId, params.module, params.actionType, params.page]
-  );
+        const chunk = response?.data ?? [];
+        const reported = Number(response?.pagination?.total ?? response?.total);
+        return { data: chunk, total: Number.isFinite(reported) ? reported : chunk.length };
+      }, 1000);
+      setAllItems(Array.isArray(data) ? data : []);
+    } catch (err) {
+      toast.error(err?.message || "Could not load the activity logs. Please try again.");
+      setAllItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [appType, crossApp, params.search, params.fromDate, params.toDate, params.filterApp, params.userId, params.module, params.actionType]);
 
   useEffect(() => {
-    void fetchLogs(false);
+    void fetchLogs();
   }, [params.pageSize, params.sortKey, params.sortDir, params.search, params.fromDate, params.toDate, params.filterApp, params.userId, params.module, params.actionType, fetchLogs]);
 
+  const items = useMemo(() => allItems.slice(0, displayLimit), [allItems, displayLimit]);
+
   const handleLoadMore = useCallback(() => {
-    if (!loading && items.length < totalItems) {
-      void fetchLogs(true);
+    if (!loading && items.length < allItems.length) {
+      setDisplayLimit((n) => n + 100);
     }
-  }, [loading, items.length, totalItems, fetchLogs]);
+  }, [loading, items.length, allItems.length]);
 
   const handleSearch = (data) => {
     setParams((prev) => ({
@@ -354,8 +347,8 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
             idKey="id"
             emptyIcon={Activity}
             onLoadMore={handleLoadMore}
-            hasMore={items.length < totalItems}
-            totalItems={totalItems}
+            hasMore={items.length < allItems.length}
+            totalItems={allItems.length}
             cardConfig={{
               titleKey: "user_name",
               badgeIndices: [1],
@@ -368,7 +361,7 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
 
         <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Activity Logs
+            Showing {items.length} of {allItems.length} Activity Logs
           </span>
         </div>
       </div>

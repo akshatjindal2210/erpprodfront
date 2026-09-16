@@ -8,7 +8,7 @@ Read-only comparison of **IMS in-hand DB stock** vs **ERP FG stock** (`erpfg` AP
 | Permission    | `erp_stock_report`                                                    |
 | FE            | `modules/erp-stock-report/`                                           |
 | BE            | `modules/erp-stock-report/`                                           |
-| API           | `POST /api/erp-stock-report/list`                                     |
+| API           | `POST /api/erp-stock-report/list` · `POST /api/erp-stock-report/adjust` |
 | Table         | ERP + read `ims_box_table` / `ims_dailyprod` / `ims_stock_adjustment` |
 
 **Files**
@@ -24,12 +24,12 @@ Read-only comparison of **IMS in-hand DB stock** vs **ERP FG stock** (`erpfg` AP
 |---------------|------|
 | Create        | none |
 | Read          | list |
-| Update        | none |
+| Update        | Adjust (Super Admin only; IMS `stockadjust`, not a local table write) |
 | Delete        | none |
 
 **Linking**
 
-No writes.
+Adjust posts one mismatch row to IMS. Local tables are not updated. See [v4.3.6](../../version-notes/v4.3.6.md).
 
 **Table impact**
 

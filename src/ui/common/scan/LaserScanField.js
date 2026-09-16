@@ -12,6 +12,7 @@ export default function LaserScanField({
   active,
   onScanned,
   keyboardInputRef,
+  companionTypableRef,
   className = "",
   heightClass = "h-10 sm:h-9",
   placeholder = "Ready to scan",
@@ -39,6 +40,7 @@ export default function LaserScanField({
     handleLaserChange,
   } = useLaserScanCapture(active, onScanned, {
     keyboardInputRef,
+    companionTypableRef,
     formatPreview,
     requireArmToCapture: requireArmButton,
     showPreview,
