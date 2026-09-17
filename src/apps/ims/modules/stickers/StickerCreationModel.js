@@ -1451,7 +1451,7 @@ export default function StickerCreationModel({open, onClose, data, onSuccess, im
                       onClick={handleGenerate} 
                       disabled={submitting || previewLoading || (categories.length > 1 && !selectedCategory)}
                       className="bg-slate-900 hover:bg-black disabled:bg-slate-400 text-white px-2 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-md sm:shadow-lg whitespace-nowrap touch-manipulation flex-1 sm:flex-initial min-h-[34px] sm:min-h-0"
-                      title="Confirm SOP at the bottom if required"
+                      title="Ctrl+S — confirm SOP at the bottom if required"
                     >
                       {submitting ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Printer size={14} className="shrink-0" />}
                       <span className="lg:hidden">Generate ({packing.total_stickers || 0})</span>

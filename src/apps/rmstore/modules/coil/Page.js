@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 
 import { coilService } from "@/apps/rmstore/lib/services/coil";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
+import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
@@ -149,6 +150,19 @@ export default function CoilTablePage() {
     [rows, selected]
   );
 
+  const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
+
+  // Coils list is view/finder only — no create/edit drawer. Disable New/Edit hotkeys
+  // so Ctrl+Alt+N / Insert does not open a form that has no toolbar entry.
+  const { tableHotkeyProps } = useListDrawerHotkeys({
+    module: MODULE,
+    modalOpen: finderOpen,
+    selectedId: selected,
+    getSelectedRow,
+    openAdd: null,
+    openEdit: null,
+  });
+
   const filteredRows = useMemo(() => {
     const q = String(tempSearch ?? "").trim();
     if (!q) return rows;
@@ -287,6 +301,7 @@ export default function CoilTablePage() {
             allowCopy
             showSelection
             emptyIcon={Layers}
+            {...tableHotkeyProps}
             sortKey={params.sortKey ?? ""}
             sortDir={params.sortDir}
             onSort={(key) => {

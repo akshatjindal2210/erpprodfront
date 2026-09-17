@@ -10,7 +10,7 @@ import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter"
 import { storeLocationService } from "@/apps/rmstore/lib/services/storeLocation";
 import { coilHelperContext, lookupCoilByUid } from "@/apps/rmstore/lib/helpers/coilLookup";
 import { resolveCoilLocationDetail, resolveCoilLocationLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
-import { extractLocationNo, extractCoilUid, normalizeScanInput, coilUidDisplayLabel, locationNoDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
+import { extractLocationNo, extractCoilUid, extractQcStickerUid, normalizeScanInput, coilUidDisplayLabel, locationNoDisplayLabel, looksLikeStickerUid, stickerUidsMatch } from "@/apps/rmstore/lib/helpers/qrScan";
 import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
 import { withSortedViewsData } from "@/apps/rmstore/lib/helpers/sortDropdownResponse";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
@@ -488,7 +488,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
       const trimmed = normalizeScanInput(rawValue);
       if (!trimmed) return false;
 
-      if (extractCoilUid(trimmed) && /^RM_/i.test(trimmed)) {
+      if (looksLikeStickerUid(trimmed) || extractQcStickerUid(trimmed)) {
         showScanToast("error", "generic-scan-step1", SCAN_SNACK_MSG.REJECTED);
         return false;
       }
@@ -559,7 +559,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
     }
 
     const allFlat = flatCoilsByLocation(locationsRef.current);
-    const dup = allFlat.find((x) => x.coilUid.toLowerCase() === uid.toLowerCase());
+    const dup = allFlat.find((x) => stickerUidsMatch(x.coilUid, uid));
     if (dup) {
       if (dup.locIndex === li) {
         showScanToast("error", `dup-${uid}`, MSG.COIL_DUPLICATE(uid), 1800);
@@ -573,7 +573,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
     setLastActiveLocIdx(li);
     lastActiveLocIdxRef.current = li;
     try {
-      const coil = await lookupCoilByUid(uid, coilHelperContext(MODULE, isEdit ? "edit" : "add"));
+      const coil = await lookupCoilByUid(uid, coilHelperContext(MODULE, "view"));
       if (!coil) {
         showScanToast("error", "coil-missing", MSG.COIL_NOT_FOUND);
         return;

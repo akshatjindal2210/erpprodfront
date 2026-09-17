@@ -4,11 +4,22 @@
  * RM Sticker Control — same Drawer + layout pattern as IMS StickerCreationModel.
  * Left detail cards + right breakdown; after generate → Saved cards + PRINT ALL / Re-Print.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Layers, Box, User, ClipboardList, Printer, Eye, X, RefreshCw, CheckCircle2, Upload, FileText, Save, AlertTriangle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSelector } from "react-redux";
+import { Loader2, Layers, Box, User, ClipboardList, Printer, Eye, X, RefreshCw, CheckCircle2, Upload, FileText, Save, AlertTriangle, ShieldCheck, ScanLine, QrCode } from "lucide-react";
 import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
 import { notify } from "@/apps/rmstore/lib/utils/notify";
+import { selectRole, selectUser } from "@/platform/store/slices/authSlice";
+import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { isRmstoreSuperAdmin } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
+import { extractBatchMrnUid, extractCoilUid, extractQcStickerUid, findMatchingCoilUid, mrnUidsMatch, normalizeScanInput } from "@/apps/rmstore/lib/helpers/qrScan";
+import LaserScanField from "@/ui/common/scan/LaserScanField";
+import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
+import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
+import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
+import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
+import { prepareQrScanSession, playScanSuccessBeep } from "@/platform/utils/global/scanFeedback";
 
 import Drawer from "@/ui/primitives/Drawer";
 import { FormLabel, OK_INPUT, MODAL_INPUT_CLASS } from "@/ui/common/Constants";
@@ -21,12 +32,33 @@ import { formatCoilNoUid } from "@/apps/rmstore/lib/coilUidFormat";
 import { parseCoilNoUidMeta } from "@/apps/rmstore/lib/coilUidHelpers";
 import { printFromBackendHtml } from "@/apps/ims/lib/utils/printHtmlDocument";
 import { getBoxNoUidPrefix } from "@/platform/utils/global";
+
+const APPROVE_QR_READER_ID = "mrn-approve-qr-reader";
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 
 const TABS = { DETAILS: "details", BREAKDOWN: "breakdown" };
 const BATCH_QC_DL_KEY = "__batch_qc__";
+const MODULE = "rm_mrn_portal";
+
+function isDetailGenerated(detail) {
+  return detail?.sticker_generated === true || (Array.isArray(detail?.coils) && detail.coils.length > 0);
+}
+
+function isDetailAwaitingApproval(detail) {
+  if (!isDetailGenerated(detail) || detail?.sticker_rejected) return false;
+  if (detail?.status === "generate") return true;
+  if (detail?.status === "approved") return false;
+  return detail?.sticker_approved === false;
+}
+
+function isDetailApproved(detail) {
+  if (!isDetailGenerated(detail)) return false;
+  if (detail?.status === "generate") return false;
+  if (detail?.status === "approved") return true;
+  return detail?.sticker_approved !== false;
+}
 
 /** Sticker / sticker-stand size — change these two; keep in sync with coilStickerDesign.js */
 const RM_STICKER_WIDTH_MM = 65;
@@ -140,13 +172,15 @@ function resolveMrnRemarks(data) {
 
 function hydrateFromSourceRow(row) {
   if (!row) return null;
-  const isGenerated = row.sticker_generated === true || row.status === "generated";
+  const isGenerated = row.sticker_generated === true || ["generate", "approved", "generated"].includes(row.status);
   const mode = String(row.sticker_mode || "").trim().toLowerCase() === "batch" ? "batch" : "coil";
+  const awaitingApproval = isGenerated && row.sticker_approved === false;
   return {
     ...row,
     uid: row.uid,
-    status: isGenerated ? "generated" : "pending",
+    status: awaitingApproval ? "generate" : isGenerated ? "approved" : "pending",
     sticker_generated: !!isGenerated,
+    sticker_approved: row.sticker_approved === true,
     coils: [],
     qty_editable: row.qty_editable !== false,
     qty_auto_calc: row.qty_auto_calc !== false,
@@ -231,11 +265,25 @@ function SimpleFileInput({ label, required, file, onChange, disabled, savedPath,
   );
 }
 
-export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourceRow = null }) {
+export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourceRow = null, openMode = null }) {
+  const canAccess = useCanAccess();
+  const role = useSelector(selectRole);
+  const currentUser = useSelector(selectUser);
+  const isSuperAdmin =
+    isRmstoreSuperAdmin(currentUser) ||
+    String(role || "").toLowerCase() === "super_admin";
+  const canAdd = canAccess(MODULE, "add").allowed;
+  const canAuthorize = canAccess(MODULE, "authorize").allowed;
+  const canView = canAccess(MODULE, "view").allowed;
+  const canShowAddActions = isSuperAdmin || canAdd;
+  const canShowApproveAction = isSuperAdmin || canAuthorize;
+  const canShowPrintActions = isSuperAdmin || canAdd || canView;
   const [tab, setTab] = useState(TABS.DETAILS);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [scanTracking, setScanTracking] = useState({});
   const [downloading, setDownloading] = useState(false);
   const [detail, setDetail] = useState(null);
   const [heatNo, setHeatNo] = useState("");
@@ -252,6 +300,23 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const [specChecked, setSpecChecked] = useState(false);
   const [drawerCloneKey, setDrawerCloneKey] = useState(0);
   const [previewLayout, setPreviewLayout] = useState(() => getPreviewLayoutFromViewport());
+  const approvalScanInputRef = useRef(null);
+  const scanTrackingRef = useRef({});
+  const lastCamErrorRef = useRef(0);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [narrowLayout, setNarrowLayout] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 1023px)").matches : false
+  );
+  const { laserScan, keyboardType, phoneQrScan, showPhoneQr } = useDeviceScanSettings();
+  const phoneQrVisible = showPhoneQr || (phoneQrScan && narrowLayout);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setNarrowLayout(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   const resolvedUid = useMemo(() => {
     const fromProp = mrnId != null ? String(mrnId).trim() : "";
@@ -310,7 +375,10 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     }
     setSpecChecked(false);
     try {
-      const res = await specService.getByItem(code);
+      const res = await specService.getByHelper(code, {
+        permission_module: MODULE,
+        permission_action: "view",
+      });
       setSpecInfo(res?.data ?? null);
     } catch {
       setSpecInfo(null);
@@ -366,7 +434,12 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     try {
       const res = await mrnService.getDetail(uid);
       const data = res?.data ?? null;
-      setDetail(data);
+      setDetail(data ? {
+        ...data,
+        status: data.status || sourceRow?.status || null,
+        sticker_approved: data.sticker_approved ?? sourceRow?.sticker_approved,
+        sticker_generated: data.sticker_generated ?? sourceRow?.sticker_generated,
+      } : null);
       if ((data?.coils || []).length > 0) {
         setCoilCount(data.coils.length);
         setCoilQtys(data.coils.map((c) => roundQty3(c.qty)));
@@ -400,11 +473,17 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       setPreviewOpen(false);
       setPreviewHtml("");
       setDlTracking({});
+      setScanTracking({});
       setSavingDraft(false);
+      setApproving(false);
       setDrawerCloneKey(0);
       return;
     }
     const uid = mrnId || sourceRow?.uid;
+    if (openMode === "approve") {
+      setTab(TABS.BREAKDOWN);
+      setScanTracking({});
+    }
     if (uid) {
       loadDetail();
       return;
@@ -415,7 +494,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       applyFreshInputs(hydrated);
       setLoading(false);
     }
-  }, [open, mrnId, sourceRow, loadDetail, applyFreshInputs, drawerCloneKey]);
+  }, [open, mrnId, sourceRow, openMode, loadDetail, applyFreshInputs, drawerCloneKey]);
 
   useEffect(() => {
     if (!open || !detail?.item_dcode) {
@@ -429,7 +508,30 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   }, [open, detail?.item_dcode, drawerCloneKey, loadSpecForItem]);
 
   const generatedCoils = detail?.coils || [];
-  const alreadyGenerated = detail?.sticker_generated === true || generatedCoils.length > 0;
+  const alreadyGenerated = isDetailGenerated(detail);
+  const awaitingApproval = isDetailAwaitingApproval(detail);
+  const isApproved = isDetailApproved(detail);
+  /** Approve scan + button — only from toolbar Approve, never merged into Generate. */
+  const showApprovalFlow = awaitingApproval && openMode === "approve";
+  const showPrintHeader =
+    alreadyGenerated &&
+    (isSuperAdmin || canShowPrintActions) &&
+    (awaitingApproval || isApproved);
+  const requiredCoilUids = useMemo(
+    () => generatedCoils.map((c) => String(c.coil_no_uid || "").trim()).filter(Boolean),
+    [generatedCoils]
+  );
+  const allCoilsScanned = useMemo(
+    () => showApprovalFlow && requiredCoilUids.length > 0 && requiredCoilUids.every((uid) => scanTracking[uid]),
+    [showApprovalFlow, requiredCoilUids, scanTracking]
+  );
+  const allQcScanned = useMemo(() => {
+    if (!showApprovalFlow) return false;
+    if (isBatchMode) return !!scanTracking[BATCH_QC_DL_KEY];
+    return requiredCoilUids.length > 0 && requiredCoilUids.every((uid) => scanTracking[`qc_${uid}`]);
+  }, [showApprovalFlow, isBatchMode, requiredCoilUids, scanTracking]);
+  const canApprove = allCoilsScanned && allQcScanned;
+  scanTrackingRef.current = scanTracking;
 
   const specMissing = useMemo(() => {
     if (!specChecked || alreadyGenerated) return false;
@@ -864,6 +966,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         ...(nextDetail || {}),
         uid: newUid,
         sticker_generated: true,
+        sticker_approved: false,
+        status: "generate",
         coils: nextDetail?.coils?.length
           ? nextDetail.coils
           : (res?.data?.coils || []),
@@ -886,12 +990,166 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     }
   };
 
+  const printAllHotkeyRef = useRef(handlePrintAll);
+  printAllHotkeyRef.current = handlePrintAll;
+
   const handleShortcutSave = () => {
     if (alreadyGenerated || generating || savingDraft) return;
     if (isReadyToGenerate) {
       void handleGenerate();
     } else {
       void handleSaveDraft();
+    }
+  };
+
+  const handleApprovalScan = useCallback((rawValue, opts = {}) => {
+    const continuous = opts.continuous === true;
+    const raw = normalizeScanInput(rawValue);
+    if (!raw) return "empty";
+    const mrnUid = resolvedUid || detail?.uid;
+
+    const warn = (message) => {
+      if (!continuous) {
+        toast.error(message);
+        return;
+      }
+      const now = Date.now();
+      if (now - lastCamErrorRef.current < 1600) return;
+      lastCamErrorRef.current = now;
+      toast.error(message, { toastId: "mrn-approve-scan-err" });
+    };
+
+    const mark = (key) => {
+      if (scanTrackingRef.current[key]) return "duplicate";
+      const next = { ...scanTrackingRef.current, [key]: true };
+      scanTrackingRef.current = next;
+      setScanTracking(next);
+      if (continuous) {
+        void playScanSuccessBeep();
+        const coilDone = requiredCoilUids.filter((uid) => next[uid]).length;
+        const qcNeed = isBatchMode ? 1 : requiredCoilUids.length;
+        const qcDone = isBatchMode
+          ? (next[BATCH_QC_DL_KEY] ? 1 : 0)
+          : requiredCoilUids.filter((uid) => next[`qc_${uid}`]).length;
+        const done = coilDone + qcDone;
+        const total = requiredCoilUids.length + qcNeed;
+        if (total > 0 && done >= total) {
+          setIsScannerOpen(false);
+          toast.success("All stickers scanned. You can approve now.", { toastId: "mrn-approve-scan" });
+        }
+      } else {
+        toast.success(
+          key === BATCH_QC_DL_KEY
+            ? "Batch QC sticker scanned."
+            : String(key).startsWith("qc_")
+              ? "QC sticker scanned."
+              : "Coil sticker scanned."
+        );
+      }
+      return "ok";
+    };
+
+    if (isBatchMode) {
+      const batchMrn = extractBatchMrnUid(raw);
+      if (batchMrn && mrnUidsMatch(batchMrn, mrnUid)) {
+        return mark(BATCH_QC_DL_KEY);
+      }
+    }
+
+    const qcUid = extractQcStickerUid(raw);
+    if (qcUid) {
+      if (isBatchMode) {
+        warn("Scan the batch QC sticker (QC|…_batch_qc), not a single-coil QC.");
+        return "error";
+      }
+      const match = findMatchingCoilUid(qcUid, requiredCoilUids);
+      if (match) return mark(`qc_${match}`);
+      warn("QC sticker does not match this MRN.");
+      return "error";
+    }
+
+    const coilUid = extractCoilUid(raw);
+    if (coilUid) {
+      const match = findMatchingCoilUid(coilUid, requiredCoilUids);
+      if (match) return mark(match);
+      warn("Coil sticker does not match this MRN.");
+      return "error";
+    }
+    warn("Invalid scan.");
+    return "error";
+  }, [detail?.uid, isBatchMode, requiredCoilUids, resolvedUid]);
+
+  const handleCameraDecoded = useCallback((text) => {
+    handleApprovalScan(text, { continuous: true });
+  }, [handleApprovalScan]);
+
+  const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
+    active: isScannerOpen && showApprovalFlow,
+    elementId: APPROVE_QR_READER_ID,
+    onDecoded: handleCameraDecoded,
+    fps: 15,
+    qrbox: { width: 250, height: 250 },
+    onCameraFailed: (err) => {
+      setIsScannerOpen(false);
+      const denied = /NotAllowed|Permission|denied/i.test(String(err?.message || err || ""));
+      toast.error(denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again.");
+    },
+  });
+
+  const startCameraScanner = useCallback(async () => {
+    try {
+      const prep = await prepareQrScanSession();
+      if (!prep?.cameraOk) {
+        toast.error(prep?.cameraDenied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again.");
+        return;
+      }
+    } catch (err) {
+      const denied = /NotAllowed|Permission|denied/i.test(String(err?.message || err || ""));
+      toast.error(denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again.");
+      return;
+    }
+    setIsScannerOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open || !showApprovalFlow) setIsScannerOpen(false);
+  }, [open, showApprovalFlow]);
+
+  const handleApprove = async () => {
+    if (!canShowApproveAction) {
+      toast.error("You do not have permission to approve stickers.");
+      return;
+    }
+    if (!canApprove) {
+      toast.error("Scan all coil and QC stickers before approval.");
+      return;
+    }
+    const uid = resolvedUid || detail?.uid;
+    if (!uid) {
+      toast.error("MRN UID is missing.");
+      return;
+    }
+    setApproving(true);
+    try {
+      const res = await mrnService.approveStickers({
+        uid,
+        scanned_coils: requiredCoilUids,
+        scanned_qc: isBatchMode ? [] : requiredCoilUids,
+        scanned_batch_qc: isBatchMode,
+      });
+      notify(res, "Stickers approved successfully.");
+      setDetail((prev) => ({
+        ...(prev || {}),
+        sticker_approved: true,
+        sticker_approved_by: res?.data?.sticker_approved_by ?? prev?.sticker_approved_by,
+        sticker_approved_at: res?.data?.sticker_approved_at ?? prev?.sticker_approved_at,
+        status: "approved",
+      }));
+      onSuccess?.();
+    } catch (err) {
+      toast.error(err?.message || "Could not approve stickers. Please try again.");
+    } finally {
+      setApproving(false);
     }
   };
 
@@ -1205,14 +1463,23 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                     const qcPrinted = isBatchMode
                       ? !!dlTracking[BATCH_QC_DL_KEY]
                       : !!dlTracking[`qc_${row.coil_no_uid}`];
-                    const showRowQc = alreadyGenerated && !isBatchMode;
+                    const coilScanned = !!scanTracking[row.coil_no_uid];
+                    const qcScanned = isBatchMode
+                      ? !!scanTracking[BATCH_QC_DL_KEY]
+                      : !!scanTracking[`qc_${row.coil_no_uid}`];
+                    const showRowQc = isApproved && !isBatchMode;
                     return (
                       <tr key={`${row.coil_no_uid}-${row.index}`} className="group border-b border-slate-100 hover:bg-slate-50/70">
                         <td className="sticky left-0 z-10 px-2 py-1.5 lg:px-3 text-[10px] lg:text-[13px] font-bold text-slate-600 bg-white group-hover:bg-slate-50 border-r border-slate-100 tabular-nums">
                           {row.index}
                         </td>
                         <td className="px-2 py-1.5 lg:px-3 text-[10px] lg:text-xs font-bold min-w-0 max-w-[200px]">
-                          <span className={`break-all font-bold ${alreadyGenerated ? "text-blue-700" : "text-slate-900"}`}>{row.coil_no_uid}</span>
+                          <div className="flex items-center gap-1 min-w-0">
+                            {showApprovalFlow ? (
+                              <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${coilScanned ? "text-emerald-600" : "text-slate-300"}`} />
+                            ) : null}
+                            <span className={`break-all font-bold ${alreadyGenerated ? "text-blue-700" : "text-slate-900"}`}>{row.coil_no_uid}</span>
+                          </div>
                         </td>
                         <td className="px-2 py-1.5 lg:px-3 text-[10px] lg:text-[13px] font-bold text-indigo-700 font-mono tabular-nums whitespace-nowrap">
                           {detail?.uid || detail?.mrn_uid || "—"}
@@ -1241,7 +1508,12 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                           )}
                         </td>
                         <td className="px-2 py-1.5 lg:px-3">
-                          {showRowQc ? (
+                          {showApprovalFlow ? (
+                            <div className="inline-flex items-center gap-1">
+                              <CheckCircle2 className={`w-3.5 h-3.5 ${qcScanned ? "text-emerald-600" : "text-slate-300"}`} />
+                              <span className="text-[9px] font-bold uppercase text-slate-500">{isBatchMode ? "Batch" : "QC"}</span>
+                            </div>
+                          ) : showRowQc ? (
                             <button
                               type="button"
                               disabled={downloading}
@@ -1263,16 +1535,22 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                           )}
                         </td>
                         <td className="px-2 py-1.5 lg:px-3">
-                          {alreadyGenerated ? (
+                          {showApprovalFlow ? (
+                            <span className={`text-[9px] lg:text-[12px] font-bold uppercase whitespace-nowrap ${coilScanned && qcScanned ? "text-emerald-600" : "text-indigo-600"}`}>
+                              {coilScanned && qcScanned ? "Scanned" : "Awaiting"}
+                            </span>
+                          ) : alreadyGenerated ? (
                             <span className={`text-[9px] lg:text-[12px] font-bold uppercase whitespace-nowrap ${printed ? "text-emerald-600" : "text-blue-600"}`}>
-                              {printed ? "Downloaded" : "Generated"}
+                              {isApproved ? (printed ? "Downloaded" : "Approved") : "Generated"}
                             </span>
                           ) : (
                             <span className="text-[9px] lg:text-[12px] font-bold text-slate-300 italic uppercase">Ready</span>
                           )}
                         </td>
                         <td className="sticky right-0 z-10 py-1 px-2 text-right bg-white group-hover:bg-slate-50 border-l border-slate-100">
-                          {alreadyGenerated ? (
+                          {showApprovalFlow ? (
+                            <span className="text-[9px] text-slate-400 font-bold uppercase">Scan</span>
+                          ) : (isApproved || awaitingApproval) && canShowPrintActions ? (
                             <button
                               type="button"
                               disabled={downloading}
@@ -1360,6 +1638,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   );
 
   return (
+    <>
     <Drawer
       isOpen={open}
       onClose={() => {
@@ -1370,6 +1649,14 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         onClose?.();
       }}
       onSubmit={!alreadyGenerated && !generating && !savingDraft ? handleShortcutSave : undefined}
+      onPrintHotkey={
+        showPrintHeader && generatedCoils.length
+          ? () => {
+              void printAllHotkeyRef.current();
+            }
+          : undefined
+      }
+      canPrintHotkey={() => showPrintHeader && !downloading && generatedCoils.length > 0}
       title="Sticker Control"
       maxWidth="max-w-full xl:max-w-7xl"
       noPadding
@@ -1410,7 +1697,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                   >
                     {stickerModeLabel}
                   </span> */}
-                  {alreadyGenerated ? (
+                  {showPrintHeader ? (
                     <>
                       {isBatchMode ? (
                         <button
@@ -1444,6 +1731,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                         type="button"
                         onClick={() => void handlePrintAll()}
                         disabled={downloading || !generatedCoils.length}
+                        title="Print all stickers (Ctrl+Alt+P / Ctrl+P in app)"
                         className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-5 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-md disabled:bg-emerald-300 touch-manipulation flex-1 sm:flex-initial min-h-[34px]"
                       >
                         {downloading ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Printer size={14} className="shrink-0" />}
@@ -1456,12 +1744,27 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                         )}
                       </button>
                     </>
-                  ) : (
+                  ) : null}
+                  {showApprovalFlow && canShowApproveAction ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleApprove()}
+                      disabled={approving || !canApprove}
+                      title={!canApprove ? "Scan all coil and QC stickers first." : "Approve stickers"}
+                      className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white px-2 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-md touch-manipulation flex-1 sm:flex-initial min-h-[34px]"
+                    >
+                      {approving ? <Loader2 size={14} className="animate-spin shrink-0" /> : <ShieldCheck size={14} className="shrink-0" />}
+                      <span className="hidden lg:inline">APPROVE</span>
+                      <span className="lg:hidden">Approve</span>
+                    </button>
+                  ) : null}
+                  {!alreadyGenerated && canShowAddActions ? (
                     <>
                       <button
                         type="button"
                         onClick={() => void handleSaveDraft()}
                         disabled={generating || savingDraft || previewLoading}
+                        title="Ctrl+S — save draft, or generate when ready"
                         className="bg-white border border-sky-300 hover:bg-sky-50 disabled:opacity-50 text-sky-800 px-2 sm:px-4 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-sm touch-manipulation flex-1 sm:flex-initial min-h-[34px]"
                       >
                         {savingDraft ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Save size={14} className="shrink-0" />}
@@ -1482,6 +1785,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                         type="button"
                         onClick={handleGenerate}
                         disabled={generating || savingDraft}
+                        title="Ctrl+S — generate when ready, otherwise save draft"
                         className="bg-slate-900 hover:bg-black disabled:bg-slate-400 text-white px-2 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-md touch-manipulation flex-1 sm:flex-initial min-h-[34px]"
                       >
                         {generating ? <Loader2 size={14} className="animate-spin shrink-0" /> : <Printer size={14} className="shrink-0" />}
@@ -1489,7 +1793,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                         <span className="hidden lg:inline">GENERATE ({coilCount})</span>
                       </button>
                     </>
-                  )}
+                  ) : null}
                 </div>
             </div>
             {!alreadyGenerated && (specMissing || specNotApproved) ? (
@@ -1510,6 +1814,69 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                 </p>
               </div>
             ) : null}
+            {showApprovalFlow ? (
+              <div className="px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 border-t border-indigo-100 bg-indigo-50/70">
+                <div className="flex flex-col gap-2 max-w-full min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ScanLine size={15} className="text-indigo-600 shrink-0" aria-hidden />
+                    <span className="text-[10px] sm:text-[11px] font-black uppercase text-indigo-800 leading-tight truncate">
+                      Scan coil + QC stickers
+                    </span>
+                    <span className="ml-auto text-[10px] font-bold text-indigo-700 tabular-nums whitespace-nowrap">
+                      Coils {requiredCoilUids.filter((uid) => scanTracking[uid]).length}/{requiredCoilUids.length}
+                      {" · "}
+                      QC {isBatchMode ? (scanTracking[BATCH_QC_DL_KEY] ? 1 : 0) : requiredCoilUids.filter((uid) => scanTracking[`qc_${uid}`]).length}/{isBatchMode ? 1 : requiredCoilUids.length}
+                    </span>
+                  </div>
+                  {(phoneQrVisible || laserScan || keyboardType) ? (
+                  <div className="flex items-center gap-1.5 w-full min-w-0">
+                    {laserScan ? (
+                      <LaserScanField
+                        active={open && showApprovalFlow && laserScan}
+                        onScanned={handleApprovalScan}
+                        companionTypableRef={keyboardType ? approvalScanInputRef : undefined}
+                        compact
+                        heightClass="h-9"
+                        armButtonLabel="Scan"
+                        className="shrink-0"
+                      />
+                    ) : null}
+                    {keyboardType ? (
+                      <div className="flex flex-1 min-w-0 items-center gap-2 h-9 px-2.5 border border-slate-300 rounded-lg bg-white focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500/20">
+                        <ScanLine size={14} className="shrink-0 text-indigo-400 pointer-events-none" aria-hidden />
+                        <ScanEnterInput
+                          ref={approvalScanInputRef}
+                          onEnter={handleApprovalScan}
+                          placeholder={
+                            isBatchMode
+                              ? "Coil UID or batch QC"
+                              : "Coil or QC UID"
+                          }
+                          className="min-w-0 flex-1 border-0 bg-transparent p-0 h-full text-sm sm:text-xs font-mono text-slate-900 placeholder:text-slate-400 placeholder:font-normal outline-none"
+                        />
+                      </div>
+                    ) : null}
+                    {phoneQrVisible ? (
+                      <button
+                        type="button"
+                        onClick={() => void startCameraScanner()}
+                        disabled={isScannerOpen || approving}
+                        title="Scan QR"
+                        className="w-9 h-9 shrink-0 inline-flex items-center justify-center rounded-lg border bg-indigo-600 border-indigo-700 text-white hover:bg-indigo-700 disabled:opacity-60 touch-manipulation"
+                      >
+                        <QrCode size={16} />
+                      </button>
+                    ) : null}
+                  </div>
+                  ) : null}
+                  {!phoneQrVisible && !laserScan && !keyboardType ? (
+                    <p className="text-[11px] font-medium text-slate-500 px-0.5">
+                      Turn on Laser, Keyboard, or Phone QR from the profile menu.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             </div>
 
             {/* Mobile tabs */}
@@ -1524,7 +1891,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                   role="tab"
                   aria-selected={tab === t.id}
                   onClick={() => setTab(t.id)}
-                  className={`rounded-md py-1.5 px-2 text-center text-[9px] sm:text-[10px] font-black uppercase tracking-tight transition-all ${
+                  className={`rounded-md py-2 sm:py-1.5 px-2 text-center text-[9px] sm:text-[10px] font-black uppercase tracking-tight transition-all touch-manipulation ${
                     tab === t.id
                       ? "bg-white text-indigo-700 shadow-sm ring-1 ring-slate-200"
                       : "bg-slate-200/70 text-slate-600 hover:bg-slate-200"
@@ -1556,5 +1923,15 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       </div>
       {previewPortal}
     </Drawer>
+    <QrScannerOverlay
+      open={isScannerOpen && showApprovalFlow}
+      readerId={APPROVE_QR_READER_ID}
+      onClose={() => setIsScannerOpen(false)}
+      hint="Scanning sticker / box QR"
+      torchSupported={torchSupported}
+      torchOn={torchOn}
+      onToggleTorch={toggleTorch}
+    />
+    </>
   );
 }

@@ -178,6 +178,7 @@ export default function ReceivePendingStoreInModal({ open, iprUid, onClose, onSu
         type="button"
         onClick={() => void handleReceive()}
         disabled={saving || loading || !lines.length}
+        title="Ctrl+S"
         className={IMS_DRAWER_BTN_PRIMARY}
       >
         {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}

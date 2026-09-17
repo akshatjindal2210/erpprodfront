@@ -22,16 +22,6 @@ import { focusFirstError } from "@/platform/utils/form/formFocus";
 const MODULE = "rm_spec_master";
 const FIELD_ORDER = ["item_dcode", "condition", "grade", "size", "specs"];
 
-function fetchSpecHeaderSuggestions(field) {
-  return (search = "") => specService.getHeaderValues(field, { search }).then((res) => (Array.isArray(res?.data) ? res.data : []));
-}
-
-const fetchConditionSuggestions = fetchSpecHeaderSuggestions("condition");
-const fetchGradeSuggestions = fetchSpecHeaderSuggestions("grade");
-const fetchSizeSuggestions = fetchSpecHeaderSuggestions("size");
-const fetchConditionColorSuggestions = fetchSpecHeaderSuggestions("condition_color");
-const fetchGradeColorSuggestions = fetchSpecHeaderSuggestions("grade_color");
-
 const SPEC_TYPE_OPTIONS = [
   { value: "min", label: "Minimum" },
   { value: "max", label: "Maximum" },
@@ -318,6 +308,19 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
   const readOnly = isView;
   const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : isView ? "view" : "add";
   const showApproval = canApprove && (isCreateFlow || isApprove);
+  const specHelperPerms = { permission_module: MODULE, permission_action: "view" };
+  const fetchHeaderSuggestions = useCallback(
+    (field) => (search = "") =>
+      specService
+        .getHeaderValues(field, { search, ...specHelperPerms })
+        .then((res) => (Array.isArray(res?.data) ? res.data : [])),
+    [sopPermissionType]
+  );
+  const fetchConditionSuggestions = useCallback((search) => fetchHeaderSuggestions("condition")(search), [fetchHeaderSuggestions]);
+  const fetchGradeSuggestions = useCallback((search) => fetchHeaderSuggestions("grade")(search), [fetchHeaderSuggestions]);
+  const fetchSizeSuggestions = useCallback((search) => fetchHeaderSuggestions("size")(search), [fetchHeaderSuggestions]);
+  const fetchConditionColorSuggestions = useCallback((search) => fetchHeaderSuggestions("condition_color")(search), [fetchHeaderSuggestions]);
+  const fetchGradeColorSuggestions = useCallback((search) => fetchHeaderSuggestions("grade_color")(search), [fetchHeaderSuggestions]);
 
   const [loading, setLoading] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -619,7 +622,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
     }
   };
 
-  const helperPerms = { permission_module: MODULE, permission_action: "view" };
+  const helperPerms = specHelperPerms;
 
   const title = isView
     ? "View RM Spec"

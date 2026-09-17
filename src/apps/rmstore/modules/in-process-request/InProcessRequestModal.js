@@ -13,7 +13,7 @@ import { mrnService } from "@/apps/rmstore/lib/services/mrn";
 import { inProcessRequestService, IPR_REQUEST_TYPE, IPR_DOWNSTREAM, IPR_REQUEST_TYPE_LABEL, IPR_REJECTION_SCOPE_LABEL } from "@/apps/rmstore/lib/services/inProcessRequest";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CLOSE, IMS_DRAWER_BTN_APPROVE } from "@/apps/ims/lib/helpers/masterListUi";
-import { extractCoilUid, normalizeScanInput, coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
+import { extractCoilUid, normalizeScanInput, coilUidDisplayLabel, stickerUidsMatch } from "@/apps/rmstore/lib/helpers/qrScan";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import Drawer from "@/ui/primitives/Drawer";
@@ -257,8 +257,8 @@ export default function InProcessRequestModal({
   const readOnly = isView;
   const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
   const coilCtx = useMemo(
-    () => coilHelperContext(MODULE, isApprove ? "authorize" : isEdit ? "edit" : readOnly ? "view" : "add"),
-    [isApprove, isEdit, readOnly]
+    () => coilHelperContext(MODULE, "view"),
+    []
   );
 
   const [saving, setSaving] = useState(false);
@@ -951,7 +951,7 @@ export default function InProcessRequestModal({
         return;
       }
 
-      if (coilsRef.current.some((c) => String(c.coil_no_uid).toLowerCase() === uid.toLowerCase())) {
+      if (coilsRef.current.some((c) => stickerUidsMatch(c.coil_no_uid, uid))) {
         showScanToast("error", `dup-${uid}`, `Coil ${uid} has already been added.`, 1800);
         return;
       }

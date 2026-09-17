@@ -47,7 +47,7 @@ function SettingToggle({ icon: Icon, title, description, checked, onChange, acce
   );
 }
 
-export default function DeviceSettingsModal({ open, onClose }) {
+export default function DeviceSettingsModal({ open, onClose, stackLevel = 0 }) {
   const {
     laserScan,
     keyboardType,
@@ -65,6 +65,7 @@ export default function DeviceSettingsModal({ open, onClose }) {
       description="Scan options are saved on this device only"
       headerVariant="form"
       maxWidth="max-w-md"
+      stackLevel={stackLevel}
       footer={
         <div className="flex justify-end w-full">
           <button

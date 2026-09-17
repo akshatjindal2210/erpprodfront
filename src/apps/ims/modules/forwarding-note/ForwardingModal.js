@@ -2139,6 +2139,7 @@ export default function ForwardingModal({
             <button
               onClick={() => handleSave(null, "save")}
               disabled={saveDisabled || isQtyExceeded}
+              title="Ctrl+S"
               className="min-w-[140px] w-full sm:w-auto px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400 disabled:cursor-not-allowed"
             >
               {saving && activeSubmit === "save" ? (

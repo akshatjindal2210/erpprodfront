@@ -12,7 +12,7 @@ import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettin
 import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
 import { prepareQrScanSession, unlockScanAudio } from "@/platform/utils/global/scanFeedback";
-import { extractBatchMrnUid, extractQcStickerUid, normalizeScanInput, qcStickerDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
+import { extractBatchMrnUid, extractQcStickerUid, mrnUidsMatch, normalizeScanInput, qcStickerDisplayLabel, stickerUidsMatch } from "@/apps/rmstore/lib/helpers/qrScan";
 import { qcCheckService } from "@/apps/rmstore/lib/services/qcCheck";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import { SCAN_INPUT_CLASS } from "@/ui/common/Constants";
@@ -84,15 +84,21 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
   const resolvePendingCoil = useCallback(async (coilUid) => {
     const uid = String(coilUid || "").trim();
     if (!uid) return null;
-    const res = await qcCheckService.getAll({
+    const pick = (rows) => (rows || []).find((r) => stickerUidsMatch(r.coil_no_uid, uid)) || null;
+    let res = await qcCheckService.getAll({
       page: 1,
       limit: 5,
       filters: { status: "pending", coil_no_uid: uid, expand_coils: true },
     });
-    const hit =
-      (res?.data || []).find(
-        (r) => String(r.coil_no_uid || "").toLowerCase() === uid.toLowerCase()
-      ) || null;
+    let hit = pick(res?.data);
+    if (!hit) {
+      res = await qcCheckService.getAll({
+        page: 1,
+        limit: 500,
+        filters: { status: "pending", expand_coils: true },
+      });
+      hit = pick(res?.data);
+    }
     if (!hit) return null;
     // Batch MRN coils must use the batch QC sticker — not independent coil QC
     if (String(hit.sticker_mode || "").toLowerCase() === "batch" || hit.is_batch_pending) {
@@ -157,7 +163,17 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
       });
       // expand_coils returns one row per coil; batch MRNs flag is_batch_pending=true
       // so we must NOT filter those out here — batch sticker unlocks the whole set.
-      const list = (res?.data || []).filter((r) => String(r.coil_no_uid || "").trim());
+      let list = (res?.data || []).filter((r) => String(r.coil_no_uid || "").trim());
+      if (!list.length) {
+        const allPending = await qcCheckService.getAll({
+          page: 1,
+          limit: 1000,
+          filters: { status: "pending", expand_coils: true },
+        });
+        list = (allPending?.data || []).filter(
+          (r) => String(r.coil_no_uid || "").trim() && mrnUidsMatch(r.mrn_uid, uid)
+        );
+      }
       if (!list.length) {
         showScanToast("error", "batch-empty", "No pending coils were found for this batch MRN.");
         return false;
@@ -222,7 +238,7 @@ export default function QcScanGateModal({ open, onClose, row, onUnlocked }) {
           if (
             row?.is_batch_pending &&
             row?.mrn_uid &&
-            String(row.mrn_uid).toLowerCase() !== batchMrn.toLowerCase()
+            !mrnUidsMatch(row.mrn_uid, batchMrn)
           ) {
             showScanToast(
               "error",

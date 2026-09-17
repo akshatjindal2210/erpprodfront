@@ -1,8 +1,10 @@
 /**
  * Shared QR / scan parsing for RM coils and store locations.
+ * UID format / prefix rules live in stickerUidFormat.js — not here.
  */
 
 import { getLocationQrValue } from "@/apps/rmstore/lib/helpers/locationQrLabel";
+import { findMatchingCoilNoUid, looksLikeStickerUid, stickerUidCoreKey, stickerUidsMatch } from "@/platform/utils/global/stickerUidFormat";
 
 /** Strip scanner control chars / BOM; first line only (HID often appends CR/LF). */
 export function normalizeScanInput(rawValue) {
@@ -76,11 +78,10 @@ export function extractLocationNo(rawValue) {
   if (/\bcoil(?:_no)?\s*uid\b/i.test(normalizedValue)) {
     return null;
   }
-  // Likely coil UID: digits_digits_… (year_mrn_serial_total_coil)
-  if (/^\d+_\d+_\d+_\d+_\d+$/.test(normalizedValue.replace(/\s+/g, ""))) {
+  // Coil / QC stickers must not resolve as locations (format lives in stickerUidFormat.js)
+  if (looksLikeStickerUid(normalizedValue)) {
     return null;
   }
-  // QC stickers
   if (/^QC\s*[|:]/i.test(normalizedValue)) {
     return null;
   }
@@ -174,3 +175,24 @@ export function extractBatchMrnUid(rawValue) {
   const mrnUid = m?.[1]?.trim();
   return mrnUid || null;
 }
+
+export { stickerUidCoreKey as coilUidMatchKey };
+
+/** Match scanned coil UID to a generated list (exact, core, or IMS-style suffix). */
+export const findMatchingCoilUid = findMatchingCoilNoUid;
+
+/** Match a scanned UID to a coil row list. */
+export function findMatchingCoil(scanned, coils = []) {
+  if (!Array.isArray(coils) || !coils.length) return null;
+  const matchUid = findMatchingCoilNoUid(
+    scanned,
+    coils.map((c) => String(c?.coil_no_uid ?? "").trim())
+  );
+  if (!matchUid) return null;
+  return coils.find((c) => String(c?.coil_no_uid ?? "").trim() === matchUid) || null;
+}
+
+/** Compare MRN uids (4111_1) even if scan includes sticker prefix segments. */
+export const mrnUidsMatch = stickerUidsMatch;
+
+export { looksLikeStickerUid, stickerUidsMatch };

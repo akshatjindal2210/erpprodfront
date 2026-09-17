@@ -2140,7 +2140,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               <button
                 onClick={() => handleSave(true)}
                 disabled={loading || isBlockingDataLoad || pendingScanCount > 0 || !isFulfillmentComplete}
-                title={!isFulfillmentComplete ? OUT_ENTRY_APPROVE_BLOCKED_MSG : undefined}
+                title={!isFulfillmentComplete ? OUT_ENTRY_APPROVE_BLOCKED_MSG : "Ctrl+S"}
                 className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
@@ -2162,6 +2162,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
               <button
                 onClick={() => handleSave()}
                 disabled={loading || !isConfirmed || isBlockingDataLoad || pendingScanCount > 0}
+                title="Ctrl+S"
                 className={`min-w-[140px] px-6 py-2 text-sm font-bold text-white rounded-xl shadow-lg disabled:bg-slate-300 transition-all active:scale-95 ${
                   isInventoryOutMode ? "bg-red-600 hover:bg-red-700" : "bg-indigo-600 hover:bg-indigo-700"
                 }`}
@@ -2177,6 +2178,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
             <button
               onClick={() => handleSave()}
               disabled={loading || !isConfirmed || isBlockingDataLoad || pendingScanCount > 0 || otherScannedCount === 0}
+              title="Ctrl+S"
               className={`min-w-[140px] px-6 py-2 text-sm font-bold text-white rounded-xl shadow-lg disabled:bg-slate-300 transition-all active:scale-95 ${PICKER_ACCENT[activePickerOption?.accent || "red"].submit}`}
             >
               {loading ? "Processing..." : `Submit (${otherScannedCount})`}
@@ -2185,6 +2187,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
             <button
               onClick={() => handleSave()}
               disabled={loading || !isConfirmed || isBlockingDataLoad || pendingScanCount > 0}
+              title="Ctrl+S"
               className={`min-w-[140px] px-6 py-2 text-sm font-bold text-white rounded-xl shadow-lg disabled:bg-slate-300 transition-all active:scale-95 ${PICKER_ACCENT.red.submit}`}
             >
               {loading

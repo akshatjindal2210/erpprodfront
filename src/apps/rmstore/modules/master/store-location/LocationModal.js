@@ -51,7 +51,7 @@ export default function LocationModal({ open, onClose, onSuccess, editData, mode
   const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
   const helperPerms = {
     permission_module: MODULE,
-    permission_action: isApprove ? "authorize" : isEdit ? "edit" : "add",
+    permission_action: "view",
   };
 
   const showApproval = canApprove && (mode === "add" || mode === "approve");

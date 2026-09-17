@@ -64,6 +64,7 @@ export default function PackingDeviationDrawer({ open, onClose, packingRow, onSu
         const res = await boxService.previewMonthlyPackingLimit({
           doc_no: packingRow.doc_no,
           itemdcode,
+          item_code: packingRow.item_code || packingRow.itemcode || null,
           total_qty: packingRow.total_qty,
           doc_dt: packingRow.doc_dt,
         });
@@ -246,6 +247,7 @@ export default function PackingDeviationDrawer({ open, onClose, packingRow, onSu
               <input
                 type="text"
                 value={pairQty(limitInfo?.schedule_qty, limitInfo?.schedule_balance_qty)}
+                // title={`Schedule ${fmtQty(limitInfo?.schedule_qty)} - dispatched ${fmtQty(limitInfo?.dispatch_qty)} = balance ${fmtQty(limitInfo?.schedule_balance_qty)}`} // common because we not need this right now.
                 readOnly
                 disabled
                 tabIndex={-1}

@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { ClipboardCheck, Trash2, Loader2, Plus, Eye, FileText } from "lucide-react";
+import { useSelector } from "react-redux";
+import { ClipboardCheck, Trash2, Loader2, Plus, Eye, FileText, ShieldCheck, ShieldX, Undo2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
 import { mrnService } from "@/apps/rmstore/lib/services/mrn";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
+import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
@@ -25,7 +27,11 @@ import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailGr
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 import MrnStickerModal from "./MrnStickerModal";
+import MrnRejectDrawer from "./MrnRejectDrawer";
 import MrnStickerRemoveConfirmModal from "./MrnStickerRemoveConfirmModal";
+import MrnRejectionCancelConfirmModal from "./MrnRejectionCancelConfirmModal";
+import { selectRole, selectUser } from "@/platform/store/slices/authSlice";
+import { isRmstoreSuperAdmin } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
 
 const MODULE = "rm_mrn_portal";
 
@@ -33,8 +39,27 @@ function formatDay(v) {
   return formatDocDate(v) || "—";
 }
 
+function resolveMrnPortalStatus(row) {
+  if (row?.sticker_rejected || row?.status === "reject") return "reject";
+  if (row?.sticker_generated && row?.sticker_approved === false) return "generate";
+  if (row?.sticker_generated || row?.status === "approved" || row?.status === "generated") return "approved";
+  return "pending";
+}
+
 function isMrnStickerGenerated(row) {
-  return row?.sticker_generated === true || row?.status === "generated";
+  return row?.sticker_generated === true || ["generate", "approved", "generated"].includes(row?.status);
+}
+
+function isMrnAwaitingApproval(row) {
+  return resolveMrnPortalStatus(row) === "generate";
+}
+
+function isMrnStickerApproved(row) {
+  return resolveMrnPortalStatus(row) === "approved";
+}
+
+function isMrnStickerRejected(row) {
+  return resolveMrnPortalStatus(row) === "reject";
 }
 
 function resolveUploadUrl(noteOrPath) {
@@ -165,17 +190,30 @@ function renderMrnQtyCell(v) {
   );
 }
 
-function renderMrnStickerStatus(v, row) {
-  const generated = v === "generated";
-  const draft = v === "draft" || row?.has_sticker_draft === true;
-  if (generated) {
+function renderMrnStickerStatus(_v, row) {
+  const status = resolveMrnPortalStatus(row);
+  if (status === "reject") {
     return (
-      <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-emerald-50 text-emerald-600 border-emerald-100">
-        ● GENERATED
+      <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-rose-50 text-rose-700 border-rose-200">
+        ● REJECTED
       </span>
     );
   }
-  if (draft) {
+  if (status === "approved") {
+    return (
+      <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-emerald-50 text-emerald-600 border-emerald-100">
+        ● APPROVED
+      </span>
+    );
+  }
+  if (status === "generate") {
+    return (
+      <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-indigo-50 text-indigo-700 border-indigo-200">
+        ● GENERATE
+      </span>
+    );
+  }
+  if (row?.has_sticker_draft === true) {
     return (
       <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-sky-50 text-sky-700 border-sky-200">
         ● DRAFT
@@ -191,8 +229,18 @@ function renderMrnStickerStatus(v, row) {
 
 export default function MrnPortalPage() {
   const canAccess = useCanAccess();
-  const canNewSticker = useMemo(() => canAccess(MODULE, "add").allowed, [canAccess]);
-  const canRemoveGeneratedStickers = useMemo(() => canAccess(MODULE, "delete").allowed, [canAccess]);
+  const role = useSelector(selectRole);
+  const currentUser = useSelector(selectUser);
+  const isSuperAdmin = useMemo(
+    () => isRmstoreSuperAdmin(currentUser) || String(role || "").toLowerCase() === "super_admin",
+    [currentUser, role]
+  );
+  const canAddMrn = useMemo(() => isSuperAdmin || canAccess(MODULE, "add").allowed, [canAccess, isSuperAdmin]);
+  const canAuthorizeMrn = useMemo(() => isSuperAdmin || canAccess(MODULE, "authorize").allowed, [canAccess, isSuperAdmin]);
+  const canRemoveGeneratedStickers = useMemo(
+    () => isSuperAdmin || canAccess(MODULE, "delete").allowed,
+    [canAccess, isSuperAdmin]
+  );
   const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
@@ -211,9 +259,13 @@ export default function MrnPortalPage() {
   const [selected, setSelected] = useState(null);
   const [removeStickersLoading, setRemoveStickersLoading] = useState(false);
   const [removeStickersConfirmOpen, setRemoveStickersConfirmOpen] = useState(false);
+  const [cancelRejectionLoading, setCancelRejectionLoading] = useState(false);
+  const [cancelRejectionConfirmOpen, setCancelRejectionConfirmOpen] = useState(false);
   const [stickerModalOpen, setStickerModalOpen] = useState(false);
   const [stickerMrnId, setStickerMrnId] = useState(null);
   const [stickerSourceRow, setStickerSourceRow] = useState(null);
+  const [stickerOpenMode, setStickerOpenMode] = useState(null);
+  const [rejectDrawerOpen, setRejectDrawerOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
 
   useEffect(() => {
@@ -286,29 +338,110 @@ export default function MrnPortalPage() {
     setDetailOpen(true);
   }, [selectedRecord]);
 
-  /** Open sticker drawer — DB write only happens on GENERATE (IMS-style). */
-  const openNewSticker = useCallback(() => {
+  const openStickerModal = useCallback((mode = "create") => {
     if (!selectedRecord) {
-      toast.info("Select a row in the list first. New Sticker opens only after a row is selected.");
+      toast.info("Select a row in the list first.");
       return;
     }
-
-    if (isMrnStickerGenerated(selectedRecord)) {
-      const uid = selectedRecord.uid;
-      if (!uid) {
-        toast.error("Could not open the stickers because the MRN ID is missing.");
-        return;
-      }
-      setStickerMrnId(uid);
-      setStickerSourceRow(selectedRecord);
-    } else {
-      setStickerMrnId(selectedRecord.uid || null);
-      setStickerSourceRow(selectedRecord);
+    const uid = selectedRecord.uid;
+    if (!uid) {
+      toast.error("Could not open the stickers because the MRN ID is missing.");
+      return;
     }
+    setStickerMrnId(uid);
+    setStickerSourceRow(selectedRecord);
+    setStickerOpenMode(mode);
     setStickerModalOpen(true);
   }, [selectedRecord]);
 
+  const openNewSticker = useCallback(() => openStickerModal("create"), [openStickerModal]);
+  const openApproveSticker = useCallback(() => openStickerModal("approve"), [openStickerModal]);
+  const openRejectDrawer = useCallback(() => {
+    if (!selectedRecord) {
+      toast.info("Select a row in the list first.");
+      return;
+    }
+    if (!selectedRecord.uid) {
+      toast.error("Could not reject because the MRN ID is missing.");
+      return;
+    }
+    setRejectDrawerOpen(true);
+  }, [selectedRecord]);
+
+  const selectedIsPending =
+    selectedRecord && !isMrnStickerGenerated(selectedRecord) && !isMrnStickerRejected(selectedRecord);
+  /** IMS New Sticker: any selected row except rejected. Pending shows Generate; generated shows the saved sticker screen. */
+  const selectedCanNewSticker = Boolean(selectedRecord && !isMrnStickerRejected(selectedRecord));
+  const selectedIsAwaitingApproval = selectedRecord && isMrnAwaitingApproval(selectedRecord);
+  const selectedIsRejected =
+    selectedRecord && isMrnStickerRejected(selectedRecord) && !isMrnStickerGenerated(selectedRecord);
+
   const openRemoveConfirm = useCallback(() => setRemoveStickersConfirmOpen(true), []);
+  const openCancelRejectionConfirm = useCallback(() => setCancelRejectionConfirmOpen(true), []);
+  const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
+
+  const { openNewModal, openApproveModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
+    module: MODULE,
+    bypassModulePermission: isSuperAdmin,
+    modalOpen:
+      stickerModalOpen ||
+      rejectDrawerOpen ||
+      detailOpen ||
+      removeStickersConfirmOpen ||
+      cancelRejectionConfirmOpen,
+    selectedId: selected,
+    getSelectedRow,
+    openAdd: openNewSticker,
+    canOpenNew: () => Boolean(canAddMrn && selectedCanNewSticker),
+    newBlockedMessage: "Select an MRN row first. Pending rows open Generate. Generated rows open the saved sticker screen.",
+    openApprove: openApproveSticker,
+    getAuthorizeAccess: () => ({ allowed: canAuthorizeMrn }),
+    canApproveSelection: () => Boolean(selectedIsAwaitingApproval),
+    approveBlockedMessage: "Select a Generate-status row to scan and approve stickers.",
+    openDelete: openRemoveConfirm,
+    canDeleteSelection: () =>
+      Boolean(canRemoveGeneratedStickers && selected && isMrnStickerGenerated(selectedRecord)),
+    deleteBlockedMessage: "Select an MRN with generated stickers to cancel them.",
+  });
+
+  const handleRejectSuccess = useCallback(() => {
+    setParams((prev) => ({ ...prev, status: "rejected" }));
+  }, []);
+
+  const handleCancelRejectionSuccess = useCallback(() => {
+    setParams((prev) => ({ ...prev, status: "pending" }));
+  }, []);
+
+  const handleCancelRejection = async () => {
+    if (!canAuthorizeMrn) {
+      toast.error("You do not have permission to cancel this rejection.");
+      return;
+    }
+    if (!selectedRecord || !selectedIsRejected) return;
+    const uid = selectedRecord.uid;
+    if (!uid) {
+      toast.error("Could not cancel the rejection because the MRN ID is missing.");
+      return;
+    }
+
+    setCancelRejectionLoading(true);
+    try {
+      const res = await mrnService.cancelRejection(uid);
+      if (res?.success === false) {
+        throw new Error(res?.message || "Could not cancel the rejection. Please try again.");
+      }
+      toast.success(res?.message || "Rejection permanently deleted. MRN is back in ERP Pending.");
+      setCancelRejectionConfirmOpen(false);
+      setSelected(null);
+      handleCancelRejectionSuccess();
+    } catch (err) {
+      toast.error(
+        err?.message || err?.payload?.message || "Could not cancel the rejection. Please try again."
+      );
+    } finally {
+      setCancelRejectionLoading(false);
+    }
+  };
 
   const handleRemoveGeneratedStickers = async () => {
     if (!canRemoveGeneratedStickers) {
@@ -399,6 +532,26 @@ export default function MrnPortalPage() {
           {isMrnStickerGenerated(row) && v ? formatDateTime(v) : "—"}
         </span>
       ), { width: "150px" }],
+      ["Approved By", "sticker_approved_by", (v, row) => (
+        <span className="text-[10px] text-slate-500 uppercase font-bold">
+          {isMrnStickerApproved(row) ? (v || "—") : "—"}
+        </span>
+      ), { width: "120px" }],
+      ["Approved At", "sticker_approved_at", (v, row) => (
+        <span className="text-[10px] text-slate-400 font-bold">
+          {isMrnStickerApproved(row) && v ? formatDateTime(v) : "—"}
+        </span>
+      ), { width: "150px" }],
+      ["Rejected By", "sticker_rejected_by", (v, row) => (
+        <span className="text-[10px] text-rose-600 uppercase font-bold">
+          {isMrnStickerRejected(row) ? (v || "—") : "—"}
+        </span>
+      ), { width: "120px" }],
+      ["Rejected At", "sticker_rejected_at", (v, row) => (
+        <span className="text-[10px] text-slate-400 font-bold">
+          {isMrnStickerRejected(row) && v ? formatDateTime(v) : "—"}
+        </span>
+      ), { width: "150px" }],
     ];
     },
     [isComparisonView]
@@ -416,10 +569,11 @@ export default function MrnPortalPage() {
       key: "mrnStatus",
       value: params.status,
       options: [
-        { label: "All Status", value: "all" },
-        { label: "Pending", value: "pending" },
-        { label: "Generated", value: "generated" },
+        { label: "Pending + Generated", value: "pending" },
+        { label: "Approved", value: "approved" },
+        { label: "Rejected", value: "rejected" },
         { label: "Comparison", value: "comparison" },
+        { label: "All", value: "all" },
       ],
     }],
     [params.status]
@@ -451,17 +605,43 @@ export default function MrnPortalPage() {
         <ListPageToolbar>
           <ListPageToolbarLayout
             actions={
-              <div className="flex items-center gap-2">
-                {canNewSticker ? (
+              <div className="flex flex-wrap items-center gap-2 w-full min-w-0">
+                {canAddMrn ? (
                   <button
                     type="button"
-                    disabled={!selected}
-                    onClick={openNewSticker}
-                    title="Select a row in the list first to open New Sticker."
+                    disabled={!selectedCanNewSticker}
+                    onClick={openNewModal}
+                    title="Select a row, then New Sticker. Pending opens Generate. Already generated opens the saved sticker screen, like IMS."
                     className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Plus size={16} strokeWidth={2} />
                     <span>New Sticker</span>
+                  </button>
+                ) : null}
+
+                {canAuthorizeMrn ? (
+                  <button
+                    type="button"
+                    disabled={!selectedIsAwaitingApproval}
+                    onClick={openApproveModal}
+                    title="Select a Generate-status row to scan and approve stickers. Shortcut: Ctrl+A."
+                    className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <ShieldCheck size={16} strokeWidth={2} />
+                    <span>Approve</span>
+                  </button>
+                ) : null}
+
+                {canAuthorizeMrn ? (
+                  <button
+                    type="button"
+                    disabled={!selectedIsPending}
+                    onClick={openRejectDrawer}
+                    title="Select a pending MRN row to reject before sticker generation."
+                    className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none flex items-center justify-center gap-2 bg-white text-rose-700 border border-rose-300 hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <ShieldX size={16} strokeWidth={2} />
+                    <span>Reject</span>
                   </button>
                 ) : null}
 
@@ -474,13 +654,30 @@ export default function MrnPortalPage() {
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none"
                 />
 
+                {canAuthorizeMrn && selected && selectedIsRejected ? (
+                  <button
+                    type="button"
+                    onClick={openCancelRejectionConfirm}
+                    disabled={cancelRejectionLoading || loading}
+                    className="rounded-none h-9 text-[11px] font-bold uppercase px-4 border border-amber-300 bg-white text-amber-800 hover:bg-amber-50 flex items-center justify-center gap-2 shadow-none disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Permanently delete the rejection register and local MRN row (before bill or Store Out)."
+                  >
+                    {cancelRejectionLoading ? (
+                      <Loader2 size={14} className="animate-spin shrink-0" aria-hidden />
+                    ) : (
+                      <Undo2 size={14} className="shrink-0" aria-hidden />
+                    )}
+                    Cancel rejection
+                  </button>
+                ) : null}
+
                 {canRemoveGeneratedStickers && selected && isMrnStickerGenerated(selectedRecord) ? (
                   <button
                     type="button"
-                    onClick={openRemoveConfirm}
+                    onClick={openDeleteModal}
                     disabled={removeStickersLoading || loading}
                     className="rounded-none h-9 text-[11px] font-bold uppercase px-4 border border-rose-300 bg-white text-rose-700 hover:bg-rose-50 flex items-center justify-center gap-2 shadow-none disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Delete the coil stickers for this MRN. Coils that are already stored in prevent cancellation."
+                    title="Delete the coil stickers for this MRN. Shortcut: Delete. Coils that are already stored in prevent cancellation."
                   >
                     {removeStickersLoading ? (
                       <Loader2 size={14} className="animate-spin shrink-0" aria-hidden />
@@ -546,6 +743,7 @@ export default function MrnPortalPage() {
             viewMode={viewMode}
             allowCopy
             showSelection
+            {...tableHotkeyProps}
             emptyIcon={ClipboardCheck}
             sortKey={params.sortKey ?? ""}
             sortDir={params.sortDir}
@@ -560,7 +758,10 @@ export default function MrnPortalPage() {
             selectedId={selected}
             onSelect={setSelected}
             onRowDoubleClick={() => {
-              if (selectedRecord) openNewSticker();
+              if (!selectedRecord) return;
+              if (canAddMrn && selectedCanNewSticker) openNewSticker();
+              else if (isMrnAwaitingApproval(selectedRecord) && canAuthorizeMrn) openApproveSticker();
+              else openView();
             }}
             getRowId={(row) => String(row.uid ?? row.id ?? "")}
             onLoadMore={() => {
@@ -569,11 +770,15 @@ export default function MrnPortalPage() {
             hasMore={items.length < totalItems}
             totalItems={totalItems}
             emptyMessage={
-              params.status === "pending"
-                ? "No pending MRNs for this date range"
-                : params.status === "comparison"
-                  ? "No ERP and database mismatches for this date range"
-                  : "No MRN records for this date range"
+              params.status === "pending" || params.status === "generate"
+                ? "No pending or awaiting-approval MRNs for this date range"
+                : params.status === "approved"
+                    ? "No approved MRNs for this date range"
+                    : params.status === "rejected"
+                      ? "No rejected MRNs for this date range"
+                      : params.status === "comparison"
+                        ? "No ERP and database mismatches for this date range"
+                        : "No MRN records for this date range"
             }
             emptySubMessage={
               params.status === "comparison"
@@ -668,9 +873,39 @@ export default function MrnPortalPage() {
 
             <MasterDetailKV
               label="Sticker status"
-              value={isMrnStickerGenerated(selectedRecord) ? "Generated" : "Pending"}
-              valueClassName={isMrnStickerGenerated(selectedRecord) ? "text-emerald-700" : "text-amber-700"}
+              value={
+                isMrnStickerRejected(selectedRecord)
+                  ? "Rejected"
+                  : isMrnStickerApproved(selectedRecord)
+                    ? "Approved"
+                    : isMrnAwaitingApproval(selectedRecord)
+                      ? "Generate"
+                      : "Pending"
+              }
+              valueClassName={
+                isMrnStickerRejected(selectedRecord)
+                  ? "text-rose-700"
+                  : isMrnStickerApproved(selectedRecord)
+                    ? "text-emerald-700"
+                    : isMrnAwaitingApproval(selectedRecord)
+                      ? "text-indigo-700"
+                      : "text-amber-700"
+              }
             />
+
+            {isMrnStickerRejected(selectedRecord) ? (
+              <MasterDetailGrid columns={2}>
+                <MasterDetailKV label="Rejected by" value={selectedRecord.sticker_rejected_by || "—"} />
+                <MasterDetailKV
+                  label="Rejected at"
+                  value={
+                    selectedRecord.sticker_rejected_at
+                      ? formatDateTime(selectedRecord.sticker_rejected_at)
+                      : "—"
+                  }
+                />
+              </MasterDetailGrid>
+            ) : null}
 
             {isMrnStickerGenerated(selectedRecord) ? (
               <MasterDetailGrid columns={2}>
@@ -718,14 +953,34 @@ export default function MrnPortalPage() {
 
       <MrnStickerModal
         open={stickerModalOpen}
+        openMode={stickerOpenMode}
         mrnId={stickerMrnId}
         sourceRow={stickerSourceRow}
         onClose={() => {
           setStickerModalOpen(false);
           setStickerMrnId(null);
           setStickerSourceRow(null);
+          setStickerOpenMode(null);
         }}
         onSuccess={() => fetchMrns()}
+      />
+
+      <MrnRejectionCancelConfirmModal
+        open={cancelRejectionConfirmOpen}
+        mrnNo={selectedRecord?.mrn_no}
+        mrnUid={selectedRecord?.uid}
+        loading={cancelRejectionLoading}
+        onClose={() => {
+          if (!cancelRejectionLoading) setCancelRejectionConfirmOpen(false);
+        }}
+        onConfirm={handleCancelRejection}
+      />
+
+      <MrnRejectDrawer
+        open={rejectDrawerOpen}
+        row={selectedRecord}
+        onClose={() => setRejectDrawerOpen(false)}
+        onSuccess={handleRejectSuccess}
       />
     </div>
   );

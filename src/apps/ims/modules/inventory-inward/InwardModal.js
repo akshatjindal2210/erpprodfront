@@ -1384,7 +1384,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
       footer={
         <div className="flex items-center justify-end gap-3 w-full">
           <button onClick={onClose} disabled={!formReady || saving} className="px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-800 transition-all">Cancel</button>
-          <button onClick={handleSave} disabled={!formReady || saving} className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400">
+          <button onClick={handleSave} disabled={!formReady || saving} title="Ctrl+S" className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:bg-indigo-400">
             {saving ? <><Loader2 size={18} className="animate-spin" /> Processing...</> : <><Check size={18} /> Save</>}
           </button>
         </div>

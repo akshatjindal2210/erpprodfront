@@ -2,6 +2,15 @@
 import React from "react";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 
+function defaultShortcutTitle(action, label) {
+  const name = String(label || "").trim().toLowerCase();
+  if (action === "add" && name === "new") return "Ctrl+Alt+N (browser) or Ctrl+N (PWA)";
+  if (action === "edit" && name === "edit") return "F2 · Ctrl+Alt+E (browser) or Ctrl+E (PWA)";
+  if (action === "authorize" && (name === "approve" || name === "authorize")) return "Ctrl+A";
+  if (action === "delete" && name === "delete") return "Delete";
+  return undefined;
+}
+
 const ActionButton = ({ module, action, label, icon: Icon, variant = "primary", onClick, disabled, className = "", record = null, title, ...props }) => {
   const canAccess = useCanAccess();
 
@@ -36,7 +45,7 @@ const ActionButton = ({ module, action, label, icon: Icon, variant = "primary", 
       onClick={onClick}
       disabled={disabled || isTimeRestricted}
       className={`${baseStyles} ${variants[variant]} ${className}`}
-      title={isTimeRestricted ? `Edit time limit exceeded (${access.days} days)` : title}
+      title={isTimeRestricted ? `Edit time limit exceeded (${access.days} days)` : (title ?? defaultShortcutTitle(action, label))}
       {...props}
     >
       {Icon && <Icon size={16} strokeWidth={2} />}

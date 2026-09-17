@@ -13,6 +13,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 
 import { stockAdjustmentService } from "@/apps/rmstore/lib/services/stockAdjustment";
 import { specService } from "@/apps/rmstore/lib/services/spec";
+import { specColorInputStyle } from "@/apps/rmstore/modules/master/rm-spec/specHeaderUi";
 import { mrnService } from "@/apps/rmstore/lib/services/mrn";
 import { splitQtyAcrossCoils, equalSplitQtyAcrossCoils, roundQty3, QTY_EPS } from "@/apps/rmstore/lib/helpers/coilUid";
 import { formatStockAdjustmentCoilUid } from "@/apps/rmstore/lib/coilUidFormat";
@@ -45,8 +46,19 @@ function sanitizeStockAdjustmentHeatNo(raw) {
   return String(raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
-function hasSavedDoc(path) {
-  return Boolean(String(path || "").trim());
+function SpecHeaderColorBadge({ label, color }) {
+  const value = String(color || "").trim();
+  const style = value ? specColorInputStyle(value) : undefined;
+  return (
+    <div
+      className="h-8 lg:h-9 px-2 rounded-lg border shrink-0 flex flex-col justify-center min-w-[84px] max-w-[120px] bg-white border-slate-200 text-slate-800"
+      style={style}
+      title={value || label}
+    >
+      <p className="text-[8px] uppercase font-bold leading-none opacity-70 truncate">{label}</p>
+      <span className="text-[10px] font-black uppercase leading-tight truncate">{value || "—"}</span>
+    </div>
+  );
 }
 
 /** Prevent mouse wheel from changing number inputs while scrolling the panel (MRN sticker pattern). */
@@ -180,6 +192,60 @@ function resolveMrnRemainingQty(mrn) {
   return 0;
 }
 
+function parseErpMrnCoils(mrn) {
+  let raw = mrn?.coils ?? mrn?.Coils ?? null;
+  if (raw == null || raw === "") return [];
+  if (typeof raw === "string") {
+    const source = raw;
+    for (const attempt of [source, source.replace(/(["']coil["']\s*:\s*)(\d+\/\d+)/gi, '$1"$2"')]) {
+      try {
+        let parsed = JSON.parse(attempt);
+        if (typeof parsed === "string") parsed = JSON.parse(parsed);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map((item) => Number(item?.qty ?? item?.Qty))
+            .filter((q) => Number.isFinite(q) && q >= 0)
+            .map(roundQty3);
+        }
+      } catch {
+        /* try next */
+      }
+    }
+    const qtys = [];
+    const re = /"qty"\s*:\s*(\d+(?:\.\d+)?)/gi;
+    let m;
+    while ((m = re.exec(source))) {
+      const q = Number(m[1]);
+      if (Number.isFinite(q) && q >= 0) qtys.push(roundQty3(q));
+    }
+    return qtys;
+  }
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => roundQty3(Number(item?.qty ?? item?.Qty))).filter((q) => Number.isFinite(q) && q >= 0);
+}
+
+function resizeCoilQtys(prev, count, total, { autoCalc, splitRemainder }) {
+  const n = Math.max(1, parseInt(String(count), 10) || 1);
+  const list = Array.isArray(prev) ? prev : [];
+  if (n <= list.length) {
+    return Array.from({ length: n }, (_, i) => (list[i] !== undefined && list[i] !== "" ? list[i] : ""));
+  }
+  const kept = list.map((q) => {
+    const v = Number(q);
+    return Number.isFinite(v) && v >= 0 ? roundQty3(v) : 0;
+  });
+  const addCount = n - kept.length;
+  if (!splitRemainder || addCount <= 0) return [...kept, ...Array.from({ length: addCount }, () => "")];
+  const remainder = roundQty3(Math.max(0, roundQty3(total) - kept.reduce((s, q) => s + q, 0)));
+  const added =
+    remainder > 0
+      ? autoCalc
+        ? splitQtyAcrossCoils(remainder, addCount)
+        : equalSplitQtyAcrossCoils(remainder, addCount)
+      : Array.from({ length: addCount }, () => "");
+  return [...kept, ...added];
+}
+
 function coilRowType(row) {
   if (row?.sa_id != null && String(row?.sa_entry_type || "").toLowerCase() === "stock_in") {
     return "SA ADD";
@@ -307,6 +373,9 @@ export default function StockAdjustmentDrawer({
   const [keptCoilQtyEdits, setKeptCoilQtyEdits] = useState({});
   const [specInfo, setSpecInfo] = useState(null);
   const [specChecked, setSpecChecked] = useState(false);
+  const [oldErpBreakdown, setOldErpBreakdown] = useState(false);
+  const [oldErpSourceQtys, setOldErpSourceQtys] = useState([]);
+  const [oldErpActiveIdx, setOldErpActiveIdx] = useState([]);
 
   const sopAckRef = useRef(null);
   const editId = editData?.adjustment_id ?? null;
@@ -348,6 +417,9 @@ export default function StockAdjustmentDrawer({
     setMrnPickUid("");
     setSpecInfo(null);
     setSpecChecked(false);
+    setOldErpBreakdown(false);
+    setOldErpSourceQtys([]);
+    setOldErpActiveIdx([]);
   }, []);
 
   useEffect(() => {
@@ -547,7 +619,7 @@ export default function StockAdjustmentDrawer({
     };
   }, [open, editId, isAddMode, isApprove, resetForm]);
 
-  const applyMrnToForm = useCallback((mrn) => {
+  const applyMrnToForm = useCallback((mrn, entryTypeForLoad = "") => {
     setMrnDetail(mrn);
     const uid = String(mrn?.uid || mrn?.mrn_uid || "").trim();
     const no = mrn?.mrn_no != null ? String(mrn.mrn_no) : "";
@@ -566,10 +638,25 @@ export default function StockAdjustmentDrawer({
     if (mrn?.financial_year) setFinancialYear(String(mrn.financial_year));
     const startTotal = resolveMrnRemainingQty(mrn);
     setTotalQty(String(startTotal || ""));
-    const autoCalc = mrn?.qty_auto_calc !== false;
-    const editable = mrn?.qty_editable !== false;
-    setCoilCount("1");
-    setCoilQtys(startTotal > 0 ? (autoCalc || !editable ? splitQtyAcrossCoils(startTotal, 1) : [startTotal]) : []);
+    const erpCoils = normalizeSaEntryType(entryTypeForLoad) === "old" ? parseErpMrnCoils(mrn) : [];
+    if (erpCoils.length) {
+      const coilTotal = roundQty3(erpCoils.reduce((s, q) => s + q, 0));
+      const activeIdx = erpCoils.map((_, i) => i);
+      setOldErpBreakdown(true);
+      setOldErpSourceQtys(erpCoils);
+      setOldErpActiveIdx(activeIdx);
+      setCoilCount(String(activeIdx.length));
+      setCoilQtys(erpCoils);
+      setTotalQty(String(coilTotal || startTotal || ""));
+    } else {
+      setOldErpBreakdown(false);
+      setOldErpSourceQtys([]);
+      setOldErpActiveIdx([]);
+      const autoCalc = mrn?.qty_auto_calc !== false;
+      const editable = mrn?.qty_editable !== false;
+      setCoilCount("1");
+      setCoilQtys(startTotal > 0 ? (autoCalc || !editable ? splitQtyAcrossCoils(startTotal, 1) : [startTotal]) : []);
+    }
     if (mrn?.item_dcode || mrn?.item_code) {
       setItemId(mrn.item_dcode ?? mrn.item_code);
       setItemRow({
@@ -657,7 +744,7 @@ export default function StockAdjustmentDrawer({
           return;
         }
       }
-      applyMrnToForm(mrn);
+      applyMrnToForm(mrn, type);
       setGateReady(true);
       setMrnPickOptions([]);
       setMrnPickUid("");
@@ -824,20 +911,23 @@ export default function StockAdjustmentDrawer({
   ).trim();
 
   useEffect(() => {
-    if (!open || !isSaAddLike(entryType)) {
+    if (!open) {
       setSpecInfo(null);
       setSpecChecked(false);
       return undefined;
     }
     if (!Number.isFinite(specItemDcode) || specItemDcode <= 0) {
       setSpecInfo(null);
-      setSpecChecked(Boolean(itemRow || editData?.item_dcode));
+      setSpecChecked(isSaAddLike(entryType) && Boolean(itemRow || editData?.item_dcode));
       return undefined;
     }
     let cancelled = false;
     setSpecChecked(false);
     specService
-      .getByItem(specItemDcode)
+      .getByHelper(specItemDcode, {
+        permission_module: MODULE,
+        permission_action: "view",
+      })
       .then((res) => {
         if (!cancelled) setSpecInfo(res?.data ?? null);
       })
@@ -878,10 +968,8 @@ export default function StockAdjustmentDrawer({
     return null;
   }, [entryType, specItemDcode, specChecked, specMissing, specNotApproved, specItemLabel]);
 
-  const tcDocPath = savedDocs.tc_file_path || editData?.tc_file_path;
-  const rmtcDocPath = savedDocs.rmtc_file_path || editData?.rmtc_file_path;
-  const hasTcDocument = tcFile instanceof File || hasSavedDoc(tcDocPath);
-  const hasRmtcDocument = rmtcFile instanceof File || hasSavedDoc(rmtcDocPath);
+  /** Add / Old cannot be saved until an authorized RM Spec Master is confirmed. */
+  const specBlocksSave = isSaAddLike(entryType) && Boolean(specValidationError);
 
   useEffect(() => {
     if (!open || entryType !== "minus" || !gateReady) return;
@@ -899,9 +987,14 @@ export default function StockAdjustmentDrawer({
 
   const qtyEditable = mrnDetail?.qty_editable !== false;
   const qtyAutoCalc = mrnDetail?.qty_auto_calc !== false;
-  const canEditCoilQty = !readOnly && isSaAddLike(entryType);
-  const canEditTotalQty = !readOnly && isSaAddLike(entryType);
-  const fillQtysAuto = isSaAddLike(entryType) ? qtyAutoCalc : qtyAutoCalc || !qtyEditable;
+  const canEditCoilQty = !readOnly && isSaAddLike(entryType) && !oldErpBreakdown;
+  const canEditTotalQty = !readOnly && isSaAddLike(entryType) && !oldErpBreakdown;
+  const isOldEntry = normalizeSaEntryType(entryType) === "old";
+  const fillQtysAuto = oldErpBreakdown
+    ? false
+    : isSaAddLike(entryType)
+      ? qtyAutoCalc
+      : qtyAutoCalc || !qtyEditable;
 
   const mrnMeta = useMemo(
     () => resolveMrnMetaForDisplay(mrnDetail, editData),
@@ -940,7 +1033,10 @@ export default function StockAdjustmentDrawer({
   const noRemainingQty =
     isSaAddLike(entryType) && Boolean(String(mrnUid || mrnDetail?.uid || "").trim()) && maxRemainingQty <= 0;
   const canEditAddQty = canEditTotalQty && !noRemainingQty;
-  const canEditAddCoils = !readOnly && isSaAddLike(entryType) && !noRemainingQty;
+  const canEditAddCoils =
+    !readOnly && isSaAddLike(entryType) && !noRemainingQty && !oldErpBreakdown;
+  const oldErpMaxCoils = oldErpSourceQtys.length;
+  const canAddOldBreakdownRow = oldErpBreakdown && oldErpActiveIdx.length < oldErpMaxCoils;
 
   const adjustmentQty = useMemo(() => {
     const v = Number(totalQty);
@@ -966,22 +1062,11 @@ export default function StockAdjustmentDrawer({
   }, [entryType, linkedCoils]);
 
   useEffect(() => {
-    if (!isSaAddLike(entryType) || !gateReady || readOnly || !fillQtysAuto) return;
-    if (isEdit) return;
+    if (!isSaAddLike(entryType) || !gateReady || readOnly || !fillQtysAuto || isEdit) return;
     const n = Math.max(1, parseInt(coilCount, 10) || 1);
     if (adjustmentQty <= 0) return;
     setCoilQtys(buildCoilQtys(n, adjustmentQty, { autoCalc: qtyAutoCalc }));
-  }, [
-    coilCount,
-    adjustmentQty,
-    entryType,
-    gateReady,
-    readOnly,
-    fillQtysAuto,
-    qtyAutoCalc,
-    buildCoilQtys,
-    isEdit,
-  ]);
+  }, [coilCount, adjustmentQty, entryType, gateReady, readOnly, fillQtysAuto, qtyAutoCalc, buildCoilQtys, isEdit]);
 
   const handleTotalQtyChange = useCallback(
     (raw) => {
@@ -1020,24 +1105,52 @@ export default function StockAdjustmentDrawer({
     ]
   );
 
+  const applyOldErpActiveIdx = useCallback(
+    (nextActiveIdx) => {
+      const qtys = nextActiveIdx.map((i) => oldErpSourceQtys[i]);
+      const sum = roundQty3(qtys.reduce((s, q) => s + (Number(q) || 0), 0));
+      setOldErpActiveIdx(nextActiveIdx);
+      setCoilQtys(qtys);
+      setCoilCount(String(nextActiveIdx.length));
+      setTotalQty(sum > 0 ? String(sum) : "");
+    },
+    [oldErpSourceQtys]
+  );
+
   const handleCoilCountChange = (raw) => {
+    if (oldErpBreakdown) return;
+    const parsed = parseInt(String(raw).trim(), 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return;
+
     setCoilCount(raw);
     if (adjustmentQty <= 0) {
       setCoilQtys([]);
       return;
     }
-    if (fillQtysAuto) {
-      const n = Math.max(1, parseInt(raw, 10) || 1);
-      setCoilQtys(buildCoilQtys(n, adjustmentQty, { autoCalc: qtyAutoCalc }));
-      return;
-    }
-    const n = Math.max(1, parseInt(raw, 10) || 1);
-    setCoilQtys((prev) => {
-      const next = [...prev];
-      while (next.length < n) next.push("");
-      return next.slice(0, n);
-    });
+    setCoilQtys((prev) =>
+      fillQtysAuto
+        ? buildCoilQtys(parsed, adjustmentQty, { autoCalc: qtyAutoCalc })
+        : resizeCoilQtys(prev, parsed, adjustmentQty, { autoCalc: qtyAutoCalc, splitRemainder: false })
+    );
   };
+
+  const handleRemoveOldBreakdownRow = useCallback(
+    (index) => {
+      if (!isOldEntry || readOnly || !oldErpBreakdown || oldErpActiveIdx.length <= 1) return;
+      applyOldErpActiveIdx(oldErpActiveIdx.filter((_, i) => i !== index));
+    },
+    [isOldEntry, readOnly, oldErpBreakdown, oldErpActiveIdx, applyOldErpActiveIdx]
+  );
+
+  const handleAddOldBreakdownRow = useCallback(() => {
+    if (!oldErpBreakdown || oldErpActiveIdx.length >= oldErpMaxCoils) return;
+    const missing = [];
+    for (let i = 0; i < oldErpMaxCoils; i += 1) {
+      if (!oldErpActiveIdx.includes(i)) missing.push(i);
+    }
+    if (!missing.length) return;
+    applyOldErpActiveIdx([...oldErpActiveIdx, missing[0]].sort((a, b) => a - b));
+  }, [oldErpBreakdown, oldErpActiveIdx, oldErpMaxCoils, applyOldErpActiveIdx]);
 
   const onCoilQtyChange = (index, raw) => {
     if (!canEditCoilQty) return;
@@ -1048,7 +1161,7 @@ export default function StockAdjustmentDrawer({
         const n = Number(raw);
         next[index] = Number.isFinite(n) ? Math.max(0, Math.round(n)) : "";
       }
-      if (!fillQtysAuto) {
+      if (!fillQtysAuto && !oldErpBreakdown) {
         const sum = next.reduce((s, q) => s + (Number(q) || 0), 0);
         const capped =
           sum > maxRemainingQty + QTY_EPS ? Math.max(0, maxRemainingQty) : roundQty3(sum);
@@ -1105,31 +1218,46 @@ export default function StockAdjustmentDrawer({
       }));
     }
     if (adjustmentQty <= 0) return [];
-    const n = Math.max(1, parseInt(coilCount, 10) || 1);
+    const parsedCount = parseInt(String(coilCount).trim(), 10);
+    const activeIdx = oldErpBreakdown ? oldErpActiveIdx : null;
+    const n = Math.max(
+      1,
+      oldErpBreakdown
+        ? activeIdx?.length || coilQtys.length
+        : Number.isFinite(parsedCount)
+          ? parsedCount
+          : 1
+    );
     const previewSerial = resolveSerialNoForUid({
       serial_no: serialNo || resolveSerialNo(mrnDetail),
       mrn_uid: mrnUid || mrnDetail?.uid || mrnDetail?.mrn_uid,
     });
     const previewMrnNo = mrnNo || mrnDetail?.mrn_no || "0";
     const previewAdjId = editData?.adjustment_id ?? editId ?? 0;
-    return Array.from({ length: n }, (_, i) => ({
-      idx: i + 1,
+    const rowIndices = oldErpBreakdown ? activeIdx || [] : Array.from({ length: n }, (_, i) => i);
+    return rowIndices.map((sourceI, displayI) => ({
+      idx: displayI + 1,
       coil_no_uid: previewCoilUid({
         mrnNo: previewMrnNo,
         serialNo: previewSerial,
         adjustmentId: previewAdjId,
         total: n,
-        index: i + 1,
+        index: displayI + 1,
       }),
-      qty: roundQty3(coilQtys[i] ?? 0),
+      qty: roundQty3(coilQtys[displayI] ?? 0),
       preview: !readOnly,
       editable: canEditCoilQty,
+      coil_index: oldErpBreakdown ? sourceI + 1 : displayI + 1,
+      total_coils: oldErpBreakdown ? oldErpMaxCoils || n : n,
     }));
   }, [
     entryType,
     coilCount,
     coilQtys,
     adjustmentQty,
+    oldErpBreakdown,
+    oldErpActiveIdx,
+    oldErpMaxCoils,
     savedAddCoilRows,
     readOnly,
     canEditCoilQty,
@@ -1231,12 +1359,8 @@ export default function StockAdjustmentDrawer({
       toast.error("Choose Add (+), Minus (-), or Old.");
       return;
     }
-    if (isSaAddLike(entryType) && specValidationError) {
-      toast.error(specValidationError);
-      return;
-    }
-    if (isSaAddLike(entryType) && (!hasTcDocument || !hasRmtcDocument)) {
-      toast.error("Both the TC and RMTC documents are required.");
+    if (specBlocksSave) {
+      toast.error(specValidationError || "No RM Spec Master exists for this item. Create the specifications first.");
       return;
     }
 
@@ -1566,7 +1690,6 @@ export default function StockAdjustmentDrawer({
               file={tcFile}
               onChange={setTcFile}
               disabled={readOnly}
-              required
               savedPath={savedDocs.tc_file_path || editData?.tc_file_path}
               savedName={savedDocs.tc_file_name || editData?.tc_file_name}
             />
@@ -1575,7 +1698,6 @@ export default function StockAdjustmentDrawer({
               file={rmtcFile}
               onChange={setRmtcFile}
               disabled={readOnly}
-              required
               savedPath={savedDocs.rmtc_file_path || editData?.rmtc_file_path}
               savedName={savedDocs.rmtc_file_name || editData?.rmtc_file_name}
             />
@@ -1708,6 +1830,11 @@ export default function StockAdjustmentDrawer({
             allowRemove={false}
             removeUids={addRemoveUids}
             onToggleRemove={undefined}
+            allowPreviewAdd={isOldEntry && oldErpBreakdown && !readOnly && gateReady}
+            canAddPreviewRow={canAddOldBreakdownRow}
+            onAddPreviewRow={handleAddOldBreakdownRow}
+            allowPreviewRemove={isOldEntry && oldErpBreakdown && !readOnly && gateReady}
+            onRemovePreviewRow={handleRemoveOldBreakdownRow}
             coilQtys={breakdownCoilQtys}
             onCoilQtyChange={onBreakdownCoilQtyChange}
             canPrintStickers={canPrintStickers}
@@ -1771,7 +1898,15 @@ export default function StockAdjustmentDrawer({
               approve: Boolean(approveOnSave && canAuthorize),
             })
           }
-          disabled={!formReady || saving || (!isEdit && !entryType) || noRemainingQty || showAddQtyMismatch}
+          disabled={
+            !formReady ||
+            saving ||
+            (!isEdit && !entryType) ||
+            noRemainingQty ||
+            showAddQtyMismatch ||
+            specBlocksSave
+          }
+          title={specBlocksSave ? specValidationError : "Ctrl+S"}
           className="h-8 lg:h-9 w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-white text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-black disabled:bg-slate-400 px-3 lg:px-4 transition-all"
         >
           {saving ? (
@@ -1786,7 +1921,14 @@ export default function StockAdjustmentDrawer({
         <button
           type="button"
           onClick={() => handleSave({ approve: true })}
-          disabled={saving || !canAuthorize || !formReady || Boolean(editData?.approved)}
+          disabled={
+            saving ||
+            !canAuthorize ||
+            !formReady ||
+            Boolean(editData?.approved) ||
+            specBlocksSave
+          }
+          title="Ctrl+S"
           className="h-8 lg:h-9 w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 text-white text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-emerald-700 disabled:opacity-50 px-3 lg:px-4 transition-all"
         >
           {saving ? (
@@ -1814,9 +1956,9 @@ export default function StockAdjustmentDrawer({
       isOpen={open}
       onClose={onClose}
       onSubmit={
-        isApprove && gateReady
+        isApprove && gateReady && !specBlocksSave
           ? () => handleSave({ approve: true })
-          : !readOnly && gateReady && !isApprove
+          : !readOnly && gateReady && !isApprove && !specBlocksSave
             ? () => handleSave({ approve: Boolean(approveOnSave && canAuthorize) })
             : undefined
       }
@@ -1841,7 +1983,7 @@ export default function StockAdjustmentDrawer({
           />
         ) : (
           <div className="flex flex-1 min-h-0 flex-col overflow-hidden w-full min-w-0">
-            <div className="shrink-0 border-b border-slate-200 bg-white px-3 py-2 lg:px-4 flex flex-wrap items-end gap-2 lg:gap-3">
+            <div className="shrink-0 border-b border-slate-200 bg-white px-3 py-2 lg:px-4 flex flex-wrap items-end gap-2">
               <div className="min-w-[120px]">
                 <span className={FIELD_LABEL}>Type</span>
                 <select
@@ -2025,19 +2167,21 @@ export default function StockAdjustmentDrawer({
                 </div>
               ) : null}
               {gateReady && mrnUid ? (
-                <div className="w-full sm:flex-1 sm:min-w-[200px] rounded-lg border border-emerald-200 bg-emerald-50/80 px-2.5 py-1.5 min-w-0">
-                  <p className="text-[10px] font-mono font-bold text-slate-900 truncate" title={mrnUid}>
-                    {mrnUid}
-                  </p>
-                  <p className="text-[10px] font-semibold text-indigo-800 truncate leading-snug">
-                    {formatItemLabel(itemRow || mrnDetail)}
-                  </p>
+                <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto no-scrollbar">
+                  <div className="h-8 lg:h-9 px-2.5 rounded-lg bg-indigo-600 text-white shrink-0 flex flex-col justify-center min-w-[88px]">
+                    <p className="text-[8px] uppercase font-bold leading-none opacity-70">MRN UID</p>
+                    <span className="text-[10px] font-black leading-tight truncate" title={mrnUid}>{mrnUid}</span>
+                  </div>
+                  {specInfo ? (
+                    <>
+                      <SpecHeaderColorBadge label="Condition" color={specInfo.condition_color} />
+                      <SpecHeaderColorBadge label="Grade" color={specInfo.grade_color} />
+                    </>
+                  ) : null}
                 </div>
               ) : null}
-              <div className="w-full shrink-0 sm:w-auto sm:ml-auto">
-                <div className="flex w-full flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-end gap-1.5 rounded-xl bg-slate-50/90 p-1">
-                  {toolbarActionButtons}
-                </div>
+              <div className="w-full shrink-0 sm:w-auto sm:ml-auto flex items-center justify-end gap-1.5">
+                {toolbarActionButtons}
               </div>
             </div>
 
@@ -2051,7 +2195,7 @@ export default function StockAdjustmentDrawer({
               </div>
             ) : null}
 
-            {isSaAddLike(entryType) && gateReady && specChecked && specValidationError ? (
+            {specBlocksSave && specChecked ? (
               <div className="shrink-0 flex items-start gap-2 px-3 md:px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-950">
                 <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-600" aria-hidden />
                 <p className="text-[10px] sm:text-[11px] font-medium leading-snug">{specValidationError}</p>
@@ -2122,15 +2266,23 @@ export default function StockAdjustmentDrawer({
                         <div className="min-w-0 w-full max-lg:col-span-1 lg:col-span-2">
                           <label htmlFor="rm-sa-coils" className={FIELD_LABEL}>
                             Coils <span className="text-rose-500">*</span>
+                            {oldErpBreakdown && oldErpMaxCoils > 0 ? (
+                              <span className="text-[9px] font-semibold text-slate-500 normal-case">
+                                {" "}
+                                (max {oldErpMaxCoils})
+                              </span>
+                            ) : null}
                           </label>
                           <input
                             id="rm-sa-coils"
-                            type="number"
-                            min={1}
-                            value={coilCount}
-                            disabled={!canEditAddCoils}
+                            type={oldErpBreakdown ? "text" : "number"}
+                            min={oldErpBreakdown ? undefined : 1}
+                            value={oldErpBreakdown ? String(coilCount || oldErpActiveIdx.length || "") : coilCount}
+                            readOnly={oldErpBreakdown}
+                            disabled={!canEditAddCoils || oldErpBreakdown}
+                            tabIndex={oldErpBreakdown ? -1 : undefined}
                             onChange={(e) => handleCoilCountChange(e.target.value)}
-                            onWheel={preventNumberInputWheel}
+                            onWheel={oldErpBreakdown ? undefined : preventNumberInputWheel}
                             className={FIELD_CONTROL}
                           />
                         </div>
@@ -2161,13 +2313,15 @@ export default function StockAdjustmentDrawer({
                           </label>
                           <input
                             id="rm-sa-total-qty"
-                            type="number"
-                            min={0}
-                            step={1}
+                            type={oldErpBreakdown ? "text" : "number"}
+                            min={oldErpBreakdown ? undefined : 0}
+                            step={oldErpBreakdown ? undefined : 1}
                             value={totalQty}
-                            disabled={!canEditAddQty}
+                            readOnly={oldErpBreakdown}
+                            disabled={!canEditAddQty || oldErpBreakdown}
+                            tabIndex={oldErpBreakdown ? -1 : undefined}
                             onChange={(e) => handleTotalQtyChange(e.target.value)}
-                            onWheel={preventNumberInputWheel}
+                            onWheel={oldErpBreakdown ? undefined : preventNumberInputWheel}
                             placeholder="0"
                             className={`${FIELD_CONTROL} tabular-nums ${
                               exceedsRemaining ? "border-rose-400 ring-1 ring-rose-200" : ""

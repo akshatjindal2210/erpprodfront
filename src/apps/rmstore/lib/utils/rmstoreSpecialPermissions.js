@@ -12,7 +12,7 @@ export function parseRmstoreSpecialPermissions(user) {
 }
 
 export function isRmstoreSuperAdmin(user) {
-  return user?.type === "super_admin" || user?.role === "super_admin";
+  return (String(user?.type || "").toLowerCase() === "super_admin" || String(user?.role || "").toLowerCase() === "super_admin");
 }
 
 export function canTypeSpecValues(user) {

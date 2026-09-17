@@ -15,6 +15,7 @@ export const ENDPOINTS = {
   SPEC: {
     LIST: `${BASE}/spec/list`,
     GET: `${BASE}/spec/get`,
+    HELPER: `${BASE}/spec/helper`,
     CREATE: `${BASE}/spec/create`,
     UPDATE: `${BASE}/spec/update`,
     DELETE: `${BASE}/spec/delete`,
@@ -39,6 +40,9 @@ export const ENDPOINTS = {
     DETAIL: `${BASE}/mrn/detail`,
     COILS: `${BASE}/mrn/coils`,
     GENERATE_STICKERS: `${BASE}/mrn/generate-stickers`,
+    APPROVE_STICKERS: `${BASE}/mrn/approve-stickers`,
+    REJECT: `${BASE}/mrn/reject`,
+    CANCEL_REJECTION: `${BASE}/mrn/cancel-rejection`,
     SAVE_STICKER_DRAFT: `${BASE}/mrn/save-sticker-draft`,
     UPLOAD_DOCS: `${BASE}/mrn/upload-docs`,
     STICKER_PREVIEW: `${BASE}/mrn/sticker/preview`,

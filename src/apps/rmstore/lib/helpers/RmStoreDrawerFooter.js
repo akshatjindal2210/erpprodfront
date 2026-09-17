@@ -64,6 +64,7 @@ export default function RmStoreDrawerFooter({
             type="button"
             onClick={handleApprove}
             disabled={loading || disabled}
+            title="Ctrl+S"
             className={IMS_DRAWER_BTN_APPROVE}
           >
             {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
@@ -75,6 +76,7 @@ export default function RmStoreDrawerFooter({
           type="button"
           onClick={handleSave}
           disabled={loading || disabled}
+          title="Ctrl+S"
           className={IMS_DRAWER_BTN_PRIMARY}
         >
           {loading ? (

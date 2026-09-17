@@ -79,11 +79,22 @@ export function useListDrawerHotkeys({
 
   const openEditModal = useCallback(() => {
     if (typeof openEdit !== "function" || openEdit === null) return;
+    if (!bypassModulePermission) {
+      const access = canAccess(module, editAction);
+      if (!access.allowed) return;
+    }
+    if (typeof canEditSelection === "function" && !canEditSelection()) {
+      if (typeof onEditBlocked === "function") {
+        onEditBlocked();
+      } else if (editBlockedMessage && String(editBlockedMessage).trim()) {
+        toast.info(String(editBlockedMessage).trim());
+      }
+      return;
+    }
     const row = typeof getSelectedRow === "function" ? getSelectedRow() : null;
     if (!row) return;
     if (!bypassModulePermission) {
       const access = canAccess(module, editAction);
-      if (!access.allowed) return;
       if (editTimeBlockedByAccess(row, access)) return;
     }
     openEdit(row);

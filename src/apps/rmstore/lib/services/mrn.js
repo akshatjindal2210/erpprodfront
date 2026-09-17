@@ -65,6 +65,39 @@ export const mrnService = {
   /**
    * Generate stickers — always keyed by uid (+ ERP fields when pending).
    */
+  approveStickers: ({ uid, scanned_coils, scanned_qc, scanned_batch_qc }) =>
+    api(ENDPOINTS.MRN.APPROVE_STICKERS, {
+      method: "POST",
+      body: {
+        uid,
+        scanned_coils,
+        scanned_qc,
+        scanned_batch_qc,
+      },
+    }),
+
+  cancelRejection: (uid) =>
+    api(ENDPOINTS.MRN.CANCEL_REJECTION, {
+      method: "POST",
+      body: { uid },
+    }),
+
+  rejectPortal: ({ uid, sourceRow, coil_count, coil_qtys, total_qty, heat_no, remarks }) => {
+    const rowUid = uid || sourceRow?.uid;
+    return api(ENDPOINTS.MRN.REJECT, {
+      method: "POST",
+      body: {
+        ...mrnSourceBody(sourceRow || { uid: rowUid }),
+        uid: rowUid,
+        coil_count,
+        coil_qtys,
+        total_qty,
+        heat_no,
+        remarks,
+      },
+    });
+  },
+
   generateStickers: ({ uid, sourceRow, heat_no, coil_count, total_qty, coil_qtys, remarks }) => {
     const rowUid = uid || sourceRow?.uid;
     return api(ENDPOINTS.MRN.GENERATE_STICKERS, {

@@ -540,6 +540,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     const extraOptionClass = typeof getOptionClassName === "function" ? String(getOptionClassName(item) || "").trim() : "";
     const optionStyle = typeof getOptionStyle === "function" ? getOptionStyle(item) || undefined : undefined;
     const hasCustomOptionStyle = Boolean(optionStyle?.backgroundColor);
+    const optionFg = optionStyle?.color || undefined;
     const optionDisabled = typeof isOptionDisabled === "function" ? Boolean(isOptionDisabled(item)) : false;
     const disabledLabel = optionDisabled && typeof getOptionDisabledLabel === "function" ? String(getOptionDisabledLabel(item) || "").trim() : "";
 
@@ -566,7 +567,12 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         } ${extraOptionClass}`}
       >
         <div className="flex items-center justify-between gap-2">
-          <span className={`${rowTitleClass} ${optionDisabled ? "text-slate-500" : ""}`}>{rowLabel}</span>
+          <span
+            className={`${rowTitleClass} ${optionDisabled ? "text-slate-500" : ""}`}
+            style={!optionDisabled && optionFg ? { color: optionFg } : undefined}
+          >
+            {rowLabel}
+          </span>
           <div className="flex items-center gap-2 shrink-0">
             {disabledLabel ? (
               <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide bg-slate-200 text-slate-600 border border-slate-300">
@@ -927,6 +933,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       >
         <Search
           size={13}
+          style={triggerStyle?.color ? { color: triggerStyle.color } : undefined}
           className={`shrink-0 self-center ${open ? "text-indigo-500" : "text-slate-400"}`}
         />
 
@@ -968,6 +975,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
             ref={inputRef}
             type="text"
             value={searchText}
+            style={triggerStyle?.color ? { color: triggerStyle.color, caretColor: triggerStyle.color } : undefined}
             onMouseDown={(e) => e.stopPropagation()}
             onChange={(e) => {
               const next = normalizeInput(e.target.value);
@@ -999,13 +1007,25 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           />
         </div>
 
-        <div className="flex shrink-0 items-center self-center gap-1 border-l border-slate-100 pl-1.5 sm:pl-2">
+        <div
+          className="flex shrink-0 items-center self-center gap-1 border-l border-slate-100 pl-1.5 sm:pl-2"
+          style={triggerStyle?.color ? { borderColor: triggerStyle.color, opacity: 0.85 } : undefined}
+        >
           {(searchText || (allowFreeText && value)) && !disabled && (
-            <button type="button" onClick={handleClear} className="text-slate-300 hover:text-rose-500 transition-colors">
+            <button
+              type="button"
+              onClick={handleClear}
+              style={triggerStyle?.color ? { color: triggerStyle.color } : undefined}
+              className="text-slate-300 hover:text-rose-500 transition-colors"
+            >
               <X size={14} />
             </button>
           )}
-          <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+          <ChevronDown
+            size={14}
+            style={triggerStyle?.color ? { color: triggerStyle.color } : undefined}
+            className={`text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          />
         </div>
       </div>
       {helperText ? (

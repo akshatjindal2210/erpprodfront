@@ -741,6 +741,7 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
           type="button"
           onClick={() => void handlePrimaryAction()}
           disabled={primaryDisabled}
+          title="Ctrl+S"
           className={`${
             isPrimaryApprove
               ? IMS_DRAWER_BTN_APPROVE

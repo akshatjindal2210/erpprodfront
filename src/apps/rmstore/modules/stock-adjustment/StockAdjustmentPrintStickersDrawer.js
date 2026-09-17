@@ -336,6 +336,14 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
     <Drawer
       isOpen={open}
       onClose={onClose}
+      onPrintHotkey={
+        canPrintStickers && coils.length
+          ? () => {
+              void printAllHotkeyRef.current();
+            }
+          : undefined
+      }
+      canPrintHotkey={() => canPrintStickers && !printingAll && coils.length > 0}
       title="Print stickers"
       description="Print one sticker or all — same flow as packing sticker creation after generate."
       maxWidth="max-w-full xl:max-w-7xl"
@@ -368,7 +376,7 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
                     type="button"
                     onClick={() => void handlePrintAll()}
                     disabled={printingAll}
-                    title="Print all stickers"
+                    title="Print all stickers (Ctrl+Alt+P / Ctrl+P in app)"
                     className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-5 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-md sm:shadow-lg whitespace-nowrap disabled:bg-emerald-300 touch-manipulation min-h-[34px] sm:min-h-0"
                   >
                     {printingAll ? (

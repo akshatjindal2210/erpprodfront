@@ -10,7 +10,7 @@ import { STORE_OUT_REASON_MAX_LEN } from "@/apps/rmstore/lib/constants/outEntryT
 import { RM_OUT_ENTRY_MODE_PICKER_OPTIONS, RM_OUT_ENTRY_PICKER_ACCENT } from "@/apps/rmstore/lib/constants/outEntryPickerOptions";
 import { outEntryService } from "@/apps/rmstore/lib/services/outEntry";
 import { rmRejectionService } from "@/apps/rmstore/lib/services/rmRejection";
-import { extractCoilUid, extractBatchMrnUid, normalizeScanInput, coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
+import { extractCoilUid, extractBatchMrnUid, findMatchingCoil, mrnUidsMatch, normalizeScanInput, coilUidDisplayLabel, stickerUidsMatch } from "@/apps/rmstore/lib/helpers/qrScan";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import Drawer from "@/ui/primitives/Drawer";
@@ -254,8 +254,8 @@ export default function CoilScanEntryModal({
   const isApproveMode = isOutMode && approveMode;
   const isEdit = isOutMode && editItem?.out_uid != null;
   const coilCtx = useMemo(
-    () => coilHelperContext(permissionModule, isApproveMode ? "authorize" : isEdit ? "edit" : "add"),
-    [permissionModule, isApproveMode, isEdit]
+    () => coilHelperContext(permissionModule, "view"),
+    [permissionModule]
   );
   const isAuthorizedEdit =
     isEdit &&
@@ -663,7 +663,7 @@ export default function CoilScanEntryModal({
   );
 
   const tryAddCoilUid = async (uid) => {
-    if (coilsRef.current.some((c) => String(c.coil_no_uid).toLowerCase() === uid.toLowerCase())) {
+    if (coilsRef.current.some((c) => stickerUidsMatch(c.coil_no_uid, uid))) {
       showScanToast("error", `dup-${uid}`, `Coil ${uid} has already been added.`, 1800);
       return;
     }
@@ -701,10 +701,8 @@ export default function CoilScanEntryModal({
     setValidatingCoil(true);
     try {
       const livePlan = mrnPlanRef.current;
-      const livePlanMap = new Map(
-        (livePlan?.coils || []).map((c) => [String(c.coil_no_uid).toLowerCase(), c])
-      );
-      let coil = livePlanMap.get(uid.toLowerCase()) || null;
+      const livePlanCoils = livePlan?.coils || [];
+      let coil = findMatchingCoil(uid, livePlanCoils);
 
       if (!coil) {
         coil = await lookupCoilByUid(uid, coilCtx);
@@ -734,11 +732,8 @@ export default function CoilScanEntryModal({
 
         // Must be in the rejection plan
         const plan = mrnPlanRef.current;
-        const planMap = new Map(
-          (plan?.coils || []).map((c) => [String(c.coil_no_uid).toLowerCase(), c])
-        );
 
-        if (plan && !planMap.has(uid.toLowerCase())) {
+        if (plan && !findMatchingCoil(coil.coil_no_uid, plan.coils || []) && !findMatchingCoil(uid, plan.coils || [])) {
           showScanToast(
             "error",
             "not-in-rejection",
@@ -769,7 +764,9 @@ export default function CoilScanEntryModal({
       if (mode === "out" && !coil.location_id && !isRejectionScan && !isMrnStoreOut) {
         const isJobCardOut =
           storeOutKind === STORE_OUT_KIND.JOB_CARD || Boolean(selectedJobCardMeta);
-        const inConfirmedPlan = livePlanMap.has(uid.toLowerCase());
+        const inConfirmedPlan = Boolean(
+          findMatchingCoil(coil.coil_no_uid, livePlanCoils) || findMatchingCoil(uid, livePlanCoils)
+        );
         // IMS-style MRN plan includes unassigned coils — allow when in confirmed plan
         if (!inConfirmedPlan) {
           showScanToast(
@@ -824,10 +821,7 @@ export default function CoilScanEntryModal({
 
         const coilMrn = String(coil.mrn_uid || "").trim();
         const plan = mrnPlanRef.current;
-        const planMap = new Map(
-          (plan?.coils || []).map((c) => [String(c.coil_no_uid).toLowerCase(), c])
-        );
-        if (plan && plan.mrn_uid != null && coilMrn && coilMrn !== String(plan.mrn_uid)) {
+        if (plan && plan.mrn_uid != null && coilMrn && !mrnUidsMatch(coilMrn, plan.mrn_uid)) {
           showScanToast(
             "error",
             "wrong-mrn",
@@ -835,7 +829,7 @@ export default function CoilScanEntryModal({
           );
           return;
         }
-        if (plan && !planMap.has(uid.toLowerCase())) {
+        if (plan && !findMatchingCoil(coil.coil_no_uid, plan.coils || []) && !findMatchingCoil(uid, plan.coils || [])) {
           const isJobCardOut =
             storeOutKind === STORE_OUT_KIND.JOB_CARD || Boolean(selectedJobCardMeta);
           showScanToast(
@@ -896,7 +890,7 @@ export default function CoilScanEntryModal({
           );
           return;
         }
-        if (String(mrnPlanRef.current?.mrn_uid) !== batchMrn) {
+        if (!mrnUidsMatch(mrnPlanRef.current?.mrn_uid, batchMrn)) {
           showScanToast("error", "batch-other", "This batch sticker belongs to a different MRN.");
           return;
         }
@@ -1356,6 +1350,7 @@ export default function CoilScanEntryModal({
                     type="button"
                     onClick={() => void handleSave(true)}
                     disabled={saving || loadingEdit || !coils.length || !isFulfillmentComplete}
+                    title="Ctrl+S"
                     className={IMS_DRAWER_BTN_APPROVE}
                   >
                     {saving ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
@@ -1372,6 +1367,7 @@ export default function CoilScanEntryModal({
                   !coils.length ||
                   (!isConfirmed && !isEdit && !isMrnStoreOut)
                 }
+                title="Ctrl+S"
                 className="shrink-0 min-w-[140px] px-6 py-2 text-sm font-bold text-white bg-red-600 shadow-red-100 hover:bg-red-700 rounded-xl shadow-lg disabled:bg-slate-300 transition-all active:scale-95 inline-flex items-center justify-center gap-2"
               >
                 {saving ? (
@@ -1390,6 +1386,7 @@ export default function CoilScanEntryModal({
                 type="button"
                 onClick={() => void handleSave()}
                 disabled={saving}
+                title="Ctrl+S"
                 className={IMS_DRAWER_BTN_PRIMARY}
               >
                 {saving ? (

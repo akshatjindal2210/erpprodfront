@@ -207,6 +207,7 @@ export default function PackingModal({ open, onClose, onSuccess, editData, mode 
             type="button"
             onClick={() => handleSave(null, "save")}
             disabled={loading}
+            title="Ctrl+S"
             className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
           >
             {loading && activeSubmit === "save" ? (

@@ -503,6 +503,7 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
             type="button"
             onClick={() => void handleSubmit()}
             disabled={saving || loading || !canSubmit}
+            title="Ctrl+S"
             className="min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50"
           >
             {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}

@@ -12,16 +12,21 @@ import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter"
 import Drawer from "@/ui/primitives/Drawer";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { Info, RejectionReport, SectionHeader, primaryCoilUid, buildRejectedCoilRows, collectIprAttachmentPaths, resolveIprQcChecks, formatCoilUidSummary } from "@/apps/rmstore/modules/rm-rejection/GenerateStoreOutDrawer";
+import { isMrnPortalRejection } from "@/apps/rmstore/lib/helpers/mrnPortalRejection";
 
 const REJECTION_VIEW_PERMS = { permission_module: "rm_rejection", permission_action: "view" };
 
 function stageLabel(row) {
   if (String(row?.bill_no || "").trim()) return "Complete";
+  if (isMrnPortalRejection(row)) return "Awaiting Bill";
   if (row?.store_out_approved === true || row?.store_out_approved === "t") return "Awaiting Bill";
   return "Store Out Pending";
 }
 
 function rejectionSourceLabel(row) {
+  if (isMrnPortalRejection(row)) {
+    return "MRN Portal";
+  }
   if (row?.ipr_uid != null) return `In-Process · IPR-${row.ipr_uid}`;
   if (row?.qc_check_uid != null) return `QC Fail · QC-${row.qc_check_uid}`;
   if (row?.qc_reject_uid != null) return `Register · REJECT-${row.qc_reject_uid}`;
@@ -340,6 +345,14 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
               <Info key={field.label} label={field.label} value={field.value} mono={field.mono} />
             ))}
           </div>
+          {(registerOrRow?.remarks || detail?.remarks) ? (
+            <div className="border border-slate-200 px-2 py-1.5 bg-white">
+              <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">Remark</p>
+              <p className="text-[11px] text-slate-700 mt-0.5 whitespace-pre-wrap break-words">
+                {registerOrRow?.remarks || detail?.remarks}
+              </p>
+            </div>
+          ) : null}
           {registerMetaFields.length ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
               {registerMetaFields

@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers, Printer } from "lucide-react";
+import { Layers, Plus, Printer } from "lucide-react";
 
 /** Prevent mouse wheel from changing number inputs while scrolling (MRN sticker breakdown pattern). */
 const preventNumberInputWheel = (e) => {
@@ -22,21 +22,29 @@ export default function RmAddCoilBreakdownTable({
   coilQtys = [],
   onCoilQtyChange,
   canPrintStickers = false,
+  allowPreviewAdd = false,
+  canAddPreviewRow = false,
+  onAddPreviewRow,
+  allowPreviewRemove = false,
+  onRemovePreviewRow,
   emptyHint = "",
   unit = "KG",
 }) {
   const list = Array.isArray(rows) ? rows : [];
   const n = list.length;
   const removeSet = removeUids instanceof Set ? removeUids : new Set();
-  const showRemoveColumn = editMode && allowRemove;
-  const markedRemove = showRemoveColumn
+  const showSavedRemoveColumn = editMode && allowRemove;
+  const showPreviewAddColumn = allowPreviewAdd && typeof onAddPreviewRow === "function";
+  const showPreviewMinusColumn = allowPreviewRemove && typeof onRemovePreviewRow === "function";
+  const markedRemove = showSavedRemoveColumn
     ? list.filter((r) => r.is_saved && removeSet.has(String(r.coil_no_uid))).length
     : 0;
   const isPreview = !savedView && !viewMode && !editMode;
+  const stickyRightClass = canPrintStickers ? "" : "right-0";
 
   return (
     <div className="w-full min-w-0 flex flex-col flex-1 h-full min-h-0 overflow-hidden">
-      {editMode && showRemoveColumn ? (
+      {editMode && showSavedRemoveColumn ? (
         <div className="shrink-0 px-3 py-1.5 lg:px-4 bg-amber-50/80 border-b border-amber-100 text-[8px] font-semibold text-amber-900 leading-snug">
           Use <span className="font-bold">Add more</span> above to add coils. Select{" "}
           <span className="font-bold">Remove</span> on saved rows to delete them from the database.
@@ -69,7 +77,7 @@ export default function RmAddCoilBreakdownTable({
                     >
                       #
                     </th>
-                    {showRemoveColumn ? (
+                    {showSavedRemoveColumn ? (
                       <th
                         scope="col"
                         className="sticky left-[2.25rem] top-0 z-[30] bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-rose-600 border-r border-slate-200 whitespace-nowrap"
@@ -101,6 +109,31 @@ export default function RmAddCoilBreakdownTable({
                     >
                       Status
                     </th>
+                    {showPreviewMinusColumn && (
+                      <th
+                        scope="col"
+                        className={`sticky top-0 z-30 border-l border-slate-200 bg-slate-50 px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-slate-600 whitespace-nowrap lg:text-xs ${
+                          canPrintStickers ? "" : stickyRightClass
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Minus</span>
+
+                          {showPreviewAddColumn && (
+                            <button
+                              type="button"
+                              disabled={!canAddPreviewRow}
+                              onClick={onAddPreviewRow}
+                              aria-label="Add coil row"
+                              title={canAddPreviewRow ? "Add coil row" : "Maximum coils reached"}
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Plus className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
+                            </button>
+                          )}
+                        </div>
+                      </th>
+                    )}
                     {canPrintStickers ? (
                       <th
                         scope="col"
@@ -114,7 +147,8 @@ export default function RmAddCoilBreakdownTable({
                 <tbody>
                   {list.map((r, idx) => {
                     const isMarkedRemove =
-                      showRemoveColumn && r.is_saved && removeSet.has(String(r.coil_no_uid));
+                      showSavedRemoveColumn && r.is_saved && removeSet.has(String(r.coil_no_uid));
+                    const canDropPreviewRow = showPreviewMinusColumn && n > 1;
                     const coilUid = String(r.coil_no_uid || "");
                     const rowMrnUid = String(r.mrn_uid ?? mrnUid ?? "—");
                     const inStock = r.generated || r.is_saved || savedView;
@@ -128,7 +162,7 @@ export default function RmAddCoilBreakdownTable({
                         <td className="sticky left-0 z-10 px-2 py-1.5 lg:px-3 text-[10px] lg:text-[13px] font-bold text-slate-600 bg-white group-hover:bg-slate-50 border-r border-slate-100 tabular-nums align-middle">
                           {r.idx ?? idx + 1}
                         </td>
-                        {showRemoveColumn ? (
+                        {showSavedRemoveColumn ? (
                           <td className="sticky left-[2.25rem] z-10 px-2 py-1.5 lg:px-3 bg-white group-hover:bg-slate-50 border-r border-slate-100 align-middle">
                             {r.is_saved ? (
                               <label className="inline-flex items-center gap-1 cursor-pointer">
@@ -208,6 +242,24 @@ export default function RmAddCoilBreakdownTable({
                                     : "—"}
                           </span>
                         </td>
+                        {showPreviewMinusColumn ? (
+                          <td
+                            className={`py-1.5 px-2 lg:py-2 lg:px-3 text-center bg-white group-hover:bg-slate-50 border-l border-slate-100 align-middle transition-colors ${
+                              canPrintStickers ? "" : `sticky ${stickyRightClass} z-10`
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={false}
+                              disabled={!canDropPreviewRow}
+                              onChange={() => {
+                                if (canDropPreviewRow) onRemovePreviewRow(idx);
+                              }}
+                              className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                              aria-label={`Minus coil ${coilUid}`}
+                            />
+                          </td>
+                        ) : null}
                         {canPrintStickers ? (
                           <td className="sticky right-0 z-10 py-1 px-2 text-right bg-white group-hover:bg-slate-50 border-l border-slate-100 align-middle">
                             {r.generated ? (

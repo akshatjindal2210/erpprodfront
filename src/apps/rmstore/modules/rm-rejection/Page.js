@@ -29,6 +29,7 @@ import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/ui/common/list/ListPageSearchField";
 import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import { isMrnPortalRejection } from "@/apps/rmstore/lib/helpers/mrnPortalRejection";
 
 const MODULE = "rm_rejection";
 const PAGE_TABS = { REGISTER: "register", PENDING: "pending" };
@@ -123,6 +124,9 @@ function pendingInspectedAt(row) {
 const SOURCE_SEP = " · ";
 
 function rejectionSourceDisplay(row) {
+  if (isMrnPortalRejection(row)) {
+    return "MRN Portal";
+  }
   if (row?.pending_source === PENDING_SOURCE.IN_PROCESS && row?.ipr_uid != null) {
     return `In-Process${SOURCE_SEP}IPR-${row.ipr_uid}`;
   }
@@ -137,6 +141,9 @@ function rejectionSourceDisplay(row) {
 }
 
 function rejectionSourceBadgeClass(row) {
+  if (isMrnPortalRejection(row) || row?.rejection_origin === "mrn_portal") {
+    return "bg-amber-50 text-amber-800 border-amber-200";
+  }
   const origin = row?.rejection_origin || row?.pending_source;
   if (origin === PENDING_SOURCE.IN_PROCESS || origin === "in_process" || row?.ipr_uid != null) {
     return "bg-violet-50 text-violet-700 border-violet-100";
@@ -183,6 +190,9 @@ function isStoreOutStartedRow(row) {
 function registerStage(row) {
   if (String(row?.bill_no || "").trim()) {
     return { label: "Complete", className: "bg-emerald-50 text-emerald-700 border-emerald-100" };
+  }
+  if (isMrnPortalRejection(row)) {
+    return { label: "Awaiting Bill", className: "bg-indigo-50 text-indigo-700 border-indigo-100" };
   }
   if (isStoreOutApproved(row)) {
     return { label: "Awaiting Bill", className: "bg-indigo-50 text-indigo-700 border-indigo-100" };
@@ -399,6 +409,9 @@ export default function RmRejectionPage() {
 
   const canEditBill = useMemo(() => {
     if (!canAddBill || !selectedRecord?.qc_reject_uid) return false;
+    if (isMrnPortalRejection(selectedRecord)) {
+      return !isPendingTab;
+    }
     if (!isStoreOutApproved(selectedRecord)) return false;
     if (isPendingTab) {
       return (
@@ -626,9 +639,9 @@ export default function RmRejectionPage() {
           </span>
         ), { width: "200px" }],
       ["Reason", "reason", (v) => <span className="text-rose-700 text-[10px] font-bold truncate block">{v || "—"}</span>, { width: "180px" }],
-      ["Store Out", "out_uid", (v) => (
-        <span className={`text-[10px] font-bold ${v ? "text-indigo-600" : "text-slate-400"}`}>
-          {v != null ? `OUT-${v}` : "—"}
+      ["Store Out", "out_uid", (v, row) => (
+        <span className={`text-[10px] font-bold ${isMrnPortalRejection(row) ? "text-slate-400" : v ? "text-indigo-600" : "text-slate-400"}`}>
+          {isMrnPortalRejection(row) ? "—" : v != null ? `OUT-${v}` : "—"}
         </span>
       ), { width: "120px" }],
       ["Bill Number", "bill_no", (v) => (
@@ -825,7 +838,11 @@ export default function RmRejectionPage() {
                     <span className={`${LIST_PAGE_SEARCH_LABEL_CLASS} shrink-0 pt-1.5 sm:pt-2`}>Bill</span>
                     <div
                       className="w-full min-w-0 flex-1"
-                      title="Search and select bill numbers (editable any time after Store Out authorize)"
+                      title={
+                        isMrnPortalRejection(selectedRecord)
+                          ? "Attach bill number to complete this MRN Portal rejection"
+                          : "Search and select bill numbers (after Store Out authorize)"
+                      }
                     >
                       <SearchableSelect
                         multiple

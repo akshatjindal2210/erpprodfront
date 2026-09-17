@@ -2,6 +2,7 @@
 
 | Note | Topic |
 |------|--------|
+| [v4.3.7.md](./v4.3.7.md) | RM Store Stock Adjustment · MRN Portal · Phone print |
 | [v4.3.6.md](./v4.3.6.md) | Manage Tray · Out Entry recheck · ERP Stock Adjust · Deviation qty |
 | [v4.2.6.md](./v4.2.6.md) | Dashboard Builder · Quick Launch · Purchase / Production |
 | [v4.1.5.md](./v4.1.5.md) | Login Username autofocus · ERP Stock Report **fast query** (no per-box LATERAL) |

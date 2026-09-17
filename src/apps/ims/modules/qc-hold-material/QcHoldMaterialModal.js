@@ -1545,6 +1545,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
                   type="button"
                   onClick={handleApproveSubmission}
                   disabled={loading || pendingSubmissions.length === 0}
+                  title="Ctrl+S"
                   className="min-w-[140px] px-6 py-2 text-sm font-bold text-white bg-emerald-600 rounded-xl shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {loading ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
@@ -1561,6 +1562,7 @@ export default function QcHoldMaterialModal({ open, onClose, onSuccess, onApprov
                     (showScanUi && scannedCount === 0) ||
                     (isSubmitFlow && !parentHold?.hold_id)
                   }
+                  title="Ctrl+S"
                   className={`min-w-[140px] px-6 py-2 text-sm font-bold text-white rounded-xl shadow-lg disabled:bg-slate-300 ${accent.submit}`}
                 >
                   {loading

@@ -207,6 +207,7 @@ export default function TrayModal({ open, onClose, onSuccess, editData, mode = "
             type="button"
             onClick={() => void handleSave(null, "save")}
             disabled={loading}
+            title="Ctrl+S"
             className="w-full sm:w-auto sm:min-w-[160px] px-5 sm:px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
           >
             {loading && activeSubmit === "save" ? (
