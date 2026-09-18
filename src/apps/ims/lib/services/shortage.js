@@ -37,3 +37,8 @@ export const SHORTAGE_BULK_IMPORT_TYPES = ["PPC", "WIP"];
 export function createPackingDeviation(body) {
   return api(ENDPOINTS.SHORTAGE.PACKING_DEVIATION, { method: "POST", body });
 }
+
+/** New Sticker — auto create Deviation for excess qty. */
+export function autoPackingDeviation(body) {
+  return api(ENDPOINTS.SHORTAGE.AUTO_PACKING_DEVIATION, { method: "POST", body });
+}

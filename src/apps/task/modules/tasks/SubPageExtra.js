@@ -1,5 +1,6 @@
 import { AlertTriangle, Download, Trash2, FileText, CheckCircle2, ThumbsUp, XCircle, CornerUpLeft, X, Loader2, Share2, ChevronDown, User, Activity, CheckCheck, Star } from "lucide-react";
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
@@ -370,8 +371,38 @@ export function ChatBubble({ msg, onReply, onDelete, isTaskDone, isSuperAdmin })
 
 
 // ── Chat Members Badge Component ──────────────────────────────
-export function ChatMembers({ taskDetail }) {
+export function ChatMembers({ taskDetail, activeTab }) {
   const [open, setOpen] = useState(false);
+  const btnRef = useRef(null);
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
+
+  const updateMenuPos = useCallback(() => {
+    if (!btnRef.current) return;
+    const rect = btnRef.current.getBoundingClientRect();
+    setMenuPos({
+      top: rect.bottom + 6,
+      right: Math.max(8, window.innerWidth - rect.right),
+    });
+  }, []);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [activeTab, taskDetail?.task_id]);
+
+  useEffect(() => {
+    if (!open) return;
+    updateMenuPos();
+    const onReposition = () => updateMenuPos();
+    const onKeyDown = (e) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, updateMenuPos]);
 
   // extract unique members from assignment_chain + creator
   const members = useMemo(() => {
@@ -423,13 +454,63 @@ export function ChatMembers({ taskDetail }) {
   return Array.from(map.values());
 }, [taskDetail]);
 
+  if (!members.length) return null;
+
+  const dropdown = open ? (
+    <>
+      <div
+        className="fixed inset-0"
+        style={{ zIndex: 10040 }}
+        onClick={() => setOpen(false)}
+        aria-hidden="true"
+      />
+      <div
+        className="fixed w-56 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden"
+        style={{
+          top: menuPos.top,
+          right: menuPos.right,
+          zIndex: 10050,
+          maxHeight: `min(16rem, calc(100vh - ${menuPos.top}px - 12px))`,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            Task Members ({members.length})
+          </p>
+        </div>
+        <div className="max-h-64 overflow-y-auto py-1 overscroll-y-contain">
+          {members.map((m) => (
+            <div key={m.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50">
+              <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                {m.name?.[0]?.toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-slate-700 truncate">{m.name}</p>
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${m.color}`}>
+                  {m.role}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  ) : null;
+
   return (
     <div className="relative">
-      {/* Badge Button */}
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={btnRef}
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!open) updateMenuPos();
+          setOpen((v) => !v);
+        }}
         className="flex items-center gap-1 lg:gap-1.5 px-1.5 lg:px-2.5 py-1 lg:py-1.5 bg-slate-100 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 rounded-xl transition-all">
-        {/* Avatar stack */}
         <div className="flex -space-x-1.5">
           {members.slice(0, 3).map((m) => (
             <div key={m.id}
@@ -447,34 +528,7 @@ export function ChatMembers({ taskDetail }) {
         <ChevronDown size={11} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
-      {/* Dropdown */}
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1.5 z-20 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
-            <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                Task Members ({members.length})
-              </p>
-            </div>
-            <div className="max-h-64 overflow-y-auto py-1">
-              {members.map((m) => (
-                <div key={m.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50">
-                  <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                    {m.name?.[0]?.toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-slate-700 truncate">{m.name}</p>
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${m.color}`}>
-                      {m.role}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
+      {typeof document !== "undefined" && dropdown ? createPortal(dropdown, document.body) : null}
     </div>
   );
 }

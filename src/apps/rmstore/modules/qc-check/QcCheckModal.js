@@ -3,17 +3,17 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
-import { Loader2, Eye, Upload, FileText, X, Shield, Check } from "lucide-react";
+import { AlertCircle, Loader2, Eye, Upload, FileText, X, Check } from "lucide-react";
 import { notify } from "@/apps/rmstore/lib/utils/notify";
 
 import { qcCheckService } from "@/apps/rmstore/lib/services/qcCheck";
-import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_CLOSE, IMS_DRAWER_BTN_PRIMARY, IMS_DRAWER_BTN_APPROVE } from "@/apps/ims/lib/helpers/masterListUi";
+import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_CLOSE, IMS_DRAWER_BTN_PRIMARY } from "@/apps/ims/lib/helpers/masterListUi";
+import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import Drawer from "@/ui/primitives/Drawer";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { selectUser, selectRole } from "@/platform/store/slices/authSlice";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
-import ApprovalStatusToggle from "@/apps/rmstore/modules/shared/ApprovalStatusToggle";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
 
 /** Table controls — same height, padding, and box size in every row. */
@@ -286,6 +286,7 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [activeSubmit, setActiveSubmit] = useState(null);
   const [detail, setDetail] = useState(null);
   const [checklist, setChecklist] = useState([]);
   const [values, setValues] = useState({});
@@ -296,12 +297,7 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
   const [baselineFp, setBaselineFp] = useState(null);
   /** Super Admin pending override before save (null = use DB value). */
   const [overallDraft, setOverallDraft] = useState(null);
-  /** Edit + authorize: when true, Save also runs Approve. */
-  const [approveOnSave, setApproveOnSave] = useState(false);
-
   const readOnly = mode === "view" || detail?.read_only === true;
-  /** Edit/Approve + authorize → Approval Status toggle (Save uses toggle). */
-  const showApprovalToggle = (isEditMode || isApproveMode) && canAuthorize && !readOnly;
   const showExpectedResultCols = readOnly || showCompareCols;
 
   const load = useCallback(async () => {
@@ -384,14 +380,6 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
   useEffect(() => {
     if (open && (row?.coil_no_uid || row?.qc_check_uid)) {
       void load();
-      if (mode === "edit" && canAuthorize) {
-        const st = String(row?.status || "").toLowerCase();
-        setApproveOnSave(st === "awaiting_approval");
-      } else if (mode === "approve" && canAuthorize) {
-        setApproveOnSave(true);
-      } else {
-        setApproveOnSave(false);
-      }
     } else if (!open) {
       setDetail(null);
       setChecklist([]);
@@ -401,9 +389,8 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
       setErrors({});
       setOverallDraft(null);
       setBaselineFp(null);
-      setApproveOnSave(false);
     }
-  }, [open, row?.qc_check_uid, row?.coil_no_uid, row?.status, mode, canAuthorize, load]);
+  }, [open, row?.qc_check_uid, row?.coil_no_uid, row?.status, mode, load]);
 
   const lineResults = useMemo(() => {
     const map = {};
@@ -500,6 +487,10 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
     [checklist, values, remarks]
   );
   const isDirty = !readOnly && baselineFp != null && currentFp !== baselineFp;
+  const hasNewDocFiles = useMemo(
+    () => checklist.some((s) => values[s.spec_id]?.document_file instanceof File),
+    [checklist, values]
+  );
 
   const resolveCoilUid = useCallback(() => {
     const fromDetail = String(detail?.coil_no_uid || "").trim();
@@ -509,24 +500,6 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
     }
     return String(row?.coil_no_uid || "").trim();
   }, [detail?.coil_no_uid, batchCoils, row?.coil_no_uid]);
-
-  const statusHint = useMemo(() => {
-    if (isApproveMode) return "Review, then approve.";
-    if (isEditMode) {
-      if (isApprovedRegisterEdit) {
-        return approveOnSave ? "Save will apply your changes." : "Turn on Approval to save.";
-      }
-      return "Update and save.";
-    }
-    if (!totalCount) return "";
-    if (!allFilled) {
-      return isDirty
-        ? `${filledCount}/${totalCount} done · unsaved · save draft anytime`
-        : `${filledCount}/${totalCount} done · fill amber fields`;
-    }
-    if (isDirty) return "All filled · tap Submit when ready";
-    return "All filled · ready to submit";
-  }, [isApproveMode, isEditMode, isApprovedRegisterEdit, approveOnSave, totalCount, allFilled, filledCount, isDirty]);
 
   const showDocColumn = useMemo(() => {
     const hasAnyDoc = checklist.some(
@@ -606,8 +579,13 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
     }
   };
 
-  const handleSubmit = async () => {
+  const handleSave = async (statusOverride = null, actionKey = "save") => {
     if (readOnly || !canWrite) return;
+    if (isApproveMode && actionKey === "keep_pending") {
+      onClose?.();
+      return;
+    }
+
     const coilUid = resolveCoilUid();
     const qcId = detail?.qc_check_uid || row?.qc_check_uid;
     if (!coilUid && !qcId) return;
@@ -632,16 +610,20 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
     }
     setErrors({});
 
-    if (isApprovedRegisterEdit && showApprovalToggle && !approveOnSave) {
-      toast.error("Turn on Approval Status to apply changes to an approved QC check.");
-      return;
-    }
-
     const willFail = overallResult === "fail";
     const reason = willFail ? String(autoFailureReason || "").trim() || (isSuperAdmin && overallDraft === "fail" ? "Marked as failed by administrator override." : "") : "";
     const itemsPayload = buildItemsPayload();
-    const doApproveNow = showApprovalToggle && approveOnSave;
+    const doApproveNow =
+      (isApproveMode && actionKey === "approve") ||
+      (isEditMode && actionKey === "approve" && canAuthorize);
+    const approveOnly =
+      doApproveNow &&
+      !isDirty &&
+      !hasNewDocFiles &&
+      actionKey === "approve" &&
+      !isApprovedRegisterEdit;
 
+    setActiveSubmit(actionKey);
     setSubmitting(true);
     try {
       if (doApproveNow) {
@@ -663,15 +645,18 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
             items: itemsPayload,
           });
         }
-        const res = await qcCheckService.approve({
-          qc_check_uid: qcId,
-          remarks: remarks.trim() || null,
-          failure_reason: willFail ? reason || null : null,
-          ...(isSuperAdmin && (overallResult === "pass" || overallResult === "fail")
-            ? { overall_result: overallResult }
-            : {}),
-          items: itemsPayload,
-        });
+        const approvePayload = approveOnly
+          ? { qc_check_uid: qcId }
+          : {
+              qc_check_uid: qcId,
+              remarks: remarks.trim() || null,
+              failure_reason: willFail ? reason || null : null,
+              ...(isSuperAdmin && (overallResult === "pass" || overallResult === "fail")
+                ? { overall_result: overallResult }
+                : {}),
+              items: itemsPayload,
+            };
+        const res = await qcCheckService.approve(approvePayload);
         notify(
           res,
           willFail ? "QC approved as failed and moved to Rejection Pending." : "QC approved."
@@ -708,54 +693,69 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
       );
     } finally {
       setSubmitting(false);
+      setActiveSubmit(null);
     }
   };
 
   const handlePrimaryAction = () => {
-    if (isApproveMode || isEditMode) void handleSubmit();
-    else if (allFilled) void handleSubmit();
+    if (isApproveMode) void handleSave(true, "approve");
+    else if (isEditMode) void handleSave(null, "save");
+    else if (allFilled) void handleSave();
     else void handleSaveDraft();
   };
 
   const busy = submitting || loading || !totalCount;
-  const needsApproveToSave = isApprovedRegisterEdit && showApprovalToggle && !approveOnSave;
-  const primaryDisabled =
-    busy || needsApproveToSave || ((isEditMode || isApproveMode) && !allFilled);
-  const isPrimaryApprove = showApprovalToggle && approveOnSave;
+  const primaryDisabled = busy || ((isEditMode || isApproveMode) && !allFilled);
 
   const primaryLabel = useMemo(() => {
     if (submitting) return "Saving…";
-    if (isPrimaryApprove || isApproveMode) return "Approve";
+    if (isApproveMode) return "Approve";
     if (isEditMode) return "Save";
     if (allFilled) return "Submit";
     return "Save as Draft";
-  }, [submitting, isPrimaryApprove, isApproveMode, isEditMode, allFilled, filledCount, totalCount]);
+  }, [submitting, isApproveMode, isEditMode, allFilled, filledCount, totalCount]);
 
-  const footer = (
-    <div className={IMS_DRAWER_FOOTER_WRAP}>
-      <button type="button" onClick={onClose} disabled={submitting} className={readOnly ? IMS_DRAWER_BTN_CLOSE : IMS_DRAWER_BTN_CANCEL}>
-        {readOnly ? "Close" : "Cancel"}
-      </button>
-      {!readOnly && canWrite && (
-        <button
-          type="button"
-          onClick={() => void handlePrimaryAction()}
-          disabled={primaryDisabled}
-          title="Ctrl+S"
-          className={`${
-            isPrimaryApprove
-              ? IMS_DRAWER_BTN_APPROVE
-              : !allFilled && !isEditMode && !isApproveMode
+  const footer =
+    readOnly ? (
+      <RmStoreDrawerFooter onClose={onClose} readOnly />
+    ) : isEditMode || isApproveMode ? (
+      <RmStoreDrawerFooter
+        onClose={onClose}
+        loading={submitting}
+        disabled={primaryDisabled}
+        isApprove={isApproveMode}
+        isEdit={isEditMode}
+        canApprove={canAuthorize}
+        activeSubmit={activeSubmit}
+        onSave={handleSave}
+        saveLabel="Save"
+        saveAndApproveLabel="Save & Approve"
+        approveLabel="Approve"
+        loadingLabel="Saving…"
+      />
+    ) : (
+      <div className={IMS_DRAWER_FOOTER_WRAP}>
+        <button type="button" onClick={onClose} disabled={submitting} className={IMS_DRAWER_BTN_CANCEL}>
+          Cancel
+        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => void handlePrimaryAction()}
+            disabled={primaryDisabled}
+            title="Ctrl+S"
+            className={`${
+              !allFilled
                 ? "shrink-0 min-w-[140px] px-6 py-2.5 text-sm font-bold text-sky-800 bg-white border border-sky-300 hover:bg-sky-50 rounded-xl transition-all disabled:opacity-50 inline-flex items-center justify-center gap-2"
                 : IMS_DRAWER_BTN_PRIMARY
-          } flex items-center justify-center gap-2`}
-        >
-          {submitting ? <Loader2 size={18} className="animate-spin" /> : isPrimaryApprove ? <Shield size={18} /> : <Check size={18} />}
-          {primaryLabel}
-        </button>
-      )}
-    </div>
-  );
+            } flex items-center justify-center gap-2`}
+          >
+            {submitting ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
+            {primaryLabel}
+          </button>
+        )}
+      </div>
+    );
 
   return (
     <Drawer
@@ -764,7 +764,11 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
       onSubmit={
         readOnly || !canWrite || submitting || loading || totalCount === 0
           ? undefined
-          : handlePrimaryAction
+          : isApproveMode
+            ? () => handleSave(true, "approve")
+            : isEditMode
+              ? () => handleSave(null, "save")
+              : handlePrimaryAction
       }
       title={
         readOnly
@@ -1053,16 +1057,16 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
             </div>
           )}
 
-          {!readOnly && (
-            <ApprovalStatusToggle
-              show={showApprovalToggle}
-              checked={approveOnSave}
-              onChange={setApproveOnSave}
-              disabled={submitting}
-              pendingHint={statusHint}
-              lockedLabel="Final & Locked · save and approve"
-              draftLabel="Draft Mode · submit only"
-            />
+          {isEditMode && isApprovedRegisterEdit && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
+              <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
+              <p className="text-[11px] text-amber-700 font-medium leading-normal">
+                Editing this approved QC check will send it back to{" "}
+                <span className="font-bold text-amber-900 uppercase">Awaiting Approval</span>.
+                Use <span className="font-bold">Save</span> to update only, or{" "}
+                <span className="font-bold">Save &amp; Approve</span> to update and re-authorize.
+              </p>
+            </div>
           )}
         </div>
       )}

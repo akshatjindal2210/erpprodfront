@@ -24,6 +24,7 @@ import PrintActionButton from "@/ui/primitives/PrintActionButton";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { canPrintSaStickers } from "@/apps/rmstore/lib/utils/stockAdjustmentEntryTypes";
+import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
 import { STOCK_ADJUSTMENT_CARD_CONFIG, STOCK_ADJUSTMENT_HEADERS, STOCK_ADJUSTMENT_STATUS_FILTER_OPTIONS, filterStockAdjustmentRows, buildStockAdjustmentApiFilters } from "./stockAdjustmentColumns";
 
@@ -205,17 +206,20 @@ export default function StockAdjustmentPage() {
       [handleOpenModal]
     ),
     canApproveSelection: useCallback(
-      () => Boolean(selected && selectedRecord && !selectedRecord.approved),
+      () => Boolean(selected && selectedRecord && !isRowApproved(selectedRecord)),
       [selected, selectedRecord]
     ),
     onApproveBlocked: useCallback(() => {
-      if (selectedRecord?.approved) toast.info("This adjustment is already authorized. Edit it first if you need to change the stock.");
-      else toast.info("Select a pending row to approve (Ctrl+A).");
-    }, [selectedRecord?.approved]),
+      if (selectedRecord && isRowApproved(selectedRecord)) {
+        toast.info("This adjustment is already authorized. Edit it first if you need to change the stock.");
+      } else {
+        toast.info("Select a pending row to approve (Ctrl+A).");
+      }
+    }, [selectedRecord]),
     onPrint: useCallback(() => {
       if (!selectedRecord) return;
       if (!canPrintSaStickers(selectedRecord)) {
-        toast.info("Printing stickers is only available for approved Add (+) or Old adjustments.");
+        toast.info("Printing stickers is only available for Add (+) or Old adjustments.");
         return;
       }
       handleOpenModal("print", selectedRecord);
@@ -224,7 +228,7 @@ export default function StockAdjustmentPage() {
       () => Boolean(selected) && canPrintSaStickers(selectedRecord),
       [selected, selectedRecord]
     ),
-    printBlockedMessage: "Printing stickers is only available for approved Add (+) or Old adjustments.",
+    printBlockedMessage: "Printing stickers is only available for Add (+) or Old adjustments.",
     printModule: MODULE,
     printAction: "view",
     openDelete: useCallback((row) => setDeleteItem(row), []),
@@ -286,7 +290,7 @@ export default function StockAdjustmentPage() {
                   title={
                     selectedRecord?.approved
                       ? "Already authorized. Edit it first to make a change, then approve it again."
-                      : "Approve this pending adjustment"
+                      : "Scan coil stickers and approve this pending adjustment"
                   }
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
                 />
@@ -297,7 +301,7 @@ export default function StockAdjustmentPage() {
                   icon={Printer}
                   disabled={!selected || !canPrintSaStickers(selectedRecord)}
                   onClick={openPrintModal}
-                  title="Print RM coil stickers for an approved Add (+) or Old adjustment"
+                  title="Print RM coil stickers for Add (+) or Old — print before approve, then scan to authorize"
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-indigo-600 shadow-none shrink-0"
                 />
                 <ActionButton

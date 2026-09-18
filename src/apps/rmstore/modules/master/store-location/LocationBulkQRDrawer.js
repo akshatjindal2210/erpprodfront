@@ -22,7 +22,6 @@ export default function LocationBulkQRDrawer({
   isOpen,
   onClose,
   locations = [],
-  initialSelectedId = null,
 }) {
   const canAccess = useCanAccess();
   const canPrint = canAccess("rm_store_location_master", "view").allowed;
@@ -43,15 +42,8 @@ export default function LocationBulkQRDrawer({
       setProgress(null);
       return;
     }
-    const next = new Set();
-    if (
-      initialSelectedId != null &&
-      locations.some((r) => r?.approved && r.location_id === initialSelectedId)
-    ) {
-      next.add(initialSelectedId);
-    }
-    setSelectedIds(next);
-  }, [isOpen, initialSelectedId, locations]);
+    setSelectedIds(new Set(authorized.map((r) => r.location_id)));
+  }, [isOpen, authorized]);
 
   const selectedRows = useMemo(
     () => authorized.filter((r) => selectedIds.has(r.location_id)),

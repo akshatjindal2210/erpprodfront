@@ -26,6 +26,8 @@ import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
+import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
+import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 
 const MODULE = "rm_issue_request";
 
@@ -329,13 +331,18 @@ export default function IssueRequestPage() {
     openEdit: useCallback((row) => openMasterModal(row, "edit"), [openMasterModal]),
     openApprove: useCallback((row) => openMasterModal(row, "approve"), [openMasterModal]),
     canApproveSelection: useCallback(
-      () => Boolean(selected && selectedRecord) && !isSelectedLocked,
+      () =>
+        Boolean(selected && selectedRecord) &&
+        !isSelectedLocked &&
+        !isRowApproved(selectedRecord),
       [selected, selectedRecord, isSelectedLocked]
     ),
     onApproveBlocked: useCallback(() => {
       if (isSelectedLocked) toast.info("This issue request is locked for store out.");
-      else toast.info("Select a row to approve (Ctrl+A).");
-    }, [isSelectedLocked]),
+      else if (isRowApproved(selectedRecord)) {
+        toast.info("This record is already approved. Edit it before approving again.");
+      } else toast.info("Select a row to approve (Ctrl+A).");
+    }, [isSelectedLocked, selectedRecord]),
     openDelete: useCallback((row) => {
       if (row?.out_entry_locked) return;
       setDeleteItem(resolveMasterModalItem(row, masterRows));
@@ -464,18 +471,10 @@ export default function IssueRequestPage() {
       ],
       ["Lock Status", "out_entry_locked", (_v, row) => <LockStatusBadge row={row} />, { width: "110px", align: "center" }],
       ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 truncate block" title={v || ""}>{v || "—"}</span>, { width: "140px" }],
-      ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-      ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Updated At", "updated_at", (v, row) => (
-        <span className="text-[10px] text-slate-400 font-medium">
-          {row?.updated_by_name ? formatDateTime(v) : "—"}
-        </span>
-      ), { width: "150px" }],
-      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
-      ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-      ["Locked By", "out_entry_locked_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
-      ["Locked At", "out_entry_locked_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+      ...auditHeaders(),
+      ...auditPair("Locked", "out_entry_locked_by_name", "out_entry_locked_at", {
+        hideUnlessNameKey: "out_entry_locked_by_name",
+      }),
     ],
     [drillToJobCardWise]
   );
@@ -544,18 +543,10 @@ export default function IssueRequestPage() {
         { width: "110px", align: "center" },
       ],
       ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 truncate block" title={v || ""}>{v || "—"}</span>, { width: "140px" }],
-      ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-      ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Updated At", "updated_at", (v, row) => (
-        <span className="text-[10px] text-slate-400 font-medium">
-          {row?.updated_by_name ? formatDateTime(v) : "—"}
-        </span>
-      ), { width: "150px" }],
-      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
-      ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-      ["Locked By", "out_entry_locked_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
-      ["Locked At", "out_entry_locked_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+      ...auditHeaders(),
+      ...auditPair("Locked", "out_entry_locked_by_name", "out_entry_locked_at", {
+        hideUnlessNameKey: "out_entry_locked_by_name",
+      }),
     ],
     [drillToJobCardWise]
   );
@@ -574,6 +565,7 @@ export default function IssueRequestPage() {
         label: "Status",
         key: "approvedStatus",
         value: params.status,
+        variant: "server",
         options: [
           { label: "All Status", value: "all" },
           { label: "Approved", value: "approved" },
@@ -584,6 +576,7 @@ export default function IssueRequestPage() {
         label: "Lock / Complete",
         key: "storeOutFilter",
         value: params.storeOutFilter,
+        variant: "server",
         options: STORE_OUT_FILTER_OPTIONS,
       },
     ],
@@ -648,8 +641,14 @@ export default function IssueRequestPage() {
                   variant="outline"
                   label="Approve"
                   icon={CheckCircle}
-                  disabled={!selectedRecord || isSelectedLocked}
-                  onClick={() => openMasterModal(selectedRecord, "approve")}
+                  disabled={!selectedRecord || isSelectedLocked || isRowApproved(selectedRecord)}
+                  onClick={() => {
+                    if (isRowApproved(selectedRecord)) {
+                      toast.info("This record is already approved. Edit it before approving again.");
+                      return;
+                    }
+                    openMasterModal(selectedRecord, "approve");
+                  }}
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
                 />
                 <ActionButton

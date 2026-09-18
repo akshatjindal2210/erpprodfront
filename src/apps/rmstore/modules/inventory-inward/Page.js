@@ -25,7 +25,7 @@ import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys
 import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
-import { formatDateTime } from "@/platform/utils/core/utilHelper";
+import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
 import LocationFinderDrawer from "@/apps/rmstore/modules/store-location/LocationFinderDrawer";
 import { renderCoilLocationCell } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 // import { renderCoilQcIdStatusCell } from "@/apps/rmstore/modules/coil/coilTableVisuals";
@@ -79,7 +79,8 @@ function mapPendingStoreInToCoilRows(pendingRows = []) {
       total_coils: ipr.coil_count ?? ipr.coils?.length ?? 0,
       reason: ipr.reason ?? null,
       remarks: ipr.remarks ?? null,
-      created_at: ipr.approved_at || ipr.created_at || null,
+      last_by: ipr.updated_by_name || ipr.approved_by_name || ipr.created_by_name || ipr.updated_by || ipr.approved_by || ipr.created_by || null,
+      last_at: ipr.updated_at || ipr.approved_at || ipr.created_at || null,
       source: iprPendingSourceLabel(ipr),
     };
   });
@@ -101,8 +102,8 @@ function mapPendingStoreInToMrnRows(pendingRows = []) {
       total_coils: ipr.coil_count ?? ipr.coils?.length ?? 0,
       reason: ipr.reason ?? null,
       remarks: ipr.remarks ?? null,
-      created_by: ipr.created_by_name || ipr.created_by || null,
-      created_at: ipr.approved_at || ipr.created_at || null,
+      last_by: ipr.updated_by_name || ipr.approved_by_name || ipr.created_by_name || ipr.updated_by || ipr.approved_by || ipr.created_by || null,
+      last_at: ipr.updated_at || ipr.approved_at || ipr.created_at || null,
       source: iprPendingSourceLabel(ipr),
     };
   });
@@ -132,7 +133,6 @@ export default function StoreInPage() {
 
   const [params, setParams] = useState({
     pageSize: 500,
-    status: "all",
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
     sortKey: "in_uid",
@@ -169,7 +169,6 @@ export default function StoreInPage() {
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState("add");
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
   const [finderOpen, setFinderOpen] = useState(false);
@@ -183,7 +182,6 @@ export default function StoreInPage() {
         filters: {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
-          ...(params.status !== "all" && { approved: params.status === "approved" }),
         },
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
@@ -203,7 +201,7 @@ export default function StoreInPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.fromDate, params.toDate, params.status, appliedSearch]);
+  }, [params.pageSize, params.fromDate, params.toDate, appliedSearch]);
 
   const fetchPendingStoreIn = useCallback(async () => {
     try {
@@ -346,9 +344,9 @@ export default function StoreInPage() {
         tempSearch,
         sourceRows: activeSourceRows,
         filteredRows,
-        serverFiltered: isStoreIn && (params.status !== "all" || Boolean(appliedSearch)),
+        serverFiltered: isStoreIn && Boolean(appliedSearch),
       }),
-    [tempSearch, activeSourceRows, filteredRows, isStoreIn, params.status, appliedSearch]
+    [tempSearch, activeSourceRows, filteredRows, isStoreIn, appliedSearch]
   );
 
   const getRowId = useCallback(
@@ -401,18 +399,19 @@ export default function StoreInPage() {
       return;
     }
     setEditItem(null);
-    setModalMode("add");
     setModalOpen(true);
   }, [canReceivePendingStoreIn, canReceiveStoreIn, handleReceivePendingStoreIn]);
+
+  const selectedStoreInRecord = useMemo(
+    () => (isStoreIn ? filteredRows.find((r) => String(r.in_uid) === String(selected)) || null : null),
+    [filteredRows, selected, isStoreIn]
+  );
 
   const { openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
     modalOpen: modalOpen || finderOpen || receiveModalOpen || !!deleteItem,
     selectedId: isStoreIn ? selected : null,
-    getSelectedRow: useCallback(
-      () => (isStoreIn ? filteredRows.find((r) => String(r.in_uid) === String(selected)) || null : null),
-      [filteredRows, selected, isStoreIn]
-    ),
+    getSelectedRow: useCallback(() => selectedStoreInRecord, [selectedStoreInRecord]),
     openAdd: handlePrimaryAction,
     bypassModulePermission: canReceivePendingStoreIn,
     canOpenNew: useCallback(() => {
@@ -422,7 +421,6 @@ export default function StoreInPage() {
     openEdit: useCallback((row) => {
       if (!isStoreIn || !row) return;
       setEditItem(row);
-      setModalMode("edit");
       setModalOpen(true);
     }, [isStoreIn]),
     openDelete: useCallback((row) => {
@@ -509,13 +507,7 @@ export default function StoreInPage() {
       ), { width: "100px" }],
       ["Coils", "coil_count", (v) => <span className="font-bold tabular-nums text-[11px]">{v ?? 0}</span>, { width: "70px" }],
       ["Remarks", "remarks", (v) => <span className="text-slate-500 text-[10px] truncate block">{v || "—"}</span>, { width: "160px" }],
-      ["Status", "approved", (v) => (
-        <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
-          {v ? "● AUTHORIZED" : "○ PENDING"}
-        </span>
-      ), { width: "120px" }],
-      ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400">{formatDateTime(v)}</span>, { width: "150px" }],
+      ...auditHeaders(["created", "updated"]),
     ],
     []
   );
@@ -597,18 +589,7 @@ export default function StoreInPage() {
         { width: "100px" },
       ],
       ["Status", "row_kind", unassignedStatusCell, { width: "140px" }],
-      [
-        "Created By",
-        "created_by",
-        (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>,
-        { width: "110px" },
-      ],
-      [
-        "Created At",
-        "created_at",
-        (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-        { width: "150px" },
-      ],
+      ...auditPair("Created", "last_by", "last_at"),
     ],
     []
   );
@@ -669,12 +650,7 @@ export default function StoreInPage() {
       ],
       ["Status", "row_kind", unassignedStatusCell, { width: "140px" }],
       // ["QC", "qc_uid", (v, row) => (isPendingStoreInRow(row) ? "—" : renderCoilQcIdStatusCell(v, row)), { width: "130px" }],
-      [
-        "Created",
-        "created_at",
-        (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-        { width: "150px" },
-      ],
+      ...auditPair("Created", "last_by", "last_at"),
     ],
     []
   );
@@ -694,23 +670,6 @@ export default function StoreInPage() {
     rows: filteredRows,
     headers,
   });
-
-  const extraFilters = useMemo(
-    () =>
-      isStoreIn
-        ? [{
-            label: "Status",
-            key: "approvedStatus",
-            value: params.status,
-            options: [
-              { label: "All Status", value: "all" },
-              { label: "Approved", value: "approved" },
-              { label: "Pending", value: "pending" },
-            ],
-          }]
-        : [],
-    [isStoreIn, params.status]
-  );
 
   const handleSort = (key) => {
     setDisplayLimit(100);
@@ -908,9 +867,11 @@ export default function StoreInPage() {
         <ListPageFilterStrip>
           <DateRangeFilter
             showDate={isStoreIn}
+            quickSearchOnly={!isStoreIn}
+            showSearchButton={isStoreIn}
+            applyOnSearchEnter={isStoreIn}
             fromDate={params.fromDate}
             toDate={params.toDate}
-            extraFilters={extraFilters}
             onApply={(data) => {
               applySearchFromInput();
               if (isStoreIn) {
@@ -918,7 +879,6 @@ export default function StoreInPage() {
                   ...prev,
                   fromDate: data.fromDate,
                   toDate: data.toDate,
-                  status: data.approvedStatus || prev.status,
                 }));
               }
             }}
@@ -927,7 +887,6 @@ export default function StoreInPage() {
               if (isStoreIn) {
                 setParams({
                   pageSize: 500,
-                  status: "all",
                   fromDate: dateFilterDefaults.from,
                   toDate: dateFilterDefaults.to,
                   sortKey: "in_uid",
@@ -987,19 +946,19 @@ export default function StoreInPage() {
               totalItems={totalItems}
               cardConfig={
                 isStoreIn
-                  ? { titleKey: "mrn_uids", badgeIndices: [8], detailIndices: [1, 2, 3], footerKey: "created_at" }
+                  ? { titleKey: "mrn_uids", badgeIndices: [6], detailIndices: [1, 2, 3], footerKey: "created_at" }
                   : isPackingCoilView
                     ? {
                         titleKey: "coil_no_uid",
                         badgeIndices: [1, 7],
                         detailKeys: ["mrn_uid", "heat_no", "item_code", "item_desc", "qty"],
-                        footerKey: "created_at",
+                        footerKey: "last_at",
                       }
                     : {
                         titleKey: "mrn_uid",
                         badgeIndices: [1, 7],
                         detailKeys: ["heat_nos", "item_code", "item_desc", "stock_qty", "coil_count"],
-                        footerKey: "created_at",
+                        footerKey: "last_at",
                       }
               }
             />
@@ -1016,12 +975,11 @@ export default function StoreInPage() {
 
       <InwardModal
         open={modalOpen}
-        mode={modalMode}
+        mode={editItem ? "edit" : "add"}
         editData={editItem}
         onClose={() => {
           setModalOpen(false);
           setEditItem(null);
-          setModalMode("add");
         }}
         onSuccess={() => {
           handleRefresh();

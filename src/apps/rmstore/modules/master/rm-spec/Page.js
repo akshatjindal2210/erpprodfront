@@ -4,13 +4,13 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, FileText, RefreshCcw, Edit3, Trash2, CheckCircle, X, Eye, Copy } from "lucide-react";
 import { toast } from "react-toastify";
 
-import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { specService } from "@/apps/rmstore/lib/services/spec";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import ActionButton from "@/ui/primitives/ActionButton";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
@@ -22,6 +22,7 @@ import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { SpecColorChip } from "./specHeaderUi";
+import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 
 const MODULE = "rm_spec_master";
 
@@ -117,9 +118,24 @@ export default function RmSpecMasterPage() {
     ),
     openAdd: useCallback(() => openModal("add"), [openModal]),
     openEdit: useCallback((row) => openModal("edit", row), [openModal]),
-    openApprove: useCallback((row) => openModal("approve", row), [openModal]),
-    canApproveSelection: useCallback(() => Boolean(selected && selectedRecord), [selected, selectedRecord]),
-    onApproveBlocked: useCallback(() => toast.info("Select a row to approve (Ctrl+A)."), []),
+    openApprove: useCallback((row) => {
+      if (isRowApproved(row)) {
+        toast.info("This record is already approved. Edit it before approving again.");
+        return;
+      }
+      openModal("approve", row);
+    }, [openModal]),
+    canApproveSelection: useCallback(
+      () => Boolean(selected && selectedRecord && !isRowApproved(selectedRecord)),
+      [selected, selectedRecord]
+    ),
+    onApproveBlocked: useCallback(() => {
+      if (isRowApproved(selectedRecord)) {
+        toast.info("This record is already approved. Edit it before approving again.");
+        return;
+      }
+      toast.info("Select a pending row to open approve (Ctrl+A).");
+    }, [selectedRecord]),
     openDelete: useCallback((row) => setDeleteItem(row), []),
     canDeleteSelection: useCallback(() => !!selected, [selected]),
   });
@@ -162,26 +178,7 @@ export default function RmSpecMasterPage() {
           </span>
         );
       }, { width: "140px" }],
-      ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Created At", "created_at", (v) => (
-          <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>
-        ),
-        { width: "150px" },
-      ],
-      ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Updated At", "updated_at", (v, row) => (
-          <span className="text-[10px] text-slate-400 font-medium">
-            {row?.updated_by_name ? formatDateTime(v) : "—"}
-          </span>
-        ),
-        { width: "150px" },
-      ],
-      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
-      ["Approved At", "approved_at", (v) => (
-          <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>
-        ),
-        { width: "150px" },
-      ],
+      ...auditHeaders(),
     ],
     []
   );
@@ -217,7 +214,7 @@ export default function RmSpecMasterPage() {
                 <ActionButton module={MODULE} action="add" variant="outline" label="Clone" icon={Copy} disabled={!selected || !hasAddPermission} onClick={() => openModal("clone", selectedRecord)} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
                 <ActionButton module={MODULE} action="view" variant="outline" label="View" icon={Eye} disabled={!selected} onClick={() => openModal("view", selectedRecord)} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
                 <ActionButton module={MODULE} action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected || !hasEditPermission} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0" />
-                <ActionButton module={MODULE} action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected || !hasAuthorizePermission} record={selectedRecord} onClick={() => openModal("approve", selectedRecord)} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
+                <ActionButton module={MODULE} action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected || !hasAuthorizePermission || isRowApproved(selectedRecord)} record={selectedRecord} onClick={() => { if (isRowApproved(selectedRecord)) { toast.info("This record is already approved. Edit it before approving again."); return; } openModal("approve", selectedRecord); }} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0" />
                 <ActionButton module={MODULE} action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected || !hasDeletePermission} record={selectedRecord} onClick={() => setDeleteItem(selectedRecord)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
                 <button onClick={() => fetchSpecs()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase shadow-none shrink-0">

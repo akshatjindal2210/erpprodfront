@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, MapPin, RefreshCcw, Printer, Edit3, Trash2, CheckCircle, X, Info, Layers } from "lucide-react";
 import { toast } from "react-toastify";
 
-import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { storeLocationService as locationService } from "@/apps/rmstore/lib/services/storeLocation";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
@@ -14,6 +13,7 @@ import ActionButton from "@/ui/primitives/ActionButton";
 import PrintActionButton from "@/ui/primitives/PrintActionButton";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
@@ -26,6 +26,9 @@ import LocationBulkQRDrawer from "./LocationBulkQRDrawer";
 
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
+import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
+import { rmLocationLabelSizeText } from "@/apps/rmstore/lib/helpers/locationQrLabel";
+
 export default function LocationMasterPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
@@ -157,17 +160,25 @@ export default function LocationMasterPage() {
       setModalOpen(true);
     }, []),
     openApprove: useCallback((row) => {
+      if (isRowApproved(row)) {
+        toast.info("This record is already approved. Edit it before approving again.");
+        return;
+      }
       setEditItem(row);
       setModalMode("approve");
       setModalOpen(true);
     }, []),
     canApproveSelection: useCallback(
-      () => Boolean(selected && selectedRecord),
+      () => Boolean(selected && selectedRecord && !isRowApproved(selectedRecord)),
       [selected, selectedRecord]
     ),
     onApproveBlocked: useCallback(() => {
-      toast.info("Select a row to approve (Ctrl+A).");
-    }, []),
+      if (isRowApproved(selectedRecord)) {
+        toast.info("This record is already approved. Edit it before approving again.");
+        return;
+      }
+      toast.info("Select a pending row to open approve (Ctrl+A).");
+    }, [selectedRecord]),
     onPrint: useCallback((row) => {
       setQrData(row);
       setQrModalOpen(true);
@@ -214,16 +225,7 @@ export default function LocationMasterPage() {
         {v ? "● AUTHORIZED" : "○ PENDING"}
       </span>
     ), { width: "120px" }],
-    ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-    ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-    ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-    ["Updated At", "updated_at", (v, row) => (
-      <span className="text-[10px] text-slate-400 font-medium">
-        {row?.updated_by_name ? formatDateTime(v) : "—"}
-      </span>
-    ), { width: "150px" }],
-    ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
-    ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+    ...auditHeaders(),
   ];
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
@@ -242,7 +244,7 @@ export default function LocationMasterPage() {
               <>
               <ActionButton module="rm_store_location_master" action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
               <ActionButton module="rm_store_location_master" action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected} record={selectedRecord} onClick={openEditModal} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none" />
-              <ActionButton module="rm_store_location_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected} onClick={() => { setEditItem(selectedRecord); setModalMode("approve"); setModalOpen(true); }} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none" />
+              <ActionButton module="rm_store_location_master" action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected || isRowApproved(selectedRecord)} onClick={() => { if (isRowApproved(selectedRecord)) { toast.info("This record is already approved. Edit it before approving again."); return; } setEditItem(selectedRecord); setModalMode("approve"); setModalOpen(true); }} className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none" />
               <ActionButton module="rm_store_location_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
               
               <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
@@ -256,7 +258,7 @@ export default function LocationMasterPage() {
                 label="Bulk QR"
                 icon={Layers}
                 onClick={() => setBulkQrOpen(true)}
-                title="Select multiple authorized locations to print or download QR labels (50×25 mm)"
+                title={`Select multiple authorized locations to print or download QR labels (${rmLocationLabelSizeText()})`}
                 className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none"
               />
 
@@ -356,7 +358,6 @@ export default function LocationMasterPage() {
         isOpen={bulkQrOpen}
         onClose={() => setBulkQrOpen(false)}
         locations={filteredRows}
-        initialSelectedId={selectedRecord?.approved ? selected : null}
       />
     </div>
   );

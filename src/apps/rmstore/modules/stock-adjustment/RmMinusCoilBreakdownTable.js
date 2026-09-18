@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Loader2, CheckCircle2 } from "lucide-react";
 import { isCoilAvailableForSaMinus, isSaMinusWriteOff } from "@/apps/rmstore/lib/utils/saMinusInventory";
 
 function coilSourceLabel(row) {
@@ -39,6 +39,8 @@ export default function RmMinusCoilBreakdownTable({
   loading = false,
   entryApproved = false,
   currentAdjustmentId = null,
+  showApprovalFlow = false,
+  scanTracking = {},
 }) {
   const list = Array.isArray(rows) ? rows : [];
   const total = list.length;
@@ -153,6 +155,7 @@ export default function RmMinusCoilBreakdownTable({
                   const canSelect = isCoilAvailableForMinus(row, currentAdjustmentId) || checked;
                   const coilIndex = row.coil_index ?? idx + 1;
                   const totalCoils = row.total_coils ?? total;
+                  const coilScanned = !!scanTracking[uid];
                   return (
                     <tr
                       key={uid || idx}
@@ -163,7 +166,15 @@ export default function RmMinusCoilBreakdownTable({
                       </td>
                       <td className="px-2 py-1.5 lg:px-3 lg:py-2 text-[10px] font-bold text-slate-700 min-w-0 max-w-[180px] lg:max-w-[240px]">
                         <div className="flex flex-col leading-snug min-w-0">
-                          <span className="text-slate-800 font-bold text-[10px] break-all">{uid || "—"}</span>
+                          <div className="flex items-center gap-1 min-w-0">
+                            {showApprovalFlow ? (
+                              <CheckCircle2
+                                className={`w-3.5 h-3.5 shrink-0 ${coilScanned ? "text-emerald-600" : "text-slate-300"}`}
+                                aria-hidden
+                              />
+                            ) : null}
+                            <span className="text-slate-800 font-bold text-[10px] break-all">{uid || "—"}</span>
+                          </div>
                           <span className="text-[8px] lg:text-[10px] text-slate-400 uppercase font-bold truncate">
                             Coil {coilIndex} / {totalCoils}
                           </span>
@@ -196,8 +207,20 @@ export default function RmMinusCoilBreakdownTable({
                         </span>
                       </td>
                       <td className="px-2 py-1.5 lg:px-3 lg:py-2">
-                        <span className="text-[9px] font-bold text-slate-600 uppercase whitespace-nowrap">
-                          {coilStatusLabel(row, checked, readOnly, canSelect)}
+                        <span
+                          className={`text-[9px] font-bold uppercase whitespace-nowrap ${
+                            showApprovalFlow
+                              ? coilScanned
+                                ? "text-emerald-600"
+                                : "text-indigo-600"
+                              : "text-slate-600"
+                          }`}
+                        >
+                          {showApprovalFlow
+                            ? coilScanned
+                              ? "Scanned"
+                              : "Awaiting"
+                            : coilStatusLabel(row, checked, readOnly, canSelect)}
                         </span>
                       </td>
                       {showMinusCol ? (

@@ -1,4 +1,5 @@
 import { docDateToDayjs } from "@/platform/utils/core/utilHelper";
+import { getCellPlainText } from "@/platform/utils/list/dataTableCellSelection";
 
 /** Collect primitive values from a row for generic text search. */
 export function defaultSearchParts(row) {
@@ -79,6 +80,20 @@ export function applyClientSearch(rows, queryRaw, options = {}) {
   });
 }
 
+/** IMS-style quick search parts from visible table columns (copy/export text). */
+export function buildTableSearchParts(row, headers = []) {
+  const parts = [];
+  for (let i = 0; i < headers.length; i++) {
+    const header = headers[i];
+    if (header?.[3]?.searchable === false) continue;
+    const label = String(header?.[0] ?? "").trim();
+    if (label === "#") continue;
+    const text = getCellPlainText(row, header, i);
+    if (text != null && String(text).trim() !== "") parts.push(text);
+  }
+  return parts;
+}
+
 function sortDirectionMultiplier(sortDir) {
   return String(sortDir).toLowerCase() === "asc" ? 1 : -1;
 }
@@ -86,7 +101,7 @@ function sortDirectionMultiplier(sortDir) {
 function isDateSortKey(sortKey) {
   if (!sortKey) return false;
   if (sortKey === "doc_dt" || sortKey === "doc_date") return true;
-  return /_(at|date|dt)$/.test(sortKey) || sortKey === "timestamp";
+  return /_(at|date|dt|timestamp)$/.test(sortKey) || sortKey === "timestamp";
 }
 
 function parseSortTimestamp(value, sortKey) {

@@ -31,12 +31,12 @@ import { getQuickLaunchCodeForHref } from "@/config/quickLaunchCodes";
  */
 export const PORTAL_APP_GROUPS = [
   { id: "ims",        name: "IMS",        appKey: "ims",        code: "IMS", icon: <Boxes size={16} />,        registry: IMS_NAV_REGISTRY },
-  { id: "rmstore",    name: "RM Store",   appKey: "rmstore",    code: "RMS", icon: <Warehouse size={16} />,    registry: RM_STORE_NAV_REGISTRY },
+  { id: "rmstore",    name: "RM Store",   appKey: "rmstore",    code: "RM",  icon: <Warehouse size={16} />,    registry: RM_STORE_NAV_REGISTRY },
   { id: "task",       name: "Task",       appKey: "task",       code: "TSK", icon: <ListTodo size={16} />,     registry: TASK_NAV_REGISTRY },
   { id: "hrms",       name: "HRMS",       appKey: "hrms",       code: "HR",  icon: <Users size={16} />,        registry: HRMS_NAV_REGISTRY },
   { id: "purchase",   name: "Purchase",   appKey: "purchase",   code: "PU",  icon: <ShoppingCart size={16} />, registry: PURCHASE_NAV_REGISTRY },
   { id: "production", name: "Production", appKey: "production", code: "PR",  icon: <Factory size={16} />,      registry: PRODUCTION_NAV_REGISTRY },
-  { id: "core",       name: "Admin Console", appKey: "core",    code: "AC",  icon: <Settings size={16} />,     registry: SETTINGS_NAV_REGISTRY },
+  { id: "core",       name: "Admin Console", appKey: "core",    code: "AD",  icon: <Settings size={16} />,     registry: SETTINGS_NAV_REGISTRY },
 ];
 
 /** Clone an app registry, prefix ids so IMS/RM Store "masters-group" don't collide, keep nested groups. */

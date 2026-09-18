@@ -1,7 +1,8 @@
 "use client";
 
-import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
+import { formatDocDate } from "@/platform/utils/core/utilHelper";
 import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
+import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { stockAdjustmentTypeLabel } from "@/apps/rmstore/lib/utils/stockAdjustmentEntryTypes";
 import dayjs from "dayjs";
 import { docDateToDayjs } from "@/platform/utils/core/utilHelper";
@@ -224,44 +225,5 @@ export const STOCK_ADJUSTMENT_HEADERS = [
     ),
     { width: "120px" },
   ],
-  [
-    "Created By",
-    "created_by_name",
-    (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>,
-    { width: "110px" },
-  ],
-  [
-    "Created At",
-    "created_at",
-    (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-    { width: "150px" },
-  ],
-  [
-    "Updated By",
-    "updated_by_name",
-    (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>,
-    { width: "110px" },
-  ],
-  [
-    "Updated At",
-    "updated_at",
-    (v, row) => (
-      <span className="text-[10px] text-slate-400 font-medium">
-        {row?.updated_by_name ? formatDateTime(v) : "—"}
-      </span>
-    ),
-    { width: "150px" },
-  ],
-  [
-    "Approved By",
-    "approved_by_name",
-    (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>,
-    { width: "110px" },
-  ],
-  [
-    "Approved At",
-    "approved_at",
-    (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-    { width: "150px" },
-  ],
+  ...auditHeaders(),
 ];

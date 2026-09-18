@@ -47,6 +47,7 @@ export function normalizeSaApproved(value) {
   return false;
 }
 
+/** Add (+) / Old — print preview stickers while pending, or final stickers after approve. */
 export function canPrintSaStickers(row) {
-  return isSaAddLikeEntryType(row?.entry_type) && normalizeSaApproved(row?.approved);
+  return isSaAddLikeEntryType(row?.entry_type);
 }

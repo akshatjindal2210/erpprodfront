@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSelector } from "react-redux";
-import { Loader2, Layers, Box, User, ClipboardList, Printer, Eye, X, RefreshCw, CheckCircle2, Upload, FileText, Save, AlertTriangle, ShieldCheck, ScanLine, QrCode } from "lucide-react";
+import { Loader2, Layers, Box, Package, User, ClipboardList, Printer, Eye, X, RefreshCw, CheckCircle2, Upload, FileText, Save, AlertTriangle, ShieldCheck, ScanLine, QrCode } from "lucide-react";
 import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
 import { notify } from "@/apps/rmstore/lib/utils/notify";
@@ -18,6 +18,7 @@ import LaserScanField from "@/ui/common/scan/LaserScanField";
 import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
+import { resolveRmApproveKeyboardScan } from "@/apps/rmstore/lib/utils/rmApproveScanSettings";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import { prepareQrScanSession, playScanSuccessBeep } from "@/platform/utils/global/scanFeedback";
 
@@ -307,8 +308,12 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const [narrowLayout, setNarrowLayout] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 1023px)").matches : false
   );
-  const { laserScan, keyboardType, phoneQrScan, showPhoneQr } = useDeviceScanSettings();
+  const { laserScan, keyboardType: keyboardTypeSetting, phoneQrScan, showPhoneQr } = useDeviceScanSettings();
   const phoneQrVisible = showPhoneQr || (phoneQrScan && narrowLayout);
+  const showKeyboardScan = useMemo(
+    () => resolveRmApproveKeyboardScan(keyboardTypeSetting, currentUser, role),
+    [keyboardTypeSetting, currentUser, role]
+  );
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1023px)");
@@ -515,6 +520,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const showApprovalFlow = awaitingApproval && openMode === "approve";
   const showPrintHeader =
     alreadyGenerated &&
+    !showApprovalFlow &&
     (isSuperAdmin || canShowPrintActions) &&
     (awaitingApproval || isApproved);
   const requiredCoilUids = useMemo(
@@ -1448,11 +1454,11 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50">
                     <th className="sticky left-0 top-0 z-[30] bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-600 border-r border-slate-200">#</th>
+                    <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">QC</th>
                     <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">Coil</th>
                     <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">MRN UID</th>
                     {/* FUTURE: add <th>MRN No.</th> if needed */}
                     <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">Qty</th>
-                    <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">QC</th>
                     <th className="bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500">Status</th>
                     <th className="sticky right-0 top-0 z-[30] bg-slate-50 px-2 py-1.5 lg:px-3 lg:py-2.5 text-[9px] lg:text-[11px] font-black uppercase text-slate-500 text-right border-l border-slate-200">Action</th>
                   </tr>
@@ -1472,6 +1478,33 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                       <tr key={`${row.coil_no_uid}-${row.index}`} className="group border-b border-slate-100 hover:bg-slate-50/70">
                         <td className="sticky left-0 z-10 px-2 py-1.5 lg:px-3 text-[10px] lg:text-[13px] font-bold text-slate-600 bg-white group-hover:bg-slate-50 border-r border-slate-100 tabular-nums">
                           {row.index}
+                        </td>
+                        <td className="px-2 py-1.5 lg:px-3">
+                          {showApprovalFlow ? (
+                            <div className="inline-flex items-center gap-1">
+                              <CheckCircle2 className={`w-3.5 h-3.5 ${qcScanned ? "text-emerald-600" : "text-slate-300"}`} />
+                              <span className="text-[9px] font-bold uppercase text-slate-500">{isBatchMode ? "Batch" : "QC"}</span>
+                            </div>
+                          ) : showRowQc ? (
+                            <button
+                              type="button"
+                              disabled={downloading}
+                              onClick={() => void handleDownloadQc(row.coil_no_uid)}
+                              className={`touch-manipulation inline-flex items-center justify-center gap-1 border lg:px-2.5 lg:py-1.5 p-1 min-h-[28px] ${
+                                qcPrinted
+                                  ? "border-amber-400 bg-amber-50 text-amber-800"
+                                  : "border-amber-300 bg-white text-amber-700"
+                              }`}
+                              title="Download QC sticker"
+                            >
+                              <Printer className="w-3.5 h-3.5 shrink-0" strokeWidth={2.25} />
+                              <span className="hidden lg:inline text-[10px] font-black uppercase whitespace-nowrap">
+                                {qcPrinted ? "Re-Print" : "Print"}
+                              </span>
+                            </button>
+                          ) : (
+                            <span className="text-[9px] text-slate-300 font-bold">—</span>
+                          )}
                         </td>
                         <td className="px-2 py-1.5 lg:px-3 text-[10px] lg:text-xs font-bold min-w-0 max-w-[200px]">
                           <div className="flex items-center gap-1 min-w-0">
@@ -1505,33 +1538,6 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                             <span className="text-[10px] lg:text-[13px] font-bold text-slate-900 tabular-nums whitespace-nowrap">
                               {formatQty(row.qty)} {unit}
                             </span>
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5 lg:px-3">
-                          {showApprovalFlow ? (
-                            <div className="inline-flex items-center gap-1">
-                              <CheckCircle2 className={`w-3.5 h-3.5 ${qcScanned ? "text-emerald-600" : "text-slate-300"}`} />
-                              <span className="text-[9px] font-bold uppercase text-slate-500">{isBatchMode ? "Batch" : "QC"}</span>
-                            </div>
-                          ) : showRowQc ? (
-                            <button
-                              type="button"
-                              disabled={downloading}
-                              onClick={() => void handleDownloadQc(row.coil_no_uid)}
-                              className={`touch-manipulation inline-flex items-center justify-center gap-1 border lg:px-2.5 lg:py-1.5 p-1 min-h-[28px] ${
-                                qcPrinted
-                                  ? "border-amber-400 bg-amber-50 text-amber-800"
-                                  : "border-amber-300 bg-white text-amber-700"
-                              }`}
-                              title="Download QC sticker"
-                            >
-                              <Printer className="w-3.5 h-3.5 shrink-0" strokeWidth={2.25} />
-                              <span className="hidden lg:inline text-[10px] font-black uppercase whitespace-nowrap">
-                                {qcPrinted ? "Re-Print" : "Print"}
-                              </span>
-                            </button>
-                          ) : (
-                            <span className="text-[9px] text-slate-300 font-bold">—</span>
                           )}
                         </td>
                         <td className="px-2 py-1.5 lg:px-3">
@@ -1688,15 +1694,6 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
               </div>
 
               <div className="flex items-center gap-1.5 flex-wrap w-full md:w-auto shrink-0 justify-end border-t md:border-t-0 pt-2 md:pt-0 min-w-0">
-                  {/* <span
-                    className={`inline-flex items-center px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-tight border shrink-0 ${
-                      isBatchMode
-                        ? "bg-amber-50 text-amber-800 border-amber-200"
-                        : "bg-indigo-50 text-indigo-800 border-indigo-200"
-                    }`}
-                  >
-                    {stickerModeLabel}
-                  </span> */}
                   {showPrintHeader ? (
                     <>
                       {isBatchMode ? (
@@ -1796,6 +1793,15 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                   ) : null}
                 </div>
             </div>
+            {alreadyGenerated && detail?.sticker_approved === false && !showApprovalFlow ? (
+              <div className="flex items-start gap-2 px-2 md:px-4 py-2 bg-sky-50 border-t border-sky-200 text-sky-950">
+                <Package size={16} className="shrink-0 mt-0.5 text-sky-600" aria-hidden />
+                <p className="text-[10px] sm:text-[11px] font-medium leading-snug">
+                  Coils are in <span className="font-black">Store In → Unassigned</span>. Do Store In first, then{" "}
+                  <span className="font-black">Approve</span> stickers for QC.
+                </p>
+              </div>
+            ) : null}
             {!alreadyGenerated && (specMissing || specNotApproved) ? (
               <div className="flex items-start gap-2 px-2 md:px-4 py-2 bg-amber-50 border-t border-amber-200 text-amber-950">
                 <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-600" aria-hidden />
@@ -1828,20 +1834,20 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                       QC {isBatchMode ? (scanTracking[BATCH_QC_DL_KEY] ? 1 : 0) : requiredCoilUids.filter((uid) => scanTracking[`qc_${uid}`]).length}/{isBatchMode ? 1 : requiredCoilUids.length}
                     </span>
                   </div>
-                  {(phoneQrVisible || laserScan || keyboardType) ? (
+                  {(phoneQrVisible || laserScan || showKeyboardScan) ? (
                   <div className="flex items-center gap-1.5 w-full min-w-0">
                     {laserScan ? (
                       <LaserScanField
                         active={open && showApprovalFlow && laserScan}
                         onScanned={handleApprovalScan}
-                        companionTypableRef={keyboardType ? approvalScanInputRef : undefined}
+                        companionTypableRef={showKeyboardScan ? approvalScanInputRef : undefined}
                         compact
                         heightClass="h-9"
                         armButtonLabel="Scan"
                         className="shrink-0"
                       />
                     ) : null}
-                    {keyboardType ? (
+                    {showKeyboardScan ? (
                       <div className="flex flex-1 min-w-0 items-center gap-2 h-9 px-2.5 border border-slate-300 rounded-lg bg-white focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500/20">
                         <ScanLine size={14} className="shrink-0 text-indigo-400 pointer-events-none" aria-hidden />
                         <ScanEnterInput
@@ -1868,11 +1874,6 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                       </button>
                     ) : null}
                   </div>
-                  ) : null}
-                  {!phoneQrVisible && !laserScan && !keyboardType ? (
-                    <p className="text-[11px] font-medium text-slate-500 px-0.5">
-                      Turn on Laser, Keyboard, or Phone QR from the profile menu.
-                    </p>
                   ) : null}
                 </div>
               </div>

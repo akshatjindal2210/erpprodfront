@@ -288,10 +288,10 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
             label: "Registered At",
             value: registerOrRow?.created_at ? formatDateTime(registerOrRow.created_at) : null,
           },
-          { label: "Authorized By", value: registerOrRow?.approved_by_name || null },
+          { label: "Updated By", value: registerOrRow?.updated_by_name || null },
           {
-            label: "Authorized At",
-            value: registerOrRow?.approved_at ? formatDateTime(registerOrRow.approved_at) : null,
+            label: "Updated At",
+            value: registerOrRow?.updated_by_name && registerOrRow?.updated_at ? formatDateTime(registerOrRow.updated_at) : null,
           },
         ]
       : [];

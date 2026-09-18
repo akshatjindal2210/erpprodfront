@@ -1590,9 +1590,12 @@ export default function InProcessRequestModal({
       loading={saving}
       readOnly={readOnly}
       isApprove={isApprove}
+      isEdit={isEdit}
+      canApprove={canApprove}
       onSave={handleSave}
       approveLabel="Authorize"
       saveLabel="Save"
+      saveAndApproveLabel="Save & Authorize"
     />
   );
 

@@ -211,7 +211,7 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
           return;
         }
         if (!canPrintSaStickers(row)) {
-          toast.info("Print stickers is only for approved Add (+) or Old adjustments.");
+          toast.info("Print stickers is only for Add (+) or Old adjustments.");
           onCloseRef.current?.();
           return;
         }
@@ -248,6 +248,7 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
 
       try {
         const res = await stockAdjustmentService.renderSingleSticker({
+          adjustment_id: detail?.adjustment_id,
           coil_no_uid: uid,
           download_source: STICKER_DOWNLOAD_SOURCE_KEYS.stock_adjustment,
           sticker_meta: buildRmSaStickerMeta(detail, coil),
@@ -287,6 +288,7 @@ export default function StockAdjustmentPrintStickersDrawer({ open, onClose, edit
     setPrintingAll(true);
     try {
       const res = await stockAdjustmentService.renderBulkStickers({
+        adjustment_id: detail?.adjustment_id,
         coil_no_uids: uids,
         download_source: STICKER_DOWNLOAD_SOURCE_KEYS.stock_adjustment,
         sticker_meta: stickerMeta,

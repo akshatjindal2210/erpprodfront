@@ -1609,8 +1609,11 @@ export default function IssueRequestModal({
       disabled={loadingDetail}
       readOnly={readOnly}
       isApprove={isApprove}
+      isEdit={isEdit}
+      canApprove={canApprove}
       onSave={handleSave}
       approveLabel="Authorize"
+      saveAndApproveLabel="Save & Authorize"
     />
   );
 

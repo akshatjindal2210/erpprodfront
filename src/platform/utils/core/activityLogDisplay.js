@@ -142,22 +142,43 @@ export function hasActivityLogDetails(data) {
 
 const ACTION_LABELS = {
   CREATE: "Create",
+  CREATE_DRAFT: "Draft",
+  CREATE_APPROVE: "Create + Approve",
+  CREATE_SUBMIT: "Create + Submit",
   UPDATE: "Update",
+  UPDATE_REVERT: "Update + Pending",
   DELETE: "Delete",
   APPROVE: "Approve",
+  APPROVE_PASS: "Approve Pass",
+  APPROVE_FAIL: "Approve Fail",
+  UNAPPROVE: "Unapprove",
   SUBMIT: "Submit",
+  RESUBMIT: "Resubmit",
   MODIFY: "Update",
   LOCK: "Lock",
   UNLOCK: "Unlock",
+  GENERATE: "Generate",
+  SAVE_DRAFT: "Save Draft",
+  REJECT: "Reject",
+  GENERATE_STORE_OUT: "Gen Store Out",
 };
 
 const ACTION_BADGE_CLASS = {
   CREATE: "bg-indigo-50 text-indigo-600 border-indigo-100",
+  CREATE_DRAFT: "bg-indigo-50 text-indigo-600 border-indigo-100",
+  CREATE_APPROVE: "bg-emerald-50 text-emerald-600 border-emerald-100",
+  CREATE_SUBMIT: "bg-amber-50 text-amber-700 border-amber-100",
   UPDATE: "bg-blue-50 text-blue-600 border-blue-100",
+  UPDATE_REVERT: "bg-amber-50 text-amber-700 border-amber-100",
   MODIFY: "bg-blue-50 text-blue-600 border-blue-100",
   DELETE: "bg-rose-50 text-rose-600 border-rose-100",
   APPROVE: "bg-emerald-50 text-emerald-600 border-emerald-100",
+  APPROVE_PASS: "bg-emerald-50 text-emerald-600 border-emerald-100",
+  APPROVE_FAIL: "bg-rose-50 text-rose-600 border-rose-100",
+  UNAPPROVE: "bg-amber-50 text-amber-700 border-amber-100",
   SUBMIT: "bg-amber-50 text-amber-700 border-amber-100",
+  RESUBMIT: "bg-amber-50 text-amber-700 border-amber-100",
+  GENERATE: "bg-violet-50 text-violet-700 border-violet-100",
 };
 
 const MODULE_LABELS = {
@@ -186,6 +207,22 @@ const MODULE_LABELS = {
   production_master: "Product Master",
   production_shortage: "Shortage",
   production_activity_logs: "Activity Logs",
+  rm_mrn_portal: "MRN Portal",
+  rm_inventory_inwards: "Store In",
+  rm_qc_check: "QC Check",
+  rm_issue_request: "Issue Request",
+  rm_in_process_request: "In-Process Request",
+  rm_out_entry: "Store Out",
+  rm_rejection: "RM Rejection",
+  rm_stock_adjustment: "Stock Adjustment",
+  rm_production_master: "Production Master",
+  rm_spec_master: "RM Spec Master",
+  rm_store_location_master: "Store Location",
+  rm_coils: "Coils",
+  rm_inventory_report: "RM Inventory",
+  rm_activity_logs: "Activity Logs",
+  rm_coil_transaction_logs: "Coil Transaction Logs",
+  rm_coil_download_logs: "Sticker Download Logs",
 };
 
 export function formatActivityLogActionLabel(action) {

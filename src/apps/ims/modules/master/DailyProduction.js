@@ -8,6 +8,7 @@ import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper"
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { masterService, peekDailyProdListCache, invalidateDailyProdListCache } from "@/apps/ims/lib/services/master";
 import { boxService } from "@/apps/ims/lib/services/box";
+import { autoPackingDeviation } from "@/apps/ims/lib/services/shortage";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import DataTable from "@/ui/primitives/DataTable";
@@ -389,6 +390,7 @@ export default function DailyProductionPage() {
         const res = await boxService.previewMonthlyPackingLimit({
           doc_no: row.doc_no,
           itemdcode,
+          item_code: row.item_code || row.itemcode || null,
           total_qty: row.total_qty,
           doc_dt: row.doc_dt,
         });
@@ -400,6 +402,21 @@ export default function DailyProductionPage() {
         }
 
         const excess = Number(limit?.excess_qty) || 0;
+        if (excess >= 1) {
+          const auto = await autoPackingDeviation({
+            doc_no: row.doc_no,
+            itemdcode,
+            item_code: row.item_code || row.itemcode || null,
+            total_qty: row.total_qty,
+            doc_dt: row.doc_dt,
+          });
+          if (auto?.data?.ok === true) {
+            if (auto.data.created) toast.success(auto.message || `Auto Deviation +${Math.ceil(excess)} created.`);
+            setIsStickerModalOpen(true);
+            return;
+          }
+        }
+
         const baseQty = limit?.base_qty ?? limit?.base_allowed_limit;
         const pct = Number(limit?.shortage_qty_percentage);
         const tolQty = Number(limit?.tolerance_qty);
@@ -416,9 +433,7 @@ export default function DailyProductionPage() {
             autoClose: 9000,
           });
         } else {
-          toast.info(`${msg} Contact a user with Packing Deviation permission.`, {
-            autoClose: 9000,
-          });
+          toast.info(msg, { autoClose: 9000 });
         }
       } catch (err) {
         toast.error(err?.message || "Could not verify monthly packing qty.");

@@ -1,8 +1,12 @@
 /**
  * Quick Launch (Ctrl+K) — short code → route mapping.
  *
+ * App letter prefix (first character of every code):
+ *   I = IMS · R = RM Store · H = HRMS · T = Task
+ *   P = Purchase / Production · A/U/D/M = Admin / portal as needed
+ *
  * Extend this list to add new shortcuts. Every entry:
- *   - code   : 2–4 character uppercase (must be unique)
+ *   - code   : 2–4 character uppercase (must be unique; respect app prefix)
  *   - label  : human-readable page name shown in the suggestion list
  *   - route  : absolute path to navigate to
  *   - module : permission module_name (matches MODULES in portalModules.data.js).
@@ -22,7 +26,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "HM",  label: "Home",                       route: ROUTES.HOME,                    module: null,                        app: null },
   { code: "PAL", label: "Portal Activity Logs",       route: ROUTES.ACTIVITY_LOGS,           module: null,                        app: null },
 
-  // ── IMS ─────────────────────────────────────────────────────────
+  // ── IMS (I…) ────────────────────────────────────────────────────
   { code: "IMS", label: "IMS Dashboard",              route: ROUTES.IMS_DASHBOARD,           module: null,                        app: "ims" },
   { code: "PM",  label: "Product Master",             route: ROUTES.PRODUCT_MASTER,          module: "product_master",            app: "ims" },
   { code: "CM",  label: "Customer Master",            route: ROUTES.CUSTOMER_MASTER,         module: "customer_master",           app: "ims" },
@@ -49,7 +53,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "BT",  label: "Box Transaction Logs",       route: ROUTES.BOX_TRANSACTION_LOGS,    module: "box_transaction_logs",      app: "ims" },
   { code: "SD",  label: "Sticker Download Logs",      route: ROUTES.STICKER_MANAGEMENT,      module: "sticker_download_logs",     app: "ims" },
 
-  // ── RM Store ────────────────────────────────────────────────────
+  // ── RM Store (R…) ───────────────────────────────────────────────
   { code: "RMS", label: "RM Store Dashboard",         route: ROUTES.RM_STORE_DASHBOARD,      module: null,                        app: "rmstore" },
   { code: "RPM", label: "RM Production Master",       route: ROUTES.RM_PRODUCTION_MASTER,    module: "rm_production_master",      app: "rmstore" },
   { code: "RSM", label: "RM Spec Master",             route: ROUTES.RM_SPEC_MASTER,          module: "rm_spec_master",            app: "rmstore" },
@@ -68,7 +72,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "RCT", label: "Coil Transaction Logs",      route: ROUTES.RM_COIL_TRANSACTION_LOGS,module: "rm_coil_transaction_logs",  app: "rmstore" },
   { code: "RSD", label: "RM Sticker Download Logs",   route: ROUTES.RM_STICKER_DOWNLOAD_LOGS, module: "rm_coil_download_logs",     app: "rmstore" },
 
-  // ── HRMS ────────────────────────────────────────────────────────
+  // ── HRMS (H…) ───────────────────────────────────────────────────
   { code: "HR",  label: "HRMS Dashboard",             route: ROUTES.HRMS_DASHBOARD,          module: null,                        app: "hrms" },
   { code: "EM",  label: "Employee Master",            route: ROUTES.HRMS_EMPLOYEES,          module: "hrms_employee",             app: "hrms" },
   { code: "DA",  label: "Daily Attendance",           route: ROUTES.HRMS_ATTENDANCE,         module: "hrms_attendance",           app: "hrms" },
@@ -87,7 +91,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "PRS", label: "Production Shortage",        route: ROUTES.PRODUCTION_SHORTAGE,     module: "production_shortage",       app: "production" },
   { code: "PRL", label: "Production Activity Logs",   route: ROUTES.PRODUCTION_ACTIVITY_LOGS,module: "production_activity_logs",  app: "production" },
 
-  // ── Task ────────────────────────────────────────────────────────
+  // ── Task (T…) ───────────────────────────────────────────────────
   { code: "TSK", label: "Task Dashboard",             route: ROUTES.TASK_DASHBOARD,          module: null,                        app: "task" },
   { code: "TL",  label: "Tasks",                      route: ROUTES.TASK_TASKS,              module: null,                        app: "task" },
   { code: "TR",  label: "Task Reports",               route: ROUTES.TASK_REPORTS,            module: null,                        app: "task" },
@@ -108,6 +112,9 @@ export const QUICK_LAUNCH_CODES = [
   { code: "DG",  label: "Designations",               route: ROUTES.SETTINGS_DESIGNATIONS,   module: "designations",              app: "core" },
   { code: "MD",  label: "System Module",              route: ROUTES.SETTINGS_MODULES,        module: "modules",                   app: "core" },
   { code: "TV",  label: "Training & SOPs",            route: ROUTES.SETTINGS_TRAINING,       module: "training_videos",           app: "core" },
+  { code: "NT",  label: "Notifications",              route: ROUTES.SETTINGS_NOTIFICATIONS,  module: null,                        app: "core" },
+  { code: "AC",  label: "Application Configuration",  route: ROUTES.SETTINGS_APP_CONFIG,     module: null,                        app: "core" },
+  { code: "DB",  label: "Dashboard Builder",          route: ROUTES.SETTINGS_DASHBOARD_BUILDER, module: null,                      app: "core" },
 ];
 
 /** O(1) lookup by uppercase code. */

@@ -6,6 +6,8 @@ export const ROUTES = {
   TASK_CL_TASK: "/task/dashboard/cl-task",
   TASK_CL_TASKS: "/task/dashboard/cl-tasks",
   TASK_CL_VERIFICATION: "/task/dashboard/cl-task/verification",
+  TASK_CL_TASK_REPORT: "/task/dashboard/cl-task/report",
+  TASK_RED_TICKET: "/task/dashboard/red-ticket",
   TASK_CATEGORY: "/task/dashboard/category",
   TASK_HOLIDAYS: "/task/dashboard/holidays",
   TASK_REMINDERS: "/task/dashboard/reminders",

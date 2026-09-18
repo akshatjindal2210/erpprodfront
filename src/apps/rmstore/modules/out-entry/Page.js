@@ -26,6 +26,8 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
+import { auditHeaders } from "@/platform/utils/list/auditListUi";
+import { isRowApproved as isMasterRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 
 const MODULE = "rm_out_entry";
 
@@ -52,12 +54,8 @@ function pendingToOutEntryRow(row) {
 function isRmOutEntryApprovable(row) {
   if (!row) return false;
   if (isRmOutEntryScanDraft(row)) return false;
-  if (row.approved === true || row.approved === "t" || row.approved === 1) return false;
+  if (isMasterRowApproved(row)) return false;
   return row.scan_complete === true || row.scan_complete === "t" || row.scan_complete === 1;
-}
-
-function isRowApproved(row) {
-  return row?.approved === true || row?.approved === "t" || row?.approved === 1;
 }
 
 function isRowScanComplete(row) {
@@ -172,6 +170,7 @@ export default function StoreOutPage() {
           page,
           limit,
           filters: pendingTypeFilter,
+          ...(appliedSearch && { search: appliedSearch }),
         });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, pendingParams.pageSize);
@@ -183,7 +182,7 @@ export default function StoreOutPage() {
     } finally {
       setLoading(false);
     }
-  }, [pendingParams.pageSize, pendingParams.pendingType]);
+  }, [pendingParams.pageSize, pendingParams.pendingType, appliedSearch]);
 
   useEffect(() => {
     if (isStoreOut) fetchOuts();
@@ -196,11 +195,11 @@ export default function StoreOutPage() {
 
   const filteredRows = useMemo(() => {
     let data = activeSourceRows;
-    if (String(tempSearch || "").trim()) {
+    if (isStoreOut && String(tempSearch || "").trim()) {
       data = applyClientSearch(data, tempSearch, { skipSort: !!activeSortKey });
     }
     return sortRowsByKey(data, activeSortKey, activeSortDir);
-  }, [isStoreOut, activeSourceRows, pendingParams.pendingType, tempSearch, activeSortKey, activeSortDir]);
+  }, [isStoreOut, activeSourceRows, tempSearch, activeSortKey, activeSortDir]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -212,7 +211,7 @@ export default function StoreOutPage() {
         filteredRows,
         serverFiltered: isStoreOut
           ? params.status !== "all" || Boolean(appliedSearch)
-          : pendingParams.pendingType !== PENDING_TYPE.ALL,
+          : pendingParams.pendingType !== PENDING_TYPE.ALL || Boolean(appliedSearch),
       }),
     [tempSearch, activeSourceRows, filteredRows, isStoreOut, params.status, appliedSearch, pendingParams.pendingType]
   );
@@ -427,6 +426,10 @@ export default function StoreOutPage() {
       toast.error("You do not have permission to authorize store out.");
       return;
     }
+    if (isMasterRowApproved(rec)) {
+      toast.info("This record is already approved. Edit it before approving again.");
+      return;
+    }
     if (!isRmOutEntryApprovable(rec)) {
       toast.error("Complete all coil scans and submit before approving.");
       return;
@@ -574,12 +577,7 @@ export default function StoreOutPage() {
         },
         { width: "120px" },
       ],
-      ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400">{formatDateTime(v)}</span>, { width: "150px" }],
-      ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400">{formatDateTime(v)}</span>, { width: "150px" }],
-      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400">{formatDateTime(v)}</span>, { width: "150px" }],
+      ...auditHeaders(),
     ],
     []
   );
@@ -921,12 +919,14 @@ export default function StoreOutPage() {
                     label: "Status",
                     key: "approvedStatus",
                     value: params.status,
+                    variant: "server",
                     options: RM_OUT_ENTRY_STATUS_FILTER_OPTIONS,
                   }]
                 : [{
                     label: "Type",
                     key: "pendingType",
                     value: pendingParams.pendingType,
+                    variant: "server",
                     options: PENDING_TYPE_FILTER_OPTIONS,
                   }]
             }
@@ -976,7 +976,7 @@ export default function StoreOutPage() {
             searchLabel={isStoreOut ? "Search Store Out" : "Search Pending"}
             searchVariant="quick"
             showSearchButton
-            applyOnSearchEnter={isStoreOut}
+            applyOnSearchEnter
             applyExtrasOnChange={false}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}

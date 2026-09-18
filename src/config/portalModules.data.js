@@ -56,6 +56,7 @@ export const MODULES = {
     { name: "audit", label: "Inventory Audit" },
     { name: "qc_hold_material", label: "QC Hold Material" },
     { name: "schedule_planning", label: "Schedule Planning" },
+    { name: "shortage", label: "Shortage" },
   ],
   rmstore: [
     { name: "rm_production_master", label: "Production Master" },

@@ -210,6 +210,8 @@ export default function DateRangeFilter({
   dateDisabled = false,
   /** Called when an extra dropdown value changes (before Search). */
   onExtraFilterChange,
+  /** Live quick search only — hide Reset / Search (e.g. RM Store In Unassigned, QC Pending). */
+  quickSearchOnly = false,
 }) {
   const [localFrom, setLocalFrom] = useState(externalFromDate || "");
   const [localTo, setLocalTo] = useState(externalToDate || "");
@@ -248,13 +250,17 @@ export default function DateRangeFilter({
   /** Date ranges or server-backed extra filters keep Apply/Reset; client-only extras do not. */
   const showActionButtons = Boolean(showDate) || (extraFilterCount > 0 && !showInstantExtras);
   /**
-   * Action row: hide entirely for instantClientExtras.
+   * Action row: hide entirely for instantClientExtras or quickSearchOnly.
    * Otherwise show Reset whenever there are dates/extras/search; Search when allowSearchButton.
    */
-  const showResetButton =
-    !showInstantExtras &&
-    (showActionButtons || hasSearchField || (!allowSearchButton && typeof onReset === "function"));
-  const showSearchAction = !showInstantExtras && allowSearchButton && (showActionButtons || hasSearchField);
+  const showResetButton = quickSearchOnly
+    ? false
+    : !showInstantExtras &&
+      (showActionButtons || hasSearchField || (!allowSearchButton && typeof onReset === "function"));
+  const showSearchAction = quickSearchOnly
+    ? false
+    : !showInstantExtras && allowSearchButton && (showActionButtons || hasSearchField);
+  const showActionsColumn = secondaryFilters.length > 0 || showResetButton || showSearchAction;
   /** Instant-apply dates when Search is hidden OR extras already apply on change (client filters). */
   const applyDatesOnChange = Boolean(showDate && (!allowSearchButton || applyExtrasOnChange));
 
@@ -527,7 +533,7 @@ export default function DateRangeFilter({
 
         {filtersAfterDate.map((filter, index) => renderExtraFilter(filter, `after-${index}`))}
 
-        {(secondaryFilters.length > 0 || showResetButton) && (
+        {showActionsColumn && (
           <div className={`${LIST_PAGE_FILTER_FIELD_WRAP_CLASS} max-md:basis-full md:w-auto md:shrink-0 md:grow-0`}>
             {actionsLabelSpacer}
             <div className="flex min-h-8 md:min-h-9 flex-row flex-nowrap gap-1 md:gap-2">

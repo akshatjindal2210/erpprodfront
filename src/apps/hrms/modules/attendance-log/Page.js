@@ -72,6 +72,7 @@ export default function AttendanceLogPage() {
         emptyIcon={ScrollText}
         fetchList={attendanceLogService.list}
         headers={ATTENDANCE_LOG_HEADERS}
+        initialSort={{ sortKey: "event_timestamp", sortDir: "desc" }}
         moduleName="Attendance Log"
         viewModule="hrms_attendance_log"
         getRowId={(row) => row.id}

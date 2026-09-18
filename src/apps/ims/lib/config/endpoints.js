@@ -112,6 +112,7 @@ export const ENDPOINTS = {
     BULK: "/shortage/bulk",
     BULK_PREVIEW: "/shortage/bulk-preview",
     PACKING_DEVIATION: "/shortage/packing-deviation",
+    AUTO_PACKING_DEVIATION: "/shortage/auto-packing-deviation",
   },
 
   BOXES: {

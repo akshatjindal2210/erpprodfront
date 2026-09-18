@@ -27,6 +27,7 @@ import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
+import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/ui/common/list/ListPageSearchField";
 import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { isMrnPortalRejection } from "@/apps/rmstore/lib/helpers/mrnPortalRejection";
@@ -49,19 +50,6 @@ const PENDING_TYPE_FILTER = {
   AWAITING_STORE_OUT: "awaiting_store_out",
   AWAITING_BILL: "awaiting_bill",
 };
-
-function rowPendingTypeKey(row) {
-  if (row?.pending_source === PENDING_SOURCE.AWAITING_BILL) return PENDING_TYPE_FILTER.AWAITING_BILL;
-  if (
-    row?.pending_source === PENDING_SOURCE.AWAITING_STORE_OUT ||
-    row?.pending_source === PENDING_SOURCE.AWAITING_AUTHORIZATION
-  ) {
-    return PENDING_TYPE_FILTER.AWAITING_STORE_OUT;
-  }
-  if (row?.pending_source === PENDING_SOURCE.QC_CHECK) return PENDING_TYPE_FILTER.QC_CHECK;
-  if (row?.pending_source === PENDING_SOURCE.IN_PROCESS) return PENDING_TYPE_FILTER.IN_PROCESS;
-  return PENDING_TYPE_FILTER.ALL;
-}
 
 function pendingTypeDisplay(row) {
   if (row?.pending_source === PENDING_SOURCE.AWAITING_BILL) {
@@ -105,20 +93,6 @@ function pendingCoilUids(row) {
 function pendingCoilCount(row) {
   const uids = pendingCoilUids(row);
   return Math.max(Number(row?.coil_count) || 0, uids.length);
-}
-
-function pendingInspectorName(row) {
-  return (
-    row?.inspected_by_name ||
-    row?.inspected_by ||
-    row?.approved_by ||
-    row?.created_by ||
-    null
-  );
-}
-
-function pendingInspectedAt(row) {
-  return row?.inspected_at || row?.approved_at || row?.created_at || null;
 }
 
 const SOURCE_SEP = " · ";
@@ -265,7 +239,16 @@ export default function RmRejectionPage() {
     try {
       const { data } = await fetchAllListPages(async (page, limit) => {
         const body = isPendingTab
-          ? await rmRejectionService.getPendingList({ page, limit })
+          ? await rmRejectionService.getPendingList({
+              page,
+              limit,
+              ...(appliedSearch && { search: appliedSearch }),
+              filters: {
+                ...(params.pendingType !== PENDING_TYPE_FILTER.ALL && {
+                  pending_type: params.pendingType,
+                }),
+              },
+            })
           : await rmRejectionService.getAll({
               page,
               limit,
@@ -292,6 +275,7 @@ export default function RmRejectionPage() {
     params.fromDate,
     params.toDate,
     params.registerStage,
+    params.pendingType,
     appliedSearch,
   ]);
 
@@ -301,24 +285,19 @@ export default function RmRejectionPage() {
 
   const filteredRows = useMemo(() => {
     let data = allRows;
-    if (isPendingTab) {
-      if (params.pendingType !== PENDING_TYPE_FILTER.ALL) {
-        data = data.filter((row) => rowPendingTypeKey(row) === params.pendingType);
-      }
-    } else {
+    if (!isPendingTab) {
       const stage = String(params.registerStage || "all").toLowerCase();
       if (stage === "incomplete") {
         data = data.filter((row) => !String(row?.bill_no || "").trim());
       }
-    }
-    if (String(tempSearch || "").trim()) {
-      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
+      if (String(tempSearch || "").trim()) {
+        data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
+      }
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [
     allRows,
     isPendingTab,
-    params.pendingType,
     params.registerStage,
     tempSearch,
     params.sortKey,
@@ -334,10 +313,20 @@ export default function RmRejectionPage() {
         sourceRows: allRows,
         filteredRows,
         serverFiltered:
-          !isPendingTab &&
-          (params.registerStage !== "all" || Boolean(appliedSearch)),
+          (isPendingTab &&
+            (params.pendingType !== PENDING_TYPE_FILTER.ALL || Boolean(appliedSearch))) ||
+          (!isPendingTab &&
+            (params.registerStage !== "all" || Boolean(appliedSearch))),
       }),
-    [tempSearch, allRows, filteredRows, isPendingTab, params.registerStage, appliedSearch]
+    [
+      tempSearch,
+      allRows,
+      filteredRows,
+      isPendingTab,
+      params.registerStage,
+      params.pendingType,
+      appliedSearch,
+    ]
   );
   const selectedRecord = useMemo(
     () => filteredRows.find((r) => rowKey(r) === selected) || null,
@@ -594,23 +583,7 @@ export default function RmRejectionPage() {
         ),
         { width: "220px" },
       ],
-      ["Inspected By", "inspected_by_name", (_v, row) => (
-          <span className="text-[10px] font-semibold text-slate-600 uppercase truncate block" title={pendingInspectorName(row) || ""}>
-            {pendingInspectorName(row) || "—"}
-          </span>
-        ),
-        { width: "120px" },
-      ],
-      ["Inspected At", "inspected_at", (_v, row) => {
-          const at = pendingInspectedAt(row);
-          return (
-            <span className="text-[10px] text-slate-400 font-medium">
-              {at ? formatDateTime(at) : "—"}
-            </span>
-          );
-        },
-        { width: "150px" },
-      ],
+      ...auditPair("Inspected", "inspected_by_name", "inspected_at"),
     ],
     []
   );
@@ -668,16 +641,7 @@ export default function RmRejectionPage() {
         },
         { width: "160px", align: "center" },
       ],
-      ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-      ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-      ["Updated At", "updated_at", (v, row) => (
-        <span className="text-[10px] text-slate-400 font-medium">
-          {row?.updated_by_name ? formatDateTime(v) : "—"}
-        </span>
-      ), { width: "150px" }],
-      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "130px" }],
-      ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
+      ...auditHeaders(["created", "updated"]),
     ],
     []
   );
@@ -697,6 +661,7 @@ export default function RmRejectionPage() {
           label: "Type",
           key: "pendingType",
           value: params.pendingType,
+          variant: "server",
           preserveOrder: true,
           options: [
             { label: "All", value: PENDING_TYPE_FILTER.ALL },
@@ -890,12 +855,12 @@ export default function RmRejectionPage() {
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
             extraFilters={extraFilters}
-            showSearchButton={!isPendingTab}
-            applyOnSearchEnter={!isPendingTab}
-            applyExtrasOnChange={isPendingTab}
+            showSearchButton
+            applyOnSearchEnter
+            applyExtrasOnChange={false}
             searchVariant="quick"
             onApply={(data) => {
-              if (!isPendingTab) applySearchFromInput();
+              applySearchFromInput();
               setSelected(null);
               setDisplayLimit(100);
               setParams((prev) => ({

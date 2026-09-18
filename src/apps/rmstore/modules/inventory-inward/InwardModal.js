@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Check, Loader2, QrCode, MapPin, Package, Layers, Plus, X, Trash2, MessageSquare, CheckCircle2, XCircle, ScanLine, Camera, Locate } from "lucide-react";
+import { toast } from "react-toastify";
+import { Check, CheckCircle2, Loader2, QrCode, MapPin, Package, Layers, Plus, X, Trash2, MessageSquare, XCircle, ScanLine, Camera, Locate } from "lucide-react";
 
 import "@/apps/ims/lib/config/inwardUi.theme.css";
 
 import { inventoryInwardService } from "@/apps/rmstore/lib/services/inventoryInward";
-import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
+import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CLOSE, IMS_DRAWER_BTN_PRIMARY } from "@/apps/ims/lib/helpers/masterListUi";
 import { storeLocationService } from "@/apps/rmstore/lib/services/storeLocation";
 import { coilHelperContext, lookupCoilByUid } from "@/apps/rmstore/lib/helpers/coilLookup";
 import { resolveCoilLocationDetail, resolveCoilLocationLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
@@ -130,6 +131,22 @@ function buildLocationsFromCoils(coils) {
 }
 
 /** MRN breakdown for the Inward Summary section (per location). */
+function inwardLocationFingerprint(locs) {
+  return JSON.stringify(
+    (locs || [])
+      .filter((loc) => loc.location_id != null)
+      .map((loc) => ({
+        id: loc.location_id,
+        coils: (loc.coils || [])
+          .filter((c) => String(c.status || "active").toLowerCase() === "active")
+          .map((c) => String(c.coil_no_uid || "").trim())
+          .filter(Boolean)
+          .sort(),
+      }))
+      .sort((a, b) => Number(a.id) - Number(b.id))
+  );
+}
+
 function buildLocationMrnBreakdown(locations) {
   return (locations || [])
     .map((loc) => {
@@ -171,6 +188,9 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
   const editId = editData?.in_uid ?? null;
 
   const [saving, setSaving] = useState(false);
+  const initialFingerprintRef = useRef("");
+  const initialRemarksRef = useRef("");
+  const savingRef = useRef(false);
   const [remarks, setRemarks] = useState("");
   const [locations, setLocations] = useState([]);
   const [historyLocations, setHistoryLocations] = useState([]);
@@ -236,6 +256,8 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
     setLastActiveLocIdx(null);
     lastActiveLocIdxRef.current = null;
     setSaving(false);
+    initialFingerprintRef.current = "";
+    initialRemarksRef.current = "";
     setValidatingCoil(false);
     setLaserCoilLocIdx(null);
     laserCoilLocIdxRef.current = null;
@@ -271,11 +293,14 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
           showScanToast("error", "load-fail", "Could not load the store-in entry. Please try again.");
           return;
         }
-        setRemarks(d.remarks || "");
+        const nextRemarks = d.remarks || "";
+        setRemarks(nextRemarks);
+        initialRemarksRef.current = nextRemarks;
 
         const editable = normalizeInwardLocations(d.locations);
         const history = normalizeInwardLocations(d.history_locations || []);
         setLocations(editable);
+        initialFingerprintRef.current = inwardLocationFingerprint(editable);
         setHistoryLocations(history);
         setLocHasError(editable.map(() => false));
         if (editable.length) {
@@ -784,9 +809,15 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
   };
 
   const handleSave = async () => {
+    if (savingRef.current || saving) return;
     if (!validate()) return;
     if (!sopAckRef.current?.assertAcknowledged()) return;
+    if (isEdit && !editId) {
+      toast.error("The record ID is missing. Close and reopen the row.");
+      return;
+    }
 
+    savingRef.current = true;
     setSaving(true);
     try {
       const editableLocations = locations
@@ -799,33 +830,22 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
         }))
         .filter((loc) => loc.coils.length > 0);
 
-      const payload = { remarks: remarks || null };
-      if (editableLocations.length > 0) {
-        payload.locations = editableLocations;
+      if (!editableLocations.length) {
+        showScanToast("error", "save-loc", isEdit ? "Add at least one location with coils to update this entry." : "Add at least one location.");
+        return;
       }
 
-      let res;
-      if (isEdit && editId) {
-        if (!editableLocations.length) {
-          showScanToast("error", "save-loc", "Add at least one location with coils to update this entry.");
-          return;
-        }
-        res = await inventoryInwardService.update(editId, { ...payload, locations: editableLocations });
-        showScanToast("success", "save-ok", res?.message || MSG.INWARD_UPDATED, 2800);
-      } else {
-        if (!editableLocations.length) {
-          showScanToast("error", "save-loc", "Add at least one location.");
-          return;
-        }
-        payload.locations = editableLocations;
-        res = await inventoryInwardService.create(payload);
-        showScanToast("success", "save-ok", res?.message || MSG.INWARD_CREATED, 2800);
-      }
+      const payload = { remarks: remarks || null, locations: editableLocations };
+      const res = isEdit
+        ? await inventoryInwardService.update(editId, payload)
+        : await inventoryInwardService.create(payload);
+      showScanToast("success", "save-ok", res?.message || (isEdit ? MSG.INWARD_UPDATED : MSG.INWARD_CREATED), 2800);
       onSuccess?.();
       onClose?.();
     } catch (err) {
       showScanToast("error", "save-fail", err?.message || MSG.INWARD_FAILED, 4000);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -847,13 +867,21 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
         title={drawerTitle}
         description={drawerDesc}
         footer={
-          <RmStoreDrawerFooter
-            onClose={onClose}
-            loading={saving}
-            disabled={!formReady}
-            onSave={handleSave}
-            saveLabel={isEdit ? "Update" : "Save"}
-          />
+          <div className={IMS_DRAWER_FOOTER_WRAP}>
+            <button type="button" onClick={onClose} disabled={saving} className={IMS_DRAWER_BTN_CLOSE}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={!formReady || saving}
+              title="Ctrl+S"
+              className={IMS_DRAWER_BTN_PRIMARY}
+            >
+              {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
+              {saving ? (isEdit ? "Updating..." : "Saving...") : isEdit ? "Update" : "Save"}
+            </button>
+          </div>
         }
         maxWidth="max-w-4xl"
       >
@@ -1342,12 +1370,6 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
             </div>
           )}
 
-          {isEdit && (
-            <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-emerald-500" />
-              <p className="text-[10px] text-emerald-700 italic">This entry remains approved by default.</p>
-            </div>
-          )}
           </>
           )}
 

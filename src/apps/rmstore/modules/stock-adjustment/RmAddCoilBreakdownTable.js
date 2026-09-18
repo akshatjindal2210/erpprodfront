@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers, Plus, Printer } from "lucide-react";
+import { Layers, Plus, Printer, CheckCircle2 } from "lucide-react";
 
 /** Prevent mouse wheel from changing number inputs while scrolling (MRN sticker breakdown pattern). */
 const preventNumberInputWheel = (e) => {
@@ -22,6 +22,8 @@ export default function RmAddCoilBreakdownTable({
   coilQtys = [],
   onCoilQtyChange,
   canPrintStickers = false,
+  showApprovalFlow = false,
+  scanTracking = {},
   allowPreviewAdd = false,
   canAddPreviewRow = false,
   onAddPreviewRow,
@@ -146,12 +148,12 @@ export default function RmAddCoilBreakdownTable({
                 </thead>
                 <tbody>
                   {list.map((r, idx) => {
-                    const isMarkedRemove =
-                      showSavedRemoveColumn && r.is_saved && removeSet.has(String(r.coil_no_uid));
+                    const isMarkedRemove = showSavedRemoveColumn && r.is_saved && removeSet.has(String(r.coil_no_uid));
                     const canDropPreviewRow = showPreviewMinusColumn && n > 1;
                     const coilUid = String(r.coil_no_uid || "");
                     const rowMrnUid = String(r.mrn_uid ?? mrnUid ?? "—");
                     const inStock = r.generated || r.is_saved || savedView;
+                    const coilScanned = !!scanTracking[coilUid];
                     return (
                       <tr
                         key={`${coilUid}-${r.idx ?? idx}`}
@@ -182,19 +184,27 @@ export default function RmAddCoilBreakdownTable({
                         ) : null}
                         <td className="px-2 py-1.5 lg:px-3 text-[10px] lg:text-xs font-bold min-w-0 max-w-[200px] lg:max-w-[240px] align-middle">
                           <div className="flex flex-col leading-snug min-w-0">
-                            <span
-                              className={`break-all font-bold ${
-                                inStock || r.generated ? "text-blue-700" : "text-slate-900"
-                              }`}
-                              title={coilUid}
-                            >
-                              {coilUid}
-                            </span>
-                            {r.total_coils ? (
+                            <div className="flex items-center gap-1 min-w-0">
+                              {showApprovalFlow ? (
+                                <CheckCircle2
+                                  className={`w-3.5 h-3.5 shrink-0 ${coilScanned ? "text-emerald-600" : "text-slate-300"}`}
+                                  aria-hidden
+                                />
+                              ) : null}
+                              <span
+                                className={`break-all font-bold ${
+                                  inStock || r.generated ? "text-blue-700" : "text-slate-900"
+                                }`}
+                                title={coilUid}
+                              >
+                                {coilUid}
+                              </span>
+                            </div>
+                            {/* {r.total_coils ? (
                               <span className="text-[8px] text-slate-400 uppercase font-bold truncate">
                                 Coil {r.coil_index ?? r.idx} / {r.total_coils}
                               </span>
-                            ) : null}
+                            ) : null} */}
                           </div>
                         </td>
                         <td className="px-2 py-1.5 lg:px-3 text-[10px] lg:text-[13px] font-bold text-indigo-700 font-mono tabular-nums whitespace-nowrap align-middle">
@@ -220,26 +230,34 @@ export default function RmAddCoilBreakdownTable({
                         <td className="px-2 py-1.5 lg:px-3 align-middle">
                           <span
                             className={`text-[9px] lg:text-[12px] font-bold uppercase whitespace-nowrap ${
-                              isMarkedRemove
-                                ? "text-rose-600"
-                                : inStock
+                              showApprovalFlow
+                                ? coilScanned
                                   ? "text-emerald-600"
-                                  : r.preview || isPreview
-                                    ? "text-slate-400 italic normal-case"
-                                    : r.is_new
-                                      ? "text-blue-600"
-                                      : "text-slate-500"
+                                  : "text-indigo-600"
+                                : isMarkedRemove
+                                  ? "text-rose-600"
+                                  : inStock
+                                    ? "text-emerald-600"
+                                    : r.preview || isPreview
+                                      ? "text-slate-400 italic normal-case"
+                                      : r.is_new
+                                        ? "text-blue-600"
+                                        : "text-slate-500"
                             }`}
                           >
-                            {isMarkedRemove
-                              ? "Will remove"
-                              : inStock
-                                ? "In stock"
-                                : r.preview || isPreview
-                                  ? "Ready"
-                                  : r.is_new
-                                    ? "New"
-                                    : "—"}
+                            {showApprovalFlow
+                              ? coilScanned
+                                ? "Scanned"
+                                : "Awaiting"
+                              : isMarkedRemove
+                                ? "Will remove"
+                                : inStock
+                                  ? "In stock"
+                                  : r.preview || isPreview
+                                    ? "Ready"
+                                    : r.is_new
+                                      ? "New"
+                                      : "—"}
                           </span>
                         </td>
                         {showPreviewMinusColumn ? (

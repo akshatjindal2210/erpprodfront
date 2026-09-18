@@ -346,7 +346,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
         { id: "copyRow", label: "Copy Row Data", parts: ["CTRL", "C"] },
         { id: "listPrint", label: "Print Selected (list)", parts: ["CTRL", "P"] },
         { id: "help", label: "Open Help", parts: ["SHIFT", "?"] },
-        { id: "quickLaunch", label: "Quick Launch (type IS, TR…)", parts: ["Type code"] },
+        { id: "quickLaunch", label: "Quick Launch (type ISI, RMR, HEM, TL…)", parts: ["Type code"] },
       ]
       : [
         { id: "listNew", label: "New Form (list)", parts: getListHotkeyParts("n", false) },
@@ -357,7 +357,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
         { id: "authorize", label: "Authorize Selected", parts: ["CTRL", "A"] },
         { id: "listPrint", label: "Print Selected (list)", parts: getListHotkeyParts("p", false) },
         { id: "help", label: "Open Help", parts: ["SHIFT", "?"] },
-        { id: "quickLaunch", label: "Quick Launch (type IS, TR…)", parts: ["Type code"] },
+        { id: "quickLaunch", label: "Quick Launch (type ISI, RMR, HEM, TL…)", parts: ["Type code"] },
       ];
 
     if (!isSuperAdmin) return base;

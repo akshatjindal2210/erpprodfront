@@ -1,22 +1,36 @@
 import React from "react";
 import QRCode from "react-qr-code";
 
-const LABEL_W_MM = 50;
-const LABEL_H_MM = 25;
-const PX_PER_MM = 12;
-
 /**
- * Label layout tuning (50×25 mm) — change ONLY here; Print QR + Bulk QR both use this file.
- * Bigger QR: raise QR_COLUMN_RATIO, CONTENT_H_RATIO; lower INNER_GAP_* / COL_GAP.
- * Smaller QR: lower QR_COLUMN_RATIO; more gap if needed.
+ * RM location QR sticker — change size / QR / font ONLY here.
+ * Print QR + Bulk QR both use this. Do not hardcode sizes anywhere else.
+ *
+ * widthIn / heightIn  → paper size (IMS packing sticker is 5.9 × 3.8 in)
+ * marginMm            → white edge (raise if the printer clips the QR)
+ * gapMm               → space between QR and location text
+ * minTextShare        → minimum % of inner width kept for the code (0.36–0.55)
+ * qrSourcePx          → QR sharpness only, not printed size
+ * fontMinPx           → smallest location-code font
  */
-const CONTENT_W_RATIO = 0.92;   // usable width on label (0.88–0.95)
-const CONTENT_H_RATIO = 0.82;   // usable height — higher = taller QR (0.74–0.88)
-const QR_COLUMN_RATIO = 0.58;   // left side % for QR vs rack/row text (0.48–0.65)
-const COL_GAP = 6;              // gap between QR block and text block
-const INNER_GAP_X = 6;          // padding inside QR column
-const INNER_GAP_Y = 6;          // padding inside QR column (height limit)
-const QR_SOURCE_PX = 256;       // QR render sharpness (200–320); not visual size on label
+export const RM_LOCATION_LABEL = {
+  widthIn: 5.9,
+  heightIn: 3.8,
+  marginMm: 5,
+  gapMm: 6,
+  minTextShare: 0.50,
+  qrSourcePx: 768,
+  fontMinPx: 80,
+};
+
+const PX_PER_MM = 12;
+const LABEL_W_MM = RM_LOCATION_LABEL.widthIn * 25.4;
+const LABEL_H_MM = RM_LOCATION_LABEL.heightIn * 25.4;
+const PAGE_W = `${RM_LOCATION_LABEL.widthIn}in`;
+const PAGE_H = `${RM_LOCATION_LABEL.heightIn}in`;
+
+export function rmLocationLabelSizeText() {
+  return `${RM_LOCATION_LABEL.widthIn}×${RM_LOCATION_LABEL.heightIn} in`;
+}
 
 export function getLocationQrValue(data) {
   const row = data?.row_no || data?.shelf_no || "";
@@ -47,52 +61,73 @@ export function getLocationDisplayNo(data) {
   );
 }
 
+function getPrintedLocationText(data) {
+  const row = (data?.row_no || data?.shelf_no || "").toString().toUpperCase();
+  const rackRow = `${data?.rack_no || ""}${row}`.trim();
+  if (rackRow) return rackRow;
+  const display = getLocationDisplayNo(data);
+  return display === "—" ? "__" : display;
+}
+
+function fitFontSize(ctx, text, maxWidth, maxHeight) {
+  const fontMin = RM_LOCATION_LABEL.fontMinPx;
+  let lo = fontMin;
+  let hi = Math.max(fontMin, Math.floor(maxHeight));
+  let best = fontMin;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    ctx.font = `900 ${mid}px Arial`;
+    const width = ctx.measureText(text).width;
+    if (width <= maxWidth && mid <= maxHeight) {
+      best = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
+
 function drawLabelOnCanvas(ctx, canvas, img, data) {
-  const scale = 1;
-  const baseWidth = LABEL_W_MM * PX_PER_MM;
-  const baseHeight = LABEL_H_MM * PX_PER_MM;
-  const rackRow = getLocationDisplayNo(data) === "—" ? "__" : getLocationDisplayNo(data);
+  const { marginMm, gapMm, minTextShare } = RM_LOCATION_LABEL;
+  const baseWidth = Math.round(LABEL_W_MM * PX_PER_MM);
+  const baseHeight = Math.round(LABEL_H_MM * PX_PER_MM);
+  const rackRow = getPrintedLocationText(data);
+  const safe = Math.round(marginMm * PX_PER_MM);
+  const gap = Math.round(gapMm * PX_PER_MM);
 
-  const contentWidth = Math.floor(baseWidth * CONTENT_W_RATIO);
-  const contentHeight = Math.floor(baseHeight * CONTENT_H_RATIO);
-  const contentX = Math.floor((baseWidth - contentWidth) / 2);
-  const contentY = Math.floor((baseHeight - contentHeight) / 2);
-  const leftColWidth = Math.floor((contentWidth - COL_GAP) * QR_COLUMN_RATIO);
-  const rightColWidth = contentWidth - COL_GAP - leftColWidth;
-  const qrSize = Math.max(
-    48,
-    Math.min(leftColWidth - INNER_GAP_X * 2, contentHeight - INNER_GAP_Y * 2)
-  );
-  const leftColX = contentX;
-  const leftColY = contentY;
-  const rightColX = contentX + leftColWidth + COL_GAP;
-  const rightColY = contentY;
-  const qrX = leftColX + Math.floor((leftColWidth - qrSize) / 2);
-  const qrY = leftColY + Math.floor((contentHeight - qrSize) / 2);
-  const textCenterX = rightColX + Math.floor(rightColWidth / 2);
-  const textCenterY = rightColY + Math.floor(contentHeight / 2);
+  const innerX = safe;
+  const innerY = safe;
+  const innerW = baseWidth - safe * 2;
+  const innerH = baseHeight - safe * 2;
 
-  canvas.width = baseWidth * scale;
-  canvas.height = baseHeight * scale;
+  let qrSize = innerH;
+  let textW = innerW - qrSize - gap;
+  const minTextW = Math.floor(innerW * minTextShare);
+  if (textW < minTextW) {
+    textW = minTextW;
+    qrSize = innerW - textW - gap;
+  }
+
+  const qrX = innerX;
+  const qrY = innerY + Math.floor((innerH - qrSize) / 2);
+  const textX = innerX + qrSize + gap;
+  const textY = innerY;
+
+  canvas.width = baseWidth;
+  canvas.height = baseHeight;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.scale(scale, scale);
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, baseWidth, baseHeight);
   ctx.drawImage(img, qrX, qrY, qrSize, qrSize);
 
-  const maxTextWidth = rightColWidth - INNER_GAP_X * 2;
-  const maxTextHeight = contentHeight - INNER_GAP_Y * 2;
-  let fontSize = 54;
+  const fontSize = fitFontSize(ctx, rackRow, textW, innerH);
+  ctx.font = `900 ${fontSize}px Arial`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  while (fontSize > 18) {
-    ctx.font = `bold ${fontSize}px Arial`;
-    if (ctx.measureText(rackRow).width <= maxTextWidth && fontSize <= maxTextHeight) break;
-    fontSize -= 1;
-  }
   ctx.fillStyle = "#000000";
-  ctx.fillText(rackRow, textCenterX, textCenterY);
+  ctx.fillText(rackRow, textX + Math.floor(textW / 2), textY + Math.floor(innerH / 2));
 }
 
 /** Build label PNG from a rendered QR <svg> element (single drawer preview). */
@@ -128,7 +163,7 @@ export async function buildLocationLabelDataUrlFromRow(data) {
   const { renderToStaticMarkup } = await import("react-dom/server");
   const qrValue = requireLocationQrValue(data);
   const svgMarkup = renderToStaticMarkup(
-    React.createElement(QRCode, { value: qrValue, size: QR_SOURCE_PX, level: "H" })
+    React.createElement(QRCode, { value: qrValue, size: RM_LOCATION_LABEL.qrSourcePx, level: "H" })
   );
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -177,33 +212,73 @@ export function printLocationLabelDataUrls(dataUrls) {
     <html>
       <head>
         <style>
-          @page { size: 50mm 25mm; margin: 0; }
-          html, body { margin: 0; padding: 0; background: #fff; }
+          @page { size: ${PAGE_W} ${PAGE_H}; margin: 0; }
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+          }
           .label-page {
-            width: 50mm;
-            height: 25mm;
+            width: ${PAGE_W};
+            height: ${PAGE_H};
             page-break-after: always;
+            break-after: page;
+            page-break-inside: avoid;
+            break-inside: avoid;
             overflow: hidden;
           }
-          .label-page:last-child { page-break-after: auto; }
+          .label-page:last-child {
+            page-break-after: auto;
+            break-after: auto;
+          }
           .label {
-            width: 50mm;
-            height: 25mm;
+            width: ${PAGE_W};
+            height: ${PAGE_H};
             display: block;
             box-sizing: border-box;
+            overflow: hidden;
           }
           .label img {
-            width: 100%;
-            height: 100%;
+            width: ${PAGE_W};
+            height: ${PAGE_H};
             display: block;
-            object-fit: fill;
+            object-fit: contain;
             image-rendering: -webkit-optimize-contrast;
             image-rendering: crisp-edges;
           }
         </style>
       </head>
-      <body onload="setTimeout(() => { window.print(); window.close(); }, 250)">
+      <body>
         ${pages}
+        <script>
+          (function () {
+            var printed = false;
+            function go() {
+              if (printed) return;
+              printed = true;
+              window.focus();
+              window.print();
+              window.close();
+            }
+            function wait() {
+              var imgs = Array.prototype.slice.call(document.images || []);
+              var pending = imgs.filter(function (img) { return !img.complete; });
+              if (!pending.length) {
+                setTimeout(go, 50);
+                return;
+              }
+              var left = pending.length;
+              pending.forEach(function (img) {
+                img.onload = img.onerror = function () {
+                  left -= 1;
+                  if (left <= 0) setTimeout(go, 50);
+                };
+              });
+            }
+            if (document.readyState === "complete") wait();
+            else window.onload = wait;
+          })();
+        </script>
       </body>
     </html>
   `);

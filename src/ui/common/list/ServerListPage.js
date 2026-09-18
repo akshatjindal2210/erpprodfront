@@ -14,7 +14,7 @@ import { ListPageFooter, ListPageShell, ListPageTableArea } from "@/ui/common/li
 import { buildAllFieldHeaders } from "@/ui/common/list/buildAllFieldHeaders";
 import { useServerList } from "@/ui/common/list/useServerList";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
-import { applyClientSearch } from "@/ui/common/list/clientListSearch";
+import { applyClientSearch, buildTableSearchParts, defaultSearchParts, nextSortParams, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 
 function isBlankFilterValue(value) {
   if (value == null) return true;
@@ -80,6 +80,9 @@ export default function ServerListPage({
   onRowDoubleClick,
   /** Permission module for view-days date range (IMS-style min/max + default span). */
   viewModule,
+  initialSort = { sortKey: "", sortDir: "desc" },
+  /** Optional override for Quick Search parts (defaults to visible table column text). */
+  getSearchParts,
 }) {
   const allFilterKeys = useMemo(() => {
     const resolvedExtraKeys =
@@ -101,6 +104,7 @@ export default function ServerListPage({
 
   const [viewMode, handleViewMode] = useViewMode();
   const [displayLimit, setDisplayLimit] = useState(pageSize);
+  const [sort, setSort] = useState(initialSort);
   const canAccess = useCanAccess();
   const viewAccess = useMemo(
     () => (viewModule ? canAccess(viewModule, "view") : null),
@@ -134,24 +138,34 @@ export default function ServerListPage({
   const resolvedFilterDefs = typeof extraFilters === "function" ? extraFilters(params) : extraFilters;
   const resolvedMoreFilterDefs = typeof moreFilters === "function" ? moreFilters(params) : moreFilters;
 
+  const searchHeaders = fixedHeaders?.length ? fixedHeaders : null;
+
   const displayRows = useMemo(() => {
     let next = rows;
     if (clientQuickSearch) {
-      next = applyClientSearch(next, tempSearch, { skipSort: true });
+      const getParts =
+        getSearchParts
+        ?? (searchHeaders?.length
+          ? (row) => buildTableSearchParts(row, searchHeaders)
+          : defaultSearchParts);
+      next = applyClientSearch(next, tempSearch, { getParts, skipSort: true });
     }
     clientFilterKeys.forEach((key) => {
       const value = params[key];
       if (isBlankFilterValue(value)) return;
       next = next.filter((row) => rowMatchesClientFilter(row, key, value));
     });
+    if (sort.sortKey) {
+      next = sortRowsByKey(next, sort.sortKey, sort.sortDir);
+    }
     return next;
-  }, [rows, tempSearch, clientQuickSearch, clientFilterKeys, params]);
+  }, [rows, tempSearch, clientQuickSearch, clientFilterKeys, params, sort.sortKey, sort.sortDir, getSearchParts, searchHeaders]);
 
   const visibleRows = useMemo(() => displayRows.slice(0, displayLimit), [displayRows, displayLimit]);
 
   useEffect(() => {
     setDisplayLimit(pageSize);
-  }, [rows, tempSearch, params, pageSize]);
+  }, [rows, tempSearch, params, pageSize, sort.sortKey, sort.sortDir]);
 
   const handleLoadMore = useCallback(() => {
     if (loading || visibleRows.length >= displayRows.length) return;
@@ -283,6 +297,12 @@ export default function ServerListPage({
           viewMode={viewMode}
           showSelection={showSelection}
           allowCopy
+          sortKey={sort.sortKey}
+          sortDir={sort.sortDir}
+          onSort={(key) => {
+            setSort((prev) => nextSortParams(prev, key));
+            setDisplayLimit(pageSize);
+          }}
           selectedId={selected}
           onSelect={setSelected}
           emptyIcon={EmptyIcon}

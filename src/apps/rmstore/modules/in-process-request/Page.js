@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Eye } from "lucide-react";
 import { toast } from "react-toastify";
 
-import { inProcessRequestService, IPR_DOWNSTREAM, IPR_REQUEST_TYPE, IPR_REQUEST_TYPE_FILTER_OPTIONS, matchesIprTypeFilter } from "@/apps/rmstore/lib/services/inProcessRequest";
+import { inProcessRequestService, IPR_DOWNSTREAM, IPR_REQUEST_TYPE, IPR_REQUEST_TYPE_FILTER_OPTIONS } from "@/apps/rmstore/lib/services/inProcessRequest";
 import { IprRequestTypeCell } from "@/apps/rmstore/modules/in-process-request/iprTypeVisuals";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
@@ -22,8 +22,10 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
+import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
-import { formatDateTime } from "@/platform/utils/core/utilHelper";
+import { auditHeaders } from "@/platform/utils/list/auditListUi";
+import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 
 const MODULE = "rm_in_process_request";
 
@@ -76,7 +78,8 @@ export default function InProcessRequestPage() {
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const [tempSearch, setTempSearch] = useState("");
+  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } =
+    useAppliedListSearch();
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
@@ -92,6 +95,8 @@ export default function InProcessRequestPage() {
         filters: {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
+          ...(params.status !== "all" && { approved: params.status === "approved" }),
+          ...(params.requestType !== "all" && { request_type: params.requestType }),
         },
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
@@ -99,6 +104,7 @@ export default function InProcessRequestPage() {
           ...base,
           page,
           limit,
+          ...(appliedSearch && { search: appliedSearch }),
         });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
@@ -110,7 +116,14 @@ export default function InProcessRequestPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.fromDate, params.toDate]);
+  }, [
+    params.pageSize,
+    params.fromDate,
+    params.toDate,
+    params.status,
+    params.requestType,
+    appliedSearch,
+  ]);
 
   useEffect(() => {
     fetchRows();
@@ -118,17 +131,11 @@ export default function InProcessRequestPage() {
 
   const filteredRows = useMemo(() => {
     let data = allRows;
-    if (params.requestType !== "all") {
-      data = data.filter((row) => matchesIprTypeFilter(row, params.requestType));
-    }
-    if (params.status !== "all") {
-      data = data.filter((row) => row.approved === (params.status === "approved"));
-    }
     if (String(tempSearch || "").trim()) {
       data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, params.requestType, params.status, tempSearch, params.sortKey, params.sortDir]);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -148,9 +155,23 @@ export default function InProcessRequestPage() {
         tempSearch,
         sourceRows: allRows,
         filteredRows,
-        serverFiltered: Boolean(params.fromDate) || Boolean(params.toDate),
+        serverFiltered:
+          params.status !== "all" ||
+          params.requestType !== "all" ||
+          Boolean(appliedSearch) ||
+          Boolean(params.fromDate) ||
+          Boolean(params.toDate),
       }),
-    [tempSearch, allRows, filteredRows, params.fromDate, params.toDate, params.status, params.requestType]
+    [
+      tempSearch,
+      allRows,
+      filteredRows,
+      params.fromDate,
+      params.toDate,
+      params.status,
+      params.requestType,
+      appliedSearch,
+    ]
   );
 
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
@@ -174,12 +195,16 @@ export default function InProcessRequestPage() {
       setModalOpen(true);
     }, []),
     canApproveSelection: useCallback(
-      () => Boolean(selected && selectedRecord),
+      () => Boolean(selected && selectedRecord) && !isRowApproved(selectedRecord),
       [selected, selectedRecord]
     ),
     onApproveBlocked: useCallback(() => {
-      toast.info("Select a row to approve (Ctrl+A).");
-    }, []),
+      if (isRowApproved(selectedRecord)) {
+        toast.info("This record is already approved. Edit it before approving again.");
+      } else {
+        toast.info("Select a row to approve (Ctrl+A).");
+      }
+    }, [selectedRecord]),
     openDelete: useCallback((row) => {
       setDeleteItem(row);
     }, []),
@@ -319,30 +344,7 @@ export default function InProcessRequestPage() {
         ),
         { width: "120px" },
       ],
-      [
-        "Created By",
-        "created_by_name",
-        (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>,
-        { width: "110px" },
-      ],
-      [
-        "Created At",
-        "created_at",
-        (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-        { width: "150px" },
-      ],
-      [
-        "Approved By",
-        "approved_by_name",
-        (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>,
-        { width: "110px" },
-      ],
-      [
-        "Approved At",
-        "approved_at",
-        (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>,
-        { width: "150px" },
-      ],
+      ...auditHeaders(),
     ],
     []
   );
@@ -359,12 +361,14 @@ export default function InProcessRequestPage() {
         label: "Request Type",
         key: "requestType",
         value: params.requestType,
+        variant: "server",
         options: IPR_REQUEST_TYPE_FILTER_OPTIONS,
       },
       {
         label: "Status",
         key: "approvedStatus",
         value: params.status,
+        variant: "server",
         options: [
           { label: "All Status", value: "all" },
           { label: "Approved", value: "approved" },
@@ -417,8 +421,12 @@ export default function InProcessRequestPage() {
                   variant="outline"
                   label="Approve"
                   icon={CheckCircle}
-                  disabled={!selectedRecord}
+                  disabled={!selectedRecord || isRowApproved(selectedRecord)}
                   onClick={() => {
+                    if (isRowApproved(selectedRecord)) {
+                      toast.info("This record is already approved. Edit it before approving again.");
+                      return;
+                    }
                     setEditItem(selectedRecord);
                     setModalMode("approve");
                     setModalOpen(true);
@@ -487,6 +495,8 @@ export default function InProcessRequestPage() {
             applyExtrasOnChange={false}
             searchVariant="quick"
             onApply={(data) => {
+              applySearchFromInput();
+              setSelected(null);
               setParams((prev) => ({
                 ...prev,
                 fromDate: data.fromDate,
@@ -496,7 +506,8 @@ export default function InProcessRequestPage() {
               }));
             }}
             onReset={() => {
-              setTempSearch("");
+              resetSearch();
+              setSelected(null);
               setParams({
                 ...DEFAULT_PARAMS,
                 fromDate: dateFilterDefaults.from,

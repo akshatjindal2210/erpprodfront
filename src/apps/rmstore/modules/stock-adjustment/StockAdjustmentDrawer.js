@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useSelector } from "react-redux";
+import { selectRole, selectUser } from "@/platform/store/slices/authSlice";
 import { toast } from "react-toastify";
-import { Check, Loader2, Package, Layers, Shield, MessageSquareQuote, AlertCircle, AlertTriangle, Box, FileText, Upload, RefreshCw } from "lucide-react";
+import { Check, Loader2, Package, Layers, Shield, MessageSquareQuote, AlertCircle, AlertTriangle, Box, FileText, Upload, RefreshCw, ScanLine, QrCode, ShieldCheck } from "lucide-react";
 import { notify } from "@/apps/rmstore/lib/utils/notify";
 
 import Drawer from "@/ui/primitives/Drawer";
@@ -28,6 +30,16 @@ import RmAddCoilBreakdownTable from "./RmAddCoilBreakdownTable";
 import RmStockAdjustmentDetailCards, { resolveUploadUrl } from "./RmStockAdjustmentDetailCards";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { isSaAddLike, usesLotGate, needsFinancialYear, normalizeSaEntryType } from "@/apps/rmstore/lib/utils/stockAdjustmentEntryTypes";
+import { extractCoilUid, findMatchingCoilUid, normalizeScanInput } from "@/apps/rmstore/lib/helpers/qrScan";
+import LaserScanField from "@/ui/common/scan/LaserScanField";
+import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
+import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
+import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
+import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
+import { prepareQrScanSession, playScanSuccessBeep } from "@/platform/utils/global/scanFeedback";
+import { resolveRmApproveKeyboardScan } from "@/apps/rmstore/lib/utils/rmApproveScanSettings";
+
+const SA_APPROVE_QR_READER_ID = "sa-approve-qr-reader";
 
 const MODULE = "rm_stock_adjustment";
 
@@ -376,9 +388,33 @@ export default function StockAdjustmentDrawer({
   const [oldErpBreakdown, setOldErpBreakdown] = useState(false);
   const [oldErpSourceQtys, setOldErpSourceQtys] = useState([]);
   const [oldErpActiveIdx, setOldErpActiveIdx] = useState([]);
+  const [scanTracking, setScanTracking] = useState({});
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   const sopAckRef = useRef(null);
+  const approvalScanInputRef = useRef(null);
+  const scanTrackingRef = useRef({});
+  const lastCamErrorRef = useRef(0);
   const editId = editData?.adjustment_id ?? null;
+  const currentUser = useSelector(selectUser);
+  const role = useSelector(selectRole);
+  const { laserScan, keyboardType: keyboardTypeSetting, phoneQrScan, showPhoneQr } = useDeviceScanSettings();
+  const [narrowLayout, setNarrowLayout] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 1023px)").matches : false
+  );
+  const phoneQrVisible = showPhoneQr || (phoneQrScan && narrowLayout);
+  const showKeyboardScan = useMemo(
+    () => resolveRmApproveKeyboardScan(keyboardTypeSetting, currentUser, role),
+    [keyboardTypeSetting, currentUser, role]
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setNarrowLayout(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   const resetForm = useCallback(() => {
     setEntryType("");
@@ -420,6 +456,8 @@ export default function StockAdjustmentDrawer({
     setOldErpBreakdown(false);
     setOldErpSourceQtys([]);
     setOldErpActiveIdx([]);
+    setScanTracking({});
+    setIsScannerOpen(false);
   }, []);
 
   useEffect(() => {
@@ -433,6 +471,10 @@ export default function StockAdjustmentDrawer({
     const boot = async () => {
       setFormReady(false);
       resetForm();
+      if (isApprove) {
+        setMobileTab("coils");
+        setScanTracking({});
+      }
       if (isAddMode) {
         if (!cancelled) {
           setGateReady(false);
@@ -605,6 +647,7 @@ export default function StockAdjustmentDrawer({
           }));
         }
         setGateReady(true);
+        if (isApprove && !cancelled) setMobileTab("coils");
       } catch (err) {
         if (!cancelled)
           toast.error(err?.message || "Could not load the stock adjustment. Please try again.");
@@ -1200,7 +1243,8 @@ export default function StockAdjustmentDrawer({
   }, [entryType, coilQtySum, adjustmentQty]);
 
   const isApprovedAdd = isSaAddLike(entryType) && Boolean(editData?.approved);
-  const canPrintStickers = isApprovedAdd && (isView || isApprove);
+  const showApprovalFlow = isApprove && gateReady && !Boolean(editData?.approved);
+  const canPrintStickers = false;
 
   const addPreviewRows = useMemo(() => {
     if (!isSaAddLike(entryType)) return [];
@@ -1268,6 +1312,27 @@ export default function StockAdjustmentDrawer({
     editId,
     isApprovedAdd,
   ]);
+
+  const requiredCoilUids = useMemo(() => {
+    if (!showApprovalFlow) return [];
+    if (isSaAddLike(entryType)) {
+      return addPreviewRows.map((r) => String(r.coil_no_uid || "").trim()).filter(Boolean);
+    }
+    if (entryType === "minus") {
+      return selectedCoils.map((c) => String(c.coil_no_uid || "").trim()).filter(Boolean);
+    }
+    return [];
+  }, [showApprovalFlow, entryType, addPreviewRows, selectedCoils]);
+
+  const allCoilsScanned = useMemo(
+    () =>
+      showApprovalFlow &&
+      requiredCoilUids.length > 0 &&
+      requiredCoilUids.every((uid) => scanTracking[uid]),
+    [showApprovalFlow, requiredCoilUids, scanTracking]
+  );
+  const canApprove = allCoilsScanned;
+  scanTrackingRef.current = scanTracking;
 
   const minusSelectedUidSet = useMemo(() => {
     return new Set(selectedCoils.map((c) => String(c.coil_no_uid || "").trim()).filter(Boolean));
@@ -1352,6 +1417,101 @@ export default function StockAdjustmentDrawer({
     [onSuccess, onClose, itemRow, editData, supplierRow, heatNo, entryType, mrnNo, mrnUid]
   );
 
+  const handleApprovalScan = useCallback(
+    (rawValue, opts = {}) => {
+      const continuous = opts.continuous === true;
+      const raw = normalizeScanInput(rawValue);
+      if (!raw) return "empty";
+
+      const warn = (message) => {
+        if (!continuous) {
+          toast.error(message);
+          return;
+        }
+        const now = Date.now();
+        if (now - lastCamErrorRef.current < 1600) return;
+        lastCamErrorRef.current = now;
+        toast.error(message, { toastId: "sa-approve-scan-err" });
+      };
+
+      const mark = (key) => {
+        if (scanTrackingRef.current[key]) return "duplicate";
+        const next = { ...scanTrackingRef.current, [key]: true };
+        scanTrackingRef.current = next;
+        setScanTracking(next);
+        if (continuous) {
+          void playScanSuccessBeep();
+          const done = requiredCoilUids.filter((uid) => next[uid]).length;
+          if (requiredCoilUids.length > 0 && done >= requiredCoilUids.length) {
+            setIsScannerOpen(false);
+            toast.success("All coil stickers scanned. You can approve now.", { toastId: "sa-approve-scan" });
+          }
+        } else {
+          toast.success("Coil sticker scanned.");
+        }
+        return "ok";
+      };
+
+      const coilUid = extractCoilUid(raw);
+      if (coilUid) {
+        const match = findMatchingCoilUid(coilUid, requiredCoilUids);
+        if (match) return mark(match);
+        warn("Coil sticker does not match this stock adjustment.");
+        return "error";
+      }
+      warn("Invalid scan.");
+      return "error";
+    },
+    [requiredCoilUids]
+  );
+
+  const handleCameraDecoded = useCallback(
+    (text) => {
+      handleApprovalScan(text, { continuous: true });
+    },
+    [handleApprovalScan]
+  );
+
+  const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
+    active: isScannerOpen && showApprovalFlow,
+    elementId: SA_APPROVE_QR_READER_ID,
+    onDecoded: handleCameraDecoded,
+    fps: 15,
+    qrbox: { width: 250, height: 250 },
+    onCameraFailed: (err) => {
+      setIsScannerOpen(false);
+      const denied = /NotAllowed|Permission|denied/i.test(String(err?.message || err || ""));
+      toast.error(
+        denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again."
+      );
+    },
+  });
+
+  const startCameraScanner = useCallback(async () => {
+    try {
+      const prep = await prepareQrScanSession();
+      if (!prep?.cameraOk) {
+        toast.error(
+          prep?.cameraDenied
+            ? "Camera permission denied. Allow camera and try again."
+            : "Camera could not start. Please try again."
+        );
+        return;
+      }
+    } catch (err) {
+      const denied = /NotAllowed|Permission|denied/i.test(String(err?.message || err || ""));
+      toast.error(
+        denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again."
+      );
+      return;
+    }
+    setIsScannerOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open || !showApprovalFlow) setIsScannerOpen(false);
+  }, [open, showApprovalFlow]);
+
   const handleSave = async ({ approve } = {}) => {
     if (readOnly && !isApprove) return;
     if (!sopAckRef.current?.assertAcknowledged()) return;
@@ -1372,18 +1532,25 @@ export default function StockAdjustmentDrawer({
           setSaving(false);
           return;
         }
-        const approveRes = await stockAdjustmentService.update(editId, { approved: true });
-        const approvedCoils = Array.isArray(approveRes?.data?.coils) ? approveRes.data.coils : [];
+        if (!canApprove) {
+          toast.error("Scan all coil stickers before approving.");
+          setSaving(false);
+          return;
+        }
+        const approveRes = await stockAdjustmentService.update(editId, {
+          approved: true,
+          scanned_coils: requiredCoilUids,
+        });
         toast.success(
           isSaAddLike(entryType)
-            ? "Approved — coils created in inventory. Opening sticker print…"
+            ? "Approved — coils created in inventory."
             : "Stock adjustment approved."
         );
-        finishSave({ approvedAdd: isSaAddLike(entryType), savedId: editId, coils: approvedCoils });
+        finishSave();
         return;
       }
 
-      const doApprove = Boolean((approve || approveOnSave) && canAuthorize);
+      const doApprove = false;
 
       if (isSaAddLike(entryType)) {
         if (!itemRow?.item_dcode && !itemRow?.item_code && !itemId) {
@@ -1838,6 +2005,8 @@ export default function StockAdjustmentDrawer({
             coilQtys={breakdownCoilQtys}
             onCoilQtyChange={onBreakdownCoilQtyChange}
             canPrintStickers={canPrintStickers}
+            showApprovalFlow={showApprovalFlow}
+            scanTracking={scanTracking}
             emptyHint={
               noRemainingQty
                 ? "MRN receipt qty is fully used — no coils to add"
@@ -1860,6 +2029,8 @@ export default function StockAdjustmentDrawer({
             loading={loadingCoils}
             entryApproved={Boolean(editData?.approved)}
             currentAdjustmentId={editData?.adjustment_id ?? editId ?? null}
+            showApprovalFlow={showApprovalFlow}
+            scanTracking={scanTracking}
           />
         )}
       </div>
@@ -1925,16 +2096,17 @@ export default function StockAdjustmentDrawer({
             saving ||
             !canAuthorize ||
             !formReady ||
+            !canApprove ||
             Boolean(editData?.approved) ||
             specBlocksSave
           }
-          title="Ctrl+S"
+          title={!canApprove ? "Scan all coil stickers first." : "Ctrl+S"}
           className="h-8 lg:h-9 w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 text-white text-[9px] lg:text-[10px] font-black uppercase shadow-sm hover:bg-emerald-700 disabled:opacity-50 px-3 lg:px-4 transition-all"
         >
           {saving ? (
             <Loader2 className="w-3.5 h-3.5 lg:w-4 lg:h-4 animate-spin shrink-0" aria-hidden />
           ) : (
-            <Shield className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" aria-hidden />
+            <ShieldCheck className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" aria-hidden />
           )}
           Approve
         </button>
@@ -1952,6 +2124,7 @@ export default function StockAdjustmentDrawer({
   );
 
   return (
+    <>
     <Drawer
       isOpen={open}
       onClose={onClose}
@@ -1965,7 +2138,7 @@ export default function StockAdjustmentDrawer({
       title={drawerTitle}
       description={
         isApprove
-          ? "Same layout as View — confirm coils, then approve to update inventory."
+          ? "Scan coil stickers, then approve."
           : "MRN-based stock adjustment — Add (+) creates coils; Minus (-) removes coils; Old uses Lot No."
       }
       footer={null}
@@ -2202,13 +2375,7 @@ export default function StockAdjustmentDrawer({
               </div>
             ) : null}
 
-            {isApprove ? (
-              <div className="shrink-0 mx-3 mt-2 sm:mx-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-900">
-                Review MRN and coils below, then click <span className="font-black">Approve</span>. Add creates
-                coils in inventory; minus removes selected coils. To change counts, close this screen and use{" "}
-                <span className="font-black">Edit</span> first.
-              </div>
-            ) : editingWasApproved ? (
+            {editingWasApproved ? (
               <div className="shrink-0 px-3 py-2 lg:px-4 bg-amber-50 border-b border-amber-100 text-[10px] font-semibold text-amber-900">
                 This adjustment is <span className="font-black">Approved</span>. After you save, status becomes{" "}
                 <span className="font-black">Pending</span> — use <span className="font-black">Approve</span> again to
@@ -2217,6 +2384,59 @@ export default function StockAdjustmentDrawer({
             ) : isEdit && editData?.approved ? (
               <div className="shrink-0 px-3 py-2 lg:px-4 bg-amber-50 border-b border-amber-100 text-[10px] font-medium text-amber-900">
                 Editing an authorized adjustment resets it to Pending. Turn on Approve before saving to authorize it again.
+              </div>
+            ) : null}
+
+            {showApprovalFlow ? (
+              <div className="shrink-0 px-3 md:px-4 py-2 border-b border-indigo-100 bg-indigo-50/70">
+                <div className="flex flex-col gap-2 max-w-full min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ScanLine size={15} className="text-indigo-600 shrink-0" aria-hidden />
+                    <span className="text-[10px] sm:text-[11px] font-black uppercase text-indigo-800 leading-tight truncate">
+                      Scan coil stickers
+                    </span>
+                    <span className="ml-auto text-[10px] font-bold text-indigo-700 tabular-nums whitespace-nowrap">
+                      {requiredCoilUids.filter((uid) => scanTracking[uid]).length}/{requiredCoilUids.length}
+                    </span>
+                  </div>
+                  {phoneQrVisible || laserScan || showKeyboardScan ? (
+                    <div className="flex items-center gap-1.5 w-full min-w-0">
+                      {laserScan ? (
+                        <LaserScanField
+                          active={open && showApprovalFlow && laserScan}
+                          onScanned={handleApprovalScan}
+                          companionTypableRef={showKeyboardScan ? approvalScanInputRef : undefined}
+                          compact
+                          heightClass="h-9"
+                          armButtonLabel="Scan"
+                          className="shrink-0"
+                        />
+                      ) : null}
+                      {showKeyboardScan ? (
+                        <div className="flex flex-1 min-w-0 items-center gap-2 h-9 px-2.5 border border-slate-300 rounded-lg bg-white focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500/20">
+                          <ScanLine size={14} className="shrink-0 text-indigo-400 pointer-events-none" aria-hidden />
+                          <ScanEnterInput
+                            ref={approvalScanInputRef}
+                            onEnter={handleApprovalScan}
+                            placeholder="Coil UID"
+                            className="min-w-0 flex-1 border-0 bg-transparent p-0 h-full text-sm sm:text-xs font-mono text-slate-900 placeholder:text-slate-400 placeholder:font-normal outline-none"
+                          />
+                        </div>
+                      ) : null}
+                      {phoneQrVisible ? (
+                        <button
+                          type="button"
+                          onClick={() => void startCameraScanner()}
+                          disabled={isScannerOpen || saving}
+                          title="Scan QR"
+                          className="w-9 h-9 shrink-0 inline-flex items-center justify-center rounded-lg border bg-indigo-600 border-indigo-700 text-white hover:bg-indigo-700 disabled:opacity-60 touch-manipulation"
+                        >
+                          <QrCode size={16} />
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 
@@ -2393,16 +2613,7 @@ export default function StockAdjustmentDrawer({
                             {approvalStatusLabel}
                           </p>
                           {!readOnly && !isApprove && canAuthorize ? (
-                            <label className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center">
-                              <input
-                                type="checkbox"
-                                checked={approveOnSave}
-                                onChange={(e) => setApproveOnSave(e.target.checked)}
-                                className="peer sr-only"
-                              />
-                              <span className="pointer-events-none absolute inset-0 z-0 rounded-full bg-slate-300 transition peer-checked:bg-emerald-400 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-300" />
-                              <span className="pointer-events-none absolute left-[2px] top-[2px] z-10 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
-                            </label>
+                            <span className="text-[8px] font-bold uppercase text-amber-800/80 shrink-0">Use Approve</span>
                           ) : null}
                         </div>
                       ) : (
@@ -2480,5 +2691,15 @@ export default function StockAdjustmentDrawer({
         )}
       </div>
     </Drawer>
+    <QrScannerOverlay
+      open={isScannerOpen && showApprovalFlow}
+      readerId={SA_APPROVE_QR_READER_ID}
+      onClose={() => setIsScannerOpen(false)}
+      hint="Scanning coil sticker QR"
+      torchSupported={torchSupported}
+      torchOn={torchOn}
+      onToggleTorch={toggleTorch}
+    />
+    </>
   );
 }

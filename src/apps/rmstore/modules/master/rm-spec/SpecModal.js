@@ -7,7 +7,7 @@ import { notify } from "@/apps/rmstore/lib/utils/notify";
 
 import { specService } from "@/apps/rmstore/lib/services/spec";
 import { productionErpHelpers } from "@/apps/rmstore/lib/services/production";
-import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
+import RmStoreDrawerFooter, { resolveFinalApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
@@ -323,6 +323,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
   const fetchGradeColorSuggestions = useCallback((search) => fetchHeaderSuggestions("grade_color")(search), [fetchHeaderSuggestions]);
 
   const [loading, setLoading] = useState(false);
+  const [activeSubmit, setActiveSubmit] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [itemDcode, setItemDcode] = useState("");
   const [condition, setCondition] = useState("");
@@ -506,7 +507,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
     return newErrors;
   };
 
-  const handleSave = async (statusOverride = null) => {
+  const handleSave = async (statusOverride = null, actionKey = "save") => {
     if (isView) {
       onClose();
       return;
@@ -547,6 +548,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
     }
 
     savingRef.current = true;
+    setActiveSubmit(actionKey);
     setLoading(true);
     try {
       const specsPayload = withAutoSno(lines).map((line, idx) => {
@@ -582,25 +584,20 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
       };
       let response;
 
-      if (isApprove) {
-        const finalApproved =
-          statusOverride !== null && statusOverride !== undefined
-            ? Boolean(statusOverride)
-            : canApprove
-              ? Boolean(approved)
-              : false;
+      if (isApprove || isEdit) {
+        const finalApproved = canApprove
+          ? resolveFinalApproved({
+              formApproved: approved,
+              statusOverride,
+              isEdit,
+              wasApproved: wasApproved || approvalStatus === "authorized",
+            })
+          : false;
         response = await specService.update(itemId, {
           source_item_dcode: sourceItemId,
           ...headerMeta,
           specs: specsPayload,
           approved: finalApproved,
-        });
-      } else if (isEdit) {
-        response = await specService.update(itemId, {
-          source_item_dcode: sourceItemId,
-          ...headerMeta,
-          specs: specsPayload,
-          approved: false,
         });
       } else {
         response = await specService.create({
@@ -619,6 +616,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
     } finally {
       savingRef.current = false;
       setLoading(false);
+      setActiveSubmit(null);
     }
   };
 
@@ -641,6 +639,9 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
       disabled={loadingDetail}
       readOnly={isView}
       isApprove={isApprove}
+      isEdit={isEdit}
+      canApprove={canApprove}
+      activeSubmit={activeSubmit}
       onSave={handleSave}
     />
   );
@@ -649,7 +650,7 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={isView ? undefined : () => handleSave(isApprove ? true : undefined)}
+      onSubmit={isView ? undefined : () => handleSave(isApprove ? true : null, isApprove ? "approve" : "save")}
       title={title}
       description={
         isView
@@ -1027,10 +1028,12 @@ export default function SpecModal({ open, onClose, onSuccess, editData, mode = "
                 </p>
               </div>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" checked={approved} onChange={(e) => setApproved(e.target.checked)} className="sr-only peer" />
-              <div className="w-10 h-5.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-emerald-400" />
-            </label>
+            {!isApprove ? (
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={approved} onChange={(e) => setApproved(e.target.checked)} className="sr-only peer" />
+                <div className="w-10 h-5.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-emerald-400" />
+              </label>
+            ) : null}
           </div>
         ) : isView || isEdit ? (
           <div className={`p-3 rounded-xl border transition-all flex items-center justify-between ${

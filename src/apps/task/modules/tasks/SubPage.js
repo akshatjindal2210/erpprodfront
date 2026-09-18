@@ -1151,7 +1151,9 @@ export default function TaskDetailPage() {
                         </button>
                       ))}
                     </div>
-                    {rightTab === "chat" && <div className="shrink-0 pb-0.5"><ChatMembers taskDetail={task} /></div>}
+                    <div className={`shrink-0 pb-0.5 ${rightTab !== "chat" ? "lg:hidden" : ""}`}>
+                      <ChatMembers taskDetail={task} activeTab={rightTab} />
+                    </div>
                   </div>
                 </div>
 

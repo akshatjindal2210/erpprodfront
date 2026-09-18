@@ -18,7 +18,7 @@ import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPag
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { formatActivityLogValue, getActivityLogSections, getActivityLogMoreSections, hasActivityLogDetails, formatActivityLogActionLabel, getActivityLogActionBadgeClass } from "@/platform/utils/core/activityLogDisplay";
-import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
+import { fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import ActivityLogModuleEntityCell from "@/ui/common/list/ActivityLogModuleEntityCell";
 import { APP_TYPE_LABELS } from "@/config/portalModules.data";
 
@@ -120,15 +120,20 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
 
   useEffect(() => {
     void fetchLogs();
-  }, [params.pageSize, params.sortKey, params.sortDir, params.search, params.fromDate, params.toDate, params.filterApp, params.userId, params.module, params.actionType, fetchLogs]);
+  }, [params.pageSize, params.search, params.fromDate, params.toDate, params.filterApp, params.userId, params.module, params.actionType, fetchLogs]);
 
-  const items = useMemo(() => allItems.slice(0, displayLimit), [allItems, displayLimit]);
+  const sortedItems = useMemo(
+    () => sortRowsByKey(allItems, params.sortKey, params.sortDir),
+    [allItems, params.sortKey, params.sortDir]
+  );
+
+  const items = useMemo(() => sortedItems.slice(0, displayLimit), [sortedItems, displayLimit]);
 
   const handleLoadMore = useCallback(() => {
-    if (!loading && items.length < allItems.length) {
+    if (!loading && items.length < sortedItems.length) {
       setDisplayLimit((n) => n + 100);
     }
-  }, [loading, items.length, allItems.length]);
+  }, [loading, items.length, sortedItems.length]);
 
   const handleSearch = (data) => {
     setParams((prev) => ({
@@ -347,8 +352,8 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
             idKey="id"
             emptyIcon={Activity}
             onLoadMore={handleLoadMore}
-            hasMore={items.length < allItems.length}
-            totalItems={allItems.length}
+            hasMore={items.length < sortedItems.length}
+            totalItems={sortedItems.length}
             cardConfig={{
               titleKey: "user_name",
               badgeIndices: [1],
@@ -361,7 +366,7 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
 
         <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {allItems.length} Activity Logs
+            Showing {items.length} of {sortedItems.length} Activity Logs
           </span>
         </div>
       </div>

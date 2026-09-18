@@ -24,7 +24,8 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
-import { formatDateTime } from "@/platform/utils/core/utilHelper";
+import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
+import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import QcCheckModal from "./QcCheckModal";
 import QcScanGateModal from "./QcScanGateModal";
 
@@ -306,7 +307,12 @@ export default function QcCheckPage() {
     const target = row || selectedRecord;
     if (!target?.qc_check_uid) return;
     const st = String(target.status || "").toLowerCase();
-    if (!["awaiting_approval", "passed", "failed"].includes(st)) return;
+    if (st !== "awaiting_approval") {
+      if (isRowApproved(target) || ["passed", "failed"].includes(st)) {
+        toast.info("This record is already approved. Edit it before approving again.");
+      }
+      return;
+    }
     setModal({ open: true, mode: "approve", row: target });
   }, [selectedRecord]);
 
@@ -350,37 +356,12 @@ export default function QcCheckPage() {
         ],
         ["Status", "status", (v) => <StatusBadge status={v} />, { width: "160px" }],
         ["Failure Reason", "failure_reason", (v) => <span className="text-rose-700 text-[10px] truncate block">{v || "—"}</span>, { width: "180px" }],
-        ["Inspected By", "inspected_by_name", (v, row) => <span className="text-[10px] text-slate-500">{v || row?.inspected_by || "—"}</span>, { width: "130px" }],
-        ["Inspected At", "inspected_at", (v) => <span className="text-[10px] text-slate-400">{v ? formatDateTime(v) : "—"}</span>, { width: "150px" }],
+        ...auditPair("Inspected", "inspected_by_name", "inspected_at"),
       ];
 
       if (isPendingTab) return base;
 
-      return [
-        ...base,
-        [
-          "Approved Status",
-          "approved",
-          (v) => (
-            <span
-              className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}
-            >
-              {v ? "● AUTHORIZED" : "○ PENDING"}
-            </span>
-          ),
-          { width: "120px" },
-        ],
-        ["Created By", "created_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-        ["Created At", "created_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-        ["Updated By", "updated_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
-        ["Updated At", "updated_at", (v, row) => (
-          <span className="text-[10px] text-slate-400 font-medium">
-            {row?.updated_by_name ? formatDateTime(v) : "—"}
-          </span>
-        ), { width: "150px" }],
-        ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
-        ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
-      ];
+      return [...base, ...auditHeaders()];
     },
     [isPendingTab]
   );
@@ -474,6 +455,13 @@ export default function QcCheckPage() {
         [openApprove, selectedRecord]
       ),
       canApproveSelection: useCallback(() => Boolean(canApproveRow), [canApproveRow]),
+      onApproveBlocked: useCallback(() => {
+        if (selectedRecord && (isRowApproved(selectedRecord) || ["passed", "failed"].includes(String(selectedRecord.status || "").toLowerCase()))) {
+          toast.info("This record is already approved. Edit it before approving again.");
+          return;
+        }
+        toast.info("Select a row awaiting approval.");
+      }, [selectedRecord]),
       approveBlockedMessage: "Select a row awaiting approval.",
       openDelete: useCallback(
         (row) => {
@@ -637,6 +625,7 @@ export default function QcCheckPage() {
             searchPlaceholder="Search by coil, MRN, heat, or item"
             searchLabel={isPendingTab ? "Search Pending" : "Search Register"}
             searchVariant="quick"
+            quickSearchOnly={isPendingTab}
             showSearchButton={!isPendingTab}
             applyOnSearchEnter={!isPendingTab}
             applyExtrasOnChange={false}

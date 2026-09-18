@@ -6,7 +6,7 @@ import { AlertCircle, Shield } from "lucide-react";
 import { notify } from "@/apps/rmstore/lib/utils/notify";
 
 import { productionService, productionErpHelpers } from "@/apps/rmstore/lib/services/production";
-import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
+import RmStoreDrawerFooter, { resolveFinalApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
@@ -33,6 +33,7 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
   const showApproval = canApprove && (mode === "add" || mode === "approve");
 
   const [loading, setLoading] = useState(false);
+  const [activeSubmit, setActiveSubmit] = useState(null);
   const [form, setForm] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
   const sopAckRef = useRef(null);
@@ -48,7 +49,7 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
         setForm({
           item_dcode: editData.item_dcode ?? "",
           rm_item_dcodes: rmDcodesFromRow(editData),
-          approved: isApprove,
+          approved: isApprove ? Boolean(editData?.approved) : false,
         });
       } else {
         setForm(INITIAL_FORM);
@@ -78,7 +79,7 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
     return newErrors;
   };
 
-  const handleSave = async (statusOverride = null) => {
+  const handleSave = async (statusOverride = null, actionKey = "save") => {
     if (savingRef.current || loading) return;
     const newErrors = validate();
     if (Object.keys(newErrors).length) {
@@ -97,14 +98,15 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
     }
 
     savingRef.current = true;
+    setActiveSubmit(actionKey);
     setLoading(true);
     try {
-      let finalApproved = form.approved;
-      if (statusOverride != null) {
-        finalApproved = statusOverride;
-      } else if (isEdit && editData?.approved) {
-        finalApproved = false;
-      }
+      const finalApproved = resolveFinalApproved({
+        formApproved: form.approved,
+        statusOverride,
+        isEdit,
+        wasApproved: editData?.approved,
+      });
 
       const rmIds = (form.rm_item_dcodes || [])
         .map((d) => Number(d))
@@ -129,6 +131,7 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
     } finally {
       savingRef.current = false;
       setLoading(false);
+      setActiveSubmit(null);
     }
   };
 
@@ -137,6 +140,9 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
       onClose={onClose}
       loading={loading}
       isApprove={isApprove}
+      isEdit={isEdit}
+      canApprove={canApprove}
+      activeSubmit={activeSubmit}
       onSave={handleSave}
     />
   );
@@ -147,7 +153,7 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={() => handleSave(isApprove ? true : undefined)}
+      onSubmit={() => handleSave(isApprove ? true : null, isApprove ? "approve" : "save")}
       title={isApprove ? "Approve Item RM Master" : isEdit ? "Edit Item RM Master" : "New Item RM Master"}
       description="Map a production item to one or more raw material items"
       footer={footerContent}
@@ -244,15 +250,17 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
                 </p>
               </div>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.approved}
-                onChange={(e) => handleChange("approved", e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-10 h-5.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-emerald-400" />
-            </label>
+            {!isApprove ? (
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.approved}
+                  onChange={(e) => handleChange("approved", e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-5.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-emerald-400" />
+              </label>
+            ) : null}
           </div>
         ) : (
           <div className="p-3 bg-slate-50 rounded-lg border border-dashed border-slate-200 flex items-center gap-2">
