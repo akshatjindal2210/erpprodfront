@@ -756,8 +756,8 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
         setSearch(getSearchTextFromSelection(selected));
         break;
       case "Tab":
-        // Select the active item on Tab if one is highlighted
-        if (activeIndex >= 0 && activeIndex < items.length) {
+        // Single: commit highlighted row. Multi: leave field — never toggle selection on Tab.
+        if (!multiple && activeIndex >= 0 && activeIndex < items.length) {
           handleSelect(items[activeIndex]);
         } else {
           setOpen(false);
@@ -953,6 +953,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
                   <span className="truncate">{getDisplayLabel(item, labelKey)}</span>
                   <button
                     type="button"
+                    tabIndex={-1}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleSelect(item);
@@ -1014,6 +1015,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           {(searchText || (allowFreeText && value)) && !disabled && (
             <button
               type="button"
+              tabIndex={-1}
               onClick={handleClear}
               style={triggerStyle?.color ? { color: triggerStyle.color } : undefined}
               className="text-slate-300 hover:text-rose-500 transition-colors"

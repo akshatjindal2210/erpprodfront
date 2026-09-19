@@ -713,16 +713,8 @@ export default function CoilScanEntryModal({
       }
 
       const status = String(coil.status || "active").toLowerCase();
-      const rejectUid =
-        editItem?.qc_reject_uid ??
-        seedFromCoil?.qc_reject_uid ??
-        mrnPlanRef.current?.qc_reject_uid ??
-        null;
-      const isRejectionScan =
-        isRejectionEdit ||
-        String(seedFromCoil?.entry_type || "").toLowerCase() === "rm_rejection" ||
-        rejectUid != null ||
-        String(mrnPlanRef.current?.mrn_no || "").toLowerCase().startsWith("rejection");
+      const rejectUid = editItem?.qc_reject_uid ?? seedFromCoil?.qc_reject_uid ?? mrnPlanRef.current?.qc_reject_uid ?? null;
+      const isRejectionScan = isRejectionEdit || String(seedFromCoil?.entry_type || "").toLowerCase() === "rm_rejection" || rejectUid != null || String(mrnPlanRef.current?.mrn_no || "").toLowerCase().startsWith("rejection");
 
       if (isRejectionScan) {
         if (status !== "active" && status !== "rejected") {
@@ -734,27 +726,19 @@ export default function CoilScanEntryModal({
         const plan = mrnPlanRef.current;
 
         if (plan && !findMatchingCoil(coil.coil_no_uid, plan.coils || []) && !findMatchingCoil(uid, plan.coils || [])) {
-          showScanToast(
-            "error",
-            "not-in-rejection",
-            `Coil ${uid} is not part of rejection register #${rejectUid || "unknown"}.`
-          );
+          showScanToast("error", "not-in-rejection", `Coil ${uid} is not part of rejection register #${rejectUid || "unknown"}.`);
           return;
         }
 
         if (
-          status === "rejected" &&
-          rejectUid != null &&
+          status === "rejected" && rejectUid != null &&
           String(coil.rm_uid) !== String(rejectUid)
         ) {
           showScanToast("error", "coil-reject", `Coil ${uid} belongs to a different rejection register entry.`);
           return;
         }
       } else if (status !== "active") {
-        const onCurrentOutEntry =
-          isEdit &&
-          editItem?.out_uid != null &&
-          String(coil.out_uid) === String(editItem.out_uid);
+        const onCurrentOutEntry = isEdit && editItem?.out_uid != null && String(coil.out_uid) === String(editItem.out_uid);
         if (!(onCurrentOutEntry && status === "out")) {
           showScanToast("error", "coil-status", `Coil ${uid} is not available. Its current status is ${status}.`);
           return;
@@ -762,11 +746,8 @@ export default function CoilScanEntryModal({
       }
 
       if (mode === "out" && !coil.location_id && !isRejectionScan && !isMrnStoreOut) {
-        const isJobCardOut =
-          storeOutKind === STORE_OUT_KIND.JOB_CARD || Boolean(selectedJobCardMeta);
-        const inConfirmedPlan = Boolean(
-          findMatchingCoil(coil.coil_no_uid, livePlanCoils) || findMatchingCoil(uid, livePlanCoils)
-        );
+        const isJobCardOut = storeOutKind === STORE_OUT_KIND.JOB_CARD || Boolean(selectedJobCardMeta);
+        const inConfirmedPlan = Boolean(findMatchingCoil(coil.coil_no_uid, livePlanCoils) || findMatchingCoil(uid, livePlanCoils));
         // IMS-style MRN plan includes unassigned coils — allow when in confirmed plan
         if (!inConfirmedPlan) {
           showScanToast(
@@ -843,10 +824,8 @@ export default function CoilScanEntryModal({
           );
           return;
         }
-        coil = planMap.get(uid.toLowerCase()) || coil;
-
-        const isJobCardOutScan =
-          storeOutKind === STORE_OUT_KIND.JOB_CARD || Boolean(selectedJobCardMeta);
+        coil = findMatchingCoil(uid, plan?.coils || []) || findMatchingCoil(coil.coil_no_uid, plan?.coils || []) || coil;
+        const isJobCardOutScan = storeOutKind === STORE_OUT_KIND.JOB_CARD || Boolean(selectedJobCardMeta);
         const quotas = plan?.mrn_quotas || [];
         if (isJobCardOutScan && plan?.ims_any_coil_in_mrn && quotas.length > 1) {
           const fifoOk = canAddCoilForMrnFifo(quotas, coilsRef.current, coil);

@@ -371,7 +371,8 @@ const SearchableSelect = ({
       <div
         ref={dropdownRef}
         role="listbox"
-        className={`fixed z-[10050] bg-white border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-100 ${dropdownSurface}`}
+        data-searchable-select-portal=""
+        className={`searchable-select-dropdown fixed z-[10050] bg-white border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-100 ${dropdownSurface}`}
         style={{
           top: dropdownPos.top,
           left: dropdownPos.left,

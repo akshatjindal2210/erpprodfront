@@ -13,11 +13,11 @@ function resolveFocusable(el) {
 export function focusFirstFormField(root) {
   if (!root?.querySelectorAll) return false;
   const active = document.activeElement;
-  // Already on any enabled field in this drawer — never steal (delete/clean/re-render).
+  // Already focused inside this root — never steal (Tab, buttons, dropdown chrome).
   if (
     active &&
     root.contains(active) &&
-    active.matches?.(FORM_FIELD_SELECTOR) &&
+    active.matches?.(FOCUSABLE_SELECTOR) &&
     !active.disabled &&
     document.body.contains(active)
   ) {

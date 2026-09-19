@@ -62,23 +62,34 @@ const Drawer = ({
     return () => clearTimeout(t);
   }, [isOpen, mounted]);
 
-  // Open → first enabled field (short retry for hydrate). No MutationObserver (avoids jump on dropdowns).
+  // Open → first enabled field once (retry briefly for async fields). No polling — avoids Tab jump to top.
   useEffect(() => {
     if (!isOpen || !openAnim) return undefined;
     const root = drawerRootRef.current;
     if (!root) return undefined;
     let n = 0;
-    const id = setInterval(() => {
+    let stopped = false;
+    const tryFocus = () => {
+      if (stopped) return;
       focusFirstFormField(root);
-      if (++n >= 15) clearInterval(id);
-    }, 80);
-    const stop = () => clearInterval(id);
+      if (++n < 12) {
+        id = window.setTimeout(tryFocus, 80);
+      }
+    };
+    let id = window.setTimeout(tryFocus, 0);
+    const stop = () => {
+      stopped = true;
+      window.clearTimeout(id);
+    };
     root.addEventListener("pointerdown", stop, true);
     root.addEventListener("keydown", stop, true);
+    root.addEventListener("focusin", stop, true);
     return () => {
-      clearInterval(id);
+      stopped = true;
+      window.clearTimeout(id);
       root.removeEventListener("pointerdown", stop, true);
       root.removeEventListener("keydown", stop, true);
+      root.removeEventListener("focusin", stop, true);
     };
   }, [isOpen, openAnim]);
 
@@ -241,6 +252,7 @@ const Drawer = ({
           <button 
             type="button"
             aria-label="Close"
+            tabIndex={-1}
             onClick={onClose} 
             className="p-1.5 shrink-0 border border-transparent hover:border-slate-200 hover:bg-white text-slate-400 hover:text-rose-600 transition-all shadow-none"
           >

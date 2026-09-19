@@ -227,7 +227,8 @@ export default function TypeableSuggestField({
   const menuNode =
     !isLocked && open && visibleOpts.length > 0 ? (
       <div
-        className="bg-white border border-slate-200 rounded-lg shadow-md max-h-56 overflow-auto animate-in fade-in zoom-in-95 duration-100"
+        data-searchable-select-portal={portalMenu ? "" : undefined}
+        className={`${portalMenu ? "searchable-select-dropdown " : ""}bg-white border border-slate-200 rounded-lg shadow-md max-h-56 overflow-auto animate-in fade-in zoom-in-95 duration-100`}
         style={
           portalMenu && menuStyle
             ? { position: "fixed", top: menuStyle.top, left: menuStyle.left, width: menuStyle.width, zIndex: menuZIndex }

@@ -288,7 +288,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const [downloading, setDownloading] = useState(false);
   const [detail, setDetail] = useState(null);
   const [heatNo, setHeatNo] = useState("");
-  const [coilCount, setCoilCount] = useState(1);
+  const [coilCount, setCoilCount] = useState("1");
   const [coilQtys, setCoilQtys] = useState([0]);
   const [remarks, setRemarks] = useState("");
   const [tcFile, setTcFile] = useState(null);
@@ -358,7 +358,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     const startTotal = Number.isFinite(qty) ? roundQty3(qty) : 0;
     const editable = data?.qty_editable !== false;
     const autoCalc = data?.qty_auto_calc !== false;
-    setCoilCount(1);
+    setCoilCount("1");
     if (autoCalc || !editable) {
       setCoilQtys(buildCoilQtys(1, startTotal, { autoCalc }));
     } else {
@@ -404,7 +404,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     const editable = data?.qty_editable !== false;
     const autoCalc = data?.qty_auto_calc !== false;
     const count = Math.max(1, Number(draft.coil_count) || 1);
-    setCoilCount(count);
+    setCoilCount(String(count));
     const qtys = Array.isArray(draft.coil_qtys) ? draft.coil_qtys : [];
     if (qtys.length === count) {
       setCoilQtys(qtys.map((q) => roundQty3(Number(q) || 0)));
@@ -446,7 +446,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         sticker_generated: data.sticker_generated ?? sourceRow?.sticker_generated,
       } : null);
       if ((data?.coils || []).length > 0) {
-        setCoilCount(data.coils.length);
+        setCoilCount(String(data.coils.length));
         setCoilQtys(data.coils.map((c) => roundQty3(c.qty)));
         setHeatNo(sanitizeHeatNo(data.coils[0]?.heat_no || data?.heat_no || ""));
         setRemarks(resolveMrnRemarks(data));
@@ -612,17 +612,36 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       : `Coil sum ${formatQty(qtySum)} is short of MRN total ${formatQty(targetQty)} by ${formatQty(Math.abs(qtyDiff))} ${unit}`;
   }, [qtyMatches, alreadyGenerated, qtyDiff, qtySum, targetQty, unit]);
 
+  const applyCoilCountQtys = useCallback(
+    (count) => {
+      const n = Math.max(1, Math.floor(Number(count) || 1));
+      if (fillQtysAuto) {
+        setCoilQtys(buildCoilQtys(n, targetQty, { autoCalc: qtyAutoCalc }));
+      } else {
+        setCoilQtys((prev) => {
+          const next = Array.from({ length: n }, (_, i) => (prev[i] !== undefined && prev[i] !== "" ? prev[i] : ""));
+          return next;
+        });
+      }
+    },
+    [fillQtysAuto, buildCoilQtys, targetQty, qtyAutoCalc]
+  );
+
   const handleCoilCountChange = (raw) => {
-    const n = Math.max(1, Number(raw) || 1);
-    setCoilCount(n);
-    if (fillQtysAuto) {
-      setCoilQtys(buildCoilQtys(n, targetQty, { autoCalc: qtyAutoCalc }));
-    } else {
-      setCoilQtys((prev) => {
-        const next = Array.from({ length: n }, (_, i) => (prev[i] !== undefined && prev[i] !== "" ? prev[i] : ""));
-        return next;
-      });
+    const digits = String(raw ?? "").replace(/\D/g, "");
+    if (!digits) {
+      setCoilCount("");
+      return;
     }
+    const n = Math.max(1, Math.floor(Number(digits)));
+    setCoilCount(String(n));
+    applyCoilCountQtys(n);
+  };
+
+  const commitCoilCount = () => {
+    const n = Math.max(1, Math.floor(Number(coilCount) || 1));
+    setCoilCount(String(n));
+    applyCoilCountQtys(n);
   };
 
   const handleQtyEdit = (idx, raw) => {
@@ -1269,12 +1288,15 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                   No. of Coils
                 </FormLabel>
                 <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  className={`mt-0.5 ${OK_INPUT} ${MODAL_INPUT_CLASS} font-bold tabular-nums !text-slate-900`}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  enterKeyHint="done"
+                  autoComplete="off"
+                  className={`mt-0.5 ${OK_INPUT} ${MODAL_INPUT_CLASS} font-bold tabular-nums !text-slate-900 touch-manipulation`}
                   value={coilCount}
                   onChange={(e) => handleCoilCountChange(e.target.value)}
+                  onBlur={commitCoilCount}
                 />
               </div>
               <SimpleFileInput
@@ -1794,11 +1816,10 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                 </div>
             </div>
             {alreadyGenerated && detail?.sticker_approved === false && !showApprovalFlow ? (
-              <div className="flex items-start gap-2 px-2 md:px-4 py-2 bg-sky-50 border-t border-sky-200 text-sky-950">
-                <Package size={16} className="shrink-0 mt-0.5 text-sky-600" aria-hidden />
-                <p className="text-[10px] sm:text-[11px] font-medium leading-snug">
-                  Coils are in <span className="font-black">Store In → Unassigned</span>. Do Store In first, then{" "}
-                  <span className="font-black">Approve</span> stickers for QC.
+              <div className="flex items-center gap-2 px-2 md:px-4 py-1.5 bg-sky-50 border-t border-sky-200 text-sky-950">
+                <Package size={14} className="shrink-0 text-sky-600" aria-hidden />
+                <p className="text-[9px] sm:text-[10px] font-semibold leading-snug">
+                  Sticker approval is pending. Open <span className="font-black">Approve</span> to scan and authorize.
                 </p>
               </div>
             ) : null}
