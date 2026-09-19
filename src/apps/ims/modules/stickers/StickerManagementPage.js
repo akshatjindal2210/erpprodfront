@@ -81,7 +81,6 @@ export default function StickerManagementPage() {
       }, LIST_PAGE_SIZE);
       if (gen !== loadGenRef.current) return;
       setAllRows(data);
-      setDisplayLimit(DISPLAY_CHUNK);
     } catch (err) {
       if (gen !== loadGenRef.current) return;
       toast.error(err?.message || "Failed to load sticker data");
@@ -305,7 +304,7 @@ export default function StickerManagementPage() {
           </div>
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center shrink-0">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
             {hasSearch
               ? `Showing ${rows.length} of ${totalItems} matches (${allRows.length} loaded)`
@@ -313,10 +312,6 @@ export default function StickerManagementPage() {
                 ? `Showing ${rows.length} of ${totalItems} journey matches (all DB)`
                 : `Showing ${rows.length} of ${totalItems} log rows in date range`}
           </span>
-          <div className="flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
         </div>
       </div>
     </div>

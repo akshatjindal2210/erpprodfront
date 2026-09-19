@@ -16,7 +16,8 @@ import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import ListPageSearchField from "@/ui/common/list/ListPageSearchField";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { useMasterClientList } from "@/apps/ims/lib/helpers/useMasterClientList";
-import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import { MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { PARTY_RATE_HEADERS, PARTY_RATE_CARD_CONFIG, partyRateRowKey, partyRateSearchParts, sortPartyList, sortItemOptionList, buildUniqueParties, buildUniqueItemOptions, filterPartyRateRows, attachPartyRateRowIds } from "./masterColumns";
 
 export default function PartyRateMasterPage() {
@@ -168,11 +169,6 @@ export default function PartyRateMasterPage() {
             }
           />
 
-          {selected ? (
-            <MasterSelectionBanner onClear={() => setSelected(null)}>
-              Selected: {selectedRecord?.acc_name} · {selectedRecord?.item_code || selectedRecord?.itemdesc}
-            </MasterSelectionBanner>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -252,7 +248,15 @@ export default function PartyRateMasterPage() {
           />
         </div>
 
-        <MasterListFooter shown={items.length} total={totalItems} noun="customer rates" />
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="customer rates"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={imsSelectionLabel.partyRate}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <GlobalDetailModal open={isModalOpen} onClose={() => setIsModalOpen(false)} title="Rate Master Details" icon={IndianRupee}>

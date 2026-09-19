@@ -4,8 +4,15 @@ import { formatDocDate } from "@/platform/utils/core/utilHelper";
 import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { stockAdjustmentTypeLabel } from "@/apps/rmstore/lib/utils/stockAdjustmentEntryTypes";
+import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import dayjs from "dayjs";
 import { docDateToDayjs } from "@/platform/utils/core/utilHelper";
+
+/** Pending (not authorized) rows — table list highlight. */
+export function getStockAdjustmentRowClassName(row) {
+  if (!row || isRowApproved(row)) return "";
+  return "bg-amber-50 group-hover:bg-amber-50/90 [&_td]:!bg-amber-50";
+}
 
 /** List columns and filters for the Stock Adjustment list page. */
 export const STOCK_ADJUSTMENT_CARD_CONFIG = {

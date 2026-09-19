@@ -7,6 +7,7 @@ import { inventoryInwardService } from "@/apps/ims/lib/services/inventoryInward"
 import { boxService } from "@/apps/ims/lib/services/box";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
+import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
 
 // Components
 import InwardModal from "@/apps/ims/modules/inventory-inward/InwardModal";
@@ -123,7 +124,6 @@ export default function InwardPage() {
           activity_at: formatDateTime(row?.updated_at || row?.created_at),
         }))
       );
-      setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load inwards");
       setAllRows([]);
@@ -147,7 +147,6 @@ export default function InwardPage() {
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, packingParams.pageSize);
       setPackingRows(data);
-      setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load packing area");
       setPackingRows([]);
@@ -179,7 +178,6 @@ export default function InwardPage() {
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, packingBoxParams.pageSize);
       setPackingBoxRows(data);
-      setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load packing area boxes");
       setPackingBoxRows([]);
@@ -647,6 +645,19 @@ export default function InwardPage() {
     }
   };
 
+  const inventoryInwardSelectionLabel = useCallback(
+    (r) => {
+      if (isStoreIn) return `Selected: ${r?.packing_number ?? "—"}`;
+      if (isPackingBoxView) {
+        return `Selected: ${r?.box_no_uid ?? "—"} · Packing ${r?.packing_number ?? "—"} · Qty ${r?.qty ?? 0}`;
+      }
+      let s = `Selected: ${r?.packing_number ?? "—"}`;
+      if (r?.box_count != null) s += ` · ${r.box_count} box(es) · ${r.stock_qty ?? 0} total qty`;
+      return s;
+    },
+    [isStoreIn, isPackingBoxView]
+  );
+
   const cardConfig = isStoreIn
     ? {
         titleKey: "packing_number",
@@ -777,31 +788,6 @@ export default function InwardPage() {
             }
           />
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase">
-                Selected:{" "}
-                {isStoreIn
-                  ? selectedRecord?.packing_number
-                  : isPackingBoxView
-                    ? selectedRecord?.box_no_uid
-                    : selectedRecord?.packing_number}
-                {!isStoreIn && !isPackingBoxView && selectedRecord?.box_count != null
-                  ? ` · ${selectedRecord.box_count} box(es) · ${selectedRecord.stock_qty ?? 0} total qty`
-                  : ""}
-                {isPackingBoxView && selectedRecord
-                  ? ` · Packing ${selectedRecord.packing_number} · Qty ${selectedRecord.qty ?? 0}`
-                  : ""}
-              </span>
-              <button
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
-
           {!isStoreIn && packingFilterPn && isPackingBoxView && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50 border border-amber-200">
               <span className="text-[10px] font-bold text-amber-800 uppercase">
@@ -891,19 +877,21 @@ export default function InwardPage() {
           </div>
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {isStoreIn
-              ? `Showing ${items.length} of ${totalItems} store-in entries`
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun={
+            isStoreIn
+              ? "store-in entries"
               : isPackingBoxView
-                ? `Showing ${items.length} of ${totalItems} boxes in packing area`
-                : `Showing ${items.length} of ${totalItems} packings in packing area`}
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+                ? "boxes in packing area"
+                : "packings in packing area"
+          }
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={inventoryInwardSelectionLabel}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <InwardModal

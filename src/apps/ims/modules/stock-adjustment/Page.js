@@ -8,6 +8,8 @@ import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { stockAdjustmentService } from "@/apps/ims/lib/services/stockAdjustment";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
+import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 
 import StockAdjustmentModal from "@/apps/ims/modules/stock-adjustment/StockAdjustmentModal";
 import StockAdjustmentStickerCloneDrawer from "@/apps/ims/modules/stock-adjustment/StockAdjustmentStickerCloneDrawer";
@@ -94,7 +96,6 @@ export default function StockAdjustmentPage() {
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
-      setDisplayLimit(DISPLAY_CHUNK);
     } catch (err) {
       toast.error(err?.message || "Failed to load data");
       setAllRows([]);
@@ -342,18 +343,6 @@ export default function StockAdjustmentPage() {
             }
           />
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase truncate max-w-[min(100%,28rem)]">
-                Selected: ADJ-#{selected}
-                {selectedRecord?.item_code ? ` · ${selectedRecord.item_code}` : ""}
-                {selectedRecord?.item_desc ? ` — ${selectedRecord.item_desc}` : ""}
-              </span>
-              <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -409,15 +398,15 @@ export default function StockAdjustmentPage() {
             />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Adjustments
-          </span>
-          <div className="flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="Adjustments"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={imsSelectionLabel.stockAdjustment}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       {modalOpen && modalMode === "print" && (editItem?.entry_type === "add" || editItem?.entry_type === "update") && (

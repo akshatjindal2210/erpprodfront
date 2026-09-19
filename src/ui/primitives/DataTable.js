@@ -1188,15 +1188,12 @@ export default function DataTable({
                             cellSelectActive &&
                             selectionMode === "cell" &&
                             isCellInSet(selectedCells, rowIndex, i);
-                          const colCellTone =
-                            !cellSelected && config.cellClass ? config.cellClass : "";
                           const cellBg = cellSelected
                             ? "!bg-indigo-100 ring-1 ring-inset !ring-indigo-400 relative z-[1]"
-                            : colCellTone
-                              ? colCellTone
-                              : isSticky
-                                ? stickyCellBg
-                                : defaultCellBg;
+                            : isSticky
+                              ? stickyCellBg
+                              : defaultCellBg;
+                          const cellExtra = config.cellClass || "";
 
                           return (
                             <td
@@ -1212,7 +1209,7 @@ export default function DataTable({
                               ${allowWrap ? "whitespace-normal break-words min-w-0 overflow-hidden" : "whitespace-nowrap overflow-hidden text-ellipsis"}
                               ${stickyLeftCol ? "sticky z-20" : stickyRightCol ? "sticky z-[25]" : "text-slate-600"}
                               ${unfreezeColOnMobile(config) ? MOB_UNFREEZE_TD : ""}
-                              ${cellSelectActive ? "cursor-cell" : ""} ${cellBg}`}
+                              ${cellSelectActive ? "cursor-cell" : ""} ${cellBg} ${cellExtra}`}
                               onMouseDown={
                                 cellSelectActive
                                   ? (e) => handleDataCellPointer(e, rowIndex, i)

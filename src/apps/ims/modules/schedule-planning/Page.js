@@ -5,6 +5,7 @@ import { CalendarClock, Info, X, Calendar, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
+import { imsScheduleSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import ActionButton from "@/ui/primitives/ActionButton";
 import DataTable from "@/ui/primitives/DataTable";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
@@ -157,7 +158,6 @@ export default function SchedulePlanningPage() {
     try {
       const res = await schedulePlanningService.list(buildScheduleListFilters(appliedQuery, statusFilter));
       setRows(Array.isArray(res?.data) ? res.data : []);
-      setDisplayLimit(100);
       if (!res?.success) {
         toast.warning(res?.message || "Could not load schedule data. Check filters or try again.");
       }
@@ -200,7 +200,7 @@ export default function SchedulePlanningPage() {
 
   useEffect(() => {
     setDisplayLimit(100);
-  }, [deferredSearch, pageTab]);
+  }, [deferredSearch, pageTab, appliedQuery, statusFilter]);
 
   const isComparisonStatus =
     String(statusFilter ?? "").toLowerCase() === SCHEDULE_LIST_FILTER.COMPARISON;
@@ -265,6 +265,11 @@ export default function SchedulePlanningPage() {
   }, []);
 
   const isScheduleTab = pageTab === "schedule";
+
+  const scheduleSelectionLabel = useMemo(
+    () => imsScheduleSelectionLabel(isScheduleTab),
+    [isScheduleTab]
+  );
 
   const handleSelect = useCallback((id) => {
     setSelected(id);
@@ -678,17 +683,6 @@ export default function SchedulePlanningPage() {
               </button>
             </div>
           ) : null}
-          {selected ? (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase flex items-center gap-2">
-                <Info size={12} /> Selected: Sch {selectedRecord?.schno || "—"} · {selectedRecord?.acc_name || "—"}
-                {!isScheduleTab && selectedRecord?.item_code ? ` · ${selectedRecord.item_code}` : ""}
-              </span>
-              <button type="button" onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
-                <X size={14} /> Clear
-              </button>
-            </div>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -802,7 +796,6 @@ export default function SchedulePlanningPage() {
             {hasSearch
               ? `${displayRows.length} of ${activeTotal} matching`
               : `Showing ${displayRows.length} of ${activeTotal} entries`}
-            {selected ? " · 1 selected" : ""}
           </span>
           <div className="flex-1 flex justify-center min-w-0 px-1">
             <div className="flex items-center justify-center gap-3 flex-wrap">
@@ -817,9 +810,21 @@ export default function SchedulePlanningPage() {
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0 sm:w-[28%] justify-end">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
+          <div className="flex items-center gap-2 shrink-0 sm:w-[28%] justify-end min-w-0">
+            {selected && selectedRecord ? (
+              <>
+                <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
+                  {scheduleSelectionLabel(selectedRecord)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
+                >
+                  <X size={14} /> Clear
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
       </div>

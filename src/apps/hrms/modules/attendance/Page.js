@@ -4,10 +4,11 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Clock } from "lucide-react";
 
 import { attendanceService } from "@/apps/hrms/lib/services/hrms";
-import { fetchEmployeeViews } from "@/apps/hrms/lib/helpers/employeeHelper";
+import { fetchEmployeeByDcode, fetchEmployeeViews } from "@/apps/hrms/lib/helpers/employeeHelper";
 import { isUnapproved } from "@/apps/hrms/lib/attendanceUtils";
 import { ATTENDANCE_HEADERS } from "@/apps/hrms/lib/columns/attendanceColumns";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
+import { hrmsSelectionLabel } from "@/apps/hrms/lib/hrmsSelectionLabel";
 import ServerListPage from "@/ui/common/list/ServerListPage";
 import { ListPageAddButton, ListPageApproveButton, ListPageDeleteButton, ListPageEditButton, ListPageViewButton } from "@/ui/common/list/listPageCrud";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
@@ -30,7 +31,8 @@ const APPROVAL_OPTIONS = [
 function toFilterRow(row) {
   const code = String(row?.emp_code ?? "").trim();
   const name = String(row?.emp_name ?? "").trim();
-  return { ...row, value: code, rawValue: code, label: code && name ? `${code} — ${name}` : code || name };
+  const dcode = row?.emp_dcode != null ? String(row.emp_dcode) : "";
+  return { ...row, value: dcode, rawValue: dcode, label: code && name ? `${code} — ${name}` : code || name };
 }
 
 export default function AttendancePage() {
@@ -59,26 +61,23 @@ export default function AttendancePage() {
     [loadEmployees]
   );
 
-  const getEmployeeFilterById = useCallback(
-    async (code) => {
-      const key = String(code ?? "").trim();
-      if (!key) return { value: "", rawValue: "", label: "All Users" };
-      const cached = employeeCache.current.get(key);
-      if (cached) return cached;
-      const res = await loadEmployees({ search: key, page: 1, limit: 1, sortBy: "emp_code", order: "ASC" });
-      const row = toFilterRow(res.data?.[0]);
-      if (row.value) employeeCache.current.set(String(row.value), row);
-      return row.value ? row : null;
-    },
-    [loadEmployees]
-  );
+  const getEmployeeFilterById = useCallback(async (dcode) => {
+    const key = String(dcode ?? "").trim();
+    if (!key) return { value: "", rawValue: "", label: "All Users" };
+    const cached = employeeCache.current.get(key);
+    if (cached) return cached;
+    const item = await fetchEmployeeByDcode({ pageModule: MODULE, pageAction: "view", emp_dcode: key });
+    const row = item ? toFilterRow(item) : null;
+    if (row?.value) employeeCache.current.set(String(row.value), row);
+    return row?.value ? row : null;
+  }, []);
 
   const extraFilters = useMemo(
     () => [
       // Client (indigo) — filter rows already loaded for the date range
       {
         label: "User",
-        key: "employee_code",
+        key: "emp_dcode",
         variant: "quick",
         searchable: true,
         fetchService: fetchEmployeeFilterOptions,
@@ -123,19 +122,19 @@ export default function AttendancePage() {
       headers={ATTENDANCE_HEADERS}
       moduleName="Daily Attendance"
       viewModule={MODULE}
-      getRowId={(row) => row.id ?? `${row.employee_code}-${row.attendance_date}`}
+      getRowId={(row) => row.id ?? `${row.emp_dcode}-${row.attendance_date}`}
       cardConfig={{
-        titleKey: "employee_code",
+        titleKey: "emp_code",
         badgeIndices: [8],
         detailKeys: ["name", "attendance_date_display", "shift_display", "in_display", "out_display", "punch_count", "entry_type_display"],
         footerKey: "name",
       }}
-      extraFilterKeys={["employee_code", "shift", "approval_status"]}
+      extraFilterKeys={["emp_dcode", "shift", "approval_status"]}
       extraFilters={extraFilters}
       searchPlaceholder="Code, name, shift, approval…"
       clientQuickSearch
       applyExtrasOnChange
-      selectionLabel={(row) => `Selected: ${row.employee_code} | ${row.name || "—"} | ${row.attendance_date_display || row.attendance_date}`}
+      selectionLabel={hrmsSelectionLabel.attendance}
       tableHotkeyProps={tableHotkeyProps}
       onSelectionChange={onSelectionChange}
       toolbarActions={(api) => {
@@ -153,7 +152,7 @@ export default function AttendancePage() {
       }}
     >
       <AttendanceDrawer open={drawer.open} mode={drawer.mode} record={drawer.record} onClose={closeDrawer} onSuccess={() => reloadRef.current?.()} />
-      <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={() => reloadRef.current?.()} service={attendanceService} entityLabel="Attendance" idKey="id" titleKey="employee_code" moduleSlug={MODULE} />
+      <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={() => reloadRef.current?.()} service={attendanceService} entityLabel="Attendance" idKey="id" titleKey="emp_code" moduleSlug={MODULE} />
     </ServerListPage>
   );
 }

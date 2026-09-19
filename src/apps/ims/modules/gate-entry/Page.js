@@ -15,6 +15,8 @@ import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
+import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import { imsGateEntryLabel } from "@/apps/ims/lib/imsSelectionLabel";
 
 import ActionButton from "@/ui/primitives/ActionButton";
 import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/ui/common/list/ListPageToolbar";
@@ -110,7 +112,6 @@ export default function GateEntryPage() {
       const res = await gateEntryService.listPending();
       if (!res?.success) throw new Error(res?.message || "Failed to load pending bills.");
       setPendingRows(Array.isArray(res.data) ? res.data : []);
-      setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load pending bills.");
       setPendingRows([]);
@@ -129,7 +130,6 @@ export default function GateEntryPage() {
       const res = await gateEntryService.list(Object.keys(filters).length ? { filters } : {});
       if (!res?.success) throw new Error(res?.message || "Failed to load gate entries.");
       setCompleteRows(Array.isArray(res.data) ? res.data : []);
-      setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load gate entries.");
       setCompleteRows([]);
@@ -142,6 +142,10 @@ export default function GateEntryPage() {
     if (isPending) fetchPending();
     else fetchComplete();
   }, [isPending, fetchPending, fetchComplete]);
+
+  useEffect(() => {
+    setDisplayLimit(100);
+  }, [tempSearch, isPending, appliedFromDate, appliedToDate, typeFilter]);
 
   const sourceRows = isPending ? pendingRows : completeRows;
 
@@ -278,9 +282,7 @@ export default function GateEntryPage() {
     headers,
   });
 
-  const selectedLabel = isPending
-    ? selectedRecord?.billno || selectedRecord?.bill_no || selected
-    : `${String(selectedRecord?.type || "out").toLowerCase() === "in" ? "IN" : "OUT"}-${selectedRecord?.uid ?? selected}${selectedRecord?.bill_no ? ` · ${selectedRecord.bill_no}` : ""}`;
+  const gateEntrySelectionLabel = useMemo(() => imsGateEntryLabel(isPending), [isPending]);
 
   if (!viewAccess?.allowed) {
     return <div className="p-6 text-sm text-slate-500">No access.</div>;
@@ -348,20 +350,6 @@ export default function GateEntryPage() {
             }
           />
 
-          {selected ? (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in fade-in duration-200">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide">
-                Selected: {selectedLabel}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear Selection
-              </button>
-            </div>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -448,15 +436,15 @@ export default function GateEntryPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} {isPending ? "Pending Bills" : "Complete Entries"}
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun={isPending ? "Pending Bills" : "Complete Entries"}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={gateEntrySelectionLabel}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       {modalOpen ? (

@@ -1,5 +1,14 @@
 import dayjs from "dayjs";
 
+/** Fallback only if API row/meta did not send buffer (attendance reads DB via backend). */
+const OT_BUFFER_FALLBACK_MINUTES = 30;
+
+function resolveOvertimeBufferMinutes(row, options = {}) {
+  const raw = options.overtimeBufferMinutes ?? row?.overtime_buffer_minutes;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : OT_BUFFER_FALLBACK_MINUTES;
+}
+
 /* ── (change here only) ─────────────────────────── */
 /** Deduct this many minutes when lunch applies. */
 export const LUNCH_DEFAULT_MINUTES = 30;
@@ -314,9 +323,21 @@ function otTone(otMins) {
  *   Lunch   = 30 if Total ≥ LUNCH_AUTO else 0
  *   Expected= Full default | Half = (full − 30)/2 + 30
  *   Normal  = min(Total − Lunch, Expected − lunchInExpected)
- *   OT      = Total − Expected   (+ late / − early)
+ *   OT      = minutes after default Out only (early In ignored), minus HRMS overtime buffer
  */
-export function rowTotals(row) {
+function minutesAfterDefaultOut(row) {
+  const date = ymd(row?.attendance_date);
+  const out = rowOut(row);
+  const defaultOut = toTimeInput(row?.default_out);
+  if (!date || !out || !defaultOut) return null;
+  const defaultOutDt = `${date}T${defaultOut}`;
+  const outRaw = String(out).trim();
+  const outDt = /^\d{4}-\d{2}-\d{2}/.test(outRaw) ? outRaw : `${date}T${toTimeInput(outRaw) || defaultOut}`;
+  const late = minutesBetween(defaultOutDt, outDt);
+  return late != null && late > 0 ? late : 0;
+}
+
+export function rowTotals(row, options = {}) {
   const fullDefault = minutesBetween(row?.default_in, row?.default_out);
   const isHalf = String(row?.day_type || "").toLowerCase() === "half";
   const total = minutesBetween(rowIn(row), rowOut(row)); // null until both In + Out
@@ -329,7 +350,9 @@ export function rowTotals(row) {
   const normalCap = expected == null ? null : Math.max(0, expected - lunchInExpected);
   const worked = total == null || lunch == null ? null : Math.max(0, total - lunch);
   const normal = worked == null || normalCap == null ? null : Math.min(worked, normalCap);
-  const ot = total == null || expected == null ? null : total - expected;
+  const otBuffer = resolveOvertimeBufferMinutes(row, options);
+  const lateOut = minutesAfterDefaultOut(row);
+  let ot = lateOut == null ? null : Math.max(0, lateOut - otBuffer);
 
   const lines = [
     { key: "total", label: "Total", mins: total, tone: "slate" },
@@ -337,6 +360,27 @@ export function rowTotals(row) {
     { key: "normal", label: "Normal", mins: normal, tone: "green" },
     { key: "ot", label: "OT", mins: ot, tone: otTone(ot) },
   ].map((line) => ({ ...line, value: formatDuration(line.mins) }));
+
+  /** Hover only — minute math (minus steps), same numbers as lines above. */
+  const calcHints = [];
+  if (total != null) calcHints.push({ key: "total", text: `${total} min (In → Out)` });
+  if (total != null && lunch != null) {
+    if (lunch > 0) {
+      calcHints.push({ key: "lunch", text: `${total} − ${lunch} = ${worked} min after lunch` });
+    } else {
+      calcHints.push({ key: "lunch", text: `0 min lunch (punch < ${LUNCH_AUTO_MINUTES} min)` });
+    }
+  }
+  if (worked != null && normalCap != null && normal != null) {
+    calcHints.push({ key: "normal", text: `min(${worked}, ${normalCap}) = ${normal} min normal` });
+  }
+  if (lateOut != null && otBuffer != null) {
+    if (lateOut > 0) {
+      calcHints.push({ key: "ot", text: `${lateOut} − ${otBuffer} = ${ot ?? 0} min OT (after default out)` });
+    } else {
+      calcHints.push({ key: "ot", text: "0 min OT (out on/before default out)" });
+    }
+  }
 
   return {
     defaultMins: expected,
@@ -346,7 +390,12 @@ export function rowTotals(row) {
     lunch,
     normal,
     ot,
+    lateOut,
+    otBuffer,
+    worked,
+    normalCap,
     lines,
+    calcHints,
   };
 }
 

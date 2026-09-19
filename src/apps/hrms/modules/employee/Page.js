@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { RefreshCw, Users } from "lucide-react";
+import { Loader2, RefreshCw, Users } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { employeeService } from "@/apps/hrms/lib/services/hrms";
 import { EMPLOYEE_HEADERS } from "@/apps/hrms/lib/columns/employeeColumns";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
+import { hrmsSelectionLabel } from "@/apps/hrms/lib/hrmsSelectionLabel";
 import ClientListPage from "@/ui/common/list/ClientListPage";
 import { LIST_PAGE_OUTLINE_ACTION, LIST_PAGE_PRIMARY_ACTION, ListPageAddButton, ListPageViewButton } from "@/ui/common/list/listPageCrud";
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -68,12 +69,20 @@ export default function EmployeePage() {
 
   const handleSyncFromMachine = useCallback(async (reload) => {
     setSyncing(true);
+    const toastId = toast.loading("Syncing from device…");
     try {
-      await employeeService.sync({ page: 1, limit: 50000, sortBy: "emp_code", order: "ASC" });
+      const res = await employeeService.sync({ page: 1, limit: 50000, sortBy: "emp_code", order: "ASC" });
       await reload?.();
-      toast.success("Machine data synced.");
+      const n = Number(res?.total);
+      const message = Number.isFinite(n) ? `Machine synced. ${n} employee(s) loaded.` : "Machine data synced.";
+      toast.update(toastId, { render: message, type: "success", isLoading: false, autoClose: 3500 });
     } catch (err) {
-      toast.error(err?.message || "Machine sync failed.");
+      toast.update(toastId, {
+        render: err?.message || "Machine sync failed.",
+        type: "error",
+        isLoading: false,
+        autoClose: 5000,
+      });
     } finally {
       setSyncing(false);
     }
@@ -122,11 +131,11 @@ export default function EmployeePage() {
             <ActionButton
               module={MODULE}
               action="view"
-              label={syncing ? "Sync..." : "Sync"}
-              icon={RefreshCw}
+              label={syncing ? "Syncing…" : "Sync"}
+              icon={syncing ? Loader2 : RefreshCw}
               disabled={syncing || pushing || deactivating}
               onClick={() => handleSyncFromMachine(reload)}
-              className={`${LIST_PAGE_PRIMARY_ACTION} rounded-none h-9 text-[11px] font-bold uppercase tracking-wider px-4 shadow-none`}
+              className={`${LIST_PAGE_PRIMARY_ACTION} rounded-none h-9 text-[11px] font-bold uppercase tracking-wider px-4 shadow-none${syncing ? " [&>svg]:animate-spin" : ""}`}
             />
             <ListPageAddButton
               module={MODULE}
@@ -156,7 +165,7 @@ export default function EmployeePage() {
             />
           </>
         )}
-        selectionLabel={(row) => `Selected: ${row.emp_code} | ${row.emp_name}`}
+        selectionLabel={hrmsSelectionLabel.employee}
       />
       <EmployeeDetailModal
         open={viewOpen}

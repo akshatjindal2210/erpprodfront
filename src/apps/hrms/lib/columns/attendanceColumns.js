@@ -1,7 +1,7 @@
 import { hrmsApproveCell, hrmsCountCell, hrmsDateCell, hrmsEmpCodeCell, hrmsEmpty, hrmsMutedTimeCell, hrmsNameCell, hrmsTimeCell } from "./hrmsListCells";
 
 export const ATTENDANCE_HEADERS = [
-  ["Emp Code", "employee_code", hrmsEmpCodeCell, { fixed: true, width: "100px" }],
+  ["Emp Code", "emp_code", hrmsEmpCodeCell, { fixed: true, width: "100px" }],
   ["Name", "name", hrmsNameCell, { width: "140px" }],
   ["Date", "attendance_date_display", hrmsDateCell, { width: "100px" }],
   ["Shift", "shift_display", hrmsEmpty, { width: "80px" }],

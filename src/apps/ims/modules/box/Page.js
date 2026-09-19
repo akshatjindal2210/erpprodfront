@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { RefreshCcw, Box, X, Locate } from "lucide-react";
+import { RefreshCcw, Box, Locate } from "lucide-react";
+import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { toast } from "react-toastify";
 import { boxService } from "@/apps/ims/lib/services/box";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
@@ -96,7 +98,6 @@ export default function BoxTablePage() {
         return { data: Array.isArray(list) ? list : [], total: body.data?.total ?? body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
-      setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load box records");
       setAllRows([]);
@@ -108,6 +109,10 @@ export default function BoxTablePage() {
   useEffect(() => {
     fetchBoxes();
   }, [fetchBoxes]);
+
+  useEffect(() => {
+    setDisplayLimit(100);
+  }, [tempSearch, params.fromDate, params.toDate, params.status, appliedJourney, appliedSearch]);
 
   const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
 
@@ -312,14 +317,6 @@ export default function BoxTablePage() {
             }
           />
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase">Selected: {selectedRecord?.box_no_uid}</span>
-              <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -396,25 +393,16 @@ export default function BoxTablePage() {
           </div>
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {isJourneyMode
-              ? `Showing ${items.length} of ${totalItems} journey matches (all DB)`
-              : `Showing ${items.length} of ${totalItems} Box Records`}
-          </span>
-          <span className="text-[9px] text-slate-500">
-            <span className="text-amber-700 font-bold">Yellow row</span> QC hold ·{" "}
-            <span className="text-blue-700 font-bold">Blue row</span> dispatched ·{" "}
-            Location: <span className="text-emerald-700 font-bold">in store</span> /{" "}
-            <span className="text-green-900 font-bold">packing area</span> /{" "}
-            <span className="text-amber-700 font-bold">QC area</span> /{" "}
-            <span className="text-blue-800 font-bold">dispatch</span>
-          </span>
-          <div className="flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun={isJourneyMode ? "journey matches" : "Box Records"}
+          extra="Yellow QC · Blue dispatched · Location colors in grid"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={imsSelectionLabel.box}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       {finderOpen && <BoxFinderDrawer open={finderOpen} onClose={() => setFinderOpen(false)} />}

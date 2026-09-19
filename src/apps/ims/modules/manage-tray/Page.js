@@ -9,6 +9,7 @@ import ManageTrayLinkModal from "@/apps/ims/modules/manage-tray/ManageTrayLinkMo
 import ManageTrayStartModal from "@/apps/ims/modules/manage-tray/ManageTrayStartModal";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
+import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
@@ -153,6 +154,20 @@ export default function ManageTrayPage() {
     const { linked } = manageTrayLinkProgress(selectedRow);
     return linked > 0;
   }, [isReport, selectedRow, selectedInUse]);
+
+  const manageTraySelectionLabel = useCallback(
+    (r) => {
+      if (reportSummaryView) {
+        return `Selected: ${r?.status ?? "—"}${r?.customer ? ` · ${r.customer}` : ""} · ${num(r?.count).toLocaleString()} trays`;
+      }
+      let s = `Selected: ${r?.packing_number ?? "—"} · ${pending ? manageTrayStatusMeta(r).label : "REGISTERED"}`;
+      if (isManageTrayInUse(r)) s += " · Already in use";
+      if (isManageTrayReady(r)) s += " · Click New to start.";
+      if (isManageTrayInProgress(r)) s += " · Click Draft to continue.";
+      return s;
+    },
+    [reportSummaryView, pending]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -623,23 +638,6 @@ export default function ManageTrayPage() {
             }
           />
 
-          {reportSummaryView && selectedRow && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide">
-                Selected: {selectedRow.status}
-                {selectedRow.customer ? ` · ${selectedRow.customer}` : ""}
-                {` · ${num(selectedRow.count).toLocaleString()} trays`}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear Selection
-              </button>
-            </div>
-          )}
-
           {reportTrayView && reportFilter && (
             <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50 border border-amber-200">
               <span className="text-[10px] font-bold text-amber-800 uppercase">
@@ -655,22 +653,6 @@ export default function ManageTrayPage() {
             </div>
           )}
 
-          {selected && selectedRow && !isReport && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in fade-in duration-200">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide">
-                Selected: {selectedRow.packing_number} · {pending ? manageTrayStatusMeta(selectedRow).label : "REGISTERED"}
-                {selectedInUse ? " · Already in use" : ""}
-                {selectedIsReady ? " · Click New to start." : ""}
-                {selectedIsDraft ? " · Click Draft to continue." : ""}
-              </span>
-              <button
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear Selection
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -727,21 +709,25 @@ export default function ManageTrayPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {reportSummaryView
-              ? `Showing ${filteredRows.length} of ${summaryRows.length} summary rows`
+        <MasterListFooter
+          shown={filteredRows.length}
+          total={
+            reportSummaryView ? summaryRows.length : rows.length
+          }
+          noun={
+            reportSummaryView
+              ? "summary rows"
               : reportTrayView
-                ? `Showing ${filteredRows.length} of ${rows.length} trays`
+                ? "trays"
                 : pending
-                  ? `Showing ${filteredRows.length} of ${rows.length} pending packings`
-                  : `Showing ${filteredRows.length} of ${rows.length} registered packings`}
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+                  ? "pending packings"
+                  : "registered packings"
+          }
+          selected={selected}
+          selectedRecord={selectedRow}
+          selectionLabel={manageTraySelectionLabel}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <ManageTrayStartModal

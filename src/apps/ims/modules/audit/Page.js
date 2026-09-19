@@ -9,6 +9,7 @@ import { auditService } from "@/apps/ims/lib/services/audit";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 
 import ActionButton from "@/ui/primitives/ActionButton";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
@@ -213,7 +214,6 @@ export default function AuditPage() {
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
-      setDisplayLimit(DISPLAY_CHUNK);
       return data;
     } catch (err) {
       toast.error(err?.message || "Failed to load audits");
@@ -782,21 +782,6 @@ export default function AuditPage() {
             }
           />
 
-          {selected && selectedRecord && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 whitespace-normal break-words leading-snug text-left">
-                <Info size={12} className="shrink-0" />
-                <span>
-                  {isLocationView && selectedLocationRow
-                    ? `#${selectedRecord?.audit_id} | ${selectedLocationRow.location_no}${selectedLocationRow.is_history_row ? " (Previous)" : ""} | ${selectedLocationRow.assigned_user_name} | ${selectedLocationRow.scanned_count}/${selectedLocationRow.expected_count} | ${getLocationStatusLabel(selectedLocationRow.location_status)}`
-                    : `#${selectedRecord?.audit_id} | ${getAssignedUsersLabel(selectedRecord)} | ${getAuditExecutionStatusLabel(selectedRecord?.status)}`}
-                </span>
-              </span>
-              <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -855,6 +840,10 @@ export default function AuditPage() {
           shown={items.length}
           total={totalItems}
           noun={isLocationView ? "Locations" : "Audits"}
+          selected={selected}
+          selectedRecord={isLocationView ? selectedLocationRow : selectedRecord}
+          selectionLabel={isLocationView ? imsSelectionLabel.auditLocation : imsSelectionLabel.auditMaster}
+          onClearSelection={() => setSelected(null)}
         />
       </div>
 

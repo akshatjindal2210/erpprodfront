@@ -25,7 +25,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey, nextSortParams } from "@/ui/common/list/clientListSearch";
 import { toastDataRefreshed } from "@/platform/utils/core/toastNotify";
-import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import { MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
 import { DAILY_PRODUCTION_HEADERS, DAILY_PRODUCTION_PENDING_HEADERS, DAILY_PRODUCTION_COMPARISON_HEADERS, STICKER_STATUS_FILTER_OPTIONS, DAILY_PROD_PENDING_CARD_CONFIG, DAILY_PROD_GENERATED_CARD_CONFIG, DAILY_PROD_COMPARISON_CARD_CONFIG, dailyProdRowKey, dailyProdSearchParts, dailyProdComparisonSearchParts, filterDailyProdByStickerStatus, isDailyProdStickerGenerated, isDailyProdNeedsDeviation, DAILY_PROD_DEVIATION_ROW_CLASS, hasDailyProdComparisonMismatch } from "./masterColumns";
 import { useSelector } from "react-redux";
 import { selectUser } from "@/platform/store/slices/authSlice";
@@ -155,7 +155,6 @@ export default function DailyProductionPage() {
 
     if (cacheFresh && preferCache && !forceRefresh) {
       setAllRows(cached.data);
-      setDisplayLimit(DISPLAY_CHUNK);
       setLoading(false);
       return;
     }
@@ -177,7 +176,6 @@ export default function DailyProductionPage() {
       const { data } = await loadDailyProdRows(appliedQuery, { forceRefresh });
       dailyProdClientCache.set(cacheKey, { at: Date.now(), data });
       setAllRows(data);
-      setDisplayLimit(DISPLAY_CHUNK);
     } catch (err) {
       toast.error(err?.message || "Failed to load production data");
       setAllRows([]);
@@ -190,6 +188,10 @@ export default function DailyProductionPage() {
     if (!appliedQuery) return;
     void fetchProduction({ preferCache: true });
   }, [appliedQuery, fetchProduction]);
+
+  useEffect(() => {
+    setDisplayLimit(DISPLAY_CHUNK);
+  }, [appliedQuery]);
 
   const reload = useCallback(
     async (isManualRefresh = false) => {
@@ -271,7 +273,6 @@ export default function DailyProductionPage() {
         const { data } = await loadDailyProdRows(appliedQuery, { forceRefresh: true });
         dailyProdClientCache.set(cacheKey, { at: Date.now(), data });
         setAllRows(data);
-        setDisplayLimit(DISPLAY_CHUNK);
         if (!selectionKey) {
           setSelected(null);
           return;
@@ -524,6 +525,16 @@ export default function DailyProductionPage() {
     setSelected(null);
   }, []);
 
+  const dailyProdSelectionLabel = useCallback(
+    (r) => {
+      if (isComparisonView) {
+        return `Selected: Mismatch · Doc ${r?.doc_no ?? "—"} — ERP vs DB`;
+      }
+      return `Selected: ${r?.doc_no ?? "—"} | Job: ${r?.job_card_no ?? "—"}`;
+    },
+    [isComparisonView]
+  );
+
   return (
     <div className={`${IMS_LIST_PAGE_SHELL} font-sans`}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
@@ -602,15 +613,6 @@ export default function DailyProductionPage() {
             }
           />
 
-          {selected && isComparisonView ? (
-            <MasterSelectionBanner onClear={() => setSelected(null)}>
-              Mismatch · Doc {selectedRecord?.doc_no} — ERP vs DB (red = mismatch, customer not counted)
-            </MasterSelectionBanner>
-          ) : selected ? (
-            <MasterSelectionBanner onClear={() => setSelected(null)}>
-              Selected Document: {selectedRecord?.doc_no} | Job: {selectedRecord?.job_card_no}
-            </MasterSelectionBanner>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -669,7 +671,15 @@ export default function DailyProductionPage() {
           />
         </div>
 
-        <MasterListFooter shown={items.length} total={totalItems} noun="entries" />
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="entries"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={dailyProdSelectionLabel}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <GlobalDetailModal open={isDetailModalOpen} onClose={() => setIsDetailModalOpen(false)} title="Production Details" icon={Package}>

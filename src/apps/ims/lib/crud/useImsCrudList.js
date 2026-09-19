@@ -44,7 +44,6 @@ export function useImsCrudList({
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
-      setDisplayLimit(displayChunk);
     } catch (err) {
       toast.error(err?.message || errorMessage);
       setAllRows([]);
@@ -56,6 +55,11 @@ export function useImsCrudList({
   useEffect(() => {
     fetchRows();
   }, [fetchRows]);
+
+  // Reset scroll window on search/sort/filter — not on toolbar refresh (same params).
+  useEffect(() => {
+    setDisplayLimit(displayChunk);
+  }, [tempSearch, params, displayChunk]);
 
   const filteredRows = useMemo(() => {
     let data = allRows;

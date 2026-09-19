@@ -200,6 +200,7 @@ const MODULE_LABELS = {
   hrms_attendance: "Daily Attendance",
   hrms_attendance_log: "Attendance Log",
   hrms_employee: "Employee Master",
+  hrms_gate_pass: "Gate Pass",
   hrms_activity_logs: "Activity Logs",
   purchase_master: "Product Master",
   purchase_shortage: "Shortage",
@@ -385,6 +386,7 @@ const HRMS_MODULE_ROUTES = {
   hrms_attendance: HRMS_ROUTES.HRMS_ATTENDANCE,
   hrms_attendance_log: HRMS_ROUTES.HRMS_ATTENDANCE_LOG,
   hrms_employee: HRMS_ROUTES.HRMS_EMPLOYEES,
+  hrms_gate_pass: HRMS_ROUTES.HRMS_GATE_PASS,
   hrms_activity_logs: HRMS_ROUTES.HRMS_ACTIVITY_LOGS,
 };
 

@@ -163,9 +163,10 @@ export default function ServerListPage({
 
   const visibleRows = useMemo(() => displayRows.slice(0, displayLimit), [displayRows, displayLimit]);
 
+  // Reset infinite-scroll window on filter/sort/search — not on refresh (same `rows` refetch).
   useEffect(() => {
     setDisplayLimit(pageSize);
-  }, [rows, tempSearch, params, pageSize, sort.sortKey, sort.sortDir]);
+  }, [tempSearch, params, pageSize, sort.sortKey, sort.sortDir]);
 
   const handleLoadMore = useCallback(() => {
     if (loading || visibleRows.length >= displayRows.length) return;
@@ -263,10 +264,6 @@ export default function ServerListPage({
             />
           ) : null
         }
-        selected={selected}
-        selectedRecord={selectedRecord}
-        selectionLabel={selectionLabel}
-        onClearSelection={() => setSelected(null)}
       />
 
       <ListPageFilterStrip>
@@ -320,6 +317,10 @@ export default function ServerListPage({
         shown={visibleRows.length}
         total={displayRows.length}
         noun="Records"
+        selected={selected}
+        selectedRecord={selectedRecord}
+        selectionLabel={selectionLabel}
+        onClearSelection={() => setSelected(null)}
       />
 
       {detailModal?.open ? (

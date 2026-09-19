@@ -17,6 +17,8 @@ export {
   setLocationCapacityValidationEnabled,
   isLocationCapacityValidationEnabled,
   getBoxNoUidPrefix,
+  setHrmsOvertimeBufferMinutes,
+  getHrmsOvertimeBufferMinutes,
   applySessionFromLogin,
   applySessionFromLogin as applyListViewSpanFromSession,
 } from "./session";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
-import { Calendar } from "lucide-react";
+import { Calendar, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { schedulePlanningService } from "@/apps/ims/lib/services/schedulePlanning";
@@ -379,7 +379,6 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
         status: apiStatus,
       });
       setRows(Array.isArray(res?.data) ? res.data : []);
-      setDisplayLimit(100);
     } catch {
       toast.error("Failed to load today's dispatch plan.");
       setRows([]);
@@ -433,7 +432,7 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
 
   useEffect(() => {
     setDisplayLimit(100);
-  }, [search]);
+  }, [search, statusFilter]);
 
   useEffect(() => {
     onRowsChange?.(filteredRows);
@@ -639,6 +638,15 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
     [itemDetailHeaders, getRowClassName]
   );
 
+  const selectedRow = useMemo(() => getSelectedRow(), [getSelectedRow]);
+
+  const dispatchPlanSelectionLabel = useCallback((r) => {
+    let s = `Selected: ${r?.schno || "—"}`;
+    if (r?.item_code) s += ` · ${r.item_code}`;
+    if (r?.acc_name) s += ` · ${r.acc_name}`;
+    return s;
+  }, []);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -739,14 +747,25 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
             : isRecommendedCustomer
               ? `Showing ${displayRows.length} customers`
               : `Showing ${displayRows.length} of ${filteredRows.length} items`}
-          {selected ? " · 1 selected" : ""}
         </span>
         <div className="flex-1 flex justify-center min-w-0 px-1">
           <DispatchPlanRowLegend />
         </div>
-        <div className="flex items-center gap-2 shrink-0 sm:w-[28%] justify-end">
-          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
+        <div className="flex items-center gap-2 shrink-0 sm:w-[28%] justify-end min-w-0">
+          {selected && selectedRow ? (
+            <>
+              <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
+                {dispatchPlanSelectionLabel(selectedRow)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
+              >
+                <X size={14} /> Clear
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 

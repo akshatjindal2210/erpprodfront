@@ -88,10 +88,6 @@ export default function ClientListPage({
             onExport={handleExport}
           />
         }
-        selected={selected}
-        selectedRecord={selectedRecord}
-        selectionLabel={selectionLabel}
-        onClearSelection={() => setSelected(null)}
       />
 
       <ListPageFilterStrip>
@@ -127,7 +123,15 @@ export default function ClientListPage({
         />
       </ListPageTableArea>
 
-      <ListPageFooter shown={items.length} total={totalItems} noun={noun} />
+      <ListPageFooter
+        shown={items.length}
+        total={totalItems}
+        noun={noun}
+        selected={selected}
+        selectedRecord={selectedRecord}
+        selectionLabel={selectionLabel}
+        onClearSelection={() => setSelected(null)}
+      />
 
       {detailModal?.open ? (
         <GlobalDetailModal

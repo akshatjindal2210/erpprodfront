@@ -5,6 +5,7 @@ import { CheckCircle, Download, Edit3, Info, Layers, Plus, Printer, RefreshCcw, 
 import { toast } from "react-toastify";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
+import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { fetchAllListPages, applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
@@ -131,8 +132,6 @@ export default function TrayPage() {
         }
         return prev;
       });
-
-      setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load tray batches");
       setBatchRows([]);
@@ -149,6 +148,10 @@ export default function TrayPage() {
   useEffect(() => {
     fetchTrays();
   }, [fetchTrays]);
+
+  useEffect(() => {
+    setDisplayLimit(100);
+  }, [tempSearch, params.type, params.status]);
 
   const filteredBatchRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
@@ -380,6 +383,12 @@ export default function TrayPage() {
     [typeLabelMap]
   );
 
+  const trayBatchSelectionLabel = useCallback(
+    (r) =>
+      `Selected: ${r?.batch_id ?? "—"} | ${formatTypeLabel(r?.type)} · Double-click to open trays`,
+    [formatTypeLabel]
+  );
+
   const openBatchApprove = useCallback(
     (row) => {
       const batch = row || getSelectedBatchRow();
@@ -579,17 +588,6 @@ export default function TrayPage() {
             }
           />
 
-          {selectedBatch ? (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-                <Info size={12} className="shrink-0" />
-                Selected: {selectedBatch.batch_id} | {formatTypeLabel(selectedBatch.type)} · Double-click to open trays
-              </span>
-              <button type="button" onClick={clearSelection} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0">
-                <X size={14} /> Clear
-              </button>
-            </div>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -643,15 +641,15 @@ export default function TrayPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {batchItems.length} of {totalItems} Batches
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <MasterListFooter
+          shown={batchItems.length}
+          total={totalItems}
+          noun="Batches"
+          selected={selectedBatchId}
+          selectedRecord={selectedBatch}
+          selectionLabel={trayBatchSelectionLabel}
+          onClearSelection={clearSelection}
+        />
       </div>
 
       <TrayBatchDrawer

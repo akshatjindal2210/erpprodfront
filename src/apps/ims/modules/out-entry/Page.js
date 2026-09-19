@@ -32,6 +32,8 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
+import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { pipeMetaRenderers } from "@/apps/ims/lib/helpers/pipeMetaDisplay";
 
 const PAGE_TABS = {
@@ -167,7 +169,6 @@ export default function OutEntryPage() {
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
-      setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load records");
       setAllRows([]);
@@ -192,7 +193,6 @@ export default function OutEntryPage() {
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, forwardingParams.pageSize);
       setForwardingRows(data);
-      setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load forwarding notes");
       setForwardingRows([]);
@@ -205,6 +205,10 @@ export default function OutEntryPage() {
     if (isStoreOut) fetchData();
     else fetchForwardingNotes();
   }, [isStoreOut, fetchData, fetchForwardingNotes]);
+
+  useEffect(() => {
+    setDisplayLimit(100);
+  }, [tempSearch, params.fromDate, params.toDate, params.status, params.entryType, appliedSearch, pageTab]);
 
   const activeSourceRows = isStoreOut ? allRows : forwardingRows;
   const activeSortKey = isStoreOut ? params.sortKey : forwardingParams.sortKey;
@@ -751,8 +755,18 @@ export default function OutEntryPage() {
     else fetchForwardingNotes();
   };
 
+  const outEntrySelectionLabel = useCallback(
+    (r) => {
+      if (isStoreOut) {
+        return `Selected: OUT-#${r?.id ?? "—"} (FUID: ${r?.fuid ?? "—"}) · ${getOutEntryTypeTableLabel(r?.entry_type)}`;
+      }
+      return `Selected: FUID ${r?.fuid ?? "—"}`;
+    },
+    [isStoreOut]
+  );
+
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         
         <ListPageToolbar>
@@ -845,27 +859,6 @@ export default function OutEntryPage() {
             }
           />
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in fade-in duration-200">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide">
-                Selected: {isStoreOut ? `OUT-#${selected} (FUID: ${selectedRecord?.fuid ?? "—"})` : `FUID: ${selected}`}
-                {isStoreOut && selectedRecord ? (
-                  <span className="ml-2 text-indigo-400 font-semibold normal-case">
-                    · {getOutEntryTypeTableLabel(selectedRecord.entry_type)}
-                    {selectedApprovable && showApproveButton ? " · Approve" : ""}
-                  </span>
-                ) : null}
-                {!isStoreOut && selectedApprovable && showApproveButton ? (
-                  <span className="ml-2 text-indigo-400 font-semibold normal-case">
-                    · Approve store out
-                  </span>
-                ) : null}
-              </span>
-              <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
-                <X size={14} /> Clear Selection
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         {/* SEARCH & FILTERS */}
@@ -944,18 +937,15 @@ export default function OutEntryPage() {
           />
         </div>
 
-        {/* --- FOOTER INFO --- */}
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {isStoreOut 
-              ? `Showing ${items.length} of ${totalItems} Out Entries`
-              : `Showing ${items.length} of ${totalItems} Pending Forwarding Notes`}
-          </span>
-          <div className="flex items-center gap-2">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun={isStoreOut ? "Out Entries" : "Pending Forwarding Notes"}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={outEntrySelectionLabel}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <OutEntryModal

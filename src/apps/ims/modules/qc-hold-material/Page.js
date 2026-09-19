@@ -7,6 +7,8 @@ import { toast } from "react-toastify";
 import { qcHoldMaterialService } from "@/apps/ims/lib/services/qcHoldMaterial";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
+import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 
 import QcHoldMaterialModal from "./QcHoldMaterialModal";
@@ -103,7 +105,6 @@ export default function QcHoldMaterialPage() {
       }, params.pageSize);
       if (gen !== loadGenRef.current) return;
       setAllRows(data);
-      setDisplayLimit(DISPLAY_CHUNK);
     } catch (err) {
       if (gen !== loadGenRef.current) return;
       toast.error(err?.message || (isTxTab ? "Failed to load QC hold transactions" : "Failed to load QC hold list"));
@@ -366,36 +367,6 @@ export default function QcHoldMaterialPage() {
             }
           />
 
-          {selectedId && selectedRecord && !isTxTab ? (
-            <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase truncate max-w-[min(100%,36rem)]">
-                Selected: #{selectedRecord.hold_id}
-                {selectedRecord.packing_number ? ` · ${selectedRecord.packing_number}` : ""}
-                {selectedRecord.item_code ? ` · ${selectedRecord.item_code}` : ""}
-                {selectedRecord.balance_qty != null
-                  ? ` · Bal ${Number(selectedRecord.balance_qty).toLocaleString()} qty`
-                  : ""}
-              </span>
-              <div className="flex items-center gap-2 shrink-0">
-                {canPrintQcHoldStickersRow(selectedRecord) ? (
-                  <button
-                    type="button"
-                    onClick={openPrintStickers}
-                    className="text-emerald-700 hover:text-emerald-900 flex items-center gap-1 font-bold text-[10px] uppercase"
-                  >
-                    <Printer size={14} /> Print stickers
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-                >
-                  <X size={14} /> Clear
-                </button>
-              </div>
-            </div>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -455,15 +426,15 @@ export default function QcHoldMaterialPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} {isTxTab ? "Transaction" : "QC Holds"}
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun={isTxTab ? "Transactions" : "QC Holds"}
+          selected={!isTxTab ? selectedId : null}
+          selectedRecord={!isTxTab ? selectedRecord : null}
+          selectionLabel={imsSelectionLabel.qcHold}
+          onClearSelection={() => setSelectedId(null)}
+        />
       </div>
 
       <QcHoldMaterialModal

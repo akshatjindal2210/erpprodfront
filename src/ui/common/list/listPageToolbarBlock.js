@@ -2,22 +2,10 @@
 
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
-import {
-  ListPageRefreshButton,
-  ListPageSelectionBanner,
-} from "@/ui/common/list/listPageUi";
+import { ListPageRefreshButton } from "@/ui/common/list/listPageUi";
 
-/** Toolbar row: custom actions + refresh + optional export toggle + selection banner. */
-export function ListPageToolbarBlock({
-  actions,
-  loading,
-  onRefresh,
-  viewToggle,
-  selected,
-  selectedRecord,
-  selectionLabel,
-  onClearSelection,
-}) {
+/** Toolbar row: custom actions + refresh + optional export toggle. */
+export function ListPageToolbarBlock({ actions, loading, onRefresh, viewToggle }) {
   const hasActions = actions != null && actions !== false;
 
   return (
@@ -32,11 +20,6 @@ export function ListPageToolbarBlock({
         }
         viewToggle={viewToggle}
       />
-      {selected && selectedRecord && selectionLabel ? (
-        <ListPageSelectionBanner onClear={onClearSelection}>
-          {selectionLabel(selectedRecord)}
-        </ListPageSelectionBanner>
-      ) : null}
     </ListPageToolbar>
   );
 }

@@ -19,7 +19,8 @@ import ListPageSearchField, {
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailGrid, MasterDetailMetrics } from "./MasterDetailLayout";
 import { useMasterClientList } from "@/apps/ims/lib/helpers/useMasterClientList";
-import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import { MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { PRODUCT_MASTER_HEADERS, PRODUCT_CARD_CONFIG, productRowKey, productSearchParts } from "./masterColumns";
 
 function rowGroupName(row) {
@@ -116,11 +117,6 @@ export default function ProductMasterPage({ groupName = null } = {}) {
             }
           />
 
-          {selected ? (
-            <MasterSelectionBanner onClear={() => setSelected(null)}>
-              Selected Product: {selectedRecord?.item_code} | {selectedRecord?.itemdesc}
-            </MasterSelectionBanner>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip className="space-y-2">
@@ -179,7 +175,15 @@ export default function ProductMasterPage({ groupName = null } = {}) {
           />
         </div>
 
-        <MasterListFooter shown={items.length} total={totalItems} noun="products" />
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="products"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={imsSelectionLabel.product}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <GlobalDetailModal open={isModalOpen} onClose={() => setIsModalOpen(false)} title="Product Master Details" icon={Package}>

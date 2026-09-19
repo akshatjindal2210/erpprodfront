@@ -1,3 +1,5 @@
+import AttendanceLogCard from "@/apps/hrms/modules/attendance-log/AttendanceLogCard";
+import AttendanceLogThumb from "@/apps/hrms/modules/attendance-log/AttendanceLogThumb";
 import { hrmsEmpCodeCell, hrmsEmpty, hrmsMutedTimeCell, hrmsNameCell, hrmsStatusCell, hrmsTimeCell } from "./hrmsListCells";
 
 function cellText(v) {
@@ -13,7 +15,26 @@ function createdAtText(row) {
   return row?.created_at_display ?? row?.created_at ?? "—";
 }
 
-export const ATTENDANCE_LOG_HEADERS = [
+export function attendanceLogHeaders(onThumbClick) {
+  return [
+  [
+    "Photo",
+    "photo",
+    (_, row) => <AttendanceLogThumb row={row} onClick={onThumbClick} />,
+    {
+      width: "64px",
+      cellClass: "!p-0 align-middle",
+      copyValue: () => "",
+      cardRender: (_, row) => (
+        <>
+          <div className="invisible min-h-[11rem] w-full" aria-hidden />
+          <div className="absolute inset-0">
+            <AttendanceLogCard row={row} onOpen={onThumbClick} />
+          </div>
+        </>
+      ),
+    },
+  ],
   [
     "ID",
     "id",
@@ -75,3 +96,7 @@ export const ATTENDANCE_LOG_HEADERS = [
     { width: "140px", copyValue: (row) => createdAtText(row) },
   ],
 ];
+}
+
+/** @deprecated use attendanceLogHeaders(onThumbClick) from Page */
+export const ATTENDANCE_LOG_HEADERS = attendanceLogHeaders();

@@ -76,6 +76,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "HR",  label: "HRMS Dashboard",             route: ROUTES.HRMS_DASHBOARD,          module: null,                        app: "hrms" },
   { code: "EM",  label: "Employee Master",            route: ROUTES.HRMS_EMPLOYEES,          module: "hrms_employee",             app: "hrms" },
   { code: "DA",  label: "Daily Attendance",           route: ROUTES.HRMS_ATTENDANCE,         module: "hrms_attendance",           app: "hrms" },
+  { code: "GP",  label: "Gate Pass",                  route: ROUTES.HRMS_GATE_PASS,          module: "hrms_gate_pass",            app: "hrms" },
   { code: "AT",  label: "Attendance Log",             route: ROUTES.HRMS_ATTENDANCE_LOG,     module: "hrms_attendance_log",       app: "hrms" },
   { code: "HAL", label: "HRMS Activity Logs",         route: ROUTES.HRMS_ACTIVITY_LOGS,      module: "hrms_activity_logs",        app: "hrms" },
 

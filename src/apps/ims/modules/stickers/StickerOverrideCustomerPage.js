@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCcw, Shield, X, FileText, Printer, Edit3 } from "lucide-react";
+import { Plus, RefreshCcw, Shield, FileText, Printer, Edit3 } from "lucide-react";
+import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { toast } from "react-toastify";
 import { boxService } from "@/apps/ims/lib/services/box";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
@@ -95,7 +97,6 @@ export default function StickerOverrideCustomerPage() {
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows(data);
-      setDisplayLimit(DISPLAY_CHUNK);
     } catch (err) {
       toast.error(err?.message || "Failed to load override requests");
       setAllRows([]);
@@ -393,19 +394,6 @@ export default function StickerOverrideCustomerPage() {
             }
           />
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">
-                Selected Request: #{selectedRecord?.request_id} ({selectedRecord?.packing_number})
-              </span>
-              <button
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear Selection
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -465,15 +453,15 @@ export default function StickerOverrideCustomerPage() {
           </div>
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Override Requests
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="Override Requests"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={imsSelectionLabel.stickerOverride}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       {modalOpen && (

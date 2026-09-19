@@ -26,7 +26,7 @@ import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys
 import { canPrintSaStickers } from "@/apps/rmstore/lib/utils/stockAdjustmentEntryTypes";
 import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
-import { STOCK_ADJUSTMENT_CARD_CONFIG, STOCK_ADJUSTMENT_HEADERS, STOCK_ADJUSTMENT_STATUS_FILTER_OPTIONS, filterStockAdjustmentRows, buildStockAdjustmentApiFilters } from "./stockAdjustmentColumns";
+import { STOCK_ADJUSTMENT_CARD_CONFIG, STOCK_ADJUSTMENT_HEADERS, STOCK_ADJUSTMENT_STATUS_FILTER_OPTIONS, filterStockAdjustmentRows, buildStockAdjustmentApiFilters, getStockAdjustmentRowClassName } from "./stockAdjustmentColumns";
 
 const MODULE = "rm_stock_adjustment";
 const LIST_PAGE_SIZE = 1000;
@@ -398,6 +398,7 @@ export default function StockAdjustmentPage() {
             hasMore={items.length < totalItems}
             totalItems={totalItems}
             cardConfig={STOCK_ADJUSTMENT_CARD_CONFIG}
+            getRowClassName={getStockAdjustmentRowClassName}
           />
         </div>
 

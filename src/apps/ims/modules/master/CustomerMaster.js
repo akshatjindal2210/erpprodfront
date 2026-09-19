@@ -14,7 +14,8 @@ import ListPageSearchField from "@/ui/common/list/ListPageSearchField";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection } from "./MasterDetailLayout";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { useMasterClientList } from "@/apps/ims/lib/helpers/useMasterClientList";
-import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import { MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { CUSTOMER_MASTER_HEADERS, CUSTOMER_CARD_CONFIG, customerRowKey, customerSearchParts } from "./masterColumns";
 
 export default function CustomerLedgerPage() {
@@ -71,11 +72,6 @@ export default function CustomerLedgerPage() {
             }
           />
 
-          {selected ? (
-            <MasterSelectionBanner onClear={() => setSelected(null)}>
-              Customer: {selectedRecord?.acc_name} selected
-            </MasterSelectionBanner>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip className="space-y-2">
@@ -112,7 +108,15 @@ export default function CustomerLedgerPage() {
           />
         </div>
 
-        <MasterListFooter shown={items.length} total={totalItems} noun="customers" />
+        <MasterListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="customers"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={imsSelectionLabel.customer}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <GlobalDetailModal open={isModalOpen} onClose={() => setIsModalOpen(false)} title="Customer Profile" icon={UserCheck}>

@@ -12,6 +12,8 @@ import { selectUser } from "@/platform/store/slices/authSlice";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
+import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { useImsCrudList } from "@/apps/ims/lib/crud/useImsCrudList";
 import ActionButton from "@/ui/primitives/ActionButton";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
@@ -481,16 +483,6 @@ export default function ShortagePage({
             </div>
           ) : null}
 
-          {!isMasterTab && selected ? (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase">
-                Selected: {selectedRecord?.item_code || selectedRecord?.itemcode || selectedRecord?.id}
-              </span>
-              <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
-                <X size={14} /> Clear
-              </button>
-            </div>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -581,17 +573,15 @@ export default function ShortagePage({
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {tableRows.length} of {tableTotal} {isMasterTab ? "Items" : "Shortage Records"}
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">
-              {isMasterTab ? "Master Aggregate" : "Entry Snapshot"}
-            </span>
-          </div>
-        </div>
+        <MasterListFooter
+          shown={tableRows.length}
+          total={tableTotal}
+          noun={isMasterTab ? "Items" : "Shortage Records"}
+          selected={!isMasterTab ? selected : null}
+          selectedRecord={!isMasterTab ? selectedRecord : null}
+          selectionLabel={imsSelectionLabel.shortage}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       {modalOpen && (

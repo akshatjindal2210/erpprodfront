@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
 import { appConfigService } from "@/apps/settings/lib/services/appConfigService";
-import { applyListViewSpanFromSession } from "@/platform/utils/global";
+import { applyListViewSpanFromSession, setHrmsOvertimeBufferMinutes } from "@/platform/utils/global";
 
 function applySavedSideEffects(row, savedValue) {
   if (row.key === "default_list_view_span_days" && savedValue != null) {
@@ -19,6 +19,9 @@ function applySavedSideEffects(row, savedValue) {
     applyListViewSpanFromSession({
       location_capacity_validation: String(savedValue).trim().toLowerCase() === "true",
     });
+  }
+  if (row.key === "hrms_overtime_buffer_minutes" && savedValue != null) {
+    setHrmsOvertimeBufferMinutes(savedValue);
   }
 }
 

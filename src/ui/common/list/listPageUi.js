@@ -23,29 +23,39 @@ export function ListPageTableArea({ children }) {
   );
 }
 
-export function ListPageSelectionBanner({ children, onClear }) {
-  if (!children) return null;
+export function ListPageFooter({
+  shown,
+  total,
+  noun = "Records",
+  extra = null,
+  /** Custom left side (e.g. dynamic count text). Defaults to “Showing X of Y …”. */
+  leftContent = null,
+  selected,
+  selectedRecord,
+  selectionLabel,
+  onClearSelection,
+}) {
+  const showSelection = selected && selectedRecord && selectionLabel;
   return (
-    <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-      <span className="text-[10px] font-bold text-indigo-600 uppercase">{children}</span>
-      <button
-        type="button"
-        onClick={onClear}
-        className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
-      >
-        <X size={14} /> Clear
-      </button>
-    </div>
-  );
-}
-
-export function ListPageFooter({ shown, total, noun = "Records", extra = null }) {
-  return (
-    <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-        Showing {shown} of {total} {noun}
-        {extra ? ` · ${extra}` : ""}
-      </span>
+    <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0 min-h-[34px]">
+      {leftContent ?? (
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest shrink-0 min-w-0">
+          Showing {shown} of {total} {noun}
+          {extra ? ` · ${extra}` : ""}
+        </span>
+      )}
+      {showSelection ? (
+        <div className="flex items-center gap-2 min-w-0 justify-end flex-1">
+          <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">{selectionLabel(selectedRecord)}</span>
+          <button
+            type="button"
+            onClick={onClearSelection}
+            className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
+          >
+            <X size={14} /> Clear
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

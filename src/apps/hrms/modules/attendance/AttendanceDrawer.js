@@ -30,8 +30,8 @@ const BTN_CANCEL = "px-5 py-2.5 text-sm font-bold text-slate-500 disabled:opacit
 const BTN_SECONDARY = "px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl disabled:opacity-50";
 const BTN_PRIMARY = "min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl inline-flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50";
 const BTN_APPROVE = "min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl inline-flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-50";
-const EMPTY_MANUAL = { employee_code: "", name: "", shift: "A", in: "", out: "" };
-const EMPTY_ROW = { employee_code: "", name: "", shift: "A", in: "", out: "", lunch: "no", day_type: DEFAULT_DAY_TYPE, default_in: "", default_out: "" };
+const EMPTY_MANUAL = { emp_dcode: "", emp_code: "", name: "", shift: "A", in: "", out: "" };
+const EMPTY_ROW = { emp_dcode: "", emp_code: "", name: "", shift: "A", in: "", out: "", lunch: "no", day_type: DEFAULT_DAY_TYPE, default_in: "", default_out: "" };
 const HOURS_TONE = {
   slate: "text-slate-800",
   muted: "text-slate-700",
@@ -54,8 +54,13 @@ function isFutureDate(value) {
   return d > todayYmd();
 }
 
+function parseEmpDcode(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+}
+
 function rowKey(row, index) {
-  return String(row?.employee_code || row?.id || index);
+  return String(row?.emp_dcode || row?.id || index);
 }
 
 export default function AttendanceDrawer({ open, mode = "add", record = null, onClose, onSuccess }) {
@@ -80,6 +85,8 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
   const [manual, setManual] = useState(EMPTY_MANUAL);
   /** { [rowIndex]: { in?: true, out?: true } } + manual form uses key "manual" */
   const [fieldErrors, setFieldErrors] = useState({});
+  /** From attendance API — `ims_app_config` via backend (not browser session). */
+  const [overtimeBufferMinutes, setOvertimeBufferMinutes] = useState(null);
 
   const resetForm = useCallback((nextRecord) => {
     setEntryType(nextRecord ? (nextRecord.entry_type === "manual" ? "manual" : "automatic") : "");
@@ -91,20 +98,19 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
     setAddEmployeeCode("");
     setExistingCodes(new Set());
     setFieldErrors({});
+    setOvertimeBufferMinutes(nextRecord?.overtime_buffer_minutes != null ? Number(nextRecord.overtime_buffer_minutes) : null);
     setManual(
       nextRecord
         ? {
-            employee_code: nextRecord.employee_code || "",
+            emp_dcode: nextRecord.emp_dcode ?? "",
+            emp_code: nextRecord.emp_code || "",
             name: nextRecord.name || "",
             shift: defaultShift(nextRecord),
             in: toDateTimeInput(rowIn(nextRecord), nextRecord?.attendance_date || todayYmd()),
             out: (() => {
               const d = nextRecord?.attendance_date || todayYmd();
               const inVal = toDateTimeInput(rowIn(nextRecord), d);
-              return (
-                normalizeOutDateTime(rowOut(nextRecord), d, inVal) ||
-                toDateTimeInput(rowOut(nextRecord), d)
-              );
+              return (normalizeOutDateTime(rowOut(nextRecord), d, inVal) || toDateTimeInput(rowOut(nextRecord), d));
             })(),
           }
         : EMPTY_MANUAL
@@ -123,6 +129,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
     setAddEmployeeCode("");
     setExistingCodes(new Set());
     setFieldErrors({});
+    setOvertimeBufferMinutes(null);
   }, []);
 
   const loadEmployees = useCallback(
@@ -131,11 +138,11 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
   );
 
   /** Codes already on another row in this form (not the whole-date existing set). */
-  const codesInForm = useMemo(() => {
+  const dcodesInForm = useMemo(() => {
     const taken = new Set();
     rows.forEach((row) => {
-      const code = String(row.employee_code || "").trim();
-      if (code) taken.add(code);
+      const d = parseEmpDcode(row.emp_dcode);
+      if (d) taken.add(d);
     });
     return taken;
   }, [rows]);
@@ -147,25 +154,27 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
   }, [loadEmployees]);
 
   const isEmployeeOptionDisabled = useCallback(
-    (item, keepCode = null) => {
-      const code = String(item?.emp_code ?? "").trim();
-      if (!code) return true;
-      if (keepCode && code === String(keepCode).trim()) return false;
-      if (existingCodes.has(code)) return true;
-      if (codesInForm.has(code)) return true;
+    (item, keepDcode = null) => {
+      const dcode = parseEmpDcode(item?.emp_dcode);
+      if (!dcode) return true;
+      if (keepDcode && dcode === parseEmpDcode(keepDcode)) return false;
+      if (existingCodes.has(dcode)) return true;
+      if (dcodesInForm.has(dcode)) return true;
       return false;
     },
-    [existingCodes, codesInForm]
+    [existingCodes, dcodesInForm]
   );
 
   const buildManualRow = useCallback(
-    (code, item) => {
+    (dcode, item) => {
       const times = defaultTimesFromEmployee(item);
       const inRaw = times.in ? `${date}T${times.in}` : "";
       const outRaw = times.out ? `${date}T${times.out}` : "";
       return withDerivedFields({
-        employee_code: code,
+        emp_dcode: dcode,
+        emp_code: String(item?.emp_code ?? "").trim(),
         name: item?.emp_name || item?.name || "",
+        attendance_date: date,
         shift: "A",
         in: normalizeInDateTime(inRaw, date) || null,
         out: normalizeOutDateTime(outRaw, date, inRaw) || null,
@@ -182,7 +191,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
       if (!prev[index]) return prev;
       const next = { ...prev };
       const cleared = { ...next[index] };
-      if (patch.employee_code !== undefined && String(patch.employee_code || "").trim()) delete cleared.blank;
+      if (patch.emp_dcode !== undefined && parseEmpDcode(patch.emp_dcode)) delete cleared.blank;
       if (patch.in !== undefined && String(patch.in || "").trim()) delete cleared.in;
       if (patch.out !== undefined && String(patch.out || "").trim()) delete cleared.out;
       if (!cleared.in && !cleared.out && !cleared.blank) delete next[index];
@@ -226,6 +235,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
     setLoadingPreview(true);
     try {
       const res = await attendanceService.preview({ date: attendanceDate, entry_type: "automatic" });
+      if (res.overtime_buffer_minutes != null) setOvertimeBufferMinutes(Number(res.overtime_buffer_minutes));
       const list = (res.data ?? []).map((row) => {
         const inVal = toDateTimeInput(rowIn(row), attendanceDate) || normalizeInDateTime(rowIn(row), attendanceDate) || null;
         const outVal =
@@ -270,7 +280,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
   }, []);
 
   const willSubmitRow = useCallback((row) => {
-    if (!String(row?.employee_code || "").trim()) return false;
+    if (!parseEmpDcode(row?.emp_dcode)) return false;
     if (row.already_exists && !row.override) return false;
     return true;
   }, []);
@@ -283,10 +293,11 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
       setLoadingPreview(true);
       try {
         const res = await attendanceService.preview({ date, entry_type: "manual" });
+        if (res.overtime_buffer_minutes != null) setOvertimeBufferMinutes(Number(res.overtime_buffer_minutes));
         const taken = new Set(
           (res.data ?? [])
-            .filter((row) => row.id != null && String(row.employee_code || "").trim())
-            .map((row) => String(row.employee_code).trim())
+            .filter((row) => row.id != null && parseEmpDcode(row.emp_dcode))
+            .map((row) => parseEmpDcode(row.emp_dcode))
         );
         setExistingCodes(taken);
         setRows([{ ...EMPTY_ROW }]);
@@ -322,24 +333,24 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
   const visibleRows = useMemo(() => {
     const q = rowSearch.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((row) => `${row.employee_code || ""} ${row.name || ""}`.toLowerCase().includes(q));
+    return rows.filter((row) => `${row.emp_code || ""} ${row.name || ""}`.toLowerCase().includes(q));
   }, [rows, rowSearch]);
 
-  const addEmployeeRow = useCallback((code, item) => {
-    const employeeCode = String(code || "").trim();
-    if (!employeeCode) return;
-    if (existingCodes.has(employeeCode)) {
+  const addEmployeeRow = useCallback((dcodeRaw, item) => {
+    const empDcode = parseEmpDcode(dcodeRaw);
+    if (!empDcode) return;
+    if (existingCodes.has(empDcode)) {
       toast.warning("Already saved for this date.");
       return;
     }
     let filled = false;
     setRows((prev) => {
-      if (prev.some((row) => String(row.employee_code || "").trim() === employeeCode)) {
+      if (prev.some((row) => parseEmpDcode(row.emp_dcode) === empDcode)) {
         toast.warning("Already in list.");
         return prev;
       }
-      const nextRow = buildManualRow(employeeCode, item);
-      const emptyIdx = prev.findIndex((row) => !String(row.employee_code || "").trim());
+      const nextRow = buildManualRow(empDcode, item);
+      const emptyIdx = prev.findIndex((row) => !parseEmpDcode(row.emp_dcode));
       filled = true;
       if (emptyIdx >= 0) return prev.map((row, i) => (i === emptyIdx ? nextRow : row));
       return [...prev, nextRow];
@@ -399,7 +410,6 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
           id: record.id,
           attendance_date: date,
           shift: manual.shift,
-          employee_code: manual.employee_code,
           name: manual.name,
           in: normalizeInDateTime(manual.in, date) || manual.in || null,
           out: normalizeOutDateTime(manual.out, date, manual.in) || manual.out || null,
@@ -408,7 +418,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
         toast.success(res.message || "Saved.");
       } else if (entryType === "manual") {
         const blankIndexes = rows
-          .map((row, index) => (!String(row.employee_code || "").trim() ? index : -1))
+          .map((row, index) => (!parseEmpDcode(row.emp_dcode) ? index : -1))
           .filter((index) => index >= 0);
         if (blankIndexes.length) {
           const blankErr = {};
@@ -425,13 +435,13 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
           return;
         }
 
-        const payloadRows = rows.filter((row) => String(row.employee_code || "").trim());
+        const payloadRows = rows.filter((row) => parseEmpDcode(row.emp_dcode));
         if (!payloadRows.length) return toast.warning("Add employee.");
         if (payloadRows.some((row) => !row.shift)) return toast.warning("Select shift.");
 
         const errors = {};
         rows.forEach((row, index) => {
-          if (!String(row.employee_code || "").trim()) return;
+          if (!parseEmpDcode(row.emp_dcode)) return;
           const err = {};
           if (!String(rowIn(row) || "").trim()) err.in = true;
           if (!String(rowOut(row) || "").trim()) err.out = true;
@@ -447,7 +457,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
           const firstKey = Object.keys(errors)[0];
           const firstErr = errors[firstKey];
           const first = rows[Number(firstKey)];
-          const who = first?.employee_code ? ` for ${first.employee_code}` : "";
+          const who = first?.emp_code ? ` for ${first.emp_code}` : "";
           toast.warning(
             firstErr?.out === "before_in"
               ? `Out must be after In${who}.`
@@ -463,7 +473,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
           date,
           entry_type: "manual",
           rows: payloadRows.map((row) => ({
-            employee_code: row.employee_code,
+            emp_dcode: row.emp_dcode,
             name: row.name,
             shift: defaultShift(row),
             in: normalizeInDateTime(rowIn(row), date) || rowIn(row) || null,
@@ -514,7 +524,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
           rows: submitRows.map((row) => {
             const index = rows.indexOf(row);
             return {
-              employee_code: row.employee_code,
+              emp_dcode: row.emp_dcode,
               name: row.name,
               shift: defaultShift(row),
               in: normalizeInDateTime(rowIn(row), date) || rowIn(row) || null,
@@ -639,7 +649,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                             value={addEmployeeCode || null}
                             onChange={(id, item) => addEmployeeRow(id, item)}
                             fetchService={fetchEmployees}
-                            dataKey="emp_code"
+                            dataKey="emp_dcode"
                             labelKey="emp_name"
                             subLabelKey="emp_code"
                             placeholder="Search employee to add…"
@@ -685,7 +695,10 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                         const baseDate = String(date || "").slice(0, 10);
                         const inRange = dateRangeForIn(baseDate);
                         const outRange = dateRangeForOut(baseDate, rowIn(row));
-                        const totals = rowTotals(row);
+                        const totals = rowTotals(
+                          { ...row, attendance_date: row.attendance_date || date },
+                          { overtimeBufferMinutes: overtimeBufferMinutes ?? row.overtime_buffer_minutes }
+                        );
                         return (
                           <tr
                             key={rowKey(row, index)}
@@ -704,40 +717,40 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                             <td className="px-2.5 sm:px-3 py-1.5 border-b border-slate-100 align-top min-w-[9rem]">
                               {entryType === "manual" ? (
                                 <SearchableSelect
-                                  key={`row-emp-${index}-${row.employee_code || "empty"}`}
+                                  key={`row-emp-${index}-${row.emp_dcode || "empty"}`}
                                   label=""
-                                  value={row.employee_code || null}
+                                  value={row.emp_dcode || null}
                                   onChange={(id, item) => {
-                                    const code = String(id || "").trim();
-                                    if (!code) {
-                                      patchRow(index, { employee_code: "", name: "", in: "", out: "" });
+                                    const dcode = parseEmpDcode(id);
+                                    if (!dcode) {
+                                      patchRow(index, { emp_dcode: "", emp_code: "", name: "", in: "", out: "" });
                                       return;
                                     }
-                                    if (existingCodes.has(code)) {
+                                    if (existingCodes.has(dcode)) {
                                       toast.warning("Already saved for this date.");
                                       return;
                                     }
-                                    if (rows.some((r, i) => i !== index && String(r.employee_code || "").trim() === code)) {
+                                    if (rows.some((r, i) => i !== index && parseEmpDcode(r.emp_dcode) === dcode)) {
                                       toast.warning("Already in list.");
                                       return;
                                     }
-                                    patchRow(index, buildManualRow(code, item));
+                                    patchRow(index, buildManualRow(dcode, item));
                                   }}
                                   fetchService={fetchEmployees}
-                                  dataKey="emp_code"
+                                  dataKey="emp_dcode"
                                   labelKey="emp_name"
                                   subLabelKey="emp_code"
                                   placeholder="Select employee…"
                                   heightClass="h-10 sm:h-9"
-                                  isOptionDisabled={(item) => isEmployeeOptionDisabled(item, row.employee_code)}
+                                  isOptionDisabled={(item) => isEmployeeOptionDisabled(item, row.emp_dcode)}
                                   resolvedOption={
-                                    row.employee_code
-                                      ? { emp_code: row.employee_code, emp_name: row.name || row.employee_code }
+                                    row.emp_dcode
+                                      ? { emp_dcode: row.emp_dcode, emp_code: row.emp_code, emp_name: row.name || row.emp_code }
                                       : null
                                   }
                                 />
                               ) : (
-                                <span className="font-mono text-xs font-bold text-indigo-700">{row.employee_code || "—"}</span>
+                                <span className="font-mono text-xs font-bold text-indigo-700">{row.emp_code || "—"}</span>
                               )}
                             </td>
                             <td className="px-2.5 sm:px-3 py-1.5 border-b border-slate-100 text-xs font-semibold text-slate-900 align-middle">
@@ -844,15 +857,27 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                               </p>
                             </td>
                             <td className="px-2.5 sm:px-3 py-1.5 border-b border-slate-100 align-top">
-                              <div className="space-y-0.5 text-[10px] font-semibold text-slate-500 leading-tight min-w-[10.5rem]">
-                                {totals.lines.map((line) => (
-                                  <p key={line.key} className="flex justify-between gap-2">
-                                    <span>{line.label}</span>
-                                    <span className={`tabular-nums font-black ${line.mins == null ? "text-slate-400" : HOURS_TONE[line.tone] || HOURS_TONE.muted}`}>
-                                      {line.value}
-                                    </span>
-                                  </p>
-                                ))}
+                              <div className="relative group min-w-[10.5rem]">
+                                <div className="space-y-0.5 text-[10px] font-semibold text-slate-500 leading-tight cursor-help">
+                                  {totals.lines.map((line) => (
+                                    <p key={line.key} className="flex justify-between gap-2">
+                                      <span>{line.label}</span>
+                                      <span className={`tabular-nums font-black ${line.mins == null ? "text-slate-400" : HOURS_TONE[line.tone] || HOURS_TONE.muted}`} >
+                                        {line.value}
+                                      </span>
+                                    </p>
+                                  ))}
+                                </div>
+                                {totals.calcHints?.length ? (
+                                  <div className="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden min-w-[14rem] max-w-[18rem] rounded-lg border border-slate-200 bg-slate-900 p-2.5 text-[10px] font-semibold text-slate-100 shadow-lg group-hover:block">
+                                    <p className="mb-1.5 text-[9px] font-black uppercase tracking-wide text-slate-400">Calc (min only)</p>
+                                    <ul className="space-y-1 leading-snug tabular-nums">
+                                      {totals.calcHints.map((hint) => (
+                                        <li key={hint.key}>{hint.text}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : null}
                               </div>
                             </td>
                             
@@ -910,7 +935,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                 <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
                   <div className="min-[400px]:col-span-2">
                     <FormLabel>Employee</FormLabel>
-                    <input value={`${manual.employee_code || ""}${manual.name ? ` — ${manual.name}` : ""}`} disabled className={`${FIELD} mt-1`} />
+                    <input value={`${manual.emp_code || ""}${manual.name ? ` — ${manual.name}` : ""}`} disabled className={`${FIELD} mt-1`} />
                   </div>
                   <div>
                     <FormLabel>Shift</FormLabel>

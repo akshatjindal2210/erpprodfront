@@ -1,14 +1,14 @@
 "use client";
 
-import { X, RefreshCcw, Loader2 } from "lucide-react";
+import { RefreshCcw, Loader2, X } from "lucide-react";
+import { ListPageFooter } from "@/ui/common/list/listPageUi";
 
+/** Toolbar selection strip — RM Store lists only (IMS uses footer selection). */
 export function MasterSelectionBanner({ children, onClear }) {
   if (!children) return null;
   return (
     <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-      <span className="text-[10px] font-bold text-indigo-600 uppercase italic whitespace-normal break-words text-left leading-snug">
-        {children}
-      </span>
+      <span className="text-[10px] font-bold text-indigo-600 uppercase truncate min-w-0">{children}</span>
       <button
         type="button"
         onClick={onClear}
@@ -20,14 +20,9 @@ export function MasterSelectionBanner({ children, onClear }) {
   );
 }
 
-export function MasterListFooter({ shown, total, noun = "entries" }) {
-  return (
-    <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 shrink-0">
-      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-        Showing {shown} of {total} {noun}
-      </span>
-    </div>
-  );
+/** IMS list footer — same as HRMS ListPageFooter (selection bottom-right). */
+export function MasterListFooter(props) {
+  return <ListPageFooter {...props} />;
 }
 
 export function MasterRefreshButton({ loading, onClick, className = "" }) {

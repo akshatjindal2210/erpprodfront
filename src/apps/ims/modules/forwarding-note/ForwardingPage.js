@@ -9,6 +9,7 @@ import { forwardingNoteService } from "@/apps/ims/lib/services/forwardingNote";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
+import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
 
 // Components
 import ForwardingModal from "@/apps/ims/modules/forwarding-note/ForwardingModal"; 
@@ -369,7 +370,6 @@ export default function ForwardingPage() {
 
       setAllRows(data);
       if (reportType === "summary") setSummaryRowsCache(data);
-      setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Failed to load forwarding notes.");
       setAllRows([]);
@@ -428,7 +428,7 @@ export default function ForwardingPage() {
 
   useEffect(() => {
     setDisplayLimit(100);
-  }, [tempSearch, reportType, params.status, params.dispatchFilter]);
+  }, [tempSearch, reportType, params.status, params.dispatchFilter, params.fromDate, params.toDate]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -499,6 +499,18 @@ export default function ForwardingPage() {
   const selectedLockStatus = useMemo(
     () => (selectedRecord ? formatLockStatusCell(selectedRecord) : null),
     [selectedRecord]
+  );
+
+  const forwardingMasterSelectionLabel = useCallback(
+    (r) => {
+      const fuid =
+        reportType === "summary"
+          ? String(r?.fuid ?? "—")
+          : `${r?.fuid ?? "—"} · ${r?.item_code || "—"}`;
+      const lock = r ? formatLockStatusCell(r)?.text : "";
+      return `Selected: FUID ${fuid} · PO ${r?.po_number || "—"}${lock ? ` · ${lock}` : ""}`;
+    },
+    [reportType]
   );
 
   const selectedBillItem = useMemo(
@@ -1087,23 +1099,6 @@ export default function ForwardingPage() {
             }
           />
 
-          {outerTab === "dispatch_plan" && dispatchSelected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide break-all min-w-0">
-                Selected: {dispatchSelected.schno || "—"}
-                {dispatchSelected.item_code ? ` · ${dispatchSelected.item_code}` : ""}
-                {dispatchSelected.acc_name ? ` · ${dispatchSelected.acc_name}` : ""}
-              </span>
-              <button
-                type="button"
-                onClick={clearDispatchSelection}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
-              >
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
-
           {outerTab === "forwarding_master" && itemWiseFuidFilter != null && reportType === "item_wise" ? (
             <div className="flex items-center justify-between px-3 py-1.5 bg-cyan-50 border border-cyan-100">
               <span className="text-[10px] font-bold text-cyan-800 uppercase flex items-center gap-2">
@@ -1119,35 +1114,8 @@ export default function ForwardingPage() {
             </div>
           ) : null}
 
-          {outerTab === "forwarding_master" && selectedId && (
-            <div className="border-b border-indigo-100 bg-indigo-50 px-3 py-2 space-y-2">
-              <div className="flex items-start justify-between gap-2 min-w-0">
-                <span className="text-[10px] font-bold text-indigo-600 uppercase flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0 flex-1 leading-snug">
-                  <Info size={12} className="shrink-0" />
-                  <span className="break-all">
-                    Selected: FUID{" "}
-                    {reportType === "summary" ? selectedRecord?.fuid : `${selectedRecord?.fuid} · ${selectedRecord?.item_code || "—"}`}
-                  </span>
-                  <span className="text-indigo-400 font-semibold normal-case break-all">
-                    PO {selectedRecord?.po_number || "—"}
-                  </span>
-                  {selectedLockStatus ? (
-                    <span
-                      className={`px-1.5 py-0.5 border text-[8px] font-black uppercase ${selectedLockStatus.className}`}
-                    >
-                      {selectedLockStatus.text}
-                    </span>
-                  ) : null}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0 pt-0.5"
-                >
-                  <X size={14} /> Clear
-                </button>
-              </div>
-
+          {outerTab === "forwarding_master" && selectedId && canAssignLineBill ? (
+            <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 space-y-2">
               {canAssignLineBill ? (
                 <div className="w-full min-w-0 space-y-1" data-compact-form-bar>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
@@ -1205,7 +1173,7 @@ export default function ForwardingPage() {
               ) : null}
               */}
             </div>
-          )}
+          ) : null}
         </ListPageToolbar>
 
         {outerTab === "dispatch_plan" ? (
@@ -1295,15 +1263,15 @@ export default function ForwardingPage() {
               />
             </div>
 
-            <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                Showing {items.length} of {totalItems} {reportType === 'summary' ? 'Notes' : 'Items'}
-              </span>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-              </div>
-            </div>
+            <MasterListFooter
+              shown={items.length}
+              total={totalItems}
+              noun={reportType === "summary" ? "Notes" : "Items"}
+              selected={selectedId}
+              selectedRecord={selectedRecord}
+              selectionLabel={forwardingMasterSelectionLabel}
+              onClearSelection={() => setSelectedId(null)}
+            />
           </>
         )}
       </div>

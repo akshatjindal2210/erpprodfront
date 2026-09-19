@@ -3,6 +3,7 @@
  */
 import { IMS_APP_CONFIG } from "@/apps/ims/lib/config/app.config";
 import { RMSTORE_APP_CONFIG } from "@/apps/rmstore/lib/config/app.config";
+import { HRMS_APP_CONFIG } from "@/apps/hrms/lib/config/app.config";
 import { TASK_APP_CONFIG } from "@/apps/task/lib/config/settingsApp.config";
 import {
   ADMIN_CONSOLE_APP_CONFIG,
@@ -13,6 +14,7 @@ export const APP_CONFIG_TABS = [
   ADMIN_CONSOLE_APP_CONFIG.tab,
   IMS_APP_CONFIG.tab,
   RMSTORE_APP_CONFIG.tab,
+  HRMS_APP_CONFIG.tab,
   TASK_APP_CONFIG.tab,
   SHORTCUT_APP_CONFIG.tab,
 ];
