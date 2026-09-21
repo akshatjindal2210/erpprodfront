@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { ROUTES } from "@/apps/rmstore/lib/utils/routes";
 
-/** Legacy URL — MRN list lives under master like IMS Packing Entry. */
 export default function Page() {
   redirect(ROUTES.RM_MRN_PORTAL);
 }

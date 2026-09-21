@@ -144,12 +144,14 @@ export default function RmSpecMasterPage() {
     () => [
       ["Item Code", "item_code", (v) => <span className="font-bold text-slate-800 uppercase text-[11px]">{v || "—"}</span>, { fixed: true, width: "140px" }],
       ["Description", "item_desc", (v) => <span className="text-[11px] text-slate-600 truncate block">{v || "—"}</span>, { width: "220px" }],
+      ["Condition", "condition", (v) => <span className="text-[11px] text-slate-600 truncate block">{v || "—"}</span>, { width: "100px" }],
+      ["Grade", "grade", (v) => <span className="text-[11px] text-slate-600 truncate block">{v || "—"}</span>, { width: "100px" }],
+      ["Size", "size", (v) => <span className="text-[11px] font-bold text-slate-700 uppercase truncate block">{v || "—"}</span>, { width: "100px" }],
       /*
       ["Condition", "condition", (v, row) => <SpecColorChip value={v} color={row?.condition_color} />, { width: "120px" }],
+      ["Grade Color", "grade_color", (v) => <SpecColorChip value={v} />, { width: "120px" }],
       ["Grade", "grade", (v, row) => <SpecColorChip value={v} color={row?.grade_color} />, { width: "120px" }],
       ["Size", "size", (v) => <span className="text-[11px] font-bold text-slate-700 uppercase truncate block">{v || "—"}</span>, { width: "100px" }],
-      ["Condition Color", "condition_color", (v) => <SpecColorChip value={v} />, { width: "130px" }],
-      ["Grade Color", "grade_color", (v) => <SpecColorChip value={v} />, { width: "120px" }],
       ["Spec Count", "spec_count", (v) => (
           <span className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded bg-indigo-50 text-indigo-700 text-[10px] font-black">
             {v ?? 0}

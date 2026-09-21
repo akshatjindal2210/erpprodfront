@@ -221,7 +221,7 @@ export default function InventoryReportPage() {
             v != null && String(v).trim() !== "" && String(v).trim() !== "—"
               ? String(v).trim()
               : "—";
-          const tip = formatCoilUidTooltip("Issuable coils", row?.issuable_coil_uids);
+          const tip = formatCoilUidTooltip("Coils (total stock)", row?.total_stock_coil_uids);
           return (
             <span className={`${tableCellClass("text")} ${tip ? "cursor-help" : ""}`} title={tip}>
               {display}

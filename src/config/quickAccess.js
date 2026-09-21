@@ -37,7 +37,7 @@ const HOME = [
 
 const RMSTORE = [
   { id: "home", label: "Home", icon: <Zap size={13} />, path: RMSTORE_ROUTES.RM_STORE_DASHBOARD },
-  { id: "mrn", label: "MRN Portal", icon: <ClipboardCheck size={13} />, path: RMSTORE_ROUTES.RM_MRN_PORTAL, module: "rm_mrn_portal" },
+  { id: "mrn", label: "MRN Entry", icon: <ClipboardCheck size={13} />, path: RMSTORE_ROUTES.RM_MRN_PORTAL, module: "rm_mrn_portal" },
   { id: "coils", label: "Coils", icon: <Layers size={13} />, path: RMSTORE_ROUTES.RM_COIL_TABLE, module: "rm_coils" },
   { id: "store-in", label: "Store In", icon: <Warehouse size={13} />, path: RMSTORE_ROUTES.RM_STORE_IN, module: "rm_inventory_inwards" },
   { id: "qc", label: "QC Check", icon: <ShieldCheck size={13} />, path: RMSTORE_ROUTES.RM_QC_CHECK, module: "rm_qc_check" },

@@ -343,6 +343,7 @@ export default function RmRejectionPage() {
 
   const handleOpenViewDrawer = (row = selectedRecord) => {
     if (!row) return;
+    if (!viewAccess.allowed) return;
     setViewRow(row);
     setViewDrawerOpen(true);
   };

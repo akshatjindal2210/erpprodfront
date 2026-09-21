@@ -357,11 +357,13 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     const startTotal = Number.isFinite(qty) ? roundQty3(qty) : 0;
     const editable = data?.qty_editable !== false;
     const autoCalc = data?.qty_auto_calc !== false;
-    setCoilCount("1");
+    const lot = String(data?.it_lot_no ?? data?.itLotNo ?? "").trim();
+    const initialCount = /^\d+$/.test(lot) ? Math.max(1, Math.min(9999, Number(lot))) : 1;
+    setCoilCount(String(initialCount));
     if (autoCalc || !editable) {
-      setCoilQtys(buildCoilQtys(1, startTotal, { autoCalc }));
+      setCoilQtys(buildCoilQtys(initialCount, startTotal, { autoCalc }));
     } else {
-      setCoilQtys([""]);
+      setCoilQtys(Array.from({ length: initialCount }, () => ""));
     }
     setHeatNo("");
     setRemarks("");
@@ -1675,7 +1677,13 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         }
         onClose?.();
       }}
-      onSubmit={!alreadyGenerated && !generating && !savingDraft ? handleShortcutSave : undefined}
+      onSubmit={
+        showApprovalFlow && canShowApproveAction && !approving
+          ? () => void handleApprove()
+          : !alreadyGenerated && !generating && !savingDraft
+            ? handleShortcutSave
+            : undefined
+      }
       onPrintHotkey={
         showPrintHeader && generatedCoils.length
           ? () => {
@@ -1768,7 +1776,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                       type="button"
                       onClick={() => void handleApprove()}
                       disabled={approving || !canApprove}
-                      title={!canApprove ? "Scan all coil and QC stickers first." : "Approve stickers"}
+                      title={!canApprove ? "Scan all coil and QC stickers first." : "Approve stickers (Ctrl+S)"}
                       className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white px-2 sm:px-6 py-1.5 sm:py-2.5 rounded-lg text-[9px] sm:text-xs font-black inline-flex items-center justify-center gap-1 sm:gap-2 shadow-md touch-manipulation flex-1 sm:flex-initial min-h-[34px]"
                     >
                       {approving ? <Loader2 size={14} className="animate-spin shrink-0" /> : <ShieldCheck size={14} className="shrink-0" />}

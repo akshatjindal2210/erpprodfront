@@ -1,8 +1,10 @@
 # Version notes
 
+Cross-app **internal helper API** catalog (paths, allowlists, caller pages): [../internal-helper-apis.md](../internal-helper-apis.md).
+
 | Note | Topic |
 |------|--------|
-| [v4.3.9.md](./v4.3.9.md) | RM Issue Request FIFO start · vendor · heat no · pending Store In machine · **RM Inventory Audit** |
+| [v4.3.9.md](./v4.3.9.md) | RM Issue Request FIFO · print · IPR pending · MRN coil count from lot · Inventory location · Store Out UX |
 | [v4.3.8.md](./v4.3.8.md) | Auto Deviation · RM MRN/SA workflow · QC · Store Out fix · Tab order · HRMS Attendance Log |
 | [v4.3.7.md](./v4.3.7.md) | RM Store Stock Adjustment · MRN Portal · Phone print |
 | [v4.3.6.md](./v4.3.6.md) | Manage Tray · Out Entry recheck · ERP Stock Adjust · Deviation qty |

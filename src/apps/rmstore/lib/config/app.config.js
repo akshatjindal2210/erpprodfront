@@ -16,7 +16,7 @@ export const RMSTORE_APP_CONFIG = {
       description: "RM Store app-level options.",
       layout: [
         ["inward_location_validation", "location_capacity_validation", "mrn_sticker_mode"],
-        ["mrn_coil_qty_editable", "mrn_coil_qty_auto_calc"],
+        ["mrn_coil_qty_editable", "mrn_coil_qty_auto_calc", "qc_check_require_sticker_scan"],
       ],
     },
   ],

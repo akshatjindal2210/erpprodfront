@@ -336,8 +336,9 @@ export default function MrnPortalPage() {
       toast.info("Select a row first to view details.");
       return;
     }
+    if (!viewAccess.allowed) return;
     setDetailOpen(true);
-  }, [selectedRecord]);
+  }, [selectedRecord, viewAccess]);
 
   const openStickerModal = useCallback((mode = "create") => {
     if (!selectedRecord) {
@@ -504,9 +505,9 @@ export default function MrnPortalPage() {
       ["MRN UID", "uid", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
       // ["MRN No", "mrn_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
       ["Date", "mrn_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDay(v)}</span>, { width: "100px" }],
-      ["Coil No", "it_lot_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>, { width: "140px" }],
       ["Lot / Heat No", "heat_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>, { width: "140px" }],
       ["Quantity", "it_recp_qty", renderMrnQtyCell, { width: "100px", cardRender: renderMrnQtyCell }],
+      ["Coil No", "it_lot_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>, { width: "140px" }],
       // ["Unit", "it_unit", (v) => <span className="text-[10px] font-bold text-slate-600 tabular-nums">{v ?? "—"}</span>, { width: "70px" }],
       ["Vendor", "acc_name", (v) => (
         <span className="text-slate-800 font-bold text-[10px] uppercase whitespace-normal break-words leading-snug" title={v || ""}>
@@ -536,7 +537,7 @@ export default function MrnPortalPage() {
   );
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
-    moduleName: "MRN Portal",
+    moduleName: "MRN Entry",
     rows: filteredRows,
     headers: HEADERS,
   });
@@ -775,7 +776,7 @@ export default function MrnPortalPage() {
         <RmStoreListFooter
           shown={items.length}
           total={totalItems}
-          label="MRN Entries"
+          label="Entries"
           {...footerFilter}
         />
       </div>

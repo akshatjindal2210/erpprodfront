@@ -1154,7 +1154,16 @@ export default function DataTable({
                               ? (e) => handleRowClickEvent(e, item, currentId)
                               : undefined
                         }
-                        className={`group ${trRowSelectedClass}${rowToneClass ? ` ${rowToneClass}` : ""}${!cellSelectActive && rowClickable ? " cursor-pointer" : ""}`}
+                        onDoubleClick={
+                          typeof onRowDoubleClick === "function"
+                            ? (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onRowDoubleClick(item, currentId);
+                              }
+                            : undefined
+                        }
+                        className={`group ${trRowSelectedClass}${rowToneClass ? ` ${rowToneClass}` : ""}${!cellSelectActive && rowClickable ? " cursor-pointer" : ""}${typeof onRowDoubleClick === "function" ? " cursor-pointer" : ""}`}
                       >
                         {showSelection && (
                           <td

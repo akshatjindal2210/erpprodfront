@@ -5,7 +5,9 @@ import { RefreshCw, ShieldCheck, Eye, ClipboardCheck, CheckCircle, ClipboardList
 import { toast } from "react-toastify";
 
 import { qcCheckService } from "@/apps/rmstore/lib/services/qcCheck";
+import { appConfigService } from "@/apps/settings/lib/services/appConfigService";
 import { printCoilReport } from "@/apps/rmstore/lib/utils/coilReportActions";
+import { mrnUidsMatch } from "@/apps/rmstore/lib/helpers/qrScan";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
@@ -128,6 +130,31 @@ export default function QcCheckPage() {
   const closingAfterQcSuccessRef = useRef(false);
   const [deleteItem, setDeleteItem] = useState(null);
   const [printing, setPrinting] = useState(false);
+  /** App Config: QC Check — require sticker scan (default true). */
+  const [requireStickerScan, setRequireStickerScan] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await appConfigService.list("rmstore");
+        const rows = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        const hit = rows.find((r) => String(r?.key || r?.config_key || "") === "qc_check_require_sticker_scan");
+        const raw = hit?.config_value ?? hit?.value;
+        if (cancelled) return;
+        if (raw == null || String(raw).trim() === "") {
+          setRequireStickerScan(true);
+          return;
+        }
+        setRequireStickerScan(String(raw).trim().toLowerCase() === "true");
+      } catch {
+        if (!cancelled) setRequireStickerScan(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleTabChange = (tab) => {
     setPageTab(tab);
@@ -212,34 +239,11 @@ export default function QcCheckPage() {
         toast.error("You do not have permission to perform a QC check.");
         return;
       }
+      if ((forceView || !editable) && !viewAccess.allowed) return;
 
       setModal({ open: true, mode: forceView || !editable ? "view" : "inspect", row });
     },
-    [hasAddPermission, hasEditPermission]
-  );
-
-  /**
-   * Pending Check — scan QC sticker (coil or batch), then Spec form.
-   * Batch: first coil opens immediately; remaining coils queue after each submit.
-   */
-  const openCheckWithScan = useCallback(
-    (row) => {
-      if (!hasAddPermission) {
-        toast.error("You do not have permission to perform a QC check.");
-        return;
-      }
-      const target = row || selectedRecord || null;
-      // Draft = sticker already scanned once and saved — skip scan gate
-      const st = String(target?.status || "").toLowerCase();
-      if (target && st === "draft" && target.coil_no_uid) {
-        setPostScanQueue([]);
-        openInspect(target);
-        return;
-      }
-      setPostScanQueue([]);
-      setScanGate({ open: true, row: target });
-    },
-    [selectedRecord, hasAddPermission, openInspect]
+    [hasAddPermission, hasEditPermission, viewAccess]
   );
 
   /** Open Spec Check form for the unlocked coil (fill values → submit). */
@@ -253,13 +257,11 @@ export default function QcCheckPage() {
       const queue = Array.isArray(remainingQueue) ? remainingQueue : [];
       setPostScanQueue(queue);
       if (queue.length > 0 || unlockedRow?.is_batch_pending) {
-        // If it's a batch result (all UIDs in one string), or if there's a queue
         setBatchCoils(unlockedRow?.is_batch_pending ? [] : [unlockedRow, ...queue]);
       } else {
         setBatchCoils([]);
       }
       const st = String(unlockedRow.status || "").toLowerCase();
-      // Close scan gate, then open Spec form (same inspect drawer as before)
       window.setTimeout(() => {
         if (st === "awaiting_approval" && unlockedRow.qc_check_uid) {
           if (hasAuthorizePermission) {
@@ -275,6 +277,103 @@ export default function QcCheckPage() {
       }, 0);
     },
     [openInspect, hasAuthorizePermission, hasEditPermission]
+  );
+
+  /**
+   * Pending Check — optional sticker scan (App Config), then Spec form.
+   * When scan is disabled: open Spec directly after prepare (same unlock path as scan success).
+   */
+  const openCheckDirect = useCallback(
+    async (row) => {
+      const target = row || selectedRecord || null;
+      if (!target) {
+        toast.info("Select a pending QC row first.");
+        return;
+      }
+      try {
+        const isBatch =
+          Boolean(target.is_batch_pending) ||
+          String(target.sticker_mode || "").toLowerCase() === "batch";
+
+        if (isBatch && target.mrn_uid) {
+          const uid = String(target.mrn_uid).trim();
+          const coilCsv = String(target.coil_no_uid || "");
+          if (coilCsv.includes(",")) {
+            await qcCheckService.prepare({ coil_no_uid: coilCsv, is_batch_qc: true });
+            openUnlockedRow({ ...target, is_batch_pending: true, coil_no_uid: coilCsv }, []);
+            return;
+          }
+          let list = [];
+          const res = await qcCheckService.getAll({
+            page: 1,
+            limit: 1000,
+            filters: { status: "pending", mrn_uid: uid, expand_coils: true },
+          });
+          list = (res?.data || []).filter((r) => String(r.coil_no_uid || "").trim());
+          if (!list.length) {
+            const allPending = await qcCheckService.getAll({
+              page: 1,
+              limit: 1000,
+              filters: { status: "pending", expand_coils: true },
+            });
+            list = (allPending?.data || []).filter(
+              (r) => String(r.coil_no_uid || "").trim() && mrnUidsMatch(r.mrn_uid, uid)
+            );
+          }
+          if (!list.length) {
+            toast.error("No pending coils were found for this batch MRN.");
+            return;
+          }
+          const batchRow = {
+            ...list[0],
+            coil_no_uid: list.map((c) => c.coil_no_uid).join(", "),
+            coil_count: list.length,
+            is_batch_pending: true,
+          };
+          await qcCheckService.prepare({ coil_no_uid: batchRow.coil_no_uid, is_batch_qc: true });
+          openUnlockedRow(batchRow, []);
+          return;
+        }
+
+        if (!target.coil_no_uid) {
+          toast.error("Coil UID is missing on this row.");
+          return;
+        }
+        const prepareBody = target.qc_check_uid
+          ? { qc_check_uid: target.qc_check_uid }
+          : { coil_no_uid: target.coil_no_uid };
+        await qcCheckService.prepare(prepareBody);
+        openUnlockedRow(target, []);
+      } catch (err) {
+        toast.error(
+          err?.message || "Specifications could not be loaded. Define them in RM Spec Master."
+        );
+      }
+    },
+    [selectedRecord, openUnlockedRow]
+  );
+
+  const openCheckWithScan = useCallback(
+    (row) => {
+      if (!hasAddPermission) {
+        toast.error("You do not have permission to perform a QC check.");
+        return;
+      }
+      const target = row || selectedRecord || null;
+      const st = String(target?.status || "").toLowerCase();
+      if (target && st === "draft" && target.coil_no_uid) {
+        setPostScanQueue([]);
+        openInspect(target);
+        return;
+      }
+      setPostScanQueue([]);
+      if (!requireStickerScan) {
+        void openCheckDirect(target);
+        return;
+      }
+      setScanGate({ open: true, row: target });
+    },
+    [selectedRecord, hasAddPermission, openInspect, requireStickerScan, openCheckDirect]
   );
 
   const handleQcModalSuccess = useCallback(

@@ -27,6 +27,7 @@ import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global"
 import { prepareQrScanSession, unlockScanAudio, playScanSuccessBeep } from "@/platform/utils/global/scanFeedback";
 import { parseSeedCoilUids } from "@/apps/rmstore/modules/out-entry/pendingOutRows";
 import { canAddCoilForMrnFifo, assertMrnScanFifoOrder } from "@/apps/rmstore/lib/utils/mrnFifoScan";
+import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 
 const STORE_OUT_KIND = {
   MRN: "store_out",
@@ -241,6 +242,8 @@ export default function CoilScanEntryModal({
   editItem = null,
   /** Pending scan-complete review + authorize (IMS-style approve modal). */
   approveMode = false,
+  /** Register double-click / view-only (requires view permission on the page). */
+  viewOnly = false,
   /** Pending-row seed: auto-load this MRN when opening a new Store Out */
   seedFromCoil = null,
   title,
@@ -250,8 +253,10 @@ export default function CoilScanEntryModal({
   /** Caller module for POST /coils/helper (default: Store Out). */
   permissionModule = "rm_out_entry",
 }) {
+  const canAccess = useCanAccess();
   const isOutMode = mode === "out";
   const isApproveMode = isOutMode && approveMode;
+  const isViewOnly = isOutMode && viewOnly;
   const isEdit = isOutMode && editItem?.out_uid != null;
   const coilCtx = useMemo(
     () => coilHelperContext(permissionModule, "view"),
@@ -663,6 +668,7 @@ export default function CoilScanEntryModal({
   );
 
   const tryAddCoilUid = async (uid) => {
+    if (isViewOnly) return;
     if (coilsRef.current.some((c) => stickerUidsMatch(c.coil_no_uid, uid))) {
       showScanToast("error", `dup-${uid}`, `Coil ${uid} has already been added.`, 1800);
       return;
@@ -919,6 +925,7 @@ export default function CoilScanEntryModal({
   };
 
   const removeCoil = (uid) => {
+    if (isViewOnly) return;
     setCoils((prev) => prev.filter((c) => c.coil_no_uid !== uid));
   };
 
@@ -1038,6 +1045,16 @@ export default function CoilScanEntryModal({
   };
 
   const persist = async (scan_complete, approvedOverride = undefined) => {
+    if (isOutMode) {
+      if (isViewOnly) return;
+      if (isApproveMode) {
+        if (!canAccess(permissionModule, "authorize").allowed) return;
+      } else if (isEdit) {
+        if (!canAccess(permissionModule, "edit").allowed) return;
+      } else if (!canAccess(permissionModule, "add").allowed) {
+        return;
+      }
+    }
     if (requireReason && !String(reason || "").trim()) {
       showScanToast("error", "need-reason", "A rejection reason is required.");
       return;
@@ -1140,9 +1157,11 @@ export default function CoilScanEntryModal({
         ? "New Out Entry"
         : isApproveMode
           ? "Approve Store Out"
-          : isEdit
-            ? "Edit Store Out"
-            : "New Out Entry"
+          : isViewOnly && isEdit
+            ? "View Store Out"
+            : isEdit
+              ? "Edit Store Out"
+              : "New Out Entry"
       : "Scan Coils");
 
   const drawerDescription =
@@ -1152,6 +1171,8 @@ export default function CoilScanEntryModal({
         ? "Select out type"
         : isApproveMode
           ? `OUT-${editItem.out_uid} · Review coils and authorize.`
+          : isViewOnly && isEdit
+            ? `OUT-${editItem.out_uid} · View coils and entry details.`
           : !isEdit && storeOutKind != null ? (
               <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 normal-case tracking-normal font-semibold">
                 <span className="uppercase tracking-tight font-bold">
@@ -1289,6 +1310,7 @@ export default function CoilScanEntryModal({
         isOpen={open}
         onClose={onClose}
         onSubmit={
+          isViewOnly ||
           showTypePicker ||
           saving ||
           loadingEdit ||
@@ -1305,6 +1327,12 @@ export default function CoilScanEntryModal({
             <div className={IMS_DRAWER_FOOTER_WRAP}>
               <button type="button" onClick={onClose} className={IMS_DRAWER_BTN_CANCEL}>
                 Cancel
+              </button>
+            </div>
+          ) : isViewOnly ? (
+            <div className={IMS_DRAWER_FOOTER_WRAP}>
+              <button type="button" onClick={onClose} className={IMS_DRAWER_BTN_CANCEL}>
+                Close
               </button>
             </div>
           ) : (
@@ -1399,7 +1427,7 @@ export default function CoilScanEntryModal({
             onToggleTorch={toggleTorch}
           />
 
-          {isAuthorizedEdit ? (
+          {isAuthorizedEdit && !isViewOnly ? (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
               <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
               <p className="text-[11px] text-amber-700 font-medium leading-normal">
@@ -1483,11 +1511,11 @@ export default function CoilScanEntryModal({
                       listHintKey="pending_coil_count"
                       listHintLabel="Coils"
                       required
-                      disabled={isConfirmed && !isEdit}
+                      disabled={isViewOnly || (isConfirmed && !isEdit)}
                       placeholder="Search by job card, issue UID, or item"
                     />
                   </div>
-                  {!isConfirmed && (
+                  {!isConfirmed && !isViewOnly && (
                     <button
                       type="button"
                       onClick={() => void handleConfirmJobCard()}
@@ -1511,7 +1539,8 @@ export default function CoilScanEntryModal({
                   fetchSuggestions={fetchStoreOutReasonSuggestions}
                   optionLabelKey="reason"
                   optionIdKey="reason"
-                  active={open && isMrnStoreOut}
+                  active={open && isMrnStoreOut && !isViewOnly}
+                  readOnly={isViewOnly}
                   comboboxShell
                   portalMenu
                   heightClass="h-9"
@@ -1553,7 +1582,7 @@ export default function CoilScanEntryModal({
                     </div>
                   </div>
                   <div className="space-y-2 p-1.5 bg-white border border-indigo-100 rounded-lg w-full min-w-0">
-                    {scanControls}
+                    {!isViewOnly ? scanControls : null}
                     {validatingCoil ? (
                       <div className="flex items-center gap-2 px-2 py-1 bg-white border border-indigo-100 rounded-lg">
                         <Loader2 size={12} className="animate-spin text-indigo-600" />
@@ -1591,21 +1620,25 @@ export default function CoilScanEntryModal({
                                   </span>
                                 </div>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => removeCoil(c.coil_no_uid)}
-                                title="Remove from scan list"
-                                className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all shrink-0"
-                              >
-                                <X size={16} />
-                              </button>
+                              {!isViewOnly ? (
+                                <button
+                                  type="button"
+                                  onClick={() => removeCoil(c.coil_no_uid)}
+                                  title="Remove from scan list"
+                                  className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all shrink-0"
+                                >
+                                  <X size={16} />
+                                </button>
+                              ) : null}
                             </div>
                           ))}
                         </div>
                       ) : (
                         <div className="py-8 text-center text-slate-300">
                           <ScanLine size={24} className="mx-auto opacity-20 mb-2" />
-                          <p className="text-[9px] font-bold uppercase tracking-wide">Ready for scanning</p>
+                          <p className="text-[9px] font-bold uppercase tracking-wide">
+                            {isViewOnly ? "No coils on this entry" : "Ready for scanning"}
+                          </p>
                         </div>
                       )}
                     </div>
@@ -1964,7 +1997,7 @@ export default function CoilScanEntryModal({
                     )}
 
                     <div className="space-y-2 p-1.5 bg-white border border-indigo-100 rounded-lg w-full min-w-0">
-                      {scanControls}
+                      {!isViewOnly ? scanControls : null}
                       {validatingCoil && (
                         <div className="flex items-center gap-2 px-2 py-1 bg-white border border-indigo-100 rounded-lg">
                           <Loader2 size={12} className="animate-spin text-indigo-600" />
@@ -2007,21 +2040,25 @@ export default function CoilScanEntryModal({
                                     </span>
                                   </div>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => removeCoil(c.coil_no_uid)}
-                                  title="Remove from scan list"
-                                  className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all shrink-0"
-                                >
-                                  <X size={16} />
-                                </button>
+                                {!isViewOnly ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeCoil(c.coil_no_uid)}
+                                    title="Remove from scan list"
+                                    className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all shrink-0"
+                                  >
+                                    <X size={16} />
+                                  </button>
+                                ) : null}
                               </div>
                             ))}
                           </div>
                         ) : (
                           <div className="py-8 text-center text-slate-300">
                             <ScanLine size={24} className="mx-auto opacity-20 mb-2" />
-                            <p className="text-[9px] font-bold uppercase tracking-wide">Ready for scanning</p>
+                            <p className="text-[9px] font-bold uppercase tracking-wide">
+                              {isViewOnly ? "No coils on this entry" : "Ready for scanning"}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -2037,10 +2074,11 @@ export default function CoilScanEntryModal({
                   onChange={(e) => setRemarks(e?.target?.value ?? e ?? "")}
                   placeholder="Driver, vehicle, seal"
                   rows={2}
+                  disabled={isViewOnly}
                 />
               </div>
 
-              {!isConfirmed && !isMrnStoreOut ? (
+              {!isConfirmed && !isMrnStoreOut && !isViewOnly ? (
                 <p className="text-[10px] text-slate-500 px-0.5">
                   Confirm selection to view coil locations and enable scanning.
                 </p>

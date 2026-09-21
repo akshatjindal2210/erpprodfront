@@ -6,7 +6,7 @@ export const ROUTES = {
   RM_PRODUCTION_MASTER: `${RM}/master/production`,
   RM_SPEC_MASTER: `${RM}/master/rm-spec`,
   RM_STORE_LOCATION_MASTER: `${RM}/master/store-location`,
-  RM_MRN_PORTAL: `${RM}/mrn-portal`,
+  RM_MRN_PORTAL: `${RM}/master/mrn-entry`,
   RM_COIL_TABLE: `${RM}/coils`,
   RM_STORE_IN: `${RM}/inventory-inward`,
   RM_QC_CHECK: `${RM}/qc-check`,

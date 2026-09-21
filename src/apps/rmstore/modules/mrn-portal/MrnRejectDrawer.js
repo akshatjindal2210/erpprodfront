@@ -34,11 +34,13 @@ function buildCoilQtys(count, total, autoCalc) {
   return autoCalc ? splitQtyAcrossCoils(total, n) : equalSplitQtyAcrossCoils(total, n);
 }
 
-function initialCoilCount(detail) {
+function initialCoilCount(detail, row) {
   const draft = parseStickerDraft(detail?.sticker_draft);
   if (draft?.coil_count != null) {
     return Math.max(1, Number(draft.coil_count) || 1);
   }
+  const lot = String(detail?.it_lot_no ?? detail?.itLotNo ?? row?.it_lot_no ?? row?.itLotNo ?? "").trim();
+  if (/^\d+$/.test(lot)) return Math.max(1, Math.min(9999, Number(lot)));
   return 1;
 }
 
@@ -106,7 +108,7 @@ export default function MrnRejectDrawer({ open, onClose, onSuccess, row }) {
         return;
       }
       setDetail(data);
-      setCoilCount(initialCoilCount(data));
+      setCoilCount(initialCoilCount(data, row));
       setRemark("");
     } catch (err) {
       toast.error(err?.message || "Could not load the MRN. Please try again.");

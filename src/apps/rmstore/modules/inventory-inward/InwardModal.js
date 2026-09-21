@@ -42,7 +42,6 @@ const MSG = {
   LOCATION_AT_LEAST_ONE_COIL: "Please add at least one coil to this location.",
   LOCATION_EMPTY_TITLE: "No locations added yet.",
   LOCATION_EMPTY_SUBTITLE: "Search or scan a location to start adding coils.",
-  COIL_ALREADY_STORED: "This coil is already stored in a location.",
   COIL_DUPLICATE: (uid) => `Coil ${uid} has already been added.`,
   COIL_DUPLICATE_OTHER: (locName) => `This coil is already assigned to "${locName}".`,
   COIL_NOT_FOUND: "Coil not found. Check the UID and try again.",
@@ -617,17 +616,6 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
         );
         return;
       }
-      if (coil.location_id) {
-        const sameInward =
-          editId != null &&
-          coil.in_uid != null &&
-          Number(coil.in_uid) === Number(editId);
-        if (!sameInward) {
-          showScanToast("error", "coil-stored", MSG.COIL_ALREADY_STORED);
-          return;
-        }
-      }
-
       setLocations((prev) =>
         prev.map((loc, i) => (i === li ? { ...loc, coils: [...loc.coils, coil] } : loc))
       );

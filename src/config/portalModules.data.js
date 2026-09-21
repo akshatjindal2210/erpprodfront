@@ -62,7 +62,7 @@ export const MODULES = {
     { name: "rm_production_master", label: "Production Master" },
     { name: "rm_spec_master", label: "RM Spec Master" },
     { name: "rm_store_location_master", label: "RM Store Location Master" },
-    { name: "rm_mrn_portal", label: "MRN Portal" },
+    { name: "rm_mrn_portal", label: "MRN Entry" },
     { name: "rm_coils", label: "Coils" },
     { name: "rm_inventory_inwards", label: "Store In" },
     { name: "rm_qc_check", label: "QC Check" },

@@ -9,7 +9,7 @@ import Drawer from "@/ui/primitives/Drawer";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { FormLabel, OK_INPUT } from "@/ui/common/Constants";
 import { attendanceService } from "@/apps/hrms/lib/services/hrms";
-import { fetchEmployeeViews } from "@/apps/hrms/lib/helpers/employeeHelper";
+import { fetchEmployeeByDcode, fetchEmployeeViews } from "@/apps/hrms/lib/helpers/employeeHelper";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { todayYmd, toTimeInput, rowIn, rowOut, rowFingerprint, defaultShift, defaultTimesFromEmployee, 
@@ -737,8 +737,12 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                                     patchRow(index, buildManualRow(dcode, item));
                                   }}
                                   fetchService={fetchEmployees}
+                                  getByIdService={(dcode) =>
+                                    fetchEmployeeByDcode({ pageModule: MODULE, pageAction: "view", emp_dcode: dcode })
+                                  }
                                   dataKey="emp_dcode"
                                   labelKey="emp_name"
+                                  selectedLabelKey="emp_code"
                                   subLabelKey="emp_code"
                                   placeholder="Select employee…"
                                   heightClass="h-10 sm:h-9"

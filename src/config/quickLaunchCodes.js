@@ -58,7 +58,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "RPM", label: "RM Production Master",       route: ROUTES.RM_PRODUCTION_MASTER,    module: "rm_production_master",      app: "rmstore" },
   { code: "RSM", label: "RM Spec Master",             route: ROUTES.RM_SPEC_MASTER,          module: "rm_spec_master",            app: "rmstore" },
   { code: "RLM", label: "RM Store Location Master",   route: ROUTES.RM_STORE_LOCATION_MASTER,module: "rm_store_location_master",  app: "rmstore" },
-  { code: "MRN", label: "MRN Portal",                 route: ROUTES.RM_MRN_PORTAL,           module: "rm_mrn_portal",             app: "rmstore" },
+  { code: "MRN", label: "MRN Entry",                  route: ROUTES.RM_MRN_PORTAL,           module: "rm_mrn_portal",             app: "rmstore" },
   { code: "COL", label: "Coils",                      route: ROUTES.RM_COIL_TABLE,           module: "rm_coils",                  app: "rmstore" },
   { code: "RSI", label: "RM Store In",                route: ROUTES.RM_STORE_IN,             module: "rm_inventory_inwards",      app: "rmstore" },
   { code: "QC",  label: "RM QC Check",                route: ROUTES.RM_QC_CHECK,             module: "rm_qc_check",               app: "rmstore" },

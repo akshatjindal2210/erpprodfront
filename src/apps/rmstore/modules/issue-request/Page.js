@@ -314,12 +314,15 @@ export default function IssueRequestPage() {
   const openMasterModal = useCallback(
     (record, mode) => {
       if (!record) return;
+      if (mode === "view" && !viewAccess.allowed) return;
+      if (mode === "edit" && !canAccess(MODULE, "edit").allowed) return;
+      if (mode === "approve" && !canAccess(MODULE, "authorize").allowed) return;
       if (mode !== "view" && record?.out_entry_locked) return;
       setEditItem(resolveMasterModalItem(record, masterRows));
       setModalMode(mode);
       setModalOpen(true);
     },
-    [masterRows]
+    [masterRows, viewAccess, canAccess]
   );
 
   const handlePrintSlip = useCallback(async (rowOrEvent) => {

@@ -83,7 +83,10 @@ function PendingTypeBadge({ type }) {
 export default function StoreOutPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
-  const canApproveStoreOut = useMemo(() => canAccess(MODULE, "authorize").allowed, [canAccess]);
+  const addAccess = useMemo(() => canAccess(MODULE, "add"), [canAccess]);
+  const editAccess = useMemo(() => canAccess(MODULE, "edit"), [canAccess]);
+  const authorizeAccess = useMemo(() => canAccess(MODULE, "authorize"), [canAccess]);
+  const canApproveStoreOut = authorizeAccess.allowed;
 
   const [pageTab, setPageTab] = useState(PAGE_TABS.PENDING);
   const isStoreOut = pageTab === PAGE_TABS.STORE_OUT;
@@ -252,30 +255,46 @@ export default function StoreOutPage() {
     Boolean(selectedOutEntryRecord) && selectedApprovable && canApproveStoreOut;
 
   const openBlankStoreOut = useCallback(() => {
+    if (!addAccess.allowed) return;
     setModalMode("add");
     setEditItem(null);
     setSeedFromCoil(null);
     setModalOpen(true);
-  }, []);
+  }, [addAccess]);
 
   const openDraftForm = useCallback((row) => {
     if (!row?.out_uid || !isRmOutEntryScanDraft(row)) return;
+    if (!editAccess.allowed) return;
     setModalMode("edit");
     setSeedFromCoil(null);
     setEditItem(row);
     setModalOpen(true);
-  }, []);
+  }, [editAccess]);
 
   const openEdit = useCallback((row) => {
     if (!row?.out_uid) return;
+    if (!editAccess.allowed) return;
     setModalMode("edit");
     setSeedFromCoil(null);
     setEditItem(row);
     setModalOpen(true);
-  }, []);
+  }, [editAccess]);
+
+  const openView = useCallback(
+    (row) => {
+      if (!row?.out_uid) return;
+      if (!viewAccess.allowed) return;
+      setModalMode("view");
+      setSeedFromCoil(null);
+      setEditItem(row);
+      setModalOpen(true);
+    },
+    [viewAccess]
+  );
 
   const openApprove = useCallback((row) => {
     if (!row?.out_uid) return;
+    if (!authorizeAccess.allowed) return;
     if (!isRmOutEntryApprovable(row)) {
       toast.error("Complete all coil scans and submit before approving.");
       return;
@@ -284,10 +303,11 @@ export default function StoreOutPage() {
     setSeedFromCoil(null);
     setEditItem(row);
     setModalOpen(true);
-  }, []);
+  }, [authorizeAccess]);
 
   const openFromPendingRow = useCallback((row) => {
     if (row?.out_uid) return;
+    if (!addAccess.allowed) return;
 
     const type = String(row?.pending_type || "").toLowerCase();
 
@@ -328,7 +348,7 @@ export default function StoreOutPage() {
       });
       setModalOpen(true);
     }
-  }, []);
+  }, [addAccess]);
 
   const buildPendingDraftRow = useCallback((row) => {
     if (!row?.out_uid) return null;
@@ -422,10 +442,7 @@ export default function StoreOutPage() {
       );
       return;
     }
-    if (!canApproveStoreOut) {
-      toast.error("You do not have permission to authorize store out.");
-      return;
-    }
+    if (!canApproveStoreOut) return;
     if (isMasterRowApproved(rec)) {
       toast.info("This record is already approved. Edit it before approving again.");
       return;
@@ -487,29 +504,33 @@ export default function StoreOutPage() {
     else fetchPendingAll();
   }, [isStoreOut, fetchOuts, fetchPendingAll]);
 
-  const handleRowDoubleClick = useCallback(
-    (row) => {
-      if (isStoreOut) {
-        if (isRmOutEntryScanDraft(row)) openDraftForm(row);
-        else openEdit(row);
-        return;
-      }
+  /** IMS Out Entry: row click selects (needed when allowCopy / cell-select is on). */
+  const handleTableRowClick = useCallback((_row, id) => {
+    setSelected(id);
+  }, []);
+
+  /** Pending tab only — IMS Store Out register has no double-click open. */
+  const handlePendingRowDoubleClick = useCallback(
+    (row, id) => {
+      setSelected(id ?? getRowId(row));
       if (!row.out_uid) {
+        if (!addAccess.allowed) return;
         openFromPendingRow(row);
         return;
       }
       const draftRow = buildPendingDraftRow(row);
       if (draftRow && isRmOutEntryScanDraft(draftRow)) {
+        if (!editAccess.allowed) return;
         openDraftForm(draftRow);
         return;
       }
       if (isRowScanComplete(row)) {
-        openEdit(draftRow || pendingToOutEntryRow(row));
+        openView(draftRow || pendingToOutEntryRow(row));
         return;
       }
       toast.info("Scanning is incomplete — use Draft to continue.");
     },
-    [isStoreOut, openDraftForm, openEdit, openFromPendingRow, buildPendingDraftRow]
+    [getRowId, editAccess, addAccess, openDraftForm, openView, openFromPendingRow, buildPendingDraftRow]
   );
 
   const STORE_OUT_HEADERS = useMemo(
@@ -1013,7 +1034,8 @@ export default function StoreOutPage() {
             selectedId={selected}
             onSelect={setSelected}
             getRowId={getRowId}
-            onRowDoubleClick={handleRowDoubleClick}
+            onRowClick={handleTableRowClick}
+            onRowDoubleClick={isStoreOut ? undefined : handlePendingRowDoubleClick}
             {...tableHotkeyProps}
             onLoadMore={() => {
               if (!loading && items.length < totalItems) setDisplayLimit((n) => n + 100);
@@ -1057,6 +1079,7 @@ export default function StoreOutPage() {
         }}
         mode="out"
         approveMode={modalMode === "approve"}
+        viewOnly={modalMode === "view"}
         editItem={editItem}
         seedFromCoil={seedFromCoil}
         scannerElementId="rm-store-out-scanner"

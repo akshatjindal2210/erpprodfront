@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap, Package, Locate, Factory, FileText, ClipboardCheck, Layers, Warehouse, ShieldCheck, ShieldX, ClipboardList, LogOut, BarChart3, History, Sticker, Scale, RefreshCcw } from "lucide-react";
+import { Zap, Package, Locate, Factory, FileText, ClipboardCheck, Layers, Warehouse, ShieldCheck, ShieldX, ClipboardList, LogOut, BarChart3, History, Sticker, Scale, RefreshCcw, Truck } from "lucide-react";
 import { ROUTES } from "@/apps/rmstore/lib/utils/routes";
 
 export const RM_STORE_NAV_REGISTRY = [
@@ -40,13 +40,7 @@ export const RM_STORE_NAV_REGISTRY = [
       },
     ],
   },
-  {
-    id: "mrn-portal",
-    name: "MRN Portal",
-    icon: <ClipboardCheck size={16} />,
-    href: ROUTES.RM_MRN_PORTAL,
-    module: "rm_mrn_portal",
-  },
+  { id: "mrn-entry", name: "MRN Entry", icon: <Truck size={16} />, href: ROUTES.RM_MRN_PORTAL, module: "rm_mrn_portal" },
   {
     id: "rm-coils",
     name: "Coils",

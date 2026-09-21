@@ -39,19 +39,14 @@ const PAGE_TABS = {
 
 /** Shop-floor Pending — only fields needed to pick / act on issued coils. */
 const PENDING_SHOP_FLOOR_HEADERS = [
+  ["Job Card", "pjobcardno", (v) => renderCoilCompactCell(v, "font-mono font-bold text-indigo-700"), { width: "110px" }],
+  ["Machine", "macname", (v) => renderCoilCompactCell(v, "font-bold text-slate-800 uppercase"), { width: "120px" }],
   ["Coil No", "coil_no_uid", (v) => renderCoilCompactCell(v, "font-bold text-slate-800"), { fixed: true, width: "140px" }],
   ["MRN", "mrn_uid", renderCoilMrnCell, { width: "80px" }],
   ["Item Code", "item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold"), { width: "110px" }],
   ["Description", "item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block", v), { width: "160px" }],
   ["Qty", "qty", renderCoilQtyCell, { width: "70px", align: "center" }],
-  [
-    "Shop Floor",
-    "location_no",
-    renderCoilLocationCell,
-    { width: "110px", align: "center", copyValue: (row) => resolveCoilLocationLabel(row) },
-  ],
-  ["Job Card", "pjobcardno", (v) => renderCoilCompactCell(v, "font-mono font-bold text-indigo-700"), { width: "110px" }],
-  ["Machine", "macname", (v) => renderCoilCompactCell(v, "font-bold text-slate-800 uppercase"), { width: "120px" }],
+  // ["Shop Floor", "location_no", renderCoilLocationCell, { width: "110px", align: "center", copyValue: (row) => resolveCoilLocationLabel(row) }],
   ["Heat No", "heat_no", (v) => renderCoilCompactCell(v, "font-mono text-slate-700"), { width: "130px" }],
   ["Out UID", "out_uid", renderCoilOutUidCell, { width: "80px", copyValue: (row) => (row.out_uid != null ? String(row.out_uid) : "—") }],
 ];
@@ -91,6 +86,7 @@ const DEFAULT_PARAMS = {
 export default function InProcessRequestPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
+  const addAccess = useMemo(() => canAccess(MODULE, "add"), [canAccess]);
 
   const [pageTab, setPageTab] = useState(PAGE_TABS.PENDING);
   const isPendingTab = pageTab === PAGE_TABS.PENDING;
@@ -259,17 +255,19 @@ export default function InProcessRequestPage() {
 
   const openUpdateStatusFromPending = useCallback((row) => {
     if (!row?.coil_no_uid) return;
+    if (!addAccess.allowed) return;
     setSelected(String(row.coil_no_uid));
     setEditItem(row);
     setModalMode("add");
     setModalOpen(true);
-  }, []);
+  }, [addAccess]);
 
   const openBlankNew = useCallback(() => {
+    if (!addAccess.allowed) return;
     setEditItem(null);
     setModalMode("add");
     setModalOpen(true);
-  }, []);
+  }, [addAccess]);
 
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
@@ -335,6 +333,7 @@ export default function InProcessRequestPage() {
 
   const openViewModal = () => {
     if (!selectedRecord || isPendingTab) return;
+    if (!viewAccess.allowed) return;
     setEditItem(selectedRecord);
     setModalMode("view");
     setModalOpen(true);
@@ -710,6 +709,7 @@ export default function InProcessRequestPage() {
                 openUpdateStatusFromPending(row);
                 return;
               }
+              if (!viewAccess.allowed) return;
               setEditItem(row);
               setModalMode("view");
               setModalOpen(true);
