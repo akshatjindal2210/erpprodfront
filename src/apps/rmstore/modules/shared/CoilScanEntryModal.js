@@ -769,19 +769,22 @@ export default function CoilScanEntryModal({
       }
 
       if (isMrnStoreOut) {
-        if (!coil.location_id) {
-          const qc = String(coil.qc_check_status || "").trim().toLowerCase();
-          const saType = String(coil.sa_entry_type || "").trim().toLowerCase();
-          const okUnassigned =
-            qc === "passed" || (coil.sa_id != null && saType === "stock_in");
-          if (!okUnassigned) {
-            showScanToast(
-              "error",
-              "coil-unassigned",
-              `Coil ${uid} is unassigned and not eligible for store out (QC must be passed).`
-            );
-            return;
-          }
+        const qc = String(coil.qc_check_status || "").trim().toLowerCase();
+        const pendingMrn =
+          !coil.sa_id &&
+          String(coil.mrn_uid || "").trim() &&
+          coil.sticker_approved !== true &&
+          String(coil.sa_entry_type || "").toLowerCase() !== "production_return";
+        const saAdd =
+          coil.sa_id != null && String(coil.sa_entry_type || "").toLowerCase() === "stock_in";
+        if (pendingMrn || qc !== "passed") {
+          const msg = pendingMrn
+            ? `Coil ${uid}: approve MRN stickers first (Store In only while pending).`
+            : saAdd
+              ? `Coil ${uid}: authorize Stock Adjustment first.`
+              : `Coil ${uid}: complete MRN QC Check first.`;
+          showScanToast("error", "coil-unassigned", msg);
+          return;
         }
         setCoils((prev) => [...prev, coil]);
         showScanSuccess("coil-ok", `Added ${coil.coil_no_uid} · @ ${coilLocationDetail(coil)}`, 1800);

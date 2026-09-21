@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Eye, List, ClipboardList, Lock, Unlock, Info } from "lucide-react";
+import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Eye, List, ClipboardList, Lock, Unlock, Info, Printer } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 
@@ -19,6 +19,7 @@ import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
 import ActionButton from "@/ui/primitives/ActionButton";
+import PrintActionButton from "@/ui/primitives/PrintActionButton";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
@@ -28,6 +29,7 @@ import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
 import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
+import { printFromBackendHtml } from "@/apps/ims/lib/utils/printHtmlDocument";
 
 const MODULE = "rm_issue_request";
 
@@ -205,6 +207,7 @@ export default function IssueRequestPage() {
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
   const [jobCardIssueUidFilter, setJobCardIssueUidFilter] = useState(null);
+  const [slipPrinting, setSlipPrinting] = useState(false);
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -286,6 +289,7 @@ export default function IssueRequestPage() {
     [filteredRows, selected, getRowId]
   );
   const isSelectedLocked = Boolean(selectedRecord?.out_entry_locked);
+  const isSelectedApproved = isRowApproved(selectedRecord);
   const selectedIssueUid = useMemo(() => resolveMasterIssueUid(selectedRecord), [selectedRecord]);
 
   const getSelectedRow = useCallback(
@@ -318,6 +322,33 @@ export default function IssueRequestPage() {
     [masterRows]
   );
 
+  const handlePrintSlip = useCallback(async (rowOrEvent) => {
+    const issue_uid = resolveMasterIssueUid(rowOrEvent) ?? resolveMasterIssueUid(selectedRecord);
+    if (!issue_uid) {
+      toast.info("Select an Issue Request or Job Card Wise row with a valid Issue UID to print.");
+      return;
+    }
+    const rec = rowOrEvent && typeof rowOrEvent === "object" && rowOrEvent.issue_uid != null ? rowOrEvent : selectedRecord;
+    if (!isRowApproved(rec)) {
+      toast.info("Approve the issue request before printing.");
+      return;
+    }
+    if (slipPrinting) return;
+    setSlipPrinting(true);
+    try {
+      const res = await issueRequestService.print({ issue_uid });
+      if (!res?.success || !res?.html) throw new Error(res?.message || "Print HTML missing");
+      const ok = printFromBackendHtml(res.html, { title: res.print_title || `Issue Request · ${issue_uid}` });
+      if (!ok) toast.error("Could not open print preview. Try again.");
+    } catch (err) {
+      toast.error(err?.message || "Failed to print issue request.");
+    } finally {
+      setSlipPrinting(false);
+    }
+  }, [selectedRecord, slipPrinting]);
+
+  const canPrintMasterSlip = Boolean(resolveMasterIssueUid(selectedRecord)) && isSelectedApproved && !slipPrinting;
+
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
     modalOpen: modalOpen || !!deleteItem,
@@ -348,6 +379,11 @@ export default function IssueRequestPage() {
       setDeleteItem(resolveMasterModalItem(row, masterRows));
     }, [masterRows]),
     canDeleteSelection: useCallback(() => !!selected && !isSelectedLocked, [selected, isSelectedLocked]),
+    onPrint: handlePrintSlip,
+    canPrintSelection: useCallback(() => canPrintMasterSlip, [canPrintMasterSlip]),
+    printBlockedMessage: "Approve the issue request first, then print the slip (Ctrl+P).",
+    printModule: MODULE,
+    printAction: "view",
   });
 
   const handleLock = async () => {
@@ -661,6 +697,18 @@ export default function IssueRequestPage() {
                   onClick={() => setDeleteItem(resolveMasterModalItem(selectedRecord, masterRows))}
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                 />
+                {isSelectedApproved ? (
+                  <PrintActionButton
+                    module={MODULE}
+                    variant="outline"
+                    label={slipPrinting ? "…" : "Print"}
+                    icon={Printer}
+                    disabled={!canPrintMasterSlip}
+                    onClick={() => handlePrintSlip(selectedRecord)}
+                    title="Print full issue slip for this Issue UID (works from Job Card Wise too)"
+                    className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                  />
+                ) : null}
                 {String(role || "").toLowerCase() === "super_admin" && (
                   <>
                     <button

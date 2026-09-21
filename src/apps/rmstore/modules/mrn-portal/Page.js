@@ -504,7 +504,8 @@ export default function MrnPortalPage() {
       ["MRN UID", "uid", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
       // ["MRN No", "mrn_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
       ["Date", "mrn_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDay(v)}</span>, { width: "100px" }],
-      ["Lot No", "it_lot_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>, { width: "140px" }],
+      ["Coil No", "it_lot_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>, { width: "140px" }],
+      ["Lot / Heat No", "heat_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>, { width: "140px" }],
       ["Quantity", "it_recp_qty", renderMrnQtyCell, { width: "100px", cardRender: renderMrnQtyCell }],
       // ["Unit", "it_unit", (v) => <span className="text-[10px] font-bold text-slate-600 tabular-nums">{v ?? "—"}</span>, { width: "70px" }],
       ["Vendor", "acc_name", (v) => (

@@ -501,6 +501,30 @@ export default function InProcessRequestModal({
 
     resetForm();
     if (mode === "approve") setApproved(true);
+
+    // Pending shop-floor row click — jump straight to Update Coil Status (Full / Left Over).
+    if (mode === "add" && editData?.coil_no_uid && !editData?.ipr_uid) {
+      const mapped = mapCoilRow(editData, {
+        forConsume: true,
+        source: "shop_floor",
+        is_seed_scan: true,
+      });
+      setRequestFlow(IPR_FLOW.UPDATE_STATUS);
+      setRequestFlowPicked(true);
+      setRequestType(IPR_REQUEST_TYPE.CONSUME);
+      setRequestTypePicked(true);
+      setTypePicked(true);
+      setApproved(true);
+      setConsumeMode("full");
+      setLeftoverConsumedQty("");
+      setCoils([mapped]);
+      setSeedCoilUid(mapped.coil_no_uid);
+      setPendingCoil(null);
+      setReason("Coil status update");
+      setErrors({});
+      return;
+    }
+
     if (mode === "add" && !canSubmitInProcessRejection(currentUser)) {
       setRequestFlow(IPR_FLOW.UPDATE_STATUS);
       setRequestFlowPicked(true);

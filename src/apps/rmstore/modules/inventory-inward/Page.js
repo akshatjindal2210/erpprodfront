@@ -72,6 +72,7 @@ function mapPendingStoreInToCoilRows(pendingRows = []) {
       mrn_no: ipr.mrn_no ?? first.mrn_no ?? null,
       mrn_uid: ipr.mrn_uid ?? first.mrn_uid ?? null,
       heat_no: ipr.heat_no ?? first.heat_no ?? null,
+      macname: ipr.macname ?? first.macname ?? null,
       item_code: ipr.item_code ?? first.item_code ?? null,
       item_desc: ipr.item_desc ?? first.item_desc ?? null,
       qty: Number(ipr.balance_qty ?? ipr.total_qty ?? 0) || 0,
@@ -95,6 +96,7 @@ function mapPendingStoreInToMrnRows(pendingRows = []) {
       mrn_no: ipr.mrn_no ?? first.mrn_no ?? null,
       mrn_uid: ipr.mrn_uid ?? first.mrn_uid ?? null,
       heat_nos: ipr.heat_no ?? first.heat_no ?? null,
+      macname: ipr.macname ?? first.macname ?? null,
       item_code: ipr.item_code ?? first.item_code ?? null,
       item_desc: ipr.item_desc ?? first.item_desc ?? null,
       stock_qty: Number(ipr.balance_qty ?? ipr.total_qty ?? 0) || 0,
@@ -537,6 +539,19 @@ export default function StoreInPage() {
       ["Source", "source", sourceCell, { width: "180px" }],
       ["Heat", "heat_nos", (v) => <span className="font-mono text-[10px] font-bold text-amber-700">{v || "—"}</span>, { width: "140px" }],
       [
+        "Machine",
+        "macname",
+        (v, row) =>
+          isPendingStoreInRow(row) ? (
+            <span className="font-mono text-[10px] font-bold text-sky-700" title={v || ""}>
+              {v || "—"}
+            </span>
+          ) : (
+            <span className="text-slate-300 text-[10px]">—</span>
+          ),
+        { width: "120px" },
+      ],
+      [
         "Item",
         "item_code",
         (v) => (
@@ -610,6 +625,19 @@ export default function StoreInPage() {
       ["Source", "source", sourceCell, { width: "180px" }],
       ["MRN UID", "mrn_uid", (v) => <span className="font-bold text-slate-800 text-[11px]">{v || "—"}</span>, { width: "100px" }],
       ["Heat", "heat_no", (v) => <span className="font-mono text-[10px] font-bold text-amber-700">{v || "—"}</span>, { width: "110px" }],
+      [
+        "Machine",
+        "macname",
+        (v, row) =>
+          isPendingStoreInRow(row) ? (
+            <span className="font-mono text-[10px] font-bold text-sky-700" title={v || ""}>
+              {v || "—"}
+            </span>
+          ) : (
+            <span className="text-slate-300 text-[10px]">—</span>
+          ),
+        { width: "110px" },
+      ],
       ["Item", "item_code", (v) => (
           <span className="text-slate-700 font-medium text-[10px] uppercase truncate" title={v || ""}>
             {v || "—"}
@@ -840,7 +868,7 @@ export default function StoreInPage() {
               <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
                 Selected:{" "}
                 {isPendingStoreInRow(selectedRecord)
-                  ? `IPR #${selectedRecord.ipr_uid} · Return ${Number(selectedRecord.qty ?? selectedRecord.stock_qty ?? 0).toLocaleString()} · ${selectedRecord.coil_count ?? selectedRecord.total_coils ?? 0} coil(s) · PENDING RECEIVE`
+                  ? `IPR #${selectedRecord.ipr_uid}${selectedRecord.macname ? ` · ${selectedRecord.macname}` : ""} · Return ${Number(selectedRecord.qty ?? selectedRecord.stock_qty ?? 0).toLocaleString()} · ${selectedRecord.coil_count ?? selectedRecord.total_coils ?? 0} coil(s) · PENDING RECEIVE`
                   : isStoreIn
                   ? selectedRecord.mrn_uids || `IN-${selectedRecord.in_uid}`
                   : isPackingCoilView
@@ -951,7 +979,7 @@ export default function StoreInPage() {
                     ? {
                         titleKey: "coil_no_uid",
                         badgeIndices: [1, 7],
-                        detailKeys: ["mrn_uid", "heat_no", "item_code", "item_desc", "qty"],
+                        detailKeys: ["mrn_uid", "heat_no", "macname", "item_code", "item_desc", "qty"],
                         footerKey: "last_at",
                       }
                     : {

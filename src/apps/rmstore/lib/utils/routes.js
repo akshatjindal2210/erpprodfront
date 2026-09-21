@@ -16,6 +16,7 @@ export const ROUTES = {
   RM_STORE_OUT: `${RM}/out-entry`,
   RM_STOCK_ADJUSTMENT: `${RM}/stock-adjustment`,
   RM_INVENTORY_REPORT: `${RM}/inventory-report`,
+  RM_INVENTORY_AUDIT: `${RM}/inventory-audit`,
   RM_ACTIVITY_LOGS: `${RM}/logs/activity`,
   RM_COIL_TRANSACTION_LOGS: `${RM}/logs/coil-transactions`,
   RM_STICKER_DOWNLOAD_LOGS: `${RM}/logs/sticker-downloads`,

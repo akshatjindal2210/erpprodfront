@@ -34,6 +34,7 @@ function mapLine(c) {
     heat_no: c.heat_no,
     mrn_uid: c.mrn_uid,
     mrn_no: c.mrn_no,
+    macname: c.macname ?? null,
     out_uid: c.out_uid ?? null,
   };
 }
@@ -214,6 +215,7 @@ export default function ReceivePendingStoreInModal({ open, iprUid, onClose, onSu
           <div className="grid grid-cols-2 gap-1.5">
             <Info label="Source" value="Production Return" />
             <Info label="MRN UID" value={mrn} />
+            <Info label="Machine" value={ipr?.macname || lines.find((l) => l.macname)?.macname} />
             <Info label="Item" value={item} />
             <Info
               label="Store in / Consume"

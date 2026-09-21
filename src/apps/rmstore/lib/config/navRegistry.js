@@ -111,6 +111,13 @@ export const RM_STORE_NAV_REGISTRY = [
     module: "rm_inventory_report",
   },
   {
+    id: "rm-inventory-audit",
+    name: "Inventory Audit",
+    icon: <ClipboardCheck size={16} />,
+    href: ROUTES.RM_INVENTORY_AUDIT,
+    module: "rm_inventory_audit",
+  },
+  {
     id: "rm-logs-group",
     name: "Logs",
     icon: <History size={16} />,

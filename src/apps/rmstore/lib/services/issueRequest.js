@@ -13,6 +13,7 @@ export const issueRequestService = {
   getAll: (params) => api(ENDPOINTS.ISSUE_REQUEST.LIST, { method: "POST", body: params }),
   getAllJobCards: (params) => api(ENDPOINTS.ISSUE_REQUEST.LIST_JOB_CARDS, { method: "POST", body: params }),
   getById: (issue_uid) => api(ENDPOINTS.ISSUE_REQUEST.GET, { method: "POST", body: { issue_uid } }),
+  print: (body) => api(ENDPOINTS.ISSUE_REQUEST.PRINT, { method: "POST", body }),
   jobCardSummary: (job_cards, exclude_issue_uid = null) =>
     api(ENDPOINTS.ISSUE_REQUEST.JOB_CARD_SUMMARY, {
       method: "POST",

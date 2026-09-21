@@ -116,9 +116,8 @@ function formatQty(v) {
   return Number.isFinite(n) ? n.toLocaleString() : "—";
 }
 
-/** Heat No. — uppercase alphanumeric (e.g. 7H26F62191). */
 function sanitizeHeatNo(raw) {
-  return String(raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return String(raw ?? "").toUpperCase().replace(/[^A-Z0-9#_-]/g, "");
 }
 
 function SpecHeaderColorBadge({ label, color }) {

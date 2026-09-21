@@ -17,9 +17,12 @@ import { OK_INPUT } from "@/ui/common/Constants";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
 import { useSelector } from "react-redux";
-import { selectUser } from "@/platform/store/slices/authSlice";
+import { selectRole, selectUser } from "@/platform/store/slices/authSlice";
 import { normalizeRmItems } from "@/apps/rmstore/modules/master/production/productionRmHelpers";
-import { issueRmSelectionMode } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
+import {
+  issueRmSelectionMode,
+  isRmstoreSuperAdmin,
+} from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
 import { ISSUE_REQUEST_MACHINE_JOB_CARD_LOCK } from "@/apps/rmstore/lib/config/app.config";
 
 const MODULE = "rm_issue_request";
@@ -53,6 +56,7 @@ const emptyRow = () => ({
   loadingIssued: false,
   coils: [],
   fifoPool: [],
+  fifo_start_mrn_key: null,
   loadingFifo: false,
   mappingError: "",
 });
@@ -237,14 +241,68 @@ function sortCoilsFifo(coils = []) {
   });
 }
 
+function orderedMrnKeysFromSorted(sorted = []) {
+  const keys = [];
+  const seen = new Set();
+  for (const c of sorted) {
+    const k = mrnGroupKey(c);
+    if (!seen.has(k)) {
+      seen.add(k);
+      keys.push(k);
+    }
+  }
+  return keys;
+}
+
+/** Rotate MRN groups: start MRN first, then wrap (4→5→1→2…). */
+function applyFifoStartMrn(pool, startKey) {
+  const sorted = sortCoilsFifo(pool || []);
+  const start = String(startKey || "").trim();
+  if (!start || !sorted.length) return sorted;
+  const keys = orderedMrnKeysFromSorted(sorted);
+  const idx = keys.indexOf(start);
+  if (idx <= 0) return sorted;
+  const rotated = [...keys.slice(idx), ...keys.slice(0, idx)];
+  const byMrn = new Map();
+  for (const c of sorted) {
+    const k = mrnGroupKey(c);
+    if (!byMrn.has(k)) byMrn.set(k, []);
+    byMrn.get(k).push(c);
+  }
+  return rotated.flatMap((k) => byMrn.get(k) || []);
+}
+
+function fifoStartKeyForRow(row) {
+  const k = String(row?.fifo_start_mrn_key || "").trim();
+  return k || null;
+}
+
+function listMrnKeysInDefaultFifoOrder(pool, excludeUids = new Set()) {
+  const exclude = new Set([...(excludeUids || [])].map((u) => String(u).toLowerCase()));
+  const sorted = sortCoilsFifo(
+    (pool || []).filter(
+      (c) => c?.coil_no_uid && !exclude.has(String(c.coil_no_uid).toLowerCase())
+    )
+  );
+  return orderedMrnKeysFromSorted(sorted);
+}
+
+function mrnLabelForKey(pool, key) {
+  const hit = (pool || []).find((c) => mrnGroupKey(c) === key);
+  return hit ? mrnGroupLabel(hit) : key;
+}
+
 /**
  * Whole-coil FIFO fill to cover targetQty.
  * May overshoot (e.g. need 751, 100kg coils → 800). Typed dispatch is capped separately.
  */
-function pickCoilsFifo(pool, targetQty, excludeUids) {
+function pickCoilsFifo(pool, targetQty, excludeUids, fifoStartMrnKey = null) {
   const exclude = new Set([...excludeUids].map((u) => String(u).toLowerCase()));
-  const sorted = sortCoilsFifo(pool || []).filter(
-    (c) => c?.coil_no_uid && !exclude.has(String(c.coil_no_uid).toLowerCase())
+  const sorted = applyFifoStartMrn(
+    (pool || []).filter(
+      (c) => c?.coil_no_uid && !exclude.has(String(c.coil_no_uid).toLowerCase())
+    ),
+    fifoStartMrnKey
   );
 
   const storeQty = sorted.reduce((s, c) => s + (Number(c.qty) || 0), 0);
@@ -276,8 +334,8 @@ function resolveDispatchTarget(raw, maxQty) {
 }
 
 /** First N coils in FIFO order (no RM hard ceiling — overshoot via whole coils is OK). */
-function pickCoilsByCount(pool, count, excludeUids) {
-  const { available, storeQty } = pickCoilsFifo(pool, 0, excludeUids);
+function pickCoilsByCount(pool, count, excludeUids, fifoStartMrnKey = null) {
+  const { available, storeQty } = pickCoilsFifo(pool, 0, excludeUids, fifoStartMrnKey);
   const n = Math.max(0, Math.min(Number(count) || 0, available.length));
   const picked = available.slice(0, n);
   const pickedQty = picked.reduce((s, c) => s + (Number(c.qty) || 0), 0);
@@ -292,11 +350,12 @@ function seedCoilsForRow(row, fifoPool, excludeUids) {
     return { picked: [], pickedQty: 0, storeQty: 0 };
   }
   const remain = remainingRmMax(row);
+  const startKey = fifoStartKeyForRow(row);
   if (remain != null && remain <= 0) {
-    const { storeQty } = pickCoilsByCount(fifoPool, 0, excludeUids);
+    const { storeQty } = pickCoilsByCount(fifoPool, 0, excludeUids, startKey);
     return { picked: [], pickedQty: 0, storeQty };
   }
-  return pickCoilsByCount(fifoPool, 1, excludeUids);
+  return pickCoilsByCount(fifoPool, 1, excludeUids, startKey);
 }
 
 /** IMS: FIFO at MRN — count per MRN; which coil UIDs inside an MRN do not matter. */
@@ -322,7 +381,13 @@ function mrnCountMapsEqual(a, b) {
  * Selected coils must match FIFO MRN quotas for targetQty (cover / dispatch).
  * Within an MRN any coil is OK — totals may differ from the canonical FIFO pick.
  */
-function assertMrnLevelFifo(pool, selectedCoils, targetQty, excludeUids = new Set()) {
+function assertMrnLevelFifo(
+  pool,
+  selectedCoils,
+  targetQty,
+  excludeUids = new Set(),
+  fifoStartMrnKey = null
+) {
   const exclude = new Set([...(excludeUids || [])].map((u) => String(u).toLowerCase()));
   const poolByUid = new Map(
     (pool || [])
@@ -342,7 +407,7 @@ function assertMrnLevelFifo(pool, selectedCoils, targetQty, excludeUids = new Se
       mrn_no: c.mrn_no ?? full.mrn_no,
     });
   }
-  const { picked } = pickCoilsFifo(pool, targetQty, excludeUids || new Set());
+  const { picked } = pickCoilsFifo(pool, targetQty, excludeUids || new Set(), fifoStartMrnKey);
   if (enriched.length !== picked.length) return false;
   if (!mrnCountMapsEqual(mrnCoilCountMap(picked), mrnCoilCountMap(enriched))) return false;
   const selectedQty = enriched.reduce((s, c) => s + (Number(c.qty) || 0), 0);
@@ -380,6 +445,7 @@ function mapPickedCoils(picked) {
     heat_no: c.heat_no,
     mrn_uid: c.mrn_uid ?? null,
     mrn_no: c.mrn_no,
+    acc_name: c.acc_name ?? null,
     location_no: c.location_no || null,
     location_id: c.location_id ?? null,
     created_at: c.created_at,
@@ -400,7 +466,8 @@ function groupSelectedCoilsByMrn(coils = []) {
   for (const c of coils || []) {
     const key = mrnGroupKey(c);
     if (!groupMap.has(key)) {
-      const g = { key, label: mrnGroupLabel(c), coils: [] };
+      const vendor = String(c?.acc_name || "").trim() || null;
+      const g = { key, label: mrnGroupLabel(c), vendor, coils: [] };
       groupMap.set(key, g);
       groups.push(g);
     }
@@ -500,7 +567,9 @@ export default function IssueRequestModal({
   );
 
   const user = useSelector(selectUser);
-  const rmSelectionMode = issueRmSelectionMode(user);
+  const authRole = useSelector(selectRole);
+  const rmSelectionMode = issueRmSelectionMode(user, authRole);
+  const canFifoStartMrn = isRmstoreSuperAdmin(user, authRole);
   const [allRmWireItems, setAllRmWireItems] = useState([]);
   const [loadingAllRmWire, setLoadingAllRmWire] = useState(false);
 
@@ -560,7 +629,8 @@ export default function IssueRequestModal({
       const { available, storeQty } = pickCoilsByCount(
         row.fifoPool,
         0,
-        excludedUidsForRow(idx, currentRows)
+        excludedUidsForRow(idx, currentRows),
+        fifoStartKeyForRow(row)
       );
       return {
         available,
@@ -603,16 +673,19 @@ export default function IssueRequestModal({
         if (i === changedIdx) return;
         if (!sameRmItem(row, next[changedIdx])) return;
         const want = row.coils?.length || 0;
+        const rowStart = fifoStartKeyForRow(row);
         const { available } = pickCoilsByCount(
           row.fifoPool || next[changedIdx]?.fifoPool || [],
           0,
-          excludedUidsForRow(i, next)
+          excludedUidsForRow(i, next),
+          rowStart
         );
         const count = Math.min(want, available.length);
         const { picked, pickedQty, storeQty } = pickCoilsByCount(
           row.fifoPool || next[changedIdx]?.fifoPool || [],
           count,
-          excludedUidsForRow(i, next)
+          excludedUidsForRow(i, next),
+          rowStart
         );
         const sendQty = pickedQty > 0 ? String(pickedQty) : want > 0 ? "" : null;
         next = next.map((r, j) =>
@@ -635,7 +708,8 @@ export default function IssueRequestModal({
         const { storeQty } = pickCoilsByCount(
           row.fifoPool,
           0,
-          excludedUidsForRow(i, next)
+          excludedUidsForRow(i, next),
+          fifoStartKeyForRow(row)
         );
         return { ...row, store_qty: storeQty };
       });
@@ -675,7 +749,8 @@ export default function IssueRequestModal({
       const { picked, pickedQty, storeQty } = pickCoilsFifo(
         row.fifoPool,
         target,
-        excludedUidsForRow(idx, currentRows)
+        excludedUidsForRow(idx, currentRows),
+        fifoStartKeyForRow(row)
       );
 
       const want = Number(target);
@@ -725,7 +800,8 @@ export default function IssueRequestModal({
       const { picked, pickedQty, storeQty } = pickCoilsByCount(
         row.fifoPool,
         count,
-        excludedUidsForRow(idx, currentRows)
+        excludedUidsForRow(idx, currentRows),
+        fifoStartKeyForRow(row)
       );
       // IMS-style: coil +/− sets the qty we are sending
       const sendQty = pickedQty > 0 ? String(pickedQty) : "";
@@ -955,6 +1031,7 @@ export default function IssueRequestModal({
                     heat_no: c.heat_no || full.heat_no,
                     mrn_uid: c.mrn_uid ?? full.mrn_uid ?? null,
                     mrn_no: c.mrn_no ?? full.mrn_no,
+                    acc_name: c.acc_name || full.acc_name || null,
                     item_code: c.item_code || full.item_code,
                     location_no: c.location_no || full.location_no || null,
                     location_id: c.location_id ?? full.location_id ?? null,
@@ -984,7 +1061,7 @@ export default function IssueRequestModal({
                 loadingFifo: false,
                 mappingError,
                 ...(resetIssue
-                  ? { issue_qty: "", issue_target: "", coils: [] }
+                  ? { issue_qty: "", issue_target: "", coils: [], fifo_start_mrn_key: null }
                   : { coils: enrichedCoils }),
               }
             : sameRmItem(r, { rm_item_code, rm_item_dcode }) && fifoPool.length
@@ -1049,6 +1126,7 @@ export default function IssueRequestModal({
                 coils: [],
                 issue_qty: "",
                 issue_target: "",
+                fifo_start_mrn_key: null,
               }
             : r
         )
@@ -1298,7 +1376,8 @@ export default function IssueRequestModal({
           const { storeQty } = pickCoilsByCount(
             row.fifoPool,
             0,
-            excludedUidsForRow(i, cleared)
+            excludedUidsForRow(i, cleared),
+            fifoStartKeyForRow(row)
           );
           return { ...row, store_qty: storeQty };
         });
@@ -1419,6 +1498,35 @@ export default function IssueRequestModal({
     setRows(applyCoilCountToRow(idx, nextCount, prev));
   };
 
+  const handleFifoStartMrn = useCallback(
+    (idx, mrnKey) => {
+      if (readOnly || !canFifoStartMrn) return;
+      setRows((prev) => {
+        const next = prev.map((r, i) =>
+          i === idx ? { ...r, fifo_start_mrn_key: mrnKey || null } : r
+        );
+        const row = next[idx];
+        if (!row?.fifoPool?.length) return next;
+        const selectedCount = row.coils?.length || 0;
+        if (selectedCount > 0) {
+          return applyCoilCountToRow(idx, selectedCount, next);
+        }
+        const issueRaw =
+          row.issue_target !== "" && row.issue_target != null
+            ? String(row.issue_target)
+            : row.issue_qty != null && row.issue_qty !== ""
+              ? String(row.issue_qty)
+              : "";
+        if (issueRaw && Number(issueRaw) > 0) {
+          const { rows: updated } = applyFifoToRow(idx, issueRaw, next, { silent: true });
+          return updated;
+        }
+        return next;
+      });
+    },
+    [readOnly, canFifoStartMrn, applyCoilCountToRow, applyFifoToRow]
+  );
+
   const canAddCoil = (idx) => {
     const row = rows[idx];
     const { availableCount, selectedCount } = getRowAvailability(idx, rows);
@@ -1502,7 +1610,8 @@ export default function IssueRequestModal({
             r.fifoPool,
             r.coils,
             coverQty > 0 ? coverQty : issueQty,
-            excludedUidsForRow(idx, rows)
+            excludedUidsForRow(idx, rows),
+            fifoStartKeyForRow(r)
           );
           if (!fifoOk) {
             next.job_cards = `Coils for job card ${r.pjobcardno} must follow MRN FIFO. Please refresh and try again.`;
@@ -1560,6 +1669,13 @@ export default function IssueRequestModal({
           rm_item_desc: r.rm_item_desc || null,
           dispatch_qty: dispatchCoverQty(r),
           issue_qty: Number(r.issue_qty),
+          ...(canFifoStartMrn
+            ? {
+                fifo_start_mrn_uid: r.fifo_start_mrn_key
+                  ? String(r.fifo_start_mrn_key).trim()
+                  : null,
+              }
+            : {}),
           coils: (r.coils || []).map((c) => ({
             coil_no_uid: c.coil_no_uid,
             qty: c.qty,
@@ -2046,32 +2162,87 @@ export default function IssueRequestModal({
                     </p>
                   )}
 
-                  {/* Reserved coils by MRN — Store Out scans these same coil UIDs. */}
-                  {selectedCount > 0 && (() => {
+                  {(() => {
+                    const exclude = excludedUidsForRow(idx, rows);
+                    const mrnKeys =
+                      row.fifoPool?.length && !row.loadingFifo
+                        ? listMrnKeysInDefaultFifoOrder(row.fifoPool, exclude)
+                        : [];
+                    const showFifoStart =
+                      canFifoStartMrn &&
+                      hasJobCard &&
+                      !readOnly &&
+                      !rmComplete &&
+                      !row.mappingError &&
+                      mrnKeys.length >= 2;
                     const mrnGroups = groupSelectedCoilsByMrn(row.coils || []);
+                    if (!showFifoStart && mrnGroups.length === 0) return null;
+
+                    const startKey = fifoStartKeyForRow(row) || "";
                     return (
                       <div className="mt-1.5 border border-slate-100 rounded-md overflow-hidden">
                         <table className="w-full text-xs">
                           <thead className="bg-slate-50 border-b border-slate-100">
                             <tr>
-                              <th className="px-2 py-1 text-left font-black text-slate-400 uppercase">
-                                MRN UID
+                              <th className="px-2 py-1 text-left align-middle">
+                                {showFifoStart ? (
+                                  <div className="space-y-0.5">
+                                    <span className="block font-black text-slate-400 uppercase text-[10px] leading-none">
+                                      MRN UID
+                                    </span>
+                                    <select
+                                      value={startKey}
+                                      onChange={(e) =>
+                                        handleFifoStartMrn(idx, e.target.value || null)
+                                      }
+                                      title="Issue coils from this MRN first, then continue in order."
+                                      aria-label="MRN FIFO start"
+                                      className="block w-full max-w-[136px] h-6 min-h-0 py-0 pl-1 pr-5 text-[10px] font-bold text-slate-600 bg-white border border-slate-200 rounded focus:border-indigo-400 focus:outline-none normal-case"
+                                    >
+                                      <option value="">Standard order</option>
+                                      {mrnKeys.map((key, pos) => (
+                                        <option key={key} value={key}>
+                                          Start at {pos + 1}: #{mrnLabelForKey(row.fifoPool, key)}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                ) : (
+                                  <span className="font-black text-slate-400 uppercase">
+                                    MRN UID
+                                  </span>
+                                )}
                               </th>
-                              <th className="px-2 py-1 text-center font-black text-slate-400 uppercase">
+                              <th className="px-2 py-1 text-left font-black text-slate-400 uppercase align-middle">
+                                Vendor
+                              </th>
+                              <th className="px-2 py-1 text-center font-black text-slate-400 uppercase align-middle">
                                 Coils
                               </th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-50">
-                            {mrnGroups.map(({ key, label, coils }) => (
-                              <tr key={key} className="hover:bg-slate-50/30 transition-colors">
-                                <td className="px-2 py-1 font-bold text-slate-600">#{label}</td>
-                                <td className="px-2 py-1 text-center text-indigo-600 font-black tabular-nums">
-                                  {coils.length}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
+                          {mrnGroups.length > 0 ? (
+                            <tbody className="divide-y divide-slate-50">
+                              {mrnGroups.map(({ key, label, vendor, coils }) => {
+                                const vendorLabel =
+                                  vendor || String(coils[0]?.acc_name || "").trim() || "—";
+                                return (
+                                  <tr key={key} className="hover:bg-slate-50/30 transition-colors">
+                                    <td className="px-2 py-1 font-bold text-slate-600">#{label}</td>
+                                    <td
+                                      className="px-2 py-1 text-[10px] font-semibold text-slate-700 truncate max-w-[180px]"
+                                      title={vendorLabel}
+                                    >
+                                      {vendorLabel}
+                                    </td>
+                                    <td className="px-2 py-1 text-center text-indigo-600 font-black tabular-nums">
+                                      {coils.length}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          ) : null}
                         </table>
                       </div>
                     );

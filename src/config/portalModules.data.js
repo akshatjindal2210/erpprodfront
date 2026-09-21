@@ -72,6 +72,7 @@ export const MODULES = {
     { name: "rm_out_entry", label: "Store Out" },
     { name: "rm_stock_adjustment", label: "Stock Adjustment" },
     { name: "rm_inventory_report", label: "RM Inventory" },
+    { name: "rm_inventory_audit", label: "Inventory Audit" },
     { name: "rm_activity_logs", label: "Activity Logs" },
     { name: "rm_coil_transaction_logs", label: "Coil Transaction Logs" },
     { name: "rm_coil_download_logs", label: "Coil Download Logs" },

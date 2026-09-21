@@ -68,6 +68,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "RSO", label: "RM Store Out",               route: ROUTES.RM_STORE_OUT,            module: "rm_out_entry",              app: "rmstore" },
   { code: "RSA", label: "RM Stock Adjustment",        route: ROUTES.RM_STOCK_ADJUSTMENT,     module: "rm_stock_adjustment",       app: "rmstore" },
   { code: "RIN", label: "RM Inventory Report",        route: ROUTES.RM_INVENTORY_REPORT,     module: "rm_inventory_report",       app: "rmstore" },
+  { code: "RAU", label: "RM Inventory Audit",         route: ROUTES.RM_INVENTORY_AUDIT,      module: "rm_inventory_audit",        app: "rmstore" },
   { code: "RAL", label: "RM Store Activity Logs",     route: ROUTES.RM_ACTIVITY_LOGS,        module: "rm_activity_logs",          app: "rmstore" },
   { code: "RCT", label: "Coil Transaction Logs",      route: ROUTES.RM_COIL_TRANSACTION_LOGS,module: "rm_coil_transaction_logs",  app: "rmstore" },
   { code: "RSD", label: "RM Sticker Download Logs",   route: ROUTES.RM_STICKER_DOWNLOAD_LOGS, module: "rm_coil_download_logs",     app: "rmstore" },

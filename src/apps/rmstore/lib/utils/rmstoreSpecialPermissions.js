@@ -11,8 +11,10 @@ export function parseRmstoreSpecialPermissions(user) {
   return raw?.rmstore || {};
 }
 
-export function isRmstoreSuperAdmin(user) {
-  return (String(user?.type || "").toLowerCase() === "super_admin" || String(user?.role || "").toLowerCase() === "super_admin");
+export function isRmstoreSuperAdmin(user, authRole = null) {
+  const type = String(user?.type || "").toLowerCase();
+  const role = String(authRole ?? user?.role ?? "").toLowerCase();
+  return type === "super_admin" || role === "super_admin";
 }
 
 export function canTypeSpecValues(user) {
@@ -27,8 +29,8 @@ export function canSelectMappedRm(user) {
 }
 
 /** all = super admin (every RM wire); mapped = SP1; first = normal user (auto first mapped, dropdown disabled). */
-export function issueRmSelectionMode(user) {
-  if (isRmstoreSuperAdmin(user)) return "all";
+export function issueRmSelectionMode(user, authRole = null) {
+  if (isRmstoreSuperAdmin(user, authRole)) return "all";
   if (canSelectMappedRm(user)) return "mapped";
   return "first";
 }

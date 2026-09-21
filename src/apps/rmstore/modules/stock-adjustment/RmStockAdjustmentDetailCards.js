@@ -8,10 +8,6 @@ import { OK_INPUT, MODAL_INPUT_CLASS } from "@/ui/common/Constants";
 
 const FIELD_LABEL = "block text-[8px] font-bold uppercase tracking-wider text-slate-500 mb-1 leading-none";
 
-function sanitizeStockAdjustmentHeatNo(raw) {
-  return String(raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
-
 export function resolveUploadUrl(noteOrPath, fileBaseUrl = "") {
   const raw = String(noteOrPath || "").trim();
   if (!raw) return "";
@@ -200,7 +196,7 @@ export default function RmStockAdjustmentDetailCards({
                 type="text"
                 className={`mt-0.5 ${heatControlClass}`}
                 value={heatNo}
-                onChange={(e) => onHeatNoChange(sanitizeStockAdjustmentHeatNo(e.target.value))}
+                onChange={(e) => onHeatNoChange(e.target.value)}
                 placeholder="Enter heat number"
                 autoCapitalize="characters"
                 spellCheck={false}

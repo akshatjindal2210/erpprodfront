@@ -53,9 +53,8 @@ const READOUT_BOX =
 const READOUT_BOX_MINUS =
   "min-h-[2rem] lg:min-h-[2.25rem] rounded-lg border border-rose-200/80 bg-rose-50/60 px-2 flex flex-col justify-center shadow-sm";
 
-/** Stock Adjustment heat no — uppercase alphanumeric (e.g. 7H26F62191). */
 function sanitizeStockAdjustmentHeatNo(raw) {
-  return String(raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return String(raw ?? "").toUpperCase().replace(/[^A-Z0-9#_-]/g, "");
 }
 
 function SpecHeaderColorBadge({ label, color }) {
@@ -604,7 +603,8 @@ export default function StockAdjustmentDrawer({
                 : { search: seedMrnUid }),
               exclude_adjustment_id: editId ?? undefined,
             });
-            const hit = Array.isArray(erpRes?.data) ? erpRes.data[0] : erpRes?.data;
+            const matches = Array.isArray(erpRes?.data) ? erpRes.data : erpRes?.data ? [erpRes.data] : [];
+            const hit = matches.find((m) => String(m?.uid || "").trim() === seedMrnUid) || matches[0] || null;
             if (hit) {
               setMrnDetail(hit);
               setSerialNo(resolveSerialNo(hit));
@@ -1804,7 +1804,9 @@ export default function StockAdjustmentDrawer({
       billNo={mrnMeta.bill_no}
       billDt={mrnMeta.bill_dt}
       heatNo={heatNo}
-      onHeatNoChange={!readOnly ? setHeatNo : undefined}
+      onHeatNoChange={
+        !readOnly ? (v) => setHeatNo(sanitizeStockAdjustmentHeatNo(v)) : undefined
+      }
       heatInputClassName={`${FIELD_CONTROL} font-mono font-bold uppercase`}
       mrnUid={mrnUid}
       mrnDt={mrnMeta.mrn_dt}
