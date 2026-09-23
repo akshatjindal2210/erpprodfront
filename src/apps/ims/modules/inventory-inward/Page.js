@@ -7,7 +7,8 @@ import { inventoryInwardService } from "@/apps/ims/lib/services/inventoryInward"
 import { boxService } from "@/apps/ims/lib/services/box";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
+import { ListPageFooterContextStrip } from "@/ui/common/list/listPageFooter";
 
 // Components
 import InwardModal from "@/apps/ims/modules/inventory-inward/InwardModal";
@@ -645,6 +646,32 @@ export default function InwardPage() {
     }
   };
 
+  const clearPackingAreaFilter = useCallback(() => {
+    setPackingFilterPn("");
+    setPackingFilterItem(null);
+    setPackingFilterCust(null);
+    setPackingFilterSource("");
+    setDisplayLimit(100);
+  }, []);
+
+  const packingBoxFooterContext = useMemo(() => {
+    if (isStoreIn || !packingFilterPn || !isPackingBoxView) return null;
+    const boxWord = totalItems === 1 ? "box" : "boxes";
+    const src = packingFilterSource ? ` · ${packingFilterSource}` : "";
+    return (
+      <ListPageFooterContextStrip tone="amber" onClear={clearPackingAreaFilter} clearLabel="Show all boxes">
+        {`Packing ${packingFilterPn}${src} — ${totalItems} ${boxWord}`}
+      </ListPageFooterContextStrip>
+    );
+  }, [
+    isStoreIn,
+    packingFilterPn,
+    packingFilterSource,
+    isPackingBoxView,
+    totalItems,
+    clearPackingAreaFilter,
+  ]);
+
   const inventoryInwardSelectionLabel = useCallback(
     (r) => {
       if (isStoreIn) return `Selected: ${r?.packing_number ?? "—"}`;
@@ -788,28 +815,6 @@ export default function InwardPage() {
             }
           />
 
-          {!isStoreIn && packingFilterPn && isPackingBoxView && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50 border border-amber-200">
-              <span className="text-[10px] font-bold text-amber-800 uppercase">
-                Packing {packingFilterPn}
-                {packingFilterSource ? ` · ${packingFilterSource}` : ""} — {totalItems} box
-                {totalItems === 1 ? "" : "es"}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setPackingFilterPn("");
-                  setPackingFilterItem(null);
-                  setPackingFilterCust(null);
-                  setPackingFilterSource("");
-                  setDisplayLimit(100);
-                }}
-                className="text-amber-600 hover:text-amber-900 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Show all boxes
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -852,7 +857,7 @@ export default function InwardPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <div className="flex-1 overflow-hidden flex flex-col">
             <DataTable
               key={`${pageTab}-${packingView}-${viewMode}`}
@@ -877,7 +882,7 @@ export default function InwardPage() {
           </div>
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun={
@@ -887,6 +892,7 @@ export default function InwardPage() {
                 ? "boxes in packing area"
                 : "packings in packing area"
           }
+          contextHint={packingBoxFooterContext}
           selected={selected}
           selectedRecord={selectedRecord}
           selectionLabel={inventoryInwardSelectionLabel}

@@ -17,8 +17,10 @@ import VideoModal from "./VideoModal";
 import SopModal from "./SopModal";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
 import { applyClientSearch, sortRowsByKey, fetchAllListPages } from "@/platform/utils/list/listSearch";
 import { APP_TYPE_LABELS } from "@/config/moduleAppRegistry";
+import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 
 function SopCell({ sop, onClick, disabled = false, isTable = false }) {
   const baseTone = sop
@@ -397,7 +399,7 @@ export default function TrainingPage() {
   ];
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden font-sans">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
 
         <div className="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
@@ -423,7 +425,7 @@ export default function TrainingPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           {viewMode === "table" ? (
             <DataTable
               viewMode="table"
@@ -502,17 +504,16 @@ export default function TrainingPage() {
           )}
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {String(tempSearch || "").trim()
-              ? `${filteredCount} match · ${totalLoaded} loaded`
-              : `Showing ${visibleModules.length} of ${filteredCount} modules`}
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <AppListFooter
+          shown={visibleModules.length}
+          total={filteredCount}
+          noun="Modules"
+          {...appListFooterFromClientFilter({
+            tempSearch,
+            sourceRows: allModules,
+            filteredRows: filteredSorted,
+          })}
+        />
       </div>
 
       {selectedSlot && (

@@ -12,7 +12,7 @@ import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import { FORM_LABEL_CLASS, OK_INPUT } from "@/ui/common/Constants";
 import { gateEntryService } from "@/apps/ims/lib/services/gateEntry";
-import { normalizeBillScanInput } from "@/apps/ims/lib/helpers/qrScan";
+import { billQrCameraLooksIncomplete, normalizeBillScanInput } from "@/apps/ims/lib/helpers/qrScan";
 import { isImsSuperAdmin } from "@/apps/ims/lib/utils/imsSpecialPermissions";
 import { selectUser } from "@/platform/store/slices/authSlice";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
@@ -155,11 +155,21 @@ function MiniTable({ title, columns, rows, emptyText = "No lines", totalQty }) {
   );
 }
 
-export default function GateEntryModal({ open, mode = "add", initial = null, onClose, onSaved }) {
+export default function GateEntryModal({
+  open,
+  mode = "add",
+  initial = null,
+  onClose,
+  onSaved,
+  moduleSlug = "gate_entry",
+  service = gateEntryService,
+  entityLabel = "Gate Entry",
+  scannerId = GATE_BILL_SCANNER_ID,
+}) {
   const readOnlyView = mode === "view";
   const user = useSelector(selectUser);
   const canAccess = useCanAccess();
-  const canEditGate = isImsSuperAdmin(user) || Boolean(canAccess("gate_entry", "edit").allowed);
+  const canEditGate = isImsSuperAdmin(user) || Boolean(canAccess(moduleSlug, "edit").allowed);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -175,15 +185,26 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
   const scanBusyRef = useRef(false);
   const scanInputRef = useRef(null);
   const openBillRef = useRef(async () => {});
+  const reopenCameraAfterBillFailRef = useRef(false);
 
-  const { laserScan, keyboardType, phoneQrScan } = useDeviceScanSettings();
+  const { laserScan, keyboardType, phoneQrScan, showPhoneQr } = useDeviceScanSettings();
   const showLaserUi = laserScan || isLaserScanEnabled();
   const showKeyboardUi = keyboardType === true;
-  /** Bill QR: overlay allows desktop webcam (gate PC), so honor Phone QR even off-phone. */
-  const showCameraQr = phoneQrScan === true;
+  /** Bill QR: phone uses device setting; desktop webcam when Phone QR enabled (tax invoice at gate PC). */
+  const showCameraQr = showPhoneQr || phoneQrScan === true;
 
   const applyPayload = useCallback((data) => {
-    setPayload(data || null);
+    if (!data) {
+      setPayload(null);
+      setTransporter("");
+      setVehicle("");
+      setRemarks("");
+      return;
+    }
+    const billNo =
+      String(data.invmnote?.billno ?? data.invmnote?.bill_no ?? data.bill_no ?? "").trim() ||
+      data.bill_no;
+    setPayload({ ...data, bill_no: billNo });
     setTransporter(data?.transporter_name || data?.transport || data?.invmnote?.transport || data?.invmnote?.transporter_name || "");
     setVehicle(data?.vehicle_number || data?.vehicleno || data?.invmnote?.vehicleno || data?.invmnote?.vehicle_number || "");
     setRemarks(data?.remarks || "");
@@ -199,8 +220,9 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
 
   const openFromScanOrBill = useCallback(
     async (raw) => {
-      const text = normalizeBillScanInput(raw);
-      if (!text) {
+      const payload = raw != null && typeof raw === "object" ? raw : normalizeBillScanInput(raw);
+      const billKey = typeof payload === "string" ? payload.trim() : String(payload?.bill_no ?? payload?.qrData ?? "").trim();
+      if (!billKey) {
         toast.error("Bill number or QR is required.");
         return;
       }
@@ -208,7 +230,7 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
       scanBusyRef.current = true;
       setLoading(true);
       try {
-        const res = await gateEntryService.openBill(text);
+        const res = await service.openBill(payload);
         if (!res?.success) throw new Error(res?.message || "Failed to load bill.");
         const data = res.data;
         const hasIms =
@@ -219,6 +241,7 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
           throw new Error(res?.message || "Bill details not found. Scan a valid bill QR or type the correct bill number.");
         }
         applyPayload(data);
+        reopenCameraAfterBillFailRef.current = false;
         if (data?.already_saved && mode === "add") {
           toast.info("This bill is already saved.");
         } else {
@@ -226,13 +249,17 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
         }
       } catch (err) {
         toast.error(err?.message || "Failed to load bill.");
+        if (reopenCameraAfterBillFailRef.current) {
+          reopenCameraAfterBillFailRef.current = false;
+          setIsScannerOpen(true);
+        }
       } finally {
         scanBusyRef.current = false;
         setLoading(false);
         setLaserKey((k) => k + 1);
       }
     },
-    [applyPayload, mode]
+    [applyPayload, mode, service]
   );
 
   openBillRef.current = openFromScanOrBill;
@@ -248,7 +275,7 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
     }
     if (initial?.uid) {
       setLoading(true);
-      gateEntryService
+      service
         .getDetails({ uid: initial.uid })
         .then((res) => {
           if (!res?.success) throw new Error(res?.message || "Failed to load.");
@@ -263,22 +290,34 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
       autoDoneRef.current = true;
       void openBillRef.current(bill);
     }
-  }, [open, initial, applyPayload]);
+  }, [open, initial, applyPayload, service]);
 
   useEffect(() => {
     if (!open || mode !== "add" || initial?.uid) return;
     setAddEntryStamp((prev) => prev ?? new Date());
   }, [open, mode, initial?.uid]);
 
+  const billInvoiceQrBox = useCallback((viewfinderWidth, viewfinderHeight) => {
+    const edge = Math.min(viewfinderWidth, viewfinderHeight);
+    const size = Math.max(200, Math.floor(edge * 0.88));
+    return { width: size, height: size };
+  }, []);
+
+  const handleBillQrDecoded = useCallback((raw) => {
+    const text = normalizeBillScanInput(raw);
+    if (!text || billQrCameraLooksIncomplete(text)) return;
+    reopenCameraAfterBillFailRef.current = true;
+    setIsScannerOpen(false);
+    void openBillRef.current(text);
+  }, []);
+
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen,
-    elementId: GATE_BILL_SCANNER_ID,
-    onDecoded: (raw) => {
-      setIsScannerOpen(false);
-      void openBillRef.current(raw);
-    },
-    fps: 15,
-    qrbox: { width: 280, height: 280 },
+    elementId: scannerId,
+    onDecoded: handleBillQrDecoded,
+    fps: 12,
+    qrbox: billInvoiceQrBox,
+    decodeCooldownMs: 2200,
     onCameraFailed: (err) => {
       const isDenied = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       toast.error(isDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA, { autoClose: 4000 });
@@ -287,6 +326,7 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
   });
 
   const handleScanEnter = useCallback((code) => {
+    reopenCameraAfterBillFailRef.current = false;
     void openBillRef.current(code);
   }, []);
 
@@ -384,37 +424,37 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
     setSaving(true);
     try {
       if (canEditMeta && gateUid) {
-        const res = await gateEntryService.update({
+        const res = await service.update({
           uid: Number(gateUid),
           transporter_name: transporter,
           vehicle_number: vehicle,
           remarks,
         });
-        if (!res?.success) throw new Error(res?.message || "Failed to update gate entry.");
-        toast.success(res.message || "Gate entry updated successfully.");
+        if (!res?.success) throw new Error(res?.message || `Failed to update ${entityLabel.toLowerCase()}.`);
+        toast.success(res.message || `${entityLabel} updated successfully.`);
         onSaved?.(res.data);
         onClose?.();
         return;
       }
-      const res = await gateEntryService.save({
+      const res = await service.save({
         bill_no: payload.bill_no,
         bill_dt: payload.bill_dt || invmnote?.billdt || null,
         transporter_name: transporter,
         vehicle_number: vehicle,
         remarks,
       });
-      if (!res?.success) throw new Error(res?.message || "Failed to save gate entry.");
+      if (!res?.success) throw new Error(res?.message || `Failed to save ${entityLabel.toLowerCase()}.`);
       const gate = res.data || null;
       toast.success(
         gate?.uid != null
-          ? `Gate entry saved · ${String(gate.type || "out").toLowerCase() === "in" ? "IN" : "OUT"}-${gate.uid}`
-          : res.message || "Gate entry saved successfully."
+          ? `${entityLabel} saved · ${String(gate.type || "out").toLowerCase() === "in" ? "IN" : "OUT"}-${gate.uid}`
+          : res.message || `${entityLabel} saved successfully.`
       );
       onSaved?.(gate);
       onClose?.();
       return;
     } catch (err) {
-      toast.error(err?.message || (canEditMeta ? "Failed to update gate entry." : "Failed to save gate entry."));
+      toast.error(err?.message || (canEditMeta ? `Failed to update ${entityLabel.toLowerCase()}.` : `Failed to save ${entityLabel.toLowerCase()}.`));
     } finally {
       setSaving(false);
     }
@@ -465,14 +505,14 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
   const title = isExistingGate
     ? canEditMeta
       ? gateOutId
-        ? `Edit Gate Entry · ${gateOutId}`
-        : "Edit Gate Entry"
+        ? `Edit ${entityLabel} · ${gateOutId}`
+        : `Edit ${entityLabel}`
       : gateOutId
-        ? `View Gate Entry · ${gateOutId}`
-        : "View Gate Entry"
+        ? `View ${entityLabel} · ${gateOutId}`
+        : `View ${entityLabel}`
     : gateOutId
-      ? `Gate Entry · ${gateOutId}`
-      : "Gate Entry";
+      ? `${entityLabel} · ${gateOutId}`
+      : entityLabel;
 
   const footer = (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 w-full">
@@ -693,7 +733,7 @@ export default function GateEntryModal({ open, mode = "add", initial = null, onC
       <QrScannerOverlay
         open={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
-        readerId={GATE_BILL_SCANNER_ID}
+        readerId={scannerId}
         torchSupported={torchSupported}
         torchOn={torchOn}
         onToggleTorch={toggleTorch}

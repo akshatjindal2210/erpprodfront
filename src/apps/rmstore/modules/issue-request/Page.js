@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Eye, List, ClipboardList, Lock, Unlock, Info, Printer } from "lucide-react";
+import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Eye, List, ClipboardList, Lock, Unlock, Printer } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 
@@ -22,8 +22,9 @@ import ActionButton from "@/ui/primitives/ActionButton";
 import PrintActionButton from "@/ui/primitives/PrintActionButton";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
-import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import { rmStoreIssueRequestSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
+import { ListPageFooterContextStrip } from "@/ui/common/list/listPageFooter";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
@@ -40,6 +41,7 @@ const REPORT_TYPES = {
 };
 
 const STORE_OUT_FILTER_OPTIONS = [
+  { label: "Lock + Unlock", value: "lock_unlock" },
   { label: "All", value: "all" },
   { label: "Locked", value: "locked" },
   { label: "Unlocked", value: "unlocked" },
@@ -67,6 +69,8 @@ function LockStatusBadge({ row }) {
 
 function buildStoreOutApiFilters(storeOutFilter) {
   switch (storeOutFilter) {
+    case "lock_unlock":
+      return { out_entry_complete: false };
     case "locked":
       return { out_entry_locked: true, out_entry_complete: false };
     case "unlocked":
@@ -179,7 +183,7 @@ export default function IssueRequestPage() {
   const [params, setParams] = useState({
     pageSize: 500,
     status: "all",
-    storeOutFilter: "all",
+    storeOutFilter: "lock_unlock",
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
     sortKey: "issue_uid",
@@ -297,15 +301,28 @@ export default function IssueRequestPage() {
     [filteredRows, selected, getRowId]
   );
 
+  const jobCardFooterContext = useMemo(() => {
+    if (isSummary || jobCardIssueUidFilter == null) return null;
+    return (
+      <ListPageFooterContextStrip
+        tone="cyan"
+        onClear={() => setJobCardIssueUidFilter(null)}
+        clearLabel="Show all job cards"
+      >
+        {`Showing job cards for Issue #${jobCardIssueUidFilter}`}
+      </ListPageFooterContextStrip>
+    );
+  }, [isSummary, jobCardIssueUidFilter]);
+
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch,
         sourceRows: allRows,
         filteredRows,
         serverFiltered:
           params.status !== "all" ||
-          params.storeOutFilter !== "all" ||
+          params.storeOutFilter !== "lock_unlock" ||
           Boolean(appliedSearch),
       }),
     [tempSearch, allRows, filteredRows, params.status, params.storeOutFilter, appliedSearch]
@@ -757,37 +774,6 @@ export default function IssueRequestPage() {
             }
           />
 
-          {jobCardIssueUidFilter != null && !isSummary ? (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-cyan-50 border border-cyan-100">
-              <span className="text-[10px] font-bold text-cyan-800 uppercase flex items-center gap-2">
-                <Info size={12} /> Showing job cards for Issue #{jobCardIssueUidFilter}
-              </span>
-              <button
-                type="button"
-                onClick={() => setJobCardIssueUidFilter(null)}
-                className="text-cyan-600 hover:text-cyan-800 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Show all job cards
-              </button>
-            </div>
-          ) : null}
-
-          {selectedRecord && (
-            <MasterSelectionBanner onClear={() => setSelected(null)}>
-              {isSummary ? (
-                <>
-                  Issue #{selectedRecord.issue_uid} · {selectedRecord.item_code || "—"} · RM{" "}
-                  {selectedRecord.rm_item_code || "—"} · Qty {Number(selectedRecord.requested_qty || 0).toLocaleString()} ·{" "}
-                  {selectedRecord.coil_count ?? 0} coil(s)
-                </>
-              ) : (
-                <>
-                  Issue #{selectedRecord.issue_uid} · {selectedRecord.pjobcardno || "—"} · Issue Qty{" "}
-                  {Number(selectedRecord.issue_qty || 0).toLocaleString()} · {selectedRecord.coil_count ?? 0} coil(s)
-                </>
-              )}
-            </MasterSelectionBanner>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -814,7 +800,7 @@ export default function IssueRequestPage() {
               setParams({
                 pageSize: 500,
                 status: "all",
-                storeOutFilter: "all",
+                storeOutFilter: "lock_unlock",
                 fromDate: dateFilterDefaults.from,
                 toDate: dateFilterDefaults.to,
                 sortKey: "issue_uid",
@@ -838,7 +824,7 @@ export default function IssueRequestPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             key={reportType}
             headers={headers}
@@ -888,10 +874,15 @@ export default function IssueRequestPage() {
           )}
         </div>
 
-        <RmStoreListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
-          label={isSummary ? "Issue Requests" : "Job Card Lines"}
+          noun={isSummary ? "Issue Requests" : "Job Card Lines"}
+          contextHint={jobCardFooterContext}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={rmStoreIssueRequestSelectionLabel(isSummary)}
+          onClearSelection={() => setSelected(null)}
           {...footerFilter}
         />
       </div>

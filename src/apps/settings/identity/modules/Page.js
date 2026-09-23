@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Box, RefreshCcw, X } from "lucide-react";
+import { Box, RefreshCcw } from "lucide-react";
+import AppListFooter, {
+  appListFooterFromClientFilter,
+} from "@/ui/common/list/listPageFooter";
 import { toast } from "react-toastify";
 
 import { moduleService } from "@/apps/settings/lib/services/moduleService";
@@ -13,6 +16,7 @@ import DataTable from "@/ui/primitives/DataTable";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import { APP_TYPE_LABELS } from "@/config/moduleAppRegistry";
+import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 
 export default function ModulesPage() {
   const [loading, setLoading] = useState(true);
@@ -240,7 +244,7 @@ export default function ModulesPage() {
   const selectedRecord = filteredRows.find((m) => m.id === selected);
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden font-sans">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -258,19 +262,6 @@ export default function ModulesPage() {
             </div>
           </div>
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase italic">
-                Selected Module: {selectedRecord?.name}
-              </span>
-              <button
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </div>
 
         <ListPageFilterStrip>
@@ -287,7 +278,7 @@ export default function ModulesPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             getRowId={(row) => row.id}
@@ -327,17 +318,20 @@ export default function ModulesPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {String(tempSearch || "").trim()
-              ? `${filteredRows.length} match · ${totalLoaded} loaded`
-              : `Showing ${modules.length} of ${totalItems} Modules`}
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <AppListFooter
+          shown={modules.length}
+          total={totalItems}
+          noun="Modules"
+          {...appListFooterFromClientFilter({
+            tempSearch,
+            sourceRows: allRows,
+            filteredRows,
+          })}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={(r) => `Selected Module: ${r?.name ?? "—"}`}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
     </div>
   );

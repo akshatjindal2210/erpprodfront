@@ -1,4 +1,4 @@
-import { Zap, Package, Truck, Users, Database, FileSearch, BarChart3, Map, Boxes, ClipboardCheck, ListChecksIcon, Locate, ClipboardList, Scale, Sticker, Ship, History, ShieldAlert, DoorOpen, AlertTriangle, Layers } from "lucide-react";
+import { Zap, Package, Truck, Users, Database, FileSearch, BarChart3, Map, Boxes, ClipboardCheck, ListChecksIcon, Locate, ClipboardList, Scale, Sticker, Ship, History, ShieldAlert, DoorOpen, AlertTriangle, Layers, FileInput } from "lucide-react";
 import { ROUTES } from "@/apps/ims/lib/utils/routes";
 
 export const NAV_REGISTRY = [
@@ -27,6 +27,7 @@ export const NAV_REGISTRY = [
   { id: "forwarding-note", name: "Forwarding Note", icon: <FileSearch size={16} />, href: ROUTES.FORWARDING_NOTE, module: "forwarding_note_master" },
   { id: "store-outward", name: "Store Out", icon: <Truck size={16} />, href: ROUTES.OUT_ENTRY, module: "out_entry" },
   { id: "gate-entry", name: "Gate Entry", icon: <DoorOpen size={16} />, href: ROUTES.GATE_ENTRY, module: "gate_entry" },
+  { id: "invoice-receiving", name: "Invoice Receiving", icon: <FileInput size={16} />, href: ROUTES.INVOICE_RECEIVING, module: "invoice_receiving" },
   { id: "sticker-override", name: "Change / Override Customer", icon: <Map size={16} />, href: ROUTES.STICKER_OVERRIDE, module: "change_override_customer" },
   { id: "stock-adjustment", name: "Stock Adjustment", icon: <Scale size={16} />, href: ROUTES.STOCK_ADJUSTMENT, module: "stock_adjustment" },
   { id: "audit", name: "Inventory Audit", icon: <ClipboardList size={16} />, href: ROUTES.AUDIT, module: "audit" },

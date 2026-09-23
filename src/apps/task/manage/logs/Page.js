@@ -16,6 +16,7 @@ import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { formatActivityLogValue, getActivityLogSections, getActivityLogMoreSections, hasActivityLogDetails } from "@/platform/utils/core/activityLogDisplay";
 import ActivityLogModuleEntityCell from "@/ui/common/list/ActivityLogModuleEntityCell";
@@ -278,7 +279,7 @@ export default function LogsPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={items}
@@ -308,15 +309,7 @@ export default function LogsPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Activity Logs
-          </span>
-          <div className="flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <AppListFooter shown={items.length} total={totalItems} noun="Activity Logs" />
       </div>
     </div>
   );

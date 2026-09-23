@@ -406,7 +406,7 @@ export default function InventoryReportPage() {
           </div>
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={displayRows}

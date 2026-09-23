@@ -8,16 +8,16 @@ function isMobileViewport() {
   return typeof window !== "undefined" && window.innerWidth < MOBILE_BREAKPOINT;
 }
 
-/** Phone always uses card view; desktop respects saved preference. */
+/** Saved preference on all widths; phone defaults to card when nothing saved yet. */
 function resolveViewMode() {
   if (typeof window === "undefined") return "table";
-  if (isMobileViewport()) return "card";
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === "table" || saved === "card") return saved;
   } catch {
     /* quota / private mode */
   }
+  if (isMobileViewport()) return "card";
   return "table";
 }
 
@@ -39,7 +39,6 @@ export function useViewMode(defaultMode = "table") {
   const handleViewMode = useCallback((mode) => {
     if (mode !== "table" && mode !== "card") return;
     setViewMode(mode);
-    if (isMobileViewport()) return;
     try {
       localStorage.setItem(STORAGE_KEY, mode);
     } catch {

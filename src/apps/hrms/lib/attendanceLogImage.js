@@ -1,19 +1,23 @@
 import { API_BASE_URL } from "@/platform/utils/core/lib";
 import { attendanceLogService } from "@/apps/hrms/lib/services/hrms";
 
-const CACHE_MAX = 64;
-const BLOB_MAX = 64;
-const MAX_IN_FLIGHT = 2;
-const QUEUE_MAX = 24;
+/** Keep thumbs in memory so scroll-back / modal reopen do not re-fetch. */
+const CACHE_MAX = 320;
+const BLOB_MAX = 320;
+const MAX_IN_FLIGHT = 4;
 
 const cache = new Map();
 const blobCache = new Map();
 const lru = [];
 const blobLru = [];
+const listeners = new Set();
 let active = 0;
 const q = [];
 
-const rowKey = (r) => r?.id != null && r.id !== "" ? `id:${r.id}` : `${String(r?.employee_code ?? "").trim()}|${String(r?.event_timestamp ?? "").trim()}|${r?.sub_event_type ?? ""}`;
+const rowKey = (r) =>
+  r?.id != null && r.id !== ""
+    ? `id:${r.id}`
+    : `${String(r?.employee_code ?? "").trim()}|${String(r?.event_timestamp ?? "").trim()}|${r?.sub_event_type ?? ""}`;
 
 const absUrl = (p) => {
   const path = String(p ?? "").trim();
@@ -21,6 +25,22 @@ const absUrl = (p) => {
   if (/^https?:\/\//i.test(path)) return path;
   return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 };
+
+function notifyCache() {
+  listeners.forEach((fn) => {
+    try {
+      fn();
+    } catch {
+      /* ignore subscriber errors */
+    }
+  });
+}
+
+/** Thumbnails re-sync when modal (or another cell) finishes loading the same image. */
+export function subscribeAttendanceLogImageCache(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
 
 function touchLru(key, order, max, map) {
   const i = order.indexOf(key);
@@ -57,7 +77,7 @@ async function toAuthBlobUrl(httpUrl) {
   return blobUrl;
 }
 
-const NOT_FOUND = { displayUrl: "", proxyUrl: "", sourceUrl: "", notFound: true };
+const NOT_FOUND = Object.freeze({ displayUrl: "", proxyUrl: "", sourceUrl: "", notFound: true });
 
 const parseRes = async (res) => {
   const proxyUrl = absUrl(String(res?.data?.image_proxy_url ?? res?.data?.image_url ?? "").trim());
@@ -68,6 +88,8 @@ const parseRes = async (res) => {
   try {
     return { displayUrl: await toAuthBlobUrl(proxyUrl), proxyUrl, sourceUrl };
   } catch {
+    /* Prefer live proxy URL over empty — <img> can still load with cookies in same origin cases */
+    if (proxyUrl) return { displayUrl: proxyUrl, proxyUrl, sourceUrl };
     return NOT_FOUND;
   }
 };
@@ -76,19 +98,18 @@ function pump() {
   while (active < MAX_IN_FLIGHT && q.length) {
     const [fn, ok, err] = q.shift();
     active += 1;
-    Promise.resolve().then(fn).then(ok, err).finally(() => {
-      active -= 1;
-      pump();
-    });
+    Promise.resolve()
+      .then(fn)
+      .then(ok, err)
+      .finally(() => {
+        active -= 1;
+        pump();
+      });
   }
 }
 
 const runQueued = (fn) =>
   new Promise((ok, err) => {
-    if (q.length >= QUEUE_MAX) {
-      ok(NOT_FOUND);
-      return;
-    }
     q.push([fn, ok, err]);
     pump();
   });
@@ -101,12 +122,17 @@ export function fetchAttendanceLogImage(row, force) {
   }
   const p = runQueued(() =>
     attendanceLogService
-      .image({ employee_code: row?.employee_code, event_timestamp: row?.event_timestamp, sub_event_type: row?.sub_event_type })
-      .then(parseRes)
+      .image({
+        employee_code: row?.employee_code,
+        event_timestamp: row?.event_timestamp,
+        sub_event_type: row?.sub_event_type,
+      })
+      .then(parseRes),
   )
     .then((r) => {
       cache.set(key, r);
       touchLru(key, lru, CACHE_MAX, cache);
+      notifyCache();
       return r;
     })
     .catch((e) => {
@@ -120,4 +146,8 @@ export function fetchAttendanceLogImage(row, force) {
 export function peekAttendanceLogImage(row) {
   const hit = cache.get(rowKey(row));
   return hit && typeof hit.then !== "function" ? hit : null;
+}
+
+export function attendanceLogImageRowKey(row) {
+  return rowKey(row);
 }

@@ -37,6 +37,7 @@ export {
   STAT_CARDS,
   COLOR_LEGEND,
   QUICK_FILTER_LABELS,
+  FOOTER_SCOPE_SHORT,
 } from "@/apps/task/lib/ui/tasks_common_component/TaskConstant";
 
 export {

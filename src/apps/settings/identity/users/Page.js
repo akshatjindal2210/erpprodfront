@@ -1,6 +1,10 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, Users, RefreshCcw, Edit3, Trash2, X } from "lucide-react";
+import { Plus, Users, RefreshCcw, Edit3, Trash2 } from "lucide-react";
+import AppListFooter, {
+  FOOTER_TEXT_CLASS,
+  consoleListSelectionLabel,
+} from "@/ui/common/list/listPageFooter";
 import { toast } from "react-toastify";
 
 import { formatDateTime, getInitials } from "@/platform/utils/core/utilHelper";
@@ -20,6 +24,7 @@ import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys
 import { applyClientSearch, sortRowsByKey, fetchAllListPages, defaultSearchParts } from "@/platform/utils/list/listSearch";
 
 import { USER_STATUS_CONFIG, USER_TYPE_CONFIG, getAvatarColor, ROLE_LABELS, TYPES, USER_STATUSES } from "@/ui/common/Constants";
+import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 
 function rowDepartmentId(row) {
   return row?.department_id ?? row?.department?.id ?? null;
@@ -561,7 +566,7 @@ export default function UsersPage() {
   const deleteDisabled = selected === null || !selectedRow || isPendingRecordId(selectedRow?.id);
 
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden font-sans">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-2 shrink-0">
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -592,20 +597,6 @@ export default function UsersPage() {
             </div>
           </div>
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase italic">
-                Selected: {selectedRow?.name || selectedRow?.username || "—"}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </div>
 
         <ListPageFilterStrip>
@@ -621,7 +612,7 @@ export default function UsersPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={headers}
             getRowId={(row) => tableRowKey(row)}
@@ -659,13 +650,19 @@ export default function UsersPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[11px] text-slate-500">
-            {tempSearch.trim()
-              ? `${displayRows.length} shown (search) · ${allRows.length} loaded`
-              : `${displayRows.length}${params.listScope === LIST_SCOPE_APP ? ` / ${totalItems}` : ""} ${params.listScope === LIST_SCOPE_APP ? "users" : "rows"}`}
-          </span>
-        </div>
+        <AppListFooter
+          leftContent={
+            <span className={FOOTER_TEXT_CLASS}>
+              {tempSearch.trim()
+                ? `${displayRows.length} shown (search) · ${allRows.length} loaded`
+                : `${displayRows.length}${params.listScope === LIST_SCOPE_APP ? ` / ${totalItems}` : ""} ${params.listScope === LIST_SCOPE_APP ? "users" : "rows"}`}
+            </span>
+          }
+          selected={selected}
+          selectedRecord={selectedRow}
+          selectionLabel={consoleListSelectionLabel.user}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       {modalOpen && (

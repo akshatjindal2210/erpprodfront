@@ -12,7 +12,8 @@ import { LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import ActionButton from "@/ui/primitives/ActionButton";
 import PrintActionButton from "@/ui/primitives/PrintActionButton";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
+import { rmStoreSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
 import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
@@ -95,7 +96,7 @@ export default function LocationMasterPage() {
   const totalItems = filteredRows.length;
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch,
         sourceRows: allRows,
         filteredRows,
@@ -279,19 +280,6 @@ export default function LocationMasterPage() {
             }
           />
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 whitespace-normal break-words leading-snug text-left">
-                <Info size={12} className="shrink-0" />
-                <span>
-                  Selected: {selectedRecord?.location_no || (selectedRecord?.rack_no ? `RM-${selectedRecord.rack_no}${(selectedRecord?.row_no || "").toString().toUpperCase()}` : "—")} | RM Rack: {selectedRecord?.rack_no || "—"} | RM Row: {(selectedRecord?.row_no || "—").toString().toUpperCase()}
-                </span>
-              </span>
-              <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -306,12 +294,12 @@ export default function LocationMasterPage() {
             searchLabel="Search Locations"
             searchVariant="quick"
             showSearchButton
-            applyOnSearchEnter={false}
+            applyOnSearchEnter
             applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
             <DataTable
               headers={HEADERS} data={items} loading={loading}
               viewMode={viewMode} allowCopy={true} {...tableHotkeyProps} showSelection={true}
@@ -339,7 +327,16 @@ export default function LocationMasterPage() {
             />
         </div>
 
-        <RmStoreListFooter shown={items.length} total={totalItems} label="Locations" {...footerFilter} />
+        <AppListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="Locations"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={rmStoreSelectionLabel.storeLocation}
+          onClearSelection={() => setSelected(null)}
+          {...footerFilter}
+        />
       </div>
 
       {modalOpen && (

@@ -21,34 +21,71 @@ import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPag
 import ActionButton from "@/ui/primitives/ActionButton";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
-import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import { rmStoreInProcessSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
-import { renderCoilCompactCell, renderCoilLocationCell, renderCoilMrnCell, renderCoilOutUidCell, renderCoilQtyCell, resolveCoilLocationLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
+import { renderCoilCompactCell, renderCoilMrnCell, renderCoilOutUidCell, renderCoilQtyCell } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 
 const MODULE = "rm_in_process_request";
 
-/** Left = Register (IPR DB). Right = Pending shop-floor coils (default). */
+/** Left = Register (IPR DB). Right = Pending (shop-floor + unapproved IPRs). */
 const PAGE_TABS = {
   REGISTER: "register",
   PENDING: "pending",
 };
 
-/** Shop-floor Pending — only fields needed to pick / act on issued coils. */
+const PENDING_KIND = {
+  SHOP_FLOOR: "shop_floor",
+  IPR: "ipr",
+};
+
+/** Same columns as before — IPR pending rows use type badge so Rejection / Consume etc. are clear. */
 const PENDING_SHOP_FLOOR_HEADERS = [
-  ["Job Card", "pjobcardno", (v) => renderCoilCompactCell(v, "font-mono font-bold text-indigo-700"), { width: "110px" }],
-  ["Machine", "macname", (v) => renderCoilCompactCell(v, "font-bold text-slate-800 uppercase"), { width: "120px" }],
-  ["Coil No", "coil_no_uid", (v) => renderCoilCompactCell(v, "font-bold text-slate-800"), { fixed: true, width: "140px" }],
+  [
+    "Job Card",
+    "pjobcardno",
+    (v, row) =>
+      isShopFloorPendingRow(row) ? (
+        renderCoilCompactCell(v, "font-mono font-bold text-indigo-700")
+      ) : (
+        <IprRequestTypeCell row={row} />
+      ),
+    { width: "130px", align: "center" },
+  ],
+  [
+    "Machine",
+    "macname",
+    (v, row) =>
+      isShopFloorPendingRow(row) ? (
+        renderCoilCompactCell(v, "font-bold text-slate-800 uppercase")
+      ) : (
+        <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-200">
+          ○ Pending
+        </span>
+      ),
+    { width: "120px", align: "center" },
+  ],
+  [
+    "Coil No",
+    "coil_no_uid",
+    (v, row) =>
+      isShopFloorPendingRow(row) ? (
+        renderCoilCompactCell(v, "font-bold text-slate-800")
+      ) : (
+        renderCoilCompactCell(v, "font-bold text-slate-800", v)
+      ),
+    { fixed: true, width: "140px" },
+  ],
   ["MRN", "mrn_uid", renderCoilMrnCell, { width: "80px" }],
   ["Item Code", "item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold"), { width: "110px" }],
   ["Description", "item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block", v), { width: "160px" }],
   ["Qty", "qty", renderCoilQtyCell, { width: "70px", align: "center" }],
-  // ["Shop Floor", "location_no", renderCoilLocationCell, { width: "110px", align: "center", copyValue: (row) => resolveCoilLocationLabel(row) }],
   ["Heat No", "heat_no", (v) => renderCoilCompactCell(v, "font-mono text-slate-700"), { width: "130px" }],
   ["Out UID", "out_uid", renderCoilOutUidCell, { width: "80px", copyValue: (row) => (row.out_uid != null ? String(row.out_uid) : "—") }],
+  ["Coils", "coil_count", (v) => <span className="font-bold tabular-nums text-[11px]">{v ?? 0}</span>, { width: "65px", align: "center" }],
 ];
 
 const PENDING_CARD_CONFIG = {
@@ -73,6 +110,81 @@ function qtyCell(v) {
       {v != null ? Number(v).toLocaleString() : "0"}
     </span>
   );
+}
+
+function isShopFloorPendingRow(row) {
+  return row?._pendingKind === PENDING_KIND.SHOP_FLOOR || (!row?.ipr_uid && row?.coil_no_uid);
+}
+
+function buildCoilUidLabel(coilUids = [], fallback = "—") {
+  const uniqueUids = [...new Set(coilUids.map((uid) => String(uid || "").trim()).filter(Boolean))];
+  return uniqueUids.length ? uniqueUids.join(", ") : fallback;
+}
+
+function buildPendingShopFloorGroupKey(row = {}) {
+  return [row.pjobcardno || "—", row.macname || "—", row.mrn_uid || row.mrn_no || "—"].join("|");
+}
+
+function aggregatePendingShopFloorRows(rows = []) {
+  const grouped = new Map();
+
+  rows.forEach((row) => {
+    const key = buildPendingShopFloorGroupKey(row);
+    const existing = grouped.get(key);
+    const coilUid = String(row?.coil_no_uid || "").trim();
+    const rowQty = Number(row?.qty) || 0;
+
+    if (!existing) {
+      grouped.set(key, {
+        ...row,
+        _pendingKind: PENDING_KIND.SHOP_FLOOR,
+        _pendingGroupKey: key,
+        _coilUids: coilUid ? [coilUid] : [],
+        coil_no_uid: buildCoilUidLabel(coilUid ? [coilUid] : []),
+        coil_count: coilUid ? 1 : 0,
+        qty: rowQty,
+      });
+      return;
+    }
+
+    const hasCoil = coilUid && !existing._coilUids.includes(coilUid);
+    const nextCoils = hasCoil ? [...existing._coilUids, coilUid] : existing._coilUids;
+    existing._coilUids = nextCoils;
+    existing.coil_count = nextCoils.length;
+    existing.coil_no_uid = buildCoilUidLabel(nextCoils);
+    existing.qty = (Number(existing.qty) || 0) + rowQty;
+  });
+
+  return [...grouped.values()];
+}
+
+function pendingRowId(row) {
+  if (isShopFloorPendingRow(row)) return `sf:${row?._pendingGroupKey || row?.coil_no_uid || ""}`;
+  return `ipr:${row?.ipr_uid ?? ""}`;
+}
+
+/** Map unapproved IPR into shop-floor columns; Coil No shows real coil UID(s). */
+function mapPendingIprToShopFloorColumns(row) {
+  const coils = Array.isArray(row.coils) ? row.coils : [];
+  const coilUids = coils
+    .map((c) => String(c?.coil_no_uid || "").trim())
+    .filter(Boolean);
+  const coilNo = buildCoilUidLabel(coilUids, row.coil_label || row.seed_coil_uid || "—");
+
+  return {
+    ...row,
+    _pendingKind: PENDING_KIND.IPR,
+    pjobcardno: row.request_type || "IPR",
+    macname: "Pending",
+    coil_no_uid: coilNo,
+    mrn_uid: row.mrn_uid || row.mrn_no || null,
+    item_code: row.item_code || "—",
+    item_desc: row.item_desc || row.reason || "—",
+    qty: row.total_qty ?? row.qty ?? 0,
+    coil_count: row.coil_count ?? coilUids.length,
+    heat_no: row.heat_label || row.heat_no || "—",
+    out_uid: row.ipr_uid ?? null,
+  };
 }
 
 const DEFAULT_PARAMS = {
@@ -141,15 +253,33 @@ export default function InProcessRequestPage() {
     setLoading(true);
     try {
       if (isPendingTab) {
-        const { data } = await fetchAllListPages(async (page, limit) => {
-          const body = await inProcessRequestService.getPendingShopFloor({
-            page,
-            limit,
-            ...(appliedSearch && { search: appliedSearch }),
-          });
-          return { data: body.data ?? [], total: body.total ?? 0 };
-        }, params.pageSize);
-        setAllRows(data);
+        const [shopFloor, pendingIprs] = await Promise.all([
+          fetchAllListPages(async (page, limit) => {
+            const body = await inProcessRequestService.getPendingShopFloor({
+              page,
+              limit,
+              ...(appliedSearch && { search: appliedSearch }),
+            });
+            return { data: body.data ?? [], total: body.total ?? 0 };
+          }, params.pageSize),
+          fetchAllListPages(async (page, limit) => {
+            const body = await inProcessRequestService.getAll({
+              filters: { approved: false },
+              page,
+              limit,
+              ...(appliedSearch && { search: appliedSearch }),
+            });
+            return { data: body.data ?? [], total: body.total ?? 0 };
+          }, params.pageSize),
+        ]);
+
+        const shopRowsRaw = (shopFloor.data || []).map((row) => ({
+          ...row,
+          _pendingKind: PENDING_KIND.SHOP_FLOOR,
+        }));
+        const shopRows = aggregatePendingShopFloorRows(shopRowsRaw);
+        const iprRows = (pendingIprs.data || []).map(mapPendingIprToShopFloorColumns);
+        setAllRows([...iprRows, ...shopRows]);
       } else {
         const base = {
           filters: {
@@ -175,7 +305,7 @@ export default function InProcessRequestPage() {
       toast.error(
         err?.message ||
           (isPendingTab
-            ? "Could not load shop-floor coils. Please try again."
+            ? "Could not load pending work. Please try again."
             : "Could not load the in-process requests. Please try again.")
       );
       setAllRows([]);
@@ -197,7 +327,7 @@ export default function InProcessRequestPage() {
   }, [fetchRows]);
 
   const getRowId = useCallback(
-    (row) => (isPendingTab ? String(row?.coil_no_uid || "") : row?.ipr_uid),
+    (row) => (isPendingTab ? pendingRowId(row) : row?.ipr_uid),
     [isPendingTab]
   );
 
@@ -220,6 +350,11 @@ export default function InProcessRequestPage() {
     () => filteredRows.find((r) => getRowId(r) === selected) || null,
     [filteredRows, selected, getRowId]
   );
+  const selectedIsShopFloor = isPendingTab && isShopFloorPendingRow(selectedRecord);
+  const selectedIsPendingIpr =
+    Boolean(selectedRecord) &&
+    (!isPendingTab || !isShopFloorPendingRow(selectedRecord)) &&
+    selectedRecord?.ipr_uid != null;
 
   const getSelectedRow = useCallback(
     () => filteredRows.find((u) => getRowId(u) === selected),
@@ -228,7 +363,7 @@ export default function InProcessRequestPage() {
 
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch,
         sourceRows: allRows,
         filteredRows,
@@ -253,14 +388,24 @@ export default function InProcessRequestPage() {
     ]
   );
 
-  const openUpdateStatusFromPending = useCallback((row) => {
-    if (!row?.coil_no_uid) return;
-    if (!addAccess.allowed) return;
-    setSelected(String(row.coil_no_uid));
-    setEditItem(row);
-    setModalMode("add");
-    setModalOpen(true);
-  }, [addAccess]);
+  const openUpdateStatusFromPending = useCallback(
+    (row) => {
+      if (!row?.coil_no_uid || !isShopFloorPendingRow(row)) return;
+      if ((Number(row?.coil_count) || 0) > 1) {
+        toast.info("This row contains multiple coils. Use New and scan a single coil to update status.");
+        return;
+      }
+      if (!addAccess.allowed) return;
+      setSelected(pendingRowId(row));
+      setEditItem({
+        ...row,
+        coil_no_uid: Array.isArray(row?._coilUids) && row._coilUids.length ? row._coilUids[0] : row.coil_no_uid,
+      });
+      setModalMode("add");
+      setModalOpen(true);
+    },
+    [addAccess]
+  );
 
   const openBlankNew = useCallback(() => {
     if (!addAccess.allowed) return;
@@ -275,64 +420,60 @@ export default function InProcessRequestPage() {
     selectedId: selected,
     getSelectedRow,
     openAdd: useCallback(() => {
-      // Pending + selected coil → Update Coil Status; else normal New flow.
-      if (isPendingTab && selectedRecord?.coil_no_uid) {
+      if (isPendingTab && selectedIsShopFloor && selectedRecord?.coil_no_uid) {
         openUpdateStatusFromPending(selectedRecord);
         return;
       }
       openBlankNew();
-    }, [isPendingTab, selectedRecord, openUpdateStatusFromPending, openBlankNew]),
+    }, [
+      isPendingTab,
+      selectedIsShopFloor,
+      selectedRecord,
+      openUpdateStatusFromPending,
+      openBlankNew,
+    ]),
     openEdit: useCallback(
       (row) => {
-        if (isPendingTab) return;
+        if (isShopFloorPendingRow(row)) return;
         setEditItem(row);
         setModalMode("edit");
         setModalOpen(true);
       },
-      [isPendingTab]
+      []
     ),
     openApprove: useCallback(
       (row) => {
-        if (isPendingTab) return;
+        if (isShopFloorPendingRow(row)) return;
         setEditItem(row);
         setModalMode("approve");
         setModalOpen(true);
       },
-      [isPendingTab]
+      []
     ),
     canApproveSelection: useCallback(
-      () =>
-        !isPendingTab &&
-        Boolean(selected && selectedRecord) &&
-        !isRowApproved(selectedRecord),
-      [isPendingTab, selected, selectedRecord]
+      () => selectedIsPendingIpr && !isRowApproved(selectedRecord),
+      [selectedIsPendingIpr, selectedRecord]
     ),
     onApproveBlocked: useCallback(() => {
-      if (isPendingTab) {
-        toast.info("Switch to Register to approve an in-process request.");
+      if (selectedIsShopFloor) {
+        toast.info("Select a Pending IPR row to approve, or use New / double-click a shop-floor coil.");
         return;
       }
       if (isRowApproved(selectedRecord)) {
         toast.info("This record is already approved. Edit it before approving again.");
       } else {
-        toast.info("Select a row to approve (Ctrl+A).");
+        toast.info("Select a pending IPR row to approve (Ctrl+A).");
       }
-    }, [isPendingTab, selectedRecord]),
-    openDelete: useCallback(
-      (row) => {
-        if (isPendingTab) return;
-        setDeleteItem(row);
-      },
-      [isPendingTab]
-    ),
-    canDeleteSelection: useCallback(
-      () => !isPendingTab && !!selected,
-      [isPendingTab, selected]
-    ),
+    }, [selectedIsShopFloor, selectedRecord]),
+    openDelete: useCallback((row) => {
+      if (isShopFloorPendingRow(row)) return;
+      setDeleteItem(row);
+    }, []),
+    canDeleteSelection: useCallback(() => selectedIsPendingIpr, [selectedIsPendingIpr]),
   });
 
   const openViewModal = () => {
-    if (!selectedRecord || isPendingTab) return;
+    if (!selectedIsPendingIpr) return;
     if (!viewAccess.allowed) return;
     setEditItem(selectedRecord);
     setModalMode("view");
@@ -475,7 +616,7 @@ export default function InProcessRequestPage() {
   const headers = isPendingTab ? PENDING_SHOP_FLOOR_HEADERS : registerHeaders;
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
-    moduleName: isPendingTab ? "RM Shop Floor Pending" : "RM In-process Request",
+    moduleName: isPendingTab ? "RM In-process Pending" : "RM In-process Request",
     rows: filteredRows,
     headers,
   });
@@ -530,59 +671,68 @@ export default function InProcessRequestPage() {
                   onClick={openNewModal}
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                 />
-                {!isPendingTab && (
-                  <>
-                    <ActionButton
-                      module={MODULE}
-                      action="view"
-                      variant="outline"
-                      label="View"
-                      icon={Eye}
-                      disabled={!selectedRecord}
-                      onClick={openViewModal}
-                      className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
-                    />
-                    <ActionButton
-                      module={MODULE}
-                      action="edit"
-                      variant="outline"
-                      label="Edit"
-                      icon={Edit3}
-                      disabled={!selectedRecord}
-                      record={selectedRecord}
-                      onClick={openEditModal}
-                      className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
-                    />
-                    <ActionButton
-                      module={MODULE}
-                      action="authorize"
-                      variant="outline"
-                      label="Approve"
-                      icon={CheckCircle}
-                      disabled={!selectedRecord || isRowApproved(selectedRecord)}
-                      onClick={() => {
-                        if (isRowApproved(selectedRecord)) {
-                          toast.info("This record is already approved. Edit it before approving again.");
-                          return;
-                        }
-                        setEditItem(selectedRecord);
-                        setModalMode("approve");
-                        setModalOpen(true);
-                      }}
-                      className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
-                    />
-                    <ActionButton
-                      module={MODULE}
-                      action="delete"
-                      variant="danger"
-                      label="Delete"
-                      icon={Trash2}
-                      disabled={!selectedRecord}
-                      onClick={() => setDeleteItem(selectedRecord)}
-                      className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
-                    />
-                  </>
-                )}
+                <ActionButton
+                  module={MODULE}
+                  action="view"
+                  variant="outline"
+                  label="View"
+                  icon={Eye}
+                  disabled={!selectedIsPendingIpr}
+                  onClick={openViewModal}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                />
+                <ActionButton
+                  module={MODULE}
+                  action="edit"
+                  variant="outline"
+                  label="Edit"
+                  icon={Edit3}
+                  disabled={!selectedIsPendingIpr}
+                  record={selectedIsPendingIpr ? selectedRecord : null}
+                  onClick={openEditModal}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                />
+                <ActionButton
+                  module={MODULE}
+                  action="authorize"
+                  variant="outline"
+                  label="Approve"
+                  icon={CheckCircle}
+                  disabled={!selectedIsPendingIpr || isRowApproved(selectedRecord)}
+                  onClick={() => {
+                    if (!selectedIsPendingIpr) {
+                      toast.info("Select a Pending IPR row to approve.");
+                      return;
+                    }
+                    if (isRowApproved(selectedRecord)) {
+                      toast.info("This record is already approved. Edit it before approving again.");
+                      return;
+                    }
+                    setEditItem(selectedRecord);
+                    setModalMode("approve");
+                    setModalOpen(true);
+                  }}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
+                />
+                <ActionButton
+                  module={MODULE}
+                  action="delete"
+                  variant="danger"
+                  label="Delete"
+                  icon={Trash2}
+                  disabled={!selectedIsPendingIpr}
+                  onClick={() => setDeleteItem(selectedRecord)}
+                  className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
+                />
+                {canReceiveSelected ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleReceiveStoreIn()}
+                    className="h-9 px-3 border border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 rounded-none text-[10px] font-black uppercase shrink-0"
+                  >
+                    Receive to Unassigned Area
+                  </button>
+                ) : null}
                 <div className="hidden sm:block w-px h-6 bg-slate-200 mx-1 shrink-0" />
                 <button
                   type="button"
@@ -603,36 +753,6 @@ export default function InProcessRequestPage() {
               />
             }
           />
-
-          {selectedRecord && (
-            <MasterSelectionBanner onClear={() => setSelected(null)}>
-              {isPendingTab ? (
-                <span className="flex items-center gap-2 flex-wrap normal-case">
-                  <span className="text-indigo-800">Selected: {selectedRecord.coil_no_uid}</span>
-                  <span className="text-slate-600 truncate">{selectedRecord.item_code || "—"}</span>
-                  <span className="text-slate-500">
-                    Qty {Number(selectedRecord.qty || 0).toLocaleString()} · JC{" "}
-                    {selectedRecord.pjobcardno || "—"}
-                  </span>
-                </span>
-              ) : (
-                <span className="flex items-center gap-2 flex-wrap normal-case">
-                  <span className="text-indigo-800">Selected: IPR #{selectedRecord.ipr_uid}</span>
-                  <IprRequestTypeCell row={selectedRecord} inline />
-                  <span className="text-slate-600 truncate">{selectedRecord.item_code || "—"}</span>
-                  {canReceiveSelected && (
-                    <button
-                      type="button"
-                      onClick={() => void handleReceiveStoreIn()}
-                      className="text-[9px] font-black uppercase text-indigo-700 bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded hover:bg-indigo-200 transition-colors"
-                    >
-                      Receive to Unassigned Area
-                    </button>
-                  )}
-                </span>
-              )}
-            </MasterSelectionBanner>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -641,8 +761,9 @@ export default function InProcessRequestPage() {
             fromDate={params.fromDate}
             toDate={params.toDate}
             extraFilters={isPendingTab ? [] : extraFilters}
-            showSearchButton
-            applyOnSearchEnter={false}
+            showSearchButton={!isPendingTab}
+            quickSearchOnly={isPendingTab}
+            applyOnSearchEnter={!isPendingTab}
             applyExtrasOnChange={false}
             searchVariant="quick"
             onApply={(data) => {
@@ -672,16 +793,16 @@ export default function InProcessRequestPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder={
               isPendingTab
-                ? "Search by coil, item, MRN, job card, or machine"
+                ? "Search shop floor or pending IPR"
                 : "Search by request, coil, item, or MRN"
             }
-            searchLabel={isPendingTab ? "Search Shop Floor" : "Search In-process Request"}
+            searchLabel={isPendingTab ? "Search Pending" : "Search Register"}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             key={pageTab}
             headers={headers}
@@ -705,17 +826,19 @@ export default function InProcessRequestPage() {
             getRowId={getRowId}
             onRowDoubleClick={(row) => {
               setSelected(getRowId(row));
-              if (isPendingTab) {
+              if (isPendingTab && isShopFloorPendingRow(row)) {
                 openUpdateStatusFromPending(row);
                 return;
               }
               if (!viewAccess.allowed) return;
               setEditItem(row);
-              setModalMode("view");
+              setModalMode(isPendingTab && !isRowApproved(row) ? "approve" : "view");
               setModalOpen(true);
             }}
             emptyMessage={
-              isPendingTab ? "No coils on the shop floor" : "No in-process requests found"
+              isPendingTab
+                ? "No shop-floor coils or pending IPR requests"
+                : "No in-process requests found"
             }
             cardConfig={
               isPendingTab
@@ -742,10 +865,14 @@ export default function InProcessRequestPage() {
           )}
         </div>
 
-        <RmStoreListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
-          label={isPendingTab ? "Shop Floor Coils" : "In-Process Requests"}
+          noun={isPendingTab ? "Pending Work" : "In-Process Requests"}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={rmStoreInProcessSelectionLabel(isPendingTab)}
+          onClearSelection={() => setSelected(null)}
           {...footerFilter}
         />
       </div>
@@ -768,8 +895,6 @@ export default function InProcessRequestPage() {
         service={inProcessRequestService}
         entityLabel="In-process Request"
         idKey="ipr_uid"
-        titleKey="ipr_uid"
-        moduleSlug={MODULE}
       />
     </div>
   );

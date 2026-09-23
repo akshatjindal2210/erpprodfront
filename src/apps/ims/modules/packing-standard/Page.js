@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, Package, RefreshCcw, Edit3, Trash2, CheckCircle, Copy } from "lucide-react";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { toast } from "react-toastify";
 
@@ -275,7 +275,7 @@ export default function PackingStandardPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS} data={items} loading={loading}
             viewMode={viewMode} allowCopy={true} {...tableHotkeyProps} showSelection={true} skeletonCount={params.pageSize}
@@ -297,7 +297,7 @@ export default function PackingStandardPage() {
           />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun="Packing Standards"

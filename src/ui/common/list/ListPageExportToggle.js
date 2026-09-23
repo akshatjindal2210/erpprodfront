@@ -3,7 +3,7 @@
 import ViewToggle from "@/ui/primitives/ViewToggle";
 import ExportMenu from "@/ui/common/list/ExportMenu";
 
-/** List/table toggle + export (laptop only) — top-right toolbar slot. */
+/** List/table toggle + export — export menu on lg+; both view buttons on all widths. */
 export default function ListPageExportToggle({
   viewMode,
   setMode,

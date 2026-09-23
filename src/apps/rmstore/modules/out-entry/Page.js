@@ -17,7 +17,7 @@ import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import DataTable from "@/ui/primitives/DataTable";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/ui/common/list/ListPageToolbar";
 import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
@@ -28,6 +28,7 @@ import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { isRowApproved as isMasterRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
+import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 
 const MODULE = "rm_out_entry";
 
@@ -198,17 +199,17 @@ export default function StoreOutPage() {
 
   const filteredRows = useMemo(() => {
     let data = activeSourceRows;
-    if (isStoreOut && String(tempSearch || "").trim()) {
+    if (String(tempSearch || "").trim()) {
       data = applyClientSearch(data, tempSearch, { skipSort: !!activeSortKey });
     }
     return sortRowsByKey(data, activeSortKey, activeSortDir);
-  }, [isStoreOut, activeSourceRows, tempSearch, activeSortKey, activeSortDir]);
+  }, [activeSourceRows, tempSearch, activeSortKey, activeSortDir]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch,
         sourceRows: activeSourceRows,
         filteredRows,
@@ -794,8 +795,33 @@ export default function StoreOutPage() {
     return `${selectedRecord.coil_no_uid}${selectedRecord.mrn_uid ? ` · MRN ${selectedRecord.mrn_uid}` : ""}`;
   }, [selectedRecord, isStoreOut]);
 
+  const outEntrySelectionLabel = useCallback(
+    (r) => {
+      if (isStoreOut) {
+        const base = `OUT-${r?.out_uid ?? "—"}`;
+        const type = getOutEntryTypeLabel(r?.entry_type);
+        const jc = r?.pjobcardno ? ` · ${r.pjobcardno}` : "";
+        const mac =
+          r?.macname || r?.reason
+            ? ` · ${[r?.macname, r?.reason].filter(Boolean).join(" · ")}`
+            : "";
+        const approve = selectedApprovable && canApproveStoreOut ? " · Approve" : "";
+        return `Selected: ${base} · ${type}${jc}${mac}${approve}`;
+      }
+      const approveHint = selectedApprovable && canApproveStoreOut ? " · Approve store out" : "";
+      return `Selected: ${selectedPendingSummary || getRowId(r)}${approveHint}`;
+    },
+    [
+      isStoreOut,
+      selectedPendingSummary,
+      selectedApprovable,
+      canApproveStoreOut,
+      getRowId,
+    ]
+  );
+
   return (
-    <div className="flex flex-col h-full md:h-[calc(100vh-140px)] w-full bg-slate-100 md:overflow-hidden">
+    <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
         <ListPageToolbar>
           <ListPageToolbarLayout
@@ -898,35 +924,6 @@ export default function StoreOutPage() {
               />
             }
           />
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in fade-in duration-200">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wide truncate">
-                Selected:{" "}
-                {isStoreOut
-                  ? `OUT-${selectedRecord?.out_uid ?? selected}`
-                  : selectedPendingSummary || getRowId(selectedRecord)}
-                {isStoreOut && selectedRecord ? (
-                  <span className="ml-2 text-indigo-400 font-semibold normal-case">
-                    · {getOutEntryTypeLabel(selectedRecord.entry_type)}
-                    {selectedRecord.pjobcardno ? ` · ${selectedRecord.pjobcardno}` : ""}
-                    {selectedRecord.macname || selectedRecord.reason
-                      ? ` · ${[selectedRecord.macname, selectedRecord.reason].filter(Boolean).join(" · ")}`
-                      : ""}
-                    {selectedApprovable && canApproveStoreOut ? " · Approve" : ""}
-                  </span>
-                ) : null}
-                {!isStoreOut && selectedApprovable && canApproveStoreOut ? (
-                  <span className="ml-2 text-indigo-400 font-semibold normal-case">· Approve store out</span>
-                ) : null}
-              </span>
-              <button
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
-              >
-                <X size={14} /> Clear Selection
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -1004,7 +1001,7 @@ export default function StoreOutPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={headers}
             data={items}
@@ -1045,10 +1042,14 @@ export default function StoreOutPage() {
           />
         </div>
 
-        <RmStoreListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
-          label={isStoreOut ? "Store Out Entries" : "Pending Store Out"}
+          noun={isStoreOut ? "Store Out Entries" : "Pending Store Out"}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={outEntrySelectionLabel}
+          onClearSelection={() => setSelected(null)}
           {...footerFilter}
         />
       </div>

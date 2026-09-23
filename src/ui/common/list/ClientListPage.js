@@ -9,7 +9,8 @@ import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { useClientList } from "@/ui/common/list/useClientList";
 import { ListPageDetailGrid, ListPageExportViewToggle, ListPageToolbarBlock } from "@/ui/common/list/listPageToolbarBlock";
-import { ListPageFooter, ListPageShell, ListPageTableArea } from "@/ui/common/list/listPageUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
+import { ListPageShell, ListPageTableArea } from "@/ui/common/list/listPageUi";
 
 /**
  * Reusable client-side list page (IMS-style shell).
@@ -123,7 +124,7 @@ export default function ClientListPage({
         />
       </ListPageTableArea>
 
-      <ListPageFooter
+      <AppListFooter
         shown={items.length}
         total={totalItems}
         noun={noun}

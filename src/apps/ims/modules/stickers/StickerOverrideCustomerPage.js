@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Plus, RefreshCcw, Shield, FileText, Printer, Edit3 } from "lucide-react";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { toast } from "react-toastify";
 import { boxService } from "@/apps/ims/lib/services/box";
@@ -420,7 +420,7 @@ export default function StickerOverrideCustomerPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <div className="flex-1 overflow-hidden flex flex-col">
             <DataTable
               headers={OVERRIDE_CUSTOMER_HEADERS}
@@ -453,7 +453,7 @@ export default function StickerOverrideCustomerPage() {
           </div>
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun="Override Requests"

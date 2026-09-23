@@ -19,6 +19,7 @@ import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import DataTable from "@/ui/primitives/DataTable";
 import ActionButton from "@/ui/primitives/ActionButton";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
+import AppListFooter, { consoleListSelectionLabel } from "@/ui/common/list/listPageFooter";
 
 import { clTaskService } from "@/apps/task/lib/services/clTaskApi";
 import { useClTaskFilters } from "@/apps/task/lib/hooks/useClTaskFilters";
@@ -653,23 +654,6 @@ export default function ClTaskPage() {
             }
           />
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
-                Selected: {selectedRecord?.title || selectedRecord?.cl_task_id}
-                {selectedRecord?.instance_count != null
-                  ? ` · ${selectedRecord.instance_count} assigned task(s)`
-                  : ""}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -687,7 +671,7 @@ export default function ClTaskPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={items}
@@ -731,15 +715,20 @@ export default function ClTaskPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} CL Task Master
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <AppListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="CL Task Master"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={(r) => {
+            const base = consoleListSelectionLabel.clTaskMaster(r);
+            return r?.instance_count != null
+              ? `${base} · ${r.instance_count} assigned task(s)`
+              : base;
+          }}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       {modalOpen && (

@@ -24,18 +24,21 @@ export default function DashboardTableColumnFilter({
   data = [],
   getCellText,
   selected = [],
+  query: externalQuery = "",
+  onQueryChange,
   onChange,
   compact = false,
   isPhoneMode = false,
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(-1);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 220, maxHeight: 260 });
   const rootRef = useRef(null);
   const menuRef = useRef(null);
   const inputRef = useRef(null);
   const optionRefs = useRef([]);
+  const query = String(externalQuery ?? "");
+  const picked = Array.isArray(selected) ? selected : [];
 
   const options = useMemo(() => {
     const seen = new Set();
@@ -52,9 +55,14 @@ export default function DashboardTableColumnFilter({
 
   const filteredOptions = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((opt) => opt.toLowerCase().includes(q));
-  }, [options, query]);
+    const merged = [...options];
+    picked.forEach((value) => {
+      if (!merged.includes(value)) merged.push(value);
+    });
+    if (!q) return merged;
+    const selectedSet = new Set(picked);
+    return merged.filter((opt) => selectedSet.has(opt) || opt.toLowerCase().includes(q));
+  }, [options, picked, query]);
 
   const syncMenuPos = () => {
     const node = rootRef.current;
@@ -130,8 +138,6 @@ export default function DashboardTableColumnFilter({
     };
   }, [open, isPhoneMode]);
 
-  const picked = Array.isArray(selected) ? selected : [];
-
   const toggleValue = (value) => {
     const set = new Set(picked);
     if (set.has(value)) set.delete(value);
@@ -141,7 +147,7 @@ export default function DashboardTableColumnFilter({
 
   const clearAll = () => {
     onChange([]);
-    setQuery("");
+    onQueryChange?.("");
   };
 
   const handleInputKeyDown = (event) => {
@@ -287,7 +293,7 @@ export default function DashboardTableColumnFilter({
             type="text"
             value={query}
             onChange={(e) => {
-              setQuery(e.target.value);
+              onQueryChange?.(e.target.value);
               setActiveIndex(-1);
               if (!open) openMenu();
             }}

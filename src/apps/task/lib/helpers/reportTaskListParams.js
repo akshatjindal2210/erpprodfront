@@ -34,7 +34,6 @@ export function buildReportTaskListApiParams(filterState, currentUser, paginatio
 
   const {
     activeTab,
-    search,
     statusFilter,
     priorityFilter,
     categoryFilter,
@@ -52,7 +51,6 @@ export function buildReportTaskListApiParams(filterState, currentUser, paginatio
 
   return {
     ...pagination,
-    search: search || undefined,
     status: statusFilter !== "All" ? statusFilter : undefined,
     priority: priorityFilter !== "All" ? priorityFilter : undefined,
     category_id: categoryFilter !== "All" ? categoryFilter : undefined,

@@ -38,13 +38,13 @@ function rejectionKind(row) {
 
 const REJECTION_STYLE = {
   ipr: {
-    row: "bg-violet-50/50 group-hover:bg-violet-50/60 [&_td]:!bg-violet-50/50",
+    row: "bg-violet-50 group-hover:bg-violet-100 [&_td]:!bg-violet-50",
     badge: "bg-violet-700 text-white border border-violet-800",
     label: "IPR Hold",
     detail: (row) => (row?.ipr_uid != null ? `IPR-${row.ipr_uid}` : "IPR Hold"),
   },
   rm_rejection: {
-    row: "bg-rose-50/50 group-hover:bg-rose-50/60 [&_td]:!bg-rose-50/50",
+    row: "bg-rose-50 group-hover:bg-rose-100 [&_td]:!bg-rose-50",
     badge: "bg-rose-700 text-white border border-rose-800",
     label: "RM Rejection",
     detail: (row) => {
@@ -54,7 +54,7 @@ const REJECTION_STYLE = {
     },
   },
   register: {
-    row: "bg-rose-50/50 group-hover:bg-rose-50/60 [&_td]:!bg-rose-50/50",
+    row: "bg-rose-50 group-hover:bg-rose-100 [&_td]:!bg-rose-50",
     badge: "bg-rose-700 text-white border border-rose-800",
     label: "Rejected",
     detail: (row) => {
@@ -63,7 +63,7 @@ const REJECTION_STYLE = {
     },
   },
   returned: {
-    row: "bg-orange-50/50 group-hover:bg-orange-50/60 [&_td]:!bg-orange-50/50",
+    row: "bg-orange-50 group-hover:bg-orange-100 [&_td]:!bg-orange-50",
     badge: "bg-orange-700 text-white border border-orange-800",
     label: "Returned",
     detail: (row) => {
@@ -176,11 +176,11 @@ export function getCoilRowClassName(row) {
     const kind = rejectionKind(row);
     return kind ? REJECTION_STYLE[kind].row : zone === "returned" ? REJECTION_STYLE.returned.row : REJECTION_STYLE.register.row;
   }
-  if (zone === "stored") return "bg-emerald-50/40 group-hover:bg-emerald-50/50 [&_td]:!bg-emerald-50/40";
+  if (zone === "stored") return "bg-emerald-50 group-hover:bg-emerald-100 [&_td]:!bg-emerald-50";
   if (zone === "out") {
-    return "bg-blue-50 group-hover:bg-blue-50 [&_td]:!bg-blue-50 group-hover:[&_td]:!bg-blue-50/95";
+    return "bg-blue-50 group-hover:bg-blue-100 [&_td]:!bg-blue-50 group-hover:[&_td]:!bg-blue-100";
   }
-  if (zone === "consumed") return "bg-amber-50/50 group-hover:bg-amber-50/60 [&_td]:!bg-amber-50/50";
+  if (zone === "consumed") return "bg-amber-50 group-hover:bg-amber-100 [&_td]:!bg-amber-50";
   return "bg-green-50 group-hover:bg-green-50 [&_td]:!bg-green-50";
 }
 
@@ -401,7 +401,7 @@ export function CoilTableColorLegend() {
   ];
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-1 max-w-full">
+    <div className="flex flex-nowrap md:flex-wrap items-center gap-1.5 w-max md:w-full md:max-w-full md:justify-center py-0.5">
       {items.map((item) => (
         <LegendChip key={item.label} dotClass={item.dot} label={item.label} />
       ))}

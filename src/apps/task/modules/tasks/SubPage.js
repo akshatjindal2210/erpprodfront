@@ -20,6 +20,7 @@ import { SIDEBAR_TABS, TASK_COLORS } from "@/apps/task/lib/ui/tasks_common_compo
 import { filterSidebarTasks, getTaskColor, SidebarCounts } from "@/apps/task/lib/ui/tasks_common_component/TaskHelper"
 import { buildTaskDetailUrl, resolveTaskId } from "@/apps/task/lib/helpers/taskRouteHelper";
 import { readReportFilterStateFromSession, buildReportTaskListApiParams, applyReportDisplayTaskFilter } from "@/apps/task/lib/helpers/reportTaskListParams";
+import { applyTaskListQuickSearch } from "@/apps/task/lib/helpers/taskListQuickSearch";
 import { usePersistedScroll } from "@/apps/task/lib/hooks/usePersistedScroll";
 
 
@@ -217,6 +218,7 @@ export default function TaskDetailPage() {
       let next = Array.isArray(raw) ? raw : [];
       if (report && reportFilterState) {
         next = applyReportDisplayTaskFilter(next, reportFilterState);
+        next = applyTaskListQuickSearch(next, reportFilterState.search);
       }
       setAllTasks(next);
       if (typeof window !== "undefined") {

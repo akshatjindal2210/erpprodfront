@@ -223,10 +223,11 @@ const isColumnFilterActive = (value) => (
   Array.isArray(value) ? value.length > 0 : String(value || "").trim() !== ""
 );
 
-const filterTableRows = (rows = [], columns = [], query = "", columnFilters = {}) => {
+const filterTableRows = (rows = [], columns = [], query = "", columnFilters = {}, columnQueries = {}) => {
   const globalNeedle = String(query || "").trim().toLowerCase();
   const activeCols = Object.entries(columnFilters || {}).filter(([, v]) => isColumnFilterActive(v));
-  if (!globalNeedle && !activeCols.length) return rows;
+  const activeColumnQueries = Object.entries(columnQueries || {}).map(([col, value]) => [col, String(value ?? "").trim().toLowerCase()]).filter(([, needle]) => Boolean(needle));
+  if (!globalNeedle && !activeCols.length && !activeColumnQueries.length) return rows;
 
   return rows.filter((row) => {
     if (globalNeedle) {
@@ -242,6 +243,10 @@ const filterTableRows = (rows = [], columns = [], query = "", columnFilters = {}
         const needle = String(raw).trim().toLowerCase();
         if (!cell.includes(needle)) return false;
       }
+    }
+    for (const [col, needle] of activeColumnQueries) {
+      const cell = cellFilterText(row[col]).toLowerCase();
+      if (!cell.includes(needle)) return false;
     }
     return true;
   });
@@ -319,6 +324,7 @@ const DashboardTableView = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [columnFilters, setColumnFilters] = useState({});
+  const [columnFilterQueries, setColumnFilterQueries] = useState({});
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
   const [exporting, setExporting] = useState(false);
@@ -363,6 +369,7 @@ const DashboardTableView = ({
           keys,
           showGlobalSearch ? searchQuery : "",
           showColumnSearch ? columnFilters : {},
+        showColumnSearch ? columnFilterQueries : {},
         )
       : data;
     return showColumnSort
@@ -373,6 +380,7 @@ const DashboardTableView = ({
     keys,
     searchQuery,
     columnFilters,
+    columnFilterQueries,
     sortKey,
     sortDir,
     searchFeatureOn,
@@ -397,16 +405,29 @@ const DashboardTableView = ({
     });
   };
 
+  const setColumnFilterQuery = (col, value) => {
+    setColumnFilterQueries((prev) => {
+      const next = { ...prev };
+      const trimmed = String(value ?? "");
+      if (!trimmed.trim()) delete next[col];
+      else next[col] = trimmed;
+      return next;
+    });
+  };
+
   const readColumnFilterSelection = (col) => {
     const raw = columnFilters[col];
     if (Array.isArray(raw)) return raw;
     const one = String(raw || "").trim();
     return one ? [one] : [];
   };
+  const readColumnFilterQuery = (col) => String(columnFilterQueries[col] ?? "");
 
   const hasActiveColumnFilter = Object.values(columnFilters).some((v) => isColumnFilterActive(v));
+  const hasActiveColumnQuery = Object.values(columnFilterQueries).some((v) => String(v || "").trim());
   const hasActiveFilter =
-    (showGlobalSearch && searchQuery.trim()) || (showColumnSearch && hasActiveColumnFilter);
+    (showGlobalSearch && searchQuery.trim())
+    || (showColumnSearch && (hasActiveColumnFilter || hasActiveColumnQuery));
 
   const handleExport = useCallback(async (format) => {
     if (!displayRows.length || !keys.length) {
@@ -665,6 +686,8 @@ const DashboardTableView = ({
                         data={data}
                         getCellText={cellFilterText}
                         selected={readColumnFilterSelection(col)}
+                        query={readColumnFilterQuery(col)}
+                        onQueryChange={(next) => setColumnFilterQuery(col, next)}
                         onChange={(next) => setColumnFilter(col, next)}
                         compact={compact}
                         isPhoneMode={isPhoneMode}

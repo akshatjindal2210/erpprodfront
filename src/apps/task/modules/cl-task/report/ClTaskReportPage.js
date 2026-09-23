@@ -23,6 +23,7 @@ import ReportBookingCalendar, { SCORE_CELL_TONES, taskSectionKey, TASK_SECTION_F
 import ScoreFormulaPanel, { ScoreFormulaTrigger } from "./ScoreFormulaPanel";
 import { buildClReportExportRows, buildClReportXlsxRowStyles } from "./reportExcelExport";
 import { FILTER_DATE_RANGE_MAX_DAYS, FILTER_DATE_RANGE_MAX_YEARS, filterDateRangeDayCount, parseFilterDateInput } from "@/platform/utils/core/utilHelper";
+import AppListFooter, { FOOTER_TEXT_CLASS } from "@/ui/common/list/listPageFooter";
 
 const REPORT_STAT_CARDS = [
   { key: "users", label: "Users", icon: Users, bg: "bg-indigo-50", text: "text-indigo-600", border: "border-indigo-100", barColor: "#4f46e5" },
@@ -665,28 +666,29 @@ export default function ClTaskReportPage() {
           onSelectTask={setSelectedTask}
         />
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {summary
-              ? `${filteredUsers.length} users · ${filteredUsers.reduce(
-                  (n, u) => n + (u.tasks?.length || 0),
-                  0,
-                )} tasks`
-              : "CL Task Report"}
-          </span>
-          {/* Color legend — same tones as score cells */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] font-bold uppercase tracking-wide text-slate-600">
-            {Object.values(SCORE_CELL_TONES).map(({ swatch, label }) => (
-              <span key={label} className="inline-flex items-center gap-1.5">
-                <span className={`w-3.5 h-3.5 rounded-sm border shrink-0 ${swatch}`} />
-                {label}
-              </span>
-            ))}
-          </div>
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider inline-flex items-center gap-1">
-            {loading ? <Loader2 size={10} className="animate-spin" /> : null}
-          </span>
-        </div>
+        <AppListFooter
+          leftContent={
+            <span className={`${FOOTER_TEXT_CLASS} inline-flex items-center gap-1`}>
+              {loading ? <Loader2 size={10} className="animate-spin shrink-0" /> : null}
+              {summary
+                ? `${filteredUsers.length} users · ${filteredUsers.reduce(
+                    (n, u) => n + (u.tasks?.length || 0),
+                    0,
+                  )} tasks`
+                : "CL Task Report"}
+            </span>
+          }
+          centerContent={
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] font-bold uppercase tracking-wide text-slate-600 justify-center">
+              {Object.values(SCORE_CELL_TONES).map(({ swatch, label }) => (
+                <span key={label} className="inline-flex items-center gap-1.5">
+                  <span className={`w-3.5 h-3.5 rounded-sm border shrink-0 ${swatch}`} />
+                  {label}
+                </span>
+              ))}
+            </div>
+          }
+        />
       </div>
 
       <TaskReportFormModal

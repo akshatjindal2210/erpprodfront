@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect, useDeferredValue } from "react";
-import { AlertTriangle, RefreshCcw, X, Info } from "lucide-react";
+import { AlertTriangle, RefreshCcw } from "lucide-react";
+import AppListFooter, { ListPageFooterContextStrip } from "@/ui/common/list/listPageFooter";
+import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { toast } from "react-toastify";
 import dayjs from "dayjs";
 
@@ -316,6 +318,19 @@ export default function ShortagePage() {
     return month !== "—" ? `${label} · ${month}` : label;
   }, [itemWiseItemdcodeFilter, masterRows, allRows, params.fromDate, params.toDate]);
 
+  const shortageFooterContext = useMemo(() => {
+    if (isMasterTab || !itemWiseItemdcodeFilter) return null;
+    return (
+      <ListPageFooterContextStrip
+        tone="cyan"
+        onClear={() => setItemWiseItemdcodeFilter(null)}
+        clearLabel="Show all entries"
+      >
+        {`Item-wise · ${drillBannerText}`}
+      </ListPageFooterContextStrip>
+    );
+  }, [isMasterTab, itemWiseItemdcodeFilter, drillBannerText]);
+
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
@@ -350,31 +365,6 @@ export default function ShortagePage() {
             }
           />
 
-          {!isMasterTab && itemWiseItemdcodeFilter ? (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-cyan-50 border border-cyan-100">
-              <span className="text-[10px] font-bold text-cyan-800 uppercase flex items-center gap-2">
-                <Info size={12} /> Item-wise entries for {drillBannerText}
-              </span>
-              <button
-                type="button"
-                onClick={() => setItemWiseItemdcodeFilter(null)}
-                className="text-cyan-600 hover:text-cyan-800 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Show all entries
-              </button>
-            </div>
-          ) : null}
-
-          {!isMasterTab && selected ? (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase">
-                Selected: {selectedRecord?.item_code || selectedRecord?.itemcode || selectedRecord?.id}
-              </span>
-              <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
-                <X size={14} /> Clear
-              </button>
-            </div>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -437,7 +427,7 @@ export default function ShortagePage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={tableRows}
@@ -465,17 +455,17 @@ export default function ShortagePage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {tableRows.length} of {tableTotal} {isMasterTab ? "Items" : "Shortage Records"}
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">
-              {isMasterTab ? "Master Aggregate" : "Entry Snapshot"}
-            </span>
-          </div>
-        </div>
+        <AppListFooter
+          shown={tableRows.length}
+          total={tableTotal}
+          noun={isMasterTab ? "Items" : "Shortage Records"}
+          searchHint={isMasterTab ? "Master aggregate" : "Entry snapshot"}
+          contextHint={shortageFooterContext}
+          selected={!isMasterTab ? selected : null}
+          selectedRecord={!isMasterTab ? selectedRecord : null}
+          selectionLabel={imsSelectionLabel.shortage}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
     </div>
   );

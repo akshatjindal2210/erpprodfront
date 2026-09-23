@@ -12,7 +12,7 @@ import { selectUser } from "@/platform/store/slices/authSlice";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter, { ListPageFooterContextStrip } from "@/ui/common/list/listPageFooter";
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { useImsCrudList } from "@/apps/ims/lib/crud/useImsCrudList";
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -382,6 +382,19 @@ export default function ShortagePage({
     return month !== "—" ? `${label} · ${month}` : label;
   }, [itemWiseItemdcodeFilter, masterRows, allRows, params.fromDate, params.toDate]);
 
+  const shortageFooterContext = useMemo(() => {
+    if (isMasterTab || !itemWiseItemdcodeFilter) return null;
+    return (
+      <ListPageFooterContextStrip
+        tone="cyan"
+        onClear={() => setItemWiseItemdcodeFilter(null)}
+        clearLabel="Show all entries"
+      >
+        {`Item-wise · ${drillBannerText}`}
+      </ListPageFooterContextStrip>
+    );
+  }, [isMasterTab, itemWiseItemdcodeFilter, drillBannerText]);
+
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
@@ -468,21 +481,6 @@ export default function ShortagePage({
             }
           />
 
-          {!isMasterTab && itemWiseItemdcodeFilter ? (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-cyan-50 border border-cyan-100">
-              <span className="text-[10px] font-bold text-cyan-800 uppercase flex items-center gap-2">
-                <Info size={12} /> Item-wise entries for {drillBannerText}
-              </span>
-              <button
-                type="button"
-                onClick={() => setItemWiseItemdcodeFilter(null)}
-                className="text-cyan-600 hover:text-cyan-800 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Show all entries
-              </button>
-            </div>
-          ) : null}
-
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -545,7 +543,7 @@ export default function ShortagePage({
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={tableRows}
@@ -573,10 +571,11 @@ export default function ShortagePage({
           />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={tableRows.length}
           total={tableTotal}
           noun={isMasterTab ? "Items" : "Shortage Records"}
+          contextHint={shortageFooterContext}
           selected={!isMasterTab ? selected : null}
           selectedRecord={!isMasterTab ? selectedRecord : null}
           selectionLabel={imsSelectionLabel.shortage}

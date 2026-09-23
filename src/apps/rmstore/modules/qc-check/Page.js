@@ -16,7 +16,7 @@ import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import DataTable from "@/ui/primitives/DataTable";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
@@ -25,7 +25,7 @@ import DeleteModal from "@/ui/common/modals/DeleteModal";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
-import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
+import { rmStoreSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
 import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
 import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import QcCheckModal from "./QcCheckModal";
@@ -217,7 +217,7 @@ export default function QcCheckPage() {
   const totalItems = filteredRows.length;
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch,
         sourceRows: allRows,
         filteredRows,
@@ -680,15 +680,6 @@ export default function QcCheckPage() {
               />
             }
           />
-          {selectedRecord && (
-            <MasterSelectionBanner onClear={() => setSelected(null)}>
-              Selected:{" "}
-              {selectedRecord.qc_check_uid != null
-                ? `QC-${selectedRecord.qc_check_uid}`
-                : "Pending"}{" "}
-              · {selectedRecord.coil_no_uid}
-            </MasterSelectionBanner>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -733,7 +724,7 @@ export default function QcCheckPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={headers}
             data={items}
@@ -784,10 +775,14 @@ export default function QcCheckPage() {
           />
         </div>
 
-        <RmStoreListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
-          label={isPendingTab ? "Pending Work" : "QC Register"}
+          noun={isPendingTab ? "Pending Work" : "QC Register"}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={rmStoreSelectionLabel.qcCheck}
+          onClearSelection={() => setSelected(null)}
           {...footerFilter}
         />
       </div>

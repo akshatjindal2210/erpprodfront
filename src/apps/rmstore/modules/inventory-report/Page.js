@@ -17,7 +17,7 @@ import { buildInventoryFilterOptionsFromRows, EMPTY_FILTERS, filterInventoryRows
 import { computeInventoryTotals, INVENTORY_FOOTER_CARDS, INVENTORY_FOOTER_TONE, INVENTORY_QTY_META, INVENTORY_REPORT_RULES, INVENTORY_REPORT_TABLE_COLUMNS, formatInventoryTableCell } from "@/apps/rmstore/modules/inventory-report/inventoryReport.config";
 import { notifyListPageExportResult } from "@/platform/utils/list/listPageExport";
 import { exportInventoryReport } from "@/apps/rmstore/modules/inventory-report/inventoryReportExport";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
 
 const LOAD_LIMIT = 10000;
 const TABLE_RENDER_CHUNK = 150;
@@ -51,6 +51,116 @@ function renderQtyCell(type, value, { title } = {}) {
       title={title}
     >
       {formatInventoryTableCell(type, value)}
+    </span>
+  );
+}
+
+/** Badge UA / SF in location details (img2-style chip around the code). */
+const LOC_CODE_BADGE = {
+  UA: "bg-amber-50 text-amber-900 border-amber-300",
+  SF: "bg-blue-50 text-blue-900 border-blue-300",
+};
+
+function locationSegmentTooltip(code, rest, row) {
+  const map = row?.location_coil_uids_map;
+  const mapObj =
+    map && typeof map === "object" && !Array.isArray(map)
+      ? map
+      : typeof map === "string"
+        ? (() => {
+            try {
+              return JSON.parse(map);
+            } catch {
+              return null;
+            }
+          })()
+        : null;
+  const fromMap =
+    mapObj?.[code] ??
+    mapObj?.[String(code).toUpperCase()] ??
+    mapObj?.[String(code).toLowerCase()] ??
+    null;
+
+  if (code === "UA") {
+    return (
+      formatCoilUidTooltip("Unassigned (UA)", fromMap || row?.unassigned_coil_uids) ||
+      "Unassigned (UA) — coils with no store location"
+    );
+  }
+  if (code === "SF") {
+    return (
+      formatCoilUidTooltip("Shop Floor (SF)", fromMap || row?.shop_floor_coil_uids) ||
+      "Shop Floor (SF) — coils issued out"
+    );
+  }
+  if (code === "QC") {
+    return (
+      formatCoilUidTooltip("QC Pending (QC)", fromMap || row?.pending_qc_coil_uids) ||
+      "QC Pending coils"
+    );
+  }
+  const countBit = rest ? ` ${rest}` : "";
+  return (
+    formatCoilUidTooltip(`Store In ${code}`, fromMap) ||
+    `Store In ${code}${countBit}`
+  );
+}
+
+function renderLocationDetailsCell(raw, row) {
+  const display =
+    raw != null && String(raw).trim() !== "" && String(raw).trim() !== "—"
+      ? String(raw).trim()
+      : "—";
+  if (display === "—") {
+    return <span className={tableCellClass("text")}>—</span>;
+  }
+
+  const parts = display.split(",").map((s) => s.trim()).filter(Boolean);
+
+  return (
+    <span className={`${tableCellClass("text")} inline-flex flex-wrap items-center gap-1`}>
+      {parts.map((part, i) => {
+        const m = /^(UA|SF|[A-Za-z0-9\-]+)\b(.*)$/i.exec(part);
+        if (!m) {
+          return (
+            <span key={`${part}-${i}`}>
+              {i > 0 ? <span className="text-slate-400">, </span> : null}
+              {part}
+            </span>
+          );
+        }
+        const code = m[1].toUpperCase();
+        const rest = String(m[2] || "").trim();
+        const tip = locationSegmentTooltip(code, rest, row);
+        const isSpecial = code === "UA" || code === "SF";
+
+        if (!isSpecial) {
+          return (
+            <span key={`${part}-${i}`} className="cursor-help" title={tip}>
+              {i > 0 ? <span className="text-slate-400">, </span> : null}
+              {part}
+            </span>
+          );
+        }
+
+        const tone = LOC_CODE_BADGE[code];
+        return (
+          <span key={`${part}-${i}`} className="inline-flex items-center gap-0.5">
+            {i > 0 ? <span className="text-slate-400">, </span> : null}
+            <span
+              className={`inline-flex items-center px-1.5 py-0.5 rounded-sm text-[9px] font-black border tabular-nums cursor-help ${tone}`}
+              title={tip}
+            >
+              {code}
+            </span>
+            {rest ? (
+              <span className="text-slate-700 cursor-help" title={tip}>
+                {rest}
+              </span>
+            ) : null}
+          </span>
+        );
+      })}
     </span>
   );
 }
@@ -115,7 +225,7 @@ export default function InventoryReportPage() {
 
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch: "",
         sourceRows: allRows,
         filteredRows,
@@ -216,18 +326,7 @@ export default function InventoryReportPage() {
 
       let render;
       if (key === "location_details") {
-        render = (v, row) => {
-          const display =
-            v != null && String(v).trim() !== "" && String(v).trim() !== "—"
-              ? String(v).trim()
-              : "—";
-          const tip = formatCoilUidTooltip("Coils (total stock)", row?.total_stock_coil_uids);
-          return (
-            <span className={`${tableCellClass("text")} ${tip ? "cursor-help" : ""}`} title={tip}>
-              {display}
-            </span>
-          );
-        };
+        render = (v, row) => renderLocationDetailsCell(v, row);
       } else if (isNumber) {
         const qtyMeta = INVENTORY_QTY_META[key];
         const uidField = qtyMeta?.uidField;
@@ -481,7 +580,7 @@ export default function InventoryReportPage() {
           </div>
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={displayRows}
@@ -533,11 +632,10 @@ export default function InventoryReportPage() {
               className: "rounded-none border border-slate-200 shadow-none",
             }}
           />
-          <RmStoreListFooter
+          <AppListFooter
             shown={displayRows.length}
             total={sortedRows.length}
-            label="Inventory Rows"
-            showLive={false}
+            noun="Inventory Rows"
             {...footerFilter}
           />
           <div className="shrink-0 border-t border-indigo-200 bg-indigo-50/80 px-2 py-1.5 sm:border-t-2 sm:px-3 sm:py-2.5">

@@ -25,7 +25,8 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey, nextSortParams } from "@/ui/common/list/clientListSearch";
 import { toastDataRefreshed } from "@/platform/utils/core/toastNotify";
-import { MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
+import { MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
 import { DAILY_PRODUCTION_HEADERS, DAILY_PRODUCTION_PENDING_HEADERS, DAILY_PRODUCTION_COMPARISON_HEADERS, STICKER_STATUS_FILTER_OPTIONS, DAILY_PROD_PENDING_CARD_CONFIG, DAILY_PROD_GENERATED_CARD_CONFIG, DAILY_PROD_COMPARISON_CARD_CONFIG, dailyProdRowKey, dailyProdSearchParts, dailyProdComparisonSearchParts, filterDailyProdByStickerStatus, isDailyProdStickerGenerated, isDailyProdNeedsDeviation, DAILY_PROD_DEVIATION_ROW_CLASS, hasDailyProdComparisonMismatch } from "./masterColumns";
 import { useSelector } from "react-redux";
 import { selectUser } from "@/platform/store/slices/authSlice";
@@ -632,7 +633,7 @@ export default function DailyProductionPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={tableHeaders}
             data={items}
@@ -671,7 +672,7 @@ export default function DailyProductionPage() {
           />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun="entries"

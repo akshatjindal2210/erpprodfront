@@ -8,7 +8,8 @@ import { toast } from "react-toastify";
 import { auditService } from "@/apps/ims/lib/services/audit";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import { MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
+import { MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -802,7 +803,7 @@ export default function AuditPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
             <DataTable
               headers={tableHeaders} data={items} loading={loading}
               viewMode={viewMode} allowCopy={true} {...tableHotkeyProps} showSelection={true}
@@ -836,7 +837,7 @@ export default function AuditPage() {
             />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun={isLocationView ? "Locations" : "Audits"}

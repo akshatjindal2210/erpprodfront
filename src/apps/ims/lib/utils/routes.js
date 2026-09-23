@@ -22,6 +22,7 @@ export const ROUTES = {
   FORWARDING_NOTE: `${IMS}/forwarding-note`,
   OUT_ENTRY: `${IMS}/out-entry`,
   GATE_ENTRY: `${IMS}/gate-entry`,
+  INVOICE_RECEIVING: `${IMS}/invoice-receiving`,
 
   LOGS: `${IMS}/logs`,
   BOX_TRANSACTION_LOGS: `${IMS}/logs/box-transactions`,

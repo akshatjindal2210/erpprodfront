@@ -22,8 +22,9 @@ import DataTable from "@/ui/primitives/DataTable";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
-import { MasterSelectionBanner, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import { MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import { rmStoreMrnPortalSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailGrid, MasterDetailKV, MasterDetailProse } from "@/apps/ims/modules/master/MasterDetailLayout";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
@@ -318,7 +319,7 @@ export default function MrnPortalPage() {
 
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch,
         sourceRows: allRows,
         filteredRows,
@@ -681,15 +682,6 @@ export default function MrnPortalPage() {
               />
             }
           />
-          {selected && isComparisonView ? (
-            <MasterSelectionBanner onClear={() => setSelected(null)}>
-              Mismatch · MRN {selectedRecord?.mrn_no ?? "—"} · ERP data compared with the record saved in RM Store. Red indicates a mismatch.
-            </MasterSelectionBanner>
-          ) : selected ? (
-            <MasterSelectionBanner onClear={() => setSelected(null)}>
-              Selected MRN: {selectedRecord?.mrn_no ?? "—"} | {selectedRecord?.item_code || "—"} | Qty {selectedRecord?.it_recp_qty ?? "—"}
-            </MasterSelectionBanner>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -714,7 +706,7 @@ export default function MrnPortalPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={items}
@@ -773,10 +765,14 @@ export default function MrnPortalPage() {
           />
         </div>
 
-        <RmStoreListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
-          label="Entries"
+          noun="Entries"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={rmStoreMrnPortalSelectionLabel(isComparisonView)}
+          onClearSelection={() => setSelected(null)}
           {...footerFilter}
         />
       </div>

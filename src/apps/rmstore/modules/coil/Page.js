@@ -11,7 +11,8 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
+import { rmStoreSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DataTable from "@/ui/primitives/DataTable";
@@ -176,7 +177,7 @@ export default function CoilTablePage() {
 
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch,
         sourceRows: rows,
         filteredRows,
@@ -249,16 +250,6 @@ export default function CoilTablePage() {
               />
             }
           />
-          {selectedRecord && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
-                Selected: {selectedRecord.coil_no_uid}
-              </span>
-              <button onClick={() => setSelected(null)} className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase">
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -292,7 +283,7 @@ export default function CoilTablePage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={COIL_HEADERS}
             data={filteredRows}
@@ -336,11 +327,15 @@ export default function CoilTablePage() {
           />
         </div>
 
-        <RmStoreListFooter
+        <AppListFooter
           shown={filteredRows.length}
           total={quickSearchActive ? filteredRows.length : total}
-          label="Coil Records"
+          noun="Coil Records"
           journeyMode={Boolean(journey)}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={rmStoreSelectionLabel.coil}
+          onClearSelection={() => setSelected(null)}
           {...footerFilter}
           extra={<CoilTableColorLegend />}
         />

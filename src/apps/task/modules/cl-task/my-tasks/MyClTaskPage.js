@@ -17,6 +17,7 @@ import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import DataTable from "@/ui/primitives/DataTable";
 import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 
 import { clTaskService } from "@/apps/task/lib/services/clTaskApi";
 import { useClTaskFilters } from "@/apps/task/lib/hooks/useClTaskFilters";
@@ -661,7 +662,7 @@ export default function MyClTaskPage() {
           )}
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           {viewMode === "card" ? (
             <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 bg-slate-50/60">
               {loading && items.length === 0 ? (
@@ -738,19 +739,22 @@ export default function MyClTaskPage() {
           )}
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} · {today}
-            {tab === "due" ? " · Select + Submit, or double-click" : " · View only"}
-          </span>
-          <div className="flex items-center gap-1.5 flex-wrap justify-end">
-            <span className="text-[9px] font-bold text-sky-600 uppercase">Open</span>
-            <span className="text-[9px] font-bold text-emerald-600 uppercase">Daily</span>
-            <span className="text-[9px] font-bold text-amber-600 uppercase">Weekly</span>
-            <span className="text-[9px] font-bold text-orange-600 uppercase">Monthly</span>
-            <span className="text-[9px] font-bold text-rose-600 uppercase">Yearly</span>
-          </div>
-        </div>
+        <AppListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="Tasks"
+          prefix={today}
+          extra={tab === "due" ? "Select + Submit, or double-click" : "View only"}
+          centerContent={
+            <div className="flex items-center gap-1.5 flex-wrap justify-center">
+              <span className="text-[9px] font-bold text-sky-600 uppercase">Open</span>
+              <span className="text-[9px] font-bold text-emerald-600 uppercase">Daily</span>
+              <span className="text-[9px] font-bold text-amber-600 uppercase">Weekly</span>
+              <span className="text-[9px] font-bold text-orange-600 uppercase">Monthly</span>
+              <span className="text-[9px] font-bold text-rose-600 uppercase">Yearly</span>
+            </div>
+          }
+        />
       </div>
 
       <ClTaskSubmitModal

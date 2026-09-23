@@ -29,7 +29,8 @@ export function attendanceLogHeaders(onThumbClick) {
         <>
           <div className="invisible min-h-[11rem] w-full" aria-hidden />
           <div className="absolute inset-0">
-            <AttendanceLogCard row={row} onOpen={onThumbClick} />
+            {/* Photo click → select + open image; rest of card → select only */}
+            <AttendanceLogCard row={row} onPhotoClick={onThumbClick} />
           </div>
         </>
       ),

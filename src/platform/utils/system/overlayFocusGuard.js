@@ -9,7 +9,8 @@ function skipInert(el) {
     el.classList?.contains("searchable-select-dropdown") ||
     el.hasAttribute?.("data-searchable-select-portal") ||
     el.hasAttribute?.("data-dashboard-column-filter-menu") ||
-    el.hasAttribute?.("data-file-preview-overlay")
+    el.hasAttribute?.("data-file-preview-overlay") ||
+    el.hasAttribute?.("data-qr-scanner-overlay")
   );
 }
 

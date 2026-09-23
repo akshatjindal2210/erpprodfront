@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Flashlight, FlashlightOff } from "lucide-react";
 import { useEscapeKey } from "@/platform/hooks/system/useEscapeKey";
@@ -27,14 +27,29 @@ export default function QrScannerOverlay({
     setMounted(true);
   }, []);
 
-  useEscapeKey(onClose, open);
+  const closingRef = useRef(false);
+
+  const requestClose = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    onClose?.();
+    window.setTimeout(() => {
+      closingRef.current = false;
+    }, 450);
+  }, [onClose]);
+
+  useEscapeKey(requestClose, open);
   const deviceOk = allowDesktop || isMobileDevice();
   if (!open || !deviceOk || !mounted) return null;
 
-  const closeScanner = (e) => {
-    e?.preventDefault?.();
-    e?.stopPropagation?.();
-    onClose?.();
+  const stopPointerBubble = (e) => {
+    e.stopPropagation();
+  };
+
+  const handleCloseClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    requestClose();
   };
 
   const content = (
@@ -44,20 +59,21 @@ export default function QrScannerOverlay({
       role="dialog"
       aria-modal="true"
       aria-label="QR scanner"
-      onPointerDown={(e) => e.stopPropagation()}
+      data-qr-scanner-overlay="true"
+      onPointerDown={stopPointerBubble}
     >
-      <div className="w-full max-w-md">
-        <div className="mb-2 flex items-center justify-between">
+      <div className="relative z-10 w-full max-w-md pointer-events-auto">
+        <div className="relative z-20 mb-2 flex items-center justify-between gap-3">
           {torchSupported ? (
             <button
               type="button"
-              onPointerDown={(e) => e.stopPropagation()}
+              onPointerDown={stopPointerBubble}
               onClick={async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 await onToggleTorch?.();
               }}
-              className={`p-2 rounded-full text-white transition-all ${
+              className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-white transition-all touch-manipulation ${
                 torchOn ? "bg-amber-500/90 hover:bg-amber-500" : "bg-black/35 hover:bg-black/50"
               }`}
               title={torchOn ? "Turn flash off" : "Turn flash on"}
@@ -67,14 +83,14 @@ export default function QrScannerOverlay({
               {torchOn ? <Flashlight size={20} /> : <FlashlightOff size={20} />}
             </button>
           ) : (
-            <span aria-hidden />
+            <span aria-hidden className="min-w-[44px]" />
           )}
 
           <button
             type="button"
-            onPointerDown={closeScanner}
-            onClick={closeScanner}
-            className="p-2 bg-black/35 hover:bg-black/50 rounded-full text-white transition-all"
+            onPointerDown={stopPointerBubble}
+            onClick={handleCloseClick}
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center bg-black/35 hover:bg-black/50 rounded-full text-white transition-all touch-manipulation"
             title="Close scanner"
             aria-label="Close scanner"
           >
@@ -83,9 +99,12 @@ export default function QrScannerOverlay({
         </div>
 
         <div
-          className={`relative rounded-2xl overflow-hidden bg-black aspect-square shadow-xl animate-in zoom-in-95 duration-300 ${frameClassName}`}
+          className={`relative z-0 rounded-2xl overflow-hidden bg-black aspect-square shadow-xl animate-in zoom-in-95 duration-300 ${frameClassName}`}
         >
-          <div id={readerId} className="w-full h-full [&_video]:h-full [&_video]:object-cover [&_video]:pointer-events-none" />
+          <div
+            id={readerId}
+            className="w-full h-full [&_*]:pointer-events-none [&_video]:h-full [&_video]:object-cover"
+          />
           <div className="absolute inset-0 pointer-events-none border-[40px] border-black/40" />
         </div>
 

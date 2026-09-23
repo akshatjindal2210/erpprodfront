@@ -7,7 +7,7 @@ import { toast } from "react-toastify";
 import { qcHoldMaterialService } from "@/apps/ims/lib/services/qcHoldMaterial";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 
@@ -395,7 +395,7 @@ export default function QcHoldMaterialPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={isTxTab ? QC_HOLD_TX_HEADERS : QC_HOLD_HEADERS}
             data={items}
@@ -426,7 +426,7 @@ export default function QcHoldMaterialPage() {
           />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun={isTxTab ? "Transactions" : "QC Holds"}

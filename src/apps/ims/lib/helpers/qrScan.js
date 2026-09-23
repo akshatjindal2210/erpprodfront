@@ -42,9 +42,45 @@ export function looksLikeEInvoiceJwt(rawValue) {
 /** Phone QR often returns a single base64 JSON blob (no JWT dots). */
 export function looksLikeBillBase64(rawValue) {
   const s = String(rawValue ?? "").replace(/\s+/g, "");
-  if (!s || s.length < 24) return false;
+  if (!s || s.length < 48) return false;
   if (s.includes(".")) return false;
+  if (looksLikePlainGateBillNo(s)) return false;
   return /^[A-Za-z0-9+/_-]+={0,2}$/.test(s);
+}
+
+/** Typed / QR text bill number (e.g. HPF/26-27/2305) — not e-invoice encoding. */
+export function looksLikePlainGateBillNo(rawValue) {
+  const s = String(rawValue ?? "").trim();
+  if (!s || s.length > 80) return false;
+  if (/^[A-Za-z][A-Za-z0-9]{0,10}\/\d{2}-\d{2}\/\d+$/i.test(s)) return true;
+  const compact = s.replace(/\s+/g, "");
+  if (looksLikeEInvoiceJwt(s) || (compact.length >= 48 && /^[A-Za-z0-9+/_-]+={0,2}$/.test(compact))) {
+    return false;
+  }
+  if (compact.startsWith("{") && compact.endsWith("}")) return false;
+  return /^[A-Za-z0-9][A-Za-z0-9/_-]*$/i.test(s) && compact.length < 40;
+}
+
+/** Phone camera: only block clearly incomplete e-invoice payloads (not laser idle rules). */
+export function billQrCameraLooksIncomplete(rawValue) {
+  const text = normalizeBillScanInput(rawValue);
+  if (!text) return true;
+  if (looksLikePlainGateBillNo(text)) return false;
+
+  const compact = text.replace(/\s+/g, "");
+  if (looksLikeEInvoiceJwt(text)) {
+    const parts = compact.split(".");
+    if (parts.length < 3) return true;
+    if (parts[2].length < 8) return true;
+    return false;
+  }
+  if (/^eyJ/i.test(compact) && !compact.includes(".")) {
+    return compact.length < 80;
+  }
+  if (looksLikeBillBase64(text)) {
+    return compact.length < 80;
+  }
+  return false;
 }
 
 function readBoxParamsFromUrl(url) {
@@ -428,7 +464,7 @@ function pickBillField(obj, keys) {
  * Example DocNo from invoice QR: HPF/26-27/1686
  */
 export function parseBillQrPayload(rawValue) {
-  const raw = normalizeScanInput(rawValue);
+  const raw = normalizeBillScanInput(rawValue);
   if (!raw) return null;
 
   if (looksLikeEInvoiceJwt(raw)) {
@@ -438,7 +474,7 @@ export function parseBillQrPayload(rawValue) {
     }
     try {
       const dataObject = decodeBase64UrlJsonBrowser(parts[1]);
-      let inside = dataObject?.data ?? dataObject;
+      let inside = dataObject?.data ?? dataObject?.Data ?? dataObject;
       if (typeof inside === "string") {
         try {
           inside = JSON.parse(inside);
@@ -447,16 +483,27 @@ export function parseBillQrPayload(rawValue) {
         }
       }
       const payload = inside && typeof inside === "object" ? inside : dataObject;
-      const docNumber =
-        pickBillField(payload, ["DocNo", "docNo", "doc_no", "billno", "bill_no", "BillNo", "InvoiceNo"]) ||
-        pickBillField(dataObject, ["DocNo", "docNo", "billno", "bill_no"]);
+      const docKeys = ["DocNo", "docNo", "doc_no", "billno", "bill_no", "BillNo", "InvoiceNo"];
+      const dtKeys = ["DocDt", "docDt", "doc_dt", "billdt", "bill_dt", "BillDt"];
+      const candidates = [
+        payload,
+        payload?.DocDtls,
+        payload?.docDtls,
+        payload?.Invoice,
+        payload?.invoice,
+        dataObject,
+      ].filter((o) => o && typeof o === "object");
+
+      let docNumber = "";
+      let bill_dt = null;
+      for (const obj of candidates) {
+        docNumber = pickBillField(obj, docKeys) || docNumber;
+        bill_dt = bill_dt || pickBillField(obj, dtKeys) || null;
+        if (docNumber) break;
+      }
       if (!docNumber) {
         return { ok: false, error: "Document number not found in e-invoice QR." };
       }
-      const bill_dt =
-        pickBillField(payload, ["DocDt", "docDt", "doc_dt", "billdt", "bill_dt", "BillDt"]) ||
-        pickBillField(dataObject, ["DocDt", "docDt", "billdt"]) ||
-        null;
       return { ok: true, docNumber, bill_dt, source: "einvoice_jwt", payload };
     } catch {
       return { ok: false, error: "Invalid e-invoice QR. Scan the full QR from the tax invoice." };

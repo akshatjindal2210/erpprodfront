@@ -3,7 +3,7 @@ function t(v) {
   return String(v);
 }
 
-/** Footer “Selected: …” for IMS list pages — pass to MasterListFooter / ListPageFooter. */
+/** Footer “Selected: …” for list pages — pass to AppListFooter. */
 export const imsSelectionLabel = {
   box: (r) => `Selected: ${t(r?.box_no_uid)}`,
   location: (r) => {

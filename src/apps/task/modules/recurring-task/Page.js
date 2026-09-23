@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Trash2, RefreshCcw, Edit3, X, Repeat, Clock, Loader2,
+  Trash2, RefreshCcw, Edit3, Repeat, Clock, Loader2,
   CheckCircle2, Circle, CalendarPlus,
 } from "lucide-react";
 import { toast } from "react-toastify";
@@ -18,6 +18,11 @@ import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
+import AppListFooter, {
+  ListPageFooterContextStrip,
+  ListFooterColorLegend,
+  consoleListSelectionLabel,
+} from "@/ui/common/list/listPageFooter";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import DataTable from "@/ui/primitives/DataTable";
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -472,20 +477,6 @@ export default function RecurringTasksPage() {
               }
             />
 
-            {selected && (
-              <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-                <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
-                  Selected: {selectedRecord?.title || `#${selected}`}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSelected(null)}
-                  className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
-                >
-                  <X size={14} /> Clear
-                </button>
-              </div>
-            )}
           </ListPageToolbar>
 
           <ListPageFilterStrip>
@@ -526,30 +517,7 @@ export default function RecurringTasksPage() {
             </div>
           </div>
 
-          {quickFilter && quickFilter !== "total" && (
-            <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border-b border-indigo-200">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700">
-                Showing:{" "}
-                {quickFilter === "active"
-                  ? "Active"
-                  : quickFilter === "inactive"
-                    ? "Inactive"
-                    : "Created Today"}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setQuickFilter(null);
-                  setStatusFilter("All");
-                }}
-                className="ml-auto text-[11px] font-bold uppercase text-indigo-500 hover:text-indigo-700 flex items-center gap-1"
-              >
-                <X size={12} /> Clear
-              </button>
-            </div>
-          )}
-
-          <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+          <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
             {viewMode === "card" ? (
               <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 custom-scrollbar bg-slate-50/60">
                 {loading && items.length === 0 ? (
@@ -622,24 +590,43 @@ export default function RecurringTasksPage() {
             )}
           </div>
 
-          <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0 gap-3">
-            <div className="flex flex-wrap gap-x-3 gap-y-1 items-center">
-              {[
-                { label: "Total", color: RECURRING_FILTER_COLORS.total },
-                { label: "Active", color: RECURRING_FILTER_COLORS.active },
-                { label: "Inactive", color: RECURRING_FILTER_COLORS.inactive },
-                { label: "Created Today", color: RECURRING_FILTER_COLORS.today },
-              ].map(({ label, color }) => (
-                <div key={label} className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
-                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">{label}</span>
-                </div>
-              ))}
-            </div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">
-              Showing {items.length} of {totalItems}
-            </span>
-          </div>
+          <AppListFooter
+            shown={items.length}
+            total={totalItems}
+            noun="Recurring Tasks"
+            centerContent={
+              <ListFooterColorLegend
+                items={[
+                  { label: "Total", color: RECURRING_FILTER_COLORS.total },
+                  { label: "Active", color: RECURRING_FILTER_COLORS.active },
+                  { label: "Inactive", color: RECURRING_FILTER_COLORS.inactive },
+                  { label: "Created Today", color: RECURRING_FILTER_COLORS.today },
+                ]}
+              />
+            }
+            contextHint={
+              quickFilter && quickFilter !== "total" ? (
+                <ListPageFooterContextStrip
+                  tone="cyan"
+                  onClear={() => {
+                    setQuickFilter(null);
+                    setStatusFilter("All");
+                  }}
+                  clearLabel="Show all"
+                >
+                  {quickFilter === "active"
+                    ? "Active"
+                    : quickFilter === "inactive"
+                      ? "Inactive"
+                      : "Created Today"}
+                </ListPageFooterContextStrip>
+              ) : null
+            }
+            selected={selected}
+            selectedRecord={selectedRecord}
+            selectionLabel={consoleListSelectionLabel.recurring}
+            onClearSelection={() => setSelected(null)}
+          />
         </div>
       </div>
 

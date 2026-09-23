@@ -6,36 +6,14 @@ import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 import { useRouter } from "next/navigation";
 
-import {
-  taskService,
-  StatCard,
-  DeleteModal,
-  useViewMode,
-  usePersistedScroll,
-  TABS,
-  STAT_CARDS,
-  COLOR_LEGEND,
-  QUICK_FILTER_LABELS,
-  buildReportTaskListApiParams,
-  applyReportDisplayTaskFilter,
-  getRowMeta,
-  getActiveStatKey,
-  EmptyState,
-  TaskCard,
-  useReportFilters,
-  getTaskDataTableRowClassName,
-} from "@/apps/task/lib/common";
+import { taskService, StatCard, DeleteModal, useViewMode, usePersistedScroll, TABS, STAT_CARDS, COLOR_LEGEND, QUICK_FILTER_LABELS, FOOTER_SCOPE_SHORT, buildReportTaskListApiParams,
+  applyReportDisplayTaskFilter, getRowMeta, getActiveStatKey, EmptyState, TaskCard, useReportFilters, getTaskDataTableRowClassName } from "@/apps/task/lib/common";
 
 const FETCH_LIMIT = 1000;
 const DISPLAY_CHUNK = 100;
 import { categoryService } from "@/apps/task/lib/services/categoryApi";
 import { extractList } from "@/apps/task/lib/helpers/utilHelper";
-import {
-  TASK_STATUSES,
-  PRIORITIES,
-  TASK_STATUS_CONFIG,
-  PRIORITY_CONFIG,
-} from "@/apps/task/lib/ui/common/Constants";
+import { TASK_STATUSES, PRIORITIES, TASK_STATUS_CONFIG, PRIORITY_CONFIG } from "@/apps/task/lib/ui/common/Constants";
 import { buildTaskDetailUrl } from "@/apps/task/lib/helpers/taskRouteHelper";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 
@@ -45,6 +23,9 @@ import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
+import TaskListFooter, { ListPageFooterContextStrip, ListFooterColorLegend, consoleListSelectionLabel } from "@/apps/task/lib/ui/TaskListFooter";
+import { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
+import { applyTaskListQuickSearch } from "@/apps/task/lib/helpers/taskListQuickSearch";
 import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
 import DataTable from "@/ui/primitives/DataTable";
 
@@ -83,9 +64,6 @@ export default function ReportPage({ reportPage }) {
 
   const [activeTab,      setActiveTab]      = useState(() =>
     readSessionString(REPORT_FILTER_SS.activeTab, "all"),
-  );
-  const [search,         setSearch]         = useState(() =>
-    readSessionString(REPORT_FILTER_SS.search, ""),
   );
   const [statusFilter,   setStatusFilter]   = useState(() =>
     readSessionString(REPORT_FILTER_SS.status, "All"),
@@ -146,14 +124,14 @@ export default function ReportPage({ reportPage }) {
   // Sync state to sessionStorage (Report keys — separate from Tasks)
   useEffect(() => {
     writeSessionString(REPORT_FILTER_SS.activeTab, activeTab);
-    writeSessionString(REPORT_FILTER_SS.search, search);
+    writeSessionString(REPORT_FILTER_SS.search, tempSearch);
     writeSessionString(REPORT_FILTER_SS.status, statusFilter);
     writeSessionString(REPORT_FILTER_SS.priority, priorityFilter);
     writeSessionString(REPORT_FILTER_SS.category, categoryFilter);
     writeSessionString(REPORT_FILTER_SS.quick, quickFilter || "");
     writeSessionString(REPORT_FILTER_SS.sortKey, sortKey);
     writeSessionString(REPORT_FILTER_SS.sortDir, sortDir);
-  }, [activeTab, search, statusFilter, priorityFilter, categoryFilter, quickFilter, sortKey, sortDir]);
+  }, [activeTab, tempSearch, statusFilter, priorityFilter, categoryFilter, quickFilter, sortKey, sortDir]);
 
   useEffect(() => {
     categoryService.getViews({
@@ -181,7 +159,6 @@ export default function ReportPage({ reportPage }) {
     try {
       const filterState = {
         activeTab,
-        search,
         statusFilter,
         priorityFilter,
         categoryFilter,
@@ -214,7 +191,7 @@ export default function ReportPage({ reportPage }) {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, priorityFilter, categoryFilter, sortKey, sortDir, activeTab, quickFilter, selectedAssignedBy, selectedDepartment, selectedDesignation, selectedUser, currentUser, router, role]);
+  }, [statusFilter, priorityFilter, categoryFilter, sortKey, sortDir, activeTab, quickFilter, selectedAssignedBy, selectedDepartment, selectedDesignation, selectedUser, currentUser, router, role]);
 
   useEffect(() => {
     fetchTasks();
@@ -223,12 +200,16 @@ export default function ReportPage({ reportPage }) {
   useEffect(() => {
     setDisplayLimit(DISPLAY_CHUNK);
     setSelected(null);
-  }, [search, statusFilter, priorityFilter, categoryFilter, quickFilter, activeTab, sortKey, sortDir, selectedAssignedBy, selectedDepartment, selectedDesignation, selectedUser]);
+  }, [tempSearch, statusFilter, priorityFilter, categoryFilter, quickFilter, activeTab, sortKey, sortDir, selectedAssignedBy, selectedDepartment, selectedDesignation, selectedUser]);
 
-  // ── Display tasks ─────────────────────────────────────────────────────────
-  const displayTasks = useMemo(() => {
+  const scopedTasks = useMemo(() => {
     return applyReportDisplayTaskFilter(tasks, { statusFilter, quickFilter });
   }, [tasks, statusFilter, quickFilter]);
+
+  const displayTasks = useMemo(
+    () => applyTaskListQuickSearch(scopedTasks, tempSearch),
+    [scopedTasks, tempSearch],
+  );
 
   const visibleTasks = useMemo(
     () => displayTasks.slice(0, displayLimit),
@@ -240,7 +221,25 @@ export default function ReportPage({ reportPage }) {
   const displayCount = displayTasks.length;
   const serverTotal = Number(totalItems) || 0;
   const hasMore = visibleTasks.length < displayTasks.length;
-  const hasFilter     = statusFilter !== "All" || priorityFilter !== "All" || categoryFilter !== "All" || !!quickFilter || !!selectedAssignedBy || !!selectedDepartment || !!selectedUser;
+  const hasFilter =
+    Boolean(String(tempSearch || "").trim()) ||
+    statusFilter !== "All" ||
+    priorityFilter !== "All" ||
+    categoryFilter !== "All" ||
+    !!quickFilter ||
+    !!selectedAssignedBy ||
+    !!selectedDepartment ||
+    !!selectedUser;
+
+  const footerClientFilter = useMemo(
+    () =>
+      appListFooterFromClientFilter({
+        tempSearch,
+        sourceRows: scopedTasks,
+        filteredRows: displayTasks,
+      }),
+    [tempSearch, scopedTasks, displayTasks],
+  );
   const activeStatKey = getActiveStatKey(quickFilter, statusFilter, activeTab);
 
   const handleLoadMore = useCallback(() => {
@@ -252,6 +251,14 @@ export default function ReportPage({ reportPage }) {
     if (statusFilter && statusFilter !== "All") return QUICK_FILTER_LABELS[statusFilter];
     return null;
   }, [quickFilter, statusFilter]);
+
+  const footerScopeLabel = useMemo(() => {
+    if (quickFilter && FOOTER_SCOPE_SHORT[quickFilter]) return FOOTER_SCOPE_SHORT[quickFilter];
+    if (statusFilter && statusFilter !== "All" && FOOTER_SCOPE_SHORT[statusFilter]) {
+      return FOOTER_SCOPE_SHORT[statusFilter];
+    }
+    return activeFilterLabel;
+  }, [quickFilter, statusFilter, activeFilterLabel]);
 
   const statCardCls = (key) => activeStatKey === key ? "shadow-[0_8px_16px_-4px_rgba(0,0,0,0.15)] -translate-y-0.5" : "hover:shadow-sm hover:scale-[1.01]";
 
@@ -277,7 +284,6 @@ export default function ReportPage({ reportPage }) {
 
   const handleReset = () => {
     setTempSearch("");
-    setSearch("");
     setSortKey("task_id");
     setSortDir("desc");
     clearAllFilters();
@@ -377,7 +383,6 @@ export default function ReportPage({ reportPage }) {
   );
 
   const handleFilterApply = (data = {}) => {
-    if (data.searchSubmit) setSearch(String(tempSearch || "").trim());
     if (data.status !== undefined) {
       setStatusFilter(data.status || "All");
       setQuickFilter(null);
@@ -731,6 +736,9 @@ export default function ReportPage({ reportPage }) {
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by title, description…"
             searchLabel="Quick Search"
+            searchVariant="quick"
+            applyOnSearchEnter={false}
+            showSearchButton={false}
             onApply={handleFilterApply}
             onReset={handleReset}
           />
@@ -758,39 +766,9 @@ export default function ReportPage({ reportPage }) {
           </div>
         </div>
 
-        {activeFilterLabel && (
-          <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border-b border-indigo-200">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700">
-              Showing: {activeFilterLabel}
-            </span>
-            <button
-              type="button"
-              onClick={clearActiveBannerFilter}
-              className="ml-auto text-[11px] font-bold uppercase text-indigo-500 hover:text-indigo-700 flex items-center gap-1"
-            >
-              <X size={12} /> Clear
-            </button>
-          </div>
-        )}
-
-        {selected && (
-          <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border-b border-indigo-100 shrink-0">
-            <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
-              Selected: {selectedRecord?.title || `#${selected}`}
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelected(null)}
-              className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
-            >
-              <X size={14} /> Clear
-            </button>
-          </div>
-        )}
-
-        <div className="flex-1 min-h-0 relative z-10 bg-white flex flex-col overflow-hidden isolate">
+        <div className="flex-1 min-h-0 h-0 relative z-10 bg-white flex flex-col overflow-hidden isolate">
           {viewMode === "card" ? (
-            <div ref={cardScrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 custom-scrollbar bg-slate-50/60">
+            <div ref={cardScrollRef} className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 custom-scrollbar bg-slate-50/60">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
                 {loading && visibleTasks.length === 0 ? (
                   <div className="col-span-4 py-16 text-center text-slate-400">
@@ -830,6 +808,7 @@ export default function ReportPage({ reportPage }) {
               )}
             </div>
           ) : (
+            <div className="flex-1 min-h-0 h-0 min-w-0 flex flex-col">
             <DataTable
               headers={HEADERS}
               data={visibleTasks}
@@ -858,23 +837,30 @@ export default function ReportPage({ reportPage }) {
               onRowDoubleClick={(row) => navigateToTask(row)}
               hotkeysDisabled={tableHotkeyProps.hotkeysDisabled}
             />
+            </div>
           )}
         </div>
 
-        <div className="px-3 py-1.5 border-t border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
-          <div className="flex flex-wrap gap-x-4 gap-y-1 items-center">
-            {COLOR_LEGEND.map(({ label, barColor }) => (
-              <div key={label} className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: barColor }} />
-                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">{label}</span>
-              </div>
-            ))}
-          </div>
-          <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap">
-            Showing {visibleTasks.length} of {displayCount}
-            {serverTotal > displayCount ? ` · ${serverTotal} total` : ""}
-          </span>
-        </div>
+        <TaskListFooter
+          shown={visibleTasks.length}
+          total={displayCount}
+          noun="Tasks"
+          isFiltered={footerClientFilter.isFiltered}
+          databaseTotal={footerClientFilter.databaseTotal}
+          extra={serverTotal > displayCount ? `${serverTotal} total` : undefined}
+          centerContent={<ListFooterColorLegend items={COLOR_LEGEND} compact scrollStrip />}
+          contextHint={
+            footerScopeLabel ? (
+              <ListPageFooterContextStrip tone="cyan" onClear={clearActiveBannerFilter} clearLabel="Show all">
+                {footerScopeLabel}
+              </ListPageFooterContextStrip>
+            ) : null
+          }
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={consoleListSelectionLabel.taskTitle}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <TaskModal

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { RefreshCcw, Box, Locate } from "lucide-react";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { toast } from "react-toastify";
 import { boxService } from "@/apps/ims/lib/services/box";
@@ -193,9 +193,25 @@ export default function BoxTablePage() {
     [journeyInput, applyJourneyFilter, zoneIncludes]
   );
 
-  const selectedRecord = useMemo(() => filteredRows.find((u) => u.box_uid === selected), [filteredRows, selected]);
+  const selectedRecord = useMemo(
+    () => filteredRows.find((u) => String(u.box_uid) === String(selected)),
+    [filteredRows, selected]
+  );
 
-  const getSelectedRow = useCallback(() => filteredRows.find((u) => u.box_uid === selected), [filteredRows, selected]);
+  const getSelectedRow = useCallback(
+    () => filteredRows.find((u) => String(u.box_uid) === String(selected)),
+    [filteredRows, selected]
+  );
+
+  const boxRowClassName = useCallback(
+    (row) => {
+      if (selected != null && selected !== "" && String(row?.box_uid) === String(selected)) {
+        return "";
+      }
+      return getBoxRowClassName(row);
+    },
+    [selected]
+  );
 
   // Boxes list is view/finder only — no create/edit drawer. Disable New/Edit hotkeys
   // so Ctrl+Alt+N / Insert does not open a form that has no toolbar entry.
@@ -347,7 +363,7 @@ export default function BoxTablePage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <div className="flex-1 overflow-hidden flex flex-col">
             <DataTable
               headers={HEADERS} 
@@ -358,7 +374,7 @@ export default function BoxTablePage() {
               sortKey={params.sortKey} 
               sortDir={params.sortDir}
               allowCopy={true}
-              getRowClassName={getBoxRowClassName}
+              getRowClassName={boxRowClassName}
               onSort={(key) => {
                 setDisplayLimit(100);
                 setParams((p) => ({
@@ -393,7 +409,7 @@ export default function BoxTablePage() {
           </div>
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun={isJourneyMode ? "journey matches" : "Box Records"}

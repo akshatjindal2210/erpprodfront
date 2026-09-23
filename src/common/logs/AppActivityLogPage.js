@@ -18,7 +18,7 @@ import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPag
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { formatActivityLogValue, getActivityLogSections, getActivityLogMoreSections, hasActivityLogDetails, formatActivityLogActionLabel, getActivityLogActionBadgeClass } from "@/platform/utils/core/activityLogDisplay";
-import { fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
+import { fetchAllListPages, sortRowsByKey, applyClientSearch } from "@/ui/common/list/clientListSearch";
 import ActivityLogModuleEntityCell from "@/ui/common/list/ActivityLogModuleEntityCell";
 import { APP_TYPE_LABELS } from "@/config/portalModules.data";
 
@@ -72,13 +72,6 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
   });
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setParams((prev) => ({ ...prev, search: tempSearch, page: 1 }));
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [tempSearch]);
-
-  useEffect(() => {
     if (dateFilterDefaults.from || dateFilterDefaults.to) {
       setParams((prev) => ({
         ...prev,
@@ -122,24 +115,31 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
     void fetchLogs();
   }, [params.pageSize, params.search, params.fromDate, params.toDate, params.filterApp, params.userId, params.module, params.actionType, fetchLogs]);
 
-  const sortedItems = useMemo(
-    () => sortRowsByKey(allItems, params.sortKey, params.sortDir),
-    [allItems, params.sortKey, params.sortDir]
-  );
+  const filteredItems = useMemo(() => {
+    let data = allItems;
+    if (String(tempSearch || "").trim()) {
+      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
+    }
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
+  }, [allItems, tempSearch, params.sortKey, params.sortDir]);
 
-  const items = useMemo(() => sortedItems.slice(0, displayLimit), [sortedItems, displayLimit]);
+  const items = useMemo(() => filteredItems.slice(0, displayLimit), [filteredItems, displayLimit]);
+
+  useEffect(() => {
+    setDisplayLimit(100);
+  }, [tempSearch]);
 
   const handleLoadMore = useCallback(() => {
-    if (!loading && items.length < sortedItems.length) {
+    if (!loading && items.length < filteredItems.length) {
       setDisplayLimit((n) => n + 100);
     }
-  }, [loading, items.length, sortedItems.length]);
+  }, [loading, items.length, filteredItems.length]);
 
   const handleSearch = (data) => {
     setParams((prev) => ({
       ...prev,
       page: 1,
-      search: tempSearch,
+      search: String(tempSearch || "").trim(),
       fromDate: data.fromDate,
       toDate: data.toDate,
       filterApp: data.app_type || "",
@@ -267,7 +267,7 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
           page: 1,
           limit: 100000,
           isExport: "true",
-          search: params.search || undefined,
+          search: String(tempSearch || "").trim() || params.search || undefined,
           date_from: params.fromDate ? `${params.fromDate} 00:00:00` : undefined,
           date_to: params.toDate ? `${params.toDate} 23:59:59` : undefined,
           user_id: params.userId || undefined,
@@ -325,14 +325,17 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             searchPlaceholder="Search by user, module, or action"
-            searchLabel="Filter Logs"
+            searchLabel="Quick Search"
+            searchVariant="quick"
+            applyOnSearchEnter
+            applyExtrasOnChange={false}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
             extraFilters={extraFilters}
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={items}
@@ -352,8 +355,8 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
             idKey="id"
             emptyIcon={Activity}
             onLoadMore={handleLoadMore}
-            hasMore={items.length < sortedItems.length}
-            totalItems={sortedItems.length}
+            hasMore={items.length < filteredItems.length}
+            totalItems={filteredItems.length}
             cardConfig={{
               titleKey: "user_name",
               badgeIndices: [1],
@@ -366,7 +369,7 @@ export default function AppActivityLogPage({ appType, moduleSlug, moduleName = "
 
         <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {sortedItems.length} Activity Logs
+            Showing {items.length} of {filteredItems.length} Activity Logs
           </span>
         </div>
       </div>

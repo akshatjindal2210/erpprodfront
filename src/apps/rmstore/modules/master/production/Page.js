@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, Factory, RefreshCcw, Edit3, Trash2, CheckCircle, X } from "lucide-react";
+import { Plus, Factory, RefreshCcw, Edit3, Trash2, CheckCircle } from "lucide-react";
+import { rmStoreSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
 import { toast } from "react-toastify";
 
 import { productionService } from "@/apps/rmstore/lib/services/production";
@@ -11,7 +12,7 @@ import { LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import ActionButton from "@/ui/primitives/ActionButton";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
 import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
@@ -92,7 +93,7 @@ export default function ProductionMasterPage() {
   const totalItems = filteredRows.length;
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch,
         sourceRows: allRows,
         filteredRows,
@@ -302,20 +303,6 @@ export default function ProductionMasterPage() {
               <ListPageExportToggle viewMode={viewMode} setMode={handleViewMode} exporting={exporting} disabled={loading || exportDisabled} onExport={handleExport} />
             }
           />
-
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase">
-                Selected: {selectedRecord?.item_code} → {selectedRecord?.rm_item_code || "—"}
-              </span>
-              <button
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -330,12 +317,12 @@ export default function ProductionMasterPage() {
             searchLabel="Search Production"
             searchVariant="quick"
             showSearchButton
-            applyOnSearchEnter={false}
+            applyOnSearchEnter
             applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={items}
@@ -371,10 +358,14 @@ export default function ProductionMasterPage() {
           />
         </div>
 
-        <RmStoreListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
-          label="Item RM Mappings"
+          noun="Item RM Mappings"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={rmStoreSelectionLabel.production}
+          onClearSelection={() => setSelected(null)}
           {...footerFilter}
         />
       </div>

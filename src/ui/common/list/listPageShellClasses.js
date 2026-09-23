@@ -13,6 +13,9 @@ export const IMS_MODAL_LABEL = "text-[10px] font-bold text-slate-600 uppercase t
  * Legacy `IMS_*` names remain for existing IMS/Task imports.
  */
 export const LIST_PAGE_SHELL = IMS_LIST_PAGE_SHELL;
+
+/** Table/card body — `h-0` lets flex children scroll; keeps footer from overlapping rows. */
+export const LIST_PAGE_TABLE_AREA_CLASS = "flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0";
 export const TABLE_CELL_TEXT = IMS_TABLE_CELL_TEXT;
 export const TABLE_CELL_NUMBER = IMS_TABLE_CELL_NUMBER;
 export const TABLE_CELL_DATE = IMS_TABLE_CELL_DATE;

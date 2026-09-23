@@ -17,6 +17,7 @@ Daily Prod (stickers) → Boxes → Store In → Forwarding Note (reserve) → S
 | Screen                     | File                                                   |
 |----------------------------|--------------------------------------------------------|
 | Dashboard                  | [dashboard.md](./dashboard.md)                         |
+| **Internal API (all apps)** | [internal-api-imsdata.md](./internal-api-imsdata.md)  |
 | Product Master             | [product-master.md](./product-master.md)               |
 | Customer Master            | [customer-master.md](./customer-master.md)             |
 | Customer Item Code         | [customer-item-code.md](./customer-item-code.md)       |

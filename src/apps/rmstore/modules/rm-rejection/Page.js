@@ -28,8 +28,8 @@ import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/ui/common/list/ListPageSearchField";
-import { MasterSelectionBanner } from "@/apps/ims/lib/helpers/masterListUi";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
+import { rmRejectionSelectionLabel } from "@/apps/rmstore/lib/rmRejectionSelectionLabel";
 import { isMrnPortalRejection } from "@/apps/rmstore/lib/helpers/mrnPortalRejection";
 
 const MODULE = "rm_rejection";
@@ -290,9 +290,9 @@ export default function RmRejectionPage() {
       if (stage === "incomplete") {
         data = data.filter((row) => !String(row?.bill_no || "").trim());
       }
-      if (String(tempSearch || "").trim()) {
-        data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
-      }
+    }
+    if (String(tempSearch || "").trim()) {
+      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [
@@ -308,7 +308,7 @@ export default function RmRejectionPage() {
   const totalItems = filteredRows.length;
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch,
         sourceRows: allRows,
         filteredRows,
@@ -331,6 +331,15 @@ export default function RmRejectionPage() {
   const selectedRecord = useMemo(
     () => filteredRows.find((r) => rowKey(r) === selected) || null,
     [filteredRows, selected]
+  );
+
+  const rejectionFooterSelectionLabel = useCallback(
+    (r) =>
+      rmRejectionSelectionLabel(r, {
+        isPendingTab,
+        registerStageLabel: registerStage(r).label,
+      }),
+    [isPendingTab]
   );
 
   const canGenerateStoreOut =
@@ -765,87 +774,52 @@ export default function RmRejectionPage() {
               />
             }
           />
-          {selectedRecord && (
-            <div className="border-b border-indigo-100 bg-indigo-50 px-3 py-2 space-y-2">
-              <div className="flex items-start justify-between gap-2 min-w-0">
-                <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
-                  Selected:{" "}
-                  {selectedRecord.qc_reject_uid != null &&
-                  (selectedRecord.pending_source === PENDING_SOURCE.AWAITING_STORE_OUT ||
-                    selectedRecord.pending_source === PENDING_SOURCE.AWAITING_AUTHORIZATION)
-                    ? selectedRecord.out_uid
-                      ? `REJECT-${selectedRecord.qc_reject_uid} · OUT-${selectedRecord.out_uid} · Store Out Pending`
-                      : `REJECT-${selectedRecord.qc_reject_uid} · Store Out Pending (Scan/Edit in Store Out)`
-                      : selectedRecord.qc_reject_uid != null &&
-                          selectedRecord.pending_source === PENDING_SOURCE.AWAITING_BILL
-                        ? `REJECT-${selectedRecord.qc_reject_uid} · Store Out #${selectedRecord.out_uid ?? "—"}`
-                        : !isPendingTab && selectedRecord.qc_reject_uid != null
-                          ? `REJECT-${selectedRecord.qc_reject_uid} · ${registerStage(selectedRecord).label}`
-                          : selectedRecord.pending_source === PENDING_SOURCE.IN_PROCESS
-                            ? `In-Process #${selectedRecord.ipr_uid}`
-                            : selectedRecord.pending_source === PENDING_SOURCE.QC_CHECK
-                              ? `QC Check #${selectedRecord.qc_check_uid}`
-                              : selectedRecord.qc_reject_uid != null
-                                ? `REJECT-${selectedRecord.qc_reject_uid}`
-                                : "Pending"}
-                </span>
+          {selectedRecord && canEditBill ? (
+            <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 space-y-1.5" data-compact-form-bar>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
+                <span className={`${LIST_PAGE_SEARCH_LABEL_CLASS} shrink-0 pt-1.5 sm:pt-2`}>Bill</span>
+                <div
+                  className="w-full min-w-0 flex-1"
+                  title={
+                    isMrnPortalRejection(selectedRecord)
+                      ? "Attach bill number to complete this MRN Portal rejection"
+                      : "Search and select bill numbers (after Store Out authorize)"
+                  }
+                >
+                  <SearchableSelect
+                    multiple
+                    showTags
+                    variant="toolbar"
+                    heightClass="h-8"
+                    value={billDraftNos}
+                    onChange={(nos) => setBillDraftNos(uniqueBillNos(nos))}
+                    fetchService={fetchBillOptions}
+                    getByIdService={getBillByNo}
+                    dataKey="bill_no"
+                    labelKey="bill_no"
+                    labelOnlyDisplay
+                    placeholder="Bill number..."
+                    emptyMessage="No bill numbers found"
+                    usePortal
+                    maxVisibleTags={3}
+                  />
+                </div>
                 <button
                   type="button"
-                  onClick={() => setSelected(null)}
-                  className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
+                  onClick={() => void handleSaveBillNo()}
+                  disabled={billSaving || !billDirty}
+                  className="h-9 w-full sm:w-auto sm:shrink-0 px-3 border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold uppercase disabled:opacity-50"
                 >
-                  <X size={14} /> Clear
+                  {billSaving ? "…" : "Save Bill"}
                 </button>
               </div>
-
-              {canEditBill ? (
-                <div className="w-full min-w-0 space-y-1.5" data-compact-form-bar>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
-                    <span className={`${LIST_PAGE_SEARCH_LABEL_CLASS} shrink-0 pt-1.5 sm:pt-2`}>Bill</span>
-                    <div
-                      className="w-full min-w-0 flex-1"
-                      title={
-                        isMrnPortalRejection(selectedRecord)
-                          ? "Attach bill number to complete this MRN Portal rejection"
-                          : "Search and select bill numbers (after Store Out authorize)"
-                      }
-                    >
-                      <SearchableSelect
-                        multiple
-                        showTags
-                        variant="toolbar"
-                        heightClass="h-8"
-                        value={billDraftNos}
-                        onChange={(nos) => setBillDraftNos(uniqueBillNos(nos))}
-                        fetchService={fetchBillOptions}
-                        getByIdService={getBillByNo}
-                        dataKey="bill_no"
-                        labelKey="bill_no"
-                        labelOnlyDisplay
-                        placeholder="Bill number..."
-                        emptyMessage="No bill numbers found"
-                        usePortal
-                        maxVisibleTags={3}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleSaveBillNo()}
-                      disabled={billSaving || !billDirty}
-                      className="h-9 w-full sm:w-auto sm:shrink-0 px-3 border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold uppercase disabled:opacity-50"
-                    >
-                      {billSaving ? "…" : "Save Bill"}
-                    </button>
-                  </div>
-                  {billLastUpdatedLabel ? (
-                    <p className="text-[10px] text-slate-500 sm:pl-8 break-words" title={billLastUpdatedLabel}>
-                      {billLastUpdatedLabel}
-                    </p>
-                  ) : null}
-                </div>
+              {billLastUpdatedLabel ? (
+                <p className="text-[10px] text-slate-500 sm:pl-8 break-words" title={billLastUpdatedLabel}>
+                  {billLastUpdatedLabel}
+                </p>
               ) : null}
             </div>
-          )}
+          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -898,7 +872,7 @@ export default function RmRejectionPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={headers}
             data={items}
@@ -949,10 +923,14 @@ export default function RmRejectionPage() {
           />
         </div>
 
-        <RmStoreListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
-          label={isPendingTab ? "Pending Rejections" : "Register Entries"}
+          noun={isPendingTab ? "Pending Rejections" : "Register Entries"}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={rejectionFooterSelectionLabel}
+          onClearSelection={() => setSelected(null)}
           {...footerFilter}
         />
       </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
-import { Calendar, X } from "lucide-react";
+import { Calendar } from "lucide-react";
+import AppListFooter, { FOOTER_TEXT_CLASS } from "@/ui/common/list/listPageFooter";
 import { toast } from "react-toastify";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { schedulePlanningService } from "@/apps/ims/lib/services/schedulePlanning";
@@ -737,37 +738,24 @@ const TodayDispatchPlanTab = forwardRef(function TodayDispatchPlanTab({ search =
         />
       </div>
 
-      {/* Footer */}
-      <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center shrink-0 gap-2">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest shrink-0 min-w-0 sm:w-[28%]">
-          {search
-            ? isRecommendedCustomer
-              ? `${displayRows.length} matching customers`
-              : `${displayRows.length} of ${filteredRows.length} matching`
-            : isRecommendedCustomer
-              ? `Showing ${displayRows.length} customers`
-              : `Showing ${displayRows.length} of ${filteredRows.length} items`}
-        </span>
-        <div className="flex-1 flex justify-center min-w-0 px-1">
-          <DispatchPlanRowLegend />
-        </div>
-        <div className="flex items-center gap-2 shrink-0 sm:w-[28%] justify-end min-w-0">
-          {selected && selectedRow ? (
-            <>
-              <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
-                {dispatchPlanSelectionLabel(selectedRow)}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
-              >
-                <X size={14} /> Clear
-              </button>
-            </>
-          ) : null}
-        </div>
-      </div>
+      <AppListFooter
+        leftContent={
+          <span className={FOOTER_TEXT_CLASS}>
+            {search
+              ? isRecommendedCustomer
+                ? `${displayRows.length} matching customers`
+                : `${displayRows.length} of ${filteredRows.length} matching`
+              : isRecommendedCustomer
+                ? `Showing ${displayRows.length} customers`
+                : `Showing ${displayRows.length} of ${filteredRows.length} items`}
+          </span>
+        }
+        centerContent={<DispatchPlanRowLegend />}
+        selected={selected}
+        selectedRecord={selectedRow}
+        selectionLabel={dispatchPlanSelectionLabel}
+        onClearSelection={() => setSelected(null)}
+      />
 
       <DispatchRescheduleModal
         open={rescheduleModalOpen}

@@ -83,32 +83,35 @@ export function coilHasQcLink(coil) {
   );
 }
 
+/** Coil detail rows — aligned with print report (coilFinderReportSchema) + finder-only ops fields. */
 export function buildCoilDetailRows(coil) {
   if (!coil) return [];
   return [
-    ["Coil UID", coil.coil_no_uid],
+    // Canonical print set (same labels/order as backend COIL_DETAIL_FIELDS)
     ["MRN UID", coil.mrn_uid],
     ["MRN Date", coil.mrn_dt ? formatDocDate(coil.mrn_dt) : null],
     ["Heat No", coil.heat_no],
     ["Item Code", coil.item_code],
     ["Description", coil.item_desc],
-    ["Vendor", coil.acc_name],
     ["Qty", coil.qty],
+    ["Bill Number", coil.bill_no],
+    ["Bill Date", coil.bill_dt ? formatDocDate(coil.bill_dt) : null],
     ["QC ID", coil.qc_uid != null ? `QC-${coil.qc_uid}` : null],
     ["QC Status", coil.qc_check_status],
+    ["Job Card", coil.pjobcardno],
+    ["Machine", coil.macname],
+    ["Created At", coil.created_at ? formatDateTime(coil.created_at) : null],
+    ["Updated At", coil.updated_at ? formatDateTime(coil.updated_at) : null],
+    // Finder screen only (print puts Coil UID / Vendor in the header)
+    ["Coil UID", coil.coil_no_uid],
+    ["Vendor", coil.acc_name],
     ["RM ID", coil.rm_uid],
     ["Inward UID", coil.in_uid != null ? `IN-${coil.in_uid}` : null],
     ["IPR ID", coil.ipr_uid != null ? String(coil.ipr_uid) : null],
     ["Outward UID", coil.out_uid != null ? `OUT-${coil.out_uid}` : null],
-    ["Job Card", coil.pjobcardno],
-    ["Machine", coil.macname],
     ["Stock Adjustment ID", coil.sa_id],
     ["SA Entry Type", coil.sa_entry_type],
-    ["Bill Number", coil.bill_no],
-    ["Bill Date", coil.bill_dt ? formatDocDate(coil.bill_dt) : null],
     ["Status", coil.status],
-    ["Created At", coil.created_at ? formatDateTime(coil.created_at) : null],
-    ["Updated At", coil.updated_at ? formatDateTime(coil.updated_at) : null],
   ]
     .filter(([, value]) => hasDetailValue(value))
     .map(([label, value]) => ({ label, value: fmt(value) }));

@@ -29,6 +29,7 @@ import SchedulePlanModal from "./SchedulePlanModal";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import SchedulePlanRemoveConfirmModal from "./SchedulePlanRemoveConfirmModal";
 import { MasterRefreshButton } from "../../lib/helpers/masterListUi";
+import AppListFooter, { FOOTER_TEXT_CLASS } from "@/ui/common/list/listPageFooter";
 
 function buildScheduleListFilters(query, status = SCHEDULE_LIST_FILTER.ALL) {
   const reportType = String(query?.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT).toLowerCase();
@@ -611,6 +612,30 @@ export default function SchedulePlanningPage() {
 
   const hasSearch = Boolean(String(tempSearch || "").trim());
 
+  const scheduleFooterLegend = useMemo(
+    () => (
+      <div className="flex items-center justify-center gap-3 flex-wrap">
+        {SCHEDULE_LIST_ROW_LEGEND.map(({ swatch, label }) => (
+          <span
+            key={label}
+            className="inline-flex items-center gap-1.5 text-[9px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap"
+          >
+            <span className={`w-3 h-3 rounded-sm shrink-0 ${swatch}`} aria-hidden />
+            {label}
+          </span>
+        ))}
+      </div>
+    ),
+    []
+  );
+
+  const scheduleFooterLeft = useMemo(() => {
+    const text = hasSearch
+      ? `${displayRows.length} of ${activeTotal} matching`
+      : `Showing ${displayRows.length} of ${activeTotal} entries`;
+    return <span className={FOOTER_TEXT_CLASS}>{text}</span>;
+  }, [hasSearch, displayRows.length, activeTotal]);
+
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       <div className="bg-white border border-slate-300 flex flex-col flex-1 min-h-0 rounded-none shadow-sm overflow-hidden">
@@ -765,7 +790,7 @@ export default function SchedulePlanningPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             key={pageTab}
             headers={isScheduleTab ? scheduleHeaders : itemWiseHeaders}
@@ -791,42 +816,14 @@ export default function SchedulePlanningPage() {
             {...tableHotkeyProps}
           />
         </div>
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center shrink-0 gap-2">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest shrink-0 min-w-0 sm:w-[28%]">
-            {hasSearch
-              ? `${displayRows.length} of ${activeTotal} matching`
-              : `Showing ${displayRows.length} of ${activeTotal} entries`}
-          </span>
-          <div className="flex-1 flex justify-center min-w-0 px-1">
-            <div className="flex items-center justify-center gap-3 flex-wrap">
-              {SCHEDULE_LIST_ROW_LEGEND.map(({ swatch, label }) => (
-                <span
-                  key={label}
-                  className="inline-flex items-center gap-1.5 text-[9px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap"
-                >
-                  <span className={`w-3 h-3 rounded-sm shrink-0 ${swatch}`} aria-hidden />
-                  {label}
-                </span>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 sm:w-[28%] justify-end min-w-0">
-            {selected && selectedRecord ? (
-              <>
-                <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
-                  {scheduleSelectionLabel(selectedRecord)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSelected(null)}
-                  className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
-                >
-                  <X size={14} /> Clear
-                </button>
-              </>
-            ) : null}
-          </div>
-        </div>
+        <AppListFooter
+          leftContent={scheduleFooterLeft}
+          centerContent={scheduleFooterLegend}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={scheduleSelectionLabel}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <SchedulePlanModal

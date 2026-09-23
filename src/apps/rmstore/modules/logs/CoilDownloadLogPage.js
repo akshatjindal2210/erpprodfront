@@ -11,11 +11,8 @@ import { stickerDownloadLogService } from "@/apps/rmstore/lib/services/coilLogs"
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
-import RmStoreListFooter, {
-  FOOTER_TEXT_CLASS,
-  formatRmStoreListFooterText,
-  rmStoreFooterFromClientFilter,
-} from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
+import { ListPageFooterContextStrip } from "@/ui/common/list/listPageFooter";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DataTable from "@/ui/primitives/DataTable";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
@@ -50,7 +47,7 @@ function filterRmStickerDownloadLogs(rows, query, options = {}) {
   return applyClientSearch(rows, query, { getParts: stickerLogSearchParts, ...options });
 }
 
-function downloadTypeBadge(v, row) {
+function downloadTypeLabel(v, row) {
   const t = String(v || "").toLowerCase();
   const isQc = t === "qc" || t === "bulk_qc" || t === "batch_qc";
   const n =
@@ -61,7 +58,12 @@ function downloadTypeBadge(v, row) {
         : null;
   const isBulk = t === "bulk" || t === "bulk_qc" || t === "batch_qc";
   const countSuffix = isBulk && n != null && n > 1 ? ` (${n})` : "";
+  return isQc ? `QC sticker${countSuffix}` : `Coil sticker${countSuffix}`;
+}
 
+function downloadTypeBadge(v, row) {
+  const t = String(v || "").toLowerCase();
+  const isQc = t === "qc" || t === "bulk_qc" || t === "batch_qc";
   return (
     <span
       className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${
@@ -71,7 +73,7 @@ function downloadTypeBadge(v, row) {
       }`}
       title={t || ""}
     >
-      {isQc ? `QC sticker${countSuffix}` : `Coil sticker${countSuffix}`}
+      {downloadTypeLabel(v, row)}
     </span>
   );
 }
@@ -170,7 +172,7 @@ export default function CoilDownloadLogPage() {
 
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch,
         sourceRows: allRows,
         filteredRows,
@@ -178,6 +180,22 @@ export default function CoilDownloadLogPage() {
       }),
     [tempSearch, allRows, filteredRows, isJourneyMode, params.fromDate, params.toDate]
   );
+
+  const footerContextHint = useMemo(() => {
+    if (!isJourneyMode || !appliedJourney) return null;
+    return (
+      <ListPageFooterContextStrip
+        tone="cyan"
+        onClear={() => {
+          setJourneyInput("");
+          setAppliedJourney("");
+        }}
+        clearLabel="Clear journey"
+      >
+        {`Journey · ${appliedJourney}`}
+      </ListPageFooterContextStrip>
+    );
+  }, [isJourneyMode, appliedJourney]);
 
   const handleLoadMore = useCallback(() => {
     if (!loading && rows.length < totalItems) {
@@ -244,31 +262,54 @@ export default function CoilDownloadLogPage() {
         </div>
         <span className="font-bold text-slate-900 uppercase text-[11px]">{v || "—"}</span>
       </div>
-    ), { fixed: true, width: "200px" }],
+    ), {
+      fixed: true,
+      width: "200px",
+      copyValue: (row) => row.primary_label || "—",
+    }],
 
     ["MRN UID", "mrn_uid", (v) => (
       <span className="text-[11px] font-semibold text-slate-700">{v || "—"}</span>
-    ), { width: "120px" }],
+    ), {
+      width: "120px",
+      copyValue: (row) => row.mrn_uid || "—",
+    }],
 
-    ["Customer", "acc_name", (v) => (
+    ["Vendor", "acc_name", (v) => (
       <span className="text-[10px] font-bold text-slate-500 uppercase truncate block">{v || "—"}</span>
-    ), { width: "180px" }],
+    ), {
+      width: "180px",
+      copyValue: (row) => row.acc_name || "—",
+    }],
 
-    ["Download Type", "last_download_type", downloadTypeBadge, { align: "center" }],
+    ["Download Type", "last_download_type", downloadTypeBadge, {
+      align: "center",
+      copyValue: (row) => downloadTypeLabel(row.last_download_type, row),
+    }],
 
     ["Download from", "download_source", (v) => (
       <span className="text-[10px] font-semibold text-slate-600 block truncate max-w-[200px]" title={labelStickerDownloadSource(v)}>
         {labelStickerDownloadSource(v)}
       </span>
-    ), { width: "200px", sortable: true }],
+    ), {
+      width: "200px",
+      sortable: true,
+      copyValue: (row) => labelStickerDownloadSource(row.download_source) || "—",
+    }],
 
     ["Downloaded By", "last_downloaded_by_name", (v) => (
       <span className="text-[10px] text-slate-500">{v || "—"}</span>
-    ), { width: "110px" }],
+    ), {
+      width: "110px",
+      copyValue: (row) => row.last_downloaded_by_name || "—",
+    }],
 
     ["Downloaded At", "last_downloaded_at", (v) => (
       <span className="text-[10px] text-slate-400 font-medium">{v ? formatDateTime(v) : "Never"}</span>
-    ), { width: "150px" }],
+    ), {
+      width: "150px",
+      copyValue: (row) => (row.last_downloaded_at ? formatDateTime(row.last_downloaded_at) : "Never"),
+    }],
   ];
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
@@ -316,7 +357,7 @@ export default function CoilDownloadLogPage() {
             onReset={handleReset}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            searchPlaceholder="Coil, MRN, customer, or user"
+            searchPlaceholder="Coil, MRN, vendor, or user"
             searchLabel="Quick Search"
             searchVariant="quick"
             showSearchButton
@@ -327,7 +368,7 @@ export default function CoilDownloadLogPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <div className="flex-1 overflow-hidden flex flex-col">
             <DataTable
               headers={HEADERS}
@@ -357,12 +398,12 @@ export default function CoilDownloadLogPage() {
           </div>
         </div>
 
-        <RmStoreListFooter
+        <AppListFooter
           shown={rows.length}
           total={totalItems}
-          label={isJourneyMode ? "Journey Matches" : "Download Log Rows"}
+          noun={isJourneyMode ? "Journey Matches" : "Download Log Rows"}
           journeyMode={isJourneyMode}
-          showLive={false}
+          contextHint={footerContextHint}
           {...footerFilter}
         />
       </div>

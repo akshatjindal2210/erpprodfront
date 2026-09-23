@@ -12,12 +12,13 @@ import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
-import RmStoreListFooter, { FOOTER_TEXT_CLASS, formatRmStoreListFooterText, rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import AppListFooter, { FOOTER_TEXT_CLASS } from "@/ui/common/list/listPageFooter";
+import { buildTransactionLogFooterLabel, transactionLogSelectionLabel } from "@/ui/common/list/listPageFooter";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import CoilTransactionLogDetailModal from "@/apps/rmstore/modules/logs/CoilTransactionLogDetailModal";
 import CoilStickerNosCell, { getCoilStickerEntries } from "@/apps/rmstore/modules/logs/CoilStickerNosCell";
-import { applyCoilTransactionLogView, COIL_TX_DISPLAY_MODES } from "@/apps/rmstore/lib/utils/coilTransactionLogSearch";
+import { applyCoilTransactionLogView, COIL_TX_DISPLAY_MODES, isUniquePerLogSearch } from "@/apps/rmstore/lib/utils/coilTransactionLogSearch";
 import { fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
@@ -97,45 +98,44 @@ export default function CoilTransactionLogPage() {
   const journeyTyping = Boolean(String(journeyInput ?? "").trim());
   const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
   const isUniqueView = displayMode === COIL_TX_DISPLAY_MODES.UNIQUE;
-  const hasDateRange = Boolean(params.fromDate || params.toDate);
+  const isUniquePerLog = hasActiveSearch && isUniquePerLogSearch(tempSearch);
 
-  const footerFilter = useMemo(
+  const uniqueSourceLogCount = useMemo(() => {
+    if (!isUniqueView) return 0;
+    const ids = new Set(
+      filteredItems.map((r) => {
+        const raw = r?._sourceLogId ?? r?.id;
+        return String(raw ?? "").split("::")[0];
+      })
+    );
+    return ids.size;
+  }, [filteredItems, isUniqueView]);
+
+  const footerCountLabel = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
-        tempSearch,
-        sourceRows: allRows,
-        filteredRows: filteredItems,
-        serverFiltered: isJourneyMode || hasDateRange,
-      }),
-    [tempSearch, allRows, filteredItems, isJourneyMode, hasDateRange]
-  );
-
-  const footerText = useMemo(() => {
-    const prefix = isUniqueView ? "Unique ·" : "Summary ·";
-    if (isJourneyMode && !hasActiveSearch) {
-      return formatRmStoreListFooterText({
+      buildTransactionLogFooterLabel({
+        isUniqueView,
+        hasActiveSearch,
+        isUniquePerLog,
         shown: rows.length,
         total: totalItems,
-        label: "Journey Matches",
-        journeyMode: true,
-        prefix,
-      });
-    }
-    return formatRmStoreListFooterText({
-      shown: rows.length,
-      total: totalItems,
-      label: isUniqueView ? "Coil Rows" : "Transaction Log Rows",
-      prefix,
-      ...footerFilter,
-    });
-  }, [
-    rows.length,
-    totalItems,
-    isUniqueView,
-    isJourneyMode,
-    hasActiveSearch,
-    footerFilter,
-  ]);
+        loadedCount: allRows.length,
+        uniqueSourceLogCount,
+        isJourneyMode,
+        entitySingular: "coil",
+        entityPlural: "coils",
+      }),
+    [
+      isUniqueView,
+      hasActiveSearch,
+      isUniquePerLog,
+      rows.length,
+      totalItems,
+      allRows.length,
+      uniqueSourceLogCount,
+      isJourneyMode,
+    ]
+  );
 
   const extraFilters = useMemo(
     () => [
@@ -330,13 +330,11 @@ export default function CoilTransactionLogPage() {
           copyValue: (row) => copyModuleEntity(row),
         },
       ],
-      ["Created By", "user_name", (v) => <span className={IMS_TABLE_CELL_TEXT}>{v || "—"}</span>, { width: "110px" }],
+      ["Created By", "user_name", (v) => <span className={IMS_TABLE_CELL_TEXT}>{v || "—"}</span>, { width: "110px", copyValue: (row) => row.user_name || "—"}],
       [
         "Created At",
         "created_at",
-        (v) => <span className={IMS_TABLE_CELL_DATE}>{v ? formatDateTime(v) : "—"}</span>,
-        { width: "150px" },
-      ],
+        (v) => <span className={IMS_TABLE_CELL_DATE}>{v ? formatDateTime(v) : "—"}</span>, { width: "150px", copyValue: (row) => (row.created_at ? formatDateTime(row.created_at) : "—")}],
     ],
     [labelForType, copyModuleEntity]
   );
@@ -422,7 +420,7 @@ export default function CoilTransactionLogPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={rows}
@@ -456,9 +454,13 @@ export default function CoilTransactionLogPage() {
           />
         </div>
 
-        <RmStoreListFooter showLive={false}>
-          <span className={FOOTER_TEXT_CLASS}>{footerText}</span>
-        </RmStoreListFooter>
+        <AppListFooter
+          leftContent={<span className={FOOTER_TEXT_CLASS}>{footerCountLabel}</span>}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={transactionLogSelectionLabel}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <CoilTransactionLogDetailModal

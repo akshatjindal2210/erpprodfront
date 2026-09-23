@@ -20,6 +20,7 @@ ERP mrn_rm → MRN Portal (stickers) → Unassigned
 | Screen                | File                                                   |
 |-----------------------|--------------------------------------------------------|
 | Dashboard             | [dashboard.md](./dashboard.md)                         |
+| **Internal API**      | [../ims/internal-api-imsdata.md](../ims/internal-api-imsdata.md) — `mrn_rm`, `prdrunjc`, … |
 | Item RM Master        | [production.md](./production.md)                       |
 | RM Spec Master        | [rm-spec.md](./rm-spec.md)                             |
 | Location Master       | [store-location.md](./store-location.md)               |

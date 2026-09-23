@@ -11,8 +11,10 @@ function normalizeCoilUid(coil_no_uid) {
 }
 
 /**
- * Open QC / coil report on the same page via hidden iframe print preview
- * (same pattern as IMS Forwarding Note → Print Bill).
+ * Open the canonical RM Quality Check Report (same HTML as QC Check → Print)
+ * via hidden iframe print preview (same pattern as IMS Forwarding Note → Print Bill).
+ *
+ * All RM entry points must use this — do not build alternate report HTML on the client.
  */
 export async function printCoilReport({ coil_no_uid, permissionModule = "rm_coils", printing, setPrinting }) {
   const targetUid = normalizeCoilUid(coil_no_uid);

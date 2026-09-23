@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { RefreshCcw, History, Eye } from "lucide-react";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
-import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
+import AppListFooter, { FOOTER_TEXT_CLASS } from "@/ui/common/list/listPageFooter";
+import { buildTransactionLogFooterLabel, transactionLogSelectionLabel } from "@/ui/common/list/listPageFooter";
 import { toast } from "react-toastify";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 
@@ -307,33 +307,31 @@ export default function BoxTransactionLogPage() {
     [labelForType, copyModuleEntity]
   );
 
-  const footerCountLabel = useMemo(() => {
-    if (isUniqueView) {
-      if (hasActiveSearch) {
-        if (isUniquePerLog) {
-          return `Unique · ${rows.length} of ${totalItems} log row${totalItems !== 1 ? "s" : ""} matching search`;
-        }
-        return `Unique · ${rows.length} of ${totalItems} box${totalItems !== 1 ? "es" : ""} from ${uniqueSourceLogCount} log${uniqueSourceLogCount !== 1 ? "s" : ""} matching search`;
-      }
-      return `Unique · ${rows.length} of ${totalItems} box row${totalItems !== 1 ? "s" : ""} from ${allRows.length} log${allRows.length !== 1 ? "s" : ""}`;
-    }
-    if (hasActiveSearch) {
-      return `Summary · ${rows.length} of ${totalItems} match${totalItems !== 1 ? "es" : ""} (${allRows.length} loaded)`;
-    }
-    if (isJourneyMode) {
-      return `Summary · ${rows.length} of ${totalItems} journey matches (all DB)`;
-    }
-    return `Summary · ${rows.length} of ${totalItems} in date range`;
-  }, [
-    isUniqueView,
-    hasActiveSearch,
-    isUniquePerLog,
-    rows.length,
-    totalItems,
-    uniqueSourceLogCount,
-    allRows.length,
-    isJourneyMode,
-  ]);
+  const footerCountLabel = useMemo(
+    () =>
+      buildTransactionLogFooterLabel({
+        isUniqueView,
+        hasActiveSearch,
+        isUniquePerLog,
+        shown: rows.length,
+        total: totalItems,
+        loadedCount: allRows.length,
+        uniqueSourceLogCount,
+        isJourneyMode,
+        entitySingular: "box",
+        entityPlural: "boxes",
+      }),
+    [
+      isUniqueView,
+      hasActiveSearch,
+      isUniquePerLog,
+      rows.length,
+      totalItems,
+      uniqueSourceLogCount,
+      allRows.length,
+      isJourneyMode,
+    ]
+  );
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: "Box Transaction Log",
@@ -412,7 +410,7 @@ export default function BoxTransactionLogPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={rows}
@@ -446,15 +444,11 @@ export default function BoxTransactionLogPage() {
           />
         </div>
 
-        <MasterListFooter
-          leftContent={
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest shrink-0 min-w-0">
-              {footerCountLabel}
-            </span>
-          }
+        <AppListFooter
+          leftContent={<span className={FOOTER_TEXT_CLASS}>{footerCountLabel}</span>}
           selected={selected}
           selectedRecord={selectedRecord}
-          selectionLabel={imsSelectionLabel.boxTransactionLog}
+          selectionLabel={transactionLogSelectionLabel}
           onClearSelection={() => setSelected(null)}
         />
       </div>

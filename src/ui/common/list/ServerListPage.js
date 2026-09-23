@@ -10,7 +10,8 @@ import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageDetailGrid, ListPageExportViewToggle, ListPageToolbarBlock } from "@/ui/common/list/listPageToolbarBlock";
-import { ListPageFooter, ListPageShell, ListPageTableArea } from "@/ui/common/list/listPageUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
+import { ListPageShell, ListPageTableArea } from "@/ui/common/list/listPageUi";
 import { buildAllFieldHeaders } from "@/ui/common/list/buildAllFieldHeaders";
 import { useServerList } from "@/ui/common/list/useServerList";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
@@ -313,7 +314,7 @@ export default function ServerListPage({
         />
       </ListPageTableArea>
 
-      <ListPageFooter
+      <AppListFooter
         shown={visibleRows.length}
         total={displayRows.length}
         noun="Records"

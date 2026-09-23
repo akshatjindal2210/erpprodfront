@@ -96,6 +96,20 @@ const COLOR_LEGEND = [
 ];
 
 
+/** Short labels for list footer scope strip (avoids truncation). */
+const FOOTER_SCOPE_SHORT = {
+  open_tasks: "Open",
+  updated_tasks: "Updates",
+  total: "All tasks",
+  pending: "Pending",
+  in_progress: "In progress",
+  completed: "Completed",
+  action_required: "Action required",
+  overdue: "Overdue",
+  new_today: "New today",
+  reminder: "Reminder",
+};
+
 const QUICK_FILTER_LABELS = {
   open_tasks:      "Open tasks (in progress)",
   updated_tasks:   "Tasks with unseen updates",
@@ -162,4 +176,4 @@ const ACTIVE_STATUSES = ["pending", "in_progress", "on_hold", "forwarded", "pend
 /** Dashboard stat keys — shared with notification templates */
 const DASHBOARD_STAT_KEYS = STAT_CARDS.map((c) => c.key);
 
-export { TABS, TABLE_COLS, STAT_CARDS, DASHBOARD_STAT_KEYS, SC, ROW_META, EMPTY_META, COLOR_LEGEND, QUICK_FILTER_LABELS, TASK_COLORS, DONE_STATUSES, SIDEBAR_TABS, ACTIVE_STATUSES }
+export { TABS, TABLE_COLS, STAT_CARDS, DASHBOARD_STAT_KEYS, SC, ROW_META, EMPTY_META, COLOR_LEGEND, QUICK_FILTER_LABELS, FOOTER_SCOPE_SHORT, TASK_COLORS, DONE_STATUSES, SIDEBAR_TABS, ACTIVE_STATUSES };

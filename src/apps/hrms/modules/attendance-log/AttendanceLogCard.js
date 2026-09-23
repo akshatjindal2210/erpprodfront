@@ -11,11 +11,17 @@ function Row({ label, value }) {
   );
 }
 
-export default function AttendanceLogCard({ row, onOpen }) {
+export default function AttendanceLogCard({ row, onPhotoClick }) {
   return (
     <div className="grid h-full min-h-[11rem] grid-cols-2">
-      <AttendanceLogThumb row={row} onClick={onOpen} variant="card" />
-      <div className="min-w-0 space-y-2 p-3 pr-8">
+      <div
+        className="min-h-[11rem]"
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        <AttendanceLogThumb row={row} onClick={onPhotoClick} variant="card" />
+      </div>
+      <div className="min-w-0 space-y-2 p-3 pr-8 pointer-events-none">
         <Row label="Emp Code" value={row?.employee_code} />
         <Row label="Name" value={row?.name} />
         <Row label="Date & Time" value={row?.event_datetime_display || row?.event_timestamp} />

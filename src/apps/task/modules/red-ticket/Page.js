@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, Trash2, RefreshCcw, Edit3, X, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, RefreshCcw, Edit3, AlertTriangle } from "lucide-react";
+import AppListFooter, { consoleListSelectionLabel } from "@/ui/common/list/listPageFooter";
 import { toast } from "react-toastify";
 
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
@@ -491,20 +492,6 @@ export default function RedTicketPage() {
             }
           />
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase">
-                Selected: {selectedRecord?.person_name || `#${selected}`}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -522,7 +509,7 @@ export default function RedTicketPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={HEADERS}
             data={items}
@@ -559,15 +546,15 @@ export default function RedTicketPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Red Tickets
-          </span>
-          <div className="flex items-center gap-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <AppListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="Red Tickets"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={(r) => consoleListSelectionLabel.redTicket(r, selected)}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <TicketDrawer

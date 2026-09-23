@@ -15,7 +15,7 @@ import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 import { imsGateEntryLabel } from "@/apps/ims/lib/imsSelectionLabel";
 
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -72,10 +72,17 @@ const COMPLETE_HEADERS = [
   ["Updated At", "updated_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
 ];
 
-export default function GateEntryPage() {
+export default function GateEntryPage({
+  moduleSlug = "gate_entry",
+  service = gateEntryService,
+  registerTabLabel = "Gate Entry Register",
+  entityLabel = "Gate Entry",
+  exportPendingName = "Gate Entry Pending",
+  exportCompleteName = "Gate Entry Complete",
+} = {}) {
   const canAccess = useCanAccess();
-  const viewAccess = useMemo(() => canAccess("gate_entry", "view"), [canAccess]);
-  const addAccess = useMemo(() => canAccess("gate_entry", "add"), [canAccess]);
+  const viewAccess = useMemo(() => canAccess(moduleSlug, "view"), [canAccess, moduleSlug]);
+  const addAccess = useMemo(() => canAccess(moduleSlug, "add"), [canAccess, moduleSlug]);
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [pageTab, setPageTab] = useState(PAGE_TABS.PENDING);
@@ -109,7 +116,7 @@ export default function GateEntryPage() {
     if (!viewAccess?.allowed) return;
     setLoading(true);
     try {
-      const res = await gateEntryService.listPending();
+      const res = await service.listPending();
       if (!res?.success) throw new Error(res?.message || "Failed to load pending bills.");
       setPendingRows(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
@@ -118,7 +125,7 @@ export default function GateEntryPage() {
     } finally {
       setLoading(false);
     }
-  }, [viewAccess]);
+  }, [viewAccess, service]);
 
   const fetchComplete = useCallback(async () => {
     if (!viewAccess?.allowed) return;
@@ -127,16 +134,16 @@ export default function GateEntryPage() {
       const filters = {};
       if (appliedFromDate) filters.from_date = `${appliedFromDate} 00:00:00`;
       if (appliedToDate) filters.to_date = `${appliedToDate} 23:59:59`;
-      const res = await gateEntryService.list(Object.keys(filters).length ? { filters } : {});
-      if (!res?.success) throw new Error(res?.message || "Failed to load gate entries.");
+      const res = await service.list(Object.keys(filters).length ? { filters } : {});
+      if (!res?.success) throw new Error(res?.message || `Failed to load ${entityLabel.toLowerCase()} records.`);
       setCompleteRows(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      toast.error(err?.message || "Failed to load gate entries.");
+      toast.error(err?.message || `Failed to load ${entityLabel.toLowerCase()} records.`);
       setCompleteRows([]);
     } finally {
       setLoading(false);
     }
-  }, [viewAccess, appliedFromDate, appliedToDate]);
+  }, [viewAccess, appliedFromDate, appliedToDate, service, entityLabel]);
 
   useEffect(() => {
     if (isPending) fetchPending();
@@ -198,7 +205,7 @@ export default function GateEntryPage() {
       setSelected(id);
       if (isPending) {
         if (!addAccess.allowed) {
-          toast.info(addAccess.message || "No access to create gate entry.");
+          toast.info(addAccess.message || `No access to create ${entityLabel.toLowerCase()}.`);
           return;
         }
         const bill = row?.billno || row?.bill_no;
@@ -210,7 +217,7 @@ export default function GateEntryPage() {
         openModal({ uid: row.uid }, "view");
       }
     },
-    [isPending, addAccess, openModal]
+    [isPending, addAccess, openModal, entityLabel]
   );
 
   const handleRefresh = useCallback(() => {
@@ -236,7 +243,7 @@ export default function GateEntryPage() {
   }, [loading, items.length, totalItems]);
 
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
-    module: "gate_entry",
+    module: moduleSlug,
     modalOpen: modalOpen || !!deleteItem,
     selectedId: selected,
     getSelectedRow,
@@ -277,7 +284,7 @@ export default function GateEntryPage() {
   const headers = isPending ? PENDING_HEADERS : COMPLETE_HEADERS;
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
-    moduleName: isPending ? "Gate Entry Pending" : "Gate Entry Complete",
+    moduleName: isPending ? exportPendingName : exportCompleteName,
     rows: filteredRows,
     headers,
   });
@@ -298,30 +305,30 @@ export default function GateEntryPage() {
                 active={pageTab}
                 onChange={handleTabChange}
                 tabs={[
-                  { id: PAGE_TABS.COMPLETE, label: "Gate Entry Register", icon: CheckCircle2 },
+                  { id: PAGE_TABS.COMPLETE, label: registerTabLabel, icon: CheckCircle2 },
                   { id: PAGE_TABS.PENDING, label: "Pending", icon: Truck },
                 ]}
               />
             }
             actions={
               <>
-                <ActionButton module="gate_entry" action="add" label="New" icon={Plus} onClick={openNewModal} className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4`} />
+                <ActionButton module={moduleSlug} action="add" label="New" icon={Plus} onClick={openNewModal} className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4`} />
 
                 {!isPending ? (
                   <>
-                  <ActionButton module="gate_entry" action="view" variant="outline" label="View" icon={Eye} disabled={!selectedRecord} record={selectedRecord}
+                  <ActionButton module={moduleSlug} action="view" variant="outline" label="View" icon={Eye} disabled={!selectedRecord} record={selectedRecord}
                     onClick={() => {
                       if (selectedRecord?.uid) openModal({ uid: selectedRecord.uid }, "view");
                     }}
                     className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-slate-300`}
                   />
-                  <ActionButton module="gate_entry" action="edit" variant="outline" label="Edit" icon={Pencil} disabled={!selectedRecord} record={selectedRecord}
+                  <ActionButton module={moduleSlug} action="edit" variant="outline" label="Edit" icon={Pencil} disabled={!selectedRecord} record={selectedRecord}
                     onClick={() => {
                       if (selectedRecord?.uid) openModal({ uid: selectedRecord.uid }, "edit");
                     }}
                     className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-slate-300`}
                   />
-                  <ActionButton module="gate_entry" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedRecord} onClick={() => setDeleteItem(selectedRecord)}
+                  <ActionButton module={moduleSlug} action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedRecord} onClick={() => setDeleteItem(selectedRecord)}
                     className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4`}
                   />
                   </>
@@ -391,7 +398,7 @@ export default function GateEntryPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             key={`${pageTab}-${viewMode}`}
             headers={headers}
@@ -436,7 +443,7 @@ export default function GateEntryPage() {
           />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun={isPending ? "Pending Bills" : "Complete Entries"}
@@ -452,6 +459,9 @@ export default function GateEntryPage() {
           open={modalOpen}
           mode={modalMode}
           initial={editItem}
+          moduleSlug={moduleSlug}
+          service={service}
+          entityLabel={entityLabel}
           onClose={() => {
             setModalOpen(false);
             setEditItem(null);
@@ -476,11 +486,11 @@ export default function GateEntryPage() {
             fetchPending();
             setSelected(null);
           }}
-          service={gateEntryService}
-          entityLabel="Gate Entry"
+          service={service}
+          entityLabel={entityLabel}
           idKey="uid"
           titleKey="bill_no"
-          moduleSlug="gate_entry"
+          moduleSlug={moduleSlug}
         />
       ) : null}
     </div>

@@ -74,8 +74,8 @@ export function useHtml5QrScanner({
     onDecodeSuppressedRef.current = onDecodeSuppressed;
   });
 
-  const qrboxWidth = qrbox?.width ?? DEFAULT_QRBOX.width;
-  const qrboxHeight = qrbox?.height ?? DEFAULT_QRBOX.height;
+  const qrboxRef = useRef(qrbox);
+  qrboxRef.current = qrbox;
 
   useEffect(() => {
     const stopScanner = async (s) => {
@@ -162,7 +162,15 @@ export function useHtml5QrScanner({
         }
       }
 
-      const config = { fps, qrbox: { width: qrboxWidth, height: qrboxHeight } };
+      const qrboxOpt = qrboxRef.current;
+      const qrboxConfig =
+        typeof qrboxOpt === "function"
+          ? qrboxOpt
+          : {
+              width: qrboxOpt?.width ?? DEFAULT_QRBOX.width,
+              height: qrboxOpt?.height ?? DEFAULT_QRBOX.height,
+            };
+      const config = { fps, qrbox: qrboxConfig };
 
       try {
         await html5QrCode.start({ facingMode: "environment" }, config, handleDecoded, () => {});
@@ -210,7 +218,7 @@ export function useHtml5QrScanner({
         void stopScanner(s);
       }
     };
-  }, [active, elementId, fps, qrboxWidth, qrboxHeight, decodeCooldownMs, syncTorchState]);
+  }, [active, elementId, fps, decodeCooldownMs, syncTorchState]);
 
   return { torchSupported, torchOn, toggleTorch };
 }

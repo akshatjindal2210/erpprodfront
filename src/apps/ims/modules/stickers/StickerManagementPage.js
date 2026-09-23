@@ -21,6 +21,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { filterStickerDownloadLogs } from "@/apps/ims/lib/utils/stickerDownloadLogSearch";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 
 const LIST_PAGE_SIZE = 1000;
 const DISPLAY_CHUNK = 100;
@@ -274,7 +275,7 @@ export default function StickerManagementPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <div className="flex-1 overflow-hidden flex flex-col">
               <DataTable
                 headers={HEADERS}
@@ -304,15 +305,19 @@ export default function StickerManagementPage() {
           </div>
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {hasSearch
-              ? `Showing ${rows.length} of ${totalItems} matches (${allRows.length} loaded)`
+        <AppListFooter
+          shown={rows.length}
+          total={totalItems}
+          noun={
+            hasSearch
+              ? "matches"
               : isJourneyMode
-                ? `Showing ${rows.length} of ${totalItems} journey matches (all DB)`
-                : `Showing ${rows.length} of ${totalItems} log rows in date range`}
-          </span>
-        </div>
+                ? "journey matches"
+                : "log rows in date range"
+          }
+          searchHint={hasSearch ? `${allRows.length} loaded` : null}
+          journeyMode={isJourneyMode && !hasSearch}
+        />
       </div>
     </div>
   );

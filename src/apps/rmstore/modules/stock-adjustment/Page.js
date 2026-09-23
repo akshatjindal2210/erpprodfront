@@ -27,6 +27,8 @@ import { canPrintSaStickers } from "@/apps/rmstore/lib/utils/stockAdjustmentEntr
 import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
 import { STOCK_ADJUSTMENT_CARD_CONFIG, STOCK_ADJUSTMENT_HEADERS, STOCK_ADJUSTMENT_STATUS_FILTER_OPTIONS, filterStockAdjustmentRows, buildStockAdjustmentApiFilters, getStockAdjustmentRowClassName } from "./stockAdjustmentColumns";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
+import { rmStoreSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
 
 const MODULE = "rm_stock_adjustment";
 const LIST_PAGE_SIZE = 1000;
@@ -335,22 +337,6 @@ export default function StockAdjustmentPage() {
             }
           />
 
-          {selected && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase truncate max-w-[min(100%,28rem)]">
-                Selected: ADJ-#{selected}
-                {selectedRecord?.item_code ? ` · ${selectedRecord.item_code}` : ""}
-                {selectedRecord?.item_desc ? ` — ${selectedRecord.item_desc}` : ""}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -364,8 +350,9 @@ export default function StockAdjustmentPage() {
             searchValue={searchText}
             onSearchChange={setSearchText}
             showSearchButton
-            applyOnSearchEnter={false}
+            applyOnSearchEnter
             applyExtrasOnChange={false}
+            searchVariant="quick"
             searchPlaceholder="Search heat, item, remark…"
             searchLabel="Search Adjustment"
             minDate={dateFilterDefaults.minDate}
@@ -373,7 +360,7 @@ export default function StockAdjustmentPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={STOCK_ADJUSTMENT_HEADERS}
             data={items}
@@ -402,15 +389,15 @@ export default function StockAdjustmentPage() {
           />
         </div>
 
-        <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Showing {items.length} of {totalItems} Adjustments
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Live Database</span>
-          </div>
-        </div>
+        <AppListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="Adjustments"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={rmStoreSelectionLabel.stockAdjustment}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       {modalOpen && modalMode === "print" && (

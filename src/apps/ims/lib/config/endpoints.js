@@ -214,6 +214,11 @@ export const ENDPOINTS = {
     DELETE: "/gate-entries/delete",
   },
 
+  INVOICE_RECEIVING: {
+    LIST: "/invoice-receiving/list",
+    UPDATE: "/invoice-receiving/update",
+  },
+
   INVENTORY_REPORT: {
     LIST: "/inventory-report/list",
   },

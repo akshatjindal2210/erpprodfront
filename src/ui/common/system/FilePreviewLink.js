@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Download, FileText, X } from "lucide-react";
+import { Download, FileText, RotateCw, X } from "lucide-react";
 import { ALLOW_FILE_DOWNLOAD } from "@/platform/config/filePreviewConfig";
 import { enterFilePreview, leaveFilePreview } from "@/platform/utils/system/filePreviewGate";
 
@@ -48,8 +48,15 @@ export async function downloadFileInPlace(url, fileName = "download") {
 }
 
 function FilePreviewOverlay({ url, fileName, kind, onClose }) {
+  const [rotation, setRotation] = useState(0);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+
+  useEffect(() => {
+    setRotation(0);
+  }, [url]);
+
+  const imageSideways = rotation % 180 !== 0;
 
   // Gate before paint. Defer leave so other ESC handlers on the same keydown
   // still see the preview as open (drawer must not close on this ESC).
@@ -95,6 +102,17 @@ function FilePreviewOverlay({ url, fileName, kind, onClose }) {
           <span className="text-sm font-medium truncate">{fileName || "Preview"}</span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          {kind === "image" ? (
+            <button
+              type="button"
+              onClick={() => setRotation((deg) => (deg + 90) % 360)}
+              className="p-2 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label="Rotate clockwise"
+              title="Rotate"
+            >
+              <RotateCw size={18} />
+            </button>
+          ) : null}
           {ALLOW_FILE_DOWNLOAD ? (
             <button
               type="button"
@@ -126,7 +144,8 @@ function FilePreviewOverlay({ url, fileName, kind, onClose }) {
           <img
             src={url}
             alt={fileName || "Attachment"}
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            className={`object-contain rounded-lg shadow-2xl transition-transform duration-200 ease-out ${imageSideways ? "max-h-[85vmin] max-w-[85vmin]" : "max-w-full max-h-full"}`}
+            style={{ transform: `rotate(${rotation}deg)` }}
             draggable={ALLOW_FILE_DOWNLOAD}
             onContextMenu={ALLOW_FILE_DOWNLOAD ? undefined : (e) => e.preventDefault()}
           />

@@ -22,7 +22,8 @@ import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
 import ActionButton from "@/ui/primitives/ActionButton";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
-import RmStoreListFooter, { rmStoreFooterFromClientFilter } from "@/apps/rmstore/lib/helpers/RmStoreListFooter";
+import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
+import { ListPageFooterContextStrip } from "@/ui/common/list/listPageFooter";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
@@ -342,7 +343,7 @@ export default function StoreInPage() {
       : "Unassigned MRNs";
   const footerFilter = useMemo(
     () =>
-      rmStoreFooterFromClientFilter({
+      appListFooterFromClientFilter({
         tempSearch,
         sourceRows: activeSourceRows,
         filteredRows,
@@ -365,6 +366,54 @@ export default function StoreInPage() {
   const selectedRecord = useMemo(
     () => filteredRows.find((r) => getRowId(r) === selected) || null,
     [filteredRows, selected, getRowId]
+  );
+
+  const clearPackingMrnFilter = useCallback(() => {
+    setPackingFilterMrn("");
+    setPackingFilterSource("");
+    setDisplayLimit(100);
+  }, []);
+
+  const packingCoilFooterContext = useMemo(() => {
+    if (isStoreIn || !packingFilterMrn || !isPackingCoilView) return null;
+    const coilWord = totalItems === 1 ? "coil" : "coils";
+    const src = packingFilterSource ? ` · ${packingFilterSource}` : "";
+    return (
+      <ListPageFooterContextStrip tone="amber" onClear={clearPackingMrnFilter} clearLabel="Show all coils">
+        {`MRN ${packingFilterMrn}${src} — ${totalItems} ${coilWord}`}
+      </ListPageFooterContextStrip>
+    );
+  }, [
+    isStoreIn,
+    packingFilterMrn,
+    packingFilterSource,
+    isPackingCoilView,
+    totalItems,
+    clearPackingMrnFilter,
+  ]);
+
+  const inwardSelectionLabel = useCallback(
+    (r) => {
+      if (isPendingStoreInRow(r)) {
+        const mac = r.macname ? ` · ${r.macname}` : "";
+        const qty = Number(r.qty ?? r.stock_qty ?? 0).toLocaleString();
+        const coils = r.coil_count ?? r.total_coils ?? 0;
+        return `Selected: IPR #${r.ipr_uid}${mac} · Return ${qty} · ${coils} coil(s) · PENDING RECEIVE`;
+      }
+      if (isStoreIn) {
+        return `Selected: ${r.mrn_uids || `IN-${r.in_uid}`}`;
+      }
+      if (isPackingCoilView) {
+        const qty = r.qty != null ? ` · Qty ${Number(r.qty).toLocaleString()}` : "";
+        return `Selected: ${r.coil_no_uid}${qty}`;
+      }
+      const coils =
+        r.coil_count != null
+          ? ` · ${r.coil_count} coil(s) · ${Number(r.stock_qty || 0).toLocaleString()} qty`
+          : "";
+      return `Selected: MRN UID ${r.mrn_uid || "—"}${coils}`;
+    },
+    [isStoreIn, isPackingCoilView]
   );
 
   const handleTabChange = (tab) => {
@@ -842,54 +891,6 @@ export default function StoreInPage() {
             }
           />
 
-          {!isStoreIn && packingFilterMrn && isPackingCoilView && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50 border border-amber-200">
-              <span className="text-[10px] font-bold text-amber-800 uppercase truncate">
-                MRN {packingFilterMrn}
-                {packingFilterSource ? ` · ${packingFilterSource}` : ""} — {totalItems} coil
-                {totalItems === 1 ? "" : "s"}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setPackingFilterMrn("");
-                  setPackingFilterSource("");
-                  setDisplayLimit(100);
-                }}
-                className="text-amber-600 hover:text-amber-900 flex items-center gap-1 font-bold text-[10px] uppercase shrink-0"
-              >
-                <X size={14} /> Show all coils
-              </button>
-            </div>
-          )}
-
-          {selectedRecord && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 animate-in slide-in-from-top-1">
-              <span className="text-[10px] font-bold text-indigo-600 uppercase truncate">
-                Selected:{" "}
-                {isPendingStoreInRow(selectedRecord)
-                  ? `IPR #${selectedRecord.ipr_uid}${selectedRecord.macname ? ` · ${selectedRecord.macname}` : ""} · Return ${Number(selectedRecord.qty ?? selectedRecord.stock_qty ?? 0).toLocaleString()} · ${selectedRecord.coil_count ?? selectedRecord.total_coils ?? 0} coil(s) · PENDING RECEIVE`
-                  : isStoreIn
-                  ? selectedRecord.mrn_uids || `IN-${selectedRecord.in_uid}`
-                  : isPackingCoilView
-                    ? `${selectedRecord.coil_no_uid}${
-                        selectedRecord.qty != null ? ` · Qty ${Number(selectedRecord.qty).toLocaleString()}` : ""
-                      }`
-                    : `MRN UID ${selectedRecord.mrn_uid || "—"}${
-                        selectedRecord.coil_count != null
-                          ? ` · ${selectedRecord.coil_count} coil(s) · ${Number(selectedRecord.stock_qty || 0).toLocaleString()} qty`
-                          : ""
-                      }`}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="text-indigo-400 hover:text-indigo-600 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Clear
-              </button>
-            </div>
-          )}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -949,7 +950,7 @@ export default function StoreInPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <div className="flex-1 overflow-hidden flex flex-col">
             <DataTable
               key={`${pageTab}-${packingView}-${viewMode}`}
@@ -993,11 +994,16 @@ export default function StoreInPage() {
           </div>
         </div>
 
-        <RmStoreListFooter
-          label={inwardFooterLabel}
-          showing={items.length}
+        <AppListFooter
+          shown={items.length}
           total={totalItems}
-          filter={footerFilter}
+          noun={inwardFooterLabel}
+          contextHint={packingCoilFooterContext}
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={inwardSelectionLabel}
+          onClearSelection={() => setSelected(null)}
+          {...footerFilter}
         />
       </div>
 

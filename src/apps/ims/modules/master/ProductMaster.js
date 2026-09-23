@@ -19,7 +19,8 @@ import ListPageSearchField, {
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailGrid, MasterDetailMetrics } from "./MasterDetailLayout";
 import { useMasterClientList } from "@/apps/ims/lib/helpers/useMasterClientList";
-import { MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
+import { MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { PRODUCT_MASTER_HEADERS, PRODUCT_CARD_CONFIG, productRowKey, productSearchParts } from "./masterColumns";
 
@@ -153,7 +154,7 @@ export default function ProductMasterPage({ groupName = null } = {}) {
           </div>
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={PRODUCT_MASTER_HEADERS}
             data={items}
@@ -175,7 +176,7 @@ export default function ProductMasterPage({ groupName = null } = {}) {
           />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun="products"

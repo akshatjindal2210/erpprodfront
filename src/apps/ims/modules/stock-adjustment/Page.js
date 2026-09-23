@@ -8,7 +8,7 @@ import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { stockAdjustmentService } from "@/apps/ims/lib/services/stockAdjustment";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 
 import StockAdjustmentModal from "@/apps/ims/modules/stock-adjustment/StockAdjustmentModal";
@@ -370,7 +370,7 @@ export default function StockAdjustmentPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
             <DataTable
               headers={STOCK_ADJUSTMENT_HEADERS}
               data={items}
@@ -398,7 +398,7 @@ export default function StockAdjustmentPage() {
             />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun="Adjustments"

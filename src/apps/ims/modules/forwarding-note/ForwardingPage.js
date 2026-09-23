@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Truck, FileText, Info, List, Package, Lock, Unlock, Printer, CalendarClock, CheckCircle2 } from "lucide-react";
+import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, X, Truck, FileText, List, Package, Lock, Unlock, Printer, CalendarClock, CheckCircle2 } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 
@@ -9,7 +9,8 @@ import { forwardingNoteService } from "@/apps/ims/lib/services/forwardingNote";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
+import { ListPageFooterContextStrip } from "@/ui/common/list/listPageFooter";
 
 // Components
 import ForwardingModal from "@/apps/ims/modules/forwarding-note/ForwardingModal"; 
@@ -512,6 +513,19 @@ export default function ForwardingPage() {
     },
     [reportType]
   );
+
+  const itemWiseFuidFooterContext = useMemo(() => {
+    if (reportType !== "item_wise" || itemWiseFuidFilter == null) return null;
+    return (
+      <ListPageFooterContextStrip
+        tone="cyan"
+        onClear={() => setItemWiseFuidFilter(null)}
+        clearLabel="Show all items"
+      >
+        {`Showing items for FUID ${itemWiseFuidFilter}`}
+      </ListPageFooterContextStrip>
+    );
+  }, [reportType, itemWiseFuidFilter]);
 
   const selectedBillItem = useMemo(
     () => (reportType === "item_wise" ? billHelperItemFromRow(selectedRecord) : null),
@@ -1099,21 +1113,6 @@ export default function ForwardingPage() {
             }
           />
 
-          {outerTab === "forwarding_master" && itemWiseFuidFilter != null && reportType === "item_wise" ? (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-cyan-50 border border-cyan-100">
-              <span className="text-[10px] font-bold text-cyan-800 uppercase flex items-center gap-2">
-                <Info size={12} /> Showing items for FUID {itemWiseFuidFilter}
-              </span>
-              <button
-                type="button"
-                onClick={() => setItemWiseFuidFilter(null)}
-                className="text-cyan-600 hover:text-cyan-800 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Show all items
-              </button>
-            </div>
-          ) : null}
-
           {outerTab === "forwarding_master" && selectedId && canAssignLineBill ? (
             <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 space-y-2">
               {canAssignLineBill ? (
@@ -1234,7 +1233,7 @@ export default function ForwardingPage() {
               />
             </ListPageFilterStrip>
 
-            <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+            <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
               <DataTable
                 key={reportType}
                 headers={HEADERS}
@@ -1263,10 +1262,11 @@ export default function ForwardingPage() {
               />
             </div>
 
-            <MasterListFooter
+            <AppListFooter
               shown={items.length}
               total={totalItems}
               noun={reportType === "summary" ? "Notes" : "Items"}
+              contextHint={itemWiseFuidFooterContext}
               selected={selectedId}
               selectedRecord={selectedRecord}
               selectionLabel={forwardingMasterSelectionLabel}

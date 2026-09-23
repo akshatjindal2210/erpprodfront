@@ -8,7 +8,8 @@ import { toast } from "react-toastify";
 import { inventoryAuditService } from "@/apps/rmstore/lib/services/inventoryAudit";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import { MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
+import { MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 
 import ActionButton from "@/ui/primitives/ActionButton";
@@ -799,10 +800,13 @@ export default function RmInventoryAuditPage() {
             onSearchChange={setTempSearch}
             searchPlaceholder={isLocationView ? "Search location, audit id, person..." : "Search remarks, person..."}
             searchLabel={isLocationView ? "Search Locations" : "Search Audits"}
+            searchVariant="quick"
+            applyOnSearchEnter
+            applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
             <DataTable
               headers={tableHeaders} data={items} loading={loading}
               viewMode={viewMode} allowCopy={true} {...tableHotkeyProps} showSelection={true}
@@ -836,7 +840,7 @@ export default function RmInventoryAuditPage() {
             />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun={isLocationView ? "Locations" : "Audits"}

@@ -44,6 +44,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "FN",  label: "Forwarding Note",            route: ROUTES.FORWARDING_NOTE,         module: "forwarding_note_master",    app: "ims" },
   { code: "OS",  label: "Store Out (Out Entry)",      route: ROUTES.OUT_ENTRY,               module: "out_entry",                 app: "ims" },
   { code: "GE",  label: "Gate Entry",                 route: ROUTES.GATE_ENTRY,              module: "gate_entry",                app: "ims" },
+  { code: "IV",  label: "Invoice Receiving",          route: ROUTES.INVOICE_RECEIVING,       module: "invoice_receiving",         app: "ims" },
   { code: "OC",  label: "Change / Override Customer", route: ROUTES.STICKER_OVERRIDE,        module: "change_override_customer",  app: "ims" },
   { code: "SA",  label: "Stock Adjustment",           route: ROUTES.STOCK_ADJUSTMENT,        module: "stock_adjustment",          app: "ims" },
   { code: "AU",  label: "Inventory Audit",            route: ROUTES.AUDIT,                   module: "audit",                     app: "ims" },

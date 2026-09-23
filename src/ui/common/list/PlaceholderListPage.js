@@ -2,7 +2,7 @@
 
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DataTable from "@/ui/primitives/DataTable";
-import { LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
+import { LIST_PAGE_SHELL, LIST_PAGE_TABLE_AREA_CLASS } from "@/ui/common/list/listPageShellClasses";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 
@@ -24,7 +24,7 @@ export default function PlaceholderListPage({
             viewToggle={<ListPageExportToggle viewMode={viewMode} setMode={handleViewMode} disabled />}
           />
         </ListPageToolbar>
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className={LIST_PAGE_TABLE_AREA_CLASS}>
           <DataTable
             headers={headers}
             data={[]}

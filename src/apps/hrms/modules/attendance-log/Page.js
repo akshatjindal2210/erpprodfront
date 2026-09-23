@@ -17,6 +17,7 @@ const MODULE = "hrms_attendance_log";
 
 export default function AttendanceLogPage() {
   const reloadRef = useRef(null);
+  const setSelectedRef = useRef(null);
   const [deleteItem, setDeleteItem] = useState(null);
   const [viewOpen, setViewOpen] = useState(false);
   const [viewRecord, setViewRecord] = useState(null);
@@ -53,14 +54,32 @@ export default function AttendanceLogPage() {
     if (!record) return;
     setViewRecord(record);
     setViewOpen(true);
+    setImageError("");
+
+    const cached = peekAttendanceLogImage(record);
+    if (cached?.displayUrl) {
+      setImageUrl(cached.displayUrl);
+      setProxyImageUrl(cached.proxyUrl || "");
+      setSourceImageUrl(cached.sourceUrl || "");
+      setLoadingImage(false);
+      return;
+    }
+    if (cached?.notFound) {
+      setImageUrl("");
+      setProxyImageUrl("");
+      setSourceImageUrl("");
+      setLoadingImage(false);
+      setImageError("Image not found.");
+      return;
+    }
+
     setLoadingImage(true);
     setImageUrl("");
     setProxyImageUrl("");
     setSourceImageUrl("");
-    setImageError("");
 
     try {
-      const result = peekAttendanceLogImage(record) || (await fetchAttendanceLogImage(record));
+      const result = await fetchAttendanceLogImage(record);
       setProxyImageUrl(result.proxyUrl || "");
       setSourceImageUrl(result.sourceUrl || "");
       if (result.displayUrl) setImageUrl(result.displayUrl);
@@ -72,12 +91,23 @@ export default function AttendanceLogPage() {
     }
   }, []);
 
+  /** Photo click: select row + open large image. Closing modal keeps selection. */
+  const openViewAndSelect = useCallback(
+    (record) => {
+      if (!record) return;
+      const id = record?.id;
+      if (id != null && id !== "") setSelectedRef.current?.(id);
+      void openView(record);
+    },
+    [openView],
+  );
+
   return (
     <>
       <ServerListPage
         emptyIcon={ScrollText}
         fetchList={attendanceLogService.list}
-        headers={attendanceLogHeaders(openView)}
+        headers={attendanceLogHeaders(openViewAndSelect)}
         initialSort={{ sortKey: "event_timestamp", sortDir: "desc" }}
         moduleName="Attendance Log"
         viewModule={MODULE}
@@ -91,10 +121,11 @@ export default function AttendanceLogPage() {
         }}
         searchPlaceholder="Code, name, status, event, reader…"
         clientQuickSearch
-        onRowDoubleClick={openView}
+        onRowDoubleClick={openViewAndSelect}
         selectionLabel={hrmsSelectionLabel.attendanceLog}
         toolbarActions={(api) => {
           reloadRef.current = api.reload;
+          setSelectedRef.current = api.setSelected;
           const selected = api.selectedRecord;
           return (
             <>

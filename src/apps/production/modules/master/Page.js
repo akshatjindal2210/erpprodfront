@@ -16,7 +16,9 @@ import ListPageSearchField from "@/ui/common/list/ListPageSearchField";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailGrid, MasterDetailMetrics } from "./MasterDetailLayout";
 import { useMasterClientList } from "@/apps/production/lib/helpers/useMasterClientList";
-import { MasterSelectionBanner, MasterListFooter, MasterRefreshButton } from "@/apps/production/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
+import { MasterRefreshButton } from "@/apps/production/lib/helpers/masterListUi";
+import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { PRODUCT_MASTER_HEADERS, PRODUCT_CARD_CONFIG, productRowKey, productSearchParts } from "./productColumns";
 
 function rowGroupName(row) {
@@ -100,11 +102,6 @@ export default function ProductMasterPage() {
             }
           />
 
-          {selected ? (
-            <MasterSelectionBanner onClear={() => setSelected(null)}>
-              Selected Product: {selectedRecord?.item_code} | {selectedRecord?.itemdesc}
-            </MasterSelectionBanner>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip className="space-y-2">
@@ -121,7 +118,7 @@ export default function ProductMasterPage() {
           </div>
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={PRODUCT_MASTER_HEADERS}
             data={items}
@@ -143,7 +140,15 @@ export default function ProductMasterPage() {
           />
         </div>
 
-        <MasterListFooter shown={items.length} total={totalItems} noun="products" />
+        <AppListFooter
+          shown={items.length}
+          total={totalItems}
+          noun="products"
+          selected={selected}
+          selectedRecord={selectedRecord}
+          selectionLabel={imsSelectionLabel.product}
+          onClearSelection={() => setSelected(null)}
+        />
       </div>
 
       <GlobalDetailModal open={isModalOpen} onClose={() => setIsModalOpen(false)} title="Product Master Details" icon={Package}>

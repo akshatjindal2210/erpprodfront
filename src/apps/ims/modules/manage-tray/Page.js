@@ -9,7 +9,7 @@ import ManageTrayLinkModal from "@/apps/ims/modules/manage-tray/ManageTrayLinkMo
 import ManageTrayStartModal from "@/apps/ims/modules/manage-tray/ManageTrayStartModal";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
@@ -683,7 +683,7 @@ export default function ManageTrayPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             key={`${tab}-${pendingFilter}-${reportView}-${reportFilter?.label || "all"}-${viewMode}`}
             headers={headers}
@@ -709,7 +709,7 @@ export default function ManageTrayPage() {
           />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={filteredRows.length}
           total={
             reportSummaryView ? summaryRows.length : rows.length

@@ -14,7 +14,8 @@ import ListPageSearchField from "@/ui/common/list/ListPageSearchField";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection } from "./MasterDetailLayout";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { useMasterClientList } from "@/apps/ims/lib/helpers/useMasterClientList";
-import { MasterListFooter, MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
+import { MasterRefreshButton } from "@/apps/ims/lib/helpers/masterListUi";
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { CUSTOMER_MASTER_HEADERS, CUSTOMER_CARD_CONFIG, customerRowKey, customerSearchParts } from "./masterColumns";
 
@@ -86,7 +87,7 @@ export default function CustomerLedgerPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={CUSTOMER_MASTER_HEADERS}
             data={items}
@@ -108,7 +109,7 @@ export default function CustomerLedgerPage() {
           />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun="customers"

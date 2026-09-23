@@ -5,7 +5,7 @@ import { CheckCircle, Download, Edit3, Info, Layers, Plus, Printer, RefreshCcw, 
 import { toast } from "react-toastify";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { fetchAllListPages, applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
@@ -603,7 +603,7 @@ export default function TrayPage() {
           />
         </ListPageFilterStrip>
 
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={BATCH_HEADERS}
             data={batchItems}
@@ -641,7 +641,7 @@ export default function TrayPage() {
           />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={batchItems.length}
           total={totalItems}
           noun="Batches"

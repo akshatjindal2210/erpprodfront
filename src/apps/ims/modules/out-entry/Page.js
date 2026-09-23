@@ -32,7 +32,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
-import { MasterListFooter } from "@/apps/ims/lib/helpers/masterListUi";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { pipeMetaRenderers } from "@/apps/ims/lib/helpers/pipeMetaDisplay";
 
@@ -885,7 +885,7 @@ export default function OutEntryPage() {
         </ListPageFilterStrip>
 
         {/* DATA TABLE */}
-        <div className="flex-1 min-h-0 relative bg-white flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             key={`${pageTab}-${viewMode}`}
             headers={isStoreOut ? STORE_OUT_HEADERS : PENDING_HEADERS}
@@ -937,7 +937,7 @@ export default function OutEntryPage() {
           />
         </div>
 
-        <MasterListFooter
+        <AppListFooter
           shown={items.length}
           total={totalItems}
           noun={isStoreOut ? "Out Entries" : "Pending Forwarding Notes"}
