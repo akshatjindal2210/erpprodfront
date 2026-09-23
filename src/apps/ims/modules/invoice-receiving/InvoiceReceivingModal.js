@@ -10,7 +10,7 @@ import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { FormLabel, OK_INPUT } from "@/ui/common/Constants";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
-import { formatIrBillDate, formatIrDateTime, isIrApproved, normalizeInvoiceReceivingRow, pickIrRemarks, publicUploadHref, receivingFileLabel } from "./invoiceReceivingUtils";
+import { formatImsErpScalar, formatIrBillDate, formatIrDateTime, irReceivingFilePath, isImsErpNullLiteral, isIrApproved, normalizeInvoiceReceivingRow, pickIrRemarks, publicUploadHref, receivingFileLabel } from "./invoiceReceivingUtils";
 
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,image/*,application/pdf";
 const DISABLED = `${OK_INPUT} !bg-slate-100 !text-slate-600 border-slate-200 shadow-none focus:!ring-0 cursor-not-allowed disabled:opacity-100`;
@@ -65,7 +65,7 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
   const [saving, setSaving] = useState(false);
   const [activeSubmit, setActiveSubmit] = useState(null);
 
-  const existingFile = bill?.receivingfile || bill?.file_path || "";
+  const existingFile = irReceivingFilePath(bill);
   const hasStoredFile = Boolean(String(existingFile).trim());
   const fileRequired = isAdd || (isEdit && !hasStoredFile);
   const fileLocked = readOnly || isApprove;
@@ -223,7 +223,7 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <FormLabel>Received by</FormLabel>
-              <input readOnly disabled value={bill?.uploaded_by || "—"} className={DISABLED} />
+              <input readOnly disabled value={formatImsErpScalar(bill?.uploaded_by)} className={DISABLED} />
             </div>
             <div className="space-y-1">
               <FormLabel>Received at</FormLabel>
@@ -231,7 +231,12 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
             </div>
             <div className="space-y-1">
               <FormLabel>Approved by</FormLabel>
-              <input readOnly disabled value={bill?.approved_by || bill?.approved_by_name || "—"} className={DISABLED} />
+              <input
+                readOnly
+                disabled
+                value={formatImsErpScalar(bill?.approved_by || bill?.approved_by_name)}
+                className={DISABLED}
+              />
             </div>
             <div className="space-y-1">
               <FormLabel>Approved at</FormLabel>
@@ -245,6 +250,8 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
           {fileLocked ? (
             hasStoredFile ? (
               <StoredFileLink path={existingFile} />
+            ) : isImsErpNullLiteral(bill?.receivingfile || bill?.file_path) ? (
+              <input readOnly disabled value="null" className={DISABLED} />
             ) : (
               <input readOnly disabled value="—" className={DISABLED} />
             )

@@ -217,6 +217,7 @@ export const ENDPOINTS = {
   INVOICE_RECEIVING: {
     LIST: "/invoice-receiving/list",
     UPDATE: "/invoice-receiving/update",
+    DELETE: "/invoice-receiving/delete",
   },
 
   INVENTORY_REPORT: {

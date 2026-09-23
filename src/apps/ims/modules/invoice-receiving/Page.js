@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Truck, CheckCircle2, ClipboardList, Plus, Eye, Pencil, CheckCircle } from "lucide-react";
+import { RefreshCw, Truck, CheckCircle2, ClipboardList, Plus, Eye, Pencil, CheckCircle, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { invoiceReceivingService } from "@/apps/ims/lib/services/invoiceReceiving";
@@ -22,11 +22,36 @@ import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import DataTable from "@/ui/primitives/DataTable";
 import ActionButton from "@/ui/primitives/ActionButton";
 import InvoiceReceivingModal from "./InvoiceReceivingModal";
+import DeleteModal from "@/ui/common/modals/DeleteModal";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
-import { canIrApproveRow, formatIrBillDate, formatIrDateTime, hasIrReceivingFile, irRemarksDisplay, isIrApproved, normalizeInvoiceReceivingRow, publicUploadHref, receivingFileLabel } from "./invoiceReceivingUtils";
+import {
+  canIrApproveRow,
+  canIrClearReceivingRow,
+  canIrEditRegisterRow,
+  formatImsErpScalar,
+  formatIrBillDate,
+  formatIrDateTime,
+  hasIrReceivingFile,
+  irReceivingFilePath,
+  irRemarksDisplay,
+  isImsErpNullLiteral,
+  isIrApproved,
+  normalizeInvoiceReceivingRow,
+  publicUploadHref,
+  receivingFileLabel,
+} from "./invoiceReceivingUtils";
 
 const MODULE = "invoice_receiving";
 const TABS = { REGISTER: "register", PENDING: "pending" };
+
+const ERP_NULL_CLASS = "text-[10px] text-slate-400 italic font-medium";
+
+function IrErpScalarCell({ value, className = "text-[10px] text-slate-500" }) {
+  const text = formatImsErpScalar(value);
+  if (text === "—") return "—";
+  if (text === "null") return <span className={ERP_NULL_CLASS}>null</span>;
+  return <span className={className}>{text}</span>;
+}
 
 const SHARED_HEADERS = [
   [
@@ -82,6 +107,7 @@ export default function InvoiceReceivingPage() {
   const addAccess = useMemo(() => canAccess(MODULE, "add"), [canAccess]);
   const editAccess = useMemo(() => canAccess(MODULE, "edit"), [canAccess]);
   const authorizeAccess = useMemo(() => canAccess(MODULE, "authorize"), [canAccess]);
+  const deleteAccess = useMemo(() => canAccess(MODULE, "delete"), [canAccess]);
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [pageTab, setPageTab] = useState(TABS.PENDING);
@@ -95,6 +121,7 @@ export default function InvoiceReceivingPage() {
   const [selected, setSelected] = useState(null);
   const [sort, setSort] = useState({ key: "prnbillno", dir: "desc" });
   const [modal, setModal] = useState({ open: false, mode: "add", bill: null });
+  const [deleteItem, setDeleteItem] = useState(null);
   const [appliedFromDate, setAppliedFromDate] = useState("");
   const [appliedToDate, setAppliedToDate] = useState("");
 
@@ -204,7 +231,7 @@ export default function InvoiceReceivingPage() {
           return;
         }
         if (!hasIrReceivingFile(target)) {
-          toast.info("Approve needs receiving data — receive the invoice first (Pending → New).");
+          toast.info("Upload attachment first (Register → Edit), then approve.");
           return;
         }
         if (isIrApproved(target)) {
@@ -221,19 +248,52 @@ export default function InvoiceReceivingPage() {
           toast.info("No permission to edit.");
           return;
         }
-        if (!hasIrReceivingFile(target)) {
-          toast.info("Nothing to edit — receive the invoice first (Pending → New).");
-          return;
-        }
       }
       setModal({ open: true, mode, bill: target });
     },
     [getSelectedRow, isPending, addAccess, editAccess, authorizeAccess]
   );
 
+  const canDeleteSelection = useCallback(() => {
+    if (isPending || !deleteAccess?.allowed || !selectedRecord) return false;
+    return canIrClearReceivingRow(selectedRecord);
+  }, [isPending, deleteAccess, selectedRecord]);
+
+  const openDeleteModal = useCallback(() => {
+    if (isPending) {
+      toast.info("Delete is only on Register (clears receiving file).");
+      return;
+    }
+    if (!deleteAccess?.allowed) {
+      toast.info("No permission to delete.");
+      return;
+    }
+    const row = getSelectedRow();
+    if (!row?.prnbillno) {
+      toast.info("Select a register row first.");
+      return;
+    }
+    setDeleteItem(row);
+  }, [isPending, deleteAccess, getSelectedRow]);
+
+  const irDeleteService = useMemo(
+    () => ({
+      delete: async () => {
+        if (!deleteItem?.prnbillno) throw new Error("Bill not found.");
+        const res = await invoiceReceivingService.remove({
+          prnbillno: deleteItem.prnbillno,
+          billdt: deleteItem.billdt,
+        });
+        if (!res?.success) throw new Error(res?.message || "Failed to clear receiving.");
+        return res;
+      },
+    }),
+    [deleteItem]
+  );
+
   const { openNewModal, openEditModal, openApproveModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
-    modalOpen: modal.open,
+    modalOpen: modal.open || !!deleteItem,
     selectedId: selected,
     getSelectedRow,
     openAdd: () => openModal("add"),
@@ -251,15 +311,19 @@ export default function InvoiceReceivingPage() {
     canOpenNew: () => isPending && addAccess?.allowed,
     onNewBlocked: () => toast.info(isPending ? "No permission to receive." : "Switch to Pending to receive a new invoice."),
     canEditSelection: () =>
-      !isPending && editAccess?.allowed && Boolean(selectedRecord) && hasIrReceivingFile(selectedRecord),
+      !isPending && editAccess?.allowed && Boolean(selectedRecord) && canIrEditRegisterRow(selectedRecord),
     onEditBlocked: () => {
       if (isPending) toast.info("Switch to Register to edit.");
       else if (!editAccess?.allowed) toast.info("No permission to edit.");
-      else if (selectedRecord && !hasIrReceivingFile(selectedRecord)) toast.info("Receive the invoice first (Pending → New).");
       else toast.info("Select a register row.");
     },
-    openDelete: () => {},
-    canDeleteSelection: () => false,
+    openDelete: openDeleteModal,
+    canDeleteSelection,
+    onDeleteBlocked: () => {
+      if (isPending) toast.info("Switch to Register to delete receiving.");
+      else if (!deleteAccess?.allowed) toast.info("No permission to delete.");
+      else toast.info("Select a register row.");
+    },
   });
 
   const headers = useMemo(() => {
@@ -272,7 +336,10 @@ export default function InvoiceReceivingPage() {
         "remarks",
         (v, row) => {
           const text = irRemarksDisplay(v, row);
-          if (!text) return "—";
+          if (!text) {
+            if (isImsErpNullLiteral(v)) return <span className={ERP_NULL_CLASS}>null</span>;
+            return "—";
+          }
           return (
             <span className="text-[10px] text-slate-600 line-clamp-2 leading-snug block" title={text}>
               {text}
@@ -284,9 +351,12 @@ export default function InvoiceReceivingPage() {
       [
         "Attachment",
         "receivingfile",
-        (v) => {
-          const name = receivingFileLabel(v);
-          const href = publicUploadHref(v);
+        (v, row) => {
+          const raw = v ?? row?.receivingfile ?? row?.file_path;
+          if (isImsErpNullLiteral(raw)) return <span className={ERP_NULL_CLASS}>null</span>;
+          const path = irReceivingFilePath(row);
+          const name = receivingFileLabel(path);
+          const href = publicUploadHref(path);
           if (!name || !href) return "—";
           return (
             <FilePreviewLink href={href} fileName={name} className="text-[10px] font-bold text-indigo-700 truncate hover:underline">
@@ -296,7 +366,7 @@ export default function InvoiceReceivingPage() {
         },
         { width: "140px" },
       ],
-      ["Received By", "uploaded_by", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+      ["Received By", "uploaded_by", (v) => <IrErpScalarCell value={v} />, { width: "110px" }],
       [
         "Received At",
         "uploaded_at",
@@ -306,9 +376,7 @@ export default function InvoiceReceivingPage() {
       [
         "Approved By",
         "approved_by",
-        (v, row) => (
-          <span className="text-[10px] text-slate-500">{v || row?.approved_by_name || "—"}</span>
-        ),
+        (v, row) => <IrErpScalarCell value={v || row?.approved_by_name} />,
         { width: "110px" },
       ],
       [
@@ -380,7 +448,7 @@ export default function InvoiceReceivingPage() {
                   variant="outline"
                   label="Edit"
                   icon={Pencil}
-                  disabled={isPending || !selectedRecord || !hasIrReceivingFile(selectedRecord)}
+                  disabled={isPending || !selectedRecord || !canIrEditRegisterRow(selectedRecord)}
                   record={selectedRecord}
                   onClick={openEditModal}
                   className={`${btn} px-3 sm:px-4 bg-white border-slate-300`}
@@ -406,6 +474,17 @@ export default function InvoiceReceivingPage() {
                   record={selectedRecord}
                   onClick={() => openModal("view", selectedRecord)}
                   className={`${btn} px-3 sm:px-4 bg-white border-slate-300`}
+                />
+                <ActionButton
+                  module={MODULE}
+                  action="delete"
+                  variant="outline"
+                  label="Delete"
+                  icon={Trash2}
+                  disabled={isPending || !canDeleteSelection()}
+                  record={selectedRecord}
+                  onClick={openDeleteModal}
+                  className={`${btn} px-3 sm:px-4 bg-white border-slate-300 text-rose-600`}
                 />
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-0.5 shrink-0" />
                 <button
@@ -532,6 +611,24 @@ export default function InvoiceReceivingPage() {
           refreshActiveTab();
         }}
       />
+
+      {deleteItem ? (
+        <DeleteModal
+          item={deleteItem}
+          onClose={() => setDeleteItem(null)}
+          onSuccess={() => {
+            setSelected(null);
+            fetchPending();
+            fetchRegister();
+          }}
+          service={irDeleteService}
+          entityLabel="Invoice receiving"
+          idKey="prnbillno"
+          titleKey="prnbillno"
+          warningMessage="This clears receivingfile and receiverefno on ERP only. The bill will appear on Pending again."
+          moduleSlug={MODULE}
+        />
+      ) : null}
     </div>
   );
 }

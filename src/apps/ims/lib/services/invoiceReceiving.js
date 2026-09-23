@@ -29,19 +29,7 @@ export const invoiceReceivingService = {
     return api(ENDPOINTS.INVOICE_RECEIVING.LIST, { method: "POST", body });
   },
 
-  update: async ({
-    file,
-    mode = "add",
-    approved,
-    remarks,
-    prnbillno,
-    billdt,
-    receivingfile,
-    file_path,
-    uploaded_by,
-    uploaded_at,
-    acc_name,
-  }) => {
+  update: async ({ file, mode = "add", approved, remarks, prnbillno, billdt, receivingfile, file_path, uploaded_by, uploaded_at, acc_name }) => {
     const form = new FormData();
     form.append("mode", String(mode || "add"));
     if (approved != null) form.append("approved", approved ? "true" : "false");
@@ -56,4 +44,11 @@ export const invoiceReceivingService = {
     if (file instanceof File) form.append("attachment", file);
     return postMultipart(ENDPOINTS.INVOICE_RECEIVING.UPDATE, form);
   },
+
+  /** Clears receiverefno + receivingfile on ERP (register row → pending again). */
+  remove: ({ prnbillno, billdt }) =>
+    api(ENDPOINTS.INVOICE_RECEIVING.DELETE, {
+      method: "POST",
+      body: { prnbillno, billdt },
+    }),
 };
