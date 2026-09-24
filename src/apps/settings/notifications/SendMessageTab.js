@@ -54,6 +54,7 @@ export default function SendMessageTab({ templates = [] }) {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [pwaEnabled, setPwaEnabled] = useState(true);
+  const [emailEnabled, setEmailEnabled] = useState(false);
   const [apiEnabled, setApiEnabled] = useState(false);
   const [sendVia, setSendVia] = useState("none");
 
@@ -100,8 +101,8 @@ export default function SendMessageTab({ templates = [] }) {
       toast.error("Enter subject or message");
       return;
     }
-    if (!pwaEnabled && (!apiEnabled || sendVia === "none")) {
-      toast.error("Enable PWA and/or WhatsApp channel");
+    if (!pwaEnabled && !emailEnabled && (!apiEnabled || sendVia === "none")) {
+      toast.error("Enable PWA, Email, and/or WhatsApp channel");
       return;
     }
 
@@ -114,6 +115,7 @@ export default function SendMessageTab({ templates = [] }) {
         subject: subject.trim(),
         body: body.trim(),
         pwa_enabled: pwaEnabled,
+        email_enabled: emailEnabled,
         api_enabled: apiEnabled,
         send_via: sendVia,
       });
@@ -230,6 +232,18 @@ export default function SendMessageTab({ templates = [] }) {
                 >
                   <option value="true">On — instant in app</option>
                   <option value="false">Off</option>
+                </select>
+              </Field>
+
+              <Field label="Email">
+                <select
+                  className={NOTIFY_SELECT}
+                  value={emailEnabled ? "true" : "false"}
+                  onChange={(e) => setEmailEnabled(e.target.value === "true")}
+                  disabled={sending}
+                >
+                  <option value="false">Off</option>
+                  <option value="true">On</option>
                 </select>
               </Field>
 

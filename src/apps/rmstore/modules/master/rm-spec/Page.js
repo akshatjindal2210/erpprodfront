@@ -57,9 +57,7 @@ export default function RmSpecMasterPage() {
       const base = {
         sortBy: params.sortKey || "item_code",
         order: params.sortDir.toUpperCase(),
-        filters: {
-          ...(params.status !== "all" && { approval_status: params.status }),
-        },
+        filters: {},
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await specService.getAll({ ...base, page, limit });
@@ -73,7 +71,7 @@ export default function RmSpecMasterPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.status]);
+  }, [params.pageSize, params.sortKey, params.sortDir]);
 
   useEffect(() => {
     fetchSpecs();
@@ -81,11 +79,16 @@ export default function RmSpecMasterPage() {
 
   const filteredRows = useMemo(() => {
     let data = allRows;
+    if (params.status === "authorized") {
+      data = data.filter((row) => row.approved === true || row.approval_status === "authorized");
+    } else if (params.status === "pending") {
+      data = data.filter((row) => row.approved !== true && row.approval_status !== "authorized");
+    }
     if (String(tempSearch || "").trim()) {
-      data = applyClientSearch(allRows, tempSearch, { skipSort: !!params.sortKey });
+      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir, params.status]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -234,6 +237,9 @@ export default function RmSpecMasterPage() {
         <ListPageFilterStrip>
           <DateRangeFilter
             showDate={false}
+            instantClientExtras
+            showSearchButton={false}
+            applyOnSearchEnter={false}
             extraFilters={extraFilters}
             onApply={(data) => setParams((p) => ({ ...p, status: data.approvedStatus || p.status }))}
             onReset={() => {
@@ -245,9 +251,6 @@ export default function RmSpecMasterPage() {
             searchPlaceholder="Search by item or specification name"
             searchLabel="Search Spec"
             searchVariant="quick"
-            showSearchButton
-            applyOnSearchEnter
-            applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 

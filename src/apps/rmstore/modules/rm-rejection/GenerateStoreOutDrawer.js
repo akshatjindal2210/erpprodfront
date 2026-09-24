@@ -515,7 +515,10 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
     if (!id) return;
     setLoading(true);
     try {
-      const res = await qcCheckService.getByHelper(id, { permission_module: "rm_rejection", permission_action: "view" });
+      const res = await qcCheckService.getByHelper(id, {
+        permission_module: "rm_rejection",
+        permission_action: "view",
+      });
       const data = res?.data || null;
       setDetail(data);
       setCoilQcDetail(data);

@@ -21,7 +21,11 @@ async function postMultipart(endpoint, formData) {
 export const qcCheckService = {
   getAll: (params) => api(ENDPOINTS.QC_CHECK.LIST, { method: "POST", body: params }),
   getById: (qc_check_uid) => api(ENDPOINTS.QC_CHECK.GET, { method: "POST", body: { qc_check_uid } }),
-  getByHelper: (qc_check_uid, permissions = {}) => api(ENDPOINTS.QC_CHECK.HELPER, { method: "POST", body: { qc_check_uid, ...permissions } }),
+  getByHelper: (qc_check_uid, permissions = {}) =>
+    api(ENDPOINTS.QC_CHECK.HELPER, {
+      method: "POST",
+      body: { qc_check_uid, ...permissions },
+    }),
   prepare: (body) => api(ENDPOINTS.QC_CHECK.PREPARE, { method: "POST", body }),
   approve: async ({ qc_check_uid, remarks, failure_reason, overall_result, items } = {}) => {
     if (items == null && (remarks == null || remarks === undefined) && failure_reason == null && overall_result == null) {

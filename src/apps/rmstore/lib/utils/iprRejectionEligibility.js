@@ -50,7 +50,7 @@ export function iprRejectionPendingStoreInMessage(coil) {
   return `Coil ${uid} is queued in Store In Pending (IPR #${iprUid}). Receive or cancel that store-in before rejecting this coil.`;
 }
 
-export async function findRejectionCoilsBlockedByPendingStoreIn(coils = [], lookupCoilByUid, coilCtx) {
+export async function findRejectionCoilsBlockedByPendingStoreIn(coils = [], lookupCoilByUid, pageModule) {
   const blocked = [];
   for (const c of coils || []) {
     const uid = String(c?.coil_no_uid || "").trim();
@@ -58,7 +58,7 @@ export async function findRejectionCoilsBlockedByPendingStoreIn(coils = [], look
     let pendingUid = c?.pending_store_in_ipr_uid;
     if (pendingUid == null && typeof lookupCoilByUid === "function") {
       try {
-        const detail = await lookupCoilByUid(uid, coilCtx);
+        const detail = await lookupCoilByUid(uid, pageModule);
         pendingUid = detail?.pending_store_in_ipr_uid;
       } catch {
         /* skip */
@@ -75,8 +75,8 @@ export async function findRejectionCoilsBlockedByPendingStoreIn(coils = [], look
   return blocked;
 }
 
-export async function filterCoilsForRejectionLot(coils = [], lookupCoilByUid, coilCtx) {
-  const blocked = await findRejectionCoilsBlockedByPendingStoreIn(coils, lookupCoilByUid, coilCtx);
+export async function filterCoilsForRejectionLot(coils = [], lookupCoilByUid, pageModule) {
+  const blocked = await findRejectionCoilsBlockedByPendingStoreIn(coils, lookupCoilByUid, pageModule);
   if (!blocked.length) {
     return { kept: coils, blocked: [] };
   }

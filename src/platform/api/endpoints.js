@@ -49,6 +49,14 @@ export const CORE_ENDPOINTS = {
     DELETE: `${CORE_API}/auth/designations/delete`,
     HELPER: `${CORE_API}/auth/designations/helper`,
   },
+  ATTRIBUTES: {
+    LIST: `${CORE_API}/auth/attributes/list`,
+    GET: `${CORE_API}/auth/attributes/get`,
+    CREATE: `${CORE_API}/auth/attributes/create`,
+    UPDATE: `${CORE_API}/auth/attributes/update`,
+    DELETE: `${CORE_API}/auth/attributes/delete`,
+    HELPER: `${CORE_API}/auth/attributes/helper`,
+  },
   TRAINING: {
     VIDEOS: {
       LIST: `${CORE_API}/training/list`,
@@ -86,6 +94,17 @@ export const CORE_ENDPOINTS = {
     DELIVERY_READ: `${CORE_API}/push/delivery/read`,
     LOGS: `${CORE_API}/push/logs`,
     SEND: `${CORE_API}/push/send`,
+  },
+  NOTIFICATION_TEMPLATES: {
+    LIST: `${CORE_API}/notification-templates/list`,
+    GET: `${CORE_API}/notification-templates/get`,
+    CREATE: `${CORE_API}/notification-templates/create`,
+    UPDATE: `${CORE_API}/notification-templates/update`,
+    TOGGLE: `${CORE_API}/notification-templates/toggle`,
+    DELETE: `${CORE_API}/notification-templates/delete`,
+    LOGS: `${CORE_API}/notification-templates/logs`,
+    OPTIONS: `${CORE_API}/notification-templates/options`,
+    RECIPIENTS_PREVIEW: `${CORE_API}/notification-templates/recipients-preview`,
   },
   // USER_PREFERENCES: `${CORE_API}/user-preferences`,
   APP_CONFIG: {

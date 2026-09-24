@@ -5,7 +5,7 @@ import { Loader2, ScanLine, CameraOff, MapPin, Info, QrCode, Layers } from "luci
 import Drawer from "@/ui/primitives/Drawer";
 import Snackbar from "@/ui/primitives/Snackbar";
 import { storeLocationService } from "@/apps/rmstore/lib/services/storeLocation";
-import { coilHelperContext, lookupCoilByUid, lookupCoils } from "@/apps/rmstore/lib/helpers/coilLookup";
+import { lookupCoilByUid, lookupCoils } from "@/apps/rmstore/lib/services/coil";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
 import { extractLocationNo, extractCoilUid, locationNoDisplayLabel, coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
 import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
@@ -76,16 +76,13 @@ export default function LocationFinderDrawer({ open, onClose, permissionModule =
   const loadCoilsForLocation = async (locationId) => {
     if (!locationId) return [];
     try {
-      const res = await lookupCoils(
-        {
-          filters: { location_id: Number(locationId) },
-          page: 1,
-          limit: 200,
-          sortBy: "coil_uid",
-          order: "DESC",
-        },
-        coilHelperContext(permissionModule, "view")
-      );
+      const res = await lookupCoils(permissionModule, {
+        filters: { location_id: Number(locationId) },
+        page: 1,
+        limit: 200,
+        sortBy: "coil_uid",
+        order: "DESC",
+      });
       return Array.isArray(res?.data) ? res.data : [];
     } catch {
       return [];
@@ -159,7 +156,7 @@ export default function LocationFinderDrawer({ open, onClose, permissionModule =
     try {
       // IMS-style: scan coil → show where it is stored
       if (coilUid) {
-        const coil = await lookupCoilByUid(coilUid, coilHelperContext(permissionModule, "view"));
+        const coil = await lookupCoilByUid(coilUid, permissionModule, "view");
         if (!coil) {
           showScanToast("error", "coil-not-found", "Coil not found. Check the UID and try again.");
           return;

@@ -553,6 +553,8 @@ export default function IssueRequestModal({
   const [remarks, setRemarks] = useState("");
   const [approved, setApproved] = useState(false);
   const [rows, setRows] = useState([emptyRow()]);
+  /** Bump per row to remount Job Card SearchableSelect after rejected pick (stale internal selection). */
+  const [jcPickerReset, setJcPickerReset] = useState({});
   const [errors, setErrors] = useState({});
   /** Which row is actively typing Dispatch Qty (show target, not FIFO result). */
   const [editingIssueIdx, setEditingIssueIdx] = useState(null);
@@ -1213,6 +1215,7 @@ export default function IssueRequestModal({
       setRemarks("");
       setApproved(false);
       setRows([emptyRow()]);
+      setJcPickerReset({});
       setErrors({});
       setEditingIssueIdx(null);
       setSaving(false);
@@ -1361,6 +1364,10 @@ export default function IssueRequestModal({
     [helperPerms]
   );
 
+  const bounceJobCardPicker = useCallback((idx) => {
+    setJcPickerReset((prev) => ({ ...prev, [idx]: (prev[idx] || 0) + 1 }));
+  }, []);
+
   const handleJcChange = async (idx, id, raw) => {
     if (readOnly) return;
     if (!id) {
@@ -1389,6 +1396,7 @@ export default function IssueRequestModal({
     );
     if (used) {
       toast.error(`Job card ${id} has already been selected.`);
+      bounceJobCardPicker(idx);
       return;
     }
 
@@ -1417,12 +1425,33 @@ export default function IssueRequestModal({
         toast.error(
           `Machine ${machine} can only run one job card at a time. It is already assigned to job card ${hit.pjobcardno} on this request.`
         );
+        bounceJobCardPicker(idx);
+        return;
+      }
+    }
+
+    const jobCardNo = String(detail?.pjobcardno || id).trim();
+    if (ISSUE_REQUEST_MACHINE_JOB_CARD_LOCK && machine && jobCardNo) {
+      try {
+        const lockRes = await issueRequestService.machineJobCardCheck({
+          macname: machine,
+          pjobcardno: jobCardNo,
+          exclude_issue_uid: editIssueUid,
+        });
+        if (lockRes?.allowed === false) {
+          toast.warning(lockRes.message || "This machine cannot take another job card yet.");
+          bounceJobCardPicker(idx);
+          return;
+        }
+      } catch (err) {
+        toast.error(err?.message || "Could not verify machine lock. Try again.");
+        bounceJobCardPicker(idx);
         return;
       }
     }
 
     const base = {
-      pjobcardno: String(detail?.pjobcardno || id),
+      pjobcardno: jobCardNo,
       pldt: detail?.pldt ?? null,
       item_code: detail?.item_code || "",
       itemdcode: detail?.itemdcode ?? detail?.item_dcode ?? "",
@@ -1740,7 +1769,7 @@ export default function IssueRequestModal({
       : isEdit
         ? "Edit job cards and Dispatch Qty. Saving an authorized request resets it to Pending."
         : ISSUE_REQUEST_MACHINE_JOB_CARD_LOCK
-          ? "Each machine can run one job card at a time until Store Out is authorized. Coil qty is reserved now; Store Out can scan any coil from the same MRN."
+          ? "One job card per machine at a time — including coils already on shop floor (Consume / Store In clears the machine). FIFO coil pick unchanged."
           : "Coil qty is reserved now; Store Out can scan any coil from the same MRN.";
 
   return (
@@ -1939,6 +1968,7 @@ export default function IssueRequestModal({
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-12 sm:gap-2 items-end w-full">
                     <div className="min-w-0 text-[11px] sm:col-span-4">
                       <SearchableSelect
+                        key={`issue-jc-${idx}-${jcPickerReset[idx] || 0}`}
                         label="Job Card"
                         value={row.pjobcardno}
                         onChange={(id, raw) => handleJcChange(idx, id, raw)}

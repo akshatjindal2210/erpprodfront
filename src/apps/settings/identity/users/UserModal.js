@@ -7,6 +7,7 @@ import { userService } from "@/common/auth/services/userService";
 import { settingsModuleService } from "@/apps/settings/lib/services/moduleService";
 import SelectField from "@/ui/common/forms/SelectField";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
+import CreatableMultiSelect from "@/ui/common/forms/CreatableMultiSelect";
 import Drawer from "@/ui/primitives/Drawer";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { errInput, FieldError, okInput, formFieldLabelCls, ROLE_LABELS, selectCls, TYPES, USER_STATUSES, AUTH_SOURCES, AUTH_SOURCE_LABELS } from "@/ui/common/Constants";
@@ -17,6 +18,8 @@ import SpecialPermCheckboxes from "./SpecialPermCheckboxes";
 import { IMS_SPECIAL_PERMS, RMSTORE_SPECIAL_PERMS } from "./specialPermissions.ui";
 import { departmentService } from "@/apps/settings/lib/services/departmentService";
 import { designationService } from "@/apps/settings/lib/services/designationService";
+import { attributeService } from "@/apps/settings/lib/services/attributeService";
+import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 
 const imsPermDefaults = () => Object.fromEntries(IMS_SPECIAL_PERMS.map((p) => [p.key, false]));
 const rmstorePermDefaults = () => Object.fromEntries(RMSTORE_SPECIAL_PERMS.map((p) => [p.key, false]));
@@ -82,6 +85,7 @@ const EMPTY_FORM = {
   usercode: "",
   department_id: "",
   designation_id: "",
+  attributes: [],
   special_permissions: {
     ims: imsPermDefaults(),
     task: {
@@ -128,6 +132,9 @@ function normalizedUserPayload(user) {
     password: "",
     department_id: user.department_id ?? user.department?.id ?? "",
     designation_id: user.designation_id ?? user.designation?.id ?? "",
+    attributes: Array.isArray(user.attributes)
+      ? user.attributes.map((a) => ({ id: a.id, name: a.name }))
+      : [],
     special_permissions: (() => {
       const raw = typeof user.special_permissions === "string"
         ? (() => { try { return JSON.parse(user.special_permissions); } catch { return {}; } })()
@@ -240,6 +247,10 @@ function FieldStatus({ status }) {
 export default function UserModal({ open, onClose, onSuccess, editUser }) {
   const isProvisioning = !!editUser && String(editUser.id ?? "").startsWith("pending_");
   const isDbUpdate = !!editUser && !isProvisioning;
+  /** Match Users modal mode — backend helpers allow view | add | edit | authorize on module `users`. */
+  const formHelperPermissionAction = isDbUpdate ? "edit" : "add";
+  const canAccess = useCanAccess();
+  const canEditUserForm = canAccess("users", formHelperPermissionAction).allowed;
   /** IMS directory synced rows already live in app DB — title must stay “Edit”, even if `id` is oddly shaped */
   const showEditTitle =
     !!editUser &&
@@ -406,9 +417,9 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
   const fetchDepartments = useCallback(
     (params) =>
       departmentService
-        .getViews({ ...params, permission_module: "users", permission_action: "view" })
+        .getViews({ ...params, permission_module: "users", permission_action: formHelperPermissionAction })
         .then((res) => ({ data: masterListFromApi(res) })),
-    []
+    [formHelperPermissionAction]
   );
   const fetchDepartmentById = useCallback(
     (id) => departmentService.getById(id).then((res) => ({ data: res?.data?.data ?? res?.data ?? null })),
@@ -417,13 +428,21 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
   const fetchDesignations = useCallback(
     (params) =>
       designationService
-        .getViews({ ...params, permission_module: "users", permission_action: "view" })
+        .getViews({ ...params, permission_module: "users", permission_action: formHelperPermissionAction })
         .then((res) => ({ data: masterListFromApi(res) })),
-    []
+    [formHelperPermissionAction]
   );
   const fetchDesignationById = useCallback(
     (id) => designationService.getById(id).then((res) => ({ data: res?.data?.data ?? res?.data ?? null })),
     []
+  );
+
+  const fetchAttributes = useCallback(
+    (params) =>
+      attributeService
+        .getViews({ ...params, permission_module: "users", permission_action: formHelperPermissionAction })
+        .then((res) => ({ data: masterListFromApi(res) })),
+    [formHelperPermissionAction]
   );
 
   const fetchTaskUsers = useCallback(
@@ -517,6 +536,7 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
       type: editUser.type || "user",
       auth_source: "erp",
       usercode: String(editUser.ims_usercode ?? editUser.usercode ?? ""),
+      attributes: [],
     });
     setUsernameEdited(true);
     setErpPickKey(imsRowKey(editUser));
@@ -918,6 +938,8 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
           : Number(payload.designation_id);
       if (!Number.isFinite(payload.department_id)) payload.department_id = null;
       if (!Number.isFinite(payload.designation_id)) payload.designation_id = null;
+
+      payload.attributes = (form.attributes || []).map((a) => (a.id ? { id: a.id } : { name: a.name }));
 
       const verifierRaw = payload.special_permissions?.task?.verification_user_id;
       let verifierNum = verifierRaw === "" || verifierRaw == null ? null : Number(verifierRaw);
@@ -1329,7 +1351,7 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
           </div>
 
           {!(form.type === "super_admin" || form.type === "admin") && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1" data-field="department_id">
                 <label className={formFieldLabelCls}>
                   Department {(form.type === "user" || form.type === "executive_assistant") && <span className="text-rose-500">*</span>}
@@ -1342,6 +1364,7 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
                   placeholder="Search department"
                   error={errors.department_id}
                   heightClass="h-10"
+                  disabled={!canEditUserForm}
                 />
               </div>
               <div className="space-y-1" data-field="designation_id">
@@ -1356,10 +1379,26 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
                   placeholder="Search designation"
                   error={errors.designation_id}
                   heightClass="h-10"
+                  disabled={!canEditUserForm}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className={formFieldLabelCls}>
+                  Attribute <span className="text-slate-400 font-normal">(optional)</span>
+                </label>
+                <CreatableMultiSelect
+                  dataField="attributes"
+                  value={form.attributes}
+                  onChange={(next) => setForm((prev) => ({ ...prev, attributes: next }))}
+                  fetchService={fetchAttributes}
+                  placeholder="Search or type a new attribute (e.g. Sales Person)"
+                  disabled={!canEditUserForm}
                 />
               </div>
             </div>
           )}
+
+          
           </div>
 
           <div className="pt-3">

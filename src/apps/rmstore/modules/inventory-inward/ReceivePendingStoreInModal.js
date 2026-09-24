@@ -40,29 +40,39 @@ function mapLine(c) {
 }
 
 /** Confirm store-in qty on receive — final qty to Unassigned; balance posts to Consume. */
-export default function ReceivePendingStoreInModal({ open, iprUid, onClose, onSuccess }) {
+export default function ReceivePendingStoreInModal({ open, iprUid, initialIpr = null, onClose, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ipr, setIpr] = useState(null);
   const [lines, setLines] = useState([]);
   const [error, setError] = useState("");
 
+  const applyIprRow = useCallback((row) => {
+    if (!row?.ipr_uid) {
+      setError("Could not load the pending store-in request.");
+      setIpr(null);
+      setLines([]);
+      return;
+    }
+    const source = row.previous_coils?.length ? row.previous_coils : row.coils;
+    setIpr(row);
+    setLines((source || []).map(mapLine));
+    setError("");
+  }, []);
+
   const load = useCallback(async () => {
     if (!iprUid) return;
     setLoading(true);
     setError("");
     try {
-      const res = await inProcessRequestService.getById(iprUid);
-      const row = res?.data;
-      if (!row?.ipr_uid) {
-        setError("Could not load the pending store-in request.");
-        setIpr(null);
-        setLines([]);
+      const cached =
+        initialIpr?.ipr_uid != null && Number(initialIpr.ipr_uid) === Number(iprUid) ? initialIpr : null;
+      if (cached) {
+        applyIprRow(cached);
         return;
       }
-      const source = row.previous_coils?.length ? row.previous_coils : row.coils;
-      setIpr(row);
-      setLines((source || []).map(mapLine));
+      const res = await inProcessRequestService.getPendingStoreInById(iprUid);
+      applyIprRow(res?.data);
     } catch (err) {
       setError(err?.message || "Could not load the pending store-in request.");
       setIpr(null);
@@ -70,7 +80,7 @@ export default function ReceivePendingStoreInModal({ open, iprUid, onClose, onSu
     } finally {
       setLoading(false);
     }
-  }, [iprUid]);
+  }, [iprUid, initialIpr, applyIprRow]);
 
   useEffect(() => {
     if (!open) {

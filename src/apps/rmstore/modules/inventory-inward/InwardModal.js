@@ -9,7 +9,7 @@ import "@/apps/ims/lib/config/inwardUi.theme.css";
 import { inventoryInwardService } from "@/apps/rmstore/lib/services/inventoryInward";
 import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CLOSE, IMS_DRAWER_BTN_PRIMARY } from "@/apps/ims/lib/helpers/masterListUi";
 import { storeLocationService } from "@/apps/rmstore/lib/services/storeLocation";
-import { coilHelperContext, lookupCoilByUid } from "@/apps/rmstore/lib/helpers/coilLookup";
+import { lookupCoilByUid } from "@/apps/rmstore/lib/services/coil";
 import { resolveCoilLocationDetail, resolveCoilLocationLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 import { extractLocationNo, extractCoilUid, extractQcStickerUid, normalizeScanInput, coilUidDisplayLabel, locationNoDisplayLabel, looksLikeStickerUid, stickerUidsMatch } from "@/apps/rmstore/lib/helpers/qrScan";
 import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
@@ -597,7 +597,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
     setLastActiveLocIdx(li);
     lastActiveLocIdxRef.current = li;
     try {
-      const coil = await lookupCoilByUid(uid, coilHelperContext(MODULE, "view"));
+      const coil = await lookupCoilByUid(uid, MODULE, "view");
       if (!coil) {
         showScanToast("error", "coil-missing", MSG.COIL_NOT_FOUND);
         return;

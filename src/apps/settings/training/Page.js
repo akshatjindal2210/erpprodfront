@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { RefreshCcw, Video, Plus, Check } from "lucide-react";
+import { RefreshCcw, Video, Plus, Check, Bell } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { settingsModuleService as moduleService } from "@/apps/settings/lib/services/moduleService";
 import { trainingVideoService, moduleSopService } from "@/apps/settings/lib/services/trainingService";
+import { notificationTemplateService } from "@/apps/settings/lib/services/notificationTemplateService";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { PERMS } from "@/ui/common/Constants";
@@ -15,6 +16,7 @@ import EmptyState from "@/ui/common/table/EmptyState";
 import ViewToggle from "@/ui/primitives/ViewToggle";
 import VideoModal from "./VideoModal";
 import SopModal from "./SopModal";
+import NotificationTemplateModal from "@/apps/settings/notifications/NotificationTemplateModal";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
@@ -43,6 +45,46 @@ function SopCell({ sop, onClick, disabled = false, isTable = false }) {
   );
 }
 
+/** Permission column → module notification event (VIEW has none). */
+const PERM_TO_EVENT = { add: "add", edit: "edit", delete: "delete", authorize: "approve" };
+
+function NotifyCell({ templates, onClick, disabled = false, isTable = false }) {
+  const count = templates.length;
+  const activeCount = templates.filter((t) => t.is_active).length;
+  const baseTone = count
+    ? activeCount
+      ? "bg-amber-50 border-amber-200 text-amber-800 hover:border-amber-400"
+      : "bg-slate-100 border-slate-300 text-slate-500 hover:border-slate-400"
+    : "bg-slate-50 border-dashed border-slate-300 text-slate-400 hover:border-slate-500 hover:text-slate-600 hover:bg-white";
+
+  return (
+    <div
+      onClick={disabled ? undefined : onClick}
+      title={count ? `${activeCount} active of ${count} notification template${count === 1 ? "" : "s"}` : "Add notification"}
+      className={`
+        flex flex-col items-center justify-center transition-all duration-200 border rounded-none
+        ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}
+        ${isTable ? "h-10 min-w-[4.5rem] max-w-[5.5rem] mx-auto" : "h-12 w-full"}
+        ${baseTone}
+      `}
+    >
+      {count ? (
+        <span className="flex items-center gap-0.5 text-[11px] font-black leading-none">
+          <Bell size={11} strokeWidth={3} />
+          {count}
+        </span>
+      ) : (
+        <Plus size={14} />
+      )}
+      <span className="text-[9px] font-bold uppercase tracking-tighter mt-0.5">Notify</span>
+    </div>
+  );
+}
+
+function NotifyPlaceholder({ isTable = false }) {
+  return <div className={isTable ? "h-10" : "h-12"} aria-hidden="true" />;
+}
+
 function PermissionCell({ video, perm, onClick, disabled = false, isTable = false }) {
   const baseTone = video
     ? "bg-emerald-50 border-emerald-200 text-emerald-800 hover:border-emerald-400"
@@ -64,7 +106,7 @@ function PermissionCell({ video, perm, onClick, disabled = false, isTable = fals
   );
 }
 
-function ModuleCard({ mod, perms, getVideo, getSop, onVideoClick, onSopClick, disabledVideoActions, sopCellDisabled }) {
+function ModuleCard({ mod, perms, getVideo, getSop, getNotify, onVideoClick, onSopClick, onNotifyClick, disabledVideoActions, sopCellDisabled, notifyCellDisabled }) {
   return (
     <div className="bg-white border border-slate-300 rounded-none p-4 hover:border-slate-400 transition-all flex flex-col h-full shadow-sm">
       <div className="flex items-center justify-between mb-4">
@@ -91,6 +133,15 @@ function ModuleCard({ mod, perms, getVideo, getSop, onVideoClick, onSopClick, di
               disabled={sopCellDisabled(mod.id, p)}
               onClick={() => onSopClick(mod, p)}
             />
+            {PERM_TO_EVENT[p] ? (
+              <NotifyCell
+                templates={getNotify(mod.id, p)}
+                disabled={notifyCellDisabled(mod.id, p)}
+                onClick={() => onNotifyClick(mod, p)}
+              />
+            ) : (
+              <NotifyPlaceholder />
+            )}
           </div>
         ))}
       </div>
@@ -108,6 +159,9 @@ export default function TrainingPage() {
   const [allModules, setAllModules] = useState([]);
   const [videos, setVideos] = useState([]);
   const [sops, setSops] = useState([]);
+  const [notifyTemplates, setNotifyTemplates] = useState([]);
+  const [notifyOptions, setNotifyOptions] = useState(null);
+  const [selectedNotifySlot, setSelectedNotifySlot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
 
@@ -170,9 +224,18 @@ export default function TrainingPage() {
         sopRows = [];
       }
 
+      let notifyRows = [];
+      try {
+        const notifyRes = await notificationTemplateService.getAll({ page: 1, limit: 5000 });
+        notifyRows = notifyRes.data || [];
+      } catch (notifyErr) {
+        console.warn("notification template list failed", notifyErr);
+      }
+
       setAllModules(data);
       setVideos(vidRes.data || []);
       setSops(sopRows);
+      setNotifyTemplates(notifyRows);
       setDisplayLimit(50);
     } catch (err) {
       const msg = err?.message || "";
@@ -228,6 +291,69 @@ export default function TrainingPage() {
 
   const getVideo = (modId, perm) => videos.find(v => v.module_id === modId && v.permission_type === perm);
   const getSop = (modId, perm) => sops.find(s => s.module_id === modId && s.permission_type === perm);
+  const getNotify = (modId, perm) =>
+    notifyTemplates.filter((t) => t.module_id === modId && (t.trigger_events ?? []).includes(PERM_TO_EVENT[perm]));
+
+  const notifyCellDisabled = (modId, perm) => (getNotify(modId, perm).length ? !canViewTraining : !canAddTraining);
+
+  const ensureNotifyOptions = useCallback(() => {
+    if (notifyOptions) return Promise.resolve(notifyOptions);
+    return notificationTemplateService
+      .getOptions()
+      .then((res) => {
+        const data = res?.data ?? null;
+        setNotifyOptions(data);
+        return data;
+      })
+      .catch((err) => {
+        toast.error(err?.message || "Failed to load notification options");
+        return null;
+      });
+  }, [notifyOptions]);
+
+  /** Same UX as SOP / training video: click cell → open add or edit drawer directly. */
+  const handleNotifyClick = (mod, perm) => {
+    const existingList = getNotify(mod.id, perm);
+    const existing = existingList[0] ?? null;
+    const event = PERM_TO_EVENT[perm];
+    if (!event) return;
+
+    if (existing) {
+      if (!canEditTraining && !canViewTraining) {
+        toast.error("You do not have permission to view this notification template.");
+        return;
+      }
+      ensureNotifyOptions();
+      setSelectedNotifySlot({
+        isEdit: true,
+        id: existing.id,
+        existingData: existing,
+        moduleId: mod.id,
+        modLabel: mod.label || mod.name,
+        lockModule: true,
+        lockEvents: true,
+        canDelete: canDeleteTraining,
+        viewOnly: !canEditTraining && canViewTraining,
+      });
+      return;
+    }
+
+    if (!canAddTraining) {
+      toast.error("You do not have permission to add notification templates.");
+      return;
+    }
+    ensureNotifyOptions();
+    setSelectedNotifySlot({
+      isEdit: false,
+      moduleId: mod.id,
+      modLabel: mod.label || mod.name,
+      presetEvents: [event],
+      lockModule: true,
+      lockEvents: true,
+      canDelete: canDeleteTraining,
+      viewOnly: false,
+    });
+  };
 
   const sopCellDisabled = useCallback(
     (modId, perm) => {
@@ -392,6 +518,16 @@ export default function TrainingPage() {
             disabled={sopCellDisabled(row.id, p)}
             onClick={() => handleSopBoxClick(row, p)}
           />
+          {PERM_TO_EVENT[p] ? (
+            <NotifyCell
+              isTable
+              templates={getNotify(row.id, p)}
+              disabled={notifyCellDisabled(row.id, p)}
+              onClick={() => handleNotifyClick(row, p)}
+            />
+          ) : (
+            <NotifyPlaceholder isTable />
+          )}
         </div>
       ),
       { align: "center", width: "112px" },
@@ -473,10 +609,13 @@ export default function TrainingPage() {
                           perms={PERMS}
                           getVideo={getVideo}
                           getSop={getSop}
+                          getNotify={getNotify}
                           onVideoClick={handleBoxClick}
                           onSopClick={handleSopBoxClick}
+                          onNotifyClick={handleNotifyClick}
                           disabledVideoActions={disabledPermissionCells}
                           sopCellDisabled={sopCellDisabled}
+                          notifyCellDisabled={notifyCellDisabled}
                         />
                       </div>
                     ))}
@@ -526,6 +665,22 @@ export default function TrainingPage() {
           onSuccess={() => {
             fetchData();
             setSelectedSopSlot(null);
+          }}
+        />
+      )}
+      {selectedNotifySlot && (
+        <NotificationTemplateModal
+          slot={selectedNotifySlot}
+          options={notifyOptions}
+          onClose={() => setSelectedNotifySlot(null)}
+          onSuccess={async () => {
+            setSelectedNotifySlot(null);
+            try {
+              const res = await notificationTemplateService.getAll({ page: 1, limit: 5000 });
+              setNotifyTemplates(res.data || []);
+            } catch (err) {
+              toast.error(err?.message || "Failed to reload notification templates");
+            }
           }}
         />
       )}

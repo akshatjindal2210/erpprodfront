@@ -60,9 +60,7 @@ export default function LocationMasterPage() {
       const base = {
         sortBy: params.sortKey || "location_id",
         order: params.sortDir.toUpperCase(),
-        filters: {
-          ...(params.status !== "all" && { approved: params.status === "approved" }),
-        },
+        filters: {},
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await locationService.getAll({ ...base, page, limit });
@@ -77,7 +75,7 @@ export default function LocationMasterPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.status]);
+  }, [params.pageSize, params.sortKey, params.sortDir]);
 
   useEffect(() => {
     fetchLocations();
@@ -86,11 +84,16 @@ export default function LocationMasterPage() {
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
     let data = allRows;
+    if (params.status === "approved") {
+      data = data.filter((row) => row.approved === true);
+    } else if (params.status === "pending") {
+      data = data.filter((row) => row.approved !== true);
+    }
     if (q) {
-      data = applyClientSearch(allRows, tempSearch, { skipSort: !!params.sortKey });
+      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir, params.status]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -285,6 +288,9 @@ export default function LocationMasterPage() {
         <ListPageFilterStrip>
           <DateRangeFilter
             showDate={false}
+            instantClientExtras
+            showSearchButton={false}
+            applyOnSearchEnter={false}
             extraFilters={extraFilters}
             onApply={handleFilterApply}
             onReset={handleReset}
@@ -293,9 +299,6 @@ export default function LocationMasterPage() {
             searchPlaceholder="Search by rack, ledger, or item"
             searchLabel="Search Locations"
             searchVariant="quick"
-            showSearchButton
-            applyOnSearchEnter
-            applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 

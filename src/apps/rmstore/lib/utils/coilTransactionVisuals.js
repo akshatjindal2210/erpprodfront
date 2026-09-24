@@ -45,6 +45,8 @@ const TYPE_BADGE_CLASSES = {
   stock_adjustment_minus_revert: "bg-emerald-50 text-emerald-700 border-emerald-100",
   consume: "bg-rose-50 text-rose-700 border-rose-100",
   consume_revert: "bg-emerald-50 text-emerald-700 border-emerald-100",
+  ipr_reassign: "bg-violet-50 text-violet-800 border-violet-100",
+  ipr_reassign_revert: "bg-violet-50 text-violet-700 border-violet-100",
 };
 
 export function getCoilTxTypeBadgeClass(type) {

@@ -133,6 +133,7 @@ export default function NotificationsPage() {
       ...t,
       send_via,
       pwa_enabled: !!t.pwa_enabled,
+      email_enabled: !!t.email_enabled,
       api_enabled: !!t.api_enabled,
     };
   };
@@ -203,6 +204,7 @@ export default function NotificationsPage() {
       }
       if (field === "is_enabled" && value === true) {
         next.pwa_enabled = prev.pwa_enabled ?? false;
+        next.email_enabled = prev.email_enabled ?? false;
         next.api_enabled = prev.api_enabled ?? false;
       }
       return { ...p, [activeTab]: next };
@@ -225,6 +227,7 @@ export default function NotificationsPage() {
         body: current.body,
         is_enabled: current.is_enabled,
         pwa_enabled: current.pwa_enabled,
+        email_enabled: !!current.email_enabled,
         api_enabled: current.api_enabled,
         send_via: current.send_via || "none",
         trigger_time: current.trigger_time || null,
@@ -356,6 +359,18 @@ export default function NotificationsPage() {
                             className={NOTIFY_SELECT}
                             value={current.pwa_enabled ? "true" : "false"}
                             onChange={(e) => updateField("pwa_enabled", e.target.value === "true")}
+                            disabled={saving || !current.is_enabled}
+                          >
+                            <option value="false">Off</option>
+                            <option value="true">On</option>
+                          </select>
+                        </Field>
+
+                        <Field label="Email">
+                          <select
+                            className={NOTIFY_SELECT}
+                            value={current.email_enabled ? "true" : "false"}
+                            onChange={(e) => updateField("email_enabled", e.target.value === "true")}
                             disabled={saving || !current.is_enabled}
                           >
                             <option value="false">Off</option>

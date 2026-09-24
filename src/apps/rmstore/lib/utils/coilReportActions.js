@@ -1,7 +1,6 @@
 import { toast } from "react-toastify";
 import { printFromBackendHtml } from "@/apps/ims/lib/utils/printHtmlDocument";
 import { coilService } from "@/apps/rmstore/lib/services/coil";
-import { coilHelperContext } from "@/apps/rmstore/lib/helpers/coilLookup";
 
 function normalizeCoilUid(coil_no_uid) {
   let targetUid = String(coil_no_uid || "").trim();
@@ -27,7 +26,8 @@ export async function printCoilReport({ coil_no_uid, permissionModule = "rm_coil
   try {
     const res = await coilService.finderReport({
       coil_no_uid: targetUid,
-      ...coilHelperContext(permissionModule, "view"),
+      permission_module: permissionModule,
+      permission_action: "view",
     });
     if (!res?.success || !res?.html) {
       throw new Error(res?.message || "Report HTML missing");

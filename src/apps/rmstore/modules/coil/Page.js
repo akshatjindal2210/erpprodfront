@@ -341,7 +341,9 @@ export default function CoilTablePage() {
         />
       </div>
 
-      {finderOpen && <CoilFinderDrawer open={finderOpen} onClose={() => setFinderOpen(false)} />}
+      {finderOpen && (
+        <CoilFinderDrawer open={finderOpen} onClose={() => setFinderOpen(false)} />
+      )}
     </div>
   );
 }

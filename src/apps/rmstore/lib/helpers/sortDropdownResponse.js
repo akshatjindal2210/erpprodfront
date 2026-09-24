@@ -2,6 +2,10 @@ import { api } from "@/platform/api/apiClient";
 import { sortSelectRowsAsc } from "@/platform/utils/form/sortSelectOptions";
 
 /** Sort helper/view API rows A→Z — dropdowns only (not list/table `getAll`). */
+export function rmApiViews(endpoint, body, labelKey) {
+  return api(endpoint, { method: "POST", body }).then((res) => withSortedViewsData(res, labelKey));
+}
+
 export function withSortedViewsData(res, labelKey) {
   if (Array.isArray(res)) {
     return sortSelectRowsAsc(res, labelKey);

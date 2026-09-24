@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Truck, CheckCircle2, ClipboardList, Plus, Eye, Pencil, CheckCircle, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefreshCw, Truck, CheckCircle2, ClipboardList, Plus, Eye, Edit3, CheckCircle, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { invoiceReceivingService } from "@/apps/ims/lib/services/invoiceReceiving";
+import { imsInvoiceReceivingLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
@@ -23,23 +24,12 @@ import DataTable from "@/ui/primitives/DataTable";
 import ActionButton from "@/ui/primitives/ActionButton";
 import InvoiceReceivingModal from "./InvoiceReceivingModal";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
+import { MODULE_DATES } from "@/platform/config/moduleDates.config";
+import { canIrApproveRow, canIrClearReceivingRow, canIrEditOnPendingTab, canIrEditOnRegisterTab, formatImsErpScalar, formatIrBillDate, formatIrDateTime, getIrPendingRowClassName, hasIrReceivingFile, irRemarksDisplay, isImsErpNullLiteral, isIrApproved, isIrAwaitingReceive, filterIrRegisterRows, isIrReceivedNotApproved, mergeIrPendingRows } from "./invoiceReceivingUtils";
+/* Re-enable with Attachments column:
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
-import {
-  canIrApproveRow,
-  canIrClearReceivingRow,
-  canIrEditRegisterRow,
-  formatImsErpScalar,
-  formatIrBillDate,
-  formatIrDateTime,
-  hasIrReceivingFile,
-  irReceivingFilePath,
-  irRemarksDisplay,
-  isImsErpNullLiteral,
-  isIrApproved,
-  normalizeInvoiceReceivingRow,
-  publicUploadHref,
-  receivingFileLabel,
-} from "./invoiceReceivingUtils";
+import { irReceivingFilePaths, publicUploadHref, receivingFileLabel } from "./invoiceReceivingUtils";
+*/
 
 const MODULE = "invoice_receiving";
 const TABS = { REGISTER: "register", PENDING: "pending" };
@@ -53,6 +43,143 @@ function IrErpScalarCell({ value, className = "text-[10px] text-slate-500" }) {
   return <span className={className}>{text}</span>;
 }
 
+const irRows = (res) => (res?.success && Array.isArray(res.data) ? res.data : []);
+
+/* Attachments column — uncomment when needed
+function IrAttachCell({ row, raw }) {
+  const rawVal = raw ?? row?.receivingfile ?? row?.file_path;
+  if (isImsErpNullLiteral(rawVal)) return <span className={ERP_NULL_CLASS}>null</span>;
+  const paths = irReceivingFilePaths(row);
+  if (!paths.length) return "—";
+  return (
+    <div className="flex flex-col gap-0.5 max-h-20 overflow-y-auto">
+      {paths.map((p) => {
+        const name = receivingFileLabel(p);
+        const href = publicUploadHref(p);
+        if (!name || !href) return null;
+        return (
+          <FilePreviewLink key={p} href={href} fileName={name} className="text-[9px] font-bold text-indigo-700 truncate hover:underline text-left">
+            {name}
+          </FilePreviewLink>
+        );
+      })}
+    </div>
+  );
+}
+*/
+
+function useIrData(viewAccess, isPending, registerFrom, registerTo) {
+  const seqRef = useRef(0);
+  const [loading, setLoading] = useState(true);
+  const [pendingRows, setPendingRows] = useState([]);
+  const [registerRows, setRegisterRows] = useState([]);
+
+  const registerQuery = useMemo(() => {
+    const from = String(registerFrom ?? "").trim();
+    const to = String(registerTo ?? "").trim();
+    if (!from || !to) return null;
+    return { from_date: from, to_date: to };
+  }, [registerFrom, registerTo]);
+
+  const loadPending = useCallback(async () => {
+    if (!viewAccess?.allowed) return;
+    const seq = ++seqRef.current;
+    setLoading(true);
+    try {
+      const pRes = await invoiceReceivingService.list("");
+      if (seq !== seqRef.current) return;
+      if (!pRes?.success) throw new Error(pRes?.message || "Failed to load pending.");
+      const pendingRaw = irRows(pRes);
+      setPendingRows(mergeIrPendingRows(pendingRaw, []));
+      setLoading(false);
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      invoiceReceivingService.list("register", {
+        from_date: MODULE_DATES.ims.invoiceReceiving.pendingMergeFrom,
+        to_date: today,
+        gate_registered_only: true,
+      }).then((rRes) => {
+        if (seq !== seqRef.current) return;
+        if (rRes?.success) setPendingRows(mergeIrPendingRows(pendingRaw, irRows(rRes)));
+      });
+    } catch (err) {
+      if (seq !== seqRef.current) return;
+      toast.error(err?.message || "Failed to load.");
+      setPendingRows([]);
+      setLoading(false);
+    }
+  }, [viewAccess]);
+
+  const loadRegister = useCallback(
+    async (fromYmd, toYmd) => {
+      if (!viewAccess?.allowed) return;
+      const from = String(fromYmd ?? registerFrom ?? "").trim();
+      const to = String(toYmd ?? registerTo ?? "").trim();
+      if (!from || !to) return;
+      const seq = ++seqRef.current;
+      setLoading(true);
+      try {
+        const rRes = await invoiceReceivingService.list("register", { from_date: from, to_date: to });
+        if (seq !== seqRef.current) return;
+        if (!rRes?.success) throw new Error(rRes?.message || "Failed to load register.");
+        setRegisterRows(filterIrRegisterRows(irRows(rRes)));
+      } catch (err) {
+        if (seq !== seqRef.current) return;
+        toast.error(err?.message || "Failed to load.");
+        setRegisterRows([]);
+      } finally {
+        if (seq === seqRef.current) setLoading(false);
+      }
+    },
+    [viewAccess, registerFrom, registerTo]
+  );
+
+  useEffect(() => {
+    if (!viewAccess?.allowed) return;
+    if (isPending) {
+      loadPending();
+      return;
+    }
+    if (!registerQuery) {
+      setRegisterRows([]);
+      setLoading(false);
+      return;
+    }
+    loadRegister(registerQuery.from_date, registerQuery.to_date);
+  }, [viewAccess, isPending, registerQuery, loadPending, loadRegister]);
+
+  const refreshActiveTab = useCallback(() => {
+    if (isPending) loadPending();
+    else loadRegister();
+  }, [isPending, loadPending, loadRegister]);
+
+  const refreshBothSilently = useCallback(async () => {
+    if (!viewAccess?.allowed) return;
+    const seq = ++seqRef.current;
+    try {
+      const pendingReq = invoiceReceivingService.list("");
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      const mergeReq = invoiceReceivingService.list("register", {
+        from_date: MODULE_DATES.ims.invoiceReceiving.pendingMergeFrom,
+        to_date: today,
+        gate_registered_only: true,
+      });
+      const tabReq = registerQuery ? invoiceReceivingService.list("register", registerQuery) : null;
+      const [pRes, mergeRes, tabRes] = await Promise.all([
+        pendingReq,
+        mergeReq,
+        tabReq ?? Promise.resolve(null),
+      ]);
+      if (seq !== seqRef.current) return;
+      setPendingRows(mergeIrPendingRows(irRows(pRes), irRows(mergeRes)));
+      if (tabRes?.success) setRegisterRows(filterIrRegisterRows(irRows(tabRes)));
+    } catch {
+      /* keep */
+    }
+  }, [viewAccess, registerQuery]);
+
+  return { loading, pendingRows, registerRows, refreshActiveTab, reloadRegister: loadRegister, refreshBothSilently };
+}
+
 const SHARED_HEADERS = [
   [
     "Bill Number",
@@ -60,12 +187,15 @@ const SHARED_HEADERS = [
     (v) => (
       <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{v || "—"}</span>
     ),
-    { fixed: true, width: "160px" },
+    { width: "160px" },
   ],
   [
     "Bill Date",
     "billdt",
-    (v) => <span className="text-[10px] text-slate-500 font-medium">{formatIrBillDate(v)}</span>,
+    (v, row) => (
+      <span className="text-[10px] text-slate-500 font-medium tabular-nums">{formatIrBillDate(v ?? row?.billdt)}
+      </span>
+    ),
     { width: "140px" },
   ],
   [
@@ -79,8 +209,10 @@ const SHARED_HEADERS = [
         {v || "—"}
       </span>
     ),
-    { width: "280px", wrap: true },
+    { width: "220px", wrap: true },
   ],
+  ["Transport", "transport", (v) => <span className="text-[10px] font-medium text-slate-600 uppercase">{v || "—"}</span>, { width: "160px" }],
+  ["Vehicle No", "vehicleno", (v) => <span className="text-[10px] font-bold text-slate-700 uppercase tabular-nums">{v || "—"}</span>, { width: "120px" }],
 ];
 
 const STATUS_COL = [
@@ -108,70 +240,81 @@ export default function InvoiceReceivingPage() {
   const editAccess = useMemo(() => canAccess(MODULE, "edit"), [canAccess]);
   const authorizeAccess = useMemo(() => canAccess(MODULE, "authorize"), [canAccess]);
   const deleteAccess = useMemo(() => canAccess(MODULE, "delete"), [canAccess]);
+  const canReceiveNew = useMemo(() => Boolean(addAccess?.allowed || authorizeAccess?.allowed), [addAccess, authorizeAccess]);
+  const canUploadChange = useMemo(
+    () => Boolean(addAccess?.allowed || editAccess?.allowed || authorizeAccess?.allowed),
+    [addAccess, editAccess, authorizeAccess]
+  );
+  const newToolbarAction = addAccess?.allowed ? "add" : "authorize";
+  const editToolbarAction = editAccess?.allowed ? "edit" : authorizeAccess?.allowed ? "authorize" : "add";
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [pageTab, setPageTab] = useState(TABS.PENDING);
   const isPending = pageTab === TABS.PENDING;
 
-  const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
-  const [pendingRows, setPendingRows] = useState([]);
-  const [registerRows, setRegisterRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
   const [sort, setSort] = useState({ key: "prnbillno", dir: "desc" });
   const [modal, setModal] = useState({ open: false, mode: "add", bill: null });
   const [deleteItem, setDeleteItem] = useState(null);
+  /** Register: dates sent to ERP list API (default span on tab open; Search updates). */
   const [appliedFromDate, setAppliedFromDate] = useState("");
   const [appliedToDate, setAppliedToDate] = useState("");
+  /** Register date pickers — change here; Search applies to API range. */
+  const [draftFromDate, setDraftFromDate] = useState("");
+  const [draftToDate, setDraftToDate] = useState("");
 
   const { tempSearch, setTempSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
 
   useEffect(() => {
-    if (dateFilterDefaults.from || dateFilterDefaults.to) {
-      setAppliedFromDate(dateFilterDefaults.from);
-      setAppliedToDate(dateFilterDefaults.to);
-    }
-  }, [dateFilterDefaults.from, dateFilterDefaults.to]);
-
-  const fetchPending = useCallback(async () => {
     if (!viewAccess?.allowed) return;
-    setLoading(true);
-    try {
-      const res = await invoiceReceivingService.list("");
-      if (!res?.success) throw new Error(res?.message || "Failed to load.");
-      setPendingRows((Array.isArray(res.data) ? res.data : []).map(normalizeInvoiceReceivingRow));
-    } catch (err) {
-      toast.error(err?.message || "Failed to load pending invoices.");
-      setPendingRows([]);
-    } finally {
-      setLoading(false);
+    const from = String(dateFilterDefaults.from ?? "").trim();
+    const to = String(dateFilterDefaults.to ?? "").trim();
+    if (!from || !to) return;
+    setDraftFromDate((d) => d || from);
+    setDraftToDate((d) => d || to);
+    if (pageTab === TABS.REGISTER) {
+      setAppliedFromDate((prev) => prev || from);
+      setAppliedToDate((prev) => prev || to);
     }
-  }, [viewAccess]);
+  }, [viewAccess?.allowed, pageTab, dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const fetchRegister = useCallback(async () => {
-    if (!viewAccess?.allowed) return;
-    setLoading(true);
-    try {
-      const res = await invoiceReceivingService.list("register", {
-        from_date: appliedFromDate || undefined,
-        to_date: appliedToDate || undefined,
-      });
-      if (!res?.success) throw new Error(res?.message || "Failed to load.");
-      setRegisterRows((Array.isArray(res.data) ? res.data : []).map(normalizeInvoiceReceivingRow));
-    } catch (err) {
-      toast.error(err?.message || "Failed to load register.");
-      setRegisterRows([]);
-    } finally {
-      setLoading(false);
+  const { loading, pendingRows, registerRows, refreshActiveTab, reloadRegister, refreshBothSilently } = useIrData(
+    viewAccess,
+    isPending,
+    appliedFromDate,
+    appliedToDate
+  );
+
+  const handleToolbarRefresh = useCallback(() => {
+    if (isPending) {
+      refreshActiveTab();
+      return;
     }
-  }, [viewAccess, appliedFromDate, appliedToDate]);
-
-  useEffect(() => {
-    if (!viewAccess?.allowed) return;
-    if (isPending) fetchPending();
-    else fetchRegister();
-  }, [isPending, viewAccess, fetchPending, fetchRegister]);
+    const from = String(appliedFromDate || draftFromDate || "").trim();
+    const to = String(appliedToDate || draftToDate || "").trim();
+    if (!from || !to) {
+      toast.info("Select From and To date, then Search or Refresh.");
+      return;
+    }
+    const appliedFrom = String(appliedFromDate || "").trim();
+    const appliedTo = String(appliedToDate || "").trim();
+    if (appliedFrom === from && appliedTo === to) {
+      reloadRegister(from, to);
+      return;
+    }
+    setAppliedFromDate(from);
+    setAppliedToDate(to);
+  }, [
+    isPending,
+    refreshActiveTab,
+    reloadRegister,
+    appliedFromDate,
+    appliedToDate,
+    draftFromDate,
+    draftToDate,
+  ]);
 
   useEffect(() => {
     setDisplayLimit(100);
@@ -195,10 +338,11 @@ export default function InvoiceReceivingPage() {
     [filteredRows, selected, getRowId]
   );
 
-  const refreshActiveTab = useCallback(() => {
-    if (isPending) fetchPending();
-    else fetchRegister();
-  }, [isPending, fetchPending, fetchRegister]);
+  const canEditSelection = useCallback(() => {
+    if (!canUploadChange || !selectedRecord) return false;
+    if (isPending) return canIrEditOnPendingTab(selectedRecord);
+    return canIrEditOnRegisterTab(selectedRecord);
+  }, [canUploadChange, selectedRecord, isPending]);
 
   const openModal = useCallback(
     (mode, row) => {
@@ -212,18 +356,18 @@ export default function InvoiceReceivingPage() {
           toast.info("First receive is only from Pending (New). After that use Edit or Approve on Register.");
           return;
         }
-        if (!addAccess?.allowed) {
+        if (!canReceiveNew) {
           toast.info("No permission to receive.");
           return;
         }
-        if (hasIrReceivingFile(target)) {
-          toast.info("This bill is already received. Use Register → Edit or Approve.");
+        if (isIrReceivedNotApproved(target) || isIrApproved(target)) {
+          toast.info("This bill is already received. Use Edit or Approve on Pending.");
           return;
         }
       }
       if (mode === "approve") {
-        if (isPending) {
-          toast.info("Receive the file first (Pending → New), then approve on Register.");
+        if (!isPending) {
+          toast.info("Approve received bills from the Pending tab.");
           return;
         }
         if (!authorizeAccess?.allowed) {
@@ -231,37 +375,41 @@ export default function InvoiceReceivingPage() {
           return;
         }
         if (!hasIrReceivingFile(target)) {
-          toast.info("Upload attachment first (Register → Edit), then approve.");
+          toast.info("Upload attachment first (New / Edit), then approve.");
           return;
         }
         if (isIrApproved(target)) {
-          toast.info("Already approved. Edit first, then approve again.");
+          toast.info("Already approved. Edit on Register if you need changes.");
           return;
         }
       }
       if (mode === "edit") {
-        if (isPending) {
-          toast.info("Switch to Register to edit.");
+        if (!canUploadChange) {
+          toast.info("No permission to edit or upload.");
           return;
         }
-        if (!editAccess?.allowed) {
-          toast.info("No permission to edit.");
+        if (isPending && !canIrEditOnPendingTab(target)) {
+          toast.info("Use New to receive this bill first.");
+          return;
+        }
+        if (!isPending && !canIrEditOnRegisterTab(target)) {
+          toast.info("Only authorized (approved) bills can be edited on Register.");
           return;
         }
       }
       setModal({ open: true, mode, bill: target });
     },
-    [getSelectedRow, isPending, addAccess, editAccess, authorizeAccess]
+    [getSelectedRow, isPending, canReceiveNew, canUploadChange, authorizeAccess]
   );
 
   const canDeleteSelection = useCallback(() => {
-    if (isPending || !deleteAccess?.allowed || !selectedRecord) return false;
-    return canIrClearReceivingRow(selectedRecord);
-  }, [isPending, deleteAccess, selectedRecord]);
+    if (!deleteAccess?.allowed || !selectedRecord) return false;
+    return canIrClearReceivingRow(selectedRecord, isPending);
+  }, [deleteAccess, selectedRecord, isPending]);
 
   const openDeleteModal = useCallback(() => {
-    if (isPending) {
-      toast.info("Delete is only on Register (clears receiving file).");
+    if (!canIrClearReceivingRow(getSelectedRow(), isPending)) {
+      toast.info(isPending ? "Select a received bill on Pending to clear." : "Select an authorized register row to clear.");
       return;
     }
     if (!deleteAccess?.allowed) {
@@ -293,41 +441,77 @@ export default function InvoiceReceivingPage() {
 
   const { openNewModal, openEditModal, openApproveModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
+    addActions: ["add", "authorize"],
+    bypassModulePermission: true,
     modalOpen: modal.open || !!deleteItem,
     selectedId: selected,
     getSelectedRow,
     openAdd: () => openModal("add"),
     openEdit: (row) => openModal("edit", row),
     openApprove: (row) => openModal("approve", row),
-    canApproveSelection: () =>
-      !isPending && authorizeAccess?.allowed && Boolean(selectedRecord) && canIrApproveRow(selectedRecord),
+    canApproveSelection: () => isPending && authorizeAccess?.allowed && Boolean(selectedRecord) && canIrApproveRow(selectedRecord),
     onApproveBlocked: () => {
-      if (isPending) toast.info("Receive on Pending first, then approve on Register.");
+      if (!isPending) toast.info("Approve from the Pending tab.");
       else if (!authorizeAccess?.allowed) toast.info("No permission to approve.");
-      else if (selectedRecord && isIrApproved(selectedRecord)) toast.info("Already approved. Edit first, then approve again.");
-      else if (selectedRecord && !hasIrReceivingFile(selectedRecord)) toast.info("Receive the invoice file first (Pending → New).");
-      else toast.info("Select a register row that is received and pending approval.");
+      else if (selectedRecord && isIrApproved(selectedRecord)) toast.info("Already on Register as authorized.");
+      else if (selectedRecord && !hasIrReceivingFile(selectedRecord)) toast.info("Receive attachments first (New / Edit).");
+      else toast.info("Select a received bill pending approval.");
     },
-    canOpenNew: () => isPending && addAccess?.allowed,
-    onNewBlocked: () => toast.info(isPending ? "No permission to receive." : "Switch to Pending to receive a new invoice."),
-    canEditSelection: () =>
-      !isPending && editAccess?.allowed && Boolean(selectedRecord) && canIrEditRegisterRow(selectedRecord),
+    canOpenNew: () => isPending && canReceiveNew && (!selectedRecord || isIrAwaitingReceive(selectedRecord)),
+    onNewBlocked: () => toast.info(isPending ? "Select a bill not yet received, or use Edit if already received." : "Switch to Pending to receive."),
+    canEditSelection,
     onEditBlocked: () => {
-      if (isPending) toast.info("Switch to Register to edit.");
-      else if (!editAccess?.allowed) toast.info("No permission to edit.");
-      else toast.info("Select a register row.");
+      if (!canUploadChange) toast.info("No permission to edit or upload.");
+      else if (isPending) toast.info("Select a received bill on Pending, or use New for first receive.");
+      else toast.info("Select an authorized bill on Register.");
     },
     openDelete: openDeleteModal,
     canDeleteSelection,
     onDeleteBlocked: () => {
-      if (isPending) toast.info("Switch to Register to delete receiving.");
-      else if (!deleteAccess?.allowed) toast.info("No permission to delete.");
-      else toast.info("Select a register row.");
+      if (!deleteAccess?.allowed) toast.info("No permission to delete.");
+      else if (isPending) toast.info("Select a received (not approved) bill on Pending.");
+      else toast.info("Select an authorized register row.");
     },
   });
 
+  const PENDING_EXTRA = [
+    // STATUS_COL,
+    [
+      "Remarks",
+      "remarks",
+      (v, row) => {
+        const text = irRemarksDisplay(v, row);
+        if (!text) {
+          if (isImsErpNullLiteral(v)) return <span className={ERP_NULL_CLASS}>null</span>;
+          return "—";
+        }
+        return (
+          <span className="text-[10px] text-slate-600 line-clamp-2 leading-snug block" title={text}>
+            {text}
+          </span>
+        );
+      },
+      { width: "140px", wrap: true },
+    ],
+    /*
+    [
+      "Attachments",
+      "receivingfile",
+      (v, row) => <IrAttachCell row={row} raw={v} />,
+      { width: "160px" },
+    ],
+    */
+    ["Uploaded By", "uploaded_by", (v) => <IrErpScalarCell value={v} />, { width: "100px" }],
+    [
+      "Uploaded At",
+      "uploaded_at",
+      (v) => <span className="text-[10px] text-slate-400 font-medium">{formatIrDateTime(v)}</span>,
+      { width: "130px" },
+    ],
+  ];
+
   const headers = useMemo(() => {
-    if (isPending) return SHARED_HEADERS;
+    if (isPending) return [...SHARED_HEADERS, ...PENDING_EXTRA];
     return [
       ...SHARED_HEADERS,
       STATUS_COL,
@@ -348,27 +532,17 @@ export default function InvoiceReceivingPage() {
         },
         { width: "160px", wrap: true },
       ],
+      /*
       [
-        "Attachment",
+        "Attachments",
         "receivingfile",
-        (v, row) => {
-          const raw = v ?? row?.receivingfile ?? row?.file_path;
-          if (isImsErpNullLiteral(raw)) return <span className={ERP_NULL_CLASS}>null</span>;
-          const path = irReceivingFilePath(row);
-          const name = receivingFileLabel(path);
-          const href = publicUploadHref(path);
-          if (!name || !href) return "—";
-          return (
-            <FilePreviewLink href={href} fileName={name} className="text-[10px] font-bold text-indigo-700 truncate hover:underline">
-              {name}
-            </FilePreviewLink>
-          );
-        },
-        { width: "140px" },
+        (v, row) => <IrAttachCell row={row} raw={v} />,
+        { width: "160px" },
       ],
-      ["Received By", "uploaded_by", (v) => <IrErpScalarCell value={v} />, { width: "110px" }],
+      */
+      ["Uploaded By", "uploaded_by", (v) => <IrErpScalarCell value={v} />, { width: "110px" }],
       [
-        "Received At",
+        "Uploaded At",
         "uploaded_at",
         (v) => <span className="text-[10px] text-slate-400 font-medium">{formatIrDateTime(v)}</span>,
         { width: "150px" },
@@ -394,20 +568,32 @@ export default function InvoiceReceivingPage() {
     headers,
   });
 
+  const applyRegisterDefaultDates = useCallback(() => {
+    const from = String(dateFilterDefaults.from ?? "").trim();
+    const to = String(dateFilterDefaults.to ?? "").trim();
+    setDraftFromDate(from);
+    setDraftToDate(to);
+    setAppliedFromDate(from);
+    setAppliedToDate(to);
+  }, [dateFilterDefaults.from, dateFilterDefaults.to]);
+
   const handleTabChange = useCallback(
     (tab) => {
       setPageTab(tab);
       setSelected(null);
       resetSearch();
       if (tab === TABS.REGISTER) {
-        setAppliedFromDate(dateFilterDefaults.from);
-        setAppliedToDate(dateFilterDefaults.to);
+        applyRegisterDefaultDates();
       }
       setDisplayLimit(100);
       setSort({ key: "prnbillno", dir: "desc" });
-      setLoading(true);
     },
-    [resetSearch, dateFilterDefaults.from, dateFilterDefaults.to]
+    [resetSearch, applyRegisterDefaultDates]
+  );
+
+  const getRowClassName = useCallback(
+    (row) => (isPending ? getIrPendingRowClassName(row) : ""),
+    [isPending]
   );
 
   if (!viewAccess?.allowed) {
@@ -433,36 +619,40 @@ export default function InvoiceReceivingPage() {
             }
             actions={
               <>
-                <ActionButton
-                  module={MODULE}
-                  action="add"
-                  label="New"
-                  icon={Plus}
-                  disabled={!isPending}
-                  onClick={openNewModal}
-                  className={`${btn} px-3 sm:px-4`}
-                />
-                <ActionButton
-                  module={MODULE}
-                  action="edit"
-                  variant="outline"
-                  label="Edit"
-                  icon={Pencil}
-                  disabled={isPending || !selectedRecord || !canIrEditRegisterRow(selectedRecord)}
-                  record={selectedRecord}
-                  onClick={openEditModal}
-                  className={`${btn} px-3 sm:px-4 bg-white border-slate-300`}
-                />
+                {canReceiveNew ? (
+                  <ActionButton
+                    module={MODULE}
+                    action={newToolbarAction}
+                    label="New"
+                    icon={Plus}
+                    disabled={!isPending || !selectedRecord || !isIrAwaitingReceive(selectedRecord)}
+                    onClick={openNewModal}
+                    className={`${btn} px-4 shadow-none`}
+                  />
+                ) : null}
+                {canUploadChange ? (
+                  <ActionButton
+                    module={MODULE}
+                    action={editToolbarAction}
+                    variant="outline"
+                    label="Edit"
+                    icon={Edit3}
+                    disabled={!canEditSelection()}
+                    record={editAccess?.allowed ? selectedRecord : null}
+                    onClick={openEditModal}
+                    className={`${btn} px-4 bg-white border-slate-300 shadow-none`}
+                  />
+                ) : null}
                 <ActionButton
                   module={MODULE}
                   action="authorize"
                   variant="outline"
                   label="Approve"
                   icon={CheckCircle}
-                  disabled={isPending || !selectedRecord || !canIrApproveRow(selectedRecord)}
+                  disabled={!isPending || !selectedRecord || !canIrApproveRow(selectedRecord)}
                   record={selectedRecord}
                   onClick={openApproveModal}
-                  className={`${btn} px-3 sm:px-4 bg-white border-slate-300 text-emerald-600`}
+                  className={`${btn} px-4 bg-white border-slate-300 text-emerald-600 shadow-none`}
                 />
                 <ActionButton
                   module={MODULE}
@@ -473,24 +663,24 @@ export default function InvoiceReceivingPage() {
                   disabled={!selectedRecord}
                   record={selectedRecord}
                   onClick={() => openModal("view", selectedRecord)}
-                  className={`${btn} px-3 sm:px-4 bg-white border-slate-300`}
+                  className={`${btn} px-4 bg-white border-slate-300 shadow-none`}
                 />
                 <ActionButton
                   module={MODULE}
                   action="delete"
-                  variant="outline"
+                  variant="danger"
                   label="Delete"
                   icon={Trash2}
-                  disabled={isPending || !canDeleteSelection()}
+                  disabled={!canDeleteSelection()}
                   record={selectedRecord}
                   onClick={openDeleteModal}
-                  className={`${btn} px-3 sm:px-4 bg-white border-slate-300 text-rose-600`}
+                  className={`${btn} px-4 shadow-none`}
                 />
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-0.5 shrink-0" />
                 <button
                   type="button"
-                  onClick={refreshActiveTab}
-                  className={`${btn} px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center`}
+                  onClick={handleToolbarRefresh}
+                  className={`${btn} px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center shadow-none`}
                   aria-label="Refresh"
                 >
                   <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
@@ -513,33 +703,45 @@ export default function InvoiceReceivingPage() {
           <DateRangeFilter
             key={pageTab}
             showDate={!isPending}
-            fromDate={isPending ? "" : appliedFromDate}
-            toDate={isPending ? "" : appliedToDate}
+            fromDate={isPending ? "" : draftFromDate}
+            toDate={isPending ? "" : draftToDate}
             minDate={dateFilterDefaults.minDate}
             maxDate={dateFilterDefaults.maxDate}
             onApply={(data) => {
               if (isPending) return;
-              setAppliedFromDate(data.fromDate || "");
-              setAppliedToDate(data.toDate || "");
+              const from = String(data.fromDate ?? "").trim();
+              const to = String(data.toDate ?? "").trim();
+              if (!from || !to) {
+                toast.info("Select From and To date, then Search.");
+                return;
+              }
+              setDraftFromDate(from);
+              setDraftToDate(to);
+              setAppliedFromDate(from);
+              setAppliedToDate(to);
               setDisplayLimit(100);
             }}
             onReset={() => {
               resetSearch();
               setSelected(null);
               if (!isPending) {
-                setAppliedFromDate(dateFilterDefaults.from);
-                setAppliedToDate(dateFilterDefaults.to);
+                applyRegisterDefaultDates();
               }
               setDisplayLimit(100);
             }}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             onSearchEnter={applySearchFromInput}
-            applyOnSearchEnter={false}
+            searchVariant="quick"
+            quickSearchOnly={isPending}
+            showSearchButton={!isPending}
+            applyOnSearchEnter={!isPending}
             searchPlaceholder={
-              isPending ? "Search bill or customer…" : "Search bill, customer, remarks, or file…"
+              isPending
+                ? "Search bill, customer, transport, vehicle…"
+                : "Search bill, customer, transport, vehicle, remarks…"
             }
-            searchLabel={isPending ? "Search Pending" : "Search Register"}
+            searchLabel={isPending ? "Quick search" : "Search Register"}
           />
         </ListPageFilterStrip>
 
@@ -556,9 +758,13 @@ export default function InvoiceReceivingPage() {
             onSelect={setSelected}
             onRowDoubleClick={(row, id) => {
               setSelected(id);
-              openModal(isPending && addAccess?.allowed ? "add" : "view", row);
+              if (isPending && canReceiveNew && isIrAwaitingReceive(row)) openModal("add", row);
+              else if (isPending && authorizeAccess?.allowed && canIrApproveRow(row)) openModal("approve", row);
+              else if (canIrEditOnPendingTab(row) || canIrEditOnRegisterTab(row)) openModal("edit", row);
+              else openModal("view", row);
             }}
             getRowId={getRowId}
+            getRowClassName={isPending ? getRowClassName : undefined}
             sortKey={sort.key ?? ""}
             sortDir={sort.dir}
             onSort={(key) => {
@@ -574,17 +780,17 @@ export default function InvoiceReceivingPage() {
             hasMore={items.length < filteredRows.length}
             totalItems={filteredRows.length}
             emptyIcon={isPending ? Truck : CheckCircle2}
-            emptyTitle={isPending ? "No pending invoices" : "No register entries"}
-            emptyDescription={
+            emptyMessage={isPending ? "No pending invoices" : "No register entries"}
+            emptySubMessage={
               isPending
-                ? "Bills awaiting receiving file from ERP."
-                : "No invoices in this date range on the register."
+                ? "Only gate-registered bills await receiving."
+                : "No invoices in this date range. Try a wider range or click Search after changing dates."
             }
             cardConfig={{
               titleKey: "prnbillno",
               detailKeys: isPending
-                ? ["billdt", "acc_name"]
-                : ["billdt", "acc_name", "approved", "remarks", "uploaded_at", "approved_at"],
+                ? ["billdt", "acc_name", "transport", "vehicleno"]
+                : ["billdt", "acc_name", "transport", "vehicleno", "approved", "remarks", "uploaded_at", "approved_at"],
             }}
             {...tableHotkeyProps}
           />
@@ -596,7 +802,7 @@ export default function InvoiceReceivingPage() {
           noun={isPending ? "Pending Bills" : "Register Entries"}
           selected={selected}
           selectedRecord={selectedRecord}
-          selectionLabel={(r) => `Selected: ${r?.prnbillno || "—"}`}
+          selectionLabel={imsInvoiceReceivingLabel}
           onClearSelection={() => setSelected(null)}
         />
       </div>
@@ -608,7 +814,7 @@ export default function InvoiceReceivingPage() {
         onClose={() => setModal({ open: false, mode: "add", bill: null })}
         onSuccess={() => {
           setSelected(null);
-          refreshActiveTab();
+          void refreshBothSilently();
         }}
       />
 
@@ -618,8 +824,7 @@ export default function InvoiceReceivingPage() {
           onClose={() => setDeleteItem(null)}
           onSuccess={() => {
             setSelected(null);
-            fetchPending();
-            fetchRegister();
+            void refreshBothSilently();
           }}
           service={irDeleteService}
           entityLabel="Invoice receiving"

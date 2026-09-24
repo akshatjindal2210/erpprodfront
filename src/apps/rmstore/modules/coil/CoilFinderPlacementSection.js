@@ -34,7 +34,6 @@ export function getCoilWhereInfo(coil, locationData) {
   const zoneLabel = resolveCoilLocationLabel(coil);
   const detail = resolveCoilLocationDetail(coil);
   const inArea = zone !== "stored";
-  /** Out / returned / consumed / rejected — keep location_id in DB, do not show rack in finder. */
   const location = zone === "stored" ? physicalLocation(locationData, coil) : null;
   return {
     zone,
@@ -49,7 +48,7 @@ export function getCoilWhereInfo(coil, locationData) {
 function emptyLocationHint(info) {
   if (info.zone === "rejected") return "No rack shown — send this coil from Store Out.";
   if (info.zone === "returned") return "No rack shown — this coil was returned.";
-  if (info.zone === "out") return "Dispatched — store location is not shown. Other details are below.";
+  if (info.zone === "out") return "Store location is not shown. Full record is below.";
   if (info.zone === "consumed") {
     return info.zoneDetail?.includes("Adjustment")
       ? "No rack shown — this coil was removed by stock adjustment."
@@ -69,13 +68,38 @@ function Field({ label, value, tone, mono }) {
   );
 }
 
-/** Next card under "This coil" — one parent card for area + rack. */
-export default function CoilFinderPlacementSection({ coil, locationData }) {
-  if (!coil && !locationData) return null;
-  const info = getCoilWhereInfo(coil, locationData);
-  const tone = coil ? coilFinderHeaderTone(coil) : coilFinderHeaderTone({ status: "active", location_id: 1 });
+function CoilWhereBody({ info, tone }) {
   const locNo = info.location ? getLocationDisplayNo(info.location) : null;
   const showLoc = Boolean(info.location && locNo && locNo !== "—");
+
+  return (
+    <>
+      {info.zoneLabel || info.zoneDetail ? (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+          {info.zoneLabel ? <Field label="Area / Zone" value={info.zoneLabel} tone={tone} /> : null}
+          {info.zoneDetail ? <Field label="Reference" value={info.zoneDetail} tone={tone} mono /> : null}
+        </div>
+      ) : null}
+      {showLoc ? (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+          <Field label="Location No." value={locNo} tone={tone} mono />
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Rack" value={info.location.rack_no} tone={tone} mono />
+            <Field label="Row" value={info.location.row_no} tone={tone} mono />
+          </div>
+        </div>
+      ) : (
+        <p className={`text-[11px] leading-snug ${tone.meta || "text-slate-600"}`}>{emptyLocationHint(info)}</p>
+      )}
+    </>
+  );
+}
+
+/** Coil location / area — own card below “This coil” and extra FG cards. */
+export default function CoilFinderPlacementSection({ coil, locationData }) {
+  if (!coil && !locationData) return null;
+  const tone = coil ? coilFinderHeaderTone(coil) : coilFinderHeaderTone({ status: "active", location_id: 1 });
+  const info = getCoilWhereInfo(coil, locationData);
 
   return (
     <div className={`p-3 rounded-xl border ${tone.shell}`}>
@@ -87,23 +111,7 @@ export default function CoilFinderPlacementSection({ coil, locationData }) {
           <p className={`text-[10px] font-medium leading-none ${tone.kicker}`}>{info.intro}</p>
           <p className={`text-sm font-bold leading-tight mt-1 ${tone.title}`}>{info.title}</p>
           <div className={`mt-2 pt-2 border-t ${tone.divider} space-y-2`}>
-            {info.zoneLabel || info.zoneDetail ? (
-              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                {info.zoneLabel ? <Field label="Area / Zone" value={info.zoneLabel} tone={tone} /> : null}
-                {info.zoneDetail ? <Field label="Reference" value={info.zoneDetail} tone={tone} mono /> : null}
-              </div>
-            ) : null}
-            {showLoc ? (
-              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                <Field label="Location No." value={locNo} tone={tone} mono />
-                <div className="grid grid-cols-2 gap-2">
-                  <Field label="Rack" value={info.location.rack_no} tone={tone} mono />
-                  <Field label="Row" value={info.location.row_no} tone={tone} mono />
-                </div>
-              </div>
-            ) : (
-              <p className={`text-[11px] leading-snug ${tone.meta || "text-slate-600"}`}>{emptyLocationHint(info)}</p>
-            )}
+            <CoilWhereBody info={info} tone={tone} />
           </div>
         </div>
       </div>

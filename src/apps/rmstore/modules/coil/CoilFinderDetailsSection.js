@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { ClipboardCheck, FileText, History, Loader2, Printer } from "lucide-react";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import FilePreviewLink, { downloadFileInPlace } from "@/ui/common/system/FilePreviewLink";
-import { buildQcSummary, coilHasQcLink, coilJourneyKey, fetchCoilFinderData, qcDocName, qcDocUrl, qcExpected, qcLineResult } from "@/apps/rmstore/lib/finder/coilFinderData";
+import { buildQcSummary, coilHasQcLink, panelsFromCoilFinder, qcDocName, qcDocUrl, qcExpected, qcLineResult } from "@/apps/rmstore/lib/finder/coilFinderData";
 import { printCoilReport } from "@/apps/rmstore/lib/utils/coilReportActions";
 
 function Panel({ icon: Icon, iconClass, title, sub, count, actions, children }) {
@@ -33,8 +33,8 @@ function Panel({ icon: Icon, iconClass, title, sub, count, actions, children }) 
 function DetailGrid({ rows }) {
   return (
     <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
-      {rows.map(({ label, value }) => (
-        <div key={label}>
+      {rows.map(({ id, label, value }) => (
+        <div key={id || label}>
           <dt className="text-[9px] font-bold text-slate-400 uppercase">{label}</dt>
           <dd className="text-[11px] font-semibold text-slate-800 break-all mt-0.5">{value}</dd>
         </div>
@@ -71,8 +71,8 @@ function JourneyTimeline({ events }) {
               </div>
               {lines.length ? (
                 <dl className="space-y-0.5">
-                  {lines.map(({ label, value }) => (
-                    <div key={label} className="flex gap-1.5 text-[10px] leading-snug">
+                  {lines.map(({ label, value }, lineIdx) => (
+                    <div key={`${ev.id}-${label}-${lineIdx}`} className="flex gap-1.5 text-[10px] leading-snug">
                       <dt className="text-slate-400 shrink-0">{label}</dt>
                       <dd className="text-slate-800 font-semibold break-all min-w-0">{value}</dd>
                     </div>
@@ -118,8 +118,8 @@ function DocRow({ doc }) {
   );
 }
 
-function DocumentsPanel({ documents, loading }) {
-  if (!documents.length && !loading) return null;
+function DocumentsPanel({ documents }) {
+  if (!documents.length) return null;
 
   return (
     <Panel
@@ -127,19 +127,13 @@ function DocumentsPanel({ documents, loading }) {
       iconClass="text-violet-600"
       title="Documents"
       sub="QC uploads · in-process rejection photos · TC / RMTC"
-      count={loading ? null : `${documents.length} file${documents.length === 1 ? "" : "s"}`}
+      count={`${documents.length} file${documents.length === 1 ? "" : "s"}`}
     >
-      {loading && !documents.length ? (
-        <Loader2 className="animate-spin text-violet-500 mx-auto" size={22} />
-      ) : documents.length ? (
-        <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 px-2 max-h-[280px] overflow-y-auto">
-          {documents.map((doc) => (
-            <DocRow key={doc.id} doc={doc} />
-          ))}
-        </div>
-      ) : (
-        <p className="text-[11px] text-slate-400 italic">No uploaded documents found for this coil.</p>
-      )}
+      <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 px-2 max-h-[280px] overflow-y-auto">
+        {documents.map((doc) => (
+          <DocRow key={doc.id} doc={doc} />
+        ))}
+      </div>
     </Panel>
   );
 }
@@ -239,51 +233,11 @@ function QcBlock({ checks }) {
 
 /** RM Store Coil Finder — details, QC, journey (not Location Finder). */
 export default function CoilFinderDetailsSection({ coil }) {
-  const [loading, setLoading] = useState(false);
   const [printBusy, setPrintBusy] = useState(false);
-  const [details, setDetails] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [qcChecks, setQcChecks] = useState([]);
-  const [documents, setDocuments] = useState([]);
-
-  const scanKey = coil ? `${coilJourneyKey(coil)}|${coil?.qc_uid ?? ""}` : "";
-
-  useEffect(() => {
-    if (!coil || !coilJourneyKey(coil)) {
-      setDetails([]);
-      setEvents([]);
-      setQcChecks([]);
-      setDocuments([]);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-
-    void fetchCoilFinderData(coil)
-      .then((data) => {
-        if (cancelled) return;
-        setDetails(data.details);
-        setEvents(data.events);
-        setQcChecks(data.qcChecks);
-        setDocuments(data.documents || []);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setDetails([]);
-          setEvents([]);
-          setQcChecks([]);
-          setDocuments([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [scanKey]);
+  const { details, events, qcChecks, documents } = useMemo(
+    () => panelsFromCoilFinder(coil || null),
+    [coil]
+  );
 
   /** Same-page print preview via shared coilReportActions. */
   const handlePrintReport = async () => {
@@ -298,7 +252,7 @@ export default function CoilFinderDetailsSection({ coil }) {
   if (!coil) return null;
 
   const showQc = coilHasQcLink(coil) || qcChecks.length > 0;
-  const printDisabled = loading || printBusy;
+  const printDisabled = printBusy;
 
   return (
     <div className="space-y-4 pt-4 mt-2 border-t-2 border-slate-200">
@@ -322,14 +276,10 @@ export default function CoilFinderDetailsSection({ coil }) {
           </>
         }
       >
-        {loading && !details.length ? (
-          <Loader2 className="animate-spin text-indigo-500 mx-auto" size={22} />
-        ) : (
-          <DetailGrid rows={details} />
-        )}
+        <DetailGrid rows={details} />
       </Panel>
 
-      <DocumentsPanel documents={documents} loading={loading} />
+      <DocumentsPanel documents={documents} />
 
       {showQc ? (
         <Panel
@@ -337,13 +287,9 @@ export default function CoilFinderDetailsSection({ coil }) {
           iconClass="text-sky-600"
           title="QC Check"
           sub="Specifications · pass / fail · documents"
-          count={loading ? null : `${qcChecks.length} record${qcChecks.length === 1 ? "" : "s"}`}
+          count={`${qcChecks.length} record${qcChecks.length === 1 ? "" : "s"}`}
         >
-          {loading && !qcChecks.length ? (
-            <Loader2 className="animate-spin text-sky-500 mx-auto" size={22} />
-          ) : (
-            <QcBlock checks={qcChecks} />
-          )}
+          <QcBlock checks={qcChecks} />
         </Panel>
       ) : null}
 
@@ -352,16 +298,9 @@ export default function CoilFinderDetailsSection({ coil }) {
         iconClass="text-emerald-600"
         title="Journey"
         sub="Top to bottom · newest first"
-        count={loading ? null : `${events.length} events`}
+        count={`${events.length} events`}
       >
-        {loading && !events.length ? (
-          <div className="py-6 text-center">
-            <Loader2 className="animate-spin text-indigo-500 mx-auto mb-2" size={24} />
-            <p className="text-[11px] text-slate-500">Loading journey…</p>
-          </div>
-        ) : (
-          <JourneyTimeline events={events} />
-        )}
+        <JourneyTimeline events={events} />
       </Panel>
     </div>
   );

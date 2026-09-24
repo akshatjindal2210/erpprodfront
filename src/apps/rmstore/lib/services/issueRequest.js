@@ -19,6 +19,17 @@ export const issueRequestService = {
       method: "POST",
       body: { job_cards, ...(exclude_issue_uid ? { exclude_issue_uid } : {}) },
     }),
+  machineJobCardCheck: ({ macname, pjobcardno, exclude_issue_uid = null, reassign_wire = null, exclude_coil_uid = null } = {}) =>
+    api(ENDPOINTS.ISSUE_REQUEST.MACHINE_JOB_CARD_CHECK, {
+      method: "POST",
+      body: {
+        macname,
+        pjobcardno,
+        ...(exclude_issue_uid ? { exclude_issue_uid } : {}),
+        ...(reassign_wire ? { reassign_wire } : {}),
+        ...(exclude_coil_uid ? { exclude_coil_uid } : {}),
+      },
+    }),
   availableCoils: ({ rm_item_code, rm_item_dcode, exclude_issue_uid = null } = {}) =>
     api(ENDPOINTS.ISSUE_REQUEST.AVAILABLE_COILS, {
       method: "POST",

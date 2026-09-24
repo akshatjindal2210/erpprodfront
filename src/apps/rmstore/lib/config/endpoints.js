@@ -53,7 +53,7 @@ export const ENDPOINTS = {
   COIL: {
     LIST: `${BASE}/coils/list`,
     GET: `${BASE}/coils/get`,
-    VIEWS: `${BASE}/coils/helper`,
+    HELPER: `${BASE}/coils/helper`,
     FINDER_REPORT: `${BASE}/coils/finder-report`,
   },
   INVENTORY_INWARDS: {
@@ -98,6 +98,7 @@ export const ENDPOINTS = {
     PRINT: `${BASE}/issue-requests/print`,
     HELPER: `${BASE}/issue-requests/helper`,
     JOB_CARD_SUMMARY: `${BASE}/issue-requests/job-card-summary`,
+    MACHINE_JOB_CARD_CHECK: `${BASE}/issue-requests/machine-job-card-check`,
     AVAILABLE_COILS: `${BASE}/issue-requests/available-coils`,
     CREATE: `${BASE}/issue-requests/create`,
     UPDATE: `${BASE}/issue-requests/update`,
@@ -114,6 +115,7 @@ export const ENDPOINTS = {
     REASONS: `${BASE}/in-process-requests/reasons`,
     PENDING_SHOP_FLOOR: `${BASE}/in-process-requests/pending-shop-floor`,
     PENDING_STORE_IN: `${BASE}/in-process-requests/pending-store-in`,
+    PENDING_STORE_IN_GET: `${BASE}/in-process-requests/pending-store-in/get`,
     PENDING_STORE_OUT: `${BASE}/in-process-requests/pending-store-out`,
     CREATE: `${BASE}/in-process-requests/create`,
     UPDATE: `${BASE}/in-process-requests/update`,

@@ -84,6 +84,70 @@ export function renderCoilCompactCell(v, className = "", title) {
   );
 }
 
+/** Job card no for display — avoid "JC JC-123" when value already includes JC. */
+export function formatPjobcardnoDisplay(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  if (/^jc[\s\-]/i.test(s)) return s;
+  return `JC-${s}`;
+}
+
+export function resolveCoilJobCardLabel(row) {
+  const split = String(row?.pjobcardno_label || "").trim();
+  if (split) return split;
+  const jc = formatPjobcardnoDisplay(row?.pjobcardno);
+  return jc || "—";
+}
+
+export function resolveCoilMachineLabel(row) {
+  const label = String(row?.macname_label || "").trim();
+  if (label) return label;
+  const mac = String(row?.macname || "").trim();
+  return mac || "—";
+}
+
+/** Reassign / shop floor: how much wire on each FG (from backend fg_wire_splits). */
+export function fgWireSplitKindShort(kind) {
+  if (kind === "consumed") return "wire cut";
+  if (kind === "balance") return "wire balance";
+  if (kind === "on_job") return "wire on job";
+  return "wire";
+}
+
+export function formatFgWireSplitLine(split) {
+  if (!split?.fg_item_code) return "—";
+  const qty =
+    split.wire_qty_label ||
+    (split.wire_qty != null ? `${split.wire_qty}${split.wire_unit ? ` ${split.wire_unit}` : ""}` : "");
+  const kind = fgWireSplitKindShort(split.kind);
+  const jcNo = formatPjobcardnoDisplay(split.pjobcardno);
+  const jc = jcNo ? ` · ${jcNo}` : "";
+  return `${split.fg_item_code} · ${kind} ${qty}${jc}`;
+}
+
+/** This coil = current FG (balance on job); earlier cuts go in separate cards below. */
+export function partitionFgWireSplits(splits) {
+  const list = Array.isArray(splits) ? splits.filter(Boolean) : [];
+  if (!list.length) return { primary: null, others: [] };
+  if (list.length === 1) return { primary: list[0], others: [] };
+  const balance = list.find((s) => s.kind === "balance");
+  const primary = balance || list[list.length - 1];
+  const others = list.filter((s) => s !== primary);
+  return { primary, others };
+}
+
+/** Single job card or reassign split: JC-A (used), JC-B (balance). */
+export function renderCoilJobCardCell(v, row) {
+  const label = resolveCoilJobCardLabel(row);
+  const multi = Boolean(row?.reassign) || (Array.isArray(row?.job_card_assignments) && row.job_card_assignments.length > 1);
+  const title = multi ? "Reassign — qty split across job cards (consumed on first, balance on second)" : label;
+  return renderCoilCompactCell(
+    label,
+    multi ? "font-mono font-bold text-indigo-700" : "font-mono font-bold text-slate-800",
+    title
+  );
+}
+
 export function renderCoilMrnCell(_v, row) {
   const uid = row?.mrn_uid != null && String(row.mrn_uid).trim() !== "" ? String(row.mrn_uid) : null;
   const no = row?.mrn_no != null ? String(row.mrn_no) : null;
@@ -148,6 +212,7 @@ export function getCoilClientSearchParts(row) {
     row?.in_uid,
     row?.out_uid,
     row?.pjobcardno,
+    row?.pjobcardno_label,
     row?.macname,
     row?.ipr_uid != null ? `IPR-${row.ipr_uid}` : null,
     row?.ipr_uid,

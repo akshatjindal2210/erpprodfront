@@ -1,5 +1,8 @@
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 
+/** Match backend `IR_RECEIVING_UPLOAD_PREFIX` in buildInvReceivingUploadFilter.js */
+const IR_RECEIVING_UPLOAD_PREFIX = "uploads/ims/invoice-receiving/";
+
 /**
  * ERP/IMS often sends JSON null as the literal string `"null"`.
  * Use for logic (empty file, no value); use {@link formatImsErpScalar} for list/display text.
@@ -27,12 +30,20 @@ export function imsErpScalarHasValue(value) {
   return !isImsErpNullString(value);
 }
 
+/** Read: path hai → waise; sirf naam → prefix lagao (backend same). */
+export function expandIrUploadPath(ref) {
+  const s = String(ref ?? "")
+    .trim()
+    .replace(/\\/g, "/");
+  if (isImsErpNullString(s)) return "";
+  if (s.startsWith("uploads/")) return s;
+  return `${IR_RECEIVING_UPLOAD_PREFIX}${s.replace(/^\/+/, "")}`;
+}
+
 /** Browser URL for stored path e.g. `uploads/ims/invoice-receiving/…` from ERP / internal API. */
 export function publicUploadHref(storedPath) {
   if (isImsErpNullString(storedPath)) return "";
-  const p = String(storedPath ?? "")
-    .trim()
-    .replace(/\\/g, "/");
+  const p = expandIrUploadPath(storedPath).replace(/\\/g, "/");
   if (!p) return "";
   if (/^https?:\/\//i.test(p)) return p;
   const base = String(FILE_BASE_URL || "").replace(/\/$/, "");
@@ -58,15 +69,75 @@ export function isIrApproved(row) {
   return s === "true" || s === "yes" || s === "1" || s === "y";
 }
 
-/** Normalized attachment path from ERP (ignores empty / literal `"null"` string). */
-export function irReceivingFilePath(row) {
-  const raw = row?.receivingfile ?? row?.file_path;
-  if (isImsErpNullString(raw)) return "";
-  return String(raw).trim();
+/** Parse `receivingfile` (filename, JSON object, legacy array, or pipe-separated). */
+export function parseIrReceivingFileRaw(raw) {
+  const out = [];
+  if (isImsErpNullString(raw)) return out;
+  const s = String(raw).trim();
+  const push = (p) => {
+    const full = expandIrUploadPath(p);
+    if (full) out.push(full);
+  };
+  if (s.startsWith("{")) {
+    try {
+      const o = JSON.parse(s);
+      if (o && typeof o === "object" && !Array.isArray(o)) {
+        Object.keys(o)
+          .sort((a, b) => Number(a) - Number(b))
+          .forEach((k) => push(o[k]));
+        return out;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  if (s.startsWith("[")) {
+    try {
+      const arr = JSON.parse(s);
+      if (Array.isArray(arr)) {
+        arr.forEach((p) => push(p));
+        return out;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  if (s.includes("|")) {
+    s.split("|")
+      .map((p) => p.trim())
+      .forEach((p) => push(p));
+    return out;
+  }
+  push(s);
+  return out;
+}
+
+/** Attachment paths from ERP `receivingfile` (expanded for URLs). */
+export function irReceivingFilePaths(row) {
+  if (!row) return [];
+  return parseIrReceivingFileRaw(row?.receivingfile ?? row?.file_path);
 }
 
 export function hasIrReceivingFile(row) {
-  return Boolean(irReceivingFilePath(row));
+  return irReceivingFilePaths(row).length > 0;
+}
+
+/** Bill received but not authorized — belongs on Pending tab. */
+export function isIrReceivedNotApproved(row) {
+  return !isIrApproved(row) && (hasIrReceivingFile(row) || hasIrReceiverefnoData(row));
+}
+
+/** Pure ERP pending — no receiving yet. */
+export function isIrAwaitingReceive(row) {
+  return !hasIrReceivingFile(row) && !hasIrReceiverefnoData(row);
+}
+
+export function canIrEditOnPendingTab(row) {
+  return isIrReceivedNotApproved(row);
+}
+
+export function canIrEditOnRegisterTab(row) {
+  return Boolean(row?.prnbillno) && isIrApproved(row);
 }
 
 /** Register row has receiving metadata in `receiverefno` JSON (even if file path missing). */
@@ -81,18 +152,41 @@ export function hasIrReceiverefnoData(row) {
   return s === "true" || s === "yes" || s === "1" || s === "y";
 }
 
-/** Register tab — any listed bill (incl. empty / ERP literal `"null"` fields). */
-export function canIrEditRegisterRow(row) {
-  return Boolean(String(row?.prnbillno ?? "").trim());
-}
-
-/** Register tab — clear or normalize receiving on ERP (`receivingfile` + `receiverefno` → null). */
-export function canIrClearReceivingRow(row) {
-  return canIrEditRegisterRow(row);
+export function canIrClearReceivingRow(row, isPendingTab) {
+  if (!row?.prnbillno) return false;
+  if (isPendingTab) return isIrReceivedNotApproved(row);
+  return isIrApproved(row) && (hasIrReceivingFile(row) || hasIrReceiverefnoData(row));
 }
 
 export function canIrApproveRow(row) {
   return hasIrReceivingFile(row) && !isIrApproved(row);
+}
+
+/** Pending tab — highlight rows ready for approval only (`!bg` for full row incl. sticky cells). */
+export function getIrPendingRowClassName(row) {
+  if (!canIrApproveRow(row)) return "";
+  return "[&_td]:!bg-amber-50 [&_td:first-child]:!shadow-[inset_3px_0_0_0_#f59e0b]";
+}
+
+export function mergeIrPendingRows(pendingApiRows, registerApiRows) {
+  const byBill = new Map();
+  for (const row of pendingApiRows || []) {
+    const n = normalizeInvoiceReceivingRow(row);
+    if (n?.prnbillno) byBill.set(n.prnbillno, n);
+  }
+  for (const row of registerApiRows || []) {
+    const n = normalizeInvoiceReceivingRow(row);
+    if (isIrApproved(n)) continue;
+    if (!n?.prnbillno) continue;
+    const prev = byBill.get(n.prnbillno);
+    byBill.set(n.prnbillno, prev ? { ...prev, ...n } : n);
+  }
+  return [...byBill.values()];
+}
+
+/** IMS `type: "register"` rows — trust ERP list; normalize for UI only. */
+export function filterIrRegisterRows(registerApiRows) {
+  return (registerApiRows || []).map(normalizeInvoiceReceivingRow);
 }
 
 /** ERP stores audit JSON inside `receiverefno` string. */
@@ -183,24 +277,6 @@ export function formatIrBillDate(v) {
   return d
     .toLocaleDateString("en-GB", { timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "numeric" })
     .replace(/\//g, "-");
-}
-
-/** `YYYY-MM-DD` for list date filter (bill date). */
-export function irBillDateYmd(v) {
-  const d = parseImsIrDateTime(v);
-  if (!d) return null;
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-export function irRowInBillDateRange(row, fromYmd, toYmd) {
-  const ymd = irBillDateYmd(row?.billdt);
-  if (!ymd) return true;
-  if (fromYmd && ymd < fromYmd) return false;
-  if (toYmd && ymd > toYmd) return false;
-  return true;
 }
 
 export function formatIrDateTime(v) {

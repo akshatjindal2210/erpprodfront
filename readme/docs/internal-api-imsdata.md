@@ -111,6 +111,15 @@ No filter → default **7 days**.
 ### Gate / bills / invoice
 
 ```json
+
+{
+  "requestedData": "invreceiving",
+  "filter": {
+    "type": "register",
+    "data":"billdt >= '2Apr2026' and billdt <= '6Aug2026'" 
+  }
+}
+
 { "requestedData": "invmnote" }
 { "requestedData": "invmnote", "filter": "billdt >= '2Apr2026' and billdt <= '6Aug2026'" }
 { "requestedData": "invfnote" }

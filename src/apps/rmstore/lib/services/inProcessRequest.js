@@ -82,6 +82,7 @@ export const inProcessRequestService = {
 
   /** Approved store-in requests waiting to be processed on Store In. */
   getPendingStoreIn: () => api(E.PENDING_STORE_IN, { method: "POST", body: {} }),
+  getPendingStoreInById: (ipr_uid) => api(E.PENDING_STORE_IN_GET, { method: "POST", body: { ipr_uid } }),
 
   /** Approved rejection requests waiting on Store Out. */
   getPendingStoreOut: () => api(E.PENDING_STORE_OUT, { method: "POST", body: {} }),

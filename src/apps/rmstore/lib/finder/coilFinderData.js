@@ -1,20 +1,28 @@
 import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
-import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 import { labelStickerDownloadSource } from "@/platform/utils/global";
-import { resolveCoilLocationLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 import { getCoilStickerEntries } from "@/apps/rmstore/lib/utils/coilTransactionStickerEntries";
 import { getCoilTxTypeBadgeClass, parseDetails, resolveCoilTxTypeLabel } from "@/apps/rmstore/lib/utils/coilTransactionVisuals";
-import { coilTransactionLogService, stickerDownloadLogService } from "@/apps/rmstore/lib/services/coilLogs";
-import { qcCheckService } from "@/apps/rmstore/lib/services/qcCheck";
-import { mrnService } from "@/apps/rmstore/lib/services/mrn";
-import { stockAdjustmentService } from "@/apps/rmstore/lib/services/stockAdjustment";
-import { inProcessRequestService } from "@/apps/rmstore/lib/services/inProcessRequest";
+import { buildCoilFinderDetailRowsFromConfig } from "@/apps/rmstore/lib/finder/coilFinderFullRecordConfig.js";
+import { formatFgWireSplitLine, formatPjobcardnoDisplay, resolveCoilJobCardLabel, resolveCoilMachineLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 
 const TX_SKIP = new Set([
   "count", "coil_count", "total_qty", "qty", "coil_no_uids", "coil_no_uid", "coil_sticker_entries", "action",
-  "item_dcode", "itemdcode", "register_locations",
+  "item_dcode", "itemdcode", "register_locations", "reassign_lines", "reassign", "reassign_revert",
 ]);
+
+function formatReassignJourneyLine(ln) {
+  if (!ln || typeof ln !== "object") return "—";
+  const src = formatPjobcardnoDisplay(ln.source_pjobcardno) || "—";
+  const tgt = formatPjobcardnoDisplay(ln.target_pjobcardno) || "—";
+  const parts = [`${src} → ${tgt}`];
+  const cut = Number(ln.consumed_qty);
+  const bal = Number(ln.balance_qty);
+  if (Number.isFinite(cut) && cut > 0) parts.push(`wire cut ${cut}`);
+  if (Number.isFinite(bal) && bal > 0) parts.push(`balance ${bal}`);
+  if (ln.out_uid != null && String(ln.out_uid).trim() !== "") parts.push(`OUT-${ln.out_uid}`);
+  return parts.join(" · ");
+}
 
 function printStatusLabel(coil) {
   const n = Number(coil?.download_count);
@@ -30,6 +38,9 @@ function formatJourneyValue(v) {
     return parts.length ? parts.join(", ") : "—";
   }
   if (typeof v === "object") {
+    if (v.source_pjobcardno != null || v.target_pjobcardno != null || v.consumed_qty != null || v.balance_qty != null) {
+      return formatReassignJourneyLine(v);
+    }
     const locNo = String(v.location_no ?? v.locationNo ?? "").trim();
     if (locNo) {
       const n = Number(v.coil_count);
@@ -91,15 +102,33 @@ export function buildCoilDetailRows(coil) {
     ["MRN UID", coil.mrn_uid],
     ["MRN Date", coil.mrn_dt ? formatDocDate(coil.mrn_dt) : null],
     ["Heat No", coil.heat_no],
-    ["Item Code", coil.item_code],
-    ["Description", coil.item_desc],
+    ["RM Wire Item", coil.item_code],
+    ["RM Wire Description", coil.item_desc],
+    ...(Array.isArray(coil.fg_wire_splits) && coil.fg_wire_splits.length
+      ? coil.fg_wire_splits.flatMap((split, idx) => {
+          const line = formatFgWireSplitLine(split);
+          const desc =
+            split.fg_item_desc &&
+            String(split.fg_item_desc).trim() &&
+            String(split.fg_item_desc).trim().toUpperCase() !== String(split.fg_item_code || "").trim().toUpperCase()
+              ? split.fg_item_desc
+              : null;
+          const rows = [[`FG · wire ${idx + 1}`, line]];
+          if (desc) rows.push([`FG desc ${idx + 1}`, desc]);
+          return rows;
+        })
+      : [
+          ["FG Item", coil.fg_item_code],
+          ["FG Description", coil.fg_item_desc],
+        ]),
+    ["RM Spec", coil.rm_spec_code || coil.rm_spec_label],
     ["Qty", coil.qty],
     ["Bill Number", coil.bill_no],
     ["Bill Date", coil.bill_dt ? formatDocDate(coil.bill_dt) : null],
     ["QC ID", coil.qc_uid != null ? `QC-${coil.qc_uid}` : null],
     ["QC Status", coil.qc_check_status],
-    ["Job Card", coil.pjobcardno],
-    ["Machine", coil.macname],
+    ["Job Card", resolveCoilJobCardLabel(coil)],
+    ["Machine", resolveCoilMachineLabel(coil)],
     ["Created At", coil.created_at ? formatDateTime(coil.created_at) : null],
     ["Updated At", coil.updated_at ? formatDateTime(coil.updated_at) : null],
     // Finder screen only (print puts Coil UID / Vendor in the header)
@@ -117,6 +146,11 @@ export function buildCoilDetailRows(coil) {
     .map(([label, value]) => ({ label, value: fmt(value) }));
 }
 
+/** Full record grid — driven by `coilFinderFullRecordFields` (edit show / order there). */
+export function buildCoilFinderDetailRows(coil) {
+  return buildCoilFinderDetailRowsFromConfig(coil);
+}
+
 function extraDetailLines(details) {
   return Object.entries(details || {})
     .filter(([k, v]) => !TX_SKIP.has(k) && v != null && v !== "" && !(Array.isArray(v) && !v.length))
@@ -126,6 +160,7 @@ function extraDetailLines(details) {
 function buildTxEvent(row, typeLabels) {
   const d = parseDetails(row?.details);
   const lines = [];
+  const txType = row?.transaction_type;
   push(lines, "User", row?.user_name || "System");
   push(lines, "Module", row?.source_module?.replace(/_/g, " "));
   push(lines, "Reference", row?.source_id);
@@ -139,6 +174,14 @@ function buildTxEvent(row, typeLabels) {
       "Coil Sticker No.",
       stickers.map((e) => (Number.isFinite(Number(e.qty)) ? `${e.coil_no_uid} (qty ${e.qty})` : e.coil_no_uid)).join(", ")
     );
+  }
+  if (txType === "ipr_reassign" && Array.isArray(d.reassign_lines) && d.reassign_lines.length) {
+    d.reassign_lines.forEach((ln, idx) => {
+      push(lines, d.reassign_lines.length > 1 ? `Reassign ${idx + 1}` : "Reassign", formatReassignJourneyLine(ln));
+    });
+  }
+  if (txType === "ipr_reassign_revert" && d.reassign_revert === true) {
+    push(lines, "Note", "Reassign approval was reverted");
   }
   extraDetailLines(d).forEach(({ label, value }) => push(lines, label, value));
   return {
@@ -170,199 +213,42 @@ function buildStickerEvent(row) {
   };
 }
 
-async function loadJourneyPages(getPage) {
-  let typeLabels = {};
-  const { data } = await fetchAllListPages(async (page, limit) => {
-    const res = await getPage(page, limit);
-    if (page === 1 && res?.typeLabels) typeLabels = res.typeLabels;
-    return res;
-  }, 500, 10000);
-  return { rows: data ?? [], typeLabels };
-}
-
-function pushUploadDoc(docs, { id, label, sub, path, name, kind }) {
-  const url = qcDocUrl(path);
-  if (!url) return;
-  docs.push({
-    id,
-    label,
-    sub,
-    url,
-    fileName: name || qcDocName(path) || "Document",
-    kind,
-  });
-}
-
-/** All QC spec upload paths for the finder documents panel. */
-export function collectQcDocuments(checks) {
-  const docs = [];
-  for (const check of checks || []) {
-    const qcLabel = check?.qc_check_uid != null ? `QC-${check.qc_check_uid}` : "QC";
-    for (const spec of check?.items || []) {
-      const note = spec?.document_note;
-      if (!note) continue;
-      const url = qcDocUrl(note);
-      if (!url) continue;
-      docs.push({
-        id: `qc-${check.qc_check_uid}-${spec.spec_id ?? spec.sno}`,
-        label: spec.spec_name || `Spec ${spec.sno ?? ""}`.trim(),
-        sub: `${qcLabel} · uploaded with check`,
+function mapServerDocuments(documents = []) {
+  return documents
+    .map((d) => {
+      const path = d.path || d.publicPath || "";
+      const url = d.url || qcDocUrl(path);
+      if (!url) return null;
+      return {
+        ...d,
         url,
-        fileName: qcDocName(note) || "Document",
-        kind: "qc",
-      });
-    }
-  }
-  return docs;
+        fileName: d.fileName || d.file_name || qcDocName(path) || "Document",
+      };
+    })
+    .filter(Boolean);
 }
 
-async function fetchStickerUploadDocs(coil) {
-  const uploadDocs = [];
-
-  const mrnUid = coil?.mrn_uid != null ? String(coil.mrn_uid).trim() : "";
-  const saId = coil?.sa_id != null ? Number(coil.sa_id) : null;
-  const isSaCoil = saId && String(coil?.sa_entry_type || "").toLowerCase() === "stock_in";
-
-  if (mrnUid) {
-    try {
-      const res = await mrnService.getDetail(mrnUid);
-      const m = res?.data;
-      if (m) {
-        pushUploadDoc(uploadDocs, {
-          id: `tc-mrn-${mrnUid}`,
-          label: "TC Document",
-          sub: "Uploaded when coil stickers were generated",
-          path: m.tc_file_path,
-          name: m.tc_file_name,
-          kind: "tc",
-        });
-        pushUploadDoc(uploadDocs, {
-          id: `rmtc-mrn-${mrnUid}`,
-          label: "RMTC Document",
-          sub: "Uploaded when coil stickers were generated",
-          path: m.rmtc_file_path,
-          name: m.rmtc_file_name,
-          kind: "rmtc",
-        });
-      }
-    } catch {
-      /* permission or missing MRN */
-    }
-    return uploadDocs;
-  }
-
-  if (isSaCoil) {
-    try {
-      const res = await stockAdjustmentService.getById(saId);
-      const sa = res?.data;
-      if (sa) {
-        pushUploadDoc(uploadDocs, {
-          id: `tc-sa-${saId}`,
-          label: "TC Document",
-          sub: "Uploaded when stock adjustment stickers were generated",
-          path: sa.tc_file_path,
-          name: sa.tc_file_name,
-          kind: "tc",
-        });
-        pushUploadDoc(uploadDocs, {
-          id: `rmtc-sa-${saId}`,
-          label: "RMTC Document",
-          sub: "Uploaded when stock adjustment stickers were generated",
-          path: sa.rmtc_file_path,
-          name: sa.rmtc_file_name,
-          kind: "rmtc",
-        });
-      }
-    } catch {
-      /* permission */
-    }
-  }
-
-  return uploadDocs;
+/** Map data.finder from POST /coils/helper (finder: true) into UI panels — no extra API. */
+export function panelsFromCoilFinder(coil) {
+  const baseDetails = buildCoilFinderDetailRows(coil);
+  const empty = { details: baseDetails, events: [], qcChecks: [], documents: [] };
+  if (!coil?.finder) return empty;
+  return mapFinderBundle(coil.finder, coil, baseDetails);
 }
 
-async function fetchIprRejectionDocs(coil) {
-  const iprUid = coil?.ipr_uid != null ? Number(coil.ipr_uid) : null;
-  if (!Number.isFinite(iprUid) || iprUid <= 0) return [];
-  try {
-    const res = await inProcessRequestService.getByHelper(iprUid, {
-      permission_module: "rm_coils",
-      permission_action: "view",
-    });
-    const row = res?.data;
-    if (!row || String(row.request_type || "").toLowerCase() !== "rejection") return [];
-    const docs = [];
-    (row.attachments || []).forEach((path, i) => {
-      pushUploadDoc(docs, {
-        id: `ipr-${iprUid}-${i}`,
-        label: `Rejection photo ${i + 1}`,
-        sub: `IPR #${iprUid}`,
-        path,
-        name: qcDocName(path),
-        kind: "ipr",
-      });
-    });
-    return docs;
-  } catch {
-    return [];
-  }
-}
-
-export async function fetchCoilFinderData(coil) {
-  const key = coilJourneyKey(coil);
-  const empty = {
-    details: buildCoilDetailRows(coil),
-    events: [],
-    qcChecks: [],
-    documents: [],
-  };
-  if (!key) return empty;
-
-  const [journeyRes, qcChecks, uploadDocs, iprDocs] = await Promise.all([
-    loadJourneyPages((page, limit) =>
-      coilTransactionLogService.getAll({
-        page,
-        limit,
-        filters: { journey: key },
-        sortBy: "created_at",
-        order: "DESC",
-      })
-    ).then(async ({ rows, typeLabels }) => {
-      let stickerRows = [];
-      try {
-        const sticker = await fetchAllListPages(
-          (page, limit) =>
-            stickerDownloadLogService.getAll({
-              page,
-              limit,
-              filters: { journey: key },
-              sortBy: "downloaded_at",
-              order: "DESC",
-            }),
-          500,
-          5000
-        );
-        stickerRows = sticker.data ?? [];
-      } catch {
-        stickerRows = [];
-      }
-      return sortEvents([
-        ...rows.map((r) => buildTxEvent(r, typeLabels)),
-        ...stickerRows.map(buildStickerEvent),
-      ]);
-    }),
-    fetchCoilQcChecks(coil),
-    fetchStickerUploadDocs(coil),
-    fetchIprRejectionDocs(coil),
+function mapFinderBundle(finder, coil, baseDetails) {
+  const typeLabels = finder?.typeLabels || {};
+  const events = sortEvents([
+    ...(finder?.transactionLogs || []).map((r) => buildTxEvent(r, typeLabels)),
+    ...(finder?.stickerLogs || []).map(buildStickerEvent),
   ]);
-
-  const documents = [...iprDocs, ...collectQcDocuments(qcChecks), ...uploadDocs];
-
+  const qcChecks = (finder?.qcChecks || []).map((row) => normalizeQc(row)).filter(Boolean);
+  const details = baseDetails.length ? baseDetails : buildCoilFinderDetailRows(coil);
   return {
-    details: buildCoilDetailRows(coil),
-    events: journeyRes,
+    details,
+    events,
     qcChecks,
-    documents,
+    documents: mapServerDocuments(finder?.documents),
   };
 }
 
@@ -481,42 +367,3 @@ export function buildQcSummary(check) {
   ];
 }
 
-async function fetchCoilQcChecks(coil) {
-  const uid = String(coil?.coil_no_uid ?? "").trim();
-  if (!uid) return [];
-
-  const map = new Map();
-  try {
-    const { data } = await fetchAllListPages(
-      (page, limit) =>
-        qcCheckService.getAll({
-          page,
-          limit,
-          filters: { coil_no_uid: uid },
-          sortBy: "qc_check_uid",
-          order: "ASC",
-        }),
-      100,
-      200
-    );
-    for (const row of data || []) {
-      const n = normalizeQc(row);
-      if (n?.qc_check_uid != null) map.set(Number(n.qc_check_uid), n);
-    }
-  } catch {
-    /* permission */
-  }
-
-  const linked = coil?.qc_uid != null ? Number(coil.qc_uid) : null;
-  if (linked && !map.has(linked)) {
-    try {
-      const res = await qcCheckService.getById(linked);
-      const n = normalizeQc(res?.data);
-      if (n) map.set(linked, n);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return [...map.values()].sort((a, b) => Number(a.qc_check_uid) - Number(b.qc_check_uid));
-}

@@ -53,3 +53,7 @@ export function imsGateEntryLabel(isPending) {
     return `Selected: ${kind}-${t(r?.uid)}${bill}`;
   };
 }
+
+export function imsInvoiceReceivingLabel(r) {
+  return `Selected: ${t(r?.prnbillno)}${r?.acc_name ? ` · ${r.acc_name}` : ""}`;
+}

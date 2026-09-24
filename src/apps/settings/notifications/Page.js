@@ -12,6 +12,7 @@ import { AppConfigFormFooter, AppConfigFormLoading, CONFIG_INPUT, CONFIG_LABEL, 
 import SendMessageTab from "./SendMessageTab";
 import NotificationVariablesHint from "./NotificationVariablesHint";
 import NotificationLogViewModal from "./NotificationLogViewModal";
+import ModuleTemplatesTab from "./ModuleTemplatesTab";
 
 const NOTIFY_SELECT =
   "w-full bg-white border border-slate-200 rounded-lg px-3 h-10 text-[11px] text-slate-800 outline-none transition-all cursor-pointer relative z-[2] touch-manipulation focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50/80 disabled:opacity-50 disabled:cursor-not-allowed";
@@ -25,11 +26,14 @@ const TEMPLATE_TABS = [
   { id: "status_changed", label: "Status" },
   { id: "chat_message", label: "Chat" },
   { id: "logs", label: "Logs" },
+  { id: "module_templates", label: "Module Templates" },
 ];
+
+const NON_TASK_TEMPLATE_TABS = new Set(["send_message", "logs", "module_templates"]);
 
 const LOG_TEMPLATE_OPTIONS = [
   { value: "manual_instant", label: "Custom / Instant" },
-  ...TEMPLATE_TABS.filter((t) => t.id !== "send_message" && t.id !== "logs").map((t) => ({
+  ...TEMPLATE_TABS.filter((t) => !NON_TASK_TEMPLATE_TABS.has(t.id)).map((t) => ({
     value: t.id,
     label: t.label,
   })),
@@ -180,6 +184,7 @@ export default function AdminNotificationsPage() {
       ...t,
       send_via,
       pwa_enabled: !!t.pwa_enabled,
+      email_enabled: !!t.email_enabled,
       api_enabled: !!t.api_enabled,
     };
   };
@@ -245,6 +250,7 @@ export default function AdminNotificationsPage() {
 
   const isLogsTab = activeTab === "logs";
   const isSendTab = activeTab === "send_message";
+  const isModuleTemplatesTab = activeTab === "module_templates";
   const logTotalPages = Math.ceil(logTotal / logPageSize) || 0;
   const current = edits[activeTab];
   const original = templates.find((t) => t.template_key === activeTab);
@@ -262,6 +268,7 @@ export default function AdminNotificationsPage() {
       if (field === "send_via" && value !== "none") next.api_enabled = true;
       if (field === "is_enabled" && value === true) {
         next.pwa_enabled = prev.pwa_enabled ?? false;
+        next.email_enabled = prev.email_enabled ?? false;
         next.api_enabled = prev.api_enabled ?? false;
       }
       return { ...p, [activeTab]: next };
@@ -284,6 +291,7 @@ export default function AdminNotificationsPage() {
         body: current.body,
         is_enabled: current.is_enabled,
         pwa_enabled: current.pwa_enabled,
+        email_enabled: !!current.email_enabled,
         api_enabled: current.api_enabled,
         send_via: current.send_via || "none",
         trigger_time: current.trigger_time || null,
@@ -316,6 +324,8 @@ export default function AdminNotificationsPage() {
 
         {isSendTab ? (
           <SendMessageTab templates={templates} />
+        ) : isModuleTemplatesTab ? (
+          <ModuleTemplatesTab />
         ) : isLogsTab ? (
           <div className="flex flex-col flex-1 min-h-0">
             <div className="shrink-0 px-4 md:px-5 py-3 border-b border-slate-100 space-y-3">
@@ -505,6 +515,18 @@ export default function AdminNotificationsPage() {
                             className={NOTIFY_SELECT}
                             value={current.pwa_enabled ? "true" : "false"}
                             onChange={(e) => updateField("pwa_enabled", e.target.value === "true")}
+                            disabled={saving || !current.is_enabled}
+                          >
+                            <option value="false">Off</option>
+                            <option value="true">On</option>
+                          </select>
+                        </Field>
+
+                        <Field label="Email">
+                          <select
+                            className={NOTIFY_SELECT}
+                            value={current.email_enabled ? "true" : "false"}
+                            onChange={(e) => updateField("email_enabled", e.target.value === "true")}
                             disabled={saving || !current.is_enabled}
                           >
                             <option value="false">Off</option>

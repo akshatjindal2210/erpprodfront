@@ -1,21 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Check, Eye, FileText, Loader2, Shield, Upload, X } from "lucide-react";
+import { AlertCircle, Check, Expand, FileText, Loader2, Shield, Upload, X } from "lucide-react";
 import { toast } from "react-toastify";
 
 import Drawer from "@/ui/primitives/Drawer";
 import { invoiceReceivingService } from "@/apps/ims/lib/services/invoiceReceiving";
-import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { FormLabel, OK_INPUT } from "@/ui/common/Constants";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
-import { formatImsErpScalar, formatIrBillDate, formatIrDateTime, irReceivingFilePath, isImsErpNullLiteral, isIrApproved, normalizeInvoiceReceivingRow, pickIrRemarks, publicUploadHref, receivingFileLabel } from "./invoiceReceivingUtils";
+import FilePreviewLink, { getFilePreviewKind } from "@/ui/common/system/FilePreviewLink";
+import {
+  formatImsErpScalar, formatIrBillDate, formatIrDateTime, irReceivingFilePaths, isImsErpNullLiteral, isIrApproved, normalizeInvoiceReceivingRow, pickIrRemarks, publicUploadHref, receivingFileLabel } from "./invoiceReceivingUtils";
 
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,image/*,application/pdf";
 const DISABLED = `${OK_INPUT} !bg-slate-100 !text-slate-600 border-slate-200 shadow-none focus:!ring-0 cursor-not-allowed disabled:opacity-100`;
-const FILE_LINK =
-  "flex items-center gap-2 w-full min-h-9 px-3 py-2 border border-slate-200 rounded-lg bg-white hover:bg-slate-50 text-left";
 
 const BTN_CANCEL =
   "px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 rounded-xl bg-white disabled:opacity-50";
@@ -26,18 +25,31 @@ const BTN_PRIMARY =
 const BTN_KEEP =
   "px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-50";
 
-/** @deprecated import formatIrBillDate from invoiceReceivingUtils */
-export const formatBillDate = formatIrBillDate;
-
-function StoredFileLink({ path }) {
+function IrQuickPreview({ path }) {
   const href = publicUploadHref(path);
   const name = receivingFileLabel(path);
+  const kind = getFilePreviewKind(name);
   if (!href || !name) return null;
   return (
-    <FilePreviewLink href={href} fileName={name} className={FILE_LINK} title={name}>
-      <Eye size={14} className="shrink-0 text-indigo-600" />
-      <span className="truncate text-[11px] font-semibold text-indigo-700">{name}</span>
-    </FilePreviewLink>
+    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+      <div className="h-[88px] bg-slate-50 overflow-hidden">
+        {kind === "image" ? (
+          <img src={href} alt={name} className="w-full h-full object-cover" />
+        ) : kind === "pdf" ? (
+          <iframe src={`${href.split("#")[0]}#toolbar=0`} title={name} className="w-full h-full border-0 pointer-events-none" />
+        ) : (
+          <div className="h-full flex items-center justify-center text-slate-400">
+            <FileText size={20} />
+          </div>
+        )}
+      </div>
+      <div className="px-2 py-1 border-t flex items-center gap-1 min-w-0">
+        <span className="text-[9px] truncate flex-1">{name}</span>
+        <FilePreviewLink href={href} fileName={name} className="text-indigo-600 p-0.5">
+          <Expand size={12} />
+        </FilePreviewLink>
+      </div>
+    </div>
   );
 }
 
@@ -51,6 +63,7 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
   const canAdd = canAccess("invoice_receiving", "add").allowed;
   const canEdit = canAccess("invoice_receiving", "edit").allowed;
   const canApprove = canAccess("invoice_receiving", "authorize").allowed;
+  const canUpload = canAdd || canEdit || canApprove;
 
   const isEdit = mode === "edit";
   const isApprove = mode === "approve";
@@ -59,31 +72,38 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
   const erpApproved = isIrApproved(bill);
   const showApprovalToggle = canApprove && isAdd;
 
-  const [file, setFile] = useState(null);
+  const [storedPaths, setStoredPaths] = useState([]);
+  const [newFiles, setNewFiles] = useState([]);
   const [remarks, setRemarks] = useState("");
   const [approved, setApproved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeSubmit, setActiveSubmit] = useState(null);
 
-  const existingFile = irReceivingFilePath(bill);
-  const hasStoredFile = Boolean(String(existingFile).trim());
-  const fileRequired = isAdd || (isEdit && !hasStoredFile);
-  const fileLocked = readOnly || isApprove;
+  const fileLocked = readOnly;
+  const totalAttachments = storedPaths.length + newFiles.length;
+  const showDocPreview = totalAttachments > 0 && (readOnly || isApprove || isEdit || isAdd);
 
   useEffect(() => {
     if (!open) return;
-    setFile(null);
+    setNewFiles([]);
     setSaving(false);
+    setStoredPaths(irReceivingFilePaths(bill));
     setRemarks(pickIrRemarks(bill));
     setApproved(isApprove);
   }, [open, bill?.prnbillno, mode, bill, isApprove]);
 
-  const hasAttachment = file instanceof File || hasStoredFile;
   const canSave =
-    !readOnly && Boolean(bill?.prnbillno) && !saving && hasAttachment && (!fileRequired || file instanceof File);
+    !readOnly && canUpload && Boolean(bill?.prnbillno) && !saving && totalAttachments > 0;
 
   const save = async (wantApproved, actionKey) => {
-    if (!canSave) return;
+    if (!canSave) {
+      if (!canUpload && !readOnly) toast.info("No permission to upload.");
+      return;
+    }
+    if (isApprove && !canApprove) {
+      toast.info("No permission to approve.");
+      return;
+    }
 
     let finalApproved = !!wantApproved;
     if (actionKey === "keep_pending") finalApproved = false;
@@ -98,12 +118,12 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
         prnbillno: bill?.prnbillno,
         billdt: bill?.billdt,
         acc_name: bill?.acc_name,
-        receivingfile: existingFile || undefined,
         uploaded_by: bill?.uploaded_by,
         uploaded_at: bill?.uploaded_at,
         remarks,
         approved: finalApproved,
-        file,
+        existing_paths: storedPaths,
+        files: newFiles,
         mode,
       });
       if (!res?.success) throw new Error(res?.message || "Update failed.");
@@ -118,21 +138,26 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
     }
   };
 
-  const footer = readOnly ? (
+  const drawerFooter = readOnly ? (
     <div className="flex justify-end w-full">
-      <button type="button" onClick={onClose} className={BTN_CANCEL}>
+      <button type="button" onClick={onClose} className={`${BTN_CANCEL} w-full sm:w-auto`}>
         Close
       </button>
     </div>
   ) : (
     <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 sm:gap-3 w-full">
-      <button type="button" disabled={saving} onClick={onClose} className={BTN_CANCEL}>
+      <button type="button" disabled={saving} onClick={onClose} className={`${BTN_CANCEL} w-full sm:w-auto`}>
         Cancel
       </button>
 
       {isApprove ? (
         <>
-          <button type="button" disabled={!canSave || saving} onClick={() => void save(false, "keep_pending")} className={BTN_KEEP}>
+          <button
+            type="button"
+            disabled={!canSave || saving || !canApprove}
+            onClick={() => void save(false, "keep_pending")}
+            className={`${BTN_KEEP} w-full sm:w-auto`}
+          >
             {saving && activeSubmit === "keep_pending" ? (
               <span className="inline-flex items-center gap-2">
                 <Loader2 size={16} className="animate-spin" /> Saving…
@@ -141,7 +166,12 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
               "Keep Pending"
             )}
           </button>
-          <button type="button" disabled={!canSave || saving} onClick={() => void save(true, "approve")} className={BTN_APPROVE}>
+          <button
+            type="button"
+            disabled={!canSave || saving || !canApprove}
+            onClick={() => void save(true, "approve")}
+            className={`${BTN_APPROVE} w-full sm:w-auto`}
+          >
             {saving && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
             Approve
           </button>
@@ -149,13 +179,24 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
       ) : (
         <>
           {isEdit && canApprove ? (
-            <button type="button" disabled={!canSave || saving} onClick={() => void save(true, "approve")} className={BTN_APPROVE}>
+            <button
+              type="button"
+              disabled={!canSave || saving}
+              onClick={() => void save(true, "approve")}
+              className={`${BTN_APPROVE} w-full sm:w-auto sm:min-w-[160px]`}
+            >
               {saving && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
               Save & Approve
             </button>
           ) : null}
-          {(isEdit && canEdit) || (isAdd && canAdd) ? (
-            <button type="button" disabled={!canSave || saving} onClick={() => void save(null, "save")} className={BTN_PRIMARY}>
+          {(isAdd || isEdit) && canUpload ? (
+            <button
+              type="button"
+              disabled={!canSave || saving}
+              title="Ctrl+S"
+              onClick={() => void save(null, "save")}
+              className={`${BTN_PRIMARY} w-full sm:w-auto sm:min-w-[160px]`}
+            >
               {saving && activeSubmit === "save" ? (
                 <>
                   <Loader2 size={18} className="animate-spin" /> Saving…
@@ -173,10 +214,17 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
     </div>
   );
 
+  const handleDrawerSubmit = () => {
+    if (readOnly || saving || !canSave) return;
+    if (isApprove) void save(true, "approve");
+    else void save(null, "save");
+  };
+
   return (
     <Drawer
       isOpen={open}
       onClose={saving ? () => {} : onClose}
+      onSubmit={readOnly ? undefined : handleDrawerSubmit}
       title={
         isApprove ? "Approve Invoice" : isEdit ? "Edit Received Invoice" : isAdd ? "Receive Invoice" : "Invoice Receiving"
       }
@@ -184,14 +232,14 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
         isApprove
           ? "Authorize this received invoice"
           : isEdit
-            ? "Update attachment or remarks"
+            ? "Update attachments or remarks"
             : isAdd
-              ? "Bill and receiving attachment"
+              ? "Bill and receiving attachments"
               : "Received invoice details"
       }
       maxWidth="max-w-lg"
       headerVariant="form"
-      footer={footer}
+      footer={drawerFooter}
     >
       <div className="space-y-4 pb-4">
         {isEdit && erpApproved ? (
@@ -216,6 +264,14 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
           <div className="space-y-1 sm:col-span-2">
             <FormLabel>Customer</FormLabel>
             <input readOnly disabled value={bill?.acc_name || "—"} className={DISABLED} title={bill?.acc_name || ""} />
+          </div>
+          <div className="space-y-1">
+            <FormLabel>Transport</FormLabel>
+            <input readOnly disabled value={bill?.transport || "—"} className={`${DISABLED} uppercase`} />
+          </div>
+          <div className="space-y-1">
+            <FormLabel>Vehicle No</FormLabel>
+            <input readOnly disabled value={bill?.vehicleno || "—"} className={`${DISABLED} uppercase`} />
           </div>
         </div>
 
@@ -245,43 +301,105 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
           </div>
         ) : null}
 
-        <div className="space-y-1">
-          <FormLabel required={!readOnly && !isApprove && fileRequired}>Attachment</FormLabel>
-          {fileLocked ? (
-            hasStoredFile ? (
-              <StoredFileLink path={existingFile} />
-            ) : isImsErpNullLiteral(bill?.receivingfile || bill?.file_path) ? (
-              <input readOnly disabled value="null" className={DISABLED} />
-            ) : (
-              <input readOnly disabled value="—" className={DISABLED} />
-            )
-          ) : file ? (
-            <div className="flex items-center gap-2 h-9 px-3 border border-slate-200 rounded-lg bg-white min-w-0">
-              <FileText size={14} className="shrink-0 text-emerald-600" />
-              <span className="truncate text-[11px] font-medium flex-1">{file.name}</span>
-              <button type="button" disabled={saving} onClick={() => setFile(null)} className="text-slate-400 hover:text-rose-600">
-                <X size={14} />
-              </button>
+        {showDocPreview ? (
+          <div className="space-y-2">
+            <FormLabel>Document preview</FormLabel>
+            <div className="grid grid-cols-2 gap-2">
+              {storedPaths.map((p) => (
+                <IrQuickPreview key={p} path={p} />
+              ))}
+              {newFiles.map((f, i) => (
+                <div key={`${f.name}-${i}`} className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/50 p-2 h-[88px] flex flex-col justify-center">
+                  <FileText size={16} className="text-emerald-600 mx-auto mb-1" />
+                  <span className="text-[9px] font-medium text-emerald-800 text-center line-clamp-2">{f.name}</span>
+                  <span className="text-[8px] text-emerald-600 text-center mt-0.5">New — save to upload</span>
+                </div>
+              ))}
             </div>
-          ) : (
-            <div className="space-y-2">
-              {hasStoredFile ? <StoredFileLink path={existingFile} /> : null}
-              <label className="flex items-center gap-2 h-9 px-3 border border-dashed border-slate-300 rounded-lg bg-slate-50 cursor-pointer hover:bg-slate-100">
-                <Upload size={14} className="text-slate-500 shrink-0" />
-                <span className="text-[11px] font-medium text-slate-600">{hasStoredFile ? "Replace file…" : "Choose file…"}</span>
-                <input
-                  type="file"
-                  accept={ACCEPT}
-                  className="sr-only"
-                  disabled={saving}
-                  onChange={(e) => {
-                    setFile(e.target.files?.[0] || null);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-            </div>
-          )}
+          </div>
+        ) : null}
+
+        <div className="space-y-2">
+          <FormLabel required={!readOnly && !isApprove && isAdd}>Attachments</FormLabel>
+          {isImsErpNullLiteral(bill?.receivingfile || bill?.file_path) && !storedPaths.length && !newFiles.length ? (
+            <input readOnly disabled value="null" className={DISABLED} />
+          ) : null}
+
+          {storedPaths.length > 0 ? (
+            <ul className="space-y-1">
+              {storedPaths.map((p) => {
+                const name = receivingFileLabel(p);
+                const href = publicUploadHref(p);
+                return (
+                  <li key={p} className="flex items-center gap-2 min-h-9 px-3 border border-slate-200 rounded-lg bg-white">
+                    <FileText size={14} className="shrink-0 text-indigo-600" />
+                    {href ? (
+                      <FilePreviewLink href={href} fileName={name} className="truncate text-[11px] font-semibold text-indigo-700 flex-1 text-left">
+                        {name}
+                      </FilePreviewLink>
+                    ) : (
+                      <span className="truncate text-[11px] flex-1">{name}</span>
+                    )}
+                    {!fileLocked ? (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => setStoredPaths((prev) => prev.filter((x) => x !== p))}
+                        className="text-slate-400 hover:text-rose-600 shrink-0"
+                        title="Remove"
+                      >
+                        <X size={14} />
+                      </button>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+
+          {newFiles.length > 0 ? (
+            <ul className="space-y-1">
+              {newFiles.map((f, idx) => (
+                <li key={`${f.name}-${idx}`} className="flex items-center gap-2 h-9 px-3 border border-emerald-200 rounded-lg bg-emerald-50/40">
+                  <FileText size={14} className="shrink-0 text-emerald-600" />
+                  <span className="truncate text-[11px] font-medium flex-1">{f.name}</span>
+                  {!fileLocked ? (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => setNewFiles((prev) => prev.filter((_, i) => i !== idx))}
+                      className="text-slate-400 hover:text-rose-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {!fileLocked ? (
+            <label className="flex items-center gap-2 min-h-9 px-3 border border-dashed border-slate-300 rounded-lg bg-slate-50 cursor-pointer hover:bg-slate-100">
+              <Upload size={14} className="text-slate-500 shrink-0" />
+              <span className="text-[11px] font-medium text-slate-600">Add file(s)…</span>
+              <input
+                type="file"
+                accept={ACCEPT}
+                multiple
+                className="sr-only"
+                disabled={saving}
+                onChange={(e) => {
+                  const picked = [...(e.target.files || [])];
+                  if (picked.length) setNewFiles((prev) => [...prev, ...picked]);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          ) : null}
+
+          {!fileLocked && totalAttachments === 0 && !isImsErpNullLiteral(bill?.receivingfile) ? (
+            <p className="text-[10px] text-slate-400">Add at least one PDF or image.</p>
+          ) : null}
         </div>
 
         <FormTextarea
@@ -290,7 +408,7 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
           value={remarks}
           onChange={(e) => setRemarks(e?.target?.value ?? "")}
           placeholder="Optional notes"
-          disabled={readOnly || isApprove}
+          disabled={readOnly}
         />
 
         {showApprovalToggle ? (

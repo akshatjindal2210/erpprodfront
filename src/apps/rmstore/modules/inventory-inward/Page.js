@@ -32,7 +32,6 @@ import { renderCoilLocationCell } from "@/apps/rmstore/modules/coil/coilTableVis
 // import { renderCoilQcIdStatusCell } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 
 const MODULE = "rm_inventory_inwards";
-const IPR_MODULE = "rm_in_process_request";
 
 const PAGE_TABS = {
   STORE_IN: "store_in",
@@ -119,10 +118,7 @@ function isPendingStoreInRow(row) {
 export default function StoreInPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
-  const canReceiveStoreIn = useMemo(
-    () => canAccess(IPR_MODULE, "authorize").allowed || canAccess(MODULE, "authorize").allowed,
-    [canAccess]
-  );
+  const canReceiveStoreIn = useMemo(() => canAccess(MODULE, "add").allowed, [canAccess]);
 
   const [pageTab, setPageTab] = useState(PAGE_TABS.PACKING_AREA);
   const isStoreIn = pageTab === PAGE_TABS.STORE_IN;
@@ -177,6 +173,7 @@ export default function StoreInPage() {
   const [finderOpen, setFinderOpen] = useState(false);
   const [receiveModalOpen, setReceiveModalOpen] = useState(false);
   const [receiveIprUid, setReceiveIprUid] = useState(null);
+  const [receiveInitialIpr, setReceiveInitialIpr] = useState(null);
 
   const fetchInwards = useCallback(async () => {
     setLoading(true);
@@ -428,9 +425,13 @@ export default function StoreInPage() {
 
   const handleReceivePendingStoreIn = useCallback(() => {
     if (!selectedRecord?.ipr_uid) return;
-    setReceiveIprUid(selectedRecord.ipr_uid);
+    const uid = selectedRecord.ipr_uid;
+    setReceiveIprUid(uid);
+    setReceiveInitialIpr(
+      pendingStoreInRows.find((r) => Number(r.ipr_uid) === Number(uid)) || null
+    );
     setReceiveModalOpen(true);
-  }, [selectedRecord]);
+  }, [selectedRecord, pendingStoreInRows]);
 
   // const canReceivePendingStoreIn = Boolean(
   //   isUnassigned && isPackingCoilView && isPendingStoreInRow(selectedRecord) && selectedRecord?.ipr_uid
@@ -857,12 +858,11 @@ export default function StoreInPage() {
                   </>
                 )}
 
-                {canReceivePendingStoreIn && (
+                {canReceivePendingStoreIn && canReceiveStoreIn && (
                   <button
                     type="button"
-                    disabled={!canReceiveStoreIn}
                     onClick={handleReceivePendingStoreIn}
-                    className="h-9 px-4 border border-teal-300 bg-teal-50 text-teal-800 hover:bg-teal-100 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shadow-none shrink-0 disabled:opacity-50"
+                    className="h-9 px-4 border border-teal-300 bg-teal-50 text-teal-800 hover:bg-teal-100 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shadow-none shrink-0"
                   >
                     <CheckCircle size={14} />
                     Receive to Unassigned
@@ -1040,9 +1040,11 @@ export default function StoreInPage() {
       <ReceivePendingStoreInModal
         open={receiveModalOpen}
         iprUid={receiveIprUid}
+        initialIpr={receiveInitialIpr}
         onClose={() => {
           setReceiveModalOpen(false);
           setReceiveIprUid(null);
+          setReceiveInitialIpr(null);
         }}
         onSuccess={() => {
           setSelected(null);

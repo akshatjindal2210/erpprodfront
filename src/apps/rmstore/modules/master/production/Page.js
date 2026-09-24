@@ -54,10 +54,7 @@ export default function ProductionMasterPage() {
       const base = {
         sortBy: params.sortKey || "production_id",
         order: params.sortDir.toUpperCase(),
-        filters: {
-          ...(params.status === "approved" && { approved: true }),
-          ...(params.status === "pending" && { approved: false }),
-        },
+        filters: {},
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
         const body = await productionService.getAll({ ...base, page, limit });
@@ -71,7 +68,7 @@ export default function ProductionMasterPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir, params.status]);
+  }, [params.pageSize, params.sortKey, params.sortDir]);
 
   useEffect(() => {
     fetchProductions();
@@ -80,14 +77,19 @@ export default function ProductionMasterPage() {
   const filteredRows = useMemo(() => {
     const q = String(tempSearch || "").trim();
     let data = allRows;
+    if (params.status === "approved") {
+      data = data.filter((row) => row.approved === true);
+    } else if (params.status === "pending") {
+      data = data.filter((row) => row.approved !== true);
+    }
     if (q) {
-      data = applyClientSearch(allRows, tempSearch, {
+      data = applyClientSearch(data, tempSearch, {
         getParts: productionSearchParts,
         skipSort: !!params.sortKey,
       });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir, params.status]);
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
@@ -308,6 +310,9 @@ export default function ProductionMasterPage() {
         <ListPageFilterStrip>
           <DateRangeFilter
             showDate={false}
+            instantClientExtras
+            showSearchButton={false}
+            applyOnSearchEnter={false}
             extraFilters={extraFilters}
             onApply={handleFilterApply}
             onReset={handleReset}
@@ -316,9 +321,6 @@ export default function ProductionMasterPage() {
             searchPlaceholder="Search by production item or any mapped RM"
             searchLabel="Search Production"
             searchVariant="quick"
-            showSearchButton
-            applyOnSearchEnter
-            applyExtrasOnChange={false}
           />
         </ListPageFilterStrip>
 

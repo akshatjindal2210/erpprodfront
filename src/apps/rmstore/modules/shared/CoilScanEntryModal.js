@@ -5,7 +5,7 @@ import { Check, CheckCircle2, ChevronRight, Loader2, Plus, ScanLine, Camera, Map
 
 import "@/apps/ims/lib/config/inwardUi.theme.css";
 
-import { coilHelperContext, lookupCoilByUid, lookupCoils } from "@/apps/rmstore/lib/helpers/coilLookup";
+import { lookupCoilByUid, lookupCoils } from "@/apps/rmstore/lib/services/coil";
 import { STORE_OUT_REASON_MAX_LEN } from "@/apps/rmstore/lib/constants/outEntryTypes";
 import { RM_OUT_ENTRY_MODE_PICKER_OPTIONS, RM_OUT_ENTRY_PICKER_ACCENT } from "@/apps/rmstore/lib/constants/outEntryPickerOptions";
 import { outEntryService } from "@/apps/rmstore/lib/services/outEntry";
@@ -117,7 +117,7 @@ function locationRowLabel(loc) {
   return bits.length ? `${base} · ${bits.join(" · ")}` : base;
 }
 
-async function fetchRejectionCoilUids(rejectId, seed = {}, coilCtx) {
+async function fetchRejectionCoilUids(rejectId, seed = {}, pageModule) {
   const uids = new Set(parseSeedCoilUidList(seed));
   try {
     const regRes = await rmRejectionService.getById(rejectId);
@@ -137,13 +137,7 @@ async function fetchRejectionCoilUids(rejectId, seed = {}, coilCtx) {
   for (const status of ["rejected", "active"]) {
     if (uids.size) break;
     try {
-      const res = await lookupCoils(
-        {
-          filters: { qc_reject_uid: rejectId, status },
-          limit: 5000,
-        },
-        coilCtx
-      );
+      const res = await lookupCoils(pageModule, { filters: { qc_reject_uid: rejectId, status }, limit: 5000 });
       for (const c of res?.data ?? []) {
         const uid = String(c?.coil_no_uid || "").trim();
         if (uid) uids.add(uid);
@@ -189,11 +183,11 @@ function enrichMrnPlan(plan) {
   };
 }
 
-async function fetchCoilsDetailed(uids = [], coilCtx) {
+async function fetchCoilsDetailed(uids = [], pageModule) {
   const fetched = [];
   for (const uid of uids) {
     try {
-      const coil = await lookupCoilByUid(uid, coilCtx);
+      const coil = await lookupCoilByUid(uid, pageModule);
       if (coil) fetched.push(coil);
     } catch {
       /* skip missing */
@@ -258,10 +252,6 @@ export default function CoilScanEntryModal({
   const isApproveMode = isOutMode && approveMode;
   const isViewOnly = isOutMode && viewOnly;
   const isEdit = isOutMode && editItem?.out_uid != null;
-  const coilCtx = useMemo(
-    () => coilHelperContext(permissionModule, "view"),
-    [permissionModule]
-  );
   const isAuthorizedEdit =
     isEdit &&
     (editItem?.approved === true ||
@@ -455,9 +445,9 @@ export default function CoilScanEntryModal({
         ...seed,
         coil_no_uid: seed?.coil_no_uid ?? registerMeta?.coil_no_uid,
         coil_uids: seed?.coil_uids ?? registerMeta?.coils?.map((c) => c.coil_no_uid),
-      }, coilCtx);
+      }, permissionModule);
 
-      const fetched = uids.length ? await fetchCoilsDetailed(uids, coilCtx) : [];
+      const fetched = uids.length ? await fetchCoilsDetailed(uids, permissionModule) : [];
       if (!fetched.length && !Number(seed.coil_count)) {
         showScanToast("error", "rej-empty", "No coils were found for this rejection register.");
         return null;
@@ -494,7 +484,7 @@ export default function CoilScanEntryModal({
       if (!keepScanned) setCoils([]);
       return enriched;
     },
-    [showScanToast, coilCtx]
+    [showScanToast, permissionModule]
   );
 
   const fetchPendingJobCardRow = useCallback(async (jcKey) => {
@@ -711,7 +701,7 @@ export default function CoilScanEntryModal({
       let coil = findMatchingCoil(uid, livePlanCoils);
 
       if (!coil) {
-        coil = await lookupCoilByUid(uid, coilCtx);
+        coil = await lookupCoilByUid(uid, permissionModule);
       }
       if (!coil) {
         showScanToast("error", "coil-missing", "Coil not found. Check the UID and try again.");

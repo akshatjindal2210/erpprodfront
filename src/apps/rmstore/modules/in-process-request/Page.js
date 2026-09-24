@@ -85,7 +85,6 @@ const PENDING_SHOP_FLOOR_HEADERS = [
   ["Qty", "qty", renderCoilQtyCell, { width: "70px", align: "center" }],
   ["Heat No", "heat_no", (v) => renderCoilCompactCell(v, "font-mono text-slate-700"), { width: "130px" }],
   ["Out UID", "out_uid", renderCoilOutUidCell, { width: "80px", copyValue: (row) => (row.out_uid != null ? String(row.out_uid) : "—") }],
-  ["Coils", "coil_count", (v) => <span className="font-bold tabular-nums text-[11px]">{v ?? 0}</span>, { width: "65px", align: "center" }],
 ];
 
 const PENDING_CARD_CONFIG = {
@@ -121,45 +120,10 @@ function buildCoilUidLabel(coilUids = [], fallback = "—") {
   return uniqueUids.length ? uniqueUids.join(", ") : fallback;
 }
 
-function buildPendingShopFloorGroupKey(row = {}) {
-  return [row.pjobcardno || "—", row.macname || "—", row.mrn_uid || row.mrn_no || "—"].join("|");
-}
-
-function aggregatePendingShopFloorRows(rows = []) {
-  const grouped = new Map();
-
-  rows.forEach((row) => {
-    const key = buildPendingShopFloorGroupKey(row);
-    const existing = grouped.get(key);
-    const coilUid = String(row?.coil_no_uid || "").trim();
-    const rowQty = Number(row?.qty) || 0;
-
-    if (!existing) {
-      grouped.set(key, {
-        ...row,
-        _pendingKind: PENDING_KIND.SHOP_FLOOR,
-        _pendingGroupKey: key,
-        _coilUids: coilUid ? [coilUid] : [],
-        coil_no_uid: buildCoilUidLabel(coilUid ? [coilUid] : []),
-        coil_count: coilUid ? 1 : 0,
-        qty: rowQty,
-      });
-      return;
-    }
-
-    const hasCoil = coilUid && !existing._coilUids.includes(coilUid);
-    const nextCoils = hasCoil ? [...existing._coilUids, coilUid] : existing._coilUids;
-    existing._coilUids = nextCoils;
-    existing.coil_count = nextCoils.length;
-    existing.coil_no_uid = buildCoilUidLabel(nextCoils);
-    existing.qty = (Number(existing.qty) || 0) + rowQty;
-  });
-
-  return [...grouped.values()];
-}
-
 function pendingRowId(row) {
-  if (isShopFloorPendingRow(row)) return `sf:${row?._pendingGroupKey || row?.coil_no_uid || ""}`;
+  if (isShopFloorPendingRow(row)) {
+    return `sf:${row?.coil_uid ?? row?.coil_no_uid ?? `${row?.out_uid ?? ""}-${row?.mrn_uid ?? ""}`}`;
+  }
   return `ipr:${row?.ipr_uid ?? ""}`;
 }
 
@@ -276,8 +240,9 @@ export default function InProcessRequestPage() {
         const shopRowsRaw = (shopFloor.data || []).map((row) => ({
           ...row,
           _pendingKind: PENDING_KIND.SHOP_FLOOR,
+          coil_count: 1,
         }));
-        const shopRows = aggregatePendingShopFloorRows(shopRowsRaw);
+        const shopRows = shopRowsRaw;
         const iprRows = (pendingIprs.data || []).map(mapPendingIprToShopFloorColumns);
         setAllRows([...iprRows, ...shopRows]);
       } else {
@@ -391,16 +356,9 @@ export default function InProcessRequestPage() {
   const openUpdateStatusFromPending = useCallback(
     (row) => {
       if (!row?.coil_no_uid || !isShopFloorPendingRow(row)) return;
-      if ((Number(row?.coil_count) || 0) > 1) {
-        toast.info("This row contains multiple coils. Use New and scan a single coil to update status.");
-        return;
-      }
       if (!addAccess.allowed) return;
       setSelected(pendingRowId(row));
-      setEditItem({
-        ...row,
-        coil_no_uid: Array.isArray(row?._coilUids) && row._coilUids.length ? row._coilUids[0] : row.coil_no_uid,
-      });
+      setEditItem({ ...row });
       setModalMode("add");
       setModalOpen(true);
     },
@@ -480,25 +438,6 @@ export default function InProcessRequestPage() {
     setModalOpen(true);
   };
 
-  const handleReceiveStoreIn = useCallback(async () => {
-    if (!selectedRecord?.ipr_uid) return;
-    if (selectedRecord.downstream !== IPR_DOWNSTREAM.PENDING_STORE_IN) return;
-    try {
-      const res = await inProcessRequestService.completeStoreIn(selectedRecord.ipr_uid);
-      toast.success(res?.message || "Store-in received to Unassigned Area.");
-      await fetchRows();
-    } catch (err) {
-      toast.error(err?.message || "Could not receive the store-in request.");
-    }
-  }, [selectedRecord, fetchRows]);
-
-  const canReceiveSelected =
-    !isPendingTab &&
-    selectedRecord?.approved === true &&
-    selectedRecord?.downstream === IPR_DOWNSTREAM.PENDING_STORE_IN &&
-    (selectedRecord?.request_type === IPR_REQUEST_TYPE.STORE_IN ||
-      selectedRecord?.request_type === IPR_REQUEST_TYPE.CONSUME);
-
   const registerHeaders = useMemo(
     () => [
       ["IPR UID", "ipr_uid", (v) => <span className="font-bold text-teal-700 text-[10px]">{v}</span>, { fixed: true, width: "90px" }],
@@ -563,6 +502,8 @@ export default function InProcessRequestPage() {
           const cls =
             label === "Full"
               ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+              : label === "Reassign"
+                ? "bg-indigo-50 text-indigo-800 border-indigo-200"
               : label === "Balance"
                 ? "bg-amber-50 text-amber-800 border-amber-200"
                 : label === "Rejected"
@@ -724,15 +665,6 @@ export default function InProcessRequestPage() {
                   onClick={() => setDeleteItem(selectedRecord)}
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                 />
-                {canReceiveSelected ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleReceiveStoreIn()}
-                    className="h-9 px-3 border border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 rounded-none text-[10px] font-black uppercase shrink-0"
-                  >
-                    Receive to Unassigned Area
-                  </button>
-                ) : null}
                 <div className="hidden sm:block w-px h-6 bg-slate-200 mx-1 shrink-0" />
                 <button
                   type="button"

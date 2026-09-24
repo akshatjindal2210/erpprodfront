@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Loader2, ScanLine, CameraOff, Layers, Package, Info, QrCode } from "lucide-react";
+import { Loader2, ScanLine, CameraOff, Layers, Package, QrCode, Factory } from "lucide-react";
 import Drawer from "@/ui/primitives/Drawer";
 import Snackbar from "@/ui/primitives/Snackbar";
-import { coilHelperContext, lookupCoilByUid } from "@/apps/rmstore/lib/helpers/coilLookup";
+import { lookupCoilByUid } from "@/apps/rmstore/lib/services/coil";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
 import { extractCoilUid, coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
 import { playScanSuccessBeep, prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
@@ -16,6 +16,7 @@ import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/de
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import CoilFinderDetailsSection from "./CoilFinderDetailsSection";
 import CoilFinderPlacementSection, { coilFinderHeaderTone } from "./CoilFinderPlacementSection";
+import { fgWireSplitKindShort, formatPjobcardnoDisplay, getCoilStockZone, partitionFgWireSplits, resolveCoilJobCardLabel, resolveCoilMachineLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "info", title: "", message: "", duration: SNACK_DUR.med };
@@ -24,7 +25,7 @@ const COIL_FINDER_SCANNER_ID = "rm-coil-finder-scanner-reader";
 function IconLabeledRow({ icon: Icon, label, children, iconClass = "text-slate-400" }) {
   return (
     <div className="flex items-start gap-2.5">
-      <div className={`w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 ${iconClass}`}>
+      <div className={`w-8 h-8 rounded-lg bg-white/70 border border-white/80 flex items-center justify-center shrink-0 ${iconClass}`}>
         <Icon size={16} strokeWidth={1.75} />
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
@@ -35,7 +36,34 @@ function IconLabeledRow({ icon: Icon, label, children, iconClass = "text-slate-4
   );
 }
 
-export default function CoilFinderDrawer({ open, onClose }) {
+function FgWireSplitBody({ split, reassign }) {
+  if (!split) return <span className="font-mono uppercase">—</span>;
+  return (
+    <div className="leading-snug">
+      <span className={`font-mono uppercase font-semibold ${reassign ? "text-indigo-700" : "text-slate-900"}`}>
+        {split.fg_item_code}
+      </span>
+      <span className="text-[11px] font-normal text-slate-600 normal-case">
+        {" "}
+        · {fgWireSplitKindShort(split.kind)}{" "}
+        <span className="font-bold tabular-nums text-slate-800">
+          {split.wire_qty_label ||
+            (split.wire_qty != null ? `${split.wire_qty}${split.wire_unit ? ` ${split.wire_unit}` : ""}` : "—")}
+        </span>
+      </span>
+      {split.pjobcardno ? (
+        <p className="text-[10px] font-mono uppercase text-slate-500 mt-0.5">{formatPjobcardnoDisplay(split.pjobcardno)}</p>
+      ) : null}
+      {split.fg_item_desc &&
+      String(split.fg_item_desc).trim() &&
+      String(split.fg_item_desc).trim().toUpperCase() !== String(split.fg_item_code || "").trim().toUpperCase() ? (
+        <p className="text-[10px] font-normal text-slate-500 normal-case mt-0.5">{split.fg_item_desc}</p>
+      ) : null}
+    </div>
+  );
+}
+
+export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm_coils" }) {
   const [loading, setLoading] = useState(false);
   const [coilData, setCoilData] = useState(null);
   const [cameraOn, setCameraOn] = useState(false);
@@ -63,7 +91,7 @@ export default function CoilFinderDrawer({ open, onClose }) {
     setCoilData(null);
 
     try {
-      const coil = await lookupCoilByUid(coilUid, coilHelperContext("rm_coils", "view"));
+      const coil = await lookupCoilByUid(coilUid, permissionModule, "view", { finder: true });
       if (!coil) {
         showScanToast("error", "coil-not-found", "Coil not found. Check the UID and try again.");
         return;
@@ -135,6 +163,7 @@ export default function CoilFinderDrawer({ open, onClose }) {
   }, [onClose, stopCamera]);
 
   const headerTone = coilData ? coilFinderHeaderTone(coilData) : null;
+  const fgPartition = coilData ? partitionFgWireSplits(coilData.fg_wire_splits) : { primary: null, others: [] };
 
   return (
     <>
@@ -221,18 +250,59 @@ export default function CoilFinderDrawer({ open, onClose }) {
                       Qty <span className="font-semibold">{coilData.qty ?? "—"}</span>
                     </p>
                     <div className={`mt-2 pt-2 border-t ${headerTone.divider} space-y-2.5`}>
-                      <IconLabeledRow icon={Package} label="Item code" iconClass="text-indigo-500">
+                      <IconLabeledRow icon={Package} label="RM wire item" iconClass="text-indigo-500">
                         <span className="font-mono uppercase">{coilData.item_code || "—"}</span>
+                        {coilData.item_desc && (coilData.item_desc).trim() && String(coilData.item_desc).trim() !== String(coilData.item_code || "").trim() ? (
+                          <p className="text-[11px] font-normal text-slate-600 normal-case mt-0.5">{coilData.item_desc}</p>
+                        ) : null}
                       </IconLabeledRow>
-                      <IconLabeledRow icon={Info} label="Item description" iconClass="text-indigo-400">
-                        <span className="font-normal">{coilData.item_desc || "—"}</span>
+                      <IconLabeledRow icon={Factory} label="FG item (production)" iconClass="text-violet-600">
+                        {fgPartition.primary ? (
+                          <FgWireSplitBody split={fgPartition.primary} reassign={coilData.reassign} />
+                        ) : (
+                          <span className="font-mono uppercase">{coilData.fg_item_code || "—"}</span>
+                        )}
+                        {!fgPartition.primary &&
+                        coilData.fg_item_desc &&
+                        String(coilData.fg_item_desc).trim() &&
+                        String(coilData.fg_item_desc).trim() !== String(coilData.fg_item_code || "").trim() ? (
+                          <p className="text-[11px] font-normal text-slate-600 normal-case mt-0.5">{coilData.fg_item_desc}</p>
+                        ) : !fgPartition.primary && !coilData.fg_item_code && !coilData.fg_item_desc ? (
+                          <p className="text-[10px] font-normal text-slate-400 normal-case mt-0.5">
+                            Job card on shop floor, or Item RM Master when coil is in store
+                          </p>
+                        ) : null}
                       </IconLabeledRow>
+                      {getCoilStockZone(coilData) === "out" ? (
+                        <>
+                          <IconLabeledRow icon={Layers} label="Job card" iconClass="text-indigo-500">
+                            <span className={`font-mono uppercase ${coilData.reassign ? "text-indigo-700" : ""}`}>
+                              {resolveCoilJobCardLabel(coilData)}
+                            </span>
+                          </IconLabeledRow>
+                          <IconLabeledRow icon={Package} label="Machine" iconClass="text-indigo-500">
+                            <span className="font-mono uppercase">{resolveCoilMachineLabel(coilData)}</span>
+                          </IconLabeledRow>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                 </div>
               </div>
 
+              {fgPartition.others.map((split, idx) => (
+                <div
+                  key={`${split.fg_item_code}-${split.kind}-${idx}`}
+                  className={`p-3 rounded-xl border ${headerTone.shell}`}
+                >
+                  <IconLabeledRow icon={Factory} label="FG item (production)" iconClass="text-violet-600">
+                    <FgWireSplitBody split={split} reassign={coilData.reassign} />
+                  </IconLabeledRow>
+                </div>
+              ))}
+
               <CoilFinderPlacementSection coil={coilData} />
+
               <CoilFinderDetailsSection coil={coilData} />
             </div>
           ) : (

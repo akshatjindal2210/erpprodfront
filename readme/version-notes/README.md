@@ -4,6 +4,7 @@ Cross-app **internal helper API** catalog (paths, allowlists, caller pages): [..
 
 | Note | Topic |
 |------|--------|
+| [v4.4.0.md](./v4.4.0.md) | User attributes · Store In receive · IPR reassign · Coil Finder FG · RM masters |
 | [v4.3.10.md](./v4.3.10.md) | List footer · IPR Job Card · Invoice Receiving · QR / Gate Entry · RM Inventory speed · RM search · Logs · HRMS Attendance photos |
 | [v4.3.9.md](./v4.3.9.md) | RM Issue Request FIFO · print · IPR pending · MRN coil count from lot · Inventory location · Store Out UX |
 | [v4.3.8.md](./v4.3.8.md) | Auto Deviation · RM MRN/SA workflow · QC · Store Out fix · Tab order · HRMS Attendance Log |
