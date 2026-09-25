@@ -9,7 +9,7 @@ import { APP_TYPE_LABELS } from "@/config/moduleAppRegistry";
 import Drawer from "@/ui/primitives/Drawer";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { FormLabel, OK_INPUT, ERR_INPUT, OK_TEXTAREA, ERR_TEXTAREA } from "@/ui/common/Constants";
-import { TRIGGER_EVENT_OPTIONS, TRIGGER_EVENT_LABELS, WHATSAPP_OPTIONS, SYSTEM_VARIABLES, AUDIENCE_DIM_OPTIONS, normalizeAudience, audienceHasAny, roleLabel } from "./moduleTemplateConfig";
+import { TRIGGER_EVENT_OPTIONS, TRIGGER_EVENT_LABELS, WHATSAPP_OPTIONS, SYSTEM_VARIABLES, DEFAULT_MODULE_NOTIFY_SUBJECT, DEFAULT_MODULE_NOTIFY_MESSAGE, AUDIENCE_DIM_OPTIONS, normalizeAudience, audienceHasAny, roleLabel, createEmptyAudience } from "./moduleTemplateConfig";
 
 const ALL_ID = "*";
 const FIELD_ORDER = ["module_id", "name", "trigger_events", "audience", "channels", "message"];
@@ -17,21 +17,13 @@ const FIELD_INPUT = "text-[11px] h-[38px] rounded-lg";
 const SELECT_CLS = `${OK_INPUT} ${FIELD_INPUT} appearance-none`;
 const ERR_TXT = "text-[9px] text-rose-500 font-bold ml-1 flex items-center gap-1";
 
-const emptyAudience = () => ({
-  departments: { all: false, ids: [] },
-  designations: { all: false, ids: [] },
-  attributes: { all: false, ids: [] },
-  roles: { all: false, ids: [] },
-  users: { all: false, ids: [] },
-});
-
 const EMPTY_FORM = {
   module_id: "",
   name: "",
-  subject: "",
-  message: "",
+  subject: DEFAULT_MODULE_NOTIFY_SUBJECT,
+  message: DEFAULT_MODULE_NOTIFY_MESSAGE,
   trigger_events: [],
-  audience: emptyAudience(),
+  audience: createEmptyAudience(),
   pwa_enabled: true,
   email_enabled: false,
   send_via: "none",
@@ -132,7 +124,7 @@ export default function NotificationTemplateModal({ slot, options, onClose, onSu
     } else {
       setForm({
         ...EMPTY_FORM,
-        audience: emptyAudience(),
+        audience: createEmptyAudience(),
         module_id: slot?.moduleId ?? "",
         trigger_events: slot?.presetEvents ?? [],
       });
@@ -154,6 +146,16 @@ export default function NotificationTemplateModal({ slot, options, onClose, onSu
     [options]
   );
   const moduleServices = useMemo(() => makeStaticServices(moduleRows), [moduleRows]);
+
+  const selectedModuleName = useMemo(() => {
+    const row = (options?.modules ?? []).find((m) => String(m.id) === String(form.module_id));
+    return row?.name ?? null;
+  }, [form.module_id, options]);
+
+  const recordVariables = useMemo(() => {
+    if (!selectedModuleName) return [];
+    return options?.record_variables_by_module?.[selectedModuleName] ?? [];
+  }, [selectedModuleName, options]);
 
   const dimRows = useMemo(() => {
     const o = options ?? {};
@@ -516,18 +518,41 @@ export default function NotificationTemplateModal({ slot, options, onClose, onSu
             </p>
           )}
           {!viewOnly && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {SYSTEM_VARIABLES.map((v) => (
-                <button
-                  key={v.key}
-                  type="button"
-                  onClick={() => insertVariable(v.key)}
-                  className="px-2 py-1 text-[10px] font-mono text-slate-600 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 hover:text-indigo-700 transition-colors"
-                  title={v.label}
-                >
-                  {`{{${v.key}}}`}
-                </button>
-              ))}
+            <div className="space-y-1.5 pt-1">
+              <p className="text-[9px] text-slate-500 font-medium">System variables</p>
+              <div className="flex flex-wrap gap-1.5">
+                {SYSTEM_VARIABLES.map((v) => (
+                  <button
+                    key={v.key}
+                    type="button"
+                    onClick={() => insertVariable(v.key)}
+                    className="px-2 py-1 text-[10px] font-mono text-slate-600 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 hover:text-indigo-700 transition-colors"
+                    title={v.label}
+                  >
+                    {`{{${v.key}}}`}
+                  </button>
+                ))}
+              </div>
+              {recordVariables.length > 0 && (
+                <>
+                  <p className="text-[9px] text-slate-500 font-medium pt-0.5">
+                    Record fields (from database table columns; list updates when the schema changes)
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                    {recordVariables.map((v) => (
+                      <button
+                        key={v.key}
+                        type="button"
+                        onClick={() => insertVariable(v.key)}
+                        className="px-2 py-1 text-[10px] font-mono text-emerald-800 bg-emerald-50/80 border border-emerald-200 rounded-lg hover:border-emerald-400 transition-colors"
+                        title={v.label}
+                      >
+                        {`{{${v.key}}}`}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

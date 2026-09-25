@@ -10,7 +10,8 @@ function skipInert(el) {
     el.hasAttribute?.("data-searchable-select-portal") ||
     el.hasAttribute?.("data-dashboard-column-filter-menu") ||
     el.hasAttribute?.("data-file-preview-overlay") ||
-    el.hasAttribute?.("data-qr-scanner-overlay")
+    el.hasAttribute?.("data-qr-scanner-overlay") ||
+    el.hasAttribute?.("data-scan-snackbar-overlay")
   );
 }
 

@@ -533,6 +533,11 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
         });
         if (added) void playScanSuccessBeep();
       }
+      if (opts.closeScanner) {
+        setIsScannerOpen(false);
+        setActiveLocIdxForScan(null);
+        scanLocIdxRef.current = null;
+      }
       return true;
     },
     [showScanToast]
@@ -708,12 +713,11 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
 
   const handleCameraDecoded = (decodedText) => {
     const locIdx = scanLocIdxRef.current;
-    closeScanner();
     if (locIdx != null) {
       void tryAddCoilRef.current(locIdx, decodedText);
-    } else {
-      void processLocationScanRef.current(decodedText, { fromCamera: true });
+      return;
     }
+    void processLocationScanRef.current(decodedText, { fromCamera: true, closeScanner: true });
   };
 
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({

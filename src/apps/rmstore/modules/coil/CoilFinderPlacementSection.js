@@ -2,11 +2,48 @@
 
 import { MapPin } from "lucide-react";
 import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
-import {
-  getCoilStockZone,
-  resolveCoilLocationDetail,
-  resolveCoilLocationLabel,
-} from "@/apps/rmstore/modules/coil/coilTableVisuals";
+import { isSaMinusWriteOff } from "@/apps/rmstore/lib/utils/saMinusInventory";
+import { getCoilStockZone, resolveCoilJobCardLabel, resolveCoilLocationDetail, resolveCoilLocationLabel, resolveCoilMachineLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
+
+function ImsDetail({ label, value, mono, uppercase }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[9px] font-bold uppercase text-blue-500">{label}</dt>
+      <dd
+        className={`text-[11px] font-semibold text-blue-900 break-words ${mono ? "font-mono" : ""} ${uppercase ? "uppercase" : ""}`}
+      >
+        {value || "—"}
+      </dd>
+    </div>
+  );
+}
+
+/** Consumed coils (IPR consume or SA minus). */
+export function CoilFinderConsumedDetails({ coil }) {
+  if (!coil || getCoilStockZone(coil) !== "consumed") return null;
+
+  const iprUid = coil.ipr_uid != null && String(coil.ipr_uid).trim() !== "" ? String(coil.ipr_uid).trim() : null;
+  const saId = coil.sa_id != null && String(coil.sa_id).trim() !== "" ? String(coil.sa_id).trim() : null;
+  const saMinus = isSaMinusWriteOff(coil) || (saId != null && !iprUid);
+  const entryType = saMinus ? "STOCK ADJUSTMENT MINUS" : iprUid ? "IN-PROCESS CONSUME" : "CONSUMED";
+  const footnote = saMinus
+    ? "No rack shown — this coil was removed by stock adjustment."
+    : "No rack shown — this coil has been consumed.";
+
+  return (
+    <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
+      <p className="text-xs font-semibold text-blue-900">Consumed Details</p>
+      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+        {iprUid ? <ImsDetail label="IPR UID" value={`IPR-${iprUid}`} mono /> : null}
+        {saId ? <ImsDetail label="Adjustment" value={`SA-${saId}`} mono /> : null}
+        {iprUid ? <ImsDetail label="Job Card" value={resolveCoilJobCardLabel(coil)} mono uppercase /> : null}
+        {iprUid ? <ImsDetail label="Machine" value={resolveCoilMachineLabel(coil)} mono uppercase /> : null}
+        <ImsDetail label="Entry Type" value={entryType} uppercase />
+      </dl>
+      <p className="text-[11px] text-blue-800 mt-2 leading-snug">{footnote}</p>
+    </div>
+  );
+}
 
 function physicalLocation(locationData, coil) {
   const src = locationData || coil;

@@ -24,7 +24,6 @@ import DataTable from "@/ui/primitives/DataTable";
 import ActionButton from "@/ui/primitives/ActionButton";
 import InvoiceReceivingModal from "./InvoiceReceivingModal";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
-import { MODULE_DATES } from "@/platform/config/moduleDates.config";
 import { canIrApproveRow, canIrClearReceivingRow, canIrEditOnPendingTab, canIrEditOnRegisterTab, formatImsErpScalar, formatIrBillDate, formatIrDateTime, getIrPendingRowClassName, hasIrReceivingFile, irRemarksDisplay, isImsErpNullLiteral, isIrApproved, isIrAwaitingReceive, filterIrRegisterRows, isIrReceivedNotApproved, mergeIrPendingRows } from "./invoiceReceivingUtils";
 /* Re-enable with Attachments column:
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
@@ -86,26 +85,20 @@ function useIrData(viewAccess, isPending, registerFrom, registerTo) {
     const seq = ++seqRef.current;
     setLoading(true);
     try {
-      const pRes = await invoiceReceivingService.list("");
+      // Pending = unmatched gates; merge = all matched-but-not-approved (no date — IR does not bump gate updated_at)
+      const [pRes, mergeRes] = await Promise.all([
+        invoiceReceivingService.list(""),
+        invoiceReceivingService.list("register", { gate_registered_only: true }),
+      ]);
       if (seq !== seqRef.current) return;
       if (!pRes?.success) throw new Error(pRes?.message || "Failed to load pending.");
-      const pendingRaw = irRows(pRes);
-      setPendingRows(mergeIrPendingRows(pendingRaw, []));
-      setLoading(false);
-      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-      invoiceReceivingService.list("register", {
-        from_date: MODULE_DATES.ims.invoiceReceiving.pendingMergeFrom,
-        to_date: today,
-        gate_registered_only: true,
-      }).then((rRes) => {
-        if (seq !== seqRef.current) return;
-        if (rRes?.success) setPendingRows(mergeIrPendingRows(pendingRaw, irRows(rRes)));
-      });
+      setPendingRows(mergeIrPendingRows(irRows(pRes), mergeRes?.success ? irRows(mergeRes) : []));
     } catch (err) {
       if (seq !== seqRef.current) return;
       toast.error(err?.message || "Failed to load.");
       setPendingRows([]);
-      setLoading(false);
+    } finally {
+      if (seq === seqRef.current) setLoading(false);
     }
   }, [viewAccess]);
 
@@ -157,12 +150,7 @@ function useIrData(viewAccess, isPending, registerFrom, registerTo) {
     const seq = ++seqRef.current;
     try {
       const pendingReq = invoiceReceivingService.list("");
-      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-      const mergeReq = invoiceReceivingService.list("register", {
-        from_date: MODULE_DATES.ims.invoiceReceiving.pendingMergeFrom,
-        to_date: today,
-        gate_registered_only: true,
-      });
+      const mergeReq = invoiceReceivingService.list("register", { gate_registered_only: true });
       const tabReq = registerQuery ? invoiceReceivingService.list("register", registerQuery) : null;
       const [pRes, mergeRes, tabRes] = await Promise.all([
         pendingReq,

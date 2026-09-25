@@ -17,20 +17,22 @@ export function normalizeScanInput(rawValue) {
 
 /**
  * Extract coil UID from scan / typed input.
- * Accepts RM_… stickers, underscore UIDs, or plain typed UID text.
+ * Accepts plain UID, `QC|…` rejected, or public URL `?coil_no_uid=…` (not kind=qc).
  */
 export function extractCoilUid(rawValue) {
   const trimmed = normalizeScanInput(rawValue);
   if (!trimmed) return null;
 
-  // QC stickers use QC|{uid} — not valid as coil sticker scans
+  // QC stickers — not valid as coil sticker scans
   if (/^QC\s*[|:]/i.test(trimmed)) return null;
+  if (/[?&]qc=/i.test(trimmed) || /[?&]kind=qc\b/i.test(trimmed)) return null;
 
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
       const parsed = JSON.parse(trimmed);
-      const fromJson =
-        parsed?.coil_no_uid ?? parsed?.coil_uid ?? parsed?.uid ?? parsed?.id ?? null;
+      const kind = String(parsed?.kind || parsed?.sticker_kind || "").toLowerCase();
+      if (kind === "qc") return null;
+      const fromJson = parsed?.coil_no_uid ?? parsed?.coil_uid ?? parsed?.uid ?? parsed?.id ?? null;
       if (fromJson != null && String(fromJson).trim() !== "") {
         return String(fromJson).trim();
       }
@@ -55,10 +57,8 @@ export function extractCoilUid(rawValue) {
   );
   if (labeled?.[1]) return labeled[1].trim();
 
-  // URL-like without usable coil param — reject
   if (/^https?:\/\//i.test(trimmed) || trimmed.includes("://")) return null;
 
-  // Coil stickers: underscore UID (year_mrn_…) or plain typed text
   if (trimmed.includes("_") || /^[A-Za-z0-9-]+$/.test(trimmed)) {
     return trimmed;
   }
@@ -74,17 +74,10 @@ export function extractLocationNo(rawValue) {
   const normalizedValue = normalizeScanInput(rawValue);
   if (!normalizedValue) return null;
 
-  // Coil scans should not resolve as locations (UID has underscores / year_mrn pattern)
-  if (/\bcoil(?:_no)?\s*uid\b/i.test(normalizedValue)) {
-    return null;
-  }
-  // Coil / QC stickers must not resolve as locations (format lives in stickerUidFormat.js)
-  if (looksLikeStickerUid(normalizedValue)) {
-    return null;
-  }
-  if (/^QC\s*[|:]/i.test(normalizedValue)) {
-    return null;
-  }
+  if (/\bcoil(?:_no)?\s*uid\b/i.test(normalizedValue)) return null;
+  if (looksLikeStickerUid(normalizedValue)) return null;
+  if (/^QC\s*[|:]/i.test(normalizedValue)) return null;
+  if (/[?&](coil_no_uid|box_no_uid|fuid|kind=qc|qc=)=/i.test(normalizedValue)) return null;
 
   if (normalizedValue.startsWith("{") && normalizedValue.endsWith("}")) {
     try {
@@ -100,12 +93,22 @@ export function extractLocationNo(rawValue) {
     }
   }
 
+  const qp = normalizedValue.match(/[?&]location_no=([^&#\s]+)/i);
+  if (qp?.[1]) {
+    try {
+      return decodeURIComponent(qp[1].replace(/\+/g, " ")).trim().toUpperCase();
+    } catch {
+      return qp[1].trim().toUpperCase();
+    }
+  }
+
+  if (/^https?:\/\//i.test(normalizedValue) || normalizedValue.includes("://")) return null;
+
   const locationNoMatch = normalizedValue.match(
     /\blocation[_\s]*(?:no|id)\s*[:=-]?\s*([A-Za-z0-9_-]+)\b/i
   );
   if (locationNoMatch?.[1]) return locationNoMatch[1].trim().toUpperCase();
 
-  // Plain RM-… sticker / typed location no
   const cleaned = normalizedValue.replace(/\s+/g, "").toUpperCase();
   if (!cleaned) return null;
   return cleaned;
@@ -128,8 +131,7 @@ export function locationNoDisplayLabel(rawValue) {
 }
 
 /**
- * QC sticker QR: `QC|{coil_no_uid}` or `QC|{mrn_uid}_batch_qc`.
- * Returns payload uid only when scan is a QC sticker — not plain coil / MRN / user.
+ * QC sticker QR: `QC|{uid}`, or public URL `?qc=…` (also accepts legacy `?kind=qc&coil_no_uid=…`).
  */
 export function extractQcStickerUid(rawValue) {
   const trimmed = normalizeScanInput(rawValue);
@@ -140,7 +142,7 @@ export function extractQcStickerUid(rawValue) {
       const parsed = JSON.parse(trimmed);
       const kind = String(parsed?.kind || parsed?.sticker_kind || "").toLowerCase();
       if (kind === "qc") {
-        const fromJson = parsed?.coil_no_uid ?? parsed?.uid ?? null;
+        const fromJson = parsed?.coil_no_uid ?? parsed?.uid ?? parsed?.qc ?? null;
         if (fromJson != null && String(fromJson).trim() !== "") {
           return String(fromJson).trim();
         }
@@ -155,6 +157,27 @@ export function extractQcStickerUid(rawValue) {
     const uid = m[1].trim();
     return uid || null;
   }
+
+  const qcParam = trimmed.match(/[?&]qc=([^&#\s]+)/i);
+  if (qcParam?.[1]) {
+    try {
+      return decodeURIComponent(qcParam[1].replace(/\+/g, " ")).trim();
+    } catch {
+      return qcParam[1].trim();
+    }
+  }
+
+  if (/[?&]kind=qc\b/i.test(trimmed)) {
+    const qp = trimmed.match(/[?&]coil_no_uid=([^&#\s]+)/i);
+    if (qp?.[1]) {
+      try {
+        return decodeURIComponent(qp[1].replace(/\+/g, " ")).trim();
+      } catch {
+        return qp[1].trim();
+      }
+    }
+  }
+
   return null;
 }
 

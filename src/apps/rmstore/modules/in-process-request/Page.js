@@ -27,6 +27,7 @@ import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
+import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { renderCoilCompactCell, renderCoilMrnCell, renderCoilOutUidCell, renderCoilQtyCell } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 
 const MODULE = "rm_in_process_request";
@@ -69,6 +70,19 @@ const PENDING_SHOP_FLOOR_HEADERS = [
     { width: "120px", align: "center" },
   ],
   [
+    "Shop Floor",
+    "shop_floor_at",
+    (v, row) =>
+      isShopFloorPendingRow(row) ? (
+        <span className="text-[10px] font-bold text-slate-600 tabular-nums whitespace-nowrap">
+          {v ? formatDateTime(v) : "—"}
+        </span>
+      ) : (
+        <span className="text-[10px] text-slate-400">—</span>
+      ),
+    { width: "130px", align: "center" },
+  ],
+  [
     "Coil No",
     "coil_no_uid",
     (v, row) =>
@@ -90,7 +104,7 @@ const PENDING_SHOP_FLOOR_HEADERS = [
 const PENDING_CARD_CONFIG = {
   titleKey: "coil_no_uid",
   badgeIndices: [4],
-  detailKeys: ["item_code", "item_desc", "pjobcardno", "macname", "heat_no", "qty", "mrn_uid", "out_uid"],
+  detailKeys: ["item_code", "item_desc", "pjobcardno", "macname", "shop_floor_at", "heat_no", "qty", "mrn_uid", "out_uid"],
   footerKey: "macname",
 };
 

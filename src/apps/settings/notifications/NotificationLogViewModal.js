@@ -4,6 +4,8 @@ import { X, MessageSquare, Clock, User, Hash, AlertTriangle } from "lucide-react
 import { useEscapeKey } from "@/platform/hooks/system/useEscapeKey";
 import OverlayModal from "@/ui/primitives/OverlayModal";
 
+const INBOX_DELIVERY_RECIPIENT = "In-app notification";
+
 const CHANNEL_LABELS = {
   pwa_push: "PWA Push",
   free: "WhatsApp Free",
@@ -108,6 +110,10 @@ function DeliveryTimeline({ steps }) {
 }
 
 function pushDeliverySummary(log) {
+  const hasInbox = log.inbox_id != null && String(log.inbox_id).trim() !== "";
+  if (log.status === "failed" && hasInbox) {
+    return "In-app notification saved. Browser push failed — open from the notification bell.";
+  }
   if (log.status === "failed") return "Push failed — not delivered.";
   if (log.status === "read") return "User opened the PWA from an authorized portal.";
   if (log.status === "received" || log.received_at) {
@@ -129,10 +135,19 @@ function buildTimelineSteps(log, isPush, isFailed) {
 
   if (isPush) {
     if (isFailed) {
-      steps.push(
-        { key: "received", label: "Received", state: "failed", hint: "Failed" },
-        { key: "read", label: "Read", state: "failed", hint: "N/A" }
-      );
+      const hasInbox = log.inbox_id != null && String(log.inbox_id).trim() !== "";
+      if (hasInbox) {
+        steps.push(
+          { key: "inbox", label: "In-app notification", state: "done", hint: `Inbox #${log.inbox_id}` },
+          { key: "received", label: "Browser push", state: "failed", hint: log.error_detail || "Failed" },
+          { key: "read", label: "Read", state: "pending", hint: "Open from bell" }
+        );
+      } else {
+        steps.push(
+          { key: "received", label: "Received", state: "failed", hint: "Failed" },
+          { key: "read", label: "Read", state: "failed", hint: "N/A" }
+        );
+      }
     } else {
       steps.push({
         key: "received",
@@ -177,6 +192,8 @@ export default function NotificationLogViewModal({ log, onClose, statusLabel }) 
   const userDisplay = log.user_name
     ? `${log.user_name}${log.user_id ? ` (#${log.user_id})` : ""}`
     : null;
+  const recipientDisplay = log.recipient || log.device_name || "-";
+  const inboxDelivery = isPush && recipientDisplay === INBOX_DELIVERY_RECIPIENT;
 
   return (
     <OverlayModal open={!!log} onBackdropClick={onClose} className="p-2 sm:p-4">
@@ -233,15 +250,15 @@ export default function NotificationLogViewModal({ log, onClose, statusLabel }) 
             <SectionCard title="Recipient" icon={User}>
               <dl>
                 <DetailRow label="User" value={userDisplay} />
-                <DetailRow label="To" value={log.recipient} />
-                {isPush && <DetailRow label="Device" value={log.device_name || log.device_id} />}
+                <DetailRow label="To" value={recipientDisplay} />
+                {isPush && !inboxDelivery && <DetailRow label="Device" value={log.device_name || log.device_id} />}
                 {isPush && log.received_at && (
                   <DetailRow label="Received" value={`${log.received_at}${networkLabel ? ` · ${networkLabel}` : ""}`} />
                 )}
                 {isPush && log.received_client_ip && (
                   <DetailRow label="Recv IP" value={log.received_client_ip} mono />
                 )}
-                {isPush && log.device_id && log.device_name && (
+                {isPush && log.device_id && log.device_name && !inboxDelivery && (
                   <DetailRow label="Dev ID" value={log.device_id} mono fullWidth />
                 )}
               </dl>

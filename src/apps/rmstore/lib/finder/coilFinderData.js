@@ -1,6 +1,5 @@
 import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
-import { labelStickerDownloadSource } from "@/platform/utils/global";
 import { getCoilStickerEntries } from "@/apps/rmstore/lib/utils/coilTransactionStickerEntries";
 import { getCoilTxTypeBadgeClass, parseDetails, resolveCoilTxTypeLabel } from "@/apps/rmstore/lib/utils/coilTransactionVisuals";
 import { buildCoilFinderDetailRowsFromConfig } from "@/apps/rmstore/lib/finder/coilFinderFullRecordConfig.js";
@@ -9,6 +8,9 @@ import { formatFgWireSplitLine, formatPjobcardnoDisplay, resolveCoilJobCardLabel
 const TX_SKIP = new Set([
   "count", "coil_count", "total_qty", "qty", "coil_no_uids", "coil_no_uid", "coil_sticker_entries", "action",
   "item_dcode", "itemdcode", "register_locations", "reassign_lines", "reassign", "reassign_revert",
+  // Already on the row / badge / reference — hide in journey (IMS box finder style)
+  "out_uid", "in_uid", "entry_type", "entryType", "source_module", "mrn_uid", "sa_id", "ipr_uid", "qc_uid",
+  "heat_no", "item_code", "item_desc", "acc_code", "acc_name", "per_coil_qty", "pjobcardno", "job_card_no", "macname",
 ]);
 
 function formatReassignJourneyLine(ln) {
@@ -151,29 +153,30 @@ export function buildCoilFinderDetailRows(coil) {
   return buildCoilFinderDetailRowsFromConfig(coil);
 }
 
-function extraDetailLines(details) {
-  return Object.entries(details || {})
-    .filter(([k, v]) => !TX_SKIP.has(k) && v != null && v !== "" && !(Array.isArray(v) && !v.length))
-    .map(([k, v]) => ({ label: k.replace(/_/g, " "), value: fmt(v) }));
+function appendScalarDetailLines(lines, details, row) {
+  const ref = String(row?.source_id ?? "").trim();
+  Object.entries(details || {}).forEach(([k, v]) => {
+    if (TX_SKIP.has(k)) return;
+    if (v == null || v === "") return;
+    if (Array.isArray(v) || typeof v === "object") return;
+    if (ref && (k === "out_uid" || k === "in_uid" || k === "sa_id" || k === "ipr_uid") && String(v).trim() === ref) {
+      return;
+    }
+    push(lines, k.replace(/_/g, " "), v);
+  });
 }
 
-function buildTxEvent(row, typeLabels) {
+function buildTxEvent(row, typeLabels, focusUid) {
   const d = parseDetails(row?.details);
   const lines = [];
   const txType = row?.transaction_type;
   push(lines, "User", row?.user_name || "System");
-  push(lines, "Module", row?.source_module?.replace(/_/g, " "));
   push(lines, "Reference", row?.source_id);
-  push(lines, "MRN UID", row?.mrn_uid);
   push(lines, "Coil Count", row?.coil_count ?? d.coil_count ?? d.count);
   push(lines, "Qty", row?.total_qty ?? d.total_qty ?? d.qty);
   const stickers = getCoilStickerEntries(row);
   if (stickers.length) {
-    push(
-      lines,
-      "Coil Sticker No.",
-      stickers.map((e) => (Number.isFinite(Number(e.qty)) ? `${e.coil_no_uid} (qty ${e.qty})` : e.coil_no_uid)).join(", ")
-    );
+    lines.push({ label: "Coil Sticker No.", stickers, focusUid: focusUid || null });
   }
   if (txType === "ipr_reassign" && Array.isArray(d.reassign_lines) && d.reassign_lines.length) {
     d.reassign_lines.forEach((ln, idx) => {
@@ -183,32 +186,15 @@ function buildTxEvent(row, typeLabels) {
   if (txType === "ipr_reassign_revert" && d.reassign_revert === true) {
     push(lines, "Note", "Reassign approval was reverted");
   }
-  extraDetailLines(d).forEach(({ label, value }) => push(lines, label, value));
+  const jc = d.pjobcardno || d.job_card_no;
+  if (jc) push(lines, "Job Card", formatPjobcardnoDisplay(jc));
+  if (d.macname) push(lines, "Machine", d.macname);
+  appendScalarDetailLines(lines, d, row);
   return {
     id: `tx-${row?.id}`,
     at: row?.created_at ?? null,
     title: resolveCoilTxTypeLabel(row?.transaction_type, row, typeLabels),
     badgeClass: getCoilTxTypeBadgeClass(row?.transaction_type, row),
-    lines,
-  };
-}
-
-function buildStickerEvent(row) {
-  const lines = [];
-  push(lines, "Downloaded By", row?.downloaded_by ?? row?.last_downloaded_by_name);
-  push(lines, "Download Type", row?.download_type ?? row?.last_download_type);
-  push(lines, "Sticker Count", row?.sticker_count ?? row?.event_sticker_count);
-  push(lines, "Source", labelStickerDownloadSource(row?.download_source));
-  push(lines, "MRN UID", row?.mrn_uid);
-  push(lines, "Coil Sticker No", row?.coil_no_uid ?? row?.primary_label);
-  push(lines, "Heat No", row?.heat_no);
-  push(lines, "Item Code", row?.item_code);
-  push(lines, "Vendor", row?.acc_name);
-  return {
-    id: `sticker-${row?.log_id ?? row?.id}`,
-    at: row?.downloaded_at ?? row?.last_downloaded_at ?? null,
-    title: "Sticker Download",
-    badgeClass: "bg-violet-50 text-violet-700 border-violet-100",
     lines,
   };
 }
@@ -238,10 +224,10 @@ export function panelsFromCoilFinder(coil) {
 
 function mapFinderBundle(finder, coil, baseDetails) {
   const typeLabels = finder?.typeLabels || {};
-  const events = sortEvents([
-    ...(finder?.transactionLogs || []).map((r) => buildTxEvent(r, typeLabels)),
-    ...(finder?.stickerLogs || []).map(buildStickerEvent),
-  ]);
+  const focusUid = coilJourneyKey(coil);
+  const events = sortEvents(
+    (finder?.transactionLogs || []).map((r) => buildTxEvent(r, typeLabels, focusUid))
+  );
   const qcChecks = (finder?.qcChecks || []).map((row) => normalizeQc(row)).filter(Boolean);
   const details = baseDetails.length ? baseDetails : buildCoilFinderDetailRows(coil);
   return {

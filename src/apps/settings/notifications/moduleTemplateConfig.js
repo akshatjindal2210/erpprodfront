@@ -1,5 +1,9 @@
 import { ROLE_LABELS } from "@/ui/common/Constants";
 
+/**
+ * Module notification template UI labels.
+ * Backend routing: moduleNotify.service.js
+ */
 export const TRIGGER_EVENT_OPTIONS = [
   { value: "add", label: "Add" },
   { value: "edit", label: "Edit" },
@@ -34,6 +38,11 @@ export const EMPTY_AUDIENCE = {
   roles: { all: false, ids: [] },
   users: { all: false, ids: [] },
 };
+
+/** Fresh audience object for forms (avoids mutating EMPTY_AUDIENCE). */
+export function createEmptyAudience() {
+  return normalizeAudience(null);
+}
 
 export const roleLabel = (key) => ROLE_LABELS[key] ?? String(key || "").replace(/_/g, " ");
 
@@ -126,18 +135,30 @@ export const CHANNEL_LABELS = {
   email: "Email",
 };
 
-/** Record + system tokens for message body. */
+/** Built-in placeholders for notification subject and message. */
 export const SYSTEM_VARIABLES = [
   { key: "user_name", label: "Recipient name" },
   { key: "module_label", label: "Module" },
-  { key: "action_label", label: "Action (Added / Edited …)" },
+  { key: "action_label", label: "Action (Add, Edit, Delete, Approve)" },
   { key: "record_id", label: "Record ID" },
+  { key: "ref", label: "Activity ref (packing/doc no.)" },
+  { key: "summary", label: "Activity summary line" },
   { key: "actor_name", label: "Done by" },
   { key: "date", label: "Date" },
   { key: "time", label: "Time" },
   { key: "datetime", label: "Date & time" },
   { key: "template_name", label: "Template name" },
 ];
+
+/** Default copy when opening a new module notification template (all modules). */
+export const DEFAULT_MODULE_NOTIFY_SUBJECT = "{{module_label}} — {{action_label}}";
+
+export const DEFAULT_MODULE_NOTIFY_MESSAGE = `Hi {{user_name}},
+
+{{module_label}} was {{action_label}} (ref: {{record_id}}).
+
+By: {{actor_name}}
+{{datetime}}`;
 
 export const EVENT_BADGE_TONE = {
   add: "bg-emerald-50 text-emerald-700 border-emerald-200",

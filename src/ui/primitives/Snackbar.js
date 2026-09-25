@@ -93,7 +93,11 @@ export default function Snackbar({
       ref={innerRef}
       role="alert"
       aria-live="polite"
-      className={`app-snackbar-banner--show pointer-events-auto fixed bottom-[30px] left-1/2 z-[2500] min-h-[54px] w-[min(calc(100vw-32px),28rem)] min-w-[min(250px,calc(100vw-32px))] rounded-[2px] px-4 py-4 pr-12 text-center text-[17px] leading-snug shadow-lg ${variantClassName(variant)}`}
+      data-scan-snackbar-overlay="true"
+      className={`app-snackbar-banner--show pointer-events-auto fixed left-1/2 z-[4200] min-h-[54px] w-[min(calc(100vw-32px),28rem)] min-w-[min(250px,calc(100vw-32px))] rounded-[2px] px-4 py-4 pr-12 text-center text-[17px] leading-snug shadow-lg ${variantClassName(variant)}`}
+      style={{
+        bottom: "max(5.25rem, calc(env(safe-area-inset-bottom, 0px) + 4.25rem))",
+      }}
     >
       <button
         type="button"

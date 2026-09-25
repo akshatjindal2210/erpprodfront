@@ -11,6 +11,10 @@ export const ROUTES = {
 export const APP_TYPE_LABELS = {
   task: "Task",
   ims: "IMS",
+  rmstore: "RM Store",
+  core: "Admin",
+  portal: "Admin",
+  hrms: "HRMS",
 };
 
 export function getAppTypeLabel(appType) {
@@ -26,5 +30,7 @@ export const TRIGGER_LABELS = {
 };
 
 export function getTriggerLabel(key) {
-  return TRIGGER_LABELS[key] ?? "Task update";
+  const k = String(key || "");
+  if (k.startsWith("module_")) return "Module notification";
+  return TRIGGER_LABELS[k] ?? "Task update";
 }

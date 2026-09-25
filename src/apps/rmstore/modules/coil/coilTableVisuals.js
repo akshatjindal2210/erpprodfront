@@ -14,6 +14,37 @@ export function getCoilStockZone(row) {
   return "coil_area";
 }
 
+/** Coil list — zone checkbox filter (client-side, same pattern as IMS boxes). */
+export const COIL_ZONE_FILTER_OPTIONS = [
+  { label: "Unassigned", value: "coil_area" },
+  { label: "Stored", value: "stored" },
+  { label: "Shop Floor", value: "out" },
+  { label: "Consumed", value: "consumed" },
+  { label: "Rejected / Hold", value: "rejected" },
+  { label: "Returned", value: "returned" },
+];
+
+const COIL_ZONE_IDS = COIL_ZONE_FILTER_OPTIONS.map(({ value }) => value);
+
+export function defaultCoilZoneIncludes() {
+  return Object.fromEntries(COIL_ZONE_IDS.map((id) => [id, true]));
+}
+
+export function isCoilZoneFilterActive(includes) {
+  if (!includes || typeof includes !== "object") return false;
+  const allowed = COIL_ZONE_IDS.filter((id) => includes[id] !== false);
+  return allowed.length > 0 && allowed.length < COIL_ZONE_IDS.length;
+}
+
+export function filterCoilRowsByZone(rows, includes) {
+  if (!includes || typeof includes !== "object") return rows;
+  const allowed = COIL_ZONE_IDS.filter((id) => includes[id] !== false);
+  if (allowed.length === COIL_ZONE_IDS.length) return rows;
+  if (!allowed.length) return [];
+  const allowedSet = new Set(allowed);
+  return rows.filter((row) => allowedSet.has(getCoilStockZone(row)));
+}
+
 /** Approved QC fail — Rejection Pending or RM Rejection register (not QC Hold). */
 function isQcFailedCoil(row) {
   const qc = String(row?.qc_check_status || "").trim().toLowerCase();
@@ -333,8 +364,7 @@ export function renderCoilLocationCell(_v, row) {
 export function renderCoilQtyCell(v, row) {
   const n = Number(v);
   const display = Number.isFinite(n) ? Math.round(n).toLocaleString() : "0";
-  const qtyClass = getCoilStockZone(row) === "stored" ? "text-emerald-800" : "text-green-900";
-  return <span className={`font-black text-[10px] tabular-nums ${qtyClass}`}>{display}</span>;
+  return <span className="font-black text-[10px] tabular-nums text-slate-900">{display}</span>;
 }
 
 export function renderCoilCustomerCell(v) {

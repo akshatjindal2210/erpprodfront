@@ -125,11 +125,12 @@ export function ListPageFooterScopeDivider({ className = "" }) {
   );
 }
 
-export function ListPageFooterActionStack({ children, taskLayout = false }) {
+export function ListPageFooterActionStack({ children, taskLayout = false, align = "end" }) {
   if (children == null || children === false) return null;
+  const justify = align === "start" ? "justify-start" : "justify-end";
   const cls = taskLayout
     ? "flex w-full flex-wrap items-center justify-start gap-x-1 gap-y-0.5 min-w-0 lg:flex-nowrap lg:justify-end lg:w-auto lg:overflow-hidden"
-    : "flex flex-wrap md:flex-nowrap items-center justify-end gap-x-2 gap-y-1 min-w-0 max-w-full md:overflow-hidden";
+    : `flex flex-wrap md:flex-nowrap items-center ${justify} gap-x-2 gap-y-1 min-w-0 max-w-full md:overflow-hidden`;
   return <div className={cls}>{children}</div>;
 }
 
@@ -150,24 +151,29 @@ function ListPageFooterMobileRows({ left, right, center, legendLabel }) {
   const hasRight = right != null && right !== false;
   const hasCenter = center != null && center !== false;
   if (!hasLeft && !hasRight && !hasCenter) return null;
+  const legendScrollCls =
+    "overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden";
   return (
-    <div className="min-w-0 px-2 py-0.5">
-      {hasLeft || hasRight ? (
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
-          {hasLeft ? <div className="min-w-0 shrink-0 max-w-full truncate">{left}</div> : null}
-          {hasRight ? (
-            <div className="min-w-0 flex-1 flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5">
-              {right}
-            </div>
-          ) : null}
+    <div
+      className="min-w-0 px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom,0px))] flex flex-col gap-1"
+      aria-label={legendLabel || "List footer"}
+    >
+      {hasLeft ? <div className="min-w-0 w-full truncate">{left}</div> : null}
+      {hasCenter ? (
+        <div className={`min-w-0 w-full ${legendScrollCls}`} aria-label={legendLabel || "Status legend"}>
+          <div className="flex flex-nowrap items-center gap-x-2 w-max max-w-none pr-1">{center}</div>
         </div>
       ) : null}
-      <ListPageFooterLegendScroll label={legendLabel}>{hasCenter ? center : null}</ListPageFooterLegendScroll>
+      {hasRight ? (
+        <div className={`min-w-0 w-full ${legendScrollCls}`} aria-label="List footer actions">
+          <div className="flex flex-nowrap items-center gap-x-2 w-max max-w-none pr-1">{right}</div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-/** Scope + row selection in one bordered toolbar (Task list footer only). */
+/** Scope + row selection in one bordered toolbar (IMS drill-down + row pick, e.g. Forwarding / Schedule). */
 export function ListPageFooterActionsPanel({ scope = null, selection = null, compact = false }) {
   const hasScope = scope != null && scope !== false;
   const hasSelection = selection != null && selection !== false;
@@ -188,8 +194,8 @@ export function ListPageFooterActionsPanel({ scope = null, selection = null, com
       role="group"
       aria-label="List footer actions"
     >
-      <div className={`flex min-w-0 w-[8.5rem] sm:w-[10rem] shrink-0 items-center ${pad}`}>{scope}</div>
-      <div className={`flex min-w-0 flex-1 items-center bg-indigo-50/40 ${pad}`}>{selection}</div>
+      <div className={`flex min-w-0 flex-1 basis-0 items-center ${pad}`}>{scope}</div>
+      <div className={`flex min-w-0 flex-1 basis-0 items-center bg-indigo-50/40 ${pad}`}>{selection}</div>
     </div>
   );
 }
@@ -199,30 +205,55 @@ export function ListPageFooterBar({ left = null, center = null, right = null, la
   const hasCenter = center != null && center !== false;
   const hasRight = right != null && right !== false;
 
-  const footerShell = "shrink-0 relative z-10 border-t border-slate-200 bg-slate-50";
-  const desktopCols =
-    layout === "task" && hasCenter
+  const footerShell = "shrink-0 relative z-10 border-t border-slate-200 bg-slate-50 shadow-[0_-1px_0_rgba(15,23,42,0.06)]";
+  const isTaskLayout = layout === "task";
+  const desktopBp = isTaskLayout ? "lg" : "md";
+  const mobileWrap = `${desktopBp}:hidden min-w-0`;
+  const legendLabel = isTaskLayout ? "Task status legend" : "Status legend";
+
+  const desktopMain = `hidden ${desktopBp}:grid w-full min-w-0 items-center gap-x-2 px-3 py-1`;
+  const desktopThreeCol = `${desktopMain} grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]`;
+
+  let desktopBody = null;
+  if (isTaskLayout) {
+    const desktopCols = hasCenter
       ? "grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)]"
       : "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]";
-  const desktopBp = layout === "task" ? "lg" : "md";
-  const desktopGrid = `hidden ${desktopBp}:grid w-full min-w-0 items-center gap-x-2 px-3 py-1`;
-  const mobileWrap = `${desktopBp}:hidden min-w-0`;
-
-  return (
-    <div className={footerShell}>
-      <div className={`${desktopGrid} ${desktopCols}`}>
+    desktopBody = (
+      <div className={`${desktopMain} ${desktopCols}`}>
         <div className="min-w-0 truncate justify-self-start">{hasLeft ? left : null}</div>
         {hasCenter ? (
           <div className="min-w-0 justify-self-center max-w-full overflow-hidden px-0.5">{center}</div>
         ) : null}
-        <div className="min-w-0 justify-self-end">{hasRight ? right : null}</div>
+        <div className="min-w-0 justify-self-end max-w-full overflow-hidden">{hasRight ? right : null}</div>
       </div>
+    );
+  } else {
+    const rightAlign = hasCenter && hasRight ? "justify-self-start" : "justify-self-end";
+    desktopBody = (
+      <div className={desktopThreeCol}>
+        <div className="min-w-0 truncate justify-self-start">{hasLeft ? left : null}</div>
+        {hasCenter ? (
+          <div className="min-w-0 justify-self-center max-w-full overflow-x-auto overflow-y-hidden px-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {center}
+          </div>
+        ) : null}
+        {hasRight ? (
+          <div className={`min-w-0 max-w-full overflow-hidden ${rightAlign}`}>{right}</div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className={footerShell}>
+      {desktopBody}
       <div className={mobileWrap}>
         <ListPageFooterMobileRows
           left={hasLeft ? left : null}
           right={hasRight ? right : null}
           center={hasCenter ? center : null}
-          legendLabel={layout === "task" ? "Task status legend" : "Status legend"}
+          legendLabel={legendLabel}
         />
       </div>
     </div>
@@ -386,39 +417,47 @@ export default function AppListFooter({
     );
   }
 
-  let centerNode = centerContent;
-  if (centerNode == null) {
-    const legend = footerLegendNode(extra, centerContent);
-    centerNode = legend;
+  let legendCenter = centerContent;
+  if (legendCenter == null) {
+    legendCenter = footerLegendNode(extra, centerContent);
   }
-
-  const hasRight = Boolean(contextHint || showSelection);
+  const hasLegendCenter = Boolean(legendCenter);
 
   let scopeNode = contextHint;
   if (isTaskLayout && isValidElement(contextHint)) {
     scopeNode = cloneElement(contextHint, { compact: true, splitActions: false });
   }
 
-  let rightNode = null;
-  if (hasRight) {
-    rightNode = (
-      <ListPageFooterActionStack taskLayout={isTaskLayout}>
-        {scopeNode}
+  /** Laptop: no legend → scope+selection grouped in center; legend → legend center, actions center→right. */
+  const selectionNode = showSelection ? (
+    <ListPageSelectionStrip
+      selectedRecord={selectedRecord}
+      selectionLabel={selectionLabel}
+      onClearSelection={onClearSelection}
+    />
+  ) : null;
+
+  const actionsNode =
+    contextHint || showSelection ? (
+      <ListPageFooterActionStack taskLayout={isTaskLayout} align={isTaskLayout ? "end" : "start"}>
+        {contextHint ? scopeNode : null}
         {contextHint && showSelection ? (
           <ListPageFooterScopeDivider className={isTaskLayout ? "hidden lg:block" : "hidden md:block"} />
         ) : null}
-        {showSelection ? (
-          <ListPageSelectionStrip
-            selectedRecord={selectedRecord}
-            selectionLabel={selectionLabel}
-            onClearSelection={onClearSelection}
-          />
-        ) : null}
+        {selectionNode}
       </ListPageFooterActionStack>
-    );
+    ) : null;
+
+  let centerForBar = null;
+  let rightNode = null;
+  if (hasLegendCenter) {
+    centerForBar = legendCenter;
+    if (actionsNode) rightNode = actionsNode;
+  } else if (actionsNode) {
+    centerForBar = actionsNode;
   }
 
   return (
-    <ListPageFooterBar left={leftNode} center={centerNode} right={rightNode} layout={layout} />
+    <ListPageFooterBar left={leftNode} center={centerForBar} right={rightNode} layout={layout} />
   );
 }

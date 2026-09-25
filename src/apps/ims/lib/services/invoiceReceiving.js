@@ -18,7 +18,7 @@ async function postMultipart(endpoint, formData) {
   return data;
 }
 
-/** list: type "" | "register" · register may send from_date/to_date; gate_registered_only for pending merge */
+/** list: type "" | "register" · register may send from_date/to_date (all local on Gate Entry). */
 export const invoiceReceivingService = {
   list: (type = "", { from_date, to_date, fromDate, toDate, gate_registered_only } = {}) => {
     const body = { type: type == null ? "" : String(type) };
@@ -53,7 +53,7 @@ export const invoiceReceivingService = {
     return postMultipart(ENDPOINTS.INVOICE_RECEIVING.UPDATE, form);
   },
 
-  /** Clears receiverefno + receivingfile on ERP (register row → pending again). */
+  /** Clears receiving on Gate Entry (register/pending row → pending again). */
   remove: ({ prnbillno, billdt }) =>
     api(ENDPOINTS.INVOICE_RECEIVING.DELETE, {
       method: "POST",

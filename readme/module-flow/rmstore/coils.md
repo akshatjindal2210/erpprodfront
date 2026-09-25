@@ -9,7 +9,7 @@ Read-only inventory list + finder PDF. Coil is the stock unit.
 | FE            | `modules/coil/`                                                                |
 | BE            | `modules/coil/`                                                                |
 | API           | `POST /api/rmstore/coils/` (`list|get|helper|finder-report`)                   |
-| Table         | `rmstore_coil_table`                                                           |
+| Table         | `rmstore_coil_table` — [column reference](./rmstore-coil-table.md)            |
 
 **Files**
 

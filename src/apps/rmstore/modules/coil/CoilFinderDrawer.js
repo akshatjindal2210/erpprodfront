@@ -15,7 +15,7 @@ import LaserScanField from "@/ui/common/scan/LaserScanField";
 import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import CoilFinderDetailsSection from "./CoilFinderDetailsSection";
-import CoilFinderPlacementSection, { coilFinderHeaderTone } from "./CoilFinderPlacementSection";
+import CoilFinderPlacementSection, { CoilFinderConsumedDetails, coilFinderHeaderTone } from "./CoilFinderPlacementSection";
 import { fgWireSplitKindShort, formatPjobcardnoDisplay, getCoilStockZone, partitionFgWireSplits, resolveCoilJobCardLabel, resolveCoilMachineLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
@@ -36,7 +36,7 @@ function IconLabeledRow({ icon: Icon, label, children, iconClass = "text-slate-4
   );
 }
 
-function FgWireSplitBody({ split, reassign }) {
+function FgWireSplitBody({ split, reassign, hideJobCard = false }) {
   if (!split) return <span className="font-mono uppercase">—</span>;
   return (
     <div className="leading-snug">
@@ -51,7 +51,7 @@ function FgWireSplitBody({ split, reassign }) {
             (split.wire_qty != null ? `${split.wire_qty}${split.wire_unit ? ` ${split.wire_unit}` : ""}` : "—")}
         </span>
       </span>
-      {split.pjobcardno ? (
+      {split.pjobcardno && !hideJobCard ? (
         <p className="text-[10px] font-mono uppercase text-slate-500 mt-0.5">{formatPjobcardnoDisplay(split.pjobcardno)}</p>
       ) : null}
       {split.fg_item_desc &&
@@ -164,6 +164,9 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
 
   const headerTone = coilData ? coilFinderHeaderTone(coilData) : null;
   const fgPartition = coilData ? partitionFgWireSplits(coilData.fg_wire_splits) : { primary: null, others: [] };
+  const coilZone = coilData ? getCoilStockZone(coilData) : null;
+  const shopFloorCoil = coilZone === "out";
+  const consumedCoil = coilZone === "consumed";
 
   return (
     <>
@@ -258,7 +261,11 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
                       </IconLabeledRow>
                       <IconLabeledRow icon={Factory} label="FG item (production)" iconClass="text-violet-600">
                         {fgPartition.primary ? (
-                          <FgWireSplitBody split={fgPartition.primary} reassign={coilData.reassign} />
+                          <FgWireSplitBody
+                            split={fgPartition.primary}
+                            reassign={coilData.reassign}
+                            hideJobCard={shopFloorCoil}
+                          />
                         ) : (
                           <span className="font-mono uppercase">{coilData.fg_item_code || "—"}</span>
                         )}
@@ -267,13 +274,9 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
                         String(coilData.fg_item_desc).trim() &&
                         String(coilData.fg_item_desc).trim() !== String(coilData.fg_item_code || "").trim() ? (
                           <p className="text-[11px] font-normal text-slate-600 normal-case mt-0.5">{coilData.fg_item_desc}</p>
-                        ) : !fgPartition.primary && !coilData.fg_item_code && !coilData.fg_item_desc ? (
-                          <p className="text-[10px] font-normal text-slate-400 normal-case mt-0.5">
-                            Job card on shop floor, or Item RM Master when coil is in store
-                          </p>
                         ) : null}
                       </IconLabeledRow>
-                      {getCoilStockZone(coilData) === "out" ? (
+                      {shopFloorCoil ? (
                         <>
                           <IconLabeledRow icon={Layers} label="Job card" iconClass="text-indigo-500">
                             <span className={`font-mono uppercase ${coilData.reassign ? "text-indigo-700" : ""}`}>
@@ -301,7 +304,11 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
                 </div>
               ))}
 
-              <CoilFinderPlacementSection coil={coilData} />
+              {consumedCoil ? (
+                <CoilFinderConsumedDetails coil={coilData} />
+              ) : (
+                <CoilFinderPlacementSection coil={coilData} />
+              )}
 
               <CoilFinderDetailsSection coil={coilData} />
             </div>

@@ -16,7 +16,7 @@ export default function NotificationVariablesHint() {
     <div className="rounded border border-slate-200 bg-slate-50/80 p-3">
       <p className="text-[10px] text-slate-600 mb-2.5">
         <span className="font-semibold">Variables</span>
-        <span className="text-slate-400"> — click to copy, paste in subject or message</span>
+        <span className="text-slate-400"> — click to copy; paste into the subject or message</span>
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {TASK_NOTIFY_VARIABLE_GROUPS.map((group) => (

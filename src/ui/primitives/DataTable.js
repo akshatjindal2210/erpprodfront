@@ -54,8 +54,19 @@ function unfreezeColOnMobile(config = {}) {
 /** Sticky/frozen cells need solid fills — row tints often use `/40` which lets scroll content show through. */
 function opaqueStickyBgFromRowTone(rowToneClass) {
   if (!rowToneClass || typeof rowToneClass !== "string") return null;
-  const tdMatch = rowToneClass.match(/\[&_td\]:!bg-([^\s]+)/);
-  const raw = tdMatch?.[1] ?? rowToneClass.match(/(?:^|\s)bg-([^\s]+)/)?.[1];
+  const patterns = [
+    /\[&_td\]:!bg-([^\s]+)/,
+    /\[&_td\]:bg-([^\s]+)/,
+    /(?:^|\s)bg-([^\s]+)/,
+  ];
+  let raw = null;
+  for (const p of patterns) {
+    const m = rowToneClass.match(p);
+    if (m?.[1]) {
+      raw = m[1];
+      break;
+    }
+  }
   if (!raw) return null;
   const solid = raw.replace(/\/\d+$/, "");
   return `!bg-${solid} group-hover:!bg-${solid}`;
@@ -63,7 +74,12 @@ function opaqueStickyBgFromRowTone(rowToneClass) {
 
 const STICKY_LEFT_MASK =
   "shadow-[2px_0_4px_-2px_rgba(15,23,42,0.1)]";
-const STICKY_BODY_DEFAULT = "!bg-white group-hover:!bg-slate-50";
+/** Only show freeze edge when user has scrolled horizontally — avoids “frozen column” look at rest. */
+function stickyLeftEdgeClass(scrolled) {
+  return scrolled ? STICKY_LEFT_MASK : "";
+}
+const NEUTRAL_ROW_CELL_BG = "!bg-white group-hover:!bg-slate-50";
+const STICKY_BODY_DEFAULT = NEUTRAL_ROW_CELL_BG;
 const STICKY_HEAD_DEFAULT = "!bg-slate-50";
 
 function measureStickyLeftPx(showSelection, colIndex, headers, columnWidths, selW) {
@@ -238,6 +254,7 @@ export default function DataTable({
     viewMode === "table" && enableCellSelection && allowCopy;
 
   const scrollContainerRef = useRef(null);
+  const [hScrollActive, setHScrollActive] = useState(false);
   const scrollSnapshotsRef = useRef([]);
   const rowElRefs = useRef(new Map());
   /** Set on mousedown inside this table; cleared when clicking outside — drives arrow keys without focusing the wrapper. */
@@ -304,6 +321,26 @@ export default function DataTable({
     setSelectedCells(new Set());
     setSelectionMode("none");
   }, [data]);
+
+  useEffect(() => {
+    if (viewMode !== "table") {
+      setHScrollActive(false);
+      return;
+    }
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const sync = () => setHScrollActive(el.scrollLeft > 1);
+    sync();
+    el.addEventListener("scroll", sync, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", sync);
+      ro?.disconnect();
+    };
+  }, [viewMode, data, headers?.length]);
+
+  const stickyLeftEdge = stickyLeftEdgeClass(hScrollActive);
 
   const startResizing = useCallback((headerKey, e) => {
     e.preventDefault();
@@ -1059,7 +1096,7 @@ export default function DataTable({
               <tr>
                 {showSelection && (
                   <th
-                    className={`sticky left-0 top-0 z-[70] py-3 px-0 border-b border-r border-slate-200 text-center box-border ${STICKY_HEAD_DEFAULT} ${STICKY_LEFT_MASK}`}
+                    className={`sticky left-0 top-0 z-[70] py-3 px-0 border-b border-r border-slate-200 text-center box-border ${STICKY_HEAD_DEFAULT} ${stickyLeftEdge}`}
                     style={{ width: selW, minWidth: selW, maxWidth: selW }}
                   />
                 )}
@@ -1082,7 +1119,7 @@ export default function DataTable({
                       className={`relative px-3 py-2 sm:py-2.5 md:py-3 text-xs sm:text-[11px] font-bold uppercase tracking-tight select-none border-b border-slate-200 sticky top-0
                       ${config.headerClass || "bg-slate-50 text-slate-600 sm:text-slate-500"}
                       ${stickyLeftCol || stickyRightCol ? STICKY_HEAD_DEFAULT : ""}
-                      ${stickyLeftCol ? STICKY_LEFT_MASK : ""}
+                      ${stickyLeftCol ? stickyLeftEdge : ""}
                       ${stickyRightCol ? "border-l border-r-0" : "border-r"}
                       ${stickyLeftCol ? "z-[65]" : stickyRightCol ? "z-[66]" : "z-[55]"}
                       ${unfreezeColOnMobile(config) ? MOB_UNFREEZE_HDR : ""}`}
@@ -1142,16 +1179,10 @@ export default function DataTable({
                       ? "[&_td]:!bg-indigo-100 [&_td:first-child]:!shadow-[inset_3px_0_0_0_#6366f1]"
                       : "";
                     const rowToneClass = getRowClassName?.(item, rowIndex) ?? "";
-                    const defaultCellBg = isRowHighlighted
-                      ? ""
-                      : rowToneClass
-                        ? ""
-                        : "bg-white group-hover:bg-slate-50/80";
                     const stickyToneBg = opaqueStickyBgFromRowTone(rowToneClass);
-                    /** Fixed/sticky columns need a fully opaque background so scrolled cells do not show through. */
-                    const stickyCellBg = isRowHighlighted
+                    const baseRowCellBg = isRowHighlighted
                       ? "!bg-indigo-100 group-hover:!bg-indigo-100"
-                      : stickyToneBg || STICKY_BODY_DEFAULT;
+                      : stickyToneBg || (rowToneClass ? "" : NEUTRAL_ROW_CELL_BG);
                     const isLastElement = data.length === rowIndex + 1;
 
                     return (
@@ -1187,7 +1218,7 @@ export default function DataTable({
                               e.stopPropagation();
                               selectRowByCheckbox(item, currentId);
                             }}
-                            className={`sticky left-0 z-[35] py-2 px-0 border-b border-r border-slate-200 transition-colors ${stickyCellBg} ${STICKY_LEFT_MASK} text-center align-middle box-border cursor-pointer`}
+                            className={`sticky left-0 z-[35] py-2 px-0 border-b border-r border-slate-200 transition-colors ${baseRowCellBg || ""} ${stickyLeftEdge} text-center align-middle box-border cursor-pointer`}
                             style={{ width: selW, minWidth: selW, maxWidth: selW }}
                           >
                             <span className="inline-flex items-center justify-center w-full">
@@ -1205,7 +1236,6 @@ export default function DataTable({
                           const config = h[3] || {};
                           const stickyLeftCol = isFixedLeft(config);
                           const stickyRightCol = isFixedRight(config);
-                          const isSticky = stickyLeftCol || stickyRightCol;
                           const stickyLeft = stickyLeftCol ? (config.offset || 0) + (showSelection ? selW : 0) : 0;
                           const currentWidth = columnWidths[h[1] || i] || config.width || 150;
                           const allowWrap = config.wrap === true;
@@ -1215,10 +1245,8 @@ export default function DataTable({
                             isCellInSet(selectedCells, rowIndex, i);
                           const cellBg = cellSelected
                             ? "!bg-indigo-100 ring-1 ring-inset !ring-indigo-400 relative z-[1]"
-                            : isSticky
-                              ? stickyCellBg
-                              : defaultCellBg;
-                          const stickyEdge = stickyLeftCol ? STICKY_LEFT_MASK : "";
+                            : baseRowCellBg;
+                          const stickyEdge = stickyLeftCol ? stickyLeftEdge : "";
                           const cellExtra = config.cellClass || "";
 
                           return (
@@ -1233,7 +1261,7 @@ export default function DataTable({
                               className={`px-3 py-2 text-[13px] border-b border-slate-200 transition-colors align-top select-none
                               ${stickyRightCol ? "border-l border-r-0" : "border-r"}
                               ${allowWrap ? "whitespace-normal break-words min-w-0 overflow-hidden" : "whitespace-nowrap overflow-hidden text-ellipsis"}
-                              ${stickyLeftCol ? "sticky z-[30]" : stickyRightCol ? "sticky z-[32]" : "text-slate-600"}
+                              ${stickyLeftCol ? "sticky z-[40]" : stickyRightCol ? "sticky z-[32]" : "text-slate-600"}
                               ${stickyEdge}
                               ${unfreezeColOnMobile(config) ? MOB_UNFREEZE_TD : ""}
                               ${cellSelectActive ? "cursor-cell" : ""} ${cellBg} ${cellExtra}`}
@@ -1291,7 +1319,7 @@ export default function DataTable({
 
   // --- 5. CARD VIEW ---
   return (
-    <div data-list-table-root className="flex-1 min-h-0 bg-slate-50/50 relative overflow-hidden flex flex-col">
+    <div data-list-table-root className="relative flex flex-col flex-1 min-h-0 w-full bg-slate-50/50 overflow-hidden isolate">
       {showCenterFetchOverlay && (
         <div
           className="absolute inset-0 z-[90] flex items-center justify-center bg-slate-50/90 backdrop-blur-[1px]"
@@ -1311,7 +1339,7 @@ export default function DataTable({
         </div>
       )}
 
-      <div ref={scrollContainerRef} data-list-scroll-root="true" className="overflow-y-auto flex-1 p-4">
+      <div ref={scrollContainerRef} data-list-scroll-root="true" className="overflow-x-auto overflow-y-auto overscroll-contain flex-1 min-h-0 h-0 p-4" >
         {isInitialLoad ? (
           <CardSkeleton count={skeletonCount} />
         ) : showCenterFetchOverlay && data.length === 0 ? (

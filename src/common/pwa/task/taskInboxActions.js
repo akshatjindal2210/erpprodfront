@@ -4,8 +4,9 @@ import {
   removeInboxItem,
   clearInbox,
   addInboxItem,
+  setInboxTotal,
 } from "./taskInboxStore";
-import { fetchTaskInbox, markTaskInboxRead, markAllTaskInboxRead } from "./taskInboxApi";
+import { fetchTaskInbox, markTaskInboxRead, markAllTaskInboxRead, fetchInboxUnreadCount } from "./taskInboxApi";
 import { getTriggerLabel, getAppTypeLabel } from "./taskNotifyConfig";
 import { matchesInboxAppFilter } from "./inboxAppFilter";
 
@@ -65,9 +66,19 @@ export async function markAllInboxRead(appType = inboxAppFilter) {
   } catch {}
 }
 
+export async function syncInboxTotalFromServer(appType = inboxAppFilter) {
+  try {
+    const count = await fetchInboxUnreadCount(appType);
+    setInboxTotal(count);
+  } catch {
+    /* keep local count */
+  }
+}
+
 export function addInboxFromSocket(payload = {}) {
   if (!payload.inbox_id) return;
-  if (!matchesInboxAppFilter(payload.app_type, inboxAppFilter)) return;
+  const isModuleAlert = String(payload.trigger || payload.trigger_key || "").startsWith("module_");
+  if (!isModuleAlert && !matchesInboxAppFilter(payload.app_type, inboxAppFilter)) return;
   addInboxItem({
     inbox_id: payload.inbox_id,
     app_type: payload.app_type || "task",
@@ -81,4 +92,5 @@ export function addInboxFromSocket(payload = {}) {
     is_read: false,
     created_at: payload.created_at,
   });
+  void syncInboxTotalFromServer(inboxAppFilter);
 }

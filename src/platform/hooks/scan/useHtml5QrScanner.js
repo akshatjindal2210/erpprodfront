@@ -7,6 +7,28 @@ import { unlockScanAudio } from "@/platform/utils/global/scanFeedback";
 const DEFAULT_QRBOX = { width: 200, height: 200 };
 const DEFAULT_FPS = 8;
 
+function waitForScannerElement(elementId, maxMs = 4000) {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const tick = () => {
+      const el = document.getElementById(elementId);
+      if (el) {
+        const { width, height } = el.getBoundingClientRect();
+        if (width >= 48 && height >= 48) {
+          resolve(el);
+          return;
+        }
+      }
+      if (Date.now() - started > maxMs) {
+        reject(new Error(`Scanner mount #${elementId} not ready`));
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+
 function readTorchSupport(scanner) {
   try {
     const torch = scanner?.getRunningTrackCameraCapabilities?.()?.torchFeature?.();
@@ -144,6 +166,14 @@ export function useHtml5QrScanner({
       }
 
       await new Promise((resolve) => setTimeout(resolve, 150));
+      if (cancelled) return;
+
+      try {
+        await waitForScannerElement(elementId);
+      } catch (e) {
+        if (!cancelled) onCameraFailedRef.current?.(e);
+        return;
+      }
       if (cancelled) return;
 
       let html5QrCode;

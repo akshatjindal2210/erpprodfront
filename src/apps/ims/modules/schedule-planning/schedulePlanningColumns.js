@@ -510,31 +510,49 @@ export const SCHEDULE_LIST_ROW_LEGEND = [
   { swatch: "bg-emerald-50 border border-emerald-200 shadow-[inset_3px_0_0_0_#10b981]", label: "Complete" },
 ];
 
+/** AppListFooter center legend (IMS scroll strip on mobile). */
+export const SCHEDULE_FOOTER_LEGEND_ITEMS = [
+  { label: "Ready to Dispatch", barColor: "#06b6d4" },
+  { label: "Plan", barColor: "#6366f1" },
+  { label: "Hold", barColor: "#f97316" },
+  { label: "Reject", barColor: "#f43f5e" },
+  { label: "Complete", barColor: "#10b981" },
+];
+
+const SCHEDULE_ROW_TONE = {
+  rose: "bg-rose-50 group-hover:bg-rose-50 [&_td]:!bg-rose-50 group-hover:[&_td]:!bg-rose-50",
+  slate: "bg-slate-50 group-hover:bg-slate-50 [&_td]:!bg-slate-50 group-hover:[&_td]:!bg-slate-50",
+  cyan: "bg-cyan-50 group-hover:bg-cyan-50 [&_td]:!bg-cyan-50 group-hover:[&_td]:!bg-cyan-50",
+  indigo: "bg-indigo-50 group-hover:bg-indigo-50 [&_td]:!bg-indigo-50 group-hover:[&_td]:!bg-indigo-50",
+  orange: "bg-orange-50 group-hover:bg-orange-50 [&_td]:!bg-orange-50 group-hover:[&_td]:!bg-orange-50",
+  emerald: "bg-emerald-50 group-hover:bg-emerald-50 [&_td]:!bg-emerald-50 group-hover:[&_td]:!bg-emerald-50",
+};
+
 export function getScheduleListRowClassName(row) {
   if (hasScheduleComparisonMismatch(row)) {
-    return "[&_td]:bg-rose-50/70 [&_td:first-child]:shadow-[inset_3px_0_0_0_#f43f5e]";
+    return SCHEDULE_ROW_TONE.rose;
   }
 
   if (row?.status_label === "Partial" && Array.isArray(row?._items) && row._items.length) {
-    return "[&_td]:bg-slate-50 [&_td:first-child]:shadow-[inset_3px_0_0_0_#94a3b8]";
+    return SCHEDULE_ROW_TONE.slate;
   }
 
   const status = resolveScheduleDisplayStatus(row);
 
   if (status === SCHEDULE_PLAN_STATUS.READY_TO_DISPATCH) {
-    return "[&_td]:bg-cyan-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#06b6d4]";
+    return SCHEDULE_ROW_TONE.cyan;
   }
   if (status === SCHEDULE_PLAN_STATUS.PLANNED || status === SCHEDULE_PLAN_STATUS.RUNNING) {
-    return "[&_td]:bg-indigo-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#6366f1]";
+    return SCHEDULE_ROW_TONE.indigo;
   }
   if (status === SCHEDULE_PLAN_STATUS.HOLD) {
-    return "[&_td]:bg-orange-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#f97316]";
+    return SCHEDULE_ROW_TONE.orange;
   }
   if (status === SCHEDULE_PLAN_STATUS.REJECT) {
-    return "[&_td]:bg-rose-50/80 [&_td:first-child]:shadow-[inset_3px_0_0_0_#f43f5e]";
+    return SCHEDULE_ROW_TONE.rose;
   }
   if (status === SCHEDULE_PLAN_STATUS.COMPLETE) {
-    return "[&_td]:bg-emerald-50/70 [&_td:first-child]:shadow-[inset_3px_0_0_0_#10b981]";
+    return SCHEDULE_ROW_TONE.emerald;
   }
   return "";
 }
@@ -667,7 +685,7 @@ export function buildScheduleItemWiseComparisonHeaders({ onDrillToItems } = {}) 
       "Sch No",
       "schno",
       (v, row) => scheduleDrillButton(row, v || "—", onDrillToItems, "Show all items in this schedule"),
-      { fixed: true, width: "100px" },
+      { fixed: true, width: "100px", cellClass: "overflow-hidden" },
     ],
     ["Month", "schmonth", (_v, row) => renderScheduleCompareCell(row, "schmonth", { month: true }), { width: "140px", wrap: true }],
     ["Date", "schdt", (_v, row) => renderScheduleCompareCell(row, "schdt", { date: true }), { width: "140px", wrap: true }],
@@ -689,7 +707,7 @@ export function buildScheduleUniqueComparisonHeaders({ onDrillToItems } = {}) {
       "Sch No",
       "schno",
       (v, row) => scheduleDrillButton(row, v || "—", onDrillToItems, `View ${row.item_count ?? 0} mismatch item(s)`),
-      { fixed: true, width: "100px" },
+      { fixed: true, width: "100px", cellClass: "overflow-hidden" },
     ],
     ["Date", "schdt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatSchHeaderDate(v)}</span>, { width: "100px" }],
     ["Custommer", "acc_name", (v) => (
@@ -701,20 +719,23 @@ export function buildScheduleUniqueComparisonHeaders({ onDrillToItems } = {}) {
 }
 
 function scheduleDrillButton(row, label, onDrillToItems, title) {
-  if (!onDrillToItems || !row?.schno) return label;
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onDrillToItems(row);
-      }}
-      className="font-mono text-indigo-600 font-bold text-[10px] uppercase hover:underline cursor-pointer"
-      title={title}
-    >
-      {label}
-    </button>
-  );
+  const inner =
+    !onDrillToItems || !row?.schno ? (
+      <span className="font-mono text-[10px] font-bold uppercase text-slate-800 truncate block">{label}</span>
+    ) : (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDrillToItems(row);
+        }}
+        className="font-mono text-indigo-600 font-bold text-[10px] uppercase hover:underline cursor-pointer truncate block max-w-full text-left"
+        title={title}
+      >
+        {label}
+      </button>
+    );
+  return <div className="min-w-0 max-w-full overflow-hidden">{inner}</div>;
 }
 
 export function buildScheduleUniqueHeaders({ onDrillToItems } = {}) {
@@ -723,7 +744,7 @@ export function buildScheduleUniqueHeaders({ onDrillToItems } = {}) {
       "Sch No",
       "schno",
       (v, row) => scheduleDrillButton(row, v || "—", onDrillToItems, `View ${row.item_count ?? 0} item(s) in item-wise list`),
-      { fixed: true, width: "100px" },
+      { fixed: true, width: "100px", cellClass: "overflow-hidden" },
     ],
     ["Date", "schdt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatSchHeaderDate(v)}</span>, { width: "100px" }],
     ["Customer", "acc_name", (v) => (
@@ -768,7 +789,7 @@ export function buildScheduleItemWiseHeaders({ onDrillToItems, onViewHistory } =
       "Sch No",
       "schno",
       (v, row) => scheduleDrillButton(row, v || "—", onDrillToItems, "Show all items in this schedule"),
-      { fixed: true, width: "100px" },
+      { fixed: true, width: "100px", cellClass: "overflow-hidden" },
     ],
     ["Item Code", "item_code", (v) => <span className="font-bold text-slate-900 text-[10px] uppercase">{v || "—"}</span>, { width: "100px" }],
     ["Customer", "acc_name", (v) => (

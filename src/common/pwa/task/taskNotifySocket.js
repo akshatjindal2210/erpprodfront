@@ -7,10 +7,12 @@ export function bindTaskNotifySocket(socket) {
   if (!socket) return () => {};
 
   const onNewAlert = (payload) => {
-    const filter = getInboxAppFilterScope();
-    if (!matchesInboxAppFilter(payload.app_type, filter)) return;
     addInboxFromSocket(payload);
-    void handleOsNotification(payload);
+    const filter = getInboxAppFilterScope();
+    const isModuleAlert = String(payload.trigger || payload.trigger_key || "").startsWith("module_");
+    if (isModuleAlert || matchesInboxAppFilter(payload.app_type, filter)) {
+      void handleOsNotification(payload);
+    }
   };
 
   const onInboxSync = () => {

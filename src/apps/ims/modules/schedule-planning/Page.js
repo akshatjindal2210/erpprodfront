@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from "react";
-import { CalendarClock, Info, X, Calendar, Trash2 } from "lucide-react";
+import { CalendarClock, Calendar, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
@@ -24,12 +24,12 @@ import { applyClientSearch, sortRowsByKey, nextSortParams } from "@/ui/common/li
 import { schedulePlanningService } from "@/apps/ims/lib/services/schedulePlanning";
 import { SCHEDULE_LIST_FILTER, canOpenPlanModal, SCHEDULE_REPORT_FILTER, getDefaultScheduleStatusFilter, getScheduleStatusFilterOptions, filterScheduleItemsForPermission, isSalesDepartmentUser, isScheduleCompleteRow, isScheduleSalesCrmScoped, filterScheduleRowsBySalesCrm } from "./schedulePlanStatus";
 import { SCHEDULE_PAGE_TABS, MONTH_FILTER_OPTIONS, SCHEDULE_REPORT_FILTER_OPTIONS, scheduleItemRowKey, scheduleSchnoKey, resolveScheduleItemdcode, canDeleteRow, scheduleItemWiseSearchParts,
-  scheduleUniqueSearchParts, toUniqueScheduleRows, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, getScheduleListRowClassName, SCHEDULE_LIST_ROW_LEGEND, hasScheduleComparisonMismatch, attachScheduleDispatchFields, buildScheduleCrmFilterOptions, scheduleRowMatchesCrmFilter } from "./schedulePlanningColumns";
+  scheduleUniqueSearchParts, toUniqueScheduleRows, buildScheduleUniqueHeaders, buildScheduleItemWiseHeaders, buildScheduleItemWiseComparisonHeaders, buildScheduleUniqueComparisonHeaders, getScheduleListRowClassName, SCHEDULE_FOOTER_LEGEND_ITEMS, hasScheduleComparisonMismatch, attachScheduleDispatchFields, buildScheduleCrmFilterOptions, scheduleRowMatchesCrmFilter } from "./schedulePlanningColumns";
 import SchedulePlanModal from "./SchedulePlanModal";
 import SchedulePlanHistoryModal from "./SchedulePlanHistoryModal";
 import SchedulePlanRemoveConfirmModal from "./SchedulePlanRemoveConfirmModal";
 import { MasterRefreshButton } from "../../lib/helpers/masterListUi";
-import AppListFooter, { FOOTER_TEXT_CLASS } from "@/ui/common/list/listPageFooter";
+import AppListFooter, { ListFooterColorLegend, ListPageFooterContextStrip } from "@/ui/common/list/listPageFooter";
 
 function buildScheduleListFilters(query, status = SCHEDULE_LIST_FILTER.ALL) {
   const reportType = String(query?.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT).toLowerCase();
@@ -532,11 +532,11 @@ export default function SchedulePlanningPage() {
 
   const extraFilters = useMemo(() => {
     const filters = [
-      { label: "Status", key: "status", value: statusFilter, options: statusFilterOptions, variant: "quick" },
-      { label: "Report", key: "reportType", value: draftReportType, options: SCHEDULE_REPORT_FILTER_OPTIONS, preserveOrder: false },
+      { label: "Status", key: "status", value: statusFilter, options: statusFilterOptions, preserveOrder: false, variant: "quick" },
+      { label: "Report", key: "reportType", value: draftReportType, options: SCHEDULE_REPORT_FILTER_OPTIONS, preserveOrder: false, variant: "server" },
     ];
     if (!salesCrmScoped) {
-      filters.push({ label: "CRM", key: "crmFilter", value: crmFilter, options: buildScheduleCrmFilterOptions(scopedRows), preserveOrder: true });
+      filters.push({ label: "CRM", key: "crmFilter", value: crmFilter, options: buildScheduleCrmFilterOptions(scopedRows), preserveOrder: true, variant: "quick" });
     }
     if (isCustomReport) {
       filters.push({
@@ -545,17 +545,34 @@ export default function SchedulePlanningPage() {
         value: appliedQuery?.month ?? "all",
         options: MONTH_FILTER_OPTIONS,
         preserveOrder: true,
+        variant: "server",
       });
     }
     return filters;
   }, [appliedQuery?.month, draftReportType, isCustomReport, statusFilter, statusFilterOptions, crmFilter, scopedRows, salesCrmScoped]);
 
-  const extraFiltersBeforeDate = useMemo(() => {
-    const keys = ["status", "reportType"];
-    if (!salesCrmScoped) keys.push("crmFilter");
-    if (isCustomReport) keys.push("month");
-    return keys;
-  }, [isCustomReport, salesCrmScoped]);
+  const handleClientExtraFilterChange = useCallback((key, value) => {
+    setSelected(null);
+    setItemWiseSchnoFilter(null);
+    if (key === "status") {
+      setStatusFilter(value ?? SCHEDULE_LIST_FILTER.ALL);
+      return;
+    }
+    if (key === "crmFilter") {
+      setCrmFilter(value ?? "all");
+      return;
+    }
+    if (key === "reportType") {
+      const next = value ?? SCHEDULE_REPORT_FILTER.DEFAULT;
+      setDraftReportType(next);
+      if (next === SCHEDULE_REPORT_FILTER.DEFAULT) {
+        setAppliedQuery({
+          reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
+          status: SCHEDULE_LIST_FILTER.ALL,
+        });
+      }
+    }
+  }, []);
 
   const emptyState = useMemo(() => {
     const st = String(statusFilter ?? SCHEDULE_LIST_FILTER.ALL).toLowerCase();
@@ -612,29 +629,18 @@ export default function SchedulePlanningPage() {
 
   const hasSearch = Boolean(String(tempSearch || "").trim());
 
-  const scheduleFooterLegend = useMemo(
-    () => (
-      <div className="flex items-center justify-center gap-3 flex-wrap">
-        {SCHEDULE_LIST_ROW_LEGEND.map(({ swatch, label }) => (
-          <span
-            key={label}
-            className="inline-flex items-center gap-1.5 text-[9px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap"
-          >
-            <span className={`w-3 h-3 rounded-sm shrink-0 ${swatch}`} aria-hidden />
-            {label}
-          </span>
-        ))}
-      </div>
-    ),
-    []
-  );
-
-  const scheduleFooterLeft = useMemo(() => {
-    const text = hasSearch
-      ? `${displayRows.length} of ${activeTotal} matching`
-      : `Showing ${displayRows.length} of ${activeTotal} entries`;
-    return <span className={FOOTER_TEXT_CLASS}>{text}</span>;
-  }, [hasSearch, displayRows.length, activeTotal]);
+  const itemWiseSchnoFooterContext = useMemo(() => {
+    if (isScheduleTab || !itemWiseSchnoFilter) return null;
+    return (
+      <ListPageFooterContextStrip
+        tone="cyan"
+        onClear={() => setItemWiseSchnoFilter(null)}
+        clearLabel="Show all items"
+      >
+        {`Showing items for Sch ${itemWiseSchnoFilter}`}
+      </ListPageFooterContextStrip>
+    );
+  }, [isScheduleTab, itemWiseSchnoFilter]);
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
@@ -694,20 +700,6 @@ export default function SchedulePlanningPage() {
             }
           />
 
-          {itemWiseSchnoFilter && !isScheduleTab ? (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-cyan-50 border border-cyan-100">
-              <span className="text-[10px] font-bold text-cyan-800 uppercase flex items-center gap-2">
-                <Info size={12} /> Showing items for Sch {itemWiseSchnoFilter}
-              </span>
-              <button
-                type="button"
-                onClick={() => setItemWiseSchnoFilter(null)}
-                className="text-cyan-600 hover:text-cyan-800 flex items-center gap-1 font-bold text-[10px] uppercase"
-              >
-                <X size={14} /> Show all schedules
-              </button>
-            </div>
-          ) : null}
         </ListPageToolbar>
 
         <ListPageFilterStrip>
@@ -717,28 +709,9 @@ export default function SchedulePlanningPage() {
             fromDate={isCustomReport ? (appliedQuery?.fromDate ?? "") : ""}
             toDate={isCustomReport ? (appliedQuery?.toDate ?? "") : ""}
             extraFilters={extraFilters}
-            extraFiltersBeforeDate={extraFiltersBeforeDate}
             applyOnSearchEnter={false}
-            onExtraFilterChange={(key, value) => {
-              if (key === "status") {
-                setStatusFilter(value ?? SCHEDULE_LIST_FILTER.ALL);
-                setSelected(null);
-                setItemWiseSchnoFilter(null);
-              }
-              if (key === "crmFilter") setCrmFilter(value ?? "all");
-              if (key === "reportType") {
-                const next = value ?? SCHEDULE_REPORT_FILTER.DEFAULT;
-                setDraftReportType(next);
-                if (next === SCHEDULE_REPORT_FILTER.DEFAULT) {
-                  setAppliedQuery({
-                    reportType: SCHEDULE_REPORT_FILTER.DEFAULT,
-                    status: SCHEDULE_LIST_FILTER.ALL,
-                  });
-                  setSelected(null);
-                  setItemWiseSchnoFilter(null);
-                }
-              }
-            }}
+            searchVariant="quick"
+            onExtraFilterChange={handleClientExtraFilterChange}
             onApply={(data) => {
               const reportType = data.reportType ?? SCHEDULE_REPORT_FILTER.DEFAULT;
               const isCustom = reportType === SCHEDULE_REPORT_FILTER.CUSTOM;
@@ -817,8 +790,13 @@ export default function SchedulePlanningPage() {
           />
         </div>
         <AppListFooter
-          leftContent={scheduleFooterLeft}
-          centerContent={scheduleFooterLegend}
+          shown={displayRows.length}
+          total={activeTotal}
+          noun={hasSearch ? "matches" : isScheduleTab ? "schedules" : "items"}
+          centerContent={
+            <ListFooterColorLegend items={SCHEDULE_FOOTER_LEGEND_ITEMS} compact scrollStrip />
+          }
+          contextHint={itemWiseSchnoFooterContext}
           selected={selected}
           selectedRecord={selectedRecord}
           selectionLabel={scheduleSelectionLabel}

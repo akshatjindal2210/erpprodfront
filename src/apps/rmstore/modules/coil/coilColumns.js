@@ -32,6 +32,6 @@ export const COIL_HEADERS = [
   ["Machine", "macname", (v, row) => renderCoilCompactCell(resolveCoilMachineLabel(row), "font-bold text-slate-700"),
     { width: "110px", copyValue: resolveCoilMachineLabel },
   ],
-  ["Heat", "heat_no", (v) => renderCoilCompactCell(v, "font-mono text-slate-700"), { width: "76px" }],
-  ["Vendor", "acc_name", renderCoilCustomerCell, { width: "180px", wrap: true }],
+  ["Heat", "heat_no", (v) => renderCoilCompactCell(v, "font-mono text-slate-700"), { width: "120px" }],
+  ["Vendor", "acc_name", renderCoilCustomerCell, { width: "240px", wrap: true }],
 ];

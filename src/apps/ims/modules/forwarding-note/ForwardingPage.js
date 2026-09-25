@@ -9,8 +9,7 @@ import { forwardingNoteService } from "@/apps/ims/lib/services/forwardingNote";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
-import AppListFooter from "@/ui/common/list/listPageFooter";
-import { ListPageFooterContextStrip } from "@/ui/common/list/listPageFooter";
+import AppListFooter, { ListPageFooterContextStrip } from "@/ui/common/list/listPageFooter";
 
 // Components
 import ForwardingModal from "@/apps/ims/modules/forwarding-note/ForwardingModal"; 

@@ -203,15 +203,7 @@ export default function BoxTablePage() {
     [filteredRows, selected]
   );
 
-  const boxRowClassName = useCallback(
-    (row) => {
-      if (selected != null && selected !== "" && String(row?.box_uid) === String(selected)) {
-        return "";
-      }
-      return getBoxRowClassName(row);
-    },
-    [selected]
-  );
+  const boxRowClassName = useCallback((row) => getBoxRowClassName(row), []);
 
   // Boxes list is view/finder only — no create/edit drawer. Disable New/Edit hotkeys
   // so Ctrl+Alt+N / Insert does not open a form that has no toolbar entry.
@@ -237,20 +229,9 @@ export default function BoxTablePage() {
     ["Item Code", "item_code", (v) => <span className="font-mono text-[10px] font-bold tracking-tighter">{v}</span>, { width: "150px" }],
     ["Description", "itemdesc", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v}</span>, { width: "240px" }],
 
-    ["Qty", "qty", (v, row) => {
-      const zone = getBoxStockZone(row);
-      const qtyClass =
-        zone === "qc_hold"
-          ? "text-amber-800"
-          : zone === "dispatched"
-            ? "text-blue-800"
-            : zone === "in_store"
-              ? "text-emerald-800"
-              : zone === "packing_area"
-                ? "text-green-900"
-                : "text-emerald-600";
-      return <span className={`font-black text-[11px] tabular-nums ${qtyClass}`}>{v ?? "0"}</span>;
-    }, { width: "70px", align: "center" }],
+    ["Qty", "qty", (v) => (
+      <span className="font-black text-[11px] tabular-nums text-slate-900">{v ?? "0"}</span>
+    ), { width: "70px", align: "center" }],
 
     ["Location", "location_no", renderBoxLocationCell, {
       width: "120px",
@@ -263,14 +244,9 @@ export default function BoxTablePage() {
       copyValue: (row) => (row.qc_hold_id != null ? String(row.qc_hold_id) : "—"),
     }],
 
-    ["Inward UID", "in_uid", (v, row) => {
-      const zone = getBoxStockZone(row);
-      return (
-        <span className={`text-[10px] ${zone === "in_store" ? "text-emerald-700 font-semibold" : "text-slate-400"}`}>
-          {v || "—"}
-        </span>
-      );
-    }, { width: "120px" }],
+    ["Inward UID", "in_uid", (v) => (
+      <span className="text-[10px] text-slate-600 tabular-nums">{v || "—"}</span>
+    ), { width: "120px" }],
     
     ["Customer", "forward_note_customer_name", renderBoxForwardNoteCustomerCell, {
       width: "180px",
@@ -278,14 +254,9 @@ export default function BoxTablePage() {
       copyValue: (row) => (getBoxStockZone(row) === "dispatched" ? row.forward_note_customer_name || "—" : "—"),
     }],
 
-    ["Outward UID", "out_uid", (v, row) => {
-      const zone = getBoxStockZone(row);
-      return (
-        <span className={`text-[10px] ${zone === "dispatched" ? "text-blue-800 font-bold" : "text-slate-400"}`}>
-          {v || "—"}
-        </span>
-      );
-    }, { width: "120px" }],
+    ["Outward UID", "out_uid", (v) => (
+      <span className="text-[10px] text-slate-600 tabular-nums">{v || "—"}</span>
+    ), { width: "120px" }],
 
     ["Tray", "tray_code", (v) => (
       <span className="font-mono text-[10px] font-bold text-indigo-800 uppercase">{v || "—"}</span>

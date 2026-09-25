@@ -122,7 +122,7 @@ export function getBoxRowClassName(row) {
     return "bg-blue-50 group-hover:bg-blue-50 [&_td]:!bg-blue-50 group-hover:[&_td]:!bg-blue-50/95";
   }
   if (zone === "in_store") {
-    return "bg-emerald-50/40 group-hover:bg-emerald-50/50 [&_td]:!bg-emerald-50/40";
+    return "bg-emerald-50 group-hover:bg-emerald-50 [&_td]:!bg-emerald-50 group-hover:[&_td]:!bg-emerald-50/95";
   }
   if (zone === "packing_area") {
     return "bg-green-50 group-hover:bg-green-50 [&_td]:!bg-green-50";

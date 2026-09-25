@@ -35,13 +35,18 @@ export function appendInboxPage({ items, total, hasMore }) {
   notify();
 }
 
+export function setInboxTotal(total) {
+  state = { ...state, total: Math.max(0, Number(total) || 0) };
+  notify();
+}
+
 export function addInboxItem(row) {
   if (!row?.inbox_id || row.is_read) return;
   if (state.items.some((i) => i.inbox_id === row.inbox_id)) return;
   state = {
     items: [row, ...state.items],
-    total: state.total + 1,
-    hasMore: state.hasMore || state.items.length >= 15,
+    total: state.total,
+    hasMore: state.hasMore || state.items.length + 1 >= 15,
   };
   notify();
 }

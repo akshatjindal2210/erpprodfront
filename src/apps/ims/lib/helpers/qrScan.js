@@ -86,6 +86,14 @@ export function billQrCameraLooksIncomplete(rawValue) {
 function readBoxParamsFromUrl(url) {
   const noParam = url.searchParams.get("box_no_uid");
   const idParam = url.searchParams.get("id");
+  const boxUidParam = url.searchParams.get("box_uid");
+  const fuid = url.searchParams.get("fuid");
+
+  // FN URL (`?fuid=…`) — not a sticker.
+  if (fuid && !noParam && !idParam && !boxUidParam) {
+    return { box_no_uid: "", box_uid: "" };
+  }
+
   let box_no_uid = "";
   let box_uid = "";
 
@@ -97,11 +105,8 @@ function readBoxParamsFromUrl(url) {
     if (/^\d+$/.test(id)) box_uid = id;
     else if (!box_no_uid) box_no_uid = id;
   }
-  if (!box_uid) {
-    const uidParam = url.searchParams.get("box_uid");
-    if (uidParam != null && /^\d+$/.test(String(uidParam).trim())) {
-      box_uid = String(uidParam).trim();
-    }
+  if (!box_uid && boxUidParam != null && /^\d+$/.test(String(boxUidParam).trim())) {
+    box_uid = String(boxUidParam).trim();
   }
 
   return { box_no_uid, box_uid };
@@ -159,8 +164,8 @@ export function scanBufferLooksIncomplete(rawValue) {
   }
 
   if (/^https?:\/\//i.test(s) || s.includes("://")) {
-    if (/[?&]box_no_uid=[^&]+/i.test(s) || /[?&]id=\d+/i.test(s)) return false;
-    if (!/[?&](box_no_uid|id|box_uid)=/i.test(s)) return true;
+    if (/[?&]fuid=\d+/i.test(s) || /[?&]box_no_uid=[^&]+/i.test(s) || /[?&]id=\d+/i.test(s)) return false;
+    if (!/[?&](box_no_uid|id|box_uid|fuid)=/i.test(s)) return true;
   }
 
   if (/[?&]box_no_uid=/i.test(s)) {
@@ -197,8 +202,19 @@ export function extractTrayCode(rawValue) {
     }
   }
 
+  const qp = trimmed.match(/[?&](?:tray|tray_code|code)=([^&#\s]+)/i);
+  if (qp?.[1]) {
+    try {
+      return decodeURIComponent(qp[1].replace(/\+/g, " ")).trim().toUpperCase();
+    } catch {
+      return qp[1].trim().toUpperCase();
+    }
+  }
+
   const codeMatch = trimmed.match(/\btray[_\s]*(?:code|id)\s*[:=-]?\s*([A-Za-z0-9_-]+)\b/i);
   if (codeMatch?.[1]) return codeMatch[1].trim().toUpperCase();
+
+  if (/^https?:\/\//i.test(trimmed) || trimmed.includes("://")) return null;
 
   const upper = trimmed.toUpperCase();
   if (TRAY_CODE_RE.test(upper)) return upper;
@@ -219,6 +235,7 @@ export function extractLocationNo(rawValue) {
   if (!normalizedValue) return null;
 
   if (/\bbox(?:_no)?\s*uid\b/i.test(normalizedValue)) return null;
+  if (/[?&](box_no_uid|coil_no_uid|fuid|kind=qc)=/i.test(normalizedValue)) return null;
 
   if (normalizedValue.startsWith("{") && normalizedValue.endsWith("}")) {
     try {
@@ -231,6 +248,17 @@ export function extractLocationNo(rawValue) {
       // continue
     }
   }
+
+  const qp = normalizedValue.match(/[?&]location_no=([^&#\s]+)/i);
+  if (qp?.[1]) {
+    try {
+      return decodeURIComponent(qp[1].replace(/\+/g, " ")).trim().toUpperCase();
+    } catch {
+      return qp[1].trim().toUpperCase();
+    }
+  }
+
+  if (/^https?:\/\//i.test(normalizedValue) || normalizedValue.includes("://")) return null;
 
   const locationNoMatch = normalizedValue.match(/\blocation[_\s]*(?:no|id)\s*[:=-]?\s*([A-Za-z0-9_-]+)\b/i);
   if (locationNoMatch?.[1]) return locationNoMatch[1].trim().toUpperCase();
@@ -246,6 +274,10 @@ export function detectQrType(rawValue) {
   const normalized = trimmed.toLowerCase();
   if (!normalized) return "unknown";
 
+  if (/[?&]fuid=\d+/i.test(trimmed) && !/[?&](box_no_uid|box_uid)=/i.test(trimmed)) {
+    return "fn";
+  }
+
   if (/[?&](box_no_uid|box_uid)=/i.test(trimmed) || /[?&]id=\d+/i.test(trimmed)) {
     return "box";
   }
@@ -253,6 +285,9 @@ export function detectQrType(rawValue) {
   if (/^https?:\/\//i.test(trimmed)) {
     try {
       const u = new URL(trimmed);
+      if (u.searchParams.get("fuid") && !u.searchParams.get("box_no_uid") && !u.searchParams.get("id")) {
+        return "fn";
+      }
       if (u.searchParams.get("box_no_uid") || u.searchParams.get("id") || u.searchParams.get("box_uid")) {
         return "box";
       }
@@ -265,6 +300,7 @@ export function detectQrType(rawValue) {
     try {
       const p = JSON.parse(trimmed);
       if (p?.box_uid != null || p?.box_no_uid) return "box";
+      if (p?.fuid != null) return "fn";
       const locNo = p?.location_no != null ? String(p.location_no).trim().toUpperCase() : "";
       const trayCode = p?.code != null ? String(p.code).trim().toUpperCase() : "";
       if (TRAY_CODE_RE.test(locNo) || TRAY_CODE_RE.test(trayCode) || p?.tray_id != null) return "tray";

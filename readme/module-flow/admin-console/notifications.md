@@ -1,14 +1,16 @@
 # Notifications
 
-Super-admin templates, instant send, delivery logs. Templates in Task `task_app_config` JSON.
+Super-admin templates, instant send, delivery logs. Task templates in Task `task_app_config` JSON. **Module templates** in `mst_notification_templates` (activity-driven).
 
 |               |                                                                                                                 |
 |---------------|-----------------------------------------------------------------------------------------------------------------|
 | UI            | `/settings/notifications`                                                                                       |
 | FE            | `settings/notifications/`                                                                                       |
-| BE            | `task/manage/notifications/` + core inbox / push                                                                |
-| API           | `POST /api/task/notifications/` (`channels|templates|logs|send`); runtime `/api/core/inbox/`, `/api/core/push/` |
-| Table         | `task_app_config`, `mst_inbox`, `mst_push_subscriptions`, `mst_push_delivery_log`, `mst_activity_logs`          |
+| BE            | `task/manage/notifications/` + core inbox / push + **`templates/moduleNotify.service.js`**                      |
+| API           | `POST /api/task/notifications/` (`channels|templates|logs|send`); core notification-templates; runtime `/api/core/inbox/`, `/api/core/push/` |
+| Table         | `task_app_config`, `mst_notification_templates`, `mst_notification_logs`, `mst_inbox`, `mst_push_subscriptions`, `mst_push_delivery_log`, `mst_activity_logs` |
+
+**Module notifications (flow):** [module-notifications.md](./module-notifications.md)
 
 **Files**
 
