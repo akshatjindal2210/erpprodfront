@@ -12,6 +12,11 @@ import { notifyListPageExportResult } from "@/platform/utils/list/listPageExport
 import { getAuditExecutionStatusLabel, renderAuditLocationResultBadge } from "./auditStatusHelpers";
 import { buildLocationComparisonReport, getLocationStatusLabel, getLocationStatusBadgeClass, normalizeLocationStatusKey, isLocationSubmittedRow, computeLocationScoreFromCounts, formatLocationScorePct, resolveCoilAccName } from "./auditScanHelpers";
 import { exportAuditComparisonReport } from "./auditComparisonExport";
+import { formatLocationDisplay } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
+
+function auditLocDisplay(v, row) {
+  return formatLocationDisplay(v ?? row?.audit_location_no ?? row?.location_no ?? row) || "—";
+}
 
 function DifferenceTypeBadge({ type }) {
   const isExtra = type === "extra_scan";
@@ -93,7 +98,7 @@ function BoxDetailTable({ rows, showLocation = false, emptyMessage = "None", var
             >
               {showLocation && (
                 <td className="px-3 py-2 text-[10px] font-bold text-slate-700 uppercase">
-                  {row.audit_location_no || row.location_no || "—"}
+                  {auditLocDisplay(row.audit_location_no || row.location_no, row)}
                 </td>
               )}
               <td className="px-3 py-2">
@@ -110,7 +115,7 @@ function BoxDetailTable({ rows, showLocation = false, emptyMessage = "None", var
               <td className="px-3 py-2 text-[10px] text-slate-700">{row.acc_name || resolveCoilAccName(row) || "—"}</td>
               <td className="px-3 py-2 text-[10px] text-slate-700">{row.item_code ?? "—"}</td>
               <td className="px-3 py-2 text-[10px] font-bold text-slate-800">{row.qty ?? "—"}</td>
-              <td className="px-3 py-2 text-[10px] font-bold text-slate-700 uppercase">{row.location_no ?? "—"}</td>
+              <td className="px-3 py-2 text-[10px] font-bold text-slate-700 uppercase">{auditLocDisplay(row.location_no, row)}</td>
             </tr>
           ))}
         </tbody>
@@ -408,7 +413,7 @@ export default function AuditComparisonModal({
     if (!resolvedAuditId || !resolvedLocationId || !canManage) return;
     if (
       !window.confirm(
-        `Mark location ${locationRow?.location_no || ""} as Complete?\n\nStatus will update only — no inventory adjustment.`
+        `Mark location ${auditLocDisplay(locationRow?.location_no, locationRow) === "—" ? "" : auditLocDisplay(locationRow?.location_no, locationRow)} as Complete?\n\nStatus will update only — no inventory adjustment.`
       )
     ) {
       return;
@@ -433,7 +438,7 @@ export default function AuditComparisonModal({
 
   const handleAdjustment = async () => {
     if (!resolvedAuditId || !canAdjust) return;
-    const scope = singleLocation ? `location ${locationRow?.location_no}` : "all mismatched locations";
+    const scope = singleLocation ? `location ${auditLocDisplay(locationRow?.location_no, locationRow)}` : "all mismatched locations";
     const completeNote = isLocationComplete
       ? "\n\nLocation is already Complete — inventory will be synced now."
       : "";
@@ -527,7 +532,7 @@ export default function AuditComparisonModal({
     <Drawer
       isOpen={open}
       onClose={onClose}
-      title={singleLocation ? `Location comparison — ${locationRow?.location_no}` : "Audit comparison report"}
+      title={singleLocation ? `Location comparison — ${auditLocDisplay(locationRow?.location_no, locationRow)}` : "Audit comparison report"}
       description={auditLabel || (resolvedAuditId ? `Audit #${resolvedAuditId}` : "")}
       maxWidth="max-w-6xl"
       footer={footer}
@@ -559,7 +564,7 @@ export default function AuditComparisonModal({
                 {singleLocation && locationRow && (
                   <span className="text-[9px] text-slate-600 flex items-center gap-0.5">
                     <MapPin size={9} />
-                    {locationRow.location_no} · {getLocationStatusLabel(locationRow.location_status)}
+                    {auditLocDisplay(locationRow.location_no, locationRow)} · {getLocationStatusLabel(locationRow.location_status)}
                   </span>
                 )}
                 {!singleLocation && (
@@ -622,7 +627,7 @@ export default function AuditComparisonModal({
                 <tbody>
                   {locations.map((loc) => (
                     <tr key={loc.location_id} className="border-b border-slate-100">
-                      <td className="px-2 py-1.5 font-bold text-slate-800">{loc.location_no}</td>
+                      <td className="px-2 py-1.5 font-bold text-slate-800">{auditLocDisplay(loc.location_no, loc)}</td>
                       <td className="px-2 py-1.5">{loc.system_count}</td>
                       <td className="px-2 py-1.5">{loc.scanned_count}</td>
                       <td className="px-2 py-1.5 text-emerald-700 font-bold">{loc.matched_scanned_count ?? 0}</td>

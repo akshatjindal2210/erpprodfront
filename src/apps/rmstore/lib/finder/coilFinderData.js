@@ -1,3 +1,4 @@
+import { formatLocationDisplay } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 import { getCoilStickerEntries } from "@/apps/rmstore/lib/utils/coilTransactionStickerEntries";
@@ -43,7 +44,7 @@ function formatJourneyValue(v) {
     if (v.source_pjobcardno != null || v.target_pjobcardno != null || v.consumed_qty != null || v.balance_qty != null) {
       return formatReassignJourneyLine(v);
     }
-    const locNo = String(v.location_no ?? v.locationNo ?? "").trim();
+    const locNo = formatLocationDisplay(String(v.location_no ?? v.locationNo ?? "").trim() || v);
     if (locNo) {
       const n = Number(v.coil_count);
       return Number.isFinite(n) ? `${locNo} (${n} coil${n === 1 ? "" : "s"})` : locNo;

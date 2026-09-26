@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Loader2, Printer, FileText, ImageIcon } from "lucide-react";
 import { toast } from "react-toastify";
 import { printCoilReport } from "@/apps/rmstore/lib/utils/coilReportActions";
@@ -14,6 +14,9 @@ import FormTextarea from "@/ui/common/forms/FormTextarea";
 import ActionButton from "@/ui/primitives/ActionButton";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
+
+const MODULE = "rm_rejection";
 
 function resolveDocUrl(noteOrPath) {
   const raw = String(noteOrPath || "").trim();
@@ -479,6 +482,7 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
   const isQc = row?.pending_source === "qc_check" && row?.qc_check_uid != null;
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const sopAckRef = useRef(null);
   const [detail, setDetail] = useState(null);
   const [coilQcDetail, setCoilQcDetail] = useState(null);
   const [remarks, setRemarks] = useState("");
@@ -594,6 +598,7 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
   };
 
   const handleSubmit = async () => {
+    if (!sopAckRef.current?.assertAcknowledged()) return;
     setSubmitting(true);
     try {
       let res;
@@ -717,6 +722,14 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
             qcChecks={qcChecks}
             rejectedCoils={rejectedCoils}
             rejectedCoilsBatchLabel={rejectedCoilsBatchLabel}
+          />
+          <ModuleSopAcknowledgment
+            ref={sopAckRef}
+            key={`${open}-${row?.qc_check_uid || row?.ipr_uid || "new"}-add`}
+            moduleSlug={MODULE}
+            permissionType="add"
+            isOpen={open}
+            requireAckWhenPresent
           />
           <div className="pt-2">
             <FormTextarea

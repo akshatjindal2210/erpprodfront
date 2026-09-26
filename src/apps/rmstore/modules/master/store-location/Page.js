@@ -22,6 +22,7 @@ import DataTable from "@/ui/primitives/DataTable";
 import LocationModal from "./LocationModal";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
+import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
 import LocationQRDrawer from "./LocationQRDrawer";
 import LocationBulkQRDrawer from "./LocationBulkQRDrawer";
 
@@ -201,10 +202,10 @@ export default function LocationMasterPage() {
   });
 
   const HEADERS = [
-    ["Location No.", "location_no", (v, row) => (
+    ["Location No.", "location_no", (_v, row) => (
       <div className="flex flex-col leading-tight py-1">
         <span className="font-mono text-indigo-600 font-bold text-[10px] uppercase">
-          {v || (row.rack_no ? `RM-${row.rack_no}${(row.row_no || "").toString().toUpperCase()}` : "—")}
+          {getLocationDisplayNo(row)}
         </span>
       </div>
     ), { fixed: true, width: "120px" }],

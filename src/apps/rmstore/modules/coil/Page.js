@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { RefreshCcw, Layers, X, Locate } from "lucide-react";
+import { RefreshCcw, Layers, Locate } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { coilService } from "@/apps/rmstore/lib/services/coil";
@@ -11,7 +11,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
-import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
+import AppListFooter from "@/ui/common/list/listPageFooter";
 import { rmStoreSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
@@ -19,7 +19,7 @@ import DataTable from "@/ui/primitives/DataTable";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
-import { applyClientSearch, fetchAllListPages } from "@/ui/common/list/clientListSearch";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import CoilFinderDrawer from "./CoilFinderDrawer";
 import { COIL_CARD_CONFIG, COIL_HEADERS } from "./coilColumns";
 import { COIL_ZONE_FILTER_OPTIONS, CoilTableColorLegend, defaultCoilZoneIncludes, filterCoilRowsByZone, getCoilClientSearchParts, getCoilRowClassName, isCoilZoneFilterActive } from "./coilTableVisuals";
@@ -35,56 +35,22 @@ const COIL_ZONE_FILTER = {
 };
 
 const MODULE = "rm_coils";
-const PAGE_SIZE = 200;
-const JOURNEY_FETCH_PAGE_SIZE = 1000;
 
-function buildFilters({ fromDate, toDate, journey }) {
-  if (journey) return { journey };
-  return {
-    ...(fromDate && { from_date: `${fromDate} 00:00:00` }),
-    ...(toDate && { to_date: `${toDate} 23:59:59` }),
-  };
-}
-
+/** IMS Boxes-style list: full fetch → client zone/search → displayLimit slice. */
 export default function CoilTablePage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
 
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [viewMode, handleViewMode] = useViewMode();
   const [params, setParams] = useState({
+    pageSize: 1000,
     fromDate: dateFilterDefaults.from,
     toDate: dateFilterDefaults.to,
     sortKey: "coil_uid",
     sortDir: "desc",
   });
-  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
-  const [journeyInput, setJourneyInput] = useState("");
-  const [appliedJourney, setAppliedJourney] = useState("");
-  const [zoneIncludes, setZoneIncludes] = useState(defaultCoilZoneIncludes);
-  const [rows, setRows] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState(null);
-  const [finderOpen, setFinderOpen] = useState(false);
-
-  const journey = String(appliedJourney ?? "").trim();
-  const isJourneyMode = Boolean(journey);
-  const journeyTyping = Boolean(String(journeyInput ?? "").trim());
-  const hasDateRange = Boolean(params.fromDate || params.toDate);
-  const canLoad = journey || hasDateRange;
-
-  const listQuery = useMemo(
-    () => ({
-      sortBy: params.sortKey || "coil_uid",
-      order: String(params.sortDir || "desc").toUpperCase(),
-      filters: buildFilters({ fromDate: params.fromDate, toDate: params.toDate, journey }),
-      ...(appliedSearch && { search: appliedSearch }),
-    }),
-    [params.sortKey, params.sortDir, params.fromDate, params.toDate, journey, appliedSearch]
-  );
 
   useEffect(() => {
     if (!dateFilterDefaults.from && !dateFilterDefaults.to) return;
@@ -94,133 +60,118 @@ export default function CoilTablePage() {
     });
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  useEffect(() => {
-    if (!canLoad) {
-      setRows([]);
-      setTotal(0);
-      setPage(1);
-      setLoading(false);
-      return;
-    }
+  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } = useAppliedListSearch();
+  const [journeyInput, setJourneyInput] = useState("");
+  const [appliedJourney, setAppliedJourney] = useState("");
+  const [zoneIncludes, setZoneIncludes] = useState(defaultCoilZoneIncludes);
+  const [allRows, setAllRows] = useState([]);
+  const [displayLimit, setDisplayLimit] = useState(100);
+  const [selected, setSelected] = useState(null);
+  const [finderOpen, setFinderOpen] = useState(false);
 
-    let cancelled = false;
-    setLoading(true);
-
-    (async () => {
-      try {
-        if (journey) {
-          const { data, total: fetchedTotal } = await fetchAllListPages(async (page, limit) => {
-            const body = await coilService.getAll({ ...listQuery, page, limit });
-            return { data: body.data ?? [], total: Number(body.total) || 0 };
-          }, JOURNEY_FETCH_PAGE_SIZE);
-          if (cancelled) return;
-          setRows(data);
-          setTotal(fetchedTotal);
-          setPage(1);
-        } else {
-          const body = await coilService.getAll({ ...listQuery, page: 1, limit: PAGE_SIZE });
-          if (cancelled) return;
-          setRows(body.data ?? []);
-          setTotal(Number(body.total) || 0);
-          setPage(1);
-        }
-      } catch (err) {
-        if (cancelled) return;
-        toast.error(err?.message || "Could not load coils.");
-        setRows([]);
-        setTotal(0);
-        setPage(1);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [listQuery, canLoad, journey]);
-
-  const loadMore = useCallback(async () => {
-    if (isJourneyMode || loading || loadingMore || rows.length >= total) return;
-    setLoadingMore(true);
-    try {
-      const nextPage = page + 1;
-      const body = await coilService.getAll({ ...listQuery, page: nextPage, limit: PAGE_SIZE });
-      setRows((prev) => [...prev, ...(body.data ?? [])]);
-      setTotal(Number(body.total) || total);
-      setPage(nextPage);
-    } catch (err) {
-      toast.error(err?.message || "Could not load more coils.");
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [isJourneyMode, loading, loadingMore, rows.length, total, page, listQuery]);
-
-  const refresh = useCallback(async () => {
-    if (!canLoad) return;
+  const fetchCoils = useCallback(async () => {
+    const journey = String(appliedJourney ?? "").trim();
+    if (!journey && !params.fromDate && !params.toDate) return;
     setLoading(true);
     try {
-      if (journey) {
-        const { data, total: fetchedTotal } = await fetchAllListPages(async (page, limit) => {
-          const body = await coilService.getAll({ ...listQuery, page, limit });
-          return { data: body.data ?? [], total: Number(body.total) || 0 };
-        }, JOURNEY_FETCH_PAGE_SIZE);
-        setRows(data);
-        setTotal(fetchedTotal);
-      } else {
-        const body = await coilService.getAll({ ...listQuery, page: 1, limit: PAGE_SIZE });
-        setRows(body.data ?? []);
-        setTotal(Number(body.total) || 0);
-      }
-      setPage(1);
+      const base = {
+        sortBy: params.sortKey || "coil_uid",
+        order: String(params.sortDir || "desc").toUpperCase(),
+        filters: journey
+          ? { journey }
+          : {
+              ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
+              ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
+            },
+        ...(appliedSearch && { search: appliedSearch }),
+      };
+      const { data } = await fetchAllListPages(async (page, limit) => {
+        const body = await coilService.getAll({ ...base, page, limit });
+        return { data: body.data ?? [], total: Number(body.total) || 0 };
+      }, params.pageSize);
+      setAllRows(data);
     } catch (err) {
       toast.error(err?.message || "Could not load coils.");
+      setAllRows([]);
     } finally {
       setLoading(false);
     }
-  }, [canLoad, listQuery, journey]);
+  }, [params.pageSize, params.fromDate, params.toDate, params.sortKey, params.sortDir, appliedJourney, appliedSearch]);
 
-  const selectedRecord = useMemo(
-    () => rows.find((r) => r.coil_uid === selected) || null,
-    [rows, selected]
-  );
+  useEffect(() => {
+    fetchCoils();
+  }, [fetchCoils]);
 
-  const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
+  useEffect(() => {
+    setDisplayLimit(100);
+  }, [tempSearch, params.fromDate, params.toDate, appliedJourney, appliedSearch]);
 
-  // Coils list is view/finder only — no create/edit drawer. Disable New/Edit hotkeys
-  // so Ctrl+Alt+N / Insert does not open a form that has no toolbar entry.
-  const { tableHotkeyProps } = useListDrawerHotkeys({
-    module: MODULE,
-    modalOpen: finderOpen,
-    selectedId: selected,
-    getSelectedRow,
-    openAdd: null,
-    openEdit: null,
-  });
+  const isJourneyMode = Boolean(String(appliedJourney ?? "").trim());
+  const journeyTyping = Boolean(String(journeyInput ?? "").trim());
 
   const filteredRows = useMemo(() => {
-    let data = filterCoilRowsByZone(rows, zoneIncludes);
-    const q = String(tempSearch ?? "").trim();
-    if (q) {
+    let data = filterCoilRowsByZone(allRows, zoneIncludes);
+    if (String(tempSearch || "").trim()) {
       data = applyClientSearch(data, tempSearch, {
         getParts: getCoilClientSearchParts,
         skipSort: Boolean(params.sortKey),
       });
     }
-    return data;
-  }, [rows, tempSearch, params.sortKey, zoneIncludes]);
+    return sortRowsByKey(data, params.sortKey, params.sortDir);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir, zoneIncludes]);
+
+  const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
+  const totalItems = filteredRows.length;
 
   const quickSearchActive = Boolean(String(tempSearch ?? "").trim());
   const zoneFilterActive = isCoilZoneFilterActive(zoneIncludes);
-  const clientFiltered = quickSearchActive || zoneFilterActive;
+
+  const handleLoadMore = useCallback(() => {
+    if (!loading && items.length < totalItems) {
+      setDisplayLimit((n) => n + 100);
+    }
+  }, [loading, items.length, totalItems]);
+
+  const applyJourneyFilter = useCallback(() => {
+    setDisplayLimit(100);
+    setAppliedJourney(String(journeyInput ?? "").trim());
+  }, [journeyInput]);
 
   const handleZoneIncludesChange = useCallback((value) => {
     setZoneIncludes(value && typeof value === "object" ? value : defaultCoilZoneIncludes());
+    setDisplayLimit(100);
   }, []);
 
-  const applyJourneyFilter = useCallback(() => {
-    setAppliedJourney(String(journeyInput ?? "").trim());
-  }, [journeyInput]);
+  const handleFilterApply = (data) => {
+    applySearchFromInput();
+    const journey = String(journeyInput ?? "").trim();
+    setDisplayLimit(100);
+    if (journey) {
+      setAppliedJourney(journey);
+      return;
+    }
+    setAppliedJourney("");
+    setParams((prev) => ({
+      ...prev,
+      fromDate: data.fromDate,
+      toDate: data.toDate,
+    }));
+  };
+
+  const handleReset = () => {
+    resetSearch();
+    setJourneyInput("");
+    setAppliedJourney("");
+    setZoneIncludes(defaultCoilZoneIncludes());
+    setDisplayLimit(100);
+    setParams({
+      pageSize: 1000,
+      fromDate: dateFilterDefaults.from,
+      toDate: dateFilterDefaults.to,
+      sortKey: "coil_uid",
+      sortDir: "desc",
+    });
+  };
 
   const extraFilters = useMemo(
     () => [
@@ -237,44 +188,21 @@ export default function CoilTablePage() {
     [journeyInput, applyJourneyFilter, zoneIncludes]
   );
 
-  const footerFilter = useMemo(
-    () =>
-      appListFooterFromClientFilter({
-        tempSearch,
-        sourceRows: rows,
-        filteredRows,
-        serverFiltered: Boolean(appliedSearch) || Boolean(journey) || hasDateRange,
-      }),
-    [rows, filteredRows, tempSearch, appliedSearch, journey, hasDateRange]
+  const selectedRecord = useMemo(
+    () => filteredRows.find((r) => r.coil_uid === selected) || null,
+    [filteredRows, selected]
   );
 
-  const handleFilterApply = (data) => {
-    applySearchFromInput();
-    const nextJourney = String(journeyInput ?? "").trim();
-    if (nextJourney) {
-      setAppliedJourney(nextJourney);
-      return;
-    }
-    setAppliedJourney("");
-    setParams((prev) => ({
-      ...prev,
-      fromDate: data?.fromDate ?? prev.fromDate,
-      toDate: data?.toDate ?? prev.toDate,
-    }));
-  };
+  const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
 
-  const handleReset = () => {
-    resetSearch();
-    setJourneyInput("");
-    setAppliedJourney("");
-    setZoneIncludes(defaultCoilZoneIncludes());
-    setParams({
-      fromDate: dateFilterDefaults.from,
-      toDate: dateFilterDefaults.to,
-      sortKey: "coil_uid",
-      sortDir: "desc",
-    });
-  };
+  const { tableHotkeyProps } = useListDrawerHotkeys({
+    module: MODULE,
+    modalOpen: finderOpen,
+    selectedId: selected,
+    getSelectedRow,
+    openAdd: null,
+    openEdit: null,
+  });
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
     moduleName: "Coil Records",
@@ -300,7 +228,7 @@ export default function CoilTablePage() {
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
                 <button
                   type="button"
-                  onClick={refresh}
+                  onClick={() => fetchCoils()}
                   className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center transition-all"
                 >
                   <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
@@ -354,8 +282,8 @@ export default function CoilTablePage() {
         <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
             headers={COIL_HEADERS}
-            data={filteredRows}
-            loading={loading || loadingMore}
+            data={items}
+            loading={loading}
             viewMode={viewMode}
             allowCopy
             showSelection
@@ -364,6 +292,7 @@ export default function CoilTablePage() {
             sortKey={params.sortKey ?? ""}
             sortDir={params.sortDir}
             onSort={(key) => {
+              setDisplayLimit(100);
               setParams((p) => ({
                 ...p,
                 sortKey: key,
@@ -374,15 +303,15 @@ export default function CoilTablePage() {
             onSelect={setSelected}
             getRowId={(row) => row.coil_uid}
             getRowClassName={getCoilRowClassName}
-            onLoadMore={loadMore}
-            hasMore={!isJourneyMode && !clientFiltered && rows.length < total}
-            totalItems={isJourneyMode || clientFiltered ? filteredRows.length : total}
+            onLoadMore={handleLoadMore}
+            hasMore={items.length < totalItems}
+            totalItems={totalItems}
             emptyMessage={
               quickSearchActive
                 ? "No coils match quick search"
                 : zoneFilterActive
                   ? "No coils in selected zones"
-                  : journey
+                  : isJourneyMode
                     ? "No coils match this journey"
                     : "No coil records for this date range"
             }
@@ -391,7 +320,7 @@ export default function CoilTablePage() {
                 ? "Try coil no, MRN, heat, item, job card, or machine"
                 : zoneFilterActive
                   ? "Change zone filter or reset to all zones"
-                  : journey
+                  : isJourneyMode
                     ? "Try MRN, coil no, item, job card, or machine"
                     : "Set dates and click Search"
             }
@@ -400,15 +329,14 @@ export default function CoilTablePage() {
         </div>
 
         <AppListFooter
-          shown={filteredRows.length}
-          total={isJourneyMode || clientFiltered ? filteredRows.length : total}
+          shown={items.length}
+          total={totalItems}
           noun={isJourneyMode ? "journey matches" : "Coil Records"}
           journeyMode={isJourneyMode}
           selected={selected}
           selectedRecord={selectedRecord}
           selectionLabel={rmStoreSelectionLabel.coil}
           onClearSelection={() => setSelected(null)}
-          {...footerFilter}
           extra={<CoilTableColorLegend />}
         />
       </div>

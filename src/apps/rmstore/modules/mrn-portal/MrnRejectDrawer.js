@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSelector } from "react-redux";
+import { selectRole } from "@/platform/store/slices/authSlice";
 import { Loader2, Save } from "lucide-react";
 import { toast } from "react-toastify";
 
@@ -11,7 +13,9 @@ import { mrnService } from "@/apps/rmstore/lib/services/mrn";
 import { notify } from "@/apps/rmstore/lib/utils/notify";
 import { equalSplitQtyAcrossCoils, roundQty3, splitQtyAcrossCoils } from "@/apps/rmstore/lib/helpers/coilUid";
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
+import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 
+const MODULE = "rm_mrn_portal";
 const LABEL = "block text-[10px] font-bold uppercase text-slate-500 tracking-wide mb-1";
 const INPUT =
   "w-full h-10 sm:h-8 px-2.5 sm:px-2 text-[11px] text-slate-800 border border-slate-200 rounded-lg focus:border-rose-500 outline-none bg-white font-bold tabular-nums touch-manipulation";
@@ -69,11 +73,17 @@ function erpField(row, detail, key) {
  * Coils are not created yet; only the count and marks are captured at reject time.
  */
 export default function MrnRejectDrawer({ open, onClose, onSuccess, row }) {
+  const role = useSelector(selectRole);
+  console.log("role - ; ",role);
+  const isSuperAdmin = String(role || "").toLowerCase() === "super_admin";
+  console.log("isSuperAdmin - ; ",isSuperAdmin);
+
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [detail, setDetail] = useState(null);
   const [coilCount, setCoilCount] = useState(1);
   const [remark, setRemark] = useState("");
+  const sopAckRef = useRef(null);
 
   const uid = row?.uid != null ? String(row.uid).trim() : "";
 
@@ -159,6 +169,7 @@ export default function MrnRejectDrawer({ open, onClose, onSuccess, row }) {
       toast.error("Remark is required.");
       return;
     }
+    if (!sopAckRef.current?.assertAcknowledged()) return;
 
     setSubmitting(true);
     try {
@@ -300,13 +311,22 @@ export default function MrnRejectDrawer({ open, onClose, onSuccess, row }) {
                 value={coilCount}
                 onChange={(e) => handleCoilCountChange(e.target.value)}
                 onBlur={commitCoilCount}
-                disabled={loading}
-                className={INPUT}
+                disabled={loading || !isSuperAdmin}
+                className={`${INPUT} disabled:bg-slate-50 disabled:border-slate-100 disabled:text-slate-600 disabled:cursor-not-allowed`}
               />
               <p className="text-[10px] text-slate-400 mt-1.5">
                 MRN qty {formatQty(totalQty)} {unit} split across {Math.max(1, Number(coilCount) || 1)} coil(s).
               </p>
             </div>
+
+            <ModuleSopAcknowledgment
+              ref={sopAckRef}
+              key={`${open}-${uid}-authorize`}
+              moduleSlug={MODULE}
+              permissionType="authorize"
+              isOpen={open}
+              requireAckWhenPresent
+            />
 
             <FormTextarea
               label={

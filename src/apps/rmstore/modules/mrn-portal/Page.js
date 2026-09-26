@@ -756,7 +756,7 @@ export default function MrnPortalPage() {
                 ? "This view shows differences between live ERP MRN data and the record saved in RM Store when stickers were generated."
                 : "Set the from and to dates and search, then select a row to view its profile or create a sticker."
             }
-            cardConfig={{ titleKey: "mrn_no", badgeIndices: [7], detailIndices: [2, 3, 6], footerKey: "mrn_dt" }}
+            cardConfig={{ titleKey: "uid", badgeIndices: [7], detailIndices: [2, 3, 6], footerKey: "mrn_dt" }}
             getRowClassName={
               isComparisonView
                 ? () => "bg-rose-50 group-hover:bg-rose-50 [&_td]:!bg-rose-50"

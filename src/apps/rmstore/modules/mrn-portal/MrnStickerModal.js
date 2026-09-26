@@ -20,7 +20,9 @@ import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
 import { resolveRmApproveKeyboardScan } from "@/apps/rmstore/lib/utils/rmApproveScanSettings";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
-import { prepareQrScanSession, playScanSuccessBeep } from "@/platform/utils/global/scanFeedback";
+import { prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
+import { SCAN_SNACK_DUR, SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
+import Snackbar from "@/ui/primitives/Snackbar";
 
 import Drawer from "@/ui/primitives/Drawer";
 import { FormLabel, OK_INPUT, MODAL_INPUT_CLASS } from "@/ui/common/Constants";
@@ -33,11 +35,19 @@ import { formatCoilNoUid } from "@/apps/rmstore/lib/coilUidFormat";
 import { parseCoilNoUidMeta } from "@/apps/rmstore/lib/coilUidHelpers";
 import { printFromBackendHtml } from "@/apps/ims/lib/utils/printHtmlDocument";
 import { getBoxNoUidPrefix } from "@/platform/utils/global";
-
-const APPROVE_QR_READER_ID = "mrn-approve-qr-reader";
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
+import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+
+const APPROVE_QR_READER_ID = "mrn-approve-qr-reader";
+const INITIAL_SNACK = {
+  open: false,
+  variant: "success",
+  title: "",
+  message: "",
+  duration: SCAN_SNACK_DUR.med,
+};
 
 const TABS = { DETAILS: "details", BREAKDOWN: "breakdown" };
 const BATCH_QC_DL_KEY = "__batch_qc__";
@@ -278,6 +288,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const canShowAddActions = isSuperAdmin || canAdd;
   const canShowApproveAction = isSuperAdmin || canAuthorize;
   const canShowPrintActions = isSuperAdmin || canAdd || canView;
+  const sopAckRef = useRef(null);
   const [tab, setTab] = useState(TABS.DETAILS);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -303,6 +314,12 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const approvalScanInputRef = useRef(null);
   const scanTrackingRef = useRef({});
   const lastCamErrorRef = useRef(0);
+  const scanToastRef = useRef({});
+  const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
+  const closeSnackbar = useCallback(() => {
+    setSnackbar((s) => ({ ...s, open: false }));
+  }, []);
+  const { showScanToast, showScanSuccess } = useScanSnackbarActions(setSnackbar, scanToastRef);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [narrowLayout, setNarrowLayout] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 1023px)").matches : false
@@ -519,6 +536,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const isApproved = isDetailApproved(detail);
   /** Approve scan + button — only from toolbar Approve, never merged into Generate. */
   const showApprovalFlow = awaitingApproval && openMode === "approve";
+  const sopPermissionType = showApprovalFlow ? "authorize" : "add";
+  const showSopAck = (canShowAddActions && !alreadyGenerated) || (showApprovalFlow && canShowApproveAction);
   const showPrintHeader =
     alreadyGenerated &&
     !showApprovalFlow &&
@@ -891,6 +910,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       toast.error("The MRN quantity is missing or invalid.");
       return;
     }
+    if (!sopAckRef.current?.assertAcknowledged()) return;
     setSavingDraft(true);
     try {
       const source = sourceRow || detail;
@@ -932,6 +952,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
 
   const handleGenerate = async () => {
     if (!validateBeforeGenerate()) return;
+    if (!sopAckRef.current?.assertAcknowledged()) return;
     setGenerating(true);
     try {
       const source = sourceRow || detail;
@@ -1035,42 +1056,46 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     const mrnUid = resolvedUid || detail?.uid;
 
     const warn = (message) => {
-      if (!continuous) {
-        toast.error(message);
-        return;
+      if (continuous) {
+        const now = Date.now();
+        if (now - lastCamErrorRef.current < 1600) return;
+        lastCamErrorRef.current = now;
       }
-      const now = Date.now();
-      if (now - lastCamErrorRef.current < 1600) return;
-      lastCamErrorRef.current = now;
-      toast.error(message, { toastId: "mrn-approve-scan-err" });
+      showScanToast("error", continuous ? "mrn-approve-scan-err" : "mrn-approve-scan-err-once", message, continuous ? 1800 : 2800);
     };
 
     const mark = (key) => {
-      if (scanTrackingRef.current[key]) return "duplicate";
+      if (scanTrackingRef.current[key]) {
+        const dupLabel =
+          key === BATCH_QC_DL_KEY
+            ? "batch QC"
+            : String(key).startsWith("qc_")
+              ? String(key).slice(3)
+              : String(key);
+        showScanToast("error", `mrn-approve-dup-${key}`, SCAN_SNACK_MSG.BOX_DUPLICATE(dupLabel), 1400);
+        return "duplicate";
+      }
       const next = { ...scanTrackingRef.current, [key]: true };
       scanTrackingRef.current = next;
       setScanTracking(next);
-      if (continuous) {
-        void playScanSuccessBeep();
-        const coilDone = requiredCoilUids.filter((uid) => next[uid]).length;
-        const qcNeed = isBatchMode ? 1 : requiredCoilUids.length;
-        const qcDone = isBatchMode
-          ? (next[BATCH_QC_DL_KEY] ? 1 : 0)
-          : requiredCoilUids.filter((uid) => next[`qc_${uid}`]).length;
-        const done = coilDone + qcDone;
-        const total = requiredCoilUids.length + qcNeed;
-        if (total > 0 && done >= total) {
-          setIsScannerOpen(false);
-          toast.success("All stickers scanned. You can approve now.", { toastId: "mrn-approve-scan" });
-        }
+      const scanLabel =
+        key === BATCH_QC_DL_KEY
+          ? "QC|batch"
+          : String(key).startsWith("qc_")
+            ? `QC|${String(key).slice(3)}`
+            : String(key);
+      const coilDone = requiredCoilUids.filter((uid) => next[uid]).length;
+      const qcNeed = isBatchMode ? 1 : requiredCoilUids.length;
+      const qcDone = isBatchMode
+        ? (next[BATCH_QC_DL_KEY] ? 1 : 0)
+        : requiredCoilUids.filter((uid) => next[`qc_${uid}`]).length;
+      const done = coilDone + qcDone;
+      const total = requiredCoilUids.length + qcNeed;
+      if (total > 0 && done >= total) {
+        setIsScannerOpen(false);
+        showScanSuccess("mrn-approve-scan-done", SCAN_SNACK_MSG.BOX_ADDED(scanLabel), 2800);
       } else {
-        toast.success(
-          key === BATCH_QC_DL_KEY
-            ? "Batch QC sticker scanned."
-            : String(key).startsWith("qc_")
-              ? "QC sticker scanned."
-              : "Coil sticker scanned."
-        );
+        showScanSuccess(`mrn-approve-ok-${key}`, SCAN_SNACK_MSG.BOX_ADDED(scanLabel), continuous ? 1200 : 1600);
       }
       return "ok";
     };
@@ -1103,11 +1128,20 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     }
     warn("Invalid scan.");
     return "error";
-  }, [detail?.uid, isBatchMode, requiredCoilUids, resolvedUid]);
+  }, [detail?.uid, isBatchMode, requiredCoilUids, resolvedUid, showScanToast, showScanSuccess]);
 
   const handleCameraDecoded = useCallback((text) => {
     handleApprovalScan(text, { continuous: true });
   }, [handleApprovalScan]);
+
+  const handleLaserScanRejected = useCallback(
+    ({ reason }) => {
+      if (reason === "empty") {
+        showScanToast("error", "laser-empty-scan", SCAN_SNACK_MSG.REJECTED, 1800);
+      }
+    },
+    [showScanToast]
+  );
 
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
     active: isScannerOpen && showApprovalFlow,
@@ -1118,7 +1152,12 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     onCameraFailed: (err) => {
       setIsScannerOpen(false);
       const denied = /NotAllowed|Permission|denied/i.test(String(err?.message || err || ""));
-      toast.error(denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again.");
+      showScanToast(
+        "error",
+        "mrn-camera-fail",
+        denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again.",
+        4000
+      );
     },
   });
 
@@ -1126,16 +1165,26 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     try {
       const prep = await prepareQrScanSession();
       if (!prep?.cameraOk) {
-        toast.error(prep?.cameraDenied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again.");
+        showScanToast(
+          "error",
+          "mrn-camera-prep",
+          prep?.cameraDenied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again.",
+          4000
+        );
         return;
       }
     } catch (err) {
       const denied = /NotAllowed|Permission|denied/i.test(String(err?.message || err || ""));
-      toast.error(denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again.");
+      showScanToast(
+        "error",
+        "mrn-camera-prep-err",
+        denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again.",
+        4000
+      );
       return;
     }
     setIsScannerOpen(true);
-  }, []);
+  }, [showScanToast]);
 
   useEffect(() => {
     if (!open || !showApprovalFlow) setIsScannerOpen(false);
@@ -1155,6 +1204,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       toast.error("MRN UID is missing.");
       return;
     }
+    if (!sopAckRef.current?.assertAcknowledged()) return;
     setApproving(true);
     try {
       const res = await mrnService.approveStickers({
@@ -1294,7 +1344,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                   pattern="[0-9]*"
                   enterKeyHint="done"
                   autoComplete="off"
-                  className={`mt-0.5 ${OK_INPUT} ${MODAL_INPUT_CLASS} font-bold tabular-nums !text-slate-900 touch-manipulation`}
+                  disabled={!isSuperAdmin}
+                  className={`mt-0.5 ${OK_INPUT} ${MODAL_INPUT_CLASS} font-bold tabular-nums touch-manipulation disabled:bg-slate-50 disabled:border-slate-100 disabled:text-slate-600 disabled:cursor-not-allowed`}
                   value={coilCount}
                   onChange={(e) => handleCoilCountChange(e.target.value)}
                   onBlur={commitCoilCount}
@@ -1868,11 +1919,12 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                       <LaserScanField
                         active={open && showApprovalFlow && laserScan}
                         onScanned={handleApprovalScan}
+                        onScanRejected={handleLaserScanRejected}
                         companionTypableRef={showKeyboardScan ? approvalScanInputRef : undefined}
                         compact
-                        heightClass="h-9"
+                        heightClass="h-10 sm:h-9"
+                        fill={(phoneQrVisible ? 1 : 0) + (laserScan ? 1 : 0) > 1}
                         armButtonLabel="Scan"
-                        className="shrink-0"
                       />
                     ) : null}
                     {showKeyboardScan ? (
@@ -1931,9 +1983,9 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
               ))}
             </div>
 
-            {/* Body — IMS two-column */}
-            <div className="flex-1 min-h-0 w-full overflow-hidden custom-scrollbar">
-              <div className="hidden lg:flex flex-row w-full h-full min-h-0 bg-slate-50 border-t border-slate-200">
+            {/* Body — IMS two-column; SOP at bottom of scroll (packing entry pattern) */}
+            <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden custom-scrollbar">
+              <div className="hidden lg:flex flex-row w-full min-h-0 bg-slate-50 border-t border-slate-200">
                 <aside className="w-72 xl:w-80 shrink-0 border-r border-slate-200 bg-slate-50 overflow-y-auto self-stretch">
                   {detailCards}
                 </aside>
@@ -1941,22 +1993,43 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                   {breakdownPanel}
                 </section>
               </div>
-              <div className="lg:hidden flex flex-col bg-slate-100/90 border-t border-slate-200 overflow-y-auto max-h-full">
+              <div className="lg:hidden flex flex-col bg-slate-100/90 border-t border-slate-200">
                 <div className="mx-1.5 sm:mx-2 mb-1.5 sm:mb-2 bg-white border border-slate-200 flex flex-col">
                   {tab === TABS.BREAKDOWN ? breakdownPanel : <div className="bg-slate-50/50">{detailCards}</div>}
                 </div>
               </div>
+              {showSopAck ? (
+                <div className="w-full px-2 sm:px-3 md:px-4 py-3 md:py-4 border-t border-amber-200 bg-amber-50/50 shrink-0">
+                  <ModuleSopAcknowledgment
+                    ref={sopAckRef}
+                    key={`${open}-${sopPermissionType}-${resolvedUid || detail?.uid || "new"}`}
+                    moduleSlug={MODULE}
+                    permissionType={sopPermissionType}
+                    isOpen={open}
+                    requireAckWhenPresent
+                    showRejectToast={false}
+                  />
+                </div>
+              ) : null}
             </div>
           </>
         )}
       </div>
       {previewPortal}
     </Drawer>
+    <Snackbar
+      open={snackbar.open}
+      variant={snackbar.variant}
+      title={snackbar.title}
+      message={snackbar.message}
+      duration={snackbar.duration}
+      onClose={closeSnackbar}
+    />
     <QrScannerOverlay
       open={isScannerOpen && showApprovalFlow}
       readerId={APPROVE_QR_READER_ID}
       onClose={() => setIsScannerOpen(false)}
-      hint="Scanning sticker / box QR"
+      hint="Scanning sticker / Coil QR"
       torchSupported={torchSupported}
       torchOn={torchOn}
       onToggleTorch={toggleTorch}

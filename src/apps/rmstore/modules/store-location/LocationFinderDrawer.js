@@ -8,7 +8,8 @@ import { storeLocationService } from "@/apps/rmstore/lib/services/storeLocation"
 import { lookupCoilByUid, lookupCoils } from "@/apps/rmstore/lib/services/coil";
 import { SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
 import { extractLocationNo, extractCoilUid, locationNoDisplayLabel, coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
-import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
+import { locationScanMatches } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
+import { getLocationStoredNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
 import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
@@ -22,19 +23,15 @@ const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "info", title: "", message: "", duration: SNACK_DUR.med };
 const LOCATION_FINDER_SCANNER_ID = "rm-location-finder-scanner-reader";
 
-function formatLocationNo(loc) {
-  if (!loc) return "—";
-  return getLocationDisplayNo(loc);
-}
-
 function normalizeLoc(row) {
   if (!row || typeof row !== "object") return row;
   const location_id = row.location_id ?? row.id ?? null;
+  const location_no = getLocationStoredNo(row);
   return {
     ...row,
     id: location_id,
     location_id,
-    location_no: formatLocationNo(row) === "—" ? "" : formatLocationNo(row),
+    location_no,
   };
 }
 
@@ -44,7 +41,7 @@ function pickLocationFromList(list, locationNo) {
   return (
     list
       .map(normalizeLoc)
-      .find((r) => String(r.location_no || "").trim().toUpperCase() === target) || null
+      .find((r) => locationScanMatches(r.location_no, target)) || null
   );
 }
 

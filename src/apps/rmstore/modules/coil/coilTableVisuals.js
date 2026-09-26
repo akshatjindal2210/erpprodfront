@@ -1,5 +1,6 @@
 "use client";
 
+import { formatLocationDisplay } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import { isIssuedToShopFloor, isSaMinusWriteOff } from "@/apps/rmstore/lib/utils/saMinusInventory";
 
 /** Where is this coil right now? */
@@ -196,7 +197,8 @@ export function resolveCoilLocationLabel(row) {
   }
   if (zone === "out") return "Shop Floor";
   if (zone === "consumed") return "Consumed";
-  return String(row?.location_no || "").trim() || "Stored";
+  const locDisplay = formatLocationDisplay(row);
+  return locDisplay || "Stored";
 }
 
 export function resolveCoilLocationDetail(row) {
@@ -238,6 +240,7 @@ export function getCoilClientSearchParts(row) {
     row?.acc_name,
     row?.acc_code,
     row?.location_no,
+    formatLocationDisplay(row),
     row?.rack_no,
     row?.row_no,
     row?.in_uid,

@@ -6,7 +6,7 @@ import { toast } from "react-toastify";
 import { Printer, Download, Hash, MapPin } from "lucide-react";
 import Drawer from "@/ui/primitives/Drawer";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
-import { buildLocationLabelDataUrlFromSvg, downloadLocationLabelDataUrl, getLocationQrValue, printLocationLabelDataUrls } from "@/apps/rmstore/lib/helpers/locationQrLabel";
+import { buildLocationLabelDataUrlFromSvg, downloadLocationLabelDataUrl, getLocationDisplayNo, getLocationQrValue, printLocationLabelDataUrls } from "@/apps/rmstore/lib/helpers/locationQrLabel";
 
 export default function LocationQRDrawer({ isOpen, onClose, data }) {
   const qrRef = useRef();
@@ -16,6 +16,8 @@ export default function LocationQRDrawer({ isOpen, onClose, data }) {
   if (!data) return null;
 
   const qrValue = getLocationQrValue(data);
+  const locationDisplayNo = getLocationDisplayNo(data);
+  const locationDisplayText = locationDisplayNo === "—" ? "__" : locationDisplayNo;
 
   const handleExport = async (type = "download") => {
     if (!canPrint) {
@@ -79,7 +81,7 @@ export default function LocationQRDrawer({ isOpen, onClose, data }) {
           </div>
           <div className="mt-4 text-center">
             <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">
-              LOC-NO: {data.location_no || (data.rack_no ? `RM-${data.rack_no}${(data.row_no || "").toString().toUpperCase()}` : "__")}
+              LOC-NO: {locationDisplayText}
             </h2>
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-1">
               RM Rack: {data.rack_no || "__"} | RM Row: {(data.row_no || "__").toString().toUpperCase()}
@@ -97,7 +99,7 @@ export default function LocationQRDrawer({ isOpen, onClose, data }) {
               <span className="text-[10px] font-bold uppercase tracking-wider">Location No.</span>
             </div>
             <p className="text-sm font-bold text-slate-800 uppercase">
-              {data.location_no || (data.rack_no ? `RM-${data.rack_no}${(data.row_no || "").toString().toUpperCase()}` : "__")}
+              {locationDisplayText}
             </p>
           </div>
           <div className="p-3 bg-white border border-slate-100 rounded-2xl shadow-sm">

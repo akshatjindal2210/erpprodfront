@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import { AlertCircle, Loader2, Eye, Upload, FileText, X, Check } from "lucide-react";
@@ -15,6 +15,9 @@ import { selectUser, selectRole } from "@/platform/store/slices/authSlice";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
+import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
+
+const MODULE = "rm_qc_check";
 
 /** Table controls — same height, padding, and box size in every row. */
 const QC_CELL = "box-border w-full h-8 min-h-8 px-2 text-[11px] rounded-md outline-none appearance-none leading-none transition-colors";
@@ -278,6 +281,8 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
   const canAuthorize = canAccess("rm_qc_check", "authorize").allowed;
   const isEditMode = mode === "edit";
   const isApproveMode = mode === "approve";
+  const sopPermissionType = isApproveMode ? "authorize" : isEditMode ? "edit" : "add";
+  const sopAckRef = useRef(null);
   const rowStatus = String(row?.status || "").toLowerCase();
   const canWrite = isApproveMode ? canAuthorize : isEditMode ? canEdit : canAdd || (rowStatus === "draft" && canEdit);
   /** Approvers + super admin see Expected vs Actual (+ Result). Super admin sees all. */
@@ -554,6 +559,7 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
     const coilUid = resolveCoilUid();
     const qcId = detail?.qc_check_uid || row?.qc_check_uid;
     if (!coilUid && !qcId) return;
+    if (!sopAckRef.current?.assertAcknowledged()) return;
 
     setSubmitting(true);
     try {
@@ -609,6 +615,7 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
       return;
     }
     setErrors({});
+    if (!sopAckRef.current?.assertAcknowledged()) return;
 
     const willFail = overallResult === "fail";
     const reason = willFail ? String(autoFailureReason || "").trim() || (isSuperAdmin && overallDraft === "fail" ? "Marked as failed by administrator override." : "") : "";
@@ -1068,6 +1075,17 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
               </p>
             </div>
           )}
+
+          {canWrite && !readOnly ? (
+            <ModuleSopAcknowledgment
+              ref={sopAckRef}
+              key={`${open}-${sopPermissionType}-${detail?.qc_check_uid || row?.qc_check_uid || "new"}`}
+              moduleSlug={MODULE}
+              permissionType={sopPermissionType}
+              isOpen={open}
+              requireAckWhenPresent
+            />
+          ) : null}
         </div>
       )}
     </Drawer>

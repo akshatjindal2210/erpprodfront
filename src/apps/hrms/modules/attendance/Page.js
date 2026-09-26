@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Clock } from "lucide-react";
+import { toast } from "react-toastify";
 
 import { attendanceService } from "@/apps/hrms/lib/services/hrms";
 import { fetchEmployeeByDcode, fetchEmployeeViews } from "@/apps/hrms/lib/helpers/employeeHelper";
@@ -102,14 +103,26 @@ export default function AttendancePage() {
 
   const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
 
-  const { openNewModal, openEditModal, openApproveModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
+  const openApproveWithLock = useCallback(
+    (row) => {
+      const record = row ?? selectedRecord;
+      if (!isUnapproved(record)) {
+        toast.info("This record is already approved. Edit it before approving again.");
+        return;
+      }
+      openDrawer("approve", record);
+    },
+    [openDrawer, selectedRecord]
+  );
+
+  const { openNewModal, openEditModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
     modalOpen: drawer.open || Boolean(deleteItem),
     selectedId,
     getSelectedRow,
     openAdd: () => openDrawer("add"),
     openEdit: (row) => openDrawer("edit", row),
-    openApprove: (row) => openDrawer("approve", row),
+    openApprove: (row) => openApproveWithLock(row),
     canApproveSelection: () => Boolean(selectedRecord && isUnapproved(selectedRecord)),
     openDelete: (row) => setDeleteItem(row),
     canDeleteSelection: () => Boolean(selectedRecord),
@@ -145,7 +158,12 @@ export default function AttendancePage() {
             <ListPageAddButton module={MODULE} onClick={openNewModal} />
             <ListPageEditButton module={MODULE} disabled={!selected} record={row} onClick={openEditModal} />
             <ListPageViewButton module={MODULE} disabled={!selected} record={row} onClick={() => openDrawer("view", row)} />
-            <ListPageApproveButton module={MODULE} disabled={!selected || !isUnapproved(row)} record={row} onClick={openApproveModal} />
+            <ListPageApproveButton
+              module={MODULE}
+              disabled={!selected || !isUnapproved(row)}
+              record={row}
+              onClick={() => openApproveWithLock(row)}
+            />
             <ListPageDeleteButton module={MODULE} disabled={!selected} onClick={openDeleteModal} />
           </>
         );

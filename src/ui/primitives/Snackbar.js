@@ -12,7 +12,7 @@ function variantClassName(variant) {
     : "bg-red-600 text-white";
 }
 
-/** Bottom snackbar for IMS QR scan — green = scan ok, red = anything else. */
+/** Bottom snackbar for IMS / RM QR scan — green = scan ok, red = anything else. */
 export default function Snackbar({
   open,
   variant = "error",

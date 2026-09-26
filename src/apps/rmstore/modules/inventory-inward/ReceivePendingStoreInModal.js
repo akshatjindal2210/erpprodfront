@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
 
@@ -9,6 +9,9 @@ import Drawer from "@/ui/primitives/Drawer";
 import { OK_INPUT } from "@/ui/common/Constants";
 import { coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
 import { IMS_DRAWER_BTN_CLOSE, IMS_DRAWER_BTN_PRIMARY, IMS_DRAWER_FOOTER_WRAP } from "@/apps/ims/lib/helpers/masterListUi";
+import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
+
+const MODULE = "rm_inventory_inwards";
 
 function Info({ label, value }) {
   return (
@@ -43,6 +46,7 @@ function mapLine(c) {
 export default function ReceivePendingStoreInModal({ open, iprUid, initialIpr = null, onClose, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const sopAckRef = useRef(null);
   const [ipr, setIpr] = useState(null);
   const [lines, setLines] = useState([]);
   const [error, setError] = useState("");
@@ -135,6 +139,8 @@ export default function ReceivePendingStoreInModal({ open, iprUid, initialIpr = 
         return;
       }
     }
+
+    if (!sopAckRef.current?.assertAcknowledged()) return;
 
     setSaving(true);
     try {
@@ -279,6 +285,15 @@ export default function ReceivePendingStoreInModal({ open, iprUid, initialIpr = 
           </div>
 
           {error ? <p className="text-[10px] font-bold text-rose-600">{error}</p> : null}
+
+          <ModuleSopAcknowledgment
+            ref={sopAckRef}
+            key={`${ipr?.ipr_uid || iprUid || "receive"}-add`}
+            moduleSlug={MODULE}
+            permissionType="add"
+            isOpen={open}
+            requireAckWhenPresent
+          />
         </div>
       )}
     </Drawer>

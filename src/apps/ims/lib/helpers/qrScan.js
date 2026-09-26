@@ -163,14 +163,38 @@ export function scanBufferLooksIncomplete(rawValue) {
     return false;
   }
 
+  // Public sticker URLs (IMS box / FN + RM coil / QC / location).
+  // Wait until a known query key exists, then enforce min value lengths
+  // so HID/BT pauses do not commit a one-character UID.
   if (/^https?:\/\//i.test(s) || s.includes("://")) {
-    if (/[?&]fuid=\d+/i.test(s) || /[?&]box_no_uid=[^&]+/i.test(s) || /[?&]id=\d+/i.test(s)) return false;
-    if (!/[?&](box_no_uid|id|box_uid|fuid)=/i.test(s)) return true;
+    if (!/[?&](box_no_uid|id|box_uid|fuid|coil_no_uid|qc|location_no|uid|kind)=/i.test(s)) {
+      return true;
+    }
   }
 
   if (/[?&]box_no_uid=/i.test(s)) {
     const m = s.match(/[?&]box_no_uid=([^&#\s]*)/i);
     if (!m?.[1] || m[1].length < 3) return true;
+  }
+
+  if (/[?&]coil_no_uid=/i.test(s)) {
+    const m = s.match(/[?&]coil_no_uid=([^&#\s]*)/i);
+    if (!m?.[1] || m[1].length < 2) return true;
+  }
+
+  if (/[?&]qc=/i.test(s)) {
+    const m = s.match(/[?&]qc=([^&#\s]*)/i);
+    if (!m?.[1] || m[1].length < 2) return true;
+  }
+
+  if (/[?&]location_no=/i.test(s)) {
+    const m = s.match(/[?&]location_no=([^&#\s]*)/i);
+    if (!m?.[1] || m[1].length < 2) return true;
+  }
+
+  if (/[?&]fuid=/i.test(s)) {
+    const m = s.match(/[?&]fuid=([^&#\s]*)/i);
+    if (!m?.[1] || !/^\d+$/.test(m[1])) return true;
   }
 
   return false;

@@ -1,5 +1,6 @@
 import React from "react";
 import QRCode from "react-qr-code";
+import { formatLocationDisplay, getLocationStoredNo } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 
 /**
  * RM location QR sticker — change size / QR / font ONLY here.
@@ -53,21 +54,16 @@ function requireLocationQrValue(data) {
 }
 
 export function getLocationDisplayNo(data) {
-  const row = data?.row_no || data?.shelf_no || "";
-  return (
-    data?.location_no ||
-    (data?.rack_no ? `RM-${data.rack_no}${String(row).toUpperCase()}` : "") ||
-    "—"
-  );
+  const display = formatLocationDisplay(data);
+  return display || "—";
 }
 
 function getPrintedLocationText(data) {
-  const row = (data?.row_no || data?.shelf_no || "").toString().toUpperCase();
-  const rackRow = `${data?.rack_no || ""}${row}`.trim();
-  if (rackRow) return rackRow;
   const display = getLocationDisplayNo(data);
   return display === "—" ? "__" : display;
 }
+
+export { getLocationStoredNo, formatLocationDisplay };
 
 function fitFontSize(ctx, text, maxWidth, maxHeight) {
   const fontMin = RM_LOCATION_LABEL.fontMinPx;

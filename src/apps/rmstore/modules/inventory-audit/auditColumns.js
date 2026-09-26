@@ -1,5 +1,6 @@
 "use client";
 
+import { formatLocationDisplay } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import { User, MapPin } from "lucide-react";
 import { formatDateTime, formatDate } from "@/platform/utils/core/utilHelper";
 import {
@@ -52,7 +53,7 @@ export const AUDIT_MASTER_HEADERS = [
     <div className="flex flex-wrap gap-1 py-1">
       {v?.map((loc) => (
         <span key={loc.location_id} className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${getLocationStatusBadgeClass(loc.status)}`}>
-          {loc.location_no}
+          {formatLocationDisplay(loc.location_no) || "—"}
         </span>
       ))}
     </div>
@@ -61,7 +62,7 @@ export const AUDIT_MASTER_HEADERS = [
     wrap: true,
     copyValue: (item) => {
       const locs = Array.isArray(item.locations) ? item.locations : [];
-      const names = locs.map((loc) => loc?.location_no).filter(Boolean);
+      const names = locs.map((loc) => formatLocationDisplay(loc?.location_no)).filter(Boolean);
       return names.length ? names.join(", ") : "—";
     },
   }],
@@ -91,7 +92,7 @@ export function buildAuditScannerLocationHeaders() {
       <div className="flex items-center gap-2 min-w-0">
         <MapPin size={12} className="shrink-0 text-indigo-500" />
         <span className={`font-black uppercase text-[11px] ${row.is_history_row ? "text-slate-500" : "text-slate-800"}`}>
-          {v || "—"}
+          {formatLocationDisplay(v) || "—"}
         </span>
       </div>
     ), { width: "140px" }],
@@ -140,7 +141,7 @@ export function buildAuditLocationHeaders({ canViewAudit, openLocationComparison
         >
           <MapPin size={12} className={`shrink-0 ${canOpen ? "text-indigo-500 group-hover:text-indigo-700" : "text-slate-400"}`} />
           <span className={`font-black uppercase text-[11px] ${canOpen ? "text-slate-800 group-hover:text-indigo-700 group-hover:underline" : row.is_history_row ? "text-slate-500" : "text-slate-600"}`}>
-            {v || "—"}
+            {formatLocationDisplay(v) || "—"}
           </span>
           {row.is_history_row && (
             <span className="px-1 py-0.5 rounded text-[8px] font-black uppercase bg-slate-100 text-slate-500 border border-slate-200 shrink-0">

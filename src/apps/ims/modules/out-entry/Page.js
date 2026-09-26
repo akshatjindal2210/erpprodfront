@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSelector } from "react-redux";
 import { selectUser } from "@/platform/store/slices/authSlice";
-import { Plus, RefreshCw, Edit3, Trash2, X, LogOut, FileSearch, FileEdit, Warehouse, ClipboardList, Truck, CheckCircle, QrCode, CameraOff, ScanLine } from "lucide-react";
+import { Plus, RefreshCw, Edit3, Trash2, X, LogOut, FileSearch, FileEdit, Warehouse, ClipboardList, Truck, CheckCircle } from "lucide-react";
 import { toast } from "react-toastify";
 import dayjs from "dayjs";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
@@ -12,15 +12,10 @@ import { outEntryService } from "@/apps/ims/lib/services/outEntry";
 import { forwardingNoteService } from "@/apps/ims/lib/services/forwardingNote";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
-import { normalizeScanInput } from "@/apps/ims/lib/helpers/qrScan";
-import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
-import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
-import { prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
-import { SCAN_SNACK_MSG } from "@/platform/utils/global";
-import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 
 // Components
 import OutEntryModal from "@/apps/ims/modules/out-entry/OutEntryModal";
+import ForwardingNoteScanDrawer from "@/apps/ims/modules/out-entry/ForwardingNoteScanDrawer";
 import { OUT_ENTRY_STATUS_FILTER_OPTIONS, OUT_ENTRY_TYPE_FILTER_OPTIONS, buildOutEntryListFilters, isOutEntryScanDraft, matchesOutEntryStatusFilter, outEntryScanProgressLabel, outEntryStatusLabel } from "@/apps/ims/lib/utils/outEntryScanStatus";
 import { isOutEntryAutoAuthorized, isOutEntryInventoryOut, isOutEntryPackingArea, isOutEntryQcArea, getOutEntryTypeTableLabel, getOutEntryTypeBadgeClass, OUT_ENTRY_TYPE } from "@/apps/ims/lib/utils/outEntryTypes";
 import { canApproveInventoryOut } from "@/apps/ims/lib/utils/imsSpecialPermissions";
@@ -33,10 +28,6 @@ import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/ui/common/list/ListPageToolbar";
 import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
 import ActionButton from "@/ui/primitives/ActionButton";
-import Drawer from "@/ui/primitives/Drawer";
-import LaserScanField from "@/ui/common/scan/LaserScanField";
-import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
-import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
@@ -50,27 +41,6 @@ const PAGE_TABS = {
   STORE_OUT: "store_out",
   PENDING_FORWARDING: "pending_forwarding",
 };
-
-const FN_NEW_SCANNER_ID = "out-entry-fn-new-qr-reader";
-
-function extractForwardingFuidFromScan(rawValue) {
-  const text = normalizeScanInput(rawValue);
-  if (!text) return null;
-
-  try {
-    if (/^https?:\/\//i.test(text) || text.includes("fuid=")) {
-      const u = new URL(/^https?:\/\//i.test(text) ? text : `https://local/?${text.replace(/^\?/, "")}`);
-      const fuidParam = u.searchParams.get("fuid");
-      if (fuidParam != null && /^\d+$/.test(String(fuidParam).trim())) return String(fuidParam).trim();
-    }
-  } catch {
-    /* ignore */
-  }
-
-  if (/^\d+$/.test(text)) return text;
-  const embedded = text.match(/(?:^|[^\d])(\d{1,12})(?:[^\d]|$)/);
-  return embedded ? embedded[1] : null;
-}
 
 function isOutEntryApproved(row) {
   return row?.approved === true || row?.approved === "true" || row?.approved === 1;
@@ -177,10 +147,6 @@ export default function OutEntryPage() {
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
   const [fnScanDrawerOpen, setFnScanDrawerOpen] = useState(false);
-  const [fnScanCameraOn, setFnScanCameraOn] = useState(false);
-  const fnScanKeyboardRef = useRef(null);
-  const { laserScan, keyboardType } = useDeviceScanSettings();
-  const showFnScanLaser = isLaserScanEnabled() && laserScan;
 
   const openDraftForm = useCallback((row) => {
     if (!row || !isOutEntryScanDraft(row)) return;
@@ -588,55 +554,51 @@ export default function OutEntryPage() {
   }, []);
 
   const closeFnScanDrawer = useCallback(() => {
-    setFnScanCameraOn(false);
     setFnScanDrawerOpen(false);
   }, []);
 
-  const applyScannedFuidForNew = useCallback(
-    (raw) => {
-      const fuid = extractForwardingFuidFromScan(raw);
-      if (!fuid) {
-        toast.error("Could not read forwarding note from QR. Scan the FN print QR.");
-        return;
+  const handleFnScanned = useCallback(
+    async (fuid) => {
+      const id = String(fuid || "").trim();
+      if (!id) return false;
+
+      const local = forwardingRows.find((r) => String(r.fuid) === id);
+      if (local?.fuid != null) {
+        closeFnScanDrawer();
+        handleStartOutEntry(local);
+        return true;
       }
-      const matched =
-        forwardingRows.find((r) => String(r.fuid) === String(fuid)) ||
-        filteredRows.find((r) => String(r.fuid) === String(fuid));
-      closeFnScanDrawer();
-      handleStartOutEntry(matched || { fuid });
+
+      // List may be filtered / not yet loaded — confirm via API
+      try {
+        const res = await forwardingNoteService.getById(id);
+        const note = res?.data;
+        if (!note?.fuid) return false;
+
+        const approved =
+          note.approved === true || note.approved === "true" || note.approved === 1;
+        if (!approved) return false;
+
+        const outApproved =
+          note.out_entry_approved === true ||
+          note.out_entry_approved === "true" ||
+          note.out_entry_approved === 1;
+        if (outApproved) return false;
+
+        closeFnScanDrawer();
+        handleStartOutEntry({
+          fuid: note.fuid,
+          out_entry_uid: note.out_entry_uid ?? null,
+          out_entry_scan_complete: note.out_entry_scan_complete ?? note.scan_complete,
+          out_entry_approved: note.out_entry_approved,
+        });
+        return true;
+      } catch {
+        return false;
+      }
     },
-    [forwardingRows, filteredRows, closeFnScanDrawer, handleStartOutEntry]
+    [forwardingRows, closeFnScanDrawer, handleStartOutEntry]
   );
-
-  const applyScannedFuidForNewRef = useRef(applyScannedFuidForNew);
-  applyScannedFuidForNewRef.current = applyScannedFuidForNew;
-
-  const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
-    active: fnScanCameraOn,
-    elementId: FN_NEW_SCANNER_ID,
-    onDecoded: (decodedText) => {
-      setFnScanCameraOn(false);
-      applyScannedFuidForNewRef.current(decodedText);
-    },
-    fps: 15,
-    qrbox: { width: 250, height: 250 },
-    onCameraFailed: (err) => {
-      const isDenied = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
-      toast.error(isDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA, { autoClose: 4000 });
-      setFnScanCameraOn(false);
-    },
-  });
-
-  const startFnScanCamera = useCallback(async () => {
-    const prep = await prepareQrScanSession();
-    if (!prep.cameraOk) {
-      toast.error(prep.cameraDenied ? SCAN_SNACK_MSG.CAMERA_DENIED : SCAN_SNACK_MSG.CAMERA, {
-        autoClose: 4000,
-      });
-      return;
-    }
-    setFnScanCameraOn(true);
-  }, []);
 
   const handlePendingNewClick = useCallback(() => {
     if (selectedRecord) {
@@ -645,11 +607,6 @@ export default function OutEntryPage() {
     }
     setFnScanDrawerOpen(true);
   }, [selectedRecord, handleStartOutEntry]);
-
-  useEffect(() => {
-    if (!fnScanDrawerOpen) return;
-    void startFnScanCamera();
-  }, [fnScanDrawerOpen, startFnScanCamera]);
 
   const outPackingMeta = pipeMetaRenderers("font-bold text-slate-800 text-[10px] leading-tight");
   const outItemMeta = pipeMetaRenderers("text-slate-600 text-[10px] font-medium leading-tight");
@@ -1061,67 +1018,10 @@ export default function OutEntryPage() {
         editData={editItem}
         mode={modalMode}
       />
-      <Drawer
-        isOpen={fnScanDrawerOpen && !fnScanCameraOn}
+      <ForwardingNoteScanDrawer
+        open={fnScanDrawerOpen}
         onClose={closeFnScanDrawer}
-        bodyScrollable={false}
-        title="Scan Forwarding Note"
-        description="Scan the QR on the forwarding note print to start Store Out"
-        maxWidth="max-w-md"
-      >
-        <div className="space-y-5 pb-6">
-          <div className="flex items-end gap-2">
-            <div className="relative flex-1 space-y-2">
-              <label className="text-xs font-medium text-slate-600 ml-1 block">Forwarding note QR</label>
-              {showFnScanLaser && (
-                <LaserScanField
-                  active={fnScanDrawerOpen && showFnScanLaser && !fnScanCameraOn}
-                  onScanned={(v) => applyScannedFuidForNew(v)}
-                  keyboardInputRef={fnScanKeyboardRef}
-                  requireArmButton={false}
-                />
-              )}
-              {keyboardType && (
-                <div className="relative">
-                  <ScanLine size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400 z-10" />
-                  <ScanEnterInput
-                    ref={fnScanKeyboardRef}
-                    placeholder={getScanInputPlaceholder()}
-                    onEnter={(v) => applyScannedFuidForNew(v)}
-                    className="w-full h-11 pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                  />
-                </div>
-              )}
-              {!showFnScanLaser && !keyboardType && (
-                <p className="text-xs text-slate-500 px-1">
-                  Use the camera button to scan the forwarding note QR.
-                </p>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => (fnScanCameraOn ? setFnScanCameraOn(false) : void startFnScanCamera())}
-              className={`w-12 h-11 flex items-center justify-center rounded-xl border transition-all shadow-sm ${
-                fnScanCameraOn
-                  ? "bg-rose-50 border-rose-200 text-rose-600"
-                  : "bg-indigo-600 border-indigo-700 text-white hover:bg-indigo-700"
-              }`}
-              title={fnScanCameraOn ? "Stop camera" : "Scan QR"}
-            >
-              {fnScanCameraOn ? <CameraOff size={20} /> : <QrCode size={20} />}
-            </button>
-          </div>
-        </div>
-      </Drawer>
-      <QrScannerOverlay
-        open={fnScanCameraOn}
-        onClose={() => setFnScanCameraOn(false)}
-        readerId={FN_NEW_SCANNER_ID}
-        torchSupported={torchSupported}
-        torchOn={torchOn}
-        onToggleTorch={toggleTorch}
-        allowDesktop
-        hint="Point camera at forwarding note QR"
+        onScanned={handleFnScanned}
       />
       <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={() => { handleRefresh(); setSelected(null); }} service={outEntryService} entityLabel="Out Entry" idKey="out_uid" moduleSlug="out_entry" />
     </div>

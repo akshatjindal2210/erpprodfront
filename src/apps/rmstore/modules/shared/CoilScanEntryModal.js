@@ -10,6 +10,7 @@ import { STORE_OUT_REASON_MAX_LEN } from "@/apps/rmstore/lib/constants/outEntryT
 import { RM_OUT_ENTRY_MODE_PICKER_OPTIONS, RM_OUT_ENTRY_PICKER_ACCENT } from "@/apps/rmstore/lib/constants/outEntryPickerOptions";
 import { outEntryService } from "@/apps/rmstore/lib/services/outEntry";
 import { rmRejectionService } from "@/apps/rmstore/lib/services/rmRejection";
+import { formatLocationDisplay } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import { extractCoilUid, extractBatchMrnUid, findMatchingCoil, mrnUidsMatch, normalizeScanInput, coilUidDisplayLabel, stickerUidsMatch } from "@/apps/rmstore/lib/helpers/qrScan";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
@@ -28,6 +29,7 @@ import { prepareQrScanSession, unlockScanAudio, playScanSuccessBeep } from "@/pl
 import { parseSeedCoilUids } from "@/apps/rmstore/modules/out-entry/pendingOutRows";
 import { canAddCoilForMrnFifo, assertMrnScanFifoOrder } from "@/apps/rmstore/lib/utils/mrnFifoScan";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 
 const STORE_OUT_KIND = {
   MRN: "store_out",
@@ -76,17 +78,14 @@ const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "success", title: "", message: "", duration: SNACK_DUR.med };
 
 function coilLocationLabel(c) {
-  if (c?.location_no) return String(c.location_no);
+  const display = formatLocationDisplay(c);
+  if (display) return display;
   if (c?.location_id != null) return `Location ID ${c.location_id}`;
   return "Unassigned — not on rack";
 }
 
 function coilLocationDetail(c) {
-  const base = coilLocationLabel(c);
-  const bits = [];
-  if (c?.rack_no != null && String(c.rack_no).trim() !== "") bits.push(`Rack ${c.rack_no}`);
-  if (c?.row_no != null && String(c.row_no).trim() !== "") bits.push(`Row ${c.row_no}`);
-  return bits.length ? `${base} · ${bits.join(" · ")}` : base;
+  return coilLocationLabel(c);
 }
 
 function rejectionLocationSummary(coils = []) {
@@ -108,13 +107,10 @@ function parseSeedCoilUidList(seed) {
 }
 
 function locationRowLabel(loc) {
-  const base =
-    loc?.location_no ||
-    (loc?.location_id != null ? `Location ID ${loc.location_id}` : "Unassigned — not on rack");
-  const bits = [];
-  if (loc?.rack_no != null && String(loc.rack_no).trim() !== "") bits.push(`Rack ${loc.rack_no}`);
-  if (loc?.row_no != null && String(loc.row_no).trim() !== "") bits.push(`Row ${loc.row_no}`);
-  return bits.length ? `${base} · ${bits.join(" · ")}` : base;
+  return (
+    formatLocationDisplay(loc) ||
+    (loc?.location_id != null ? `Location ID ${loc.location_id}` : "Unassigned — not on rack")
+  );
 }
 
 async function fetchRejectionCoilUids(rejectId, seed = {}, pageModule) {
@@ -281,11 +277,14 @@ export default function CoilScanEntryModal({
   const [validatingCoil, setValidatingCoil] = useState(false);
   const [laserCaptureMode, setLaserCaptureMode] = useState(null);
   const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
+  const sopAckRef = useRef(null);
 
   const { laserScan, keyboardType, showPhoneQr } = useDeviceScanSettings();
 
   const showTypePicker =
     isOutMode && !isEdit && !seedFromCoil && storeOutKind == null;
+  const sopPermissionType = isApproveMode ? "authorize" : isEdit ? "edit" : "add";
+  const showSopAck = !isViewOnly && !showTypePicker;
 
   const isRejectionOut =
     isRejectionEdit ||
@@ -1087,6 +1086,7 @@ export default function CoilScanEntryModal({
       );
       return;
     }
+    if (showSopAck && !sopAckRef.current?.assertAcknowledged()) return;
     setSaving(true);
     try {
       const payload = buildPayload(scan_complete, approvedOverride);
@@ -2143,6 +2143,17 @@ export default function CoilScanEntryModal({
               />
             </>
           )}
+
+          {showSopAck && !loadingEdit ? (
+            <ModuleSopAcknowledgment
+              ref={sopAckRef}
+              key={`${open}-${permissionModule}-${sopPermissionType}-${editItem?.out_uid || "new"}`}
+              moduleSlug={permissionModule}
+              permissionType={sopPermissionType}
+              isOpen={open}
+              requireAckWhenPresent
+            />
+          ) : null}
         </div>
       </Drawer>
 

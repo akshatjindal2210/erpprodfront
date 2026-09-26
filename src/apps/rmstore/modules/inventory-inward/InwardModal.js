@@ -12,7 +12,8 @@ import { storeLocationService } from "@/apps/rmstore/lib/services/storeLocation"
 import { lookupCoilByUid } from "@/apps/rmstore/lib/services/coil";
 import { resolveCoilLocationDetail, resolveCoilLocationLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 import { extractLocationNo, extractCoilUid, extractQcStickerUid, normalizeScanInput, coilUidDisplayLabel, locationNoDisplayLabel, looksLikeStickerUid, stickerUidsMatch } from "@/apps/rmstore/lib/helpers/qrScan";
-import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
+import { getLocationDisplayNo, getLocationStoredNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
+import { locationScanMatches } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import { withSortedViewsData } from "@/apps/rmstore/lib/helpers/sortDropdownResponse";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
@@ -54,14 +55,12 @@ const MSG = {
 function normalizeLoc(row) {
   if (!row || typeof row !== "object") return row;
   const location_id = row.location_id ?? row.id ?? null;
-  const location_no =
-    String(row.location_no ?? "").trim() ||
-    getLocationDisplayNo(row);
+  const location_no = getLocationStoredNo(row);
   return {
     ...row,
     id: location_id,
     location_id,
-    location_no: location_no === "—" ? "" : location_no,
+    location_no,
   };
 }
 
@@ -69,7 +68,7 @@ function flatCoilsByLocation(locs) {
   return (locs || []).flatMap((loc, li) =>
     (loc.coils || []).map((c) => ({
       locIndex: li,
-      locName: loc.name || loc.location_no,
+      locName: String(loc.location_no || "").trim() ? getLocationDisplayNo(loc) : loc.name,
       coilUid: String(c.coil_no_uid || "").trim(),
     }))
   );
@@ -98,7 +97,7 @@ function normalizeInwardLocations(raw, flatCoils = []) {
   const list = Array.isArray(raw) && raw.length ? raw : buildLocationsFromCoils(flatCoils);
   return list.map((loc) => ({
     location_id: loc.location_id ?? null,
-    name: loc.name || loc.location_no || String(loc.location_id ?? "—"),
+    name: (String(loc.location_no || "").trim() ? getLocationDisplayNo(loc) : loc.name) || String(loc.location_id ?? "—"),
     location_no: loc.location_no || loc.name || String(loc.location_id ?? "—"),
     historical: !!loc.historical,
     coils: Array.isArray(loc.coils) ? loc.coils : [],
@@ -113,12 +112,13 @@ function buildLocationsFromCoils(coils) {
     const lid = coil.location_id != null ? Number(coil.location_id) : null;
     const key = lid != null ? String(lid) : isLiveInwardCoil(coil) ? "__pending__" : "__none__";
     if (!map[key]) {
+      const storedLoc = String(coil.location_no || "").trim();
       const label =
-        String(coil.location_no || "").trim() ||
+        storedLoc ||
         (lid != null ? String(lid) : isLiveInwardCoil(coil) ? "Assign location" : "Moved / issued");
       map[key] = {
         location_id: lid,
-        name: label,
+        name: storedLoc ? getLocationDisplayNo(coil) : label,
         location_no: label,
         historical: lid == null && !isLiveInwardCoil(coil),
         coils: [],
@@ -171,7 +171,7 @@ function buildLocationMrnBreakdown(locations) {
         byMrn.set(label, cur);
       });
       return {
-        locLabel: loc.name || loc.location_no || "—",
+        locLabel: (String(loc.location_no || "").trim() ? getLocationDisplayNo(loc) : loc.name) || "—",
         coilCount: (loc.coils || []).length,
         totalQty,
         rows: Array.from(byMrn.values()),
@@ -337,7 +337,10 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
       order: "ASC",
     });
     const list = Array.isArray(res?.data) ? res.data : [];
-    const data = list.map(normalizeLoc).filter((r) => String(r.location_no || "").trim());
+    const data = list
+      .map(normalizeLoc)
+      .filter((r) => String(r.location_no || "").trim())
+      .map((r) => ({ ...r, location_no: getLocationDisplayNo(r) === "—" ? "" : getLocationDisplayNo(r) }));
     return withSortedViewsData({ ...res, data }, "location_no");
   }, []);
 
@@ -380,7 +383,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
         const list = (Array.isArray(listRes?.data) ? listRes.data : []).map(normalizeLoc);
         const upper = key.toUpperCase();
         matched =
-          list.find((r) => String(r.location_no || "").toUpperCase() === upper) ||
+          list.find((r) => locationScanMatches(r.location_no, upper)) ||
           (list.length === 1 ? list[0] : null);
       }
 
@@ -405,7 +408,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
     (locToAdd, opts = {}) => {
       if (!locToAdd?.location_id) return false;
       const fromLaserScan = !!opts.fromLaserScan;
-      const locName = locToAdd.location_no || getLocationDisplayNo(locToAdd);
+      const locName = getLocationDisplayNo(locToAdd);
       const existingIdx = locationsRef.current.findIndex(
         (l) => Number(l.location_id) === Number(locToAdd.location_id)
       );
@@ -446,7 +449,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
         {
           location_id: locToAdd.location_id,
           name: locName,
-          location_no: locName,
+          location_no: locToAdd.location_no || getLocationStoredNo(locToAdd),
           historical: false,
           coils: [],
         },
@@ -989,7 +992,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
                 <CheckCircle2 size={16} className="text-emerald-500" />
                 <div className="flex-1">
                   <p className="text-[10px] font-black text-emerald-800 uppercase leading-none">
-                    Location Found: {matchedLoc.location_no}
+                    Location Found: {getLocationDisplayNo(matchedLoc)}
                   </p>
                   <p className="text-[8px] font-bold text-emerald-600/70 uppercase mt-0.5">Ready to add</p>
                 </div>
@@ -1062,7 +1065,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
                               {isHistorical ? "Record" : "Location"}
                             </p>
                             <p className="text-xs font-black text-slate-800 uppercase leading-none truncate">
-                              {loc.name || loc.location_no}
+                              {String(loc.location_no || "").trim() ? getLocationDisplayNo(loc) : loc.name}
                             </p>
                           </div>
                         </div>
@@ -1269,7 +1272,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
                                 Record
                               </p>
                               <p className="text-xs font-black text-slate-800 uppercase leading-none truncate">
-                                {loc.name || loc.location_no || "Moved / issued"}
+                                {(String(loc.location_no || "").trim() ? getLocationDisplayNo(loc) : loc.name) || "Moved / issued"}
                               </p>
                             </div>
                           </div>

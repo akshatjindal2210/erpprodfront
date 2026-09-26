@@ -1,3 +1,5 @@
+import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel";
+
 function t(v) {
   if (v == null || v === "") return "—";
   return String(v);
@@ -8,9 +10,7 @@ export const rmStoreSelectionLabel = {
   production: (r) => `Selected: ${t(r?.item_code)} → ${t(r?.rm_item_code)}`,
   rmSpec: (r) => `Selected: ${t(r?.item_code)} · ${r?.spec_count ?? 0} line${(r?.spec_count ?? 0) === 1 ? "" : "s"}`,
   storeLocation: (r) => {
-    const loc =
-      r?.location_no ||
-      (r?.rack_no ? `RM-${r.rack_no}${(r?.row_no || "").toString().toUpperCase()}` : "—");
+    const loc = getLocationDisplayNo(r);
     return `Selected: ${loc} | RM Rack: ${t(r?.rack_no)} | RM Row: ${(r?.row_no || "—").toString().toUpperCase()}`;
   },
   coil: (r) => `Selected: ${t(r?.coil_no_uid)}`,

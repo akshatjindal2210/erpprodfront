@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, CheckCircle } from "lucide-react";
 import { toast } from "react-toastify";
 
@@ -9,6 +9,9 @@ import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter"
 import Drawer from "@/ui/primitives/Drawer";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
+import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
+
+const MODULE = "rm_rejection";
 
 function Info({ label, value, mono }) {
   return (
@@ -30,6 +33,7 @@ export default function ApproveRejectionDrawer({ open, onClose, onSuccess, row }
   const [submitting, setSubmitting] = useState(false);
   const [detail, setDetail] = useState(null);
   const [remarks, setRemarks] = useState("");
+  const sopAckRef = useRef(null);
 
   const load = useCallback(async () => {
     if (!rejectId) return;
@@ -58,6 +62,7 @@ export default function ApproveRejectionDrawer({ open, onClose, onSuccess, row }
 
   const handleSubmit = async () => {
     if (!rejectId) return;
+    if (!sopAckRef.current?.assertAcknowledged()) return;
     setSubmitting(true);
     try {
       const res = await rmRejectionService.approveRegister({
@@ -205,6 +210,15 @@ export default function ApproveRejectionDrawer({ open, onClose, onSuccess, row }
               </table>
             </div>
           </div>
+
+          <ModuleSopAcknowledgment
+            ref={sopAckRef}
+            key={`${open}-${rejectId}-authorize`}
+            moduleSlug={MODULE}
+            permissionType="authorize"
+            isOpen={open}
+            requireAckWhenPresent
+          />
 
           <FormTextarea
             label="Remarks"

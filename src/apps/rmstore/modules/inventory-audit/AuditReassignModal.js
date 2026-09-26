@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AlertCircle, Loader2, MapPin, User, UserRoundCog } from "lucide-react";
 import { toast } from "react-toastify";
 
+import { formatLocationDisplay } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import Drawer from "@/ui/primitives/Drawer";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { inventoryAuditService } from "@/apps/rmstore/lib/services/inventoryAudit";
@@ -93,7 +94,7 @@ export default function AuditReassignModal({ open, onClose, onSuccess, locationR
         <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
           <div className="flex items-center gap-2 text-slate-800">
             <MapPin size={14} className="text-indigo-500 shrink-0" />
-            <span className="text-sm font-black uppercase">{locationRow.location_no}</span>
+            <span className="text-sm font-black uppercase">{formatLocationDisplay(locationRow.location_no || locationRow)}</span>
           </div>
           <p className={FORM_MICRO_LABEL_CLASS}>
             Status: {getLocationStatusLabel(locationRow.location_status)}

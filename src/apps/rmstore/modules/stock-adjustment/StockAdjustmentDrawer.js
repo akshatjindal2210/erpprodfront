@@ -24,7 +24,7 @@ import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 import { getCurrentIndianFinancialYearStartYear } from "@/platform/utils/core/indianFinancialYear";
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
-import { getBoxNoUidPrefix } from "@/platform/utils/global";
+import { getBoxNoUidPrefix, SCAN_SNACK_DUR, SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
 import RmMinusCoilBreakdownTable from "./RmMinusCoilBreakdownTable";
 import RmAddCoilBreakdownTable from "./RmAddCoilBreakdownTable";
 import RmStockAdjustmentDetailCards, { resolveUploadUrl } from "./RmStockAdjustmentDetailCards";
@@ -36,10 +36,18 @@ import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
-import { prepareQrScanSession, playScanSuccessBeep } from "@/platform/utils/global/scanFeedback";
+import { prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
+import Snackbar from "@/ui/primitives/Snackbar";
 import { resolveRmApproveKeyboardScan } from "@/apps/rmstore/lib/utils/rmApproveScanSettings";
 
 const SA_APPROVE_QR_READER_ID = "sa-approve-qr-reader";
+const INITIAL_SNACK = {
+  open: false,
+  variant: "success",
+  title: "",
+  message: "",
+  duration: SCAN_SNACK_DUR.med,
+};
 
 const MODULE = "rm_stock_adjustment";
 
@@ -378,6 +386,8 @@ export default function StockAdjustmentDrawer({
   const [mrnPickOptions, setMrnPickOptions] = useState([]);
   const [mrnPickUid, setMrnPickUid] = useState("");
   const [editingWasApproved, setEditingWasApproved] = useState(false);
+  /** Saved row qty at load — must not grow with form input (edit cap uses API remaining). */
+  const [editBaselineQty, setEditBaselineQty] = useState(0);
   const [addExtraCoils, setAddExtraCoils] = useState("0");
   const [addRemoveUids, setAddRemoveUids] = useState(() => new Set());
   const [perCoilQtyEdit, setPerCoilQtyEdit] = useState("");
@@ -394,6 +404,12 @@ export default function StockAdjustmentDrawer({
   const approvalScanInputRef = useRef(null);
   const scanTrackingRef = useRef({});
   const lastCamErrorRef = useRef(0);
+  const scanToastRef = useRef({});
+  const [snackbar, setSnackbar] = useState(INITIAL_SNACK);
+  const closeSnackbar = useCallback(() => {
+    setSnackbar((s) => ({ ...s, open: false }));
+  }, []);
+  const { showScanToast, showScanSuccess } = useScanSnackbarActions(setSnackbar, scanToastRef);
   const editId = editData?.adjustment_id ?? null;
   const currentUser = useSelector(selectUser);
   const role = useSelector(selectRole);
@@ -443,6 +459,7 @@ export default function StockAdjustmentDrawer({
     setLinkedCoils([]);
     setGateReady(false);
     setEditingWasApproved(false);
+    setEditBaselineQty(0);
     setAddExtraCoils("0");
     setAddRemoveUids(new Set());
     setPerCoilQtyEdit("");
@@ -504,6 +521,9 @@ export default function StockAdjustmentDrawer({
               : [0];
         setCoilQtys(qtys.length ? qtys : [0]);
         const loadedQty = roundQty3(d.qty ?? qtys.reduce((s, q) => s + (Number(q) || 0), 0));
+        setEditBaselineQty(
+          isSaAddLike(d.entry_type) && loadedQty > 0 ? loadedQty : 0
+        );
         setTotalQty(
           String(
             d.entry_type === "minus" && loadedQty < 0 ? Math.abs(loadedQty) : loadedQty
@@ -1073,8 +1093,22 @@ export default function StockAdjustmentDrawer({
     return 0;
   }, [entryType, mrnDetail?.remaining_qty, originalReceiptQty, priorAddQty]);
 
+  /**
+   * Max total KG for this row: API remaining (edit load sends exclude_adjustment_id).
+   * New add: remaining only. Edit fallback when API still 0: baseline at open (re-save), not live form total.
+   */
+  const mrnQtyCeiling = useMemo(() => {
+    if (!isSaAddLike(entryType)) return 0;
+    if (!isEdit) return maxRemainingQty;
+    if (maxRemainingQty > QTY_EPS) return maxRemainingQty;
+    if (editBaselineQty > QTY_EPS) return editBaselineQty;
+    return 0;
+  }, [entryType, isEdit, maxRemainingQty, editBaselineQty]);
+
   const noRemainingQty =
-    isSaAddLike(entryType) && Boolean(String(mrnUid || mrnDetail?.uid || "").trim()) && maxRemainingQty <= 0;
+    isSaAddLike(entryType) &&
+    Boolean(String(mrnUid || mrnDetail?.uid || "").trim()) &&
+    mrnQtyCeiling <= 0;
   const canEditAddQty = canEditTotalQty && !noRemainingQty;
   const canEditAddCoils =
     !readOnly && isSaAddLike(entryType) && !noRemainingQty && !oldErpBreakdown;
@@ -1122,8 +1156,9 @@ export default function StockAdjustmentDrawer({
       const n = Number(raw);
       if (!Number.isFinite(n) || n < 0) return;
       let next = roundQty3(n);
-      if (next > maxRemainingQty + QTY_EPS) {
-        next = Math.max(0, maxRemainingQty);
+      if (next > mrnQtyCeiling + QTY_EPS) {
+        toast.info(`Maximum ${formatQty(mrnQtyCeiling)} KG for this MRN (internal receipt limit).`);
+        next = Math.max(0, mrnQtyCeiling);
       }
       const nextStr = String(next);
       if (nextStr === String(totalQty).trim()) return;
@@ -1139,7 +1174,7 @@ export default function StockAdjustmentDrawer({
     },
     [
       canEditAddQty,
-      maxRemainingQty,
+      mrnQtyCeiling,
       totalQty,
       fillQtysAuto,
       coilCount,
@@ -1207,7 +1242,7 @@ export default function StockAdjustmentDrawer({
       if (!fillQtysAuto && !oldErpBreakdown) {
         const sum = next.reduce((s, q) => s + (Number(q) || 0), 0);
         const capped =
-          sum > maxRemainingQty + QTY_EPS ? Math.max(0, maxRemainingQty) : roundQty3(sum);
+          sum > mrnQtyCeiling + QTY_EPS ? Math.max(0, mrnQtyCeiling) : roundQty3(sum);
         setTotalQty(sum > 0 ? String(capped) : "");
       }
       return next;
@@ -1223,7 +1258,7 @@ export default function StockAdjustmentDrawer({
   const exceedsRemaining =
     isSaAddLike(entryType) &&
     Boolean(String(mrnUid || mrnDetail?.uid || "").trim()) &&
-    adjustmentQty > maxRemainingQty + QTY_EPS;
+    adjustmentQty > mrnQtyCeiling + QTY_EPS;
   const addQtyUnit = "KG";
   const showAddQtyMismatch = isSaAddLike(entryType) && gateReady && !readOnly && adjustmentQty > 0 && coilQtys.length > 0 && !qtyMatches;
   const qtyMismatchLabel = useMemo(() => {
@@ -1424,30 +1459,28 @@ export default function StockAdjustmentDrawer({
       if (!raw) return "empty";
 
       const warn = (message) => {
-        if (!continuous) {
-          toast.error(message);
-          return;
+        if (continuous) {
+          const now = Date.now();
+          if (now - lastCamErrorRef.current < 1600) return;
+          lastCamErrorRef.current = now;
         }
-        const now = Date.now();
-        if (now - lastCamErrorRef.current < 1600) return;
-        lastCamErrorRef.current = now;
-        toast.error(message, { toastId: "sa-approve-scan-err" });
+        showScanToast("error", continuous ? "sa-approve-scan-err" : "sa-approve-scan-err-once", message, continuous ? 1800 : 2800);
       };
 
       const mark = (key) => {
-        if (scanTrackingRef.current[key]) return "duplicate";
+        if (scanTrackingRef.current[key]) {
+          showScanToast("error", `sa-approve-dup-${key}`, SCAN_SNACK_MSG.BOX_DUPLICATE(key), 1400);
+          return "duplicate";
+        }
         const next = { ...scanTrackingRef.current, [key]: true };
         scanTrackingRef.current = next;
         setScanTracking(next);
-        if (continuous) {
-          void playScanSuccessBeep();
-          const done = requiredCoilUids.filter((uid) => next[uid]).length;
-          if (requiredCoilUids.length > 0 && done >= requiredCoilUids.length) {
-            setIsScannerOpen(false);
-            toast.success("All coil stickers scanned. You can approve now.", { toastId: "sa-approve-scan" });
-          }
+        const done = requiredCoilUids.filter((uid) => next[uid]).length;
+        if (requiredCoilUids.length > 0 && done >= requiredCoilUids.length) {
+          setIsScannerOpen(false);
+          showScanSuccess("sa-approve-scan-done", SCAN_SNACK_MSG.BOX_ADDED(key), 2800);
         } else {
-          toast.success("Coil sticker scanned.");
+          showScanSuccess(`sa-approve-ok-${key}`, SCAN_SNACK_MSG.BOX_ADDED(key), continuous ? 1200 : 1600);
         }
         return "ok";
       };
@@ -1462,7 +1495,7 @@ export default function StockAdjustmentDrawer({
       warn("Invalid scan.");
       return "error";
     },
-    [requiredCoilUids]
+    [requiredCoilUids, showScanToast, showScanSuccess]
   );
 
   const handleCameraDecoded = useCallback(
@@ -1470,6 +1503,15 @@ export default function StockAdjustmentDrawer({
       handleApprovalScan(text, { continuous: true });
     },
     [handleApprovalScan]
+  );
+
+  const handleLaserScanRejected = useCallback(
+    ({ reason }) => {
+      if (reason === "empty") {
+        showScanToast("error", "laser-empty-scan", SCAN_SNACK_MSG.REJECTED, 1800);
+      }
+    },
+    [showScanToast]
   );
 
   const { torchSupported, torchOn, toggleTorch } = useHtml5QrScanner({
@@ -1481,8 +1523,11 @@ export default function StockAdjustmentDrawer({
     onCameraFailed: (err) => {
       setIsScannerOpen(false);
       const denied = /NotAllowed|Permission|denied/i.test(String(err?.message || err || ""));
-      toast.error(
-        denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again."
+      showScanToast(
+        "error",
+        "sa-camera-fail",
+        denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again.",
+        4000
       );
     },
   });
@@ -1491,22 +1536,28 @@ export default function StockAdjustmentDrawer({
     try {
       const prep = await prepareQrScanSession();
       if (!prep?.cameraOk) {
-        toast.error(
+        showScanToast(
+          "error",
+          "sa-camera-prep",
           prep?.cameraDenied
             ? "Camera permission denied. Allow camera and try again."
-            : "Camera could not start. Please try again."
+            : "Camera could not start. Please try again.",
+          4000
         );
         return;
       }
     } catch (err) {
       const denied = /NotAllowed|Permission|denied/i.test(String(err?.message || err || ""));
-      toast.error(
-        denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again."
+      showScanToast(
+        "error",
+        "sa-camera-prep-err",
+        denied ? "Camera permission denied. Allow camera and try again." : "Camera could not start. Please try again.",
+        4000
       );
       return;
     }
     setIsScannerOpen(true);
-  }, []);
+  }, [showScanToast]);
 
   useEffect(() => {
     if (!open || !showApprovalFlow) setIsScannerOpen(false);
@@ -1602,13 +1653,13 @@ export default function StockAdjustmentDrawer({
           setSaving(false);
           return;
         }
-        if (total > maxRemainingQty + QTY_EPS) {
+        if (total > mrnQtyCeiling + QTY_EPS) {
           const usedParts = [];
           if (coilUsedQty > 0) usedParts.push(`coils ${coilUsedQty}`);
           if (pendingSaAddQty > 0) usedParts.push(`pending SA ${pendingSaAddQty}`);
           const usedNote = usedParts.length ? ` Used: ${usedParts.join(", ")}.` : "";
           toast.error(
-            `Total (${total}) exceeds remaining MRN qty (${maxRemainingQty} of ${originalReceiptQty}).${usedNote}`
+            `Total (${total}) exceeds allowed MRN qty (${mrnQtyCeiling} of ${originalReceiptQty} receipt).${usedNote}`
           );
           setSaving(false);
           return;
@@ -1840,7 +1891,7 @@ export default function StockAdjustmentDrawer({
                 ) : null}
                 {exceedsRemaining ? (
                   <span className="text-[10px] font-bold uppercase text-rose-600">
-                    Max {formatQty(maxRemainingQty)} {addQtyUnit}
+                    Max {formatQty(mrnQtyCeiling)} {addQtyUnit}
                   </span>
                 ) : null}
               </span>
@@ -2407,11 +2458,12 @@ export default function StockAdjustmentDrawer({
                         <LaserScanField
                           active={open && showApprovalFlow && laserScan}
                           onScanned={handleApprovalScan}
+                          onScanRejected={handleLaserScanRejected}
                           companionTypableRef={showKeyboardScan ? approvalScanInputRef : undefined}
                           compact
-                          heightClass="h-9"
+                          heightClass="h-10 sm:h-9"
+                          fill={(phoneQrVisible ? 1 : 0) + (laserScan ? 1 : 0) > 1}
                           armButtonLabel="Scan"
-                          className="shrink-0"
                         />
                       ) : null}
                       {showKeyboardScan ? (
@@ -2524,7 +2576,7 @@ export default function StockAdjustmentDrawer({
                                     : ""}
                                   {coilUsedQty > 0 || pendingSaAddQty > 0 ? ")" : ""} ={" "}
                                   <span className="text-emerald-700 font-bold">
-                                    {maxRemainingQty.toLocaleString()} remaining
+                                    {mrnQtyCeiling.toLocaleString()} remaining
                                   </span>
                                 </>
                               ) : (
@@ -2549,8 +2601,8 @@ export default function StockAdjustmentDrawer({
                               exceedsRemaining ? "border-rose-400 ring-1 ring-rose-200" : ""
                             }`}
                             title={
-                              maxRemainingQty > 0
-                                ? `Max ${maxRemainingQty} KG remaining`
+                              mrnQtyCeiling > 0
+                                ? `Max ${mrnQtyCeiling} KG for this adjustment`
                                 : "Total quantity for this adjustment"
                             }
                           />
@@ -2693,6 +2745,14 @@ export default function StockAdjustmentDrawer({
         )}
       </div>
     </Drawer>
+    <Snackbar
+      open={snackbar.open}
+      variant={snackbar.variant}
+      title={snackbar.title}
+      message={snackbar.message}
+      duration={snackbar.duration}
+      onClose={closeSnackbar}
+    />
     <QrScannerOverlay
       open={isScannerOpen && showApprovalFlow}
       readerId={SA_APPROVE_QR_READER_ID}

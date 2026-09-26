@@ -1,8 +1,10 @@
 "use client";
 
+import { useRef } from "react";
 import { X, Undo2, AlertTriangle } from "lucide-react";
 import { useEscapeKey } from "@/platform/hooks/system/useEscapeKey";
 import OverlayModal from "@/ui/primitives/OverlayModal";
+import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 
 /** Confirm undo of MRN Portal rejection (before bill / Store Out). */
 export default function MrnRejectionCancelConfirmModal({
@@ -12,12 +14,20 @@ export default function MrnRejectionCancelConfirmModal({
   onClose,
   onConfirm,
   loading = false,
+  moduleSlug = "rm_mrn_portal",
 }) {
+  const sopAckRef = useRef(null);
+
   useEscapeKey(onClose, open);
 
   if (!open) return null;
 
   const label = mrnNo != null && String(mrnNo).trim() !== "" ? `#${mrnNo}` : mrnUid || "this MRN";
+
+  const handleConfirm = () => {
+    if (!sopAckRef.current?.assertAcknowledged()) return;
+    onConfirm?.();
+  };
 
   return (
     <OverlayModal open={open} zIndex={1100}>
@@ -49,6 +59,15 @@ export default function MrnRejectionCancelConfirmModal({
         </div>
 
         <div className="px-5 py-4 space-y-3 overflow-y-auto">
+          <ModuleSopAcknowledgment
+            ref={sopAckRef}
+            key={String(mrnUid || mrnNo || "cancel-rejection")}
+            moduleSlug={moduleSlug}
+            permissionType="delete"
+            isOpen={open}
+            requireAckWhenPresent
+          />
+
           <div className="flex gap-2.5 p-3 bg-amber-50 border border-amber-100 rounded-xl">
             <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
             <p className="text-xs text-amber-900 leading-snug">
@@ -71,7 +90,7 @@ export default function MrnRejectionCancelConfirmModal({
           </button>
           <button
             type="button"
-            onClick={onConfirm}
+            onClick={handleConfirm}
             disabled={loading}
             className="px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition-all flex items-center gap-2 disabled:opacity-60"
           >

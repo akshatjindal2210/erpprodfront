@@ -54,3 +54,5 @@ export {
   labelStickerDownloadSource,
 } from "./sticker";
 
+export { resolveInAppScanValue } from "./publicQrScanValue";
+

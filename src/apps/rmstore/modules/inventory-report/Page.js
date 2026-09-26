@@ -13,6 +13,7 @@ import { inventoryReportService } from "@/apps/rmstore/lib/services/inventoryRep
 import { sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { sortSelectRowsAsc } from "@/platform/utils/form/sortSelectOptions";
 import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_DATE, IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
+import { formatLocationDisplay } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import { buildInventoryFilterOptionsFromRows, EMPTY_FILTERS, filterInventoryRows, formatCoilUidTooltip, hasActiveInventoryFilters, normalizeMultiFilterIds } from "@/apps/rmstore/modules/inventory-report/inventoryReportClient";
 import { computeInventoryTotals, INVENTORY_FOOTER_CARDS, INVENTORY_FOOTER_TONE, INVENTORY_QTY_META, INVENTORY_REPORT_RULES, INVENTORY_REPORT_TABLE_COLUMNS, formatInventoryTableCell } from "@/apps/rmstore/modules/inventory-report/inventoryReport.config";
 import { notifyListPageExportResult } from "@/platform/utils/list/listPageExport";
@@ -135,10 +136,11 @@ function renderLocationDetailsCell(raw, row) {
         const isSpecial = code === "UA" || code === "SF";
 
         if (!isSpecial) {
+          const shown = `${formatLocationDisplay(code) || code}${rest}`;
           return (
             <span key={`${part}-${i}`} className="cursor-help" title={tip}>
               {i > 0 ? <span className="text-slate-400">, </span> : null}
-              {part}
+              {shown}
             </span>
           );
         }

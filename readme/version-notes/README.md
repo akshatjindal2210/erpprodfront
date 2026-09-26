@@ -4,6 +4,7 @@ Cross-app **internal helper API** catalog (paths, allowlists, caller pages): [..
 
 | Note | Topic |
 |------|--------|
+| [v4.4.2.md](./v4.4.2.md) | **Public sticker QR · Laser · Scan snackbar** · **Coil JC/Machine · IPR Pending** · **IMS FN Store Out scan** · HRMS Attendance · RM SOP & upload · RM location display · SA MRN receipt cap |
 | [v4.4.1.md](./v4.4.1.md) | Coil Finder · list footer · Schedule UI · DataTable · IPR shop-floor · Invoice Receiving · scan/QR/Store In-Out · FN print QR · **Module notifications** |
 | [v4.4.0.md](./v4.4.0.md) | User attributes · Store In receive · IPR reassign · Coil Finder FG · RM masters |
 | [v4.3.10.md](./v4.3.10.md) | List footer · IPR Job Card · Invoice Receiving · QR / Gate Entry · RM Inventory speed · RM search · Logs · HRMS Attendance photos |

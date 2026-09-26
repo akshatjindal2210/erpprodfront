@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { unlockScanAudio } from "@/platform/utils/global/scanFeedback";
+import { resolveInAppScanValue } from "@/platform/utils/global/publicQrScanValue";
 
 const DEFAULT_QRBOX = { width: 200, height: 200 };
 const DEFAULT_FPS = 8;
@@ -127,7 +128,8 @@ export function useHtml5QrScanner({
     let cancelled = false;
 
     const handleDecoded = (text) => {
-      const normalized = String(text ?? "").trim();
+      // Public sticker QR is a URL for outside cameras; in-app we only pass the value.
+      const normalized = resolveInAppScanValue(text);
       if (!normalized) return;
       const now = Date.now();
       const last = lastDecodeRef.current;

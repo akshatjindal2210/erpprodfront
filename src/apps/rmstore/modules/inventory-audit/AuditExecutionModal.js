@@ -14,6 +14,7 @@ import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettin
 import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
 import LaserScanField from "@/ui/common/scan/LaserScanField";
 import { blurActiveElement, getDeviceScanSettings, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
+import { formatLocationDisplay, locationScanMatches } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import { extractLocationNo, extractCoilUid, coilUidDisplayLabel, locationNoDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
 import { unlockScanAudio } from "@/platform/utils/global/scanFeedback";
 import {
@@ -131,7 +132,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
 
   const verifyFixedLocation = (scannedLocNo) => {
     if (!assignedLocation) return false;
-    return scannedLocNo.toLowerCase() === String(assignedLocation.location_no || "").trim().toLowerCase();
+    return locationScanMatches(assignedLocation.location_no, scannedLocNo);
   };
 
   const handleScanValue = async (val) => {
@@ -173,7 +174,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
       setScannedInput("");
       showScanSuccess(
         "audit-location-verified",
-        SCAN_SNACK_MSG.AUDIT_LOCATION_VERIFIED(assignedLocation.location_no),
+        SCAN_SNACK_MSG.AUDIT_LOCATION_VERIFIED(formatLocationDisplay(assignedLocation.location_no)),
         4500,
       );
       blurActiveElement();
@@ -373,7 +374,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
         complete_location: true,
       });
 
-      const msg = res?.message || `Location ${assignedLocation.location_no} submitted`;
+      const msg = res?.message || `Location ${formatLocationDisplay(assignedLocation.location_no)} submitted`;
       if (res?.data?.location_status === "mismatch") {
         toast.warning(msg);
       } else {
@@ -429,7 +430,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
       isOpen={open}
       onClose={onClose}
       title="Start Audit"
-      description={`Audit #${auditData?.audit_id} · ${assignedLocation.location_no}`}
+      description={`Audit #${auditData?.audit_id} · ${formatLocationDisplay(assignedLocation.location_no)}`}
       footer={drawerFooter}
       maxWidth="max-w-2xl"
     >

@@ -1,3 +1,4 @@
+import { formatLocationDisplay } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import { buildExportFilename, downloadXlsxFile, TABLE_EXPORT_FORMATS } from "@/platform/utils/list/tableExport";
 import { computeLocationScoreFromCounts, formatLocationScorePct, getLocationStatusLabel, resolveCoilAccName } from "./auditScanHelpers";
 import { getAuditExecutionStatusLabel } from "./auditStatusHelpers";
@@ -17,7 +18,7 @@ function buildBoxColumns(showLocation) {
   if (showLocation) {
     cols.push({
       label: "Audit location",
-      getValue: (r) => r.audit_location_no || r.location_no || "",
+      getValue: (r) => formatLocationDisplay(r.audit_location_no || r.location_no || r) || "",
     });
   }
   cols.push(
@@ -35,13 +36,13 @@ function buildBoxColumns(showLocation) {
     { label: "Acc name", getValue: (r) => r.acc_name || resolveCoilAccName(r) || "" },
     { label: "Item code", getValue: (r) => r.item_code ?? "" },
     { label: "Qty", getValue: (r) => r.qty ?? "" },
-    { label: "coil location", getValue: (r) => r.location_no ?? "" },
+    { label: "coil location", getValue: (r) => formatLocationDisplay(r.location_no ?? r) || "" },
   );
   return cols;
 }
 
 const LOCATION_COLUMNS = [
-  { label: "Location", getValue: (l) => l.location_no ?? "" },
+  { label: "Location", getValue: (l) => formatLocationDisplay(l.location_no ?? l) || "" },
   { label: "Expected", getValue: (l) => l.system_count ?? 0 },
   { label: "Scanned", getValue: (l) => l.scanned_count ?? 0 },
   { label: "Matched", getValue: (l) => l.matched_scanned_count ?? 0 },
@@ -120,7 +121,7 @@ function buildSummaryLines(ctx) {
     `Score: ${formatLocationScorePct(displayScore)} · ${allMatched ? "All coils match" : "Differences found"}`,
   ];
   if (singleLocation && locationRow?.location_no) {
-    lines.push(`Location: ${locationRow.location_no} · ${getLocationStatusLabel(locationRow.location_status)}`);
+    lines.push(`Location: ${formatLocationDisplay(locationRow.location_no || locationRow)} · ${getLocationStatusLabel(locationRow.location_status)}`);
   }
   return lines;
 }
@@ -128,7 +129,7 @@ function buildSummaryLines(ctx) {
 function buildModuleName(ctx) {
   const id = ctx.report?.audit_id ?? ctx.locationRow?.audit_id;
   if (ctx.singleLocation && ctx.locationRow?.location_no) {
-    return `Audit ${id || ""} ${ctx.locationRow.location_no} Comparison`.trim();
+    return `Audit ${id || ""} ${formatLocationDisplay(ctx.locationRow.location_no || ctx.locationRow)} Comparison`.trim();
   }
   return `Audit ${id || ""} Comparison Report`.trim();
 }

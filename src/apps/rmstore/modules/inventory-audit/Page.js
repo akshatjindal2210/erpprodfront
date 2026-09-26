@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { Plus, ClipboardCheck, RefreshCcw, Edit3, Trash2, X, Info, Play, MapPin, GitCompare, ClipboardList, RotateCcw, UserRoundCog, Shield } from "lucide-react";
 import { toast } from "react-toastify";
 
+import { formatLocationDisplay } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import { inventoryAuditService } from "@/apps/rmstore/lib/services/inventoryAudit";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
@@ -148,7 +149,7 @@ export default function RmInventoryAuditPage() {
     }
     setComparisonContext({
       auditId: row.audit_id,
-      auditLabel: `Audit #${row.audit_id} | ${row.location_no}`,
+      auditLabel: `Audit #${row.audit_id} | ${formatLocationDisplay(row.location_no || row)}`,
       locationRow: row,
     });
     setComparisonOpen(true);
@@ -263,7 +264,7 @@ export default function RmInventoryAuditPage() {
 
   const handleReopenLocation = async () => {
     if (!selectedLocationRow) return;
-    const label = selectedLocationRow.location_no || "location";
+    const label = formatLocationDisplay(selectedLocationRow.location_no || selectedLocationRow) || "location";
     if (!window.confirm(`Reopen ${label}? The assigned user will be able to scan again.`)) return;
 
     setReopening(true);

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isLaserCommitKey, laserScanChar } from "@/platform/utils/device/deviceScanSettings";
-import { looksLikeEInvoiceJwt, looksLikeBillBase64, normalizeBillScanInput, normalizeScanInput, scanBufferLooksIncomplete } from "@/apps/ims/lib/helpers/qrScan";
+import { looksLikeEInvoiceJwt, looksLikeBillBase64, scanBufferLooksIncomplete } from "@/apps/ims/lib/helpers/qrScan";
+import { resolveInAppScanValue } from "@/platform/utils/global/publicQrScanValue";
 
 function idleCommitMsForBuffer(raw) {
   if (looksLikeEInvoiceJwt(raw) || looksLikeBillBase64(raw) || scanBufferLooksIncomplete(raw)) {
@@ -243,15 +244,8 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
 
   const onLaserScanned = useCallback(
     (raw, { fromCommitKey = false } = {}) => {
-      // Bill / e-invoice QR: keep full JWT/base64 (do not first-line truncate).
-      const compact = String(raw ?? "").replace(/\s+/g, "");
-      const code =
-        looksLikeEInvoiceJwt(raw) ||
-        looksLikeBillBase64(raw) ||
-        /^eyJ/i.test(compact) ||
-        compact.length >= 48
-          ? normalizeBillScanInput(raw)
-          : normalizeScanInput(raw);
+      // Stickers → value (or short ?param=); e-invoice / bill → full payload (no first-line cut).
+      const code = resolveInAppScanValue(raw);
       const now = Date.now();
       if (!code) {
         if (
@@ -311,6 +305,19 @@ export function useLaserScanCapture(active, onScanned, options = {}) {
           parts[0].startsWith("eyJ") &&
           parts[1].length > 20 &&
           parts[2].length >= 8;
+
+        // HID Enter ends the payload. For sticker URLs / plain UIDs (not e-invoice),
+        // commit immediately — do not wait the JWT incomplete loop (~7.5s).
+        const isStickerOrPlain =
+          !looksLikeEInvoiceJwt(raw) &&
+          !looksLikeBillBase64(raw) &&
+          !/^eyJ/i.test(compact);
+        if (fromCommitKey && isStickerOrPlain && String(raw || "").trim().length >= 2) {
+          jwtIncompleteWaitsRef.current = 0;
+          laserBufferRef.current = "";
+          onLaserScanned(raw, { fromCommitKey });
+          return;
+        }
 
         if (!jwtReadyEnough) {
           jwtIncompleteWaitsRef.current += 1;

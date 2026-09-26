@@ -160,7 +160,7 @@ html[data-app-drawer-open] .imp-panel-no-select main > div {
   }
 }
 
-/* Bottom snackbar (W3Schools-like): centred, slide + fade; uses translate so left:50% layout works */
+/* Bottom snackbar (IMS style): centred, slide + fade; uses translate so left:50% layout works */
 @keyframes app-snackbar-fade-in {
   from {
     opacity: 0;

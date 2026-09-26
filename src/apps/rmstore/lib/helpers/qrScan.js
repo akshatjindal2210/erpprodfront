@@ -3,6 +3,7 @@
  * UID format / prefix rules live in stickerUidFormat.js — not here.
  */
 
+import { formatLocationDisplay } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import { getLocationQrValue } from "@/apps/rmstore/lib/helpers/locationQrLabel";
 import { findMatchingCoilNoUid, looksLikeStickerUid, stickerUidCoreKey, stickerUidsMatch } from "@/platform/utils/global/stickerUidFormat";
 
@@ -127,7 +128,7 @@ export function locationNoDisplayLabel(rawValue) {
   const trimmed = String(rawValue ?? "").trim();
   if (!trimmed) return "";
   const no = extractLocationNo(rawValue);
-  return no || trimmed.toUpperCase();
+  return formatLocationDisplay(no || trimmed.toUpperCase());
 }
 
 /**
