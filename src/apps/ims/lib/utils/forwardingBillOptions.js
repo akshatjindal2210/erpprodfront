@@ -50,8 +50,10 @@ export function billHelperItemFromRow(row = {}) {
 }
 
 /** Live invfnote bills — pass selected row fields; match mode is backend-only. */
-export async function fetchBillOptions({ search = "", page = 1, limit = 50, items = [] } = {}) {
-  const res = await forwardingNoteService.getBillNumbers({ search, page, limit, items });
+export async function fetchBillOptions({ search = "", page = 1, limit = 50, items = [], fromDate, toDate, from_date, to_date } = {}) {
+  const from = from_date ?? (fromDate ? `${fromDate} 00:00:00` : undefined);
+  const to = to_date ?? (toDate ? `${toDate} 23:59:59` : undefined);
+  const res = await forwardingNoteService.getBillNumbers({ search, page, limit, items, ...(from && { from_date: from }), ...(to && { to_date: to }) });
   const data = Array.isArray(res?.data) ? res.data : [];
   return {
     data,
@@ -59,9 +61,12 @@ export async function fetchBillOptions({ search = "", page = 1, limit = 50, item
   };
 }
 
-export async function getBillByNo(billNo, { items = [] } = {}) {
+export async function getBillByNo(billNo, { items = [], fromDate, toDate, from_date, to_date } = {}) {
   const label = String(billNo ?? "").trim();
   if (!label) return { data: null };
+
+  const from = from_date ?? (fromDate ? `${fromDate} 00:00:00` : undefined);
+  const to = to_date ?? (toDate ? `${toDate} 23:59:59` : undefined);
 
   try {
     const res = await forwardingNoteService.getBillNumbers({
@@ -69,6 +74,8 @@ export async function getBillByNo(billNo, { items = [] } = {}) {
       page: 1,
       limit: 100,
       items,
+      ...(from && { from_date: from }),
+      ...(to && { to_date: to }),
     });
     const data = Array.isArray(res?.data) ? res.data : [];
     const found = data.find((row) => String(row?.bill_no ?? row?.billno ?? "").trim() === label);

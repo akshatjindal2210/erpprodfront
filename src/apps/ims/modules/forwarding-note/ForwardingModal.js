@@ -175,6 +175,7 @@ function skeletonItemFromDispatchRow(row) {
     itemdesc: row?.itemdesc || "",
     schno: rowSchno,
     source_dispatch_qty: balanceQty,
+    schedule_qty: scheduleQty,
     shortage_qty_percentage: Math.max(0, Math.min(100, Number(row?.shortage_qty_percentage) || 0)),
     dispatch_target: balanceQty > 0 ? String(balanceQty) : "",
     fetching: Boolean(itemDcode),
@@ -206,6 +207,7 @@ function scheduleLineToCatalogItem(row) {
     schno,
     balance_qty: balanceQty,
     source_dispatch_qty: balanceQty,
+    schedule_qty: Number(row?.schedule_qty ?? row?.totalqty ?? row?.total_qty ?? 0),
     shortage_qty_percentage: Math.max(0, Math.min(100, Number(row?.shortage_qty_percentage) || 0)),
     fg_stock_qty: fg,
     fg_zero: fgZero,
@@ -317,7 +319,8 @@ const getItemShortagePct = (item) => Math.max(0, Math.min(100, Number(item?.shor
 const getScheduleMaxExtraQty = (item) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
   if (!(balanceCap > 0)) return 0;
-  return Math.floor((balanceCap * getItemShortagePct(item)) / 100);
+  const pctBaseQty = Number(item?.schedule_qty ?? item?.totalqty ?? item?.total_qty ?? 0) || balanceCap;
+  return Math.floor((pctBaseQty * getItemShortagePct(item)) / 100);
 };
 
 /** Hidden tolerance cap: balance + % extra (not shown separately in UI). */
@@ -787,7 +790,7 @@ export default function ForwardingModal({
         const catalogBal = Math.max(0, Number(match.balance_qty ?? match.source_dispatch_qty ?? 0));
         if (!(catalogBal > 0)) return row;
         changed = true;
-        return reconcileRowSelectionToBalance({...row, shortage_qty_percentage: Math.max(0, Math.min(100, Number(match.shortage_qty_percentage) || 0))}, catalogBal);
+        return reconcileRowSelectionToBalance({...row, schedule_qty: Number(match.schedule_qty ?? match.totalqty ?? match.total_qty ?? 0), shortage_qty_percentage: Math.max(0, Math.min(100, Number(match.shortage_qty_percentage) || 0))}, catalogBal);
       });
       if (!changed) return prev;
       formItemsRef.current = nextItems;
@@ -1748,6 +1751,7 @@ export default function ForwardingModal({
       itemdesc:        rawData?.itemdesc  || "",
       schno:           scheduleCatalogActive ? scheduleSchno : "",
       source_dispatch_qty: scheduleCatalogActive ? balanceQty : 0,
+      schedule_qty: scheduleCatalogActive ? Math.max(0, Number(rawData?.schedule_qty ?? rawData?.totalqty ?? rawData?.total_qty ?? 0)) : 0,
       shortage_qty_percentage: Math.max(0, Math.min(100, Number(rawData?.shortage_qty_percentage) || 0)),
       available_boxes: [],
       selected_boxes:  [],

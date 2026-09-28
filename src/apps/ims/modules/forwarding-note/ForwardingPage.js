@@ -564,17 +564,24 @@ export default function ForwardingPage() {
   ]);
 
   const fetchBillOptionsForRow = useCallback(
-    (params) =>
+    (opts) =>
       fetchBillOptions({
-        ...params,
+        ...opts,
+        fromDate: params.fromDate,
+        toDate: params.toDate,
         items: selectedBillItem ? [selectedBillItem] : [],
       }),
-    [selectedBillItem]
+    [selectedBillItem, params.fromDate, params.toDate]
   );
 
   const getBillByNoForRow = useCallback(
-    (billNo) => getBillByNo(billNo, { items: selectedBillItem ? [selectedBillItem] : [] }),
-    [selectedBillItem]
+    (billNo) =>
+      getBillByNo(billNo, {
+        fromDate: params.fromDate,
+        toDate: params.toDate,
+        items: selectedBillItem ? [selectedBillItem] : [],
+      }),
+    [selectedBillItem, params.fromDate, params.toDate]
   );
 
   const openModal = useCallback((mode) => {
