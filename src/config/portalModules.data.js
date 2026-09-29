@@ -60,6 +60,7 @@ export const MODULES = {
     { name: "shortage", label: "Shortage" },
   ],
   rmstore: [
+    { name: "rm_product_master", label: "RM Product Master" },
     { name: "rm_production_master", label: "Production Master" },
     { name: "rm_spec_master", label: "RM Spec Master" },
     { name: "rm_store_location_master", label: "RM Store Location Master" },

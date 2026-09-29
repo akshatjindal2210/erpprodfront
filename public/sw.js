@@ -1,4 +1,4 @@
-const CACHE_NAME = "jfl-erp-static-v25";
+const CACHE_NAME = "jfl-erp-static-v26";
 const DELIVERY_RETRY_MS = [0, 1500, 4000, 10000, 25000];
 const API_BASE_CACHE = "jfl-push-api-base-v1";
 const PENDING_DELIVERY_CACHE = "jfl-pending-push-delivery-v1";
@@ -463,24 +463,26 @@ self.addEventListener("push", (event) => {
     external_frontend_host: meta.external_frontend_host || "",
   };
 
-  // Show the notification immediately — works whether the app is open or closed.
-  // Defer network checks to delivery receipt only (do not block on a slow ping).
+  // Show immediately so lock-screen / Doze still gets a visible OS tray alert.
+  // Delivery receipt is secondary and must never delay showNotification.
   event.waitUntil(
-    ensureApiConfig(notifyData)
+    self.registration.showNotification(title, {
+        body: notifyBody || title,
+        icon: payload.icon || fallbackIcon,
+        badge: payload.badge || fallbackIcon,
+        tag: payload.tag || (trackingId ? `jfl-push-${trackingId}` : `jfl-push-${appType}`),
+        renotify: payload.renotify ?? true,
+        requireInteraction: payload.requireInteraction ?? false,
+        silent: false,
+        vibrate: Array.isArray(payload.vibrate) ? payload.vibrate : [200, 100, 200],
+        data: notifyData,
+      })
       .then(() =>
-        self.registration.showNotification(title, {
-          body: notifyBody,
-          icon: payload.icon || fallbackIcon,
-          badge: payload.badge || fallbackIcon,
-          tag: payload.tag || (trackingId ? `jfl-push-${trackingId}` : `jfl-push-${appType}`),
-          renotify: payload.renotify ?? true,
-          requireInteraction: payload.requireInteraction ?? false,
-          silent: payload.silent ?? false,
-          data: notifyData,
-        })
+        ensureApiConfig(notifyData)
+          .then(() => postDeliveryStatus("received", trackingId, notifyData))
+          .then(() => flushPendingDeliveries())
+          .catch(() => {})
       )
-      .then(() => postDeliveryStatus("received", trackingId, notifyData))
-      .then(() => flushPendingDeliveries())
   );
 });
 

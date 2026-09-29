@@ -72,6 +72,7 @@ const E = ENDPOINTS.IN_PROCESS_REQUEST;
 
 export const inProcessRequestService = {
   coilHelper: (coil_no_uid) => api(ENDPOINTS.IN_PROCESS_REQUEST.COIL_HELPER, { method: "POST", body: { coil_no_uid } }),
+  reassignJobCards: (params = {}) => api(ENDPOINTS.IN_PROCESS_REQUEST.REASSIGN_JOB_CARDS, { method: "POST", body: params }),
   getAll: (params) => api(E.LIST, { method: "POST", body: params }),
   getPendingShopFloor: (params) => api(E.PENDING_SHOP_FLOOR, { method: "POST", body: params }),
   getById: (ipr_uid) => api(E.GET, { method: "POST", body: { ipr_uid } }),

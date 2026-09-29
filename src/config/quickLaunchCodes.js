@@ -56,7 +56,8 @@ export const QUICK_LAUNCH_CODES = [
 
   // ── RM Store (R…) ───────────────────────────────────────────────
   { code: "RMS", label: "RM Store Dashboard",         route: ROUTES.RM_STORE_DASHBOARD,      module: null,                        app: "rmstore" },
-  { code: "RPM", label: "RM Production Master",       route: ROUTES.RM_PRODUCTION_MASTER,    module: "rm_production_master",      app: "rmstore" },
+  { code: "RPM", label: "RM Product Master",          route: ROUTES.RM_PRODUCT_MASTER,       module: "rm_product_master",         app: "rmstore" },
+  { code: "RIM", label: "RM Item Master",             route: ROUTES.RM_PRODUCTION_MASTER,    module: "rm_production_master",      app: "rmstore" },
   { code: "RSM", label: "RM Spec Master",             route: ROUTES.RM_SPEC_MASTER,          module: "rm_spec_master",            app: "rmstore" },
   { code: "RLM", label: "RM Store Location Master",   route: ROUTES.RM_STORE_LOCATION_MASTER,module: "rm_store_location_master",  app: "rmstore" },
   { code: "MRN", label: "MRN Entry",                  route: ROUTES.RM_MRN_PORTAL,           module: "rm_mrn_portal",             app: "rmstore" },

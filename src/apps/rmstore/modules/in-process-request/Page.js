@@ -23,7 +23,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { rmStoreInProcessSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
 import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
-import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
+import { applyClientSearch, defaultSearchParts, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
@@ -62,6 +62,27 @@ function resolvePendingCurrentMachine(row) {
   ).trim();
   if (targetMac) return targetMac;
   return resolveCoilMachineLabel(row);
+}
+
+/** Pending quick search — match displayed current JC/machine only (not Store Out / source history). */
+function pendingListSearchParts(row) {
+  const parts = [];
+  const isShopFloor = row?._pendingKind === PENDING_KIND.SHOP_FLOOR;
+  const jc = isShopFloor ? resolvePendingCurrentJobCard(row) : String(row?.pjobcardno_label || row?.pjobcardno || "").trim();
+  const mac = isShopFloor ? resolvePendingCurrentMachine(row) : String(row?.macname_label || row?.macname || "").trim();
+  if (jc && jc !== "—") {
+    parts.push(jc);
+    parts.push(String(jc).replace(/^JC[\s-]*/i, ""));
+  }
+  if (mac && mac !== "—") parts.push(mac);
+  for (const k of [ "coil_no_uid", "coil_uid", "mrn_uid", "mrn_no", "item_code", "item_desc", "heat_no", "out_uid", "ipr_uid", "reason" ]) {
+    const v = row?.[k];
+    if (v != null && String(v).trim()) parts.push(v);
+  }
+  if (!isShopFloor) {
+    for (const p of defaultSearchParts(row)) parts.push(p);
+  }
+  return parts;
 }
 
 /** Pending list — shop-floor + unapproved IPR; Job Card / Machine from coil when present. */
@@ -361,10 +382,10 @@ export default function InProcessRequestPage() {
   const filteredRows = useMemo(() => {
     let data = allRows;
     if (String(tempSearch || "").trim()) {
-      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
+      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey, ...(isPendingTab ? { getParts: pendingListSearchParts } : {}) });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir, isPendingTab]);
 
   useEffect(() => {
     if (!selected) return;

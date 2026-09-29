@@ -19,6 +19,7 @@ export default function UpdateCoilStatusForm({
   onReassignJobCardChange,
   fetchJobCards,
   getJobCardById,
+  reassignRowRmColor = null,
   errors = {},
   readOnly = false,
 }) {
@@ -167,6 +168,23 @@ export default function UpdateCoilStatusForm({
           placeholder="Select job card…"
           required
           disabled={readOnly}
+          preserveApiOrder
+          getOptionStyle={
+            reassignRowRmColor
+              ? (item) =>
+                  item._isPrimaryProd
+                    ? {
+                        backgroundColor: reassignRowRmColor.soft,
+                        borderLeft: `3px solid ${reassignRowRmColor.accent}`,
+                      }
+                    : undefined
+              : undefined
+          }
+          getOptionClassName={
+            reassignRowRmColor
+              ? (item) => (item._isPrimaryProd ? "font-semibold" : "")
+              : undefined
+          }
         />
       ) : null}
       {reassignEnabled && errors.reassignJobCard ? (

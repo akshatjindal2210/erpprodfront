@@ -183,6 +183,7 @@ const ACTION_BADGE_CLASS = {
 
 const MODULE_LABELS = {
   qc_hold_material: "QC Hold Material",
+  rm_product_master: "RM Product Master",
   stock_adjustment: "Stock Adjustment",
   out_entry: "Out Entry",
   inventory_inwards: "Inventory Inward",
@@ -320,6 +321,7 @@ function normalizeActivityModuleKey(module) {
 
 const RMSTORE_MODULE_ROUTES = {
   rm_production_master: RM_ROUTES.RM_PRODUCTION_MASTER,
+  rm_product_master: RM_ROUTES.RM_PRODUCT_MASTER,
   rm_spec_master: RM_ROUTES.RM_SPEC_MASTER,
   rm_store_location_master: RM_ROUTES.RM_STORE_LOCATION_MASTER,
   rm_mrn_portal: RM_ROUTES.RM_MRN_PORTAL,

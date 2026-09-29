@@ -21,6 +21,11 @@ export const ENDPOINTS = {
     DELETE: `${BASE}/spec/delete`,
     HEADER_HELPER: `${BASE}/spec/header-helper`,
   },
+  RM_PRODUCT: {
+    LIST: `${BASE}/rm-products/list`,
+    GET: `${BASE}/rm-products/get`,
+    VIEWS: `${BASE}/rm-products/helper`,
+  },
   STORE_LOCATION: {
     LIST: `${BASE}/store-locations/list`,
     GET: `${BASE}/store-locations/get`,
@@ -110,6 +115,7 @@ export const ENDPOINTS = {
   IN_PROCESS_REQUEST: {
     LIST: `${BASE}/in-process-requests/list`,
     COIL_HELPER: `${BASE}/in-process-requests/coil-helper`,
+    REASSIGN_JOB_CARDS: `${BASE}/in-process-requests/reassign-job-cards`,
     HELPER: `${BASE}/in-process-requests/helper`,
     GET: `${BASE}/in-process-requests/get`,
     REASONS: `${BASE}/in-process-requests/reasons`,

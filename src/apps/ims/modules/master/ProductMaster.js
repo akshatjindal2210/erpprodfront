@@ -11,11 +11,7 @@ import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPag
 import ActionButton from "@/ui/primitives/ActionButton";
 import GlobalDetailModal from "@/ui/common/modals/GlobalDetailModal";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
-import ListPageSearchField, {
-  LIST_PAGE_FILTER_FIELD_WRAP_CLASS,
-  LIST_PAGE_FILTER_SELECT_CLASS,
-  listPageFilterLabelClass,
-} from "@/ui/common/list/ListPageSearchField";
+import ListPageSearchField, { LIST_PAGE_FILTER_FIELD_WRAP_CLASS, LIST_PAGE_FILTER_SELECT_CLASS, listPageFilterLabelClass } from "@/ui/common/list/ListPageSearchField";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailGrid, MasterDetailMetrics } from "./MasterDetailLayout";
 import { useMasterClientList } from "@/apps/ims/lib/helpers/useMasterClientList";
@@ -28,16 +24,16 @@ function rowGroupName(row) {
   return String(row?.grpname ?? row?.Grpname ?? "").trim();
 }
 
-export default function ProductMasterPage({ groupName = null } = {}) {
+export default function ProductMasterPage({ groupName = null, fetchItems = masterService.getItems, title = "Product Master", eyebrow = "Product master", showGroupFilter = true } = {}) {
   const lockedGroup = String(groupName || "").trim();
   const [viewMode, handleViewMode] = useViewMode();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [groupFilter, setGroupFilter] = useState(lockedGroup || "all");
 
   const loadData = useCallback(async () => {
-    const body = await masterService.getItems();
+    const body = await fetchItems();
     return body.data ?? [];
-  }, []);
+  }, [fetchItems]);
 
   const preFilter = useCallback(
     (rows) => {
@@ -83,7 +79,7 @@ export default function ProductMasterPage({ groupName = null } = {}) {
   }, [allData, lockedGroup]);
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
-    moduleName: "Product Master",
+    moduleName: title,
     rows: filteredData,
     headers: PRODUCT_MASTER_HEADERS,
   });
@@ -131,6 +127,7 @@ export default function ProductMasterPage({ groupName = null } = {}) {
                 resetDisplayLimit();
               }}
             />
+            {showGroupFilter ? (
             <div className={`${LIST_PAGE_FILTER_FIELD_WRAP_CLASS} w-full min-w-0 max-w-[16rem]`}>
               <label className={listPageFilterLabelClass("quick")}>Group name</label>
               <select
@@ -151,6 +148,7 @@ export default function ProductMasterPage({ groupName = null } = {}) {
                 ))}
               </select>
             </div>
+            ) : null}
           </div>
         </ListPageFilterStrip>
 
@@ -187,11 +185,11 @@ export default function ProductMasterPage({ groupName = null } = {}) {
         />
       </div>
 
-      <GlobalDetailModal open={isModalOpen} onClose={() => setIsModalOpen(false)} title="Product Master Details" icon={Package}>
+      <GlobalDetailModal open={isModalOpen} onClose={() => setIsModalOpen(false)} title={`${title} Details`} icon={Package}>
         {selectedRecord ? (
           <MasterDetailBody>
             <MasterDetailHero
-              eyebrow="Product master"
+              eyebrow={eyebrow}
               icon={Package}
               title={selectedRecord.itemdesc}
               badge={selectedRecord.item_code ? `Item code: ${selectedRecord.item_code}` : null}

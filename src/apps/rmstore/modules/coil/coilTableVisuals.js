@@ -127,7 +127,7 @@ export function formatPjobcardnoDisplay(raw) {
 export function resolveCoilJobCardLabel(row) {
   const split = String(row?.pjobcardno_label || "").trim();
   if (split) return split;
-  const jc = formatPjobcardnoDisplay(row?.pjobcardno);
+  const jc = formatPjobcardnoDisplay(row?.pjobcardno || row?.previous_coils?.[0]?.pjobcardno);
   return jc || "—";
 }
 

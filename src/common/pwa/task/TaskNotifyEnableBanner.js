@@ -47,9 +47,12 @@ function BlockOverlay({ icon: Icon, iconClass, title, children, actions }) {
 export default function TaskNotifyEnableBanner() {
   const pathname = usePathname();
   const user = useSelector(selectUser);
+  // Lock-screen / background alerts need Web Push — gate any app that sends PWA notify.
   const hasTaskAccess = useSelector(selectHasAppAccess("task"));
+  const hasImsAccess = useSelector(selectHasAppAccess("ims"));
+  const hasRmstoreAccess = useSelector(selectHasAppAccess("rmstore"));
   const onNotifyRoute = shouldShowNotifyGate(pathname);
-  const canGate = !!user?.id && hasTaskAccess && onNotifyRoute;
+  const canGate = !!user?.id && (hasTaskAccess || hasImsAccess || hasRmstoreAccess) && onNotifyRoute;
 
   const [permission, setPermission] = useState("default");
   const [busy, setBusy] = useState(false);
@@ -161,7 +164,7 @@ export default function TaskNotifyEnableBanner() {
         iconClass="bg-slate-100 text-slate-600"
         title="Push not supported"
       >
-        <p>Use Chrome, Edge, or Firefox on desktop, or install the PWA on your phone to receive task alerts.</p>
+        <p>Use Chrome, Edge, or Firefox on desktop, or install the PWA on your phone to receive alerts when the screen is locked.</p>
       </BlockOverlay>
     );
   }

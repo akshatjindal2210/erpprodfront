@@ -5,6 +5,7 @@ export const ROUTES = {
   RM_STORE_DASHBOARD_HOME: RM,
   RM_PRODUCTION_MASTER: `${RM}/master/production`,
   RM_SPEC_MASTER: `${RM}/master/rm-spec`,
+  RM_PRODUCT_MASTER: `${RM}/master/rm-product`,
   RM_STORE_LOCATION_MASTER: `${RM}/master/store-location`,
   RM_MRN_PORTAL: `${RM}/master/mrn-entry`,
   RM_COIL_TABLE: `${RM}/coils`,

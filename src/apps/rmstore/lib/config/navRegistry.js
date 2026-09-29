@@ -10,6 +10,7 @@ export const RM_STORE_NAV_REGISTRY = [
     icon: <Package size={16} />, 
     module: null,
     subItems: [
+      { id: "rm-product-master", name: "RM Product Master", icon: <Package size={14} />, href: ROUTES.RM_PRODUCT_MASTER, module: "rm_product_master" },
       { id: "production-master", name: "Item RM Master", icon: <Factory size={14} />, href: ROUTES.RM_PRODUCTION_MASTER, module: "rm_production_master" },
       { id: "rm-spec-master", name: "RM Spec Master", icon: <FileText size={14} />, href: ROUTES.RM_SPEC_MASTER, module: "rm_spec_master" },
       { id: "rm-store-location-master", name: "RM Store Location Master", icon: <Locate size={14} />, href: ROUTES.RM_STORE_LOCATION_MASTER, module: "rm_store_location_master" },

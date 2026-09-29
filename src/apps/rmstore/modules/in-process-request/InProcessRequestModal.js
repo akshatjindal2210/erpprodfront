@@ -35,140 +35,18 @@ import UpdateCoilStatusForm from "@/apps/rmstore/modules/in-process-request/Upda
 import ApprovalStatusToggle from "@/apps/rmstore/modules/shared/ApprovalStatusToggle";
 import { isCoilEligibleForIprRejection, iprRejectionIneligibleMessage, iprRejectionPendingStoreInMessage, findRejectionCoilsBlockedByPendingStoreIn, filterCoilsForRejectionLot } from "@/apps/rmstore/lib/utils/iprRejectionEligibility";
 import { isIssuedToShopFloor, isSaMinusWriteOff } from "@/apps/rmstore/lib/utils/saMinusInventory";
-import { canSubmitInProcessRejection, isRmstoreSuperAdmin } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
+import { canSubmitInProcessRejection, issueRmSelectionMode } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
+import { getSuperAdminRowRmColor } from "@/apps/rmstore/lib/utils/issueRmWireSelect";
 import { productionErpHelpers } from "@/apps/rmstore/lib/services/production";
 import { issueRequestService } from "@/apps/rmstore/lib/services/issueRequest";
-import { normalizeRmItems } from "@/apps/rmstore/modules/master/production/productionRmHelpers";
 import { ISSUE_REQUEST_MACHINE_JOB_CARD_LOCK } from "@/apps/rmstore/lib/config/app.config";
 
 const MODULE = "rm_in_process_request";
 const REASSIGN_JC_FETCH_LIMIT = 5000;
 const SCANNER_ID = "rm-in-process-request-scanner";
 
-function prodKeyForJobCardRow(row) {
-  const itemdcode = Number(row?.itemdcode);
-  const itemCode = String(row?.item_code || "").trim();
-  if (Number.isFinite(itemdcode) && itemdcode > 0) return `d:${itemdcode}`;
-  if (itemCode) return `c:${itemCode.toUpperCase()}`;
-  return null;
-}
-
-async function rmWireCodesForJobCardProd(row, cache) {
-  const key = prodKeyForJobCardRow(row);
-  if (!key) return [];
-  if (cache.has(key)) return cache.get(key);
-  const itemdcode = Number(row?.itemdcode);
-  const itemCode = String(row?.item_code || "").trim();
-  const res = await issueRequestService.productionMapping({
-    ...(Number.isFinite(itemdcode) && itemdcode > 0 ? { itemdcode } : {}),
-    ...(itemCode ? { item_code: itemCode } : {}),
-  });
-  const codes = normalizeRmItems(res?.data)
-    .map((r) => String(r?.rm_item_code || "").trim().toUpperCase())
-    .filter(Boolean);
-  cache.set(key, codes);
-  return codes;
-}
-
-async function filterJobCardsByCoilWire(rows, coilWireUpper, cache) {
-  if (!coilWireUpper) return rows;
-  const list = Array.isArray(rows) ? rows : [];
-  if (!list.length) return [];
-
-  const sampleByKey = new Map();
-  for (const row of list) {
-    const key = prodKeyForJobCardRow(row);
-    if (key && !sampleByKey.has(key)) sampleByKey.set(key, row);
-  }
-
-  const allowedKeys = new Set();
-  await Promise.all(
-    [...sampleByKey.entries()].map(async ([key, sample]) => {
-      try {
-        const codes = await rmWireCodesForJobCardProd(sample, cache);
-        if (codes.includes(coilWireUpper)) allowedKeys.add(key);
-      } catch {
-        /* skip unmapped job card */
-      }
-    })
-  );
-
-  return list.filter((row) => {
-    const key = prodKeyForJobCardRow(row);
-    return key && allowedKeys.has(key);
-  });
-}
-
 function sourceJobCardKey(coil) {
   return String(coil?.source_pjobcardno || coil?.pjobcardno || "").trim().toUpperCase();
-}
-
-/** Source JC production wires + coil wire (must be on source mapping for reassign). */
-async function reassignWireFilterContext(coil, cache, fetchJcRow) {
-  const coilWire = String(coil?.item_code || "").trim().toUpperCase();
-  const sourceJcNo = String(coil?.source_pjobcardno || coil?.pjobcardno || "").trim();
-  const sourceWires = new Set();
-  if (sourceJcNo && fetchJcRow) {
-    try {
-      const res = await fetchJcRow(sourceJcNo);
-      const row = res?.data ?? res;
-      if (row && typeof row === "object") {
-        for (const code of await rmWireCodesForJobCardProd(row, cache)) {
-          sourceWires.add(code);
-        }
-      }
-    } catch {
-      /* use coil wire fallback below */
-    }
-  }
-  if (!sourceWires.size && coilWire) sourceWires.add(coilWire);
-  return { coilWire, sourceWires, sourceJcNo };
-}
-
-/**
- * Reassign dropdown: other job cards whose production RM wires overlap the source JC,
- * and include this coil wire (shop-floor wire). Current JC is excluded separately.
- */
-async function filterJobCardsForReassign(rows, ctx, cache) {
-  const { coilWire, sourceWires } = ctx;
-  const list = Array.isArray(rows) ? rows : [];
-  if (!list.length || !coilWire) return [];
-  if (sourceWires.size && !sourceWires.has(coilWire)) return [];
-
-  const sampleByKey = new Map();
-  for (const row of list) {
-    const key = prodKeyForJobCardRow(row);
-    if (key && !sampleByKey.has(key)) sampleByKey.set(key, row);
-  }
-
-  const allowedKeys = new Set();
-  await Promise.all(
-    [...sampleByKey.entries()].map(async ([key, sample]) => {
-      try {
-        const targetWires = await rmWireCodesForJobCardProd(sample, cache);
-        if (!targetWires.includes(coilWire)) return;
-        const sharesSourceWire = sourceWires.size
-          ? targetWires.some((w) => sourceWires.has(w))
-          : true;
-        if (sharesSourceWire) allowedKeys.add(key);
-      } catch {
-        /* skip unmapped */
-      }
-    })
-  );
-
-  return list.filter((row) => {
-    const key = prodKeyForJobCardRow(row);
-    return key && allowedKeys.has(key);
-  });
-}
-
-function excludeSourceJobCard(rows, coil) {
-  const sourceKey = sourceJobCardKey(coil);
-  if (!sourceKey) return rows;
-  return (Array.isArray(rows) ? rows : []).filter(
-    (r) => String(r?.pjobcardno || "").trim().toUpperCase() !== sourceKey
-  );
 }
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
@@ -388,8 +266,8 @@ function mapCoilRow(c, extras = {}) {
       out_uid: c.out_uid ?? null,
       pjobcardno: c.pjobcardno || null,
       macname: c.macname || null,
-      source_pjobcardno: c.source_pjobcardno || c.pjobcardno || null,
-      source_macname: c.source_macname || c.macname || null,
+      source_pjobcardno: c.source_pjobcardno || c.reassign_target_pjobcardno || c.pjobcardno || null,
+      source_macname: c.source_macname || c.reassign_target_macname || c.macname || null,
       status: c.status,
       source: extras.source || c.source || null,
       is_seed_scan: Boolean(extras.is_seed_scan ?? c.is_seed_scan),
@@ -483,12 +361,13 @@ export default function InProcessRequestModal({
   const [reassignEnabled, setReassignEnabled] = useState(false);
   const [reassignJobCardNo, setReassignJobCardNo] = useState("");
   const [reassignMachine, setReassignMachine] = useState("");
-  const [reassignWireOptions, setReassignWireOptions] = useState([]);
-  const [reassignWireCode, setReassignWireCode] = useState("");
-  const [reassignWireLoading, setReassignWireLoading] = useState(false);
   const coilsRef = useRef([]);
   coilsRef.current = coils;
-  const reassignJcMappingCacheRef = useRef(new Map());
+  const reassignJcFilteredListCacheRef = useRef(null);
+
+  const clearReassignJcDropdownCaches = useCallback(() => {
+    reassignJcFilteredListCacheRef.current = null;
+  }, []);
   const requestTypeRef = useRef(requestType);
   requestTypeRef.current = requestType;
   const requestFlowRef = useRef(requestFlow);
@@ -528,10 +407,8 @@ export default function InProcessRequestModal({
     () => ({ permission_module: MODULE, permission_action: "view" }),
     []
   );
-  const canPickReassignWire = useMemo(
-    () => isRmstoreSuperAdmin(currentUser, authRole),
-    [currentUser, authRole]
-  );
+  const reassignRowRmColor = getSuperAdminRowRmColor(0);
+  const rmSelectionMode = issueRmSelectionMode(currentUser, authRole);
 
   const isRejectionFlow = requestFlow === IPR_FLOW.REJECTION;
   const isUpdateStatusFlow = requestFlow === IPR_FLOW.UPDATE_STATUS;
@@ -619,13 +496,10 @@ export default function InProcessRequestModal({
     setReassignEnabled(false);
     setReassignJobCardNo("");
     setReassignMachine("");
-    setReassignWireOptions([]);
-    setReassignWireCode("");
-    setReassignWireLoading(false);
   }, []);
 
   const resetForm = useCallback(() => {
-    reassignJcMappingCacheRef.current.clear();
+    clearReassignJcDropdownCaches();
     resetFlowSelection();
     setReason("");
     setRemarks("");
@@ -711,15 +585,12 @@ export default function InProcessRequestModal({
         setReassignEnabled(false);
         setReassignJobCardNo("");
         setReassignMachine("");
-        setReassignWireCode("");
-        setReassignWireOptions([]);
       } else {
         setConsumeMode("full");
         setLeftoverConsumedQty("");
         setReassignEnabled(false);
         setReassignJobCardNo("");
         setReassignMachine("");
-        setReassignWireCode("");
       }
       setErrors({});
       setIsScannerOpen(false);
@@ -752,8 +623,6 @@ export default function InProcessRequestModal({
       setReassignEnabled(false);
       setReassignJobCardNo("");
       setReassignMachine("");
-      setReassignWireCode("");
-      setReassignWireOptions([]);
       setErrors({});
       return;
     }
@@ -780,57 +649,44 @@ export default function InProcessRequestModal({
     [helperPerms]
   );
 
-  const fetchSourceJcRow = useCallback(
-    async (id) => {
-      const key = String(id || "").trim();
-      if (!key) return { success: true, data: null };
-      const res = await productionErpHelpers.getPrdRunJcViewById(key, helperPerms);
-      const row = res?.data ?? res;
-      if (row && typeof row === "object" && (row.pjobcardno || row.itemdcode || row.item_code)) {
-        return res;
-      }
-      const listRes = await productionErpHelpers.getPrdRunJcViews({
-        ...helperPerms,
-        search: key,
-        page: 1,
-        limit: 50,
-      });
-      const hit = (Array.isArray(listRes?.data) ? listRes.data : []).find(
-        (r) => String(r?.pjobcardno || "").trim().toUpperCase() === key.toUpperCase()
-      );
-      return hit ? { success: true, data: hit } : res;
-    },
-    [helperPerms]
-  );
-
-  /** Reassign: other job cards mapped to same wire as source JC / coil (current JC excluded). */
+  /** Reassign job cards — single backend call (no client production-mapping loop). */
   const fetchReassignJobCards = useCallback(
     async (params = {}) => {
       const coil = coilsRef.current?.[0];
-      const cache = reassignJcMappingCacheRef.current;
-      const wireCtx = await reassignWireFilterContext(coil, cache, fetchSourceJcRow);
-      const res = await productionErpHelpers.getPrdRunJcViews({
-        ...helperPerms,
-        page: 1,
-        limit: REASSIGN_JC_FETCH_LIMIT,
-        search: params.search || "",
-      });
-      let rows = Array.isArray(res?.data) ? res.data : [];
-      rows = await filterJobCardsForReassign(rows, wireCtx, cache);
-      rows = excludeSourceJobCard(rows, coil);
+      const searchKey = String(params.search || "").trim();
+      const sourceJc = String(coil?.source_pjobcardno || coil?.pjobcardno || "").trim();
+      const listCacheKey = `${String(coil?.coil_no_uid || "").trim().toLowerCase()}|${searchKey.toUpperCase()}|${rmSelectionMode}`;
+
+      let rows;
+      const listCached = reassignJcFilteredListCacheRef.current;
+      if (listCached?.key === listCacheKey) {
+        rows = listCached.rows;
+      } else {
+        const res = await inProcessRequestService.reassignJobCards({
+          ...helperPerms,
+          rm_item_code: String(coil?.item_code || "").trim(),
+          source_pjobcardno: sourceJc,
+          exclude_pjobcardno: sourceJc,
+          search: searchKey,
+          page: 1,
+          limit: REASSIGN_JC_FETCH_LIMIT,
+        });
+        rows = Array.isArray(res?.data) ? res.data : [];
+        reassignJcFilteredListCacheRef.current = { key: listCacheKey, rows };
+      }
+
       const page = Math.max(1, Number(params.page) || 1);
       const limit = Math.max(1, Number(params.limit) || 50);
       const start = (page - 1) * limit;
       return {
-        ...res,
-        success: res?.success !== false,
+        success: true,
         data: rows.slice(start, start + limit),
         total: rows.length,
         page,
         limit,
       };
     },
-    [helperPerms, fetchSourceJcRow]
+    [helperPerms, rmSelectionMode]
   );
 
   const getJobCardById = useCallback(
@@ -840,71 +696,25 @@ export default function InProcessRequestModal({
 
   const getReassignJobCardById = useCallback(
     async (id) => {
-      const res = await productionErpHelpers.getPrdRunJcViewById(id, helperPerms);
-      const row = res?.data ?? res;
-      if (!row || typeof row !== "object") return res;
+      const key = String(id || "").trim();
+      if (!key) return { success: true, data: null };
       const coil = coilsRef.current?.[0];
-      if (sourceJobCardKey(coil) === String(row?.pjobcardno || id || "").trim().toUpperCase()) {
-        return { success: true, data: null };
-      }
-      const wireCtx = await reassignWireFilterContext(
-        coil,
-        reassignJcMappingCacheRef.current,
-        fetchSourceJcRow
+      const sourceJc = String(coil?.source_pjobcardno || coil?.pjobcardno || "").trim();
+      const res = await inProcessRequestService.reassignJobCards({
+        ...helperPerms,
+        rm_item_code: String(coil?.item_code || "").trim(),
+        source_pjobcardno: sourceJc,
+        exclude_pjobcardno: sourceJc,
+        search: key,
+        page: 1,
+        limit: 50,
+      });
+      const hit = (Array.isArray(res?.data) ? res.data : []).find(
+        (r) => String(r?.pjobcardno || r?.id || "").trim().toUpperCase() === key.toUpperCase()
       );
-      if (!wireCtx.coilWire) return res;
-      if (wireCtx.sourceWires.size && !wireCtx.sourceWires.has(wireCtx.coilWire)) {
-        return { success: true, data: null };
-      }
-      try {
-        const codes = await rmWireCodesForJobCardProd(row, reassignJcMappingCacheRef.current);
-        if (!codes.includes(wireCtx.coilWire)) {
-          return { success: true, data: null };
-        }
-      } catch {
-        return { success: true, data: null };
-      }
-      return res;
+      return { success: true, data: hit || null };
     },
-    [helperPerms, fetchSourceJcRow]
-  );
-
-  const loadReassignWireOptions = useCallback(
-    async (jobCardRow, preferWire = "") => {
-      const itemdcode = Number(jobCardRow?.itemdcode);
-      const itemCode = String(jobCardRow?.item_code || "").trim();
-      if ((!Number.isFinite(itemdcode) || itemdcode <= 0) && !itemCode) {
-        setReassignWireOptions([]);
-        setReassignWireCode("");
-        return;
-      }
-      setReassignWireLoading(true);
-      try {
-        const res = await issueRequestService.productionMapping({
-          ...(Number.isFinite(itemdcode) && itemdcode > 0 ? { itemdcode } : {}),
-          ...(itemCode ? { item_code: itemCode } : {}),
-        });
-        const options = normalizeRmItems(res?.data)
-          .map((row) => String(row?.rm_item_code || "").trim())
-          .filter(Boolean);
-        const unique = [...new Set(options)];
-        setReassignWireOptions(unique);
-        if (!unique.length) {
-          setReassignWireCode("");
-          return;
-        }
-        const preferred = String(preferWire || "").trim().toUpperCase();
-        const preferHit = unique.find((c) => c.toUpperCase() === preferred);
-        const nextCode = canPickReassignWire ? (preferHit || unique[0]) : unique[0];
-        setReassignWireCode(nextCode);
-      } catch {
-        setReassignWireOptions([]);
-        setReassignWireCode("");
-      } finally {
-        setReassignWireLoading(false);
-      }
-    },
-    [canPickReassignWire]
+    [helperPerms]
   );
 
   const applyReassignFromJobCard = useCallback(async (id, raw = null) => {
@@ -912,12 +722,6 @@ export default function InProcessRequestModal({
     const jobCardNo = String(row?.pjobcardno || id || "").trim();
     const machineName = String(row?.macname || "").trim();
     const coil = coilsRef.current?.[0];
-    const wireCtx = await reassignWireFilterContext(
-      coil,
-      reassignJcMappingCacheRef.current,
-      fetchSourceJcRow
-    );
-    const coilWireKey = wireCtx.coilWire;
 
     if (
       sourceJobCardKey(coil) &&
@@ -925,32 +729,6 @@ export default function InProcessRequestModal({
     ) {
       showScanToast("error", "reassign-same-jc", "Select a different job card — not the current assignment.");
       return;
-    }
-
-    if (wireCtx.sourceWires.size && coilWireKey && !wireCtx.sourceWires.has(coilWireKey)) {
-      showScanToast(
-        "error",
-        "reassign-jc-wire",
-        "This coil wire is not mapped on the current job card."
-      );
-      return;
-    }
-
-    if (coilWireKey && jobCardNo) {
-      try {
-        const codes = await rmWireCodesForJobCardProd(row, reassignJcMappingCacheRef.current);
-        if (!codes.includes(coilWireKey)) {
-          showScanToast(
-            "error",
-            "reassign-jc-wire",
-            `Job card ${jobCardNo} is not mapped to the same wire as the current job card.`
-          );
-          return;
-        }
-      } catch {
-        showScanToast("error", "reassign-jc-wire", "Could not verify job card wire mapping. Try again.");
-        return;
-      }
     }
 
     if (ISSUE_REQUEST_MACHINE_JOB_CARD_LOCK && machineName && jobCardNo) {
@@ -988,13 +766,12 @@ export default function InProcessRequestModal({
 
     setReassignJobCardNo(jobCardNo);
     setReassignMachine(machineName);
-    setReassignWireCode(String(coil?.item_code || "").trim());
     setErrors((prev) => ({
       ...prev,
       reassignJobCard: undefined,
       reassignMachine: undefined,
     }));
-  }, [fetchSourceJcRow, showScanToast]);
+  }, [showScanToast]);
 
   const applyLotCoils = (lotCoils, { seedUid = null, lotLabel = null } = {}) => {
     const mapped = lotCoils.map((c) =>
@@ -1291,8 +1068,6 @@ export default function InProcessRequestModal({
         setReassignEnabled(false);
         setReassignJobCardNo("");
         setReassignMachine("");
-        setReassignWireCode("");
-        setReassignWireOptions([]);
         setErrors({});
         showScanSuccess("coil-ok", `Loaded ${mapped.coil_no_uid}`, 1600);
         void playScanSuccessBeep();
@@ -1462,7 +1237,6 @@ export default function InProcessRequestModal({
         ...prev,
         reassignJobCard: undefined,
         reassignMachine: undefined,
-        reassignWire: undefined,
       }));
     }
     setConsumeMode(mode);
@@ -1838,7 +1612,7 @@ export default function InProcessRequestModal({
           const lockRes = await issueRequestService.machineJobCardCheck({
             macname: mac,
             pjobcardno: jc,
-            reassign_wire: String(coil0?.item_code || reassignWireCode || "").trim(),
+            reassign_wire: String(coil0?.item_code || "").trim(),
             exclude_coil_uid: String(coil0?.coil_no_uid || "").trim(),
           });
           if (lockRes?.allowed === false) {
@@ -1871,7 +1645,7 @@ export default function InProcessRequestModal({
       const applyReassign = isUpdateStatusFlow && reassignEnabled && idx === 0;
       const rowJobCardNo = applyReassign ? String(reassignJobCardNo || "").trim() : String(c.pjobcardno || "").trim();
       const rowMachine = applyReassign ? String(reassignMachine || "").trim() : String(c.macname || "").trim();
-      const rowReassignWire = applyReassign ? String(c.item_code || reassignWireCode || "").trim() : "";
+      const rowReassignWire = applyReassign ? String(c.item_code || "").trim() : "";
       return {
         coil_no_uid: c.coil_no_uid,
         qty: isStoreIn ? remaining : isConsume ? consumed : Number(c.qty) || 0,
@@ -2463,10 +2237,9 @@ export default function InProcessRequestModal({
                         ...prev,
                         reassignJobCard: undefined,
                         reassignMachine: undefined,
-                        reassignWire: undefined,
                       }));
                     } else {
-                      reassignJcMappingCacheRef.current.clear();
+                      clearReassignJcDropdownCaches();
                       setConsumeMode("leftover");
                       if (leftoverConsumedQty === "") {
                         setCoils((prev) =>
@@ -2483,15 +2256,12 @@ export default function InProcessRequestModal({
                       }
                       setReassignJobCardNo("");
                       setReassignMachine("");
-                      setReassignWireCode("");
-                      setReassignWireOptions([]);
-                      reassignJcMappingCacheRef.current.clear();
+                      clearReassignJcDropdownCaches();
                       setErrors((prev) => ({
                         ...prev,
                         qty: undefined,
                         reassignJobCard: undefined,
                         reassignMachine: undefined,
-                        reassignWire: undefined,
                       }));
                     }
                   }}
@@ -2501,6 +2271,7 @@ export default function InProcessRequestModal({
                   }}
                   fetchJobCards={fetchReassignJobCards}
                   getJobCardById={getReassignJobCardById}
+                  reassignRowRmColor={reassignRowRmColor}
                   errors={errors}
                   readOnly={readOnly}
                 />
