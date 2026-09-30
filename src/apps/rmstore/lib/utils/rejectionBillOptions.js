@@ -31,9 +31,13 @@ export function formatBillNosForSave(billNos) {
   return unique.join(",");
 }
 
-/** Live IMS bill numbers for SearchableSelect. */
-export async function fetchBillOptions({ search = "", page = 1, limit = 50 } = {}) {
-  const res = await rmRejectionService.getBillNumbers({ search, page, limit });
+/** Live invfnote bills (salecat=2). Pass acc_code / item_code / item_dcode to filter. */
+export async function fetchBillOptions({ search = "", page = 1, limit = 50, acc_code, item_code, item_dcode } = {}) {
+  const res = await rmRejectionService.getBillNumbers({ search, page, limit,
+    ...(acc_code != null && acc_code !== "" && { acc_code }),
+    ...(item_code != null && item_code !== "" && { item_code }),
+    ...(item_dcode != null && item_dcode !== "" && { item_dcode }),
+  });
   const data = Array.isArray(res?.data) ? res.data : [];
   return {
     data,
@@ -42,12 +46,17 @@ export async function fetchBillOptions({ search = "", page = 1, limit = 50 } = {
 }
 
 /** Resolve one saved bill number for multi-select display. */
-export async function getBillByNo(billNo) {
+export async function getBillByNo(billNo, filters = {}) {
   const label = String(billNo ?? "").trim();
   if (!label) return { data: null };
 
+  const { acc_code, item_code, item_dcode } = filters || {};
   try {
-    const res = await rmRejectionService.getBillNumbers({ search: label, page: 1, limit: 100 });
+    const res = await rmRejectionService.getBillNumbers({ search: label, page: 1, limit: 100,
+      ...(acc_code != null && acc_code !== "" && { acc_code }),
+      ...(item_code != null && item_code !== "" && { item_code }),
+      ...(item_dcode != null && item_dcode !== "" && { item_dcode }),
+    });
     const data = Array.isArray(res?.data) ? res.data : [];
     const found = data.find((row) => String(row?.bill_no ?? "").trim() === label);
     if (found) return { data: found };

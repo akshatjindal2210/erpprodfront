@@ -1,16 +1,19 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { RefreshCw, X, ShieldX, Database, ClipboardList, LogOut, Trash2, Eye } from "lucide-react";
+import { useSelector } from "react-redux";
+import { RefreshCw, X, ShieldX, Database, ClipboardList, LogOut, Trash2, Eye, CheckCircle2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { rmRejectionService } from "@/apps/rmstore/lib/services/rmRejection";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
 import { uniqueBillNos, parseSavedBillNos, formatBillNosForSave, fetchBillOptions, getBillByNo } from "@/apps/rmstore/lib/utils/rejectionBillOptions";
+import { isRmstoreSuperAdmin } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import GenerateStoreOutDrawer from "@/apps/rmstore/modules/rm-rejection/GenerateStoreOutDrawer";
 import ViewRejectionDrawer from "@/apps/rmstore/modules/rm-rejection/ViewRejectionDrawer";
+import CompleteRejectionDrawer from "@/apps/rmstore/modules/rm-rejection/CompleteRejectionDrawer";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import ImsSegmentedTabs from "@/ui/common/list/ImsSegmentedTabs";
@@ -27,10 +30,12 @@ import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
+import { selectRole, selectUser } from "@/platform/store/slices/authSlice";
 import { LIST_PAGE_SEARCH_LABEL_CLASS } from "@/ui/common/list/ListPageSearchField";
 import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
 import { rmRejectionSelectionLabel } from "@/apps/rmstore/lib/rmRejectionSelectionLabel";
 import { isMrnPortalRejection } from "@/apps/rmstore/lib/helpers/mrnPortalRejection";
+import { billSavedTextClass, billDropdownOptionClasses, formatExternalBillStatus } from "@/apps/rmstore/lib/utils/rejectionBillColors";
 
 const MODULE = "rm_rejection";
 const PAGE_TABS = { REGISTER: "register", PENDING: "pending" };
@@ -177,10 +182,44 @@ function registerStage(row) {
   return { label: "Store Out Pending", className: "bg-orange-50 text-orange-700 border-orange-100" };
 }
 
+/** Display bill on list: saved bill_no first, else matched invfnote (salecat=2) suggestion. */
+function displayBillNo(row) {
+  return String(row?.bill_no || row?.matched_bill_no || "").trim() || null;
+}
+
+function displayBillDt(row) {
+  return row?.bill_no ? row?.bill_dt : row?.matched_bill_dt || row?.bill_dt || null;
+}
+
+function billColumnTextClass(row) {
+  const saved = Boolean(String(row?.bill_no || "").trim());
+  if (saved) return billSavedTextClass(true);
+  if (row?.matched_bill_no || row?.bill_matched) {
+    return formatExternalBillStatus(row?.matched_bill_status).textClass;
+  }
+  return billSavedTextClass(false);
+}
+
+function formatBillDtCell(v) {
+  if (v == null || v === "") return "—";
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const [y, m, d] = s.slice(0, 10).split("-");
+    return `${d}-${m}-${y}`;
+  }
+  return formatDateTime(v)?.split(",")?.[0] || s.slice(0, 10);
+}
+
 export default function RmRejectionPage() {
   const canAccess = useCanAccess();
   const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
   const canAddBill = useMemo(() => canAccess(MODULE, "add").allowed, [canAccess]);
+  const role = useSelector(selectRole);
+  const currentUser = useSelector(selectUser);
+  const isSuperAdmin = useMemo(
+    () => isRmstoreSuperAdmin(currentUser, role) || String(role || "").toLowerCase() === "super_admin",
+    [currentUser, role]
+  );
 
   const [pageTab, setPageTab] = useState(PAGE_TABS.PENDING);
   const isPendingTab = pageTab === PAGE_TABS.PENDING;
@@ -214,6 +253,7 @@ export default function RmRejectionPage() {
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
   const [storeOutDrawerOpen, setStoreOutDrawerOpen] = useState(false);
+  const [completeDrawerOpen, setCompleteDrawerOpen] = useState(false);
   const [viewDrawerOpen, setViewDrawerOpen] = useState(false);
   const [viewRow, setViewRow] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
@@ -257,6 +297,7 @@ export default function RmRejectionPage() {
                 ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
                 ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
                 ...(params.registerStage === "complete" && { register_complete: true }),
+                ...(params.registerStage === "incomplete" && { register_complete: false }),
               },
             });
         return { data: body.data ?? [], total: body.total ?? 0 };
@@ -348,6 +389,13 @@ export default function RmRejectionPage() {
     (selectedRecord?.pending_source === PENDING_SOURCE.QC_CHECK ||
       selectedRecord?.pending_source === PENDING_SOURCE.IN_PROCESS);
 
+  const canCompleteBill =
+    isPendingTab &&
+    canAddBill &&
+    selectedRecord?.qc_reject_uid != null &&
+    selectedRecord?.pending_source === PENDING_SOURCE.AWAITING_BILL &&
+    !String(selectedRecord?.bill_no || "").trim();
+
   const getSelectedRow = useCallback(() => selectedRecord, [selectedRecord]);
 
   const handleOpenViewDrawer = (row = selectedRecord) => {
@@ -379,7 +427,7 @@ export default function RmRejectionPage() {
     return "";
   }, [isPendingTab, selectedRecord]);
 
-  const modalOpen = storeOutDrawerOpen || viewDrawerOpen || Boolean(deleteItem);
+  const modalOpen = storeOutDrawerOpen || completeDrawerOpen || viewDrawerOpen || Boolean(deleteItem);
 
   const { openNewModal, openDeleteModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
@@ -408,19 +456,14 @@ export default function RmRejectionPage() {
 
   const canEditBill = useMemo(() => {
     if (!canAddBill || !selectedRecord?.qc_reject_uid) return false;
-    if (isMrnPortalRejection(selectedRecord)) {
-      return !isPendingTab;
-    }
+    if (isPendingTab) return false;
+    const hasBill = Boolean(String(selectedRecord?.bill_no || "").trim());
+    // IMS style: after bill attached, only Super Admin can change it.
+    if (hasBill) return isSuperAdmin;
+    if (isMrnPortalRejection(selectedRecord)) return true;
     if (!isStoreOutApproved(selectedRecord)) return false;
-    if (isPendingTab) {
-      return (
-        selectedRecord?.pending_source === PENDING_SOURCE.AWAITING_BILL ||
-        registerStage(selectedRecord).label === "Awaiting Bill" ||
-        registerStage(selectedRecord).label === "Complete"
-      );
-    }
     return true;
-  }, [canAddBill, selectedRecord, isPendingTab]);
+  }, [canAddBill, selectedRecord, isPendingTab, isSuperAdmin]);
 
   useEffect(() => {
     if (selectedRecord?.qc_reject_uid != null && canEditBill) {
@@ -571,6 +614,11 @@ export default function RmRejectionPage() {
             {v || row?.item_desc || "—"}
           </span>
         ), { width: "180px" }],
+      ["Supplier", "vendor_acc_name", (v, row) => (
+          <span className="text-[11px] text-slate-700 truncate block" title={v || row?.acc_name || ""}>
+            {v || row?.acc_name || "—"}
+          </span>
+        ), { width: "180px" }],
       ["Qty", "qty", (v, row) => (
           <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
             {Number(v ?? row?.total_qty ?? 0).toLocaleString()}
@@ -588,6 +636,22 @@ export default function RmRejectionPage() {
         ),
         { width: "120px" },
       ],
+      ["Bill Number", "matched_bill_no", (_v, row) => {
+        const bill = displayBillNo(row);
+        return (
+          <span className={`text-[10px] font-bold uppercase ${billColumnTextClass(row)}`}>
+            {bill || "—"}
+          </span>
+        );
+      }, { width: "140px" }],
+      ["Bill Date", "matched_bill_dt", (_v, row) => {
+        const dt = displayBillDt(row);
+        return (
+          <span className={`text-[10px] font-bold tabular-nums ${billColumnTextClass(row)}`}>
+            {dt ? formatBillDtCell(dt) : "—"}
+          </span>
+        );
+      }, { width: "110px" }],
       ["Failure Reason", "failure_reason", (v, row) => (
           <span className="text-rose-700 text-[10px] truncate block">{v || row?.reason || "—"}</span>
         ),
@@ -621,17 +685,33 @@ export default function RmRejectionPage() {
             {v || row?.item_desc || "—"}
           </span>
         ), { width: "200px" }],
+      ["Supplier", "vendor_acc_name", (v, row) => (
+          <span className="text-[11px] text-slate-700 truncate block" title={v || row?.acc_name || ""}>
+            {v || row?.acc_name || "—"}
+          </span>
+        ), { width: "180px" }],
       ["Reason", "reason", (v) => <span className="text-rose-700 text-[10px] font-bold truncate block">{v || "—"}</span>, { width: "180px" }],
       ["Store Out", "out_uid", (v, row) => (
         <span className={`text-[10px] font-bold ${isMrnPortalRejection(row) ? "text-slate-400" : v ? "text-indigo-600" : "text-slate-400"}`}>
           {isMrnPortalRejection(row) ? "—" : v != null ? `OUT-${v}` : "—"}
         </span>
       ), { width: "120px" }],
-      ["Bill Number", "bill_no", (v) => (
-        <span className={`text-[10px] font-bold uppercase ${v ? "text-slate-800" : "text-slate-400"}`}>
-          {v || "—"}
-        </span>
-      ), { width: "140px" }],
+      ["Bill Number", "bill_no", (_v, row) => {
+        const bill = displayBillNo(row);
+        return (
+          <span className={`text-[10px] font-bold uppercase ${billColumnTextClass(row)}`}>
+            {bill || "—"}
+          </span>
+        );
+      }, { width: "140px" }],
+      ["Bill Date", "bill_dt", (_v, row) => {
+        const dt = displayBillDt(row);
+        return (
+          <span className={`text-[10px] font-bold tabular-nums ${billColumnTextClass(row)}`}>
+            {dt ? formatBillDtCell(dt) : "—"}
+          </span>
+        );
+      }, { width: "110px" }],
       ["Total Qty", "total_qty", (v) => (
         <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
           {v != null ? Number(v).toLocaleString() : "0"}
@@ -727,6 +807,15 @@ export default function RmRejectionPage() {
                       onClick={openNewModal}
                       className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                     />
+                    <ActionButton
+                      module={MODULE}
+                      action="add"
+                      label="Complete"
+                      icon={CheckCircle2}
+                      disabled={!canCompleteBill}
+                      onClick={() => setCompleteDrawerOpen(true)}
+                      className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
+                    />
                   </>
                 )}
                 <ActionButton
@@ -781,9 +870,11 @@ export default function RmRejectionPage() {
                 <div
                   className="w-full min-w-0 flex-1"
                   title={
-                    isMrnPortalRejection(selectedRecord)
-                      ? "Attach bill number to complete this MRN Portal rejection"
-                      : "Search and select bill numbers (after Store Out authorize)"
+                    String(selectedRecord?.bill_no || "").trim() && isSuperAdmin
+                      ? "Super Admin: update or clear attached bill"
+                      : isMrnPortalRejection(selectedRecord)
+                        ? "Attach bill number to complete this MRN Portal rejection"
+                        : "Search and select bill numbers (after Store Out authorize)"
                   }
                 >
                   <SearchableSelect
@@ -797,9 +888,12 @@ export default function RmRejectionPage() {
                     getByIdService={getBillByNo}
                     dataKey="bill_no"
                     labelKey="bill_no"
+                    subLabelKey="bill_dt"
                     labelOnlyDisplay
                     placeholder="Bill number..."
-                    emptyMessage="No bill numbers found"
+                    emptyMessage="No bills found"
+                    isOptionDisabled={(item) => item?.is_green !== true}
+                    getOptionClassName={billDropdownOptionClasses}
                     usePortal
                     maxVisibleTags={3}
                   />
@@ -943,6 +1037,17 @@ export default function RmRejectionPage() {
           setSelected(null);
           setStoreOutDrawerOpen(false);
           toast.info("Queued in Store Out Pending. Go to Store Out → Pending to scan and authorize the exit.");
+          void fetchRows();
+        }}
+      />
+
+      <CompleteRejectionDrawer
+        open={completeDrawerOpen}
+        onClose={() => setCompleteDrawerOpen(false)}
+        row={selectedRecord}
+        onSuccess={() => {
+          setSelected(null);
+          setCompleteDrawerOpen(false);
           void fetchRows();
         }}
       />

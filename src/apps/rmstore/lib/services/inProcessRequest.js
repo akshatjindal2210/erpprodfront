@@ -1,14 +1,27 @@
 /**
  * In-process Request service.
- * One module, three request types:
- *   rejection → approved rows queue for Store Out
- *   store_in  → authorize queues pending; receive updates same coil to Unassigned Area
- *   consume   → approval marks the coils consumed and out of stock (no queue)
+ * Canonical DB `type`: consume | return | reassign | reject_coil | reject_lot
+ * Legacy `request_type` still returned for older modal flows.
  */
 
 import { api } from "@/platform/api/apiClient";
 import { ENDPOINTS } from "@/apps/rmstore/lib/config/endpoints";
 
+/** Canonical row type (DB `type`) — prefer this for list Type column. */
+export const IPR_TYPE = {
+  CONSUME: "consume",
+  RETURN: "return",
+  REASSIGN: "reassign",
+  COIL: "reject_coil",
+  LOT: "reject_lot",
+};
+
+const LEGACY_TYPE_MAP = {
+  coil: IPR_TYPE.COIL,
+  lot: IPR_TYPE.LOT,
+};
+
+/** Legacy FE request_type aliases (modal / older payloads). */
 export const IPR_REQUEST_TYPE = {
   REJECTION: "rejection",
   STORE_IN: "store_in",
@@ -26,7 +39,24 @@ export const IPR_DOWNSTREAM = {
   STORE_OUT_DONE: "store_out_done",
 };
 
-/** Same 3 labels — filter dropdown and table Type column (line 1). */
+/** Canonical type labels — Register/Pending Type column. */
+export const IPR_TYPE_LABEL = {
+  [IPR_TYPE.CONSUME]: "Consume",
+  [IPR_TYPE.RETURN]: "Store In",
+  [IPR_TYPE.REASSIGN]: "Reassign",
+  [IPR_TYPE.COIL]: "Reject Coil",
+  [IPR_TYPE.LOT]: "Reject Lot",
+};
+
+export const IPR_TYPE_BADGE_CLASS = {
+  [IPR_TYPE.CONSUME]: "bg-amber-50 text-amber-800 border-amber-200",
+  [IPR_TYPE.RETURN]: "bg-teal-50 text-teal-800 border-teal-200",
+  [IPR_TYPE.REASSIGN]: "bg-indigo-50 text-indigo-800 border-indigo-200",
+  [IPR_TYPE.COIL]: "bg-rose-50 text-rose-800 border-rose-200",
+  [IPR_TYPE.LOT]: "bg-amber-50 text-amber-900 border-amber-300",
+};
+
+/** @deprecated use IPR_TYPE_LABEL — kept for modal titles */
 export const IPR_REQUEST_TYPE_LABEL = {
   [IPR_REQUEST_TYPE.REJECTION]: "In-process Rejection",
   [IPR_REQUEST_TYPE.STORE_IN]: "Store In Request",
@@ -34,38 +64,95 @@ export const IPR_REQUEST_TYPE_LABEL = {
   [IPR_REQUEST_TYPE.TRANSFER]: "Transfer Coil",
 };
 
-/** Soft badge — request type (table Type column, line 1). */
-export const IPR_TYPE_BADGE_CLASS = {
-  [IPR_REQUEST_TYPE.REJECTION]: "bg-rose-50 text-rose-800 border-rose-200",
-  [IPR_REQUEST_TYPE.STORE_IN]: "bg-teal-50 text-teal-800 border-teal-200",
-  [IPR_REQUEST_TYPE.CONSUME]: "bg-amber-50 text-amber-800 border-amber-200",
-  [IPR_REQUEST_TYPE.TRANSFER]: "bg-indigo-50 text-indigo-800 border-indigo-200",
-};
-
-/** Coil / lot — table Type column line 2 (rejection only). */
+/** @deprecated scope badges — Type column shows Reject Coil / Reject Lot directly */
 export const IPR_REJECTION_SCOPE_LABEL = {
   coil: "Coil",
   lot: "Lot",
+  [IPR_TYPE.COIL]: "Coil",
+  [IPR_TYPE.LOT]: "Lot",
 };
 
+function normalizeIprType(value) {
+  const t = String(value || "").trim().toLowerCase();
+  if (Object.values(IPR_TYPE).includes(t)) return t;
+  return LEGACY_TYPE_MAP[t] || null;
+}
+
+export function isIprRejectionType(type) {
+  const t = normalizeIprType(type);
+  return t === IPR_TYPE.COIL || t === IPR_TYPE.LOT;
+}
+
+/** Resolve canonical type from API row (prefers `type`). */
+export function resolveIprCanonicalType(row = {}) {
+  // Reassign header/flag wins even if type was saved as consume.
+  if (String(row?.reassign_jc || "").trim()) return IPR_TYPE.REASSIGN;
+  const coils = Array.isArray(row?.coils) ? row.coils : [];
+  if (coils.some((c) => c?.reassign === true)) return IPR_TYPE.REASSIGN;
+
+  const fromType = normalizeIprType(row?.type);
+  if (fromType) return fromType;
+  const rt = String(row?.request_type || "").trim().toLowerCase();
+  if (rt === IPR_REQUEST_TYPE.STORE_IN) return IPR_TYPE.RETURN;
+  if (rt === IPR_REQUEST_TYPE.REJECTION) {
+    return row?.rejection_type === "lot" ? IPR_TYPE.LOT : IPR_TYPE.COIL;
+  }
+  if (rt === IPR_REQUEST_TYPE.CONSUME || rt === IPR_REQUEST_TYPE.TRANSFER) {
+    return IPR_TYPE.CONSUME;
+  }
+  return IPR_TYPE.COIL;
+}
+
+/**
+ * Type column display.
+ * Update Coil Status "Return" is still request_type=consume in DB (balance → Store In),
+ * so map consume + store-in balance stage to Return for the badge.
+ */
 export function getIprTypeDisplay(row = {}) {
-  const type = row.request_type || IPR_REQUEST_TYPE.REJECTION;
+  const canonical = resolveIprCanonicalType(row);
+  let type = canonical;
+  let label = IPR_TYPE_LABEL[type] || IPR_TYPE_LABEL[IPR_TYPE.COIL];
+
+  if (canonical === IPR_TYPE.CONSUME) {
+    const stage = String(row?.stage || row?.downstream || "").trim();
+    const balStatus = String(row?.balance_status || "").trim().toLowerCase();
+    if (
+      stage === IPR_DOWNSTREAM.PENDING_STORE_IN ||
+      stage === IPR_DOWNSTREAM.STORE_IN_DONE ||
+      balStatus === "balance"
+    ) {
+      type = IPR_TYPE.RETURN;
+      label = "Return";
+    }
+  }
+
   return {
-    label: IPR_REQUEST_TYPE_LABEL[type] || IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.REJECTION],
-    className: IPR_TYPE_BADGE_CLASS[type] || IPR_TYPE_BADGE_CLASS[IPR_REQUEST_TYPE.REJECTION],
+    type,
+    label,
+    className: IPR_TYPE_BADGE_CLASS[type] || IPR_TYPE_BADGE_CLASS[IPR_TYPE.COIL],
   };
 }
 
 export function matchesIprTypeFilter(row, filterValue) {
   if (!filterValue || filterValue === "all") return true;
-  return (row?.request_type || IPR_REQUEST_TYPE.REJECTION) === filterValue;
+  if (filterValue === IPR_REQUEST_TYPE.REJECTION) {
+    return isIprRejectionType(resolveIprCanonicalType(row));
+  }
+  // Filter "return" matches pure store-in + consume-with-store-in-balance rows.
+  if (filterValue === IPR_TYPE.RETURN || filterValue === IPR_REQUEST_TYPE.STORE_IN) {
+    return getIprTypeDisplay(row).type === IPR_TYPE.RETURN;
+  }
+  return getIprTypeDisplay(row).type === filterValue || resolveIprCanonicalType(row) === filterValue;
 }
 
+/** Register Request Type filter — maps to DB `type` / legacy request_type. */
 export const IPR_REQUEST_TYPE_FILTER_OPTIONS = [
   { label: "All Types", value: "all" },
-  { label: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.REJECTION], value: IPR_REQUEST_TYPE.REJECTION },
-  // { label: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.STORE_IN], value: IPR_REQUEST_TYPE.STORE_IN },
-  { label: IPR_REQUEST_TYPE_LABEL[IPR_REQUEST_TYPE.CONSUME], value: IPR_REQUEST_TYPE.CONSUME },
+  { label: "Reject Coil", value: IPR_TYPE.COIL },
+  { label: "Reject Lot", value: IPR_TYPE.LOT },
+  { label: "Consume", value: IPR_TYPE.CONSUME },
+  { label: "Return", value: IPR_TYPE.RETURN },
+  { label: "Reassign", value: IPR_TYPE.REASSIGN },
 ];
 
 const E = ENDPOINTS.IN_PROCESS_REQUEST;
@@ -103,9 +190,9 @@ export const inProcessRequestService = {
     }
     return api(E.APPROVE, { method: "POST", body: { ipr_uid, ...data } });
   },
-  
+
   /** Receive queued store-in — same coil, return qty, Unassigned Area. */
   completeStoreIn: (ipr_uid, data = {}) => api(E.COMPLETE_STORE_IN, { method: "POST", body: { ipr_uid, ...data } }),
-  
+
   delete: (ipr_uid) => api(E.DELETE, { method: "POST", body: { ipr_uid } }),
 };

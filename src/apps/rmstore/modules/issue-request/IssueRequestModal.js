@@ -1613,7 +1613,6 @@ export default function IssueRequestModal({
             coil_no_uid: c.coil_no_uid,
             qty: c.qty,
             mrn_uid: c.mrn_uid ?? null,
-            mrn_no: c.mrn_no ?? null,
           })),
         })),
       ...(approvedFlag !== undefined ? { approved: approvedFlag } : {}),

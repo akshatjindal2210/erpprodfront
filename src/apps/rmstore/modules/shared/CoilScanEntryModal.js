@@ -157,6 +157,31 @@ function mrnItemCodeLabel(plan) {
   return fromCoil ? String(fromCoil) : "—";
 }
 
+/** Unique MRN UIDs from plan / quotas / coils (multi-MRN JC store-out). */
+function collectPlanMrnUids(plan = {}) {
+  const out = [];
+  const push = (v) => {
+    const s = String(v || "").trim();
+    if (!s) return;
+    // Pipe-joined lists from API / register
+    for (const part of s.split("|")) {
+      const p = part.trim();
+      if (p && !out.includes(p)) out.push(p);
+    }
+  };
+  push(plan.mrn_uid);
+  push(plan.mrn_uids);
+  push(plan.mrn_refs);
+  for (const q of plan.mrn_quotas || []) push(q?.mrn_uid);
+  for (const c of plan.coils || []) push(c?.mrn_uid);
+  return out;
+}
+
+function planMrnUidLabel(plan) {
+  const uids = collectPlanMrnUids(plan);
+  return uids.length ? uids.join(", ") : "—";
+}
+
 function enrichMrnPlan(plan) {
   if (!plan) return null;
   const coils = plan.coils || [];
@@ -165,13 +190,16 @@ function enrichMrnPlan(plan) {
   const accFromCoils = coils.find((c) => c?.acc_name)?.acc_name || null;
   const seedItem = plan.item_code || plan.item_codes || null;
   const itemCode = mrnItemCodeLabel({ ...plan, item_code: seedItem, coils });
+  const mrnUidList = collectPlanMrnUids({ ...plan, coils });
   return {
     ...plan,
     locations,
     item_code: itemCode !== "—" ? itemCode : seedItem ? String(seedItem) : null,
     heat_nos: plan.heat_nos || plan.heat_no || heatFromCoils || null,
     acc_name: plan.acc_name || accFromCoils || null,
-    mrn_no: plan.mrn_no || plan.mrn_refs || plan.mrn_uid || null,
+    mrn_uid: plan.mrn_uid || (mrnUidList.length === 1 ? mrnUidList[0] : null),
+    mrn_uids: mrnUidList.length ? mrnUidList.join("|") : plan.mrn_uids || null,
+    mrn_no: plan.mrn_no || plan.mrn_refs || plan.mrn_uid || (mrnUidList.length === 1 ? mrnUidList[0] : null),
     coil_count: plan.coil_count ?? coils.length,
     total_qty:
       plan.total_qty ??
@@ -387,6 +415,7 @@ export default function CoilScanEntryModal({
         const enriched = enrichMrnPlan({
           ...plan,
           mrn_uid: plan.mrn_uid ?? null,
+          mrn_uids: plan.mrn_uids ?? null,
           mrn_no: plan.mrn_no ?? `JC ${pjobcardno}`,
           sticker_mode: "coil",
           coil_count: plan.required_coil_count ?? plan.coil_count,
@@ -473,6 +502,19 @@ export default function CoilScanEntryModal({
           seed.item_codes ?? seed.item_code ?? registerMeta?.item_codes ?? null,
         heat_nos: seed.heat_nos ?? seed.heat_no ?? registerMeta?.heat_nos ?? null,
         mrn_refs: seed.mrn_refs ?? registerMeta?.mrn_refs ?? null,
+        mrn_uids: seed.mrn_uids ?? registerMeta?.mrn_uids ?? null,
+        acc_name:
+          seed.acc_name ??
+          seed.vendor_acc_name ??
+          registerMeta?.acc_name ??
+          registerMeta?.vendor_acc_name ??
+          null,
+        acc_code:
+          seed.acc_code ??
+          seed.vendor_acc_code ??
+          registerMeta?.acc_code ??
+          registerMeta?.vendor_acc_code ??
+          null,
         coils: fetched,
       });
 
@@ -1605,7 +1647,11 @@ export default function CoilScanEntryModal({
                                   </span>
                                   <span className="text-[8px] font-bold text-slate-400 uppercase truncate">
                                     Qty {c.qty ?? 0}
-                                    {c.mrn_no || c.mrn_uid ? ` · MRN ${c.mrn_no ?? c.mrn_uid}` : ""}
+                                    {c.mrn_uid
+                                      ? ` · UID ${c.mrn_uid}`
+                                      : c.mrn_no
+                                        ? ` · MRN ${c.mrn_no}`
+                                        : ""}
                                     {c.item_code ? ` · ${c.item_code}` : ""}
                                   </span>
                                 </div>
@@ -1679,6 +1725,10 @@ export default function CoilScanEntryModal({
                               <dd className="font-semibold text-slate-800 break-words">{mrnItemCodeLabel(mrnPlan)}</dd>
                             </div>
                             <div className="min-w-0">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Supplier</dt>
+                              <dd className="font-semibold text-slate-800 break-words">{mrnPlan.acc_name || "—"}</dd>
+                            </div>
+                            <div className="min-w-0">
                               <dt className="text-[8px] font-bold text-slate-400 uppercase">Heat</dt>
                               <dd className="font-semibold text-slate-800 break-words">{mrnPlan.heat_nos || "—"}</dd>
                             </div>
@@ -1740,9 +1790,14 @@ export default function CoilScanEntryModal({
                             </div>
                           </>
                         ) : null}
-                        <div className="min-w-0">
+                        <div className="min-w-0 sm:col-span-2">
                           <dt className="text-[8px] font-bold text-slate-400 uppercase">MRN UID</dt>
-                          <dd className="font-semibold text-slate-800">{mrnPlan.mrn_uid ?? "—"}</dd>
+                          <dd
+                            className="font-semibold text-slate-800 font-mono text-[10px] break-words"
+                            title={planMrnUidLabel(mrnPlan)}
+                          >
+                            {planMrnUidLabel(mrnPlan)}
+                          </dd>
                         </div>
                         <div className="min-w-0">
                           <dt className="text-[8px] font-bold text-slate-400 uppercase">Item</dt>
@@ -1898,12 +1953,15 @@ export default function CoilScanEntryModal({
                                       title={
                                         isScanned
                                           ? "Already scanned"
-                                          : `${coilLocationDetail(c)} · Qty ${c.qty ?? 0} · Scan to store out`
+                                          : `${coilLocationDetail(c)} · Qty ${c.qty ?? 0}${
+                                              c.mrn_uid ? ` · MRN UID ${c.mrn_uid}` : ""
+                                            } · Scan to store out`
                                       }
                                     >
                                       {coilUidDisplayLabel(c.coil_no_uid) || c.coil_no_uid}
                                       <span className="text-[7px] text-slate-400 font-sans">
                                         qty {c.qty ?? 0}
+                                        {c.mrn_uid ? ` · ${c.mrn_uid}` : ""}
                                       </span>
                                     </div>
                                   );
@@ -2025,6 +2083,7 @@ export default function CoilScanEntryModal({
                                     </span>
                                     <span className="text-[8px] font-bold text-slate-400 uppercase truncate">
                                       Qty {c.qty ?? 0}
+                                      {c.mrn_uid ? ` · UID ${c.mrn_uid}` : c.mrn_no ? ` · MRN ${c.mrn_no}` : ""}
                                       {c.item_code ? ` · ${c.item_code}` : ""}
                                       {c.heat_no ? ` · ${c.heat_no}` : ""}
                                     </span>

@@ -524,35 +524,38 @@ export default function InProcessRequestModal({
       return;
     }
 
-    if (editData?.ipr_uid && mode !== "add") {
-      const flow = editData.request_type === IPR_REQUEST_TYPE.REJECTION ? IPR_FLOW.REJECTION : IPR_FLOW.UPDATE_STATUS;
+    let cancelled = false;
+
+    const hydrateFromRow = (row) => {
+      if (!row || cancelled) return;
+      const flow = row.request_type === IPR_REQUEST_TYPE.REJECTION ? IPR_FLOW.REJECTION : IPR_FLOW.UPDATE_STATUS;
       setRequestFlow(flow);
       setRequestFlowPicked(true);
       setRequestType(
-        Object.values(IPR_REQUEST_TYPE).includes(editData.request_type)
-          ? editData.request_type
+        Object.values(IPR_REQUEST_TYPE).includes(row.request_type)
+          ? row.request_type
           : IPR_REQUEST_TYPE.REJECTION
       );
       setRequestTypePicked(true);
-      setRejectionType(editData.rejection_type === "lot" ? "lot" : "coil");
+      setRejectionType(row.rejection_type === "lot" ? "lot" : "coil");
       setTypePicked(true);
-      setReason(editData.reason || "");
-      setRemarks(editData.remarks || "");
-      setAttachments(Array.isArray(editData.attachments) ? editData.attachments : []);
-      setApproved(isApprove ? true : Boolean(editData.approved));
+      setReason(row.reason || "");
+      setRemarks(row.remarks || "");
+      setAttachments(Array.isArray(row.attachments) ? row.attachments : []);
+      setApproved(isApprove ? true : Boolean(row.approved));
       setCoils(
-        Array.isArray(editData.coils)
-          ? editData.coils.map((c) =>
+        Array.isArray(row.coils)
+          ? row.coils.map((c) =>
               mapCoilRow(c, {
-                forConsume: editData.request_type === IPR_REQUEST_TYPE.CONSUME,
-                forStoreIn: editData.request_type === IPR_REQUEST_TYPE.STORE_IN,
+                forConsume: row.request_type === IPR_REQUEST_TYPE.CONSUME,
+                forStoreIn: row.request_type === IPR_REQUEST_TYPE.STORE_IN,
               })
             )
           : []
       );
       setProposedCoils(
-        Array.isArray(editData.proposed_coils)
-          ? editData.proposed_coils.map((p, i) => ({
+        Array.isArray(row.proposed_coils)
+          ? row.proposed_coils.map((p, i) => ({
               temp_id: p.temp_id || `proposed-${i + 1}`,
               coil_no_uid: p.coil_no_uid || null,
               from_coil_uid: p.from_coil_uid || p.coil_no_uid || null,
@@ -566,24 +569,35 @@ export default function InProcessRequestModal({
           : []
       );
       setManualLotNo(
-        editData.lot_no != null
-          ? String(editData.lot_no)
-          : editData.mrn_no != null
-            ? String(editData.mrn_no)
+        row.lot_no != null
+          ? String(row.lot_no)
+          : row.mrn_no != null
+            ? String(row.mrn_no)
             : ""
       );
-      setSeedCoilUid(editData.seed_coil_uid || null);
+      setSeedCoilUid(row.seed_coil_uid || null);
       setManualCoilId("");
       setPendingCoil(null);
-      if (editData.request_type === IPR_REQUEST_TYPE.CONSUME && Array.isArray(editData.coils) && editData.coils.length) {
-        const first = editData.coils[0];
+      if (row.request_type === IPR_REQUEST_TYPE.CONSUME && Array.isArray(row.coils) && row.coils.length) {
+        const first = row.coils[0];
         const original = Number(first.original_qty ?? first.qty) || 0;
         const used = Number(first.consumed_qty ?? original) || 0;
-        const partial = Boolean(first.partial_qty) || (used > 0 && used < original);
+        const remaining =
+          first.remaining_qty != null
+            ? Number(first.remaining_qty) || 0
+            : Math.max(0, original - used);
+        const partial = Boolean(first.partial_qty) || remaining > 0;
+        const wasReassign =
+          String(row.type || "").toLowerCase() === "reassign" ||
+          Boolean(row.reassign_jc) ||
+          row.coils.some((c) => c?.reassign === true);
         setConsumeMode(partial ? "leftover" : "full");
-        setLeftoverConsumedQty(partial ? String(used) : "");
-        setReassignEnabled(false);
-        setReassignJobCardNo("");
+        // Return field = return qty; Reassign field = consumed qty.
+        setLeftoverConsumedQty(
+          partial ? String(wasReassign ? used : remaining) : ""
+        );
+        setReassignEnabled(wasReassign && partial);
+        setReassignJobCardNo(wasReassign ? String(row.reassign_jc || "").trim() : "");
         setReassignMachine("");
       } else {
         setConsumeMode("full");
@@ -595,7 +609,21 @@ export default function InProcessRequestModal({
       setErrors({});
       setIsScannerOpen(false);
       setSaving(false);
-      return;
+    };
+
+    if (editData?.ipr_uid && mode !== "add") {
+      // List payload is slim — load full detail for modal.
+      (async () => {
+        try {
+          const res = await inProcessRequestService.getById(editData.ipr_uid);
+          hydrateFromRow(res?.data || editData);
+        } catch {
+          if (!cancelled) hydrateFromRow(editData);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
     }
 
     resetForm();
@@ -1231,6 +1259,7 @@ export default function InProcessRequestModal({
 
   const handleConsumeModeChange = (mode) => {
     if (readOnly || !isUpdateStatusFlow) return;
+    const leavingReassign = reassignEnabled;
     if (reassignEnabled) {
       setReassignEnabled(false);
       setErrors((prev) => ({
@@ -1240,6 +1269,19 @@ export default function InProcessRequestModal({
       }));
     }
     setConsumeMode(mode);
+
+    let fieldValue = leftoverConsumedQty;
+    // Reassign field was consumed qty — convert to return qty for Return mode.
+    if (mode === "leftover" && leavingReassign && leftoverConsumedQty !== "") {
+      const coil0 = coils[0];
+      const orig = Number(coil0?.original_qty ?? coil0?.qty) || 0;
+      const used = Number(leftoverConsumedQty);
+      if (Number.isFinite(used)) {
+        fieldValue = String(Math.max(0, Math.min(orig, orig - used)));
+        setLeftoverConsumedQty(fieldValue);
+      }
+    }
+
     setCoils((prev) =>
       prev.map((c) => {
         const original = Number(c.original_qty ?? c.qty) || 0;
@@ -1251,13 +1293,14 @@ export default function InProcessRequestModal({
             remaining_qty: 0,
           };
         }
-        const raw = leftoverConsumedQty === "" ? NaN : Number(leftoverConsumedQty);
-        const used = Number.isFinite(raw) ? Math.max(0, Math.min(original, raw)) : 0;
+        // Return mode: field = return qty → Store In.
+        const raw = fieldValue === "" ? NaN : Number(fieldValue);
+        const returnQty = Number.isFinite(raw) ? Math.max(0, Math.min(original, raw)) : 0;
         return {
           ...c,
           partial_qty: true,
-          consumed_qty: used,
-          remaining_qty: Math.max(0, original - used),
+          remaining_qty: returnQty,
+          consumed_qty: Math.max(0, original - returnQty),
         };
       })
     );
@@ -1268,18 +1311,40 @@ export default function InProcessRequestModal({
     if (readOnly || !isUpdateStatusFlow) return;
     const coil = coils[0];
     const original = Number(coil?.original_qty ?? coil?.qty) || 0;
-    const raw = value === "" ? NaN : Number(value);
-    const clamped = value === "" ? "" : String(Number.isFinite(raw) ? Math.max(0, Math.min(original, raw)) : 0);
-    setLeftoverConsumedQty(clamped);
+    const asReturnQty = consumeMode === "leftover" && !reassignEnabled;
+
+    // Allow empty / in-progress typing (e.g. "" or "3.") — only block above max.
+    let next = value;
+    if (value !== "" && value !== "." && !/^\d+\.$/.test(value)) {
+      const raw = Number(value);
+      if (!Number.isFinite(raw)) return;
+      if (raw < 0) next = "0";
+      else if (raw > original) next = String(original);
+      else next = value;
+    } else if (value === "-") {
+      next = "";
+    }
+
+    setLeftoverConsumedQty(next);
+    const num =
+      next === "" || next === "." || /^\d+\.$/.test(next) ? 0 : Number(next) || 0;
     setCoils((prev) =>
       prev.map((c) => {
         const orig = Number(c.original_qty ?? c.qty) || 0;
-        const used = clamped === "" ? 0 : Number(clamped) || 0;
+        if (asReturnQty) {
+          const remaining = Math.max(0, Math.min(orig, num));
+          return {
+            ...c,
+            partial_qty: true,
+            remaining_qty: remaining,
+            consumed_qty: Math.max(0, orig - remaining),
+          };
+        }
         return {
           ...c,
           partial_qty: true,
-          consumed_qty: used,
-          remaining_qty: Math.max(0, orig - used),
+          consumed_qty: num,
+          remaining_qty: Math.max(0, orig - num),
         };
       })
     );
@@ -1513,14 +1578,27 @@ export default function InProcessRequestModal({
           isUpdateStatusFlow && (consumeMode === "leftover" || reassignEnabled);
 
         if (isLeftoverUpdateStatus) {
-          // 0 is valid here — it means nothing was consumed (full store-in).
           if (leftoverConsumedQty === "") {
-            next.qty = "Enter consumed qty for leftover.";
+            next.qty = reassignEnabled
+              ? "Enter consumed qty for leftover."
+              : "Enter return qty for Store In.";
             break;
           }
-          if (used < 0 || used > orig) {
-            next.qty = "Consumed qty cannot exceed total coil qty.";
-            break;
+          if (reassignEnabled) {
+            if (used < 0 || used > orig) {
+              next.qty = `Consumed qty cannot exceed total coil qty (${orig.toLocaleString()}).`;
+              break;
+            }
+          } else {
+            // Return: leftoverConsumedQty = return qty; must leave balance for Store In.
+            const rem = Number(c.remaining_qty ?? 0) || 0;
+            if (rem <= 0 || rem > orig) {
+              next.qty =
+                rem <= 0
+                  ? "Return qty must be greater than 0. Use Full Consume if nothing returns to store."
+                  : `Return qty cannot exceed total coil qty (${orig.toLocaleString()}).`;
+              break;
+            }
           }
         } else {
           if (used <= 0) {
@@ -1643,8 +1721,8 @@ export default function InProcessRequestModal({
           ? Number(c.consumed_qty ?? original) || 0
           : Number(c.qty) || 0;
       const applyReassign = isUpdateStatusFlow && reassignEnabled && idx === 0;
-      const rowJobCardNo = applyReassign ? String(reassignJobCardNo || "").trim() : String(c.pjobcardno || "").trim();
-      const rowMachine = applyReassign ? String(reassignMachine || "").trim() : String(c.macname || "").trim();
+      const sourceJc = String(c.source_pjobcardno || c.pjobcardno || "").trim();
+      const sourceMac = String(c.source_macname || c.macname || "").trim();
       const rowReassignWire = applyReassign ? String(c.item_code || "").trim() : "";
       return {
         coil_no_uid: c.coil_no_uid,
@@ -1660,8 +1738,9 @@ export default function InProcessRequestModal({
         location_id: c.location_id ?? null,
         location_no: c.location_no || null,
         out_uid: c.out_uid ?? null,
-        pjobcardno: rowJobCardNo || null,
-        macname: rowMachine || null,
+        // Main JC = source (issued from). Target only on payload.reassign_jc.
+        pjobcardno: sourceJc || null,
+        macname: sourceMac || null,
         reassign: applyReassign,
         reassign_rm_item_code: rowReassignWire || null,
         source: c.source || (isLotMode ? "lot" : "scan"),
@@ -1699,9 +1778,13 @@ export default function InProcessRequestModal({
     };
 
     const issuedSnapshot = isStoreIn || isConsume ? coils.map(snapshotLine) : undefined;
+    const reassignTargetJc =
+      isUpdateStatusFlow && reassignEnabled ? String(reassignJobCardNo || "").trim() : "";
 
     const payload = {
       request_type: requestType,
+      type: reassignTargetJc ? "reassign" : undefined,
+      reassign_jc: reassignTargetJc || null,
       rejection_type: isRejection ? rejectionType : null,
       reason: String(reason || (isUpdateStatusFlow ? "Coil status update" : "")).trim(),
       remarks: remarks || null,
@@ -2241,15 +2324,45 @@ export default function InProcessRequestModal({
                     } else {
                       clearReassignJcDropdownCaches();
                       setConsumeMode("leftover");
-                      if (leftoverConsumedQty === "") {
+                      // Return field was return qty — convert to consumed for Reassign.
+                      const coil0 = coils[0];
+                      const orig = Number(coil0?.original_qty ?? coil0?.qty) || 0;
+                      let nextField = leftoverConsumedQty;
+                      if (
+                        consumeMode === "leftover" &&
+                        !reassignEnabled &&
+                        leftoverConsumedQty !== "" &&
+                        Number.isFinite(Number(leftoverConsumedQty))
+                      ) {
+                        const returnQty = Math.max(
+                          0,
+                          Math.min(orig, Number(leftoverConsumedQty))
+                        );
+                        nextField = String(Math.max(0, orig - returnQty));
+                        setLeftoverConsumedQty(nextField);
+                      }
+                      if (nextField === "") {
                         setCoils((prev) =>
                           prev.map((line) => {
-                            const orig = Number(line.original_qty ?? line.qty) || 0;
+                            const o = Number(line.original_qty ?? line.qty) || 0;
                             return {
                               ...line,
                               partial_qty: true,
                               consumed_qty: 0,
-                              remaining_qty: orig,
+                              remaining_qty: o,
+                            };
+                          })
+                        );
+                      } else {
+                        const used = Number(nextField) || 0;
+                        setCoils((prev) =>
+                          prev.map((line) => {
+                            const o = Number(line.original_qty ?? line.qty) || 0;
+                            return {
+                              ...line,
+                              partial_qty: true,
+                              consumed_qty: used,
+                              remaining_qty: Math.max(0, o - used),
                             };
                           })
                         );

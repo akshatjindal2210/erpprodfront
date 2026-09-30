@@ -653,6 +653,10 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
         { label: "Heat No.", value: detail?.heat_no || row?.heat_nos, mono: true },
         { label: "Item", value: detail?.item_code || row?.item_codes },
         {
+          label: "Supplier",
+          value: detail?.acc_name || row?.vendor_acc_name || row?.acc_name || null,
+        },
+        {
           label: "Total Qty",
           value:
             detail?.total_qty != null || row?.total_qty != null
@@ -682,6 +686,10 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
               : rejectedCoils.reduce((sum, c) => sum + (Number(c.qty) || 0), 0) || null,
         },
         { label: "Item", value: detail?.item_code || row?.item_code },
+        {
+          label: "Supplier",
+          value: detail?.acc_name || row?.vendor_acc_name || row?.acc_name || null,
+        },
         { label: "Inspected By", value: detail?.approved_by_name || detail?.created_by_name },
         {
           label: "Inspected At",

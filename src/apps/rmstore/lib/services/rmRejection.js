@@ -10,7 +10,12 @@ export const rmRejectionService = {
   generateStoreOut: (body) => api(ENDPOINTS.RM_REJECTION.GENERATE_STORE_OUT, { method: "POST", body }),
   generateStoreOutFromIpr: (body) => api(ENDPOINTS.RM_REJECTION.GENERATE_STORE_OUT_FROM_IPR, { method: "POST", body }),
   approveRegister: (body) => api(ENDPOINTS.RM_REJECTION.APPROVE_REGISTER, { method: "POST", body }),
-  updateBill: (qc_reject_uid, bill_no) => api(ENDPOINTS.RM_REJECTION.UPDATE_BILL, { method: "POST", body: { qc_reject_uid, bill_no }}),
+  updateBill: (qc_reject_uid, bill_no, bill_dt) =>
+    api(ENDPOINTS.RM_REJECTION.UPDATE_BILL, {
+      method: "POST",
+      body: { qc_reject_uid, bill_no, ...(bill_dt !== undefined && { bill_dt }) },
+    }),
   getBillNumbers: (params) => api(ENDPOINTS.RM_REJECTION.BILL_NUMBERS, { method: "POST", body: params || {} }),
+  completeBill: (body) => api(ENDPOINTS.RM_REJECTION.COMPLETE_BILL, { method: "POST", body }),
   delete: (qc_reject_uid) => api(ENDPOINTS.RM_REJECTION.DELETE, { method: "POST", body: { qc_reject_uid } }),
 };

@@ -6,7 +6,7 @@ import { ClipboardCheck, Trash2, Loader2, Plus, Eye, FileText, ShieldCheck, Shie
 import { toast } from "react-toastify";
 
 import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
-import { auditNameHeader, auditTimeHeader, formatAuditPersonName } from "@/platform/utils/list/auditListUi";
+import { auditNameHeader, auditTimeHeader, formatAuditPersonName, auditNameCell, auditTimeCell } from "@/platform/utils/list/auditListUi";
 import { mrnService } from "@/apps/rmstore/lib/services/mrn";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
@@ -41,15 +41,36 @@ function formatDay(v) {
   return formatDocDate(v) || "—";
 }
 
+function fileNameFromPath(p) {
+  if (!p) return null;
+  const s = String(p).replace(/\\/g, "/");
+  return s.split("/").pop() || null;
+}
+
+function mrnQty(row) {
+  return row?.qty ?? row?.it_recp_qty;
+}
+
+function mrnCoilNo(row) {
+  return row?.coil_no ?? row?.it_lot_no ?? row?.itLotNo;
+}
+
 function resolveMrnPortalStatus(row) {
-  if (row?.sticker_rejected || row?.status === "reject") return "reject";
-  if (row?.sticker_generated && row?.sticker_approved === false) return "generate";
-  if (row?.sticker_generated || row?.status === "approved" || row?.status === "generated") return "approved";
+  const s = String(row?.sticker_status || row?.status || "").toLowerCase();
+  if (s === "reject" || row?.sticker_rejected) return "reject";
+  if (s === "generate" || (row?.sticker_generated && row?.sticker_approved === false)) return "generate";
+  if (s === "approved" || s === "generated" || row?.sticker_generated) return "approved";
   return "pending";
 }
 
+function isMrnStickerDraft(row) {
+  if (isMrnStickerRejected(row) || isMrnStickerApproved(row) || isMrnAwaitingApproval(row)) return false;
+  const s = String(row?.sticker_status || row?.status || "").toLowerCase();
+  return s === "draft" || row?.has_sticker_draft === true;
+}
+
 function isMrnStickerGenerated(row) {
-  return row?.sticker_generated === true || ["generate", "approved", "generated"].includes(row?.status);
+  return row?.sticker_generated === true || ["generate", "approved", "generated"].includes(String(row?.sticker_status || row?.status || "").toLowerCase());
 }
 
 function isMrnAwaitingApproval(row) {
@@ -64,6 +85,43 @@ function isMrnStickerRejected(row) {
   return resolveMrnPortalStatus(row) === "reject";
 }
 
+function isMrnStickerAudit(row) {
+  return isMrnStickerApproved(row) || isMrnStickerRejected(row) || isMrnStickerDraft(row);
+}
+
+/**
+ * Last action AFTER create/generate only:
+ * Draft saved | Approved | Rejected (not create, not generate).
+ */
+function resolveMrnLastAction(row) {
+  if (isMrnStickerRejected(row)) return "Rejected";
+  if (isMrnStickerApproved(row)) return "Approved";
+  if (isMrnStickerDraft(row)) return "Draft saved";
+  return null;
+}
+
+function mrnLastActionBy(row) {
+  if (!resolveMrnLastAction(row)) return null;
+  return row?.sticker_by || null;
+}
+
+function mrnLastActionAt(row) {
+  if (!resolveMrnLastAction(row)) return null;
+  return row?.sticker_at || null;
+}
+
+function renderMrnLastAction(_v, row) {
+  const action = resolveMrnLastAction(row);
+  if (!action) return <span className="text-[10px] text-slate-400">—</span>;
+  const tone =
+    action === "Rejected"
+      ? "text-rose-700"
+      : action === "Approved"
+        ? "text-emerald-700"
+        : "text-sky-700";
+  return <span className={`text-[10px] font-bold uppercase tracking-tight ${tone}`}>{action}</span>;
+}
+
 function resolveUploadUrl(noteOrPath) {
   const raw = String(noteOrPath || "").trim();
   if (!raw) return "";
@@ -73,9 +131,9 @@ function resolveUploadUrl(noteOrPath) {
   return "";
 }
 
-function MrnDocPreviewRow({ label, path, name }) {
+function MrnDocPreviewRow({ label, path }) {
   const url = resolveUploadUrl(path);
-  const display = name || (path ? String(path).split(/[/\\]/).pop() : "") || "—";
+  const display = fileNameFromPath(path) || "—";
   if (!url && display === "—") {
     return <MasterDetailKV label={label} value="—" />;
   }
@@ -163,8 +221,10 @@ const MRN_COMPARE_FIELD_LABELS = {
   bill_no: "Bill",
   bill_dt: "Bill date",
   item_code: "Item",
+  qty: "Qty",
   it_recp_qty: "Qty",
-  it_lot_no: "Lot",
+  coil_no: "Coil",
+  it_lot_no: "Coil",
 };
 
 function renderMrnMismatchSummary(_v, row) {
@@ -215,7 +275,7 @@ function renderMrnStickerStatus(_v, row) {
       </span>
     );
   }
-  if (row?.has_sticker_draft === true) {
+  if (isMrnStickerDraft(row)) {
     return (
       <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-sky-50 text-sky-700 border-sky-200">
         ● DRAFT
@@ -485,8 +545,8 @@ export default function MrnPortalPage() {
           ["MRN UID", "uid", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
           // ["MRN No", "mrn_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
           ["Date", "mrn_dt", (_v, row) => renderMrnCompareCell(row, "mrn_dt", { date: true }), { width: "140px", wrap: true }],
-          ["Lot No", "it_lot_no", (_v, row) => renderMrnCompareCell(row, "it_lot_no"), { width: "140px", wrap: true }],
-          ["Quantity", "it_recp_qty", (_v, row) => renderMrnCompareCell(row, "it_recp_qty", { qty: true }), { width: "140px", wrap: true }],
+          ["Coil No", "coil_no", (_v, row) => renderMrnCompareCell(row, row?.comparison?.fields?.coil_no ? "coil_no" : "it_lot_no"), { width: "140px", wrap: true }],
+          ["Quantity", "qty", (_v, row) => renderMrnCompareCell(row, row?.comparison?.fields?.qty ? "qty" : "it_recp_qty", { qty: true }), { width: "140px", wrap: true }],
           ["Item Code", "item_code", (_v, row) => renderMrnCompareCell(row, "item_code"), { width: "140px", wrap: true }],
           ["Item Description", "item_desc", (_v, row) => renderMrnCompareCell(row, "item_desc"), { width: "140px", wrap: true }],
           ["Vendor", "acc_name", (_v, row) => {
@@ -507,8 +567,8 @@ export default function MrnPortalPage() {
       // ["MRN No", "mrn_no", (v) => <span className="font-mono font-bold text-slate-700 text-[10px] uppercase">{v ?? "—"}</span>, { width: "100px", fixed: true }],
       ["Date", "mrn_dt", (v) => <span className="text-slate-600 font-bold text-[10px] uppercase">{formatDay(v)}</span>, { width: "100px" }],
       ["Lot / Heat No", "heat_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>, { width: "140px" }],
-      ["Quantity", "it_recp_qty", renderMrnQtyCell, { width: "100px", cardRender: renderMrnQtyCell }],
-      ["Coil No", "it_lot_no", (v) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{v || "—"}</span>, { width: "140px" }],
+      ["Quantity", "qty", (_v, row) => renderMrnQtyCell(mrnQty(row)), { width: "100px", cardRender: (_v, row) => renderMrnQtyCell(mrnQty(row)) }],
+      ["Coil No", "coil_no", (_v, row) => <span className="font-bold text-slate-700 text-[11px] uppercase tracking-tighter">{mrnCoilNo(row) || "—"}</span>, { width: "140px" }],
       // ["Unit", "it_unit", (v) => <span className="text-[10px] font-bold text-slate-600 tabular-nums">{v ?? "—"}</span>, { width: "70px" }],
       ["Vendor", "acc_name", (v) => (
         <span className="text-slate-800 font-bold text-[10px] uppercase whitespace-normal break-words leading-snug" title={v || ""}>
@@ -528,10 +588,21 @@ export default function MrnPortalPage() {
       auditTimeHeader("Created At", "datec"),
       auditNameHeader("Generated By", "created_by_name", { width: "120px", when: isMrnStickerGenerated }),
       auditTimeHeader("Generated At", "created_at", { width: "150px", when: isMrnStickerGenerated }),
-      auditNameHeader("Approved By", "sticker_approved_by", { width: "120px", when: isMrnStickerApproved }),
-      auditTimeHeader("Approved At", "sticker_approved_at", { width: "150px", when: isMrnStickerApproved }),
-      auditNameHeader("Rejected By", "sticker_rejected_by", { width: "120px", when: isMrnStickerRejected, nameClass: "text-rose-600" }),
-      auditTimeHeader("Rejected At", "sticker_rejected_at", { width: "150px", when: isMrnStickerRejected }),
+      ["Last Action", "last_action", renderMrnLastAction, {
+        width: "110px",
+        copyValue: (r) => resolveMrnLastAction(r) || "—",
+      }],
+      ["Last Action By", "last_action_by", (_v, row) => auditNameCell(mrnLastActionBy(row)), {
+        width: "120px",
+        copyValue: (r) => formatAuditPersonName(mrnLastActionBy(r)) || "—",
+      }],
+      ["Last Action At", "last_action_at", (_v, row) => auditTimeCell(mrnLastActionAt(row)), {
+        width: "150px",
+        copyValue: (r) => {
+          const at = mrnLastActionAt(r);
+          return at ? formatDateTime(at) : "—";
+        },
+      }],
     ];
     },
     [isComparisonView]
@@ -807,14 +878,9 @@ export default function MrnPortalPage() {
               </MasterDetailSection>
             </MasterDetailGrid>
 
-            <MasterDetailGrid columns={2}>
-              <MasterDetailSection label="UID" tone="white">
-                <span>{selectedRecord.uid || "—"}</span>
-              </MasterDetailSection>
-              <MasterDetailSection label="Serial" tone="white">
-                <span>{selectedRecord.serial_no ?? "—"}</span>
-              </MasterDetailSection>
-            </MasterDetailGrid>
+            <MasterDetailSection label="UID" tone="white">
+              <span>{selectedRecord.uid || "—"}</span>
+            </MasterDetailSection>
 
             <MasterDetailGrid columns={2}>
               <MasterDetailKV label="Bill no." value={selectedRecord.bill_no || "—"} />
@@ -840,11 +906,11 @@ export default function MrnPortalPage() {
 
             <MasterDetailKV
               label="Total quantity"
-              value={`${parseFloat(selectedRecord.it_recp_qty || 0).toLocaleString()} ${selectedRecord.it_unit || ""}`.trim()}
+              value={`${parseFloat(mrnQty(selectedRecord) || 0).toLocaleString()} ${selectedRecord.it_unit || ""}`.trim()}
               valueClassName="text-emerald-700 text-base tabular-nums"
             />
 
-            <MasterDetailKV label="Lot no." value={selectedRecord.it_lot_no || "—"} />
+            <MasterDetailKV label="Coil no." value={mrnCoilNo(selectedRecord) || "—"} />
 
             <MasterDetailKV
               label="Sticker status"
@@ -855,7 +921,9 @@ export default function MrnPortalPage() {
                     ? "Approved"
                     : isMrnAwaitingApproval(selectedRecord)
                       ? "Generate"
-                      : "Pending"
+                      : isMrnStickerDraft(selectedRecord)
+                        ? "Draft"
+                        : "Pending"
               }
               valueClassName={
                 isMrnStickerRejected(selectedRecord)
@@ -864,18 +932,24 @@ export default function MrnPortalPage() {
                     ? "text-emerald-700"
                     : isMrnAwaitingApproval(selectedRecord)
                       ? "text-indigo-700"
-                      : "text-amber-700"
+                      : isMrnStickerDraft(selectedRecord)
+                        ? "text-sky-700"
+                        : "text-amber-700"
               }
             />
 
-            {isMrnStickerRejected(selectedRecord) ? (
-              <MasterDetailGrid columns={2}>
-                <MasterDetailKV label="Rejected by" value={formatAuditPersonName(selectedRecord.sticker_rejected_by) || "—"} />
+            {resolveMrnLastAction(selectedRecord) ? (
+              <MasterDetailGrid columns={3}>
+                <MasterDetailKV label="Last action" value={resolveMrnLastAction(selectedRecord)} />
                 <MasterDetailKV
-                  label="Rejected at"
+                  label="Last action by"
+                  value={formatAuditPersonName(mrnLastActionBy(selectedRecord)) || "—"}
+                />
+                <MasterDetailKV
+                  label="Last action at"
                   value={
-                    selectedRecord.sticker_rejected_at
-                      ? formatDateTime(selectedRecord.sticker_rejected_at)
+                    mrnLastActionAt(selectedRecord)
+                      ? formatDateTime(mrnLastActionAt(selectedRecord))
                       : "—"
                   }
                 />
@@ -885,7 +959,7 @@ export default function MrnPortalPage() {
             {isMrnStickerGenerated(selectedRecord) ? (
               <MasterDetailGrid columns={2}>
                 <MasterDetailKV
-                  label="Sticker generated by system"
+                  label="Generated by"
                   value={formatAuditPersonName(selectedRecord.created_by_name) || "—"}
                   valueClassName="text-indigo-700 font-bold"
                 />
@@ -902,12 +976,10 @@ export default function MrnPortalPage() {
                 <MrnDocPreviewRow
                   label="TC Document"
                   path={selectedRecord.tc_file_path}
-                  name={selectedRecord.tc_file_name}
                 />
                 <MrnDocPreviewRow
                   label="RMTC Document"
                   path={selectedRecord.rmtc_file_path}
-                  name={selectedRecord.rmtc_file_name}
                 />
               </MasterDetailGrid>
             ) : null}

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, Eye, Database, ClipboardList } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { inProcessRequestService, IPR_DOWNSTREAM, IPR_REQUEST_TYPE, IPR_REQUEST_TYPE_FILTER_OPTIONS } from "@/apps/rmstore/lib/services/inProcessRequest";
-import { IprRequestTypeCell } from "@/apps/rmstore/modules/in-process-request/iprTypeVisuals";
+import { IprRequestTypeCell, isIprRejectionRow } from "@/apps/rmstore/modules/in-process-request/iprTypeVisuals";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import InProcessRequestModal from "@/apps/rmstore/modules/in-process-request/InProcessRequestModal";
@@ -23,16 +23,15 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { rmStoreInProcessSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
 import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
-import { applyClientSearch, defaultSearchParts, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
+import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
-import { renderCoilCompactCell, renderCoilMrnCell, renderCoilOutUidCell, renderCoilQtyCell, formatPjobcardnoDisplay, resolveCoilJobCardLabel, resolveCoilMachineLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
+import { renderCoilCompactCell, renderCoilMrnCell, renderCoilOutUidCell, renderCoilQtyCell } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 
 const MODULE = "rm_in_process_request";
 
-/** Left = Register (IPR DB). Right = Pending (shop-floor + unapproved IPRs). */
 const PAGE_TABS = {
   REGISTER: "register",
   PENDING: "pending",
@@ -43,100 +42,36 @@ const PENDING_KIND = {
   IPR: "ipr",
 };
 
-/** Pending only — current (latest) JC + machine; coils list keeps reassign split. */
-function resolvePendingCurrentJobCard(row) {
-  const assignments = Array.isArray(row?.job_card_assignments) ? row.job_card_assignments : [];
-  const balance = assignments.find((a) => a?.kind === "balance");
-  const last = balance || assignments[assignments.length - 1] || null;
-  const target = String(row?.reassign_target_pjobcardno || last?.pjobcardno || "").trim();
-  if (target) return formatPjobcardnoDisplay(target) || target;
-  return resolveCoilJobCardLabel(row);
+function isShopFloorPendingRow(row) {
+  return row?._pendingKind === PENDING_KIND.SHOP_FLOOR || (!row?.ipr_uid && row?.coil_no_uid);
 }
 
-function resolvePendingCurrentMachine(row) {
-  const assignments = Array.isArray(row?.job_card_assignments) ? row.job_card_assignments : [];
-  const balance = assignments.find((a) => a?.kind === "balance");
-  const last = balance || assignments[assignments.length - 1] || null;
-  const targetMac = String(
-    row?.reassign_target_macname || last?.macname || ""
-  ).trim();
-  if (targetMac) return targetMac;
-  return resolveCoilMachineLabel(row);
+function pendingRowId(row) {
+  if (isShopFloorPendingRow(row)) {
+    return `sf:${row?.coil_uid ?? row?.coil_no_uid ?? `${row?.out_uid ?? ""}-${row?.mrn_uid ?? ""}`}`;
+  }
+  return `ipr:${row?.ipr_uid ?? ""}`;
 }
 
-/** Pending quick search — match displayed current JC/machine only (not Store Out / source history). */
-function pendingListSearchParts(row) {
-  const parts = [];
-  const isShopFloor = row?._pendingKind === PENDING_KIND.SHOP_FLOOR;
-  const jc = isShopFloor ? resolvePendingCurrentJobCard(row) : String(row?.pjobcardno_label || row?.pjobcardno || "").trim();
-  const mac = isShopFloor ? resolvePendingCurrentMachine(row) : String(row?.macname_label || row?.macname || "").trim();
-  if (jc && jc !== "—") {
-    parts.push(jc);
-    parts.push(String(jc).replace(/^JC[\s-]*/i, ""));
-  }
-  if (mac && mac !== "—") parts.push(mac);
-  for (const k of [ "coil_no_uid", "coil_uid", "mrn_uid", "mrn_no", "item_code", "item_desc", "heat_no", "out_uid", "ipr_uid", "reason" ]) {
-    const v = row?.[k];
-    if (v != null && String(v).trim()) parts.push(v);
-  }
-  if (!isShopFloor) {
-    for (const p of defaultSearchParts(row)) parts.push(p);
-  }
-  return parts;
+/** Map unapproved IPR into pending coil columns using backend fields only. */
+function mapPendingIprRow(row) {
+  const coils = Array.isArray(row.coils) ? row.coils : [];
+  const coilUids = [...new Set(coils.map((c) => String(c?.coil_no_uid || "").trim()).filter(Boolean))];
+  return {
+    ...row,
+    _pendingKind: PENDING_KIND.IPR,
+    pjobcardno: row.pjobcardno || null,
+    macname: row.macname || null,
+    coil_no_uid: coilUids.length ? coilUids.join(", ") : row.coil_label || row.seed_coil_uid || "—",
+    mrn_uid: row.mrn_uid || row.mrn_no || null,
+    item_code: row.item_code || "—",
+    item_desc: row.item_desc || row.reason || "—",
+    qty: row.total_qty ?? row.qty ?? 0,
+    heat_no: row.heat_label || row.heat_no || "—",
+    out_uid: row.ipr_uid ?? null,
+    shop_floor_at: row.created_at || null,
+  };
 }
-
-/** Pending list — shop-floor + unapproved IPR; Job Card / Machine from coil when present. */
-const PENDING_SHOP_FLOOR_HEADERS = [
-  [
-    "Job Card",
-    "pjobcardno",
-    (_v, row) => renderCoilCompactCell(resolvePendingCurrentJobCard(row), "font-mono font-bold text-indigo-700"),
-    { width: "130px", align: "center", copyValue: resolvePendingCurrentJobCard },
-  ],
-  [
-    "Machine",
-    "macname",
-    (_v, row) => renderCoilCompactCell(resolvePendingCurrentMachine(row), "font-bold text-slate-800 uppercase"),
-    { width: "120px", align: "center", copyValue: resolvePendingCurrentMachine },
-  ],
-  [
-    "Shop Floor",
-    "shop_floor_at",
-    (v, row) =>
-      isShopFloorPendingRow(row) ? (
-        <span className="text-[10px] font-bold text-slate-600 tabular-nums whitespace-nowrap">
-          {v ? formatDateTime(v) : "—"}
-        </span>
-      ) : (
-        <IprRequestTypeCell row={row} />
-      ),
-    { width: "150px", align: "center" },
-  ],
-  [
-    "Coil No",
-    "coil_no_uid",
-    (v, row) =>
-      isShopFloorPendingRow(row) ? (
-        renderCoilCompactCell(v, "font-bold text-slate-800")
-      ) : (
-        renderCoilCompactCell(v, "font-bold text-slate-800", v)
-      ),
-    { fixed: true, width: "140px" },
-  ],
-  ["MRN", "mrn_uid", renderCoilMrnCell, { width: "80px" }],
-  ["Item Code", "item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold"), { width: "110px" }],
-  ["Description", "item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block", v), { width: "160px" }],
-  ["Qty", "qty", renderCoilQtyCell, { width: "70px", align: "center" }],
-  ["Heat No", "heat_no", (v) => renderCoilCompactCell(v, "font-mono text-slate-700"), { width: "130px" }],
-  ["Out UID", "out_uid", renderCoilOutUidCell, { width: "80px", copyValue: (row) => (row.out_uid != null ? String(row.out_uid) : "—") }],
-];
-
-const PENDING_CARD_CONFIG = {
-  titleKey: "coil_no_uid",
-  badgeIndices: [4],
-  detailKeys: ["item_code", "item_desc", "pjobcardno", "macname", "shop_floor_at", "heat_no", "qty", "mrn_uid", "out_uid"],
-  footerKey: "macname",
-};
 
 const DOWNSTREAM_LABEL = {
   [IPR_DOWNSTREAM.PENDING_STORE_OUT]: "Rejection Pending",
@@ -155,76 +90,68 @@ function qtyCell(v) {
   );
 }
 
-function isShopFloorPendingRow(row) {
-  return row?._pendingKind === PENDING_KIND.SHOP_FLOOR || (!row?.ipr_uid && row?.coil_no_uid);
-}
-
-/** Pending IPR only — Register stays plain (no row tint). */
 function getIprListRowClassName(row, isPendingTab) {
   if (!isPendingTab) return "";
   if (isShopFloorPendingRow(row)) return "";
-  if (row?.request_type === IPR_REQUEST_TYPE.REJECTION) {
+  if (isIprRejectionRow(row)) {
     return "bg-rose-50 group-hover:bg-rose-100/90 [&_td]:!bg-rose-50";
   }
   return "bg-amber-50 group-hover:bg-amber-100/90 [&_td]:!bg-amber-50";
 }
 
-function buildCoilUidLabel(coilUids = [], fallback = "—") {
-  const uniqueUids = [...new Set(coilUids.map((uid) => String(uid || "").trim()).filter(Boolean))];
-  return uniqueUids.length ? uniqueUids.join(", ") : fallback;
-}
+const PENDING_HEADERS = [
+  [
+    "Job Card",
+    "pjobcardno",
+    (v) => renderCoilCompactCell(v, "font-mono font-bold text-indigo-700"),
+    { width: "130px", align: "center", copyValue: (row) => row?.pjobcardno ?? "—" },
+  ],
+  [
+    "Machine",
+    "macname",
+    (v) => renderCoilCompactCell(v, "font-bold text-slate-800 uppercase"),
+    { width: "120px", align: "center", copyValue: (row) => row?.macname ?? "—" },
+  ],
+  [
+    "Shop Floor",
+    "shop_floor_at",
+    (v, row) =>
+      isShopFloorPendingRow(row) ? (
+        <span className="text-[10px] font-bold text-slate-600 tabular-nums whitespace-nowrap">
+          {v ? formatDateTime(v) : "—"}
+        </span>
+      ) : (
+        <IprRequestTypeCell row={row} />
+      ),
+    { width: "150px", align: "center" },
+  ],
+  [
+    "Coil No",
+    "coil_no_uid",
+    (v) => renderCoilCompactCell(v, "font-bold text-slate-800", v),
+    { fixed: true, width: "140px" },
+  ],
+  ["MRN", "mrn_uid", renderCoilMrnCell, { width: "80px" }],
+  ["Item Code", "item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold"), { width: "110px" }],
+  ["Description", "item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block", v), { width: "160px" }],
+  ["Qty", "qty", renderCoilQtyCell, { width: "70px", align: "center" }],
+  ["Heat No", "heat_no", (v) => renderCoilCompactCell(v, "font-mono text-slate-700"), { width: "130px" }],
+  ["Out UID", "out_uid", renderCoilOutUidCell, { width: "80px", copyValue: (row) => (row.out_uid != null ? String(row.out_uid) : "—") }],
+];
 
-function pendingRowId(row) {
-  if (isShopFloorPendingRow(row)) {
-    return `sf:${row?.coil_uid ?? row?.coil_no_uid ?? `${row?.out_uid ?? ""}-${row?.mrn_uid ?? ""}`}`;
-  }
-  return `ipr:${row?.ipr_uid ?? ""}`;
-}
+const PENDING_CARD_CONFIG = {
+  titleKey: "coil_no_uid",
+  badgeIndices: [4],
+  detailKeys: ["item_code", "item_desc", "pjobcardno", "macname", "shop_floor_at", "heat_no", "qty", "mrn_uid", "out_uid"],
+  footerKey: "macname",
+};
 
-/** Map unapproved IPR into shop-floor columns; Coil No shows real coil UID(s). */
-function mapPendingIprToShopFloorColumns(row) {
-  const coils = Array.isArray(row.coils) ? row.coils : [];
-  const coilUids = coils
-    .map((c) => String(c?.coil_no_uid || "").trim())
-    .filter(Boolean);
-  const coilNo = buildCoilUidLabel(coilUids, row.coil_label || row.seed_coil_uid || "—");
-  const jcNos = [
-    ...new Set(
-      coils
-        .map((c) => String(c?.pjobcardno_label || c?.pjobcardno || "").trim())
-        .filter(Boolean)
-    ),
-  ];
-  const macNames = [
-    ...new Set(
-      coils
-        .map((c) => String(c?.macname_label || c?.macname || "").trim())
-        .filter(Boolean)
-    ),
-  ];
-  const shopFloorAt =
-    row.shop_floor_at ||
-    coils.map((c) => c?.shop_floor_at).find((d) => d) ||
-    null;
-
-  return {
-    ...row,
-    _pendingKind: PENDING_KIND.IPR,
-    pjobcardno: jcNos.join(" | ") || row.pjobcardno || null,
-    pjobcardno_label: jcNos.join(" | ") || row.pjobcardno_label || row.pjobcardno || null,
-    macname: macNames.join(" | ") || row.macname || null,
-    macname_label: macNames.join(" | ") || row.macname_label || row.macname || null,
-    shop_floor_at: shopFloorAt,
-    coil_no_uid: coilNo,
-    mrn_uid: row.mrn_uid || row.mrn_no || null,
-    item_code: row.item_code || "—",
-    item_desc: row.item_desc || row.reason || "—",
-    qty: row.total_qty ?? row.qty ?? 0,
-    coil_count: row.coil_count ?? coilUids.length,
-    heat_no: row.heat_label || row.heat_no || "—",
-    out_uid: row.ipr_uid ?? null,
-  };
-}
+const REGISTER_CARD_CONFIG = {
+  titleKey: "ipr_uid",
+  badgeIndices: [10],
+  detailKeys: ["item_code", "item_desc", "mrn_label", "heat_label", "reason", "total_qty"],
+  footerKey: "created_at",
+};
 
 const DEFAULT_PARAMS = {
   pageSize: 500,
@@ -266,7 +193,12 @@ export default function InProcessRequestPage() {
 
   const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } =
     useAppliedListSearch();
-  const [allRows, setAllRows] = useState([]);
+  // Keep Pending / Register lists separate so tab switch does not flash blank.
+  const [pendingRows, setPendingRows] = useState([]);
+  const [registerRows, setRegisterRows] = useState([]);
+  const tabCacheRef = useRef({ pending: false, register: false });
+  const fetchGenRef = useRef(0);
+  const allRows = isPendingTab ? pendingRows : registerRows;
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -279,6 +211,9 @@ export default function InProcessRequestPage() {
     setSelected(null);
     setDisplayLimit(100);
     resetSearch();
+    // Show cached tab immediately; only block if that tab never loaded.
+    const hasCache = tab === PAGE_TABS.PENDING ? tabCacheRef.current.pending : tabCacheRef.current.register;
+    setLoading(!hasCache);
     setParams((prev) => ({
       ...prev,
       status: "all",
@@ -289,9 +224,14 @@ export default function InProcessRequestPage() {
   };
 
   const fetchRows = useCallback(async () => {
-    setLoading(true);
+    const gen = ++fetchGenRef.current;
+    const forPending = isPendingTab;
+    const hasCache = forPending ? tabCacheRef.current.pending : tabCacheRef.current.register;
+    // Keep existing rows visible while refreshing — avoids blank → data flash.
+    if (!hasCache) setLoading(true);
+
     try {
-      if (isPendingTab) {
+      if (forPending) {
         const [shopFloor, pendingIprs] = await Promise.all([
           fetchAllListPages(async (page, limit) => {
             const body = await inProcessRequestService.getPendingShopFloor({
@@ -311,54 +251,90 @@ export default function InProcessRequestPage() {
             return { data: body.data ?? [], total: body.total ?? 0 };
           }, params.pageSize),
         ]);
+        if (gen !== fetchGenRef.current) return;
 
-        const shopRowsRaw = (shopFloor.data || []).map((row) => {
-          const currentJc = resolvePendingCurrentJobCard(row);
-          const currentMac = resolvePendingCurrentMachine(row);
+        const shopRows = (shopFloor.data || []).map((row) => {
+          // IPR Pending: JC only — no "(qty)" suffix (Coils list keeps full pjobcardno_label).
+          const assignments = Array.isArray(row.job_card_assignments) ? row.job_card_assignments : [];
+          const balance = assignments.find((a) => a?.kind === "balance");
+          const currentJc = String(balance?.pjobcardno || row.reassign_target_pjobcardno || row.pjobcardno || "").trim();
+          const currentMac = String(balance?.macname || row.reassign_target_macname || row.macname_label || row.macname || "").trim();
           return {
             ...row,
             _pendingKind: PENDING_KIND.SHOP_FLOOR,
             coil_count: 1,
-            pjobcardno: currentJc !== "—" ? currentJc : null,
-            pjobcardno_label: currentJc !== "—" ? currentJc : null,
-            macname: currentMac !== "—" ? currentMac : null,
-            macname_label: currentMac !== "—" ? currentMac : null,
+            pjobcardno: currentJc || null,
+            macname: currentMac || null,
           };
         });
-        const shopRows = shopRowsRaw;
-        const iprRows = (pendingIprs.data || []).map(mapPendingIprToShopFloorColumns);
-        setAllRows([...iprRows, ...shopRows]);
+        const iprRows = (pendingIprs.data || []).map(mapPendingIprRow);
+        setPendingRows([...iprRows, ...shopRows]);
+        tabCacheRef.current.pending = true;
       } else {
-        const base = {
-          filters: {
-            ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
-            ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
-            ...(params.status !== "all" && { approved: params.status === "approved" }),
-            ...(params.requestType !== "all" && { request_type: params.requestType }),
-          },
+        const filters = {
+          ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
+          ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
+          ...(params.status !== "all" && { approved: params.status === "approved" }),
+          ...(params.requestType !== "all" &&
+            (params.requestType === "rejection" || params.requestType === "store_in"
+              ? { request_type: params.requestType }
+              : { type: params.requestType })),
         };
-        const { data } = await fetchAllListPages(async (page, limit) => {
+
+        const loadPage = async (page, limit) => {
           const body = await inProcessRequestService.getAll({
-            ...base,
+            filters,
             page,
             limit,
             ...(appliedSearch && { search: appliedSearch }),
           });
           return { data: body.data ?? [], total: body.total ?? 0 };
-        }, params.pageSize);
-        setAllRows(data);
+        };
+
+        // Paint first page ASAP — do not wait for every Register page.
+        const first = await loadPage(1, params.pageSize);
+        if (gen !== fetchGenRef.current) return;
+        let rows = [...(first.data || [])];
+        let total = Number(first.total ?? rows.length);
+        if (!Number.isFinite(total) || total < rows.length) total = rows.length;
+        setRegisterRows(rows);
+        tabCacheRef.current.register = true;
+        setLoading(false);
+        setDisplayLimit(100);
+
+        let page = 2;
+        while (rows.length < total && rows.length < 50000) {
+          const next = await loadPage(page, params.pageSize);
+          if (gen !== fetchGenRef.current) return;
+          const chunk = next.data || [];
+          if (!chunk.length) break;
+          rows = [...rows, ...chunk];
+          setRegisterRows(rows);
+          const t = Number(next.total ?? total);
+          if (Number.isFinite(t)) total = t;
+          page += 1;
+          if (chunk.length < params.pageSize) break;
+        }
       }
+      if (gen !== fetchGenRef.current) return;
       setDisplayLimit(100);
     } catch (err) {
+      if (gen !== fetchGenRef.current) return;
       toast.error(
         err?.message ||
-          (isPendingTab
+          (forPending
             ? "Could not load pending work. Please try again."
             : "Could not load the in-process requests. Please try again.")
       );
-      setAllRows([]);
+      if (forPending) {
+        setPendingRows([]);
+        tabCacheRef.current.pending = false;
+      } else {
+        setRegisterRows([]);
+        tabCacheRef.current.register = false;
+      }
     } finally {
-      setLoading(false);
+      if (gen === fetchGenRef.current) setLoading(false);
     }
   }, [
     isPendingTab,
@@ -382,10 +358,10 @@ export default function InProcessRequestPage() {
   const filteredRows = useMemo(() => {
     let data = allRows;
     if (String(tempSearch || "").trim()) {
-      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey, ...(isPendingTab ? { getParts: pendingListSearchParts } : {}) });
+      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, tempSearch, params.sortKey, params.sortDir, isPendingTab]);
+  }, [allRows, tempSearch, params.sortKey, params.sortDir]);
 
   useEffect(() => {
     if (!selected) return;
@@ -466,31 +442,19 @@ export default function InProcessRequestPage() {
         return;
       }
       openBlankNew();
-    }, [
-      isPendingTab,
-      selectedIsShopFloor,
-      selectedRecord,
-      openUpdateStatusFromPending,
-      openBlankNew,
-    ]),
-    openEdit: useCallback(
-      (row) => {
-        if (isShopFloorPendingRow(row)) return;
-        setEditItem(row);
-        setModalMode("edit");
-        setModalOpen(true);
-      },
-      []
-    ),
-    openApprove: useCallback(
-      (row) => {
-        if (isShopFloorPendingRow(row)) return;
-        setEditItem(row);
-        setModalMode("approve");
-        setModalOpen(true);
-      },
-      []
-    ),
+    }, [isPendingTab, selectedIsShopFloor, selectedRecord, openUpdateStatusFromPending, openBlankNew]),
+    openEdit: useCallback((row) => {
+      if (isShopFloorPendingRow(row)) return;
+      setEditItem(row);
+      setModalMode("edit");
+      setModalOpen(true);
+    }, []),
+    openApprove: useCallback((row) => {
+      if (isShopFloorPendingRow(row)) return;
+      setEditItem(row);
+      setModalMode("approve");
+      setModalOpen(true);
+    }, []),
     canApproveSelection: useCallback(
       () => selectedIsPendingIpr && !isRowApproved(selectedRecord),
       [selectedIsPendingIpr, selectedRecord]
@@ -527,29 +491,47 @@ export default function InProcessRequestPage() {
       [
         "Job Card",
         "pjobcardno",
-        (_v, row) => renderCoilCompactCell(resolveCoilJobCardLabel(row), "font-mono font-bold text-indigo-700"),
-        { width: "120px", copyValue: resolveCoilJobCardLabel },
+        (v) => renderCoilCompactCell(v, "font-mono font-bold text-indigo-700"),
+        { width: "120px", copyValue: (row) => row?.pjobcardno ?? "—" },
       ],
       [
         "Machine",
         "macname",
-        (_v, row) => renderCoilCompactCell(resolveCoilMachineLabel(row), "font-bold text-slate-800 uppercase"),
-        { width: "110px", copyValue: resolveCoilMachineLabel },
+        (v) => renderCoilCompactCell(v, "font-bold text-slate-800 uppercase"),
+        { width: "110px", copyValue: (row) => row?.macname ?? "—" },
       ],
-      ["Item Code", "item_code", (v) => (
+      [
+        "Item Code",
+        "item_code",
+        (v) => (
           <span className="font-bold text-slate-800 uppercase text-[11px] truncate block">{v || "—"}</span>
         ),
         { width: "180px" },
       ],
-      ["Description", "item_desc", (v) => (
+      [
+        "Description",
+        "item_desc",
+        (v) => (
           <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>
             {v || "—"}
           </span>
         ),
         { width: "160px" },
       ],
-      ["Coil", "coil_label", (v) => (<span className="text-[10px] font-bold text-slate-600 uppercase truncate block" title={v || ""}>{v || "—"}</span>), { width: "120px" }],
-      ["MRN UID", "mrn_uid", (v, row) => (
+      [
+        "Coil",
+        "coil_label",
+        (v) => (
+          <span className="text-[10px] font-bold text-slate-600 uppercase truncate block" title={v || ""}>
+            {v || "—"}
+          </span>
+        ),
+        { width: "120px" },
+      ],
+      [
+        "MRN UID",
+        "mrn_uid",
+        (v, row) => (
           <span
             className="font-bold text-indigo-700 text-[10px] truncate block"
             title={row.lot_label ? `Lot ${row.lot_label}` : v || ""}
@@ -559,7 +541,10 @@ export default function InProcessRequestPage() {
         ),
         { width: "110px" },
       ],
-      ["Heat No", "heat_label", (v) => (
+      [
+        "Heat No",
+        "heat_label",
+        (v) => (
           <span className="text-[10px] font-semibold text-slate-700 truncate block" title={v || ""}>
             {v || "—"}
           </span>
@@ -569,32 +554,72 @@ export default function InProcessRequestPage() {
       [
         "Balance Status",
         "balance_status",
-        (v) => {
+        (v, row) => {
           const label = v || "—";
           const cls =
             label === "Full"
               ? "bg-emerald-50 text-emerald-800 border-emerald-200"
               : label === "Reassign"
                 ? "bg-indigo-50 text-indigo-800 border-indigo-200"
-              : label === "Balance"
-                ? "bg-amber-50 text-amber-800 border-amber-200"
-                : label === "Rejected"
-                  ? "bg-rose-50 text-rose-800 border-rose-200"
-                  : "bg-slate-50 text-slate-600 border-slate-200";
+                : label === "Balance"
+                  ? "bg-amber-50 text-amber-800 border-amber-200"
+                  : label === "Rejected"
+                    ? "bg-rose-50 text-rose-800 border-rose-200"
+                    : "bg-slate-50 text-slate-600 border-slate-200";
+          const targetJc =
+            label === "Reassign"
+              ? String(row?.reassign_jc || "").trim()
+              : "";
           return (
-            <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${cls}`}>
-              {label}
-            </span>
+            <div className="flex flex-col items-center gap-0.5 min-w-0 py-0.5">
+              <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${cls}`}>
+                {label}
+              </span>
+              {targetJc ? (
+                <span
+                  className="text-[9px] font-mono font-bold text-indigo-700 truncate max-w-full"
+                  title={targetJc}
+                >
+                  → {targetJc}
+                </span>
+              ) : null}
+            </div>
           );
         },
-        { width: "120px", align: "center" },
+        {
+          width: "140px",
+          align: "center",
+          copyValue: (row) => {
+            const jc = String(row?.reassign_jc || "").trim();
+            if (row?.balance_status === "Reassign" && jc) return `Reassign → ${jc}`;
+            return row?.balance_status || "—";
+          },
+        },
       ],
       ["Consumed", "consumed_qty", qtyCell, { width: "80px" }],
       ["Balance", "balance_qty", qtyCell, { width: "80px" }],
       ["Total Qty", "total_qty", qtyCell, { width: "80px" }],
-      ["Type", "request_type", (_v, row) => <IprRequestTypeCell row={row} />, { width: "168px", align: "center" }],
-      ["Remarks", "remarks", (v) => (<span className="text-[10px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>), { width: "150px" }],
-      ["Reason", "reason", (v) => (<span className="text-[10px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>), { width: "150px" }],
+      ["Type", "type", (_v, row) => <IprRequestTypeCell row={row} />, { width: "140px", align: "center" }],
+      [
+        "Remarks",
+        "remarks",
+        (v) => (
+          <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>
+            {v || "—"}
+          </span>
+        ),
+        { width: "150px" },
+      ],
+      [
+        "Reason",
+        "reason",
+        (v) => (
+          <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>
+            {v || "—"}
+          </span>
+        ),
+        { width: "150px" },
+      ],
       [
         "Status",
         "approved",
@@ -626,7 +651,7 @@ export default function InProcessRequestPage() {
     []
   );
 
-  const headers = isPendingTab ? PENDING_SHOP_FLOOR_HEADERS : registerHeaders;
+  const headers = isPendingTab ? PENDING_HEADERS : registerHeaders;
 
   const getRowClassName = useCallback(
     (row) => getIprListRowClassName(row, isPendingTab),
@@ -813,7 +838,6 @@ export default function InProcessRequestPage() {
 
         <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
           <DataTable
-            key={pageTab}
             headers={headers}
             data={items}
             loading={loading}
@@ -850,16 +874,7 @@ export default function InProcessRequestPage() {
                 ? "No shop-floor coils or pending IPR requests"
                 : "No in-process requests found"
             }
-            cardConfig={
-              isPendingTab
-                ? PENDING_CARD_CONFIG
-                : {
-                    titleKey: "ipr_uid",
-                    badgeIndices: [10],
-                    detailKeys: ["item_code", "item_desc", "mrn_label", "heat_label", "reason", "total_qty"],
-                    footerKey: "created_at",
-                  }
-            }
+            cardConfig={isPendingTab ? PENDING_CARD_CONFIG : REGISTER_CARD_CONFIG}
             {...tableHotkeyProps}
           />
           {totalItems > displayLimit && (

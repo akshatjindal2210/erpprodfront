@@ -92,6 +92,7 @@ export const ENDPOINTS = {
     GENERATE_STORE_OUT_FROM_IPR: `${BASE}/rm-rejections/generate-store-out-from-ipr`,
     APPROVE_REGISTER: `${BASE}/rm-rejections/approve-register`,
     UPDATE_BILL: `${BASE}/rm-rejections/update-bill`,
+    COMPLETE_BILL: `${BASE}/rm-rejections/complete-bill`,
     BILL_NUMBERS: `${BASE}/rm-rejections/bill-helper`,
     DELETE: `${BASE}/rm-rejections/delete`,
   },

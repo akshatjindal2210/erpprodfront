@@ -124,18 +124,78 @@ export function formatPjobcardnoDisplay(raw) {
   return `JC-${s}`;
 }
 
+function formatJcWithQty(pjobcardno, qty) {
+  const jc = formatPjobcardnoDisplay(pjobcardno);
+  if (!jc) return "";
+  const q = Number(qty);
+  if (Number.isFinite(q) && q > 0) return `${jc} (${q})`;
+  return jc;
+}
+
+/** Table / copy: "JC-13013 (100), JC-14055 (36)" — multi JC from reassign. */
 export function resolveCoilJobCardLabel(row) {
+  const list = Array.isArray(row?.job_card_assignments)
+    ? row.job_card_assignments.filter((a) => String(a?.pjobcardno || "").trim())
+    : [];
+  if (list.length) {
+    return list.map((a) => formatJcWithQty(a.pjobcardno, a.qty)).filter(Boolean).join(", ");
+  }
   const split = String(row?.pjobcardno_label || "").trim();
   if (split) return split;
   const jc = formatPjobcardnoDisplay(row?.pjobcardno || row?.previous_coils?.[0]?.pjobcardno);
   return jc || "—";
 }
 
+/** Table machine: each assignment mac, comma-joined unique. */
 export function resolveCoilMachineLabel(row) {
+  const list = Array.isArray(row?.job_card_assignments)
+    ? row.job_card_assignments.filter((a) => String(a?.macname || "").trim())
+    : [];
+  if (list.length) {
+    const macs = list.map((a) => String(a.macname).trim());
+    const unique = [...new Map(macs.map((m) => [m.toUpperCase(), m])).values()];
+    if (unique.length) return unique.join(", ");
+  }
   const label = String(row?.macname_label || "").trim();
   if (label) return label;
   const mac = String(row?.macname || "").trim();
   return mac || "—";
+}
+
+/**
+ * Coil Finder: latest (balance) on Job card; history list desc (recent previous first).
+ * UI counts labels as N…1 (oldest = 1 at bottom).
+ */
+export function resolveCoilJobCardHistory(row) {
+  const list = Array.isArray(row?.job_card_assignments)
+    ? row.job_card_assignments.filter((a) => String(a?.pjobcardno || "").trim())
+    : [];
+
+  if (list.length >= 2) {
+    let latestIdx = list.findIndex((a) => a.kind === "balance");
+    if (latestIdx < 0) latestIdx = list.length - 1;
+    const latest = list[latestIdx];
+    // Desc: most recent previous = 1, older = 2…
+    const history = list
+      .filter((_, i) => i !== latestIdx)
+      .reverse()
+      .map((a) => ({
+        pjobcardno: formatJcWithQty(a.pjobcardno, a.qty),
+        macname: String(a.macname || "").trim() || null,
+      }));
+    return {
+      latest: formatJcWithQty(latest.pjobcardno, latest.qty) || "—",
+      latestMac: String(latest.macname || "").trim() || null,
+      history,
+    };
+  }
+
+  const mac = resolveCoilMachineLabel(row);
+  return {
+    latest: resolveCoilJobCardLabel(row),
+    latestMac: mac === "—" ? null : mac,
+    history: [],
+  };
 }
 
 /** Reassign / shop floor: how much wire on each FG (from backend fg_wire_splits). */

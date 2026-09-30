@@ -11,6 +11,43 @@ Body: `{ "requestedData", "filter?" }` · Client: `ims/lib/services/ims.service.
 
 ---
 
+## Quick list — `requestedData` → kaha use
+
+**Core (Users)**
+- `userlist`, `checkpass`, `changepass` — `users/user.controller.js` (user list, login, password change)
+
+**IMS**
+- `item` — master, group masters (BOP/Production), packing customers, monthly packing limit
+- `cust`, `custcode` — master, packing entry customers, audit box snapshot
+- `fyid` — master (financial year)
+- `pack` — master, daily prod list, box, sticker print, stock adjustment, backfill
+- `invmnote` — Gate Entry, Invoice Receiving (customer name)
+- `invfnote` — Gate Entry, Forwarding Note
+- `schdule` — Schedule Planning, Forwarding Note items, monthly packing limit
+- `schedule_save` — Schedule Planning (plan save)
+- `erpfg` — `erpFgStock.js` (FG stock)
+- `stockadjust` — ERP Stock Report
+- `invreceiving` — sirf backfill `backfills/importErpInvoiceReceivingToGate.js` (IR screen ab Gate Entry pe local)
+
+**RM Store**
+- `mrn_rm` — MRN, sticker / ensure MRN
+- `mrn_rm_old` — SA Old, sticker MRN resolve
+- `item` `{type:rm}`, `prdprimitem`, `prdrunjc` — `production/erpItems.js`
+- `invfnote` — RM Rejection bills (acc_name + item match)
+
+**Dashboard**
+- `erp_mssql`, `hrms_mssql` — raw SQL query
+- `dashboard_tables`, `hrms_dashboard_tables` — table list
+
+**HRMS**
+- `hrmsempmaster` — employee master (`hrms/lib/erpApi.js`)
+- hikconnect: `add`, `blacklist`, `list`, `sync`, `image` — device / attendance
+
+**Task**
+- `/send/wa`: `swa` (free), `swpa` (paid) — WhatsApp notify
+
+---
+
 ## `imsdata` — direct calls
 
 | App           | Where (file) | `requestedData` | Filter |
@@ -36,6 +73,7 @@ Body: `{ "requestedData", "filter?" }` · Client: `ims/lib/services/ims.service.
 | IMS           | `stock-adjustment/*Packing*.js` + list | `pack` | FY+doc or date filter |
 | IMS           | `gate-entry/gateEntry.controller.js` | `invmnote` | `billdt…` or — |
 | IMS           | same | `invfnote` | same or — |
+| IMS           | `invoice-receiving/invoiceReceiving.controller.js` | `invmnote` | `billdt…` or — (customer name only) |
 | IMS           | `forwarding-note/*` | `invfnote` | — |
 | IMS           | `forwarding-note/forwardingNoteItemsWrite.js` | `schdule` | — |
 | IMS           | `schedule-planning/schedulePlanService.js` | `schdule` | — or `m.fyid…` |
@@ -43,12 +81,12 @@ Body: `{ "requestedData", "filter?" }` · Client: `ims/lib/services/ims.service.
 | IMS           | `monthlyPackingLimit.js` | `item`,`schdule` | — |
 | IMS           | `erpFgStock.js` | `erpfg` | dcode or — |
 | IMS           | `erp-stock-report/…` | `stockadjust` | `{ docno, docdt, qty }` |
-| IMS           | Invoice Receiving pending / register / update | `invreceiving` | `{ type: "" }` / `{ type: "register" }` / `{ type: "update", … }` (update not wired yet) |
+| IMS           | `backfills/importErpInvoiceReceivingToGate.js` | `invreceiving` | `{ type: "register" }` (IR screen ab local on Gate Entry) |
 | RM            | `mrn/mrn.controller.js` | `mrn_rm` | — / `m.mrndt…` / `m.mrnno…` |
 | RM            | SA Old | `mrn_rm_old` | FY `m.mrndt…` |
 | RM            | sticker / ensure MRN | `mrn_rm` | — |
 | RM            | `production/erpItems.js` | `item` `{type:rm}`, `prdprimitem`, `prdrunjc` | |
-| RM            | `rm-rejection/…` | `invfnote` | — |
+| RM            | `rm-rejection/…` | `invfnote` | bill helper + pending match |
 | IMS           | `audit/auditBoxSnapshot.js` | `custcode` | — |
 | Dash          | queryExecutor / hybrid | `erp_mssql` / `hrms_mssql` | SQL |
 | Dash          | dashboard.controller | `dashboard_tables` / `hrms_dashboard_tables` | — |

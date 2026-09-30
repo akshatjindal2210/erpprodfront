@@ -27,12 +27,22 @@ export default function UpdateCoilStatusForm({
 
   const totalQty = Number(coil.original_qty ?? coil.qty) || 0;
   const partialMode = consumeMode === "leftover" || reassignEnabled;
-  const used = partialMode ? Number(consumedQty) : totalQty;
-  const validUsed = Number.isFinite(used) ? used : NaN;
-  const remaining =
-    partialMode && Number.isFinite(validUsed) ? Math.max(0, totalQty - validUsed) : 0;
-
   const returnActive = consumeMode === "leftover" && !reassignEnabled;
+  // Return: input = qty to Store In. Reassign: input = consumed on current JC.
+  const inputNum = partialMode ? Number(consumedQty) : NaN;
+  const remaining = returnActive
+    ? Number.isFinite(inputNum)
+      ? Math.max(0, Math.min(totalQty, inputNum))
+      : 0
+    : partialMode && Number.isFinite(inputNum)
+      ? Math.max(0, totalQty - inputNum)
+      : 0;
+  const used = returnActive
+    ? Math.max(0, totalQty - remaining)
+    : partialMode && Number.isFinite(inputNum)
+      ? inputNum
+      : totalQty;
+  const validUsed = Number.isFinite(used) ? used : NaN;
   const showQtySection = partialMode && !readOnly;
 
   return (
@@ -81,7 +91,7 @@ export default function UpdateCoilStatusForm({
             >
               <span className="text-xs font-black uppercase text-indigo-900">Return</span>
               <p className="text-[10px] text-slate-600 mt-1 leading-snug">
-                Enter consumed qty — balance returns to store automatically.
+                Enter return qty — that qty goes to Store In for receive.
               </p>
             </button>
             <button
@@ -108,25 +118,27 @@ export default function UpdateCoilStatusForm({
       {showQtySection ? (
         <div className="space-y-1.5">
           <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-            Consumed qty
+            {returnActive ? "Return qty" : "Consumed qty"}
           </label>
           <input
             type="number"
             min={0}
             max={totalQty}
             step="any"
+            inputMode="decimal"
             value={consumedQty}
             onChange={(e) => onConsumedQtyChange?.(e.target.value)}
-            placeholder={`Max ${totalQty.toLocaleString()}`}
+            placeholder={String(totalQty)}
             className={`${OK_INPUT} h-10 text-sm tabular-nums`}
           />
           {returnActive &&
-          Number.isFinite(validUsed) &&
-          validUsed >= 0 &&
-          validUsed <= totalQty ? (
+          consumedQty !== "" &&
+          consumedQty !== "." &&
+          remaining > 0 ? (
             <p className="text-[10px] font-semibold text-teal-800 flex items-center gap-1.5">
               <PackagePlus size={12} className="shrink-0" />
               {remaining.toLocaleString()} will go to Store In on submit
+              {used > 0 ? ` · ${used.toLocaleString()} consumed` : ""}
             </p>
           ) : null}
           {reassignEnabled &&

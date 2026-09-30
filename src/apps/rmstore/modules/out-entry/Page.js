@@ -548,6 +548,9 @@ export default function StoreOutPage() {
         },
         { width: "120px", align: "center" },
       ],
+      ["Issue ID", "issue_uid", (v) => (
+          <span className="font-mono font-bold text-indigo-600 text-[10px]">{v != null && v !== "" ? v : "—"}</span>
+        ), { width: "90px" }],
       ["MRN UID", "mrn_uids", (v) => <span className="font-bold text-slate-800 text-[10px] font-mono tracking-tight">{v || "—"}</span>, { width: "120px" }],
       ["Job Card No", "pjobcardno", (v) => <span className="font-bold text-slate-800 text-[10px] font-mono tracking-tight">{v || "—"}</span>, { width: "120px" }],
       ["Machine / Reason", "macname", (_v, row) => {
@@ -569,6 +572,11 @@ export default function StoreOutPage() {
             {v || row?.item_desc || "—"}
           </span>
         ), { width: "200px" }],
+      ["Supplier", "acc_name", (v, row) => (
+          <span className="text-[11px] text-slate-700 truncate block" title={v || row?.vendor_acc_name || ""}>
+            {v || row?.vendor_acc_name || "—"}
+          </span>
+        ), { width: "180px" }],
       ["Locations", "location_refs", (v) => <span className="text-[10px] font-bold text-emerald-800">{v || "—"}</span>, { width: "120px" }],
       ["Total Qty", "total_qty", (v) => (
         <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 text-[11px] tabular-nums">
@@ -651,6 +659,13 @@ export default function StoreOutPage() {
       ["RM Description", "rm_item_desc", (v, row) => (
           <span className="text-[11px] text-slate-600 truncate block" title={v || row?.item_desc || ""}>
             {v || row?.item_desc || "—"}
+          </span>
+        ),
+        { width: "180px" },
+      ],
+      ["Supplier", "acc_name", (v, row) => (
+          <span className="text-[11px] text-slate-700 truncate block" title={v || row?.vendor_acc_name || ""}>
+            {v || row?.vendor_acc_name || "—"}
           </span>
         ),
         { width: "180px" },

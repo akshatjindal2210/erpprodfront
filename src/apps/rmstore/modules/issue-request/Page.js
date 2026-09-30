@@ -67,18 +67,19 @@ function LockStatusBadge({ row }) {
   );
 }
 
-function buildStoreOutApiFilters(storeOutFilter) {
+function matchesStoreOutFilter(row, storeOutFilter) {
+  const status = formatLockStatusCell(row).text;
   switch (storeOutFilter) {
     case "lock_unlock":
-      return { out_entry_complete: false };
+      return status !== "COMPLETE";
     case "locked":
-      return { out_entry_locked: true, out_entry_complete: false };
+      return status === "LOCKED";
     case "unlocked":
-      return { out_entry_locked: false, out_entry_complete: false };
+      return status === "UNLOCKED";
     case "complete":
-      return { out_entry_complete: true };
+      return status === "COMPLETE";
     default:
-      return {};
+      return true;
   }
 }
 
@@ -220,8 +221,6 @@ export default function IssueRequestPage() {
         filters: {
           ...(params.fromDate && { from_date: `${params.fromDate} 00:00:00` }),
           ...(params.toDate && { to_date: `${params.toDate} 23:59:59` }),
-          ...(params.status !== "all" && { approved: params.status === "approved" }),
-          ...buildStoreOutApiFilters(params.storeOutFilter),
         },
       };
       const apiSearch = isSummary ? appliedSearch : "";
@@ -245,7 +244,7 @@ export default function IssueRequestPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.fromDate, params.toDate, params.status, params.storeOutFilter, appliedSearch, isSummary]);
+  }, [params.pageSize, params.fromDate, params.toDate, appliedSearch, isSummary]);
 
   useEffect(() => {
     fetchRows();
@@ -267,11 +266,16 @@ export default function IssueRequestPage() {
     if (!isSummary && jobCardIssueUidFilter != null) {
       data = data.filter((r) => String(r.issue_uid) === String(jobCardIssueUidFilter));
     }
+    data = data.filter(
+      (r) =>
+        (params.status === "all" || isRowApproved(r) === (params.status === "approved")) &&
+        matchesStoreOutFilter(r, params.storeOutFilter)
+    );
     if (String(tempSearch || "").trim()) {
       data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
-  }, [allRows, masterRows, tempSearch, params.sortKey, params.sortDir, isSummary, jobCardIssueUidFilter]);
+  }, [allRows, masterRows, tempSearch, params.sortKey, params.sortDir, params.status, params.storeOutFilter, isSummary, jobCardIssueUidFilter]);
 
   const getRowId = useCallback(
     (row) => {
@@ -320,12 +324,9 @@ export default function IssueRequestPage() {
         tempSearch,
         sourceRows: allRows,
         filteredRows,
-        serverFiltered:
-          params.status !== "all" ||
-          params.storeOutFilter !== "lock_unlock" ||
-          Boolean(appliedSearch),
+        serverFiltered: Boolean(appliedSearch),
       }),
-    [tempSearch, allRows, filteredRows, params.status, params.storeOutFilter, appliedSearch]
+    [tempSearch, allRows, filteredRows, appliedSearch]
   );
 
   const openMasterModal = useCallback(
@@ -621,7 +622,7 @@ export default function IssueRequestPage() {
         label: "Status",
         key: "approvedStatus",
         value: params.status,
-        variant: "server",
+        variant: "quick",
         options: [
           { label: "All Status", value: "all" },
           { label: "Approved", value: "approved" },
@@ -632,7 +633,7 @@ export default function IssueRequestPage() {
         label: "Lock / Complete",
         key: "storeOutFilter",
         value: params.storeOutFilter,
-        variant: "server",
+        variant: "quick",
         options: STORE_OUT_FILTER_OPTIONS,
       },
     ],
@@ -782,6 +783,9 @@ export default function IssueRequestPage() {
             fromDate={params.fromDate}
             toDate={params.toDate}
             extraFilters={extraFilters}
+            onExtraFilterChange={(key, v) =>
+              setParams((p) => ({ ...p, [key === "approvedStatus" ? "status" : key]: v }))
+            }
             onApply={(data) => {
               applySearchFromInput();
               setSelected(null);

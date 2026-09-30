@@ -222,6 +222,16 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
         { label: "Item", value: detail?.item_code || row?.item_codes || registerOrRow?.item_codes },
         { label: "Item Description", value: detail?.item_desc || row?.item_descs || registerOrRow?.item_descs },
         {
+          label: "Supplier",
+          value:
+            registerOrRow?.vendor_acc_name ||
+            registerOrRow?.acc_name ||
+            detail?.acc_name ||
+            row?.vendor_acc_name ||
+            row?.acc_name ||
+            null,
+        },
+        {
           label: "Total Qty",
           value:
             detail?.total_qty != null || row?.total_qty != null || registerOrRow?.total_qty != null
@@ -253,6 +263,16 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
           },
           { label: "Item", value: detail?.item_code || row?.item_code || row?.item_codes },
           { label: "Item Description", value: detail?.item_desc || row?.item_descs || row?.item_desc },
+          {
+            label: "Supplier",
+            value:
+              registerOrRow?.vendor_acc_name ||
+              registerOrRow?.acc_name ||
+              detail?.acc_name ||
+              row?.vendor_acc_name ||
+              row?.acc_name ||
+              null,
+          },
           { label: "Inspected By", value: detail?.approved_by_name || detail?.created_by_name || row?.inspected_by_name },
           {
             label: "Inspected At",
@@ -270,6 +290,10 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
           { label: "Heat Nos.", value: registerOrRow?.heat_nos, mono: true },
           { label: "Item Codes", value: registerOrRow?.item_codes },
           { label: "Item Description", value: registerOrRow?.item_descs || registerOrRow?.item_desc },
+          {
+            label: "Supplier",
+            value: registerOrRow?.vendor_acc_name || registerOrRow?.acc_name || null,
+          },
           {
             label: "Total Qty",
             value: registerOrRow?.total_qty != null ? Number(registerOrRow.total_qty).toLocaleString() : null,

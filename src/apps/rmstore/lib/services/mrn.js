@@ -4,6 +4,8 @@ import { ENDPOINTS } from "@/apps/rmstore/lib/config/endpoints";
 
 /** ERP fields used when creating MRN on Generate (pending rows). */
 function mrnSourceBody(source = {}) {
+  const qty = source.qty ?? source.it_recp_qty ?? source.itrecpqty;
+  const coilNo = source.coil_no ?? source.it_lot_no ?? source.itLotNo;
   return {
     uid: source.uid,
     mrnno: source.mrn_no ?? source.mrnno,
@@ -16,8 +18,11 @@ function mrnSourceBody(source = {}) {
     itemdcode: source.item_dcode ?? source.itemdcode,
     itemcode: source.item_code ?? source.itemcode,
     itemdesc: source.item_desc ?? source.itemdesc,
-    itrecpqty: source.it_recp_qty ?? source.itrecpqty,
-    itLotNo: source.it_lot_no ?? source.itLotNo,
+    qty,
+    coil_no: coilNo,
+    // ERP generate contract still expects legacy keys
+    itrecpqty: qty,
+    itLotNo: coilNo,
     itunit: source.it_unit ?? source.itunit,
     fyid: source.fyid,
     userc: source.internal_create_user || source.userc || null,

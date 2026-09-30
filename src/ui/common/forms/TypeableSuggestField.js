@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { AlertCircle, Search, ChevronDown } from "lucide-react";
 import { OK_INPUT, FORM_LABEL_CLASS, FORM_ERROR_CLASS } from "@/ui/common/Constants";
@@ -40,7 +40,7 @@ export default function TypeableSuggestField({
   className = "",
   inputClassName = "",
   inputStyle,
-  menuZIndex = 80,
+  menuZIndex = 10050,
   portalMenu = false,
   /** Match SearchableSelect shell — search icon, chevron, shared border/hover states. */
   comboboxShell = false,
@@ -51,6 +51,7 @@ export default function TypeableSuggestField({
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
   const [menuStyle, setMenuStyle] = useState(null);
+  const [openUp, setOpenUp] = useState(false);
   const [mounted, setMounted] = useState(false);
   const inputRef = useRef(null);
   const shellRef = useRef(null);
@@ -89,14 +90,36 @@ export default function TypeableSuggestField({
     [filterOptions, optionLabelKey]
   );
 
+  /** Viewport coords for fixed portal — same approach as SearchableSelect (Drawer-safe). */
   const updateMenuPosition = useCallback(() => {
     const el = comboboxShell ? shellRef.current : inputRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
+    const margin = 8;
+    const panelHeight = 224;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const nextOpenUp = spaceBelow < Math.min(panelHeight, 160) && rect.top > spaceBelow;
+
+    let width = Math.min(rect.width, window.innerWidth - margin * 2);
+    let left = rect.left;
+    if (left + width > window.innerWidth - margin) {
+      left = Math.max(margin, window.innerWidth - margin - width);
+    }
+    if (left < margin) {
+      left = margin;
+      width = Math.min(width, window.innerWidth - margin * 2);
+    }
+
+    setOpenUp(nextOpenUp);
     setMenuStyle({
-      top: rect.bottom + 4,
-      left: rect.left,
-      width: Math.max(rect.width, 160),
+      width,
+      left,
+      top: nextOpenUp
+        ? Math.max(margin, rect.top - panelHeight - 4)
+        : rect.bottom + 4,
+      maxHeight: nextOpenUp
+        ? Math.max(120, rect.top - margin - 4)
+        : Math.max(120, window.innerHeight - rect.bottom - margin - 4),
     });
   }, [comboboxShell]);
 
@@ -170,8 +193,11 @@ export default function TypeableSuggestField({
     applyFilter(value, allOpts);
   }, [value, allOpts, applyFilter]);
 
-  useEffect(() => {
-    if (!open || !portalMenu) return undefined;
+  useLayoutEffect(() => {
+    if (!open || !portalMenu) {
+      setMenuStyle(null);
+      return undefined;
+    }
     updateMenuPosition();
     const onReflow = () => updateMenuPosition();
     window.addEventListener("scroll", onReflow, true);
@@ -196,7 +222,9 @@ export default function TypeableSuggestField({
     if (isLocked) return;
     applyFilter(value, allOpts);
     setOpen(true);
-    if (portalMenu) updateMenuPosition();
+    if (portalMenu) {
+      requestAnimationFrame(() => updateMenuPosition());
+    }
     inputRef.current?.focus();
   }, [allOpts, applyFilter, isLocked, portalMenu, updateMenuPosition, value]);
 
@@ -224,52 +252,60 @@ export default function TypeableSuggestField({
     ? "text-[12px] font-medium text-slate-700 leading-snug"
     : "text-[13px] font-normal text-slate-700";
 
-  const menuNode =
-    !isLocked && open && visibleOpts.length > 0 ? (
-      <div
-        data-searchable-select-portal={portalMenu ? "" : undefined}
-        className={`${portalMenu ? "searchable-select-dropdown " : ""}bg-white border border-slate-200 rounded-lg shadow-md max-h-56 overflow-auto animate-in fade-in zoom-in-95 duration-100`}
-        style={
-          portalMenu && menuStyle
-            ? { position: "fixed", top: menuStyle.top, left: menuStyle.left, width: menuStyle.width, zIndex: menuZIndex }
-            : { zIndex: menuZIndex }
-        }
+  const showPortalMenu = portalMenu && mounted && open && visibleOpts.length > 0 && menuStyle?.width > 0;
+  const showInlineMenu = !portalMenu && !isLocked && open && visibleOpts.length > 0;
+
+  const menuList = (visibleOpts.length > 0 ? visibleOpts : []).map((o, idx) => {
+    const hint = optionHintKey ? o?.[optionHintKey] : "";
+    const optStyle = o?.menuStyle;
+    const hasCustomStyle = Boolean(optStyle?.backgroundColor);
+    return (
+      <button
+        key={o[optionIdKey] ?? getOptionLabel(o) ?? idx}
+        type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          handlePick(o);
+          setOpen(false);
+          setHighlight(-1);
+        }}
+        onMouseEnter={() => setHighlight(idx)}
+        className={`w-full text-left px-3 py-2 border-b border-slate-50 last:border-b-0 transition-colors ${
+          comboboxShell ? "min-h-[36px]" : "min-h-[44px] py-2.5"
+        } ${
+          hasCustomStyle
+            ? highlight === idx
+              ? "ring-1 ring-inset ring-indigo-300"
+              : ""
+            : highlight === idx
+              ? "bg-indigo-50/80"
+              : "hover:bg-slate-50"
+        }`}
+        style={optStyle}
       >
-        {visibleOpts.map((o, idx) => {
-          const hint = optionHintKey ? o?.[optionHintKey] : "";
-          const optStyle = o?.menuStyle;
-          const hasCustomStyle = Boolean(optStyle?.backgroundColor);
-          return (
-            <button
-              key={o[optionIdKey] ?? getOptionLabel(o) ?? idx}
-              type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                handlePick(o);
-                setOpen(false);
-                setHighlight(-1);
-              }}
-              onMouseEnter={() => setHighlight(idx)}
-              className={`w-full text-left px-3 py-2 border-b border-slate-50 last:border-b-0 transition-colors ${
-                comboboxShell ? "min-h-[36px]" : "min-h-[44px] py-2.5"
-              } ${
-                hasCustomStyle
-                  ? highlight === idx
-                    ? "ring-1 ring-inset ring-indigo-300"
-                    : ""
-                  : highlight === idx
-                    ? "bg-indigo-50/80"
-                    : "hover:bg-slate-50"
-              }`}
-              style={optStyle}
-            >
-              <div className={menuRowLabelClass}>{getOptionLabel(o)}</div>
-              {hint ? <div className="text-[11px] text-slate-500 font-normal leading-snug">{hint}</div> : null}
-            </button>
-          );
-        })}
-      </div>
-    ) : null;
+        <div className={menuRowLabelClass}>{getOptionLabel(o)}</div>
+        {hint ? <div className="text-[11px] text-slate-500 font-normal leading-snug">{hint}</div> : null}
+      </button>
+    );
+  });
+
+  const portalMenuNode = showPortalMenu ? (
+    <div
+      data-searchable-select-portal=""
+      className="searchable-select-dropdown bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto animate-in fade-in zoom-in-95 duration-100"
+      style={{
+        position: "fixed",
+        top: menuStyle.top,
+        left: menuStyle.left,
+        width: menuStyle.width,
+        maxWidth: "calc(100vw - 16px)",
+        maxHeight: menuStyle.maxHeight,
+        zIndex: menuZIndex,
+      }}
+    >
+      {menuList}
+    </div>
+  ) : null;
 
   const inputEl = (
     <input
@@ -285,8 +321,9 @@ export default function TypeableSuggestField({
         if (!isLocked) {
           applyFilter(v, allOpts);
           setOpen(true);
-          setHighlight(-1);
-          if (portalMenu) updateMenuPosition();
+          if (portalMenu) {
+            requestAnimationFrame(() => updateMenuPosition());
+          }
         }
         onClearError?.();
       }}
@@ -297,7 +334,9 @@ export default function TypeableSuggestField({
         if (!isLocked) {
           applyFilter(value, allOpts);
           setOpen(true);
-          if (portalMenu) updateMenuPosition();
+          if (portalMenu) {
+            requestAnimationFrame(() => updateMenuPosition());
+          }
         }
       }}
       onBlur={() => setTimeout(() => setOpen(false), 120)}
@@ -357,8 +396,16 @@ export default function TypeableSuggestField({
           <AlertCircle size={10} /> {error}
         </p>
       ) : null}
-      {portalMenu && mounted && menuNode ? createPortal(menuNode, document.body) : null}
-      {!portalMenu && menuNode ? <div className="absolute left-0 right-0 mt-1">{menuNode}</div> : null}
+      {portalMenu && mounted && portalMenuNode ? createPortal(portalMenuNode, document.body) : null}
+      {showInlineMenu ? (
+        <div
+          className={`absolute left-0 right-0 z-[80] bg-white border border-slate-200 rounded-lg shadow-lg overflow-auto max-h-56 animate-in fade-in zoom-in-95 duration-100 ${
+            openUp ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]"
+          }`}
+        >
+          {menuList}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -59,15 +59,17 @@ function isDetailGenerated(detail) {
 
 function isDetailAwaitingApproval(detail) {
   if (!isDetailGenerated(detail) || detail?.sticker_rejected) return false;
-  if (detail?.status === "generate") return true;
-  if (detail?.status === "approved") return false;
+  const s = String(detail?.sticker_status || detail?.status || "").toLowerCase();
+  if (s === "generate") return true;
+  if (s === "approved") return false;
   return detail?.sticker_approved === false;
 }
 
 function isDetailApproved(detail) {
   if (!isDetailGenerated(detail)) return false;
-  if (detail?.status === "generate") return false;
-  if (detail?.status === "approved") return true;
+  const s = String(detail?.sticker_status || detail?.status || "").toLowerCase();
+  if (s === "generate") return false;
+  if (s === "approved") return true;
   return detail?.sticker_approved !== false;
 }
 
@@ -117,8 +119,17 @@ function resolveUploadUrl(noteOrPath) {
 
 function docFileLabel(nameOrPath) {
   if (!nameOrPath) return "";
-  const parts = String(nameOrPath).split(/[/\\]/);
+  const parts = String(nameOrPath).replace(/\\/g, "/").split("/");
   return parts[parts.length - 1] || String(nameOrPath);
+}
+
+function mrnQtyValue(data) {
+  const n = Number(data?.qty ?? data?.it_recp_qty);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function mrnCoilNoValue(data) {
+  return String(data?.coil_no ?? data?.it_lot_no ?? data?.itLotNo ?? "").trim();
 }
 
 function formatQty(v) {
@@ -360,7 +371,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const stickerMode = String(detail?.sticker_mode || "").trim().toLowerCase() === "batch" ? "batch" : "coil";
   const isBatchMode = stickerMode === "batch";
 
-  const mrnQty = Number(detail?.it_recp_qty);
+  const mrnQty = mrnQtyValue(detail);
   /** Total Qty = MRN received qty only — never user-editable. */
   const targetQty = Number.isFinite(mrnQty) ? roundQty3(mrnQty) : 0;
 
@@ -370,11 +381,11 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   }, []);
 
   const applyFreshInputs = useCallback((data) => {
-    const qty = Number(data?.it_recp_qty);
+    const qty = mrnQtyValue(data);
     const startTotal = Number.isFinite(qty) ? roundQty3(qty) : 0;
     const editable = data?.qty_editable !== false;
     const autoCalc = data?.qty_auto_calc !== false;
-    const lot = String(data?.it_lot_no ?? data?.itLotNo ?? "").trim();
+    const lot = mrnCoilNoValue(data);
     const initialCount = /^\d+$/.test(lot) ? Math.max(1, Math.min(9999, Number(lot))) : 1;
     setCoilCount(String(initialCount));
     if (autoCalc || !editable) {
@@ -429,7 +440,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     } else if (autoCalc || !editable) {
       const total = Number.isFinite(Number(draft.total_qty))
         ? roundQty3(Number(draft.total_qty))
-        : roundQty3(Number(data?.it_recp_qty) || 0);
+        : roundQty3(Number(data?.qty ?? data?.it_recp_qty) || 0);
       setCoilQtys(buildCoilQtys(count, total, { autoCalc }));
     } else {
       setCoilQtys(Array.from({ length: count }, () => ""));
@@ -786,7 +797,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         item_code: detail.item_code,
         item_desc: detail.item_desc,
         it_unit: detail.it_unit,
-        it_lot_no: detail.it_lot_no,
+        it_lot_no: detail.coil_no ?? detail.it_lot_no,
+        coil_no: detail.coil_no ?? detail.it_lot_no,
         heat_no: heatNo || null,
         coil_count: Math.max(1, Number(coilCount) || 1),
         total_qty: targetQty,
@@ -933,10 +945,11 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         has_sticker_draft: true,
         sticker_draft: res?.data?.sticker_draft ?? prev?.sticker_draft,
         tc_file_path: res?.data?.tc_file_path ?? prev?.tc_file_path ?? null,
-        tc_file_name: res?.data?.tc_file_name ?? prev?.tc_file_name ?? null,
         rmtc_file_path: res?.data?.rmtc_file_path ?? prev?.rmtc_file_path ?? null,
-        rmtc_file_name: res?.data?.rmtc_file_name ?? prev?.rmtc_file_name ?? null,
+        sticker_by: res?.data?.sticker_by ?? prev?.sticker_by ?? null,
+        sticker_at: res?.data?.sticker_at ?? prev?.sticker_at ?? null,
         status: "draft",
+        sticker_status: "draft",
       }));
       setTcFile(null);
       setRmtcFile(null);
@@ -1015,6 +1028,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         sticker_generated: true,
         sticker_approved: false,
         status: "generate",
+        sticker_status: "generate",
         coils: nextDetail?.coils?.length
           ? nextDetail.coils
           : (res?.data?.coils || []),
@@ -1023,9 +1037,9 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         qty_editable: nextDetail?.qty_editable ?? detail?.qty_editable,
         qty_auto_calc: nextDetail?.qty_auto_calc ?? detail?.qty_auto_calc,
         tc_file_path: nextDetail?.tc_file_path || uploadedDocs?.tc_file_path || null,
-        tc_file_name: nextDetail?.tc_file_name || uploadedDocs?.tc_file_name || tcFile?.name || null,
         rmtc_file_path: nextDetail?.rmtc_file_path || uploadedDocs?.rmtc_file_path || null,
-        rmtc_file_name: nextDetail?.rmtc_file_name || uploadedDocs?.rmtc_file_name || rmtcFile?.name || null,
+        sticker_by: nextDetail?.sticker_by ?? null,
+        sticker_at: nextDetail?.sticker_at ?? null,
         remarks: nextDetail?.remarks || remarks || null,
       });
       setRemarks(nextDetail?.remarks || remarks || "");
@@ -1217,9 +1231,10 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       setDetail((prev) => ({
         ...(prev || {}),
         sticker_approved: true,
-        sticker_approved_by: res?.data?.sticker_approved_by ?? prev?.sticker_approved_by,
-        sticker_approved_at: res?.data?.sticker_approved_at ?? prev?.sticker_approved_at,
+        sticker_by: res?.data?.sticker_by ?? prev?.sticker_by,
+        sticker_at: res?.data?.sticker_at ?? prev?.sticker_at,
         status: "approved",
+        sticker_status: "approved",
       }));
       onSuccess?.();
     } catch (err) {
@@ -1253,7 +1268,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
           </DetailField>
           <DetailField label="Total Qty">
             <p className="text-[11px] lg:text-sm font-bold text-slate-700 leading-none tabular-nums">
-              {formatQty(alreadyGenerated ? detail.it_recp_qty : targetQty)}{" "}
+              {formatQty(alreadyGenerated ? (detail.qty ?? detail.it_recp_qty) : targetQty)}{" "}
               <span className="text-[9px] opacity-60 uppercase font-bold">{unit}</span>
             </p>
           </DetailField>
@@ -1357,7 +1372,6 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                 file={tcFile}
                 onChange={setTcFile}
                 savedPath={detail?.tc_file_path}
-                savedName={detail?.tc_file_name}
               />
               <SimpleFileInput
                 label="RMTC Document"
@@ -1365,7 +1379,6 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                 file={rmtcFile}
                 onChange={setRmtcFile}
                 savedPath={detail?.rmtc_file_path}
-                savedName={detail?.rmtc_file_name}
               />
               <FormTextarea
                 label="Remarks"
@@ -1381,13 +1394,11 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                 label="TC Document"
                 disabled
                 savedPath={detail?.tc_file_path}
-                savedName={detail?.tc_file_name}
               />
               <SimpleFileInput
                 label="RMTC Document"
                 disabled
                 savedPath={detail?.rmtc_file_path}
-                savedName={detail?.rmtc_file_name}
               />
               <div className="min-w-0">
                 <FormLabel className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter ml-0">

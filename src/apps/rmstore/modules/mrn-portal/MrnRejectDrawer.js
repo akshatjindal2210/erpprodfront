@@ -43,7 +43,10 @@ function initialCoilCount(detail, row) {
   if (draft?.coil_count != null) {
     return Math.max(1, Number(draft.coil_count) || 1);
   }
-  const lot = String(detail?.it_lot_no ?? detail?.itLotNo ?? row?.it_lot_no ?? row?.itLotNo ?? "").trim();
+  const lot = String(
+    detail?.coil_no ?? detail?.it_lot_no ?? detail?.itLotNo
+    ?? row?.coil_no ?? row?.it_lot_no ?? row?.itLotNo ?? ""
+  ).trim();
   if (/^\d+$/.test(lot)) return Math.max(1, Math.min(9999, Number(lot)));
   return 1;
 }
@@ -88,7 +91,7 @@ export default function MrnRejectDrawer({ open, onClose, onSuccess, row }) {
   const uid = row?.uid != null ? String(row.uid).trim() : "";
 
   const totalQty = useMemo(
-    () => roundQty3(Number(erpField(row, detail, "it_recp_qty")) || 0),
+    () => roundQty3(Number(erpField(row, detail, "qty") ?? erpField(row, detail, "it_recp_qty")) || 0),
     [row, detail]
   );
   const qtyAutoCalc = row?.qty_auto_calc ?? detail?.qty_auto_calc;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Loader2, ScanLine, CameraOff, Layers, Package, QrCode, Factory } from "lucide-react";
+import { Loader2, ScanLine, CameraOff, Layers, Package, QrCode, Factory, History } from "lucide-react";
 import Drawer from "@/ui/primitives/Drawer";
 import Snackbar from "@/ui/primitives/Snackbar";
 import { lookupCoilByUid } from "@/apps/rmstore/lib/services/coil";
@@ -16,7 +16,7 @@ import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/de
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import CoilFinderDetailsSection from "./CoilFinderDetailsSection";
 import CoilFinderPlacementSection, { CoilFinderConsumedDetails, coilFinderHeaderTone } from "./CoilFinderPlacementSection";
-import { fgWireSplitKindShort, formatPjobcardnoDisplay, getCoilStockZone, partitionFgWireSplits, resolveCoilJobCardLabel, resolveCoilMachineLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
+import { fgWireSplitKindShort, formatPjobcardnoDisplay, getCoilStockZone, partitionFgWireSplits, resolveCoilJobCardHistory, resolveCoilMachineLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "info", title: "", message: "", duration: SNACK_DUR.med };
@@ -167,6 +167,9 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
   const coilZone = coilData ? getCoilStockZone(coilData) : null;
   const shopFloorCoil = coilZone === "out";
   const consumedCoil = coilZone === "consumed";
+  const jobCardHistory = coilData
+    ? resolveCoilJobCardHistory(coilData)
+    : { latest: "—", latestMac: null, history: [] };
 
   return (
     <>
@@ -279,12 +282,18 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
                       {shopFloorCoil ? (
                         <>
                           <IconLabeledRow icon={Layers} label="Job card" iconClass="text-indigo-500">
-                            <span className={`font-mono uppercase ${coilData.reassign ? "text-indigo-700" : ""}`}>
-                              {resolveCoilJobCardLabel(coilData)}
+                            <span
+                              className={`font-mono uppercase ${
+                                jobCardHistory.history.length ? "text-indigo-700" : ""
+                              }`}
+                            >
+                              {jobCardHistory.latest}
                             </span>
                           </IconLabeledRow>
                           <IconLabeledRow icon={Package} label="Machine" iconClass="text-indigo-500">
-                            <span className="font-mono uppercase">{resolveCoilMachineLabel(coilData)}</span>
+                            <span className="font-mono uppercase">
+                              {jobCardHistory.latestMac || resolveCoilMachineLabel(coilData)}
+                            </span>
                           </IconLabeledRow>
                         </>
                       ) : null}
@@ -292,6 +301,55 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
                   </div>
                 </div>
               </div>
+
+              {shopFloorCoil && jobCardHistory.history.length ? (
+                <div className={`p-3 rounded-xl border ${headerTone.shell}`}>
+                  <div className="flex items-start gap-2">
+                    <div
+                      className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${headerTone.icon}`}
+                    >
+                      <History size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-[10px] font-medium leading-none ${headerTone.kicker}`}>
+                        History
+                      </p>
+                      <p className={`text-sm font-bold leading-tight mt-1 ${headerTone.title}`}>
+                        Earlier job cards
+                      </p>
+                      <div className={`mt-2 pt-2 border-t ${headerTone.divider} space-y-2`}>
+                        {jobCardHistory.history.map((h, idx) => (
+                          <div
+                            key={`${h.pjobcardno}-${idx}`}
+                            className="grid grid-cols-2 gap-x-3 gap-y-0.5"
+                          >
+                            <div className="min-w-0">
+                              <p className={`text-[10px] font-medium mb-0.5 ${headerTone.kicker}`}>
+                                {jobCardHistory.history.length - idx} · Job card
+                              </p>
+                              <p
+                                className={`text-xs font-semibold font-mono uppercase leading-snug break-all ${headerTone.title}`}
+                              >
+                                {h.pjobcardno}
+                              </p>
+                            </div>
+                            <div className="min-w-0">
+                              <p className={`text-[10px] font-medium mb-0.5 ${headerTone.kicker}`}>
+                                Machine
+                              </p>
+                              <p
+                                className={`text-xs font-semibold font-mono uppercase leading-snug break-all ${headerTone.title}`}
+                              >
+                                {h.macname || "—"}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               {fgPartition.others.map((split, idx) => (
                 <div

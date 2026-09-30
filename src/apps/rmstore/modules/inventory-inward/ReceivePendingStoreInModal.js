@@ -58,7 +58,8 @@ export default function ReceivePendingStoreInModal({ open, iprUid, initialIpr = 
       setLines([]);
       return;
     }
-    const source = row.previous_coils?.length ? row.previous_coils : row.coils;
+    // Prefer live `coils` (correct remaining_qty). `previous_coils` is original snapshot only.
+    const source = row.coils?.length ? row.coils : row.previous_coils;
     setIpr(row);
     setLines((source || []).map(mapLine));
     setError("");

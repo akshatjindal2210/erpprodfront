@@ -202,13 +202,23 @@ function mrnMetaSavePayload(mrnDetail, editData) {
 function resolveMrnRemainingQty(mrn) {
   const remaining = Number(mrn?.remaining_qty);
   if (Number.isFinite(remaining) && remaining >= 0) return roundQty3(remaining);
-  const receipt = Number(mrn?.it_recp_qty);
+  const receipt = Number(mrn?.qty ?? mrn?.it_recp_qty);
   const prior = Number(mrn?.prior_add_qty);
   if (Number.isFinite(receipt) && receipt > 0) {
     const used = Number.isFinite(prior) && prior >= 0 ? prior : 0;
     return roundQty3(Math.max(0, receipt - used));
   }
   return 0;
+}
+
+function fileNameFromPath(p) {
+  if (!p) return null;
+  const s = String(p).replace(/\\/g, "/");
+  return s.split("/").pop() || null;
+}
+
+function mrnCoilNo(mrn) {
+  return mrn?.coil_no ?? mrn?.it_lot_no ?? mrn?.itLotNo ?? null;
 }
 
 function parseErpMrnCoils(mrn) {
@@ -297,7 +307,7 @@ function SaDocFileInput({ label, file, onChange, disabled, savedPath, savedName,
   const localUrl = file instanceof File ? URL.createObjectURL(file) : "";
   const savedUrl = resolveUploadUrl(savedPath, FILE_BASE_URL);
   const previewUrl = localUrl || savedUrl;
-  const displayName = file?.name || savedName || "";
+  const displayName = file?.name || savedName || fileNameFromPath(savedPath) || "";
 
   return (
     <div className="space-y-1 min-w-0">
@@ -374,7 +384,7 @@ export default function StockAdjustmentDrawer({
   const [coilQtys, setCoilQtys] = useState([0]);
   const [tcFile, setTcFile] = useState(null);
   const [rmtcFile, setRmtcFile] = useState(null);
-  const [savedDocs, setSavedDocs] = useState({ tc_file_path: null, tc_file_name: null, rmtc_file_path: null, rmtc_file_name: null });
+  const [savedDocs, setSavedDocs] = useState({ tc_file_path: null, rmtc_file_path: null });
   const [remarks, setRemarks] = useState("");
   const [approveOnSave, setApproveOnSave] = useState(false);
   const [selectedCoils, setSelectedCoils] = useState([]);
@@ -451,7 +461,7 @@ export default function StockAdjustmentDrawer({
     setCoilQtys([0]);
     setTcFile(null);
     setRmtcFile(null);
-    setSavedDocs({ tc_file_path: null, tc_file_name: null, rmtc_file_path: null, rmtc_file_name: null });
+    setSavedDocs({ tc_file_path: null, rmtc_file_path: null });
     setRemarks("");
     setApproveOnSave(false);
     setSelectedCoils([]);
@@ -531,9 +541,7 @@ export default function StockAdjustmentDrawer({
         );
         setSavedDocs({
           tc_file_path: d.tc_file_path ?? null,
-          tc_file_name: d.tc_file_name ?? null,
           rmtc_file_path: d.rmtc_file_path ?? null,
-          rmtc_file_name: d.rmtc_file_name ?? null,
         });
         setApproveOnSave(isApprove ? true : false);
         setEditingWasApproved(Boolean(d.approved));
@@ -591,7 +599,7 @@ export default function StockAdjustmentDrawer({
                 const resolvedHeat =
                   d.heat_no != null && String(d.heat_no).trim()
                     ? String(d.heat_no)
-                    : mrnRes.data.heat_no ?? mrnRes.data.it_lot_no ?? coils[0]?.heat_no ?? "";
+                    : mrnRes.data.heat_no ?? mrnRes.data.coil_no ?? mrnRes.data.it_lot_no ?? coils[0]?.heat_no ?? "";
                 if (resolvedHeat) setHeatNo(String(resolvedHeat));
               }
             } catch {
@@ -690,9 +698,10 @@ export default function StockAdjustmentDrawer({
     setMrnNo(no);
     setSerialNo(resolveSerialNo(mrn));
     setMrnInput(no || "");
+    const coil = mrnCoilNo(mrn);
     const lot =
-      mrn?.it_lot_no != null
-        ? String(mrn.it_lot_no)
+      coil != null && String(coil).trim() !== ""
+        ? String(coil)
         : mrn?.heat_no != null
           ? String(mrn.heat_no)
           : "";
@@ -791,7 +800,7 @@ export default function StockAdjustmentDrawer({
         const remaining = resolveMrnRemainingQty(mrn);
         if (remaining <= 0) {
           const uid = String(mrn?.uid || mrn?.mrn_uid || "").trim();
-          const receipt = Number(mrn?.it_recp_qty);
+          const receipt = Number(mrn?.qty ?? mrn?.it_recp_qty);
           const used = Number(mrn?.prior_add_qty);
           const detail =
             Number.isFinite(receipt) && receipt > 0
@@ -1065,9 +1074,9 @@ export default function StockAdjustmentDrawer({
   );
 
   const originalReceiptQty = useMemo(() => {
-    const mrnQty = Number(mrnDetail?.it_recp_qty);
+    const mrnQty = Number(mrnDetail?.qty ?? mrnDetail?.it_recp_qty);
     return Number.isFinite(mrnQty) && mrnQty > 0 ? roundQty3(mrnQty) : 0;
-  }, [mrnDetail?.it_recp_qty]);
+  }, [mrnDetail?.qty, mrnDetail?.it_recp_qty]);
 
   const priorAddQty = useMemo(() => {
     const v = Number(mrnDetail?.prior_add_qty);
@@ -1911,7 +1920,6 @@ export default function StockAdjustmentDrawer({
               onChange={setTcFile}
               disabled={readOnly}
               savedPath={savedDocs.tc_file_path || editData?.tc_file_path}
-              savedName={savedDocs.tc_file_name || editData?.tc_file_name}
             />
             <SaDocFileInput
               label="RMTC Document"
@@ -1919,7 +1927,6 @@ export default function StockAdjustmentDrawer({
               onChange={setRmtcFile}
               disabled={readOnly}
               savedPath={savedDocs.rmtc_file_path || editData?.rmtc_file_path}
-              savedName={savedDocs.rmtc_file_name || editData?.rmtc_file_name}
             />
           </>
         ) : null

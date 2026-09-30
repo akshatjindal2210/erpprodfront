@@ -4,6 +4,9 @@ Cross-app **internal helper API** catalog (paths, allowlists, caller pages): [..
 
 | Note | Topic |
 |------|--------|
+| [v4.4.5.md](./v4.4.5.md) | **RM IPR** · canonical types · Return qty → Store In · Coil reassign JC chain · Finder History · Register UX · Inventory Report unchanged |
+| [v4.4.4.md](./v4.4.4.md) | **RM IPR** Reassign JC picker · Issue Request list qty · IMS Store In QC Hold |
+| [v4.4.3.md](./v4.4.3.md) | IMS FN over-dispatch % · live bill dates · RM Issue Left=0 · RM Product Master · PWA push |
 | [v4.4.2.md](./v4.4.2.md) | **Public sticker QR · Laser · Scan snackbar** · **Coil JC/Machine · IPR Pending** · **IMS FN Store Out scan** · HRMS Attendance · RM SOP & upload · RM location display · SA MRN receipt cap |
 | [v4.4.1.md](./v4.4.1.md) | Coil Finder · list footer · Schedule UI · DataTable · IPR shop-floor · Invoice Receiving · scan/QR/Store In-Out · FN print QR · **Module notifications** |
 | [v4.4.0.md](./v4.4.0.md) | User attributes · Store In receive · IPR reassign · Coil Finder FG · RM masters |

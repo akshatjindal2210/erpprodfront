@@ -49,6 +49,6 @@ export function rmStoreMrnPortalSelectionLabel(isComparisonView) {
     if (isComparisonView) {
       return `Selected: Mismatch · MRN ${t(r?.mrn_no)} · ERP vs RM Store (red = mismatch)`;
     }
-    return `Selected: MRN ${t(r?.mrn_no)} | ${t(r?.item_code)} | Qty ${t(r?.it_recp_qty)}`;
+    return `Selected: MRN ${t(r?.mrn_no)} | ${t(r?.item_code)} | Qty ${t(r?.qty ?? r?.it_recp_qty)}`;
   };
 }
