@@ -9,6 +9,7 @@ import {
 import { fetchTaskInbox, markTaskInboxRead, markAllTaskInboxRead, fetchInboxUnreadCount } from "./taskInboxApi";
 import { getTriggerLabel, getAppTypeLabel } from "./taskNotifyConfig";
 import { matchesInboxAppFilter } from "./inboxAppFilter";
+import { syncAppBadgeFromServer } from "@/platform/utils/pwa/pwaAppBadge";
 
 export const INBOX_PAGE_SIZE = 15;
 
@@ -56,6 +57,8 @@ export async function markOneInboxRead(inboxId) {
   removeInboxItem(inboxId);
   try {
     await markTaskInboxRead(inboxId);
+    void syncInboxTotalFromServer(inboxAppFilter);
+    void syncAppBadgeFromServer();
   } catch {}
 }
 
@@ -63,6 +66,7 @@ export async function markAllInboxRead(appType = inboxAppFilter) {
   clearInbox();
   try {
     await markAllTaskInboxRead(appType);
+    void syncAppBadgeFromServer();
   } catch {}
 }
 
@@ -77,6 +81,7 @@ export async function syncInboxTotalFromServer(appType = inboxAppFilter) {
 
 export function addInboxFromSocket(payload = {}) {
   if (!payload.inbox_id) return;
+  void syncAppBadgeFromServer();
   const isModuleAlert = String(payload.trigger || payload.trigger_key || "").startsWith("module_");
   if (!isModuleAlert && !matchesInboxAppFilter(payload.app_type, inboxAppFilter)) return;
   addInboxItem({

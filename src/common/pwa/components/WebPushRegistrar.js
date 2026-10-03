@@ -3,12 +3,8 @@
 import { useEffect } from "react";
 import { useSelector } from "react-redux";
 import { selectUser } from "@/platform/store/slices/authSlice";
-import {
-  flushPushDeliveryQueue,
-  linkPushSubscriptionToUser,
-  syncPushApiBaseToServiceWorker,
-  syncPushSubscriptionIfGranted,
-} from "../webPushSubscribe";
+import { flushPushDeliveryQueue, linkPushSubscriptionToUser, syncPushApiBaseToServiceWorker, syncPushSubscriptionIfGranted } from "../webPushSubscribe";
+import { clearAppBadge, syncAppBadgeFromServer } from "@/platform/utils/pwa/pwaAppBadge";
 
 /** Registers/syncs Web Push on app load and links device subscription after login. */
 export default function WebPushRegistrar() {
@@ -25,7 +21,10 @@ export default function WebPushRegistrar() {
 
     const onOnline = () => syncAll();
     const onVisible = () => {
-      if (document.visibilityState === "visible") syncAll();
+      if (document.visibilityState === "visible") {
+        syncAll();
+        if (user?.id) void syncAppBadgeFromServer();
+      }
     };
 
     window.addEventListener("online", onOnline);
@@ -34,11 +33,15 @@ export default function WebPushRegistrar() {
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      clearAppBadge();
+      return;
+    }
     void linkPushSubscriptionToUser({ userId: user.id }).catch(() => {});
+    void syncAppBadgeFromServer();
   }, [user?.id]);
 
   return null;

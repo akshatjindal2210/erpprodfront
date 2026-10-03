@@ -272,7 +272,7 @@ export default function ErpStockReportPage() {
     });
   }, []);
 
-  const handleAdjust = useCallback(async () => {
+  const handleAdjust = useCallback(async (useAdjust2 = false) => {
     if (!mismatchMode || !isSuperAdmin || !selectedRow || adjusting) return;
     const docno = packingDocNo(selectedRow.packing_number);
     const docdt = toIsoDate(selectedRow.doc_dt);
@@ -283,7 +283,9 @@ export default function ErpStockReportPage() {
     }
     setAdjusting(true);
     try {
-      const body = await erpStockReportService.adjust({ docno, docdt, qty });
+      const body = useAdjust2
+        ? await erpStockReportService.adjust2({ docno, docdt, qty })
+        : await erpStockReportService.adjust({ docno, docdt, qty });
       const rec = Array.isArray(body?.records) ? body.records[0] : null;
       const newDoc = rec?.NewAdjDocNo ?? rec?.newAdjDocNo;
       toast.success(newDoc ? `Adjusted. New doc ${newDoc}.` : body?.message || "Adjusted.");
@@ -381,15 +383,26 @@ export default function ErpStockReportPage() {
                   </span>
                 </button>
                 {mismatchMode && isSuperAdmin ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleAdjust()}
-                    disabled={!selectedRow || adjusting || loading || backgroundRefreshing}
-                    className={`${LIST_PAGE_ACTION_CLASS} px-3 border border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50`}
-                    title="Send selected mismatch to ERP stock adjust"
-                  >
-                    {adjusting ? "Adjusting…" : "Adjust"}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void handleAdjust(false)}
+                      disabled={!selectedRow || adjusting || loading || backgroundRefreshing}
+                      className={`${LIST_PAGE_ACTION_CLASS} px-3 border border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50`}
+                      title="Send selected mismatch to ERP stock adjust"
+                    >
+                      {adjusting ? "Adjusting…" : "Adjust"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleAdjust(true)}
+                      disabled={!selectedRow || adjusting || loading || backgroundRefreshing}
+                      className={`${LIST_PAGE_ACTION_CLASS} px-3 border border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50`}
+                      title="Send selected mismatch to ERP stock adjust (type 2)"
+                    >
+                      {adjusting ? "Adjusting…" : "Adjust 2"}
+                    </button>
+                  </>
                 ) : null}
               </>
             }

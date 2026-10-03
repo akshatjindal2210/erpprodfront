@@ -1,4 +1,5 @@
-const CACHE_NAME = "jfl-erp-static-v26";
+const CACHE_NAME = "jfl-erp-static-v28";
+const APP_BADGE_CACHE = "jfl-app-badge-count-v1";
 const DELIVERY_RETRY_MS = [0, 1500, 4000, 10000, 25000];
 const API_BASE_CACHE = "jfl-push-api-base-v1";
 const PENDING_DELIVERY_CACHE = "jfl-pending-push-delivery-v1";
@@ -116,6 +117,47 @@ async function ensureApiConfig(fromMeta = {}) {
     await loadApiConfig();
   }
   return mergePushMeta(fromMeta);
+}
+
+async function readCachedAppBadgeCount() {
+  try {
+    const cache = await caches.open(APP_BADGE_CACHE);
+    const res = await cache.match("count");
+    if (!res) return 0;
+    const n = Math.floor(Number(await res.text()));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function writeCachedAppBadgeCount(count) {
+  try {
+    const n = Math.floor(Number(count));
+    const cache = await caches.open(APP_BADGE_CACHE);
+    if (!Number.isFinite(n) || n <= 0) {
+      await cache.delete("count");
+      return;
+    }
+    await cache.put("count", new Response(String(n)));
+  } catch {
+    /* ignore */
+  }
+}
+
+async function applyAppBadgeCount(count) {
+  try {
+    const n = Math.floor(Number(count));
+    if (!Number.isFinite(n) || n <= 0) {
+      await writeCachedAppBadgeCount(0);
+      if (typeof navigator.clearAppBadge === "function") void navigator.clearAppBadge();
+      return;
+    }
+    await writeCachedAppBadgeCount(n);
+    if (typeof navigator.setAppBadge === "function") void navigator.setAppBadge(n);
+  } catch {
+    /* Badging API not supported */
+  }
 }
 
 function pushIconForAppType(appType) {
@@ -271,7 +313,7 @@ async function flushPendingDeliveries() {
   await savePendingDeliveries(remaining);
 }
 
-async function pingCompanyBackend(backendUrl, timeoutMs = 4000) {
+async function pingCompanyBackend(backendUrl, timeoutMs = 3000) {
   const base = String(backendUrl || "").replace(/\/$/, "");
   if (!base) return false;
   try {
@@ -412,6 +454,11 @@ self.addEventListener("message", (event) => {
     return;
   }
 
+  if (data.type === "SET_APP_BADGE_COUNT") {
+    event.waitUntil(applyAppBadgeCount(data.count));
+    return;
+  }
+
   if (data.type === "TASK_SHOW_NOTIFICATION") {
     const p = data.payload || {};
     const meta = p.data || {};
@@ -477,12 +524,18 @@ self.addEventListener("push", (event) => {
         vibrate: Array.isArray(payload.vibrate) ? payload.vibrate : [200, 100, 200],
         data: notifyData,
       })
-      .then(() =>
-        ensureApiConfig(notifyData)
+      .then(async () => {
+        let badgeCount = payload.unread_count ?? meta.unread_count;
+        if (badgeCount == null || !Number.isFinite(Number(badgeCount))) {
+          const prev = await readCachedAppBadgeCount();
+          badgeCount = prev + 1;
+        }
+        await applyAppBadgeCount(badgeCount);
+        return ensureApiConfig(notifyData)
           .then(() => postDeliveryStatus("received", trackingId, notifyData))
           .then(() => flushPendingDeliveries())
-          .catch(() => {})
-      )
+          .catch(() => {});
+      })
   );
 });
 

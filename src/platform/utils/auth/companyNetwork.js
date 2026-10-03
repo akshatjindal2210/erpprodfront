@@ -4,7 +4,7 @@ import { isPwaStandalone } from "@/platform/utils/pwa/pwa";
 export const NETWORK_UNREACHABLE_EVENT = "imp:network-unreachable";
 export const NETWORK_REACHABLE_EVENT = "imp:network-reachable";
 
-const PING_TIMEOUT_MS = 8000;
+const PING_TIMEOUT_MS = 3000;
 const UNREACHABLE_NOTIFY_MS = 4000;
 
 let networkDown = false;

@@ -227,6 +227,7 @@ export const ENDPOINTS = {
   ERP_STOCK_REPORT: {
     LIST: "/erp-stock-report/list",
     ADJUST: "/erp-stock-report/adjust",
+    ADJUST2: "/erp-stock-report/adjust2",
   },
 
   SCHEDULE_PLANNING: {

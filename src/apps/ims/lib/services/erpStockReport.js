@@ -4,4 +4,5 @@ import { ENDPOINTS } from "@/apps/ims/lib/config/endpoints";
 export const erpStockReportService = {
   list: (params = {}) => api(ENDPOINTS.ERP_STOCK_REPORT.LIST, { method: "POST", body: params }),
   adjust: (body) => api(ENDPOINTS.ERP_STOCK_REPORT.ADJUST, { method: "POST", body }),
+  adjust2: (body) => api(ENDPOINTS.ERP_STOCK_REPORT.ADJUST2, { method: "POST", body }),
 };

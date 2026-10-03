@@ -2,6 +2,7 @@ import { SOCKET } from "./taskNotifyConfig";
 import { addInboxFromSocket, loadUnreadInbox, getInboxAppFilterScope } from "./taskInboxActions";
 import { handleOsNotification } from "./taskPushNotify";
 import { matchesInboxAppFilter } from "./inboxAppFilter";
+import { syncAppBadgeFromServer } from "@/platform/utils/pwa/pwaAppBadge";
 
 export function bindTaskNotifySocket(socket) {
   if (!socket) return () => {};
@@ -17,6 +18,7 @@ export function bindTaskNotifySocket(socket) {
 
   const onInboxSync = () => {
     void loadUnreadInbox().catch(() => {});
+    void syncAppBadgeFromServer();
   };
 
   socket.on(SOCKET.NEW_ALERT, onNewAlert);

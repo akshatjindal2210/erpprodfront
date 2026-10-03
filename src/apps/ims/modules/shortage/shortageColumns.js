@@ -159,7 +159,11 @@ export function buildShortageItemWiseHeaders() {
       <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${typeBadgeClass(v)}`}>{v}</span>
     ), { width: "110px" }],
     ["Qty", "qty", (v) => <span className="font-black text-slate-700 text-[11px]">{v}</span>, { width: "80px", align: "center" }],
-    ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 truncate block">{v || "—"}</span>, { width: "160px" }],
+    ["Remarks", "remarks", (v) => (
+      <span className="text-[10px] text-slate-500 whitespace-pre-line block max-h-28 overflow-auto" title={v || ""}>
+        {v || "—"}
+      </span>
+    ), { width: "240px" }],
     ["Status", "approved", (v) => (
       <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
         {v ? "● AUTHORIZED" : "○ PENDING"}
