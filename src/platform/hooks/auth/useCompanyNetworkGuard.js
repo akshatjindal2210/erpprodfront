@@ -1,20 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { NETWORK_REACHABLE_EVENT, NETWORK_UNREACHABLE_EVENT, checkCompanyBackendReachable, isBrowserOffline, shouldShowCompanyWifiGate } from "@/platform/utils/auth/companyNetwork";
-import { isPwaStandalone } from "@/platform/utils/pwa/pwa";
+import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useSelector } from "react-redux";
+import { selectUser } from "@/platform/store/slices/authSlice";
+import { NETWORK_REACHABLE_EVENT, NETWORK_UNREACHABLE_EVENT, checkCompanyBackendReachable, isBrowserOffline, isExternalFrontendHost, isInternalFrontendHost, shouldShowCompanyWifiGate } from "@/platform/utils/auth/companyNetwork";
 
-const ONLINE_RECHECK_MS = 1500;
-const BLOCKED_RECHECK_MS = 3000;
+function isLoginPath(pathname = "") {
+  return pathname === "/login" || pathname.startsWith("/login/");
+}
+
+/** Office gate only after login — login page stays usable (external portal link, etc.). */
+function shouldRunGate(pathname, userId) {
+  if (!userId) return false;
+  if (isLoginPath(pathname)) return false;
+  return isInternalFrontendHost() && !isExternalFrontendHost();
+}
 
 export function useCompanyNetworkGuard() {
+  const pathname = usePathname() || "";
+  const userId = useSelector(selectUser)?.id;
+  const gateEnabled = shouldRunGate(pathname, userId);
+
   const [blocked, setBlocked] = useState(false);
   const [checking, setChecking] = useState(false);
   const [offline, setOffline] = useState(false);
-  const onlineRecheckRef = useRef(null);
 
-  const verifyReachability = useCallback(async () => {
-    if (!isPwaStandalone()) {
+  const verifyReachability = useCallback(async ({ manual = false } = {}) => {
+    if (!shouldRunGate(pathname, userId)) {
       setBlocked(false);
       setOffline(false);
       return true;
@@ -28,22 +41,28 @@ export function useCompanyNetworkGuard() {
     }
 
     setOffline(false);
-    setChecking(true);
+    if (manual) setChecking(true);
     try {
       const ok = await checkCompanyBackendReachable();
       setBlocked(!ok);
       return ok;
     } finally {
-      setChecking(false);
+      if (manual) setChecking(false);
     }
-  }, []);
+  }, [pathname, userId]);
 
   useEffect(() => {
+    if (!gateEnabled) {
+      setBlocked(false);
+      setOffline(false);
+      return;
+    }
     void verifyReachability();
-  }, [verifyReachability]);
+  }, [gateEnabled, verifyReachability]);
 
   useEffect(() => {
     const onOffline = () => {
+      if (!shouldRunGate(pathname, userId)) return;
       void (async () => {
         const show = await shouldShowCompanyWifiGate({ offline: true });
         setBlocked(show);
@@ -51,14 +70,8 @@ export function useCompanyNetworkGuard() {
       })();
     };
 
-    const onOnline = () => {
-      if (onlineRecheckRef.current) clearTimeout(onlineRecheckRef.current);
-      onlineRecheckRef.current = setTimeout(() => {
-        void verifyReachability();
-      }, ONLINE_RECHECK_MS);
-    };
-
     const onUnreachable = () => {
+      if (!shouldRunGate(pathname, userId)) return;
       void (async () => {
         const show = await shouldShowCompanyWifiGate({ transportFailure: true });
         if (show) setBlocked(true);
@@ -70,33 +83,22 @@ export function useCompanyNetworkGuard() {
     };
 
     window.addEventListener("offline", onOffline);
-    window.addEventListener("online", onOnline);
     window.addEventListener(NETWORK_UNREACHABLE_EVENT, onUnreachable);
     window.addEventListener(NETWORK_REACHABLE_EVENT, onReachable);
 
     return () => {
-      if (onlineRecheckRef.current) clearTimeout(onlineRecheckRef.current);
       window.removeEventListener("offline", onOffline);
-      window.removeEventListener("online", onOnline);
       window.removeEventListener(NETWORK_UNREACHABLE_EVENT, onUnreachable);
       window.removeEventListener(NETWORK_REACHABLE_EVENT, onReachable);
     };
-  }, [verifyReachability]);
+  }, [pathname, userId]);
 
-  useEffect(() => {
-    if (!blocked || !isPwaStandalone()) return undefined;
-
-    const id = setInterval(() => {
-      void verifyReachability();
-    }, BLOCKED_RECHECK_MS);
-
-    return () => clearInterval(id);
-  }, [blocked, verifyReachability]);
+  const gateActive = blocked && gateEnabled;
 
   return {
-    blocked: blocked && isPwaStandalone(),
+    blocked: gateActive,
     checking,
-    offline: offline && isPwaStandalone(),
-    retry: verifyReachability,
+    offline: offline && gateActive,
+    retry: () => verifyReachability({ manual: true }),
   };
 }

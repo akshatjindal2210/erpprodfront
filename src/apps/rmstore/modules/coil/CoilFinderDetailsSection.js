@@ -30,10 +30,20 @@ function Panel({ icon: Icon, iconClass, title, sub, count, actions, children }) 
   );
 }
 
+function detailRowVisible(value) {
+  if (value == null || value === "") return false;
+  const t = String(value).trim();
+  return t !== "" && t !== "—" && t !== "-";
+}
+
 function DetailGrid({ rows }) {
+  const visible = rows.filter(({ value }) => detailRowVisible(value));
+  if (!visible.length) {
+    return <p className="text-[11px] text-slate-400 italic">No extra fields to show.</p>;
+  }
   return (
     <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
-      {rows.map(({ id, label, value }) => (
+      {visible.map(({ id, label, value }) => (
         <div key={id || label}>
           <dt className="text-[9px] font-bold text-slate-400 uppercase">{label}</dt>
           <dd className="text-[11px] font-semibold text-slate-800 break-all mt-0.5">{value}</dd>

@@ -161,10 +161,10 @@ export function clampMonthFieldRange(range, bounds = {}) {
   return { from, to };
 }
 
-/** Shortage list date range: full FY (default) or custom month/dates, clipped to FY + permissions. */
+/** Shortage list date range: current calendar month (default) or custom month/dates, clipped to FY + permissions. */
 export function resolveShortageListDateRange(params = {}, fyStr, viewBounds = {}) {
   const custom = String(params.reportType ?? "default").toLowerCase() === "custom";
-  let range = fullRangeInIndianFy(fyStr);
+  let range = defaultRangeInIndianFy(fyStr);
   if (custom) {
     const fromDate = String(params.fromDate ?? "").trim();
     const toDate = String(params.toDate ?? "").trim();

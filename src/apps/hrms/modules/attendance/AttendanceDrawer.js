@@ -15,7 +15,7 @@ import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { todayYmd, toTimeInput, rowIn, rowOut, rowFingerprint, defaultShift, defaultTimesFromEmployee, 
   isUnapproved, formatDefaultTimeLabel, rowTotals, toDateTimeInput, dateTimeFieldValue,
   normalizeInDateTime, normalizeOutDateTime, dateRangeForIn, dateRangeForOut, inOutOrderError,
-  withDerivedFields, suggestShiftFromIn, DAY_TYPES, DEFAULT_DAY_TYPE, OUT_NEXT_DAY_CUTOFF } from "@/apps/hrms/lib/attendanceUtils";
+  withDerivedFields, suggestShiftFromIn, DAY_TYPES, DEFAULT_DAY_TYPE, NIGHT_SHIFT_END } from "@/apps/hrms/lib/attendanceUtils";
 
 const MODULE = "hrms_attendance";
 const SHIFTS = [
@@ -43,7 +43,7 @@ const HOURS_TONE = {
 
 function outErrorText(code) {
   if (code === "before_in") return "Out must be after In";
-  if (code === "after_cutoff") return `Out max next day ${OUT_NEXT_DAY_CUTOFF}`;
+  if (code === "after_cutoff") return `Out max next day ${NIGHT_SHIFT_END}`;
   if (code) return "Out required";
   return null;
 }
@@ -396,7 +396,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
             manualErr.out === "before_in"
               ? "Out must be after In."
               : manualErr.out === "after_cutoff"
-                ? `Out cannot be after next day ${OUT_NEXT_DAY_CUTOFF}.`
+                ? `Out cannot be after next day ${NIGHT_SHIFT_END}.`
                 : "In and Out both required."
           );
           return;
@@ -462,7 +462,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
             firstErr?.out === "before_in"
               ? `Out must be after In${who}.`
               : firstErr?.out === "after_cutoff"
-                ? `Out cannot be after next day ${OUT_NEXT_DAY_CUTOFF}${who}.`
+                ? `Out cannot be after next day ${NIGHT_SHIFT_END}${who}.`
                 : `In and Out both required${who}.`
           );
           return;
@@ -512,7 +512,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
             firstErr?.out === "before_in"
               ? `Out must be after In — fix ${n} highlighted row${n > 1 ? "s" : ""}.`
               : firstErr?.out === "after_cutoff"
-                ? `Out max next day ${OUT_NEXT_DAY_CUTOFF} — fix ${n} highlighted row${n > 1 ? "s" : ""}.`
+                ? `Out max next day ${NIGHT_SHIFT_END} — fix ${n} highlighted row${n > 1 ? "s" : ""}.`
                 : `${n} employee${n > 1 ? "s" : ""} missing In/Out time — fill highlighted rows.`
           );
           return;

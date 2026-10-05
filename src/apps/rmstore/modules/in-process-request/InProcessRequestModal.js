@@ -228,6 +228,8 @@ function mapCoilRow(c, extras = {}) {
       out_uid: c.out_uid ?? null,
       pjobcardno: c.pjobcardno || null,
       macname: c.macname || null,
+      fg_item_code: c.fg_item_code || null,
+      fg_item_desc: c.fg_item_desc || null,
       status: c.status,
       source: extras.source || c.source || "scan",
       is_seed_scan: Boolean(extras.is_seed_scan ?? c.is_seed_scan),
@@ -268,6 +270,8 @@ function mapCoilRow(c, extras = {}) {
       macname: c.macname || null,
       source_pjobcardno: c.source_pjobcardno || c.reassign_target_pjobcardno || c.pjobcardno || null,
       source_macname: c.source_macname || c.reassign_target_macname || c.macname || null,
+      fg_item_code: c.fg_item_code || null,
+      fg_item_desc: c.fg_item_desc || null,
       status: c.status,
       source: extras.source || c.source || null,
       is_seed_scan: Boolean(extras.is_seed_scan ?? c.is_seed_scan),
@@ -296,6 +300,8 @@ function mapCoilRow(c, extras = {}) {
     out_uid: c.out_uid ?? null,
     pjobcardno: c.pjobcardno || null,
     macname: c.macname || null,
+    fg_item_code: c.fg_item_code || null,
+    fg_item_desc: c.fg_item_desc || null,
     status: c.status,
     source: extras.source || c.source || null,
     is_seed_scan: Boolean(extras.is_seed_scan ?? c.is_seed_scan),
@@ -315,6 +321,31 @@ function proposedFromCoil(c, remaining) {
     mrn_uid: c.mrn_uid || null,
     mrn_no: c.mrn_no ?? null,
   };
+}
+
+/** Register view/edit — FG/JC from coil helper when IPR row has no FG fields. */
+async function mergeCoilDisplayFromLookup(coils = []) {
+  return Promise.all(
+    coils.map(async (c) => {
+      if (String(c?.fg_item_code || "").trim()) return c;
+      const uid = String(c?.coil_no_uid || "").trim();
+      if (!uid) return c;
+      try {
+        const live = await lookupCoilByUid(uid, MODULE);
+        if (!live) return c;
+        return {
+          ...c,
+          fg_item_code: live.fg_item_code ?? c.fg_item_code ?? null,
+          fg_item_desc: live.fg_item_desc ?? c.fg_item_desc ?? null,
+          pjobcardno: c.pjobcardno || live.pjobcardno || null,
+          macname: c.macname || live.macname || null,
+          mrn_uid: c.mrn_uid || live.mrn_uid || null,
+        };
+      } catch {
+        return c;
+      }
+    })
+  );
 }
 
 export default function InProcessRequestModal({
@@ -546,10 +577,19 @@ export default function InProcessRequestModal({
       setCoils(
         Array.isArray(row.coils)
           ? row.coils.map((c) =>
-              mapCoilRow(c, {
-                forConsume: row.request_type === IPR_REQUEST_TYPE.CONSUME,
-                forStoreIn: row.request_type === IPR_REQUEST_TYPE.STORE_IN,
-              })
+              mapCoilRow(
+                {
+                  ...c,
+                  pjobcardno: c.pjobcardno || row.pjobcardno,
+                  macname: c.macname || row.macname,
+                  fg_item_code: c.fg_item_code || row.fg_item_code,
+                  fg_item_desc: c.fg_item_desc || row.fg_item_desc,
+                },
+                {
+                  forConsume: row.request_type === IPR_REQUEST_TYPE.CONSUME,
+                  forStoreIn: row.request_type === IPR_REQUEST_TYPE.STORE_IN,
+                }
+              )
             )
           : []
       );
@@ -616,9 +656,18 @@ export default function InProcessRequestModal({
       (async () => {
         try {
           const res = await inProcessRequestService.getById(editData.ipr_uid);
-          hydrateFromRow(res?.data || editData);
+          let row = res?.data || editData;
+          if (Array.isArray(row?.coils) && row.coils.length) {
+            row = { ...row, coils: await mergeCoilDisplayFromLookup(row.coils) };
+          }
+          if (!cancelled) hydrateFromRow(row);
         } catch {
-          if (!cancelled) hydrateFromRow(editData);
+          if (cancelled) return;
+          let row = editData;
+          if (Array.isArray(row?.coils) && row.coils.length) {
+            row = { ...row, coils: await mergeCoilDisplayFromLookup(row.coils) };
+          }
+          hydrateFromRow(row);
         }
       })();
       return () => {
@@ -693,6 +742,7 @@ export default function InProcessRequestModal({
         const res = await inProcessRequestService.reassignJobCards({
           ...helperPerms,
           rm_item_code: String(coil?.item_code || "").trim(),
+          rm_item_dcode: coil?.item_dcode ?? coil?.itemdcode ?? null,
           source_pjobcardno: sourceJc,
           exclude_pjobcardno: sourceJc,
           search: searchKey,
@@ -706,9 +756,11 @@ export default function InProcessRequestModal({
       const page = Math.max(1, Number(params.page) || 1);
       const limit = Math.max(1, Number(params.limit) || 50);
       const start = (page - 1) * limit;
+      const pageRows = rows.slice(start, start + limit);
+
       return {
         success: true,
-        data: rows.slice(start, start + limit),
+        data: pageRows,
         total: rows.length,
         page,
         limit,
@@ -731,6 +783,7 @@ export default function InProcessRequestModal({
       const res = await inProcessRequestService.reassignJobCards({
         ...helperPerms,
         rm_item_code: String(coil?.item_code || "").trim(),
+        rm_item_dcode: coil?.item_dcode ?? coil?.itemdcode ?? null,
         source_pjobcardno: sourceJc,
         exclude_pjobcardno: sourceJc,
         search: key,

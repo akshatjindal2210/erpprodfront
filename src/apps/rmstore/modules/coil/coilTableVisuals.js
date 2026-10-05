@@ -162,32 +162,133 @@ export function resolveCoilMachineLabel(row) {
   return mac || "—";
 }
 
+function jcKeyForFgMatch(jc) {
+  return String(jc || "")
+    .trim()
+    .replace(/^JC[\s\-]*/i, "")
+    .toUpperCase();
+}
+
+function fgSplitForAssignment(splits, assignment) {
+  const list = Array.isArray(splits) ? splits : [];
+  if (!list.length || !assignment) return null;
+  const key = jcKeyForFgMatch(assignment.pjobcardno);
+  const kind = assignment.kind;
+  let hit = list.find((s) => jcKeyForFgMatch(s.pjobcardno) === key && s.kind === kind);
+  if (!hit) hit = list.find((s) => jcKeyForFgMatch(s.pjobcardno) === key);
+  if (!hit?.fg_item_code) return null;
+  return hit;
+}
+
+function fgSplitForHistory(splits, assignment, row) {
+  const hit = fgSplitForAssignment(splits, assignment);
+  if (hit) return hit;
+  const splitList = Array.isArray(splits) ? splits.filter((s) => s?.fg_item_code) : [];
+  const jcKey = jcKeyForFgMatch(assignment.pjobcardno);
+  if (splitList.length && jcKey) {
+    const byJc = splitList.find((s) => jcKeyForFgMatch(s.pjobcardno) === jcKey);
+    if (byJc) return byJc;
+  }
+  if (!row) return null;
+  const code = String(row.fg_item_code || "").trim();
+  if (!code) return null;
+  const zone = getCoilStockZone(row);
+  if (zone !== "consumed" && zone !== "out") return null;
+  const kind = assignment.kind || "consumed";
+  if (splitList.length && kind === "consumed") return null;
+  return {
+    fg_item_code: code,
+    fg_item_desc: row.fg_item_desc,
+    kind,
+    wire_qty: assignment.qty ?? row.qty,
+    pjobcardno: assignment.pjobcardno,
+  };
+}
+
+function macnameForHistoryAssignment(assignment, row) {
+  let macname = String(assignment?.macname || "").trim() || null;
+  if (macname || !row) return macname;
+  const key = jcKeyForFgMatch(assignment.pjobcardno);
+  if (key && key === jcKeyForFgMatch(row.pjobcardno)) {
+    macname = String(row.macname || row.macname_label || "").trim() || null;
+  }
+  if (!macname && assignment.kind === "balance") {
+    macname = String(row.reassign_target_macname || "").trim() || null;
+  }
+  if (!macname && assignment.kind === "consumed") {
+    macname = String(row.reassign_source_macname || "").trim() || null;
+  }
+  return macname || null;
+}
+
+function mapJobCardHistoryEntry(splits, assignment, row) {
+  return {
+    pjobcardno: formatJcWithQty(assignment.pjobcardno, assignment.qty),
+    macname: macnameForHistoryAssignment(assignment, row),
+    kind: assignment.kind || null,
+    fgSplit: fgSplitForHistory(splits, assignment, row),
+  };
+}
+
 /**
  * Coil Finder: latest (balance) on Job card; history list desc (recent previous first).
  * UI counts labels as N…1 (oldest = 1 at bottom).
+ * Consumed coils: shop-floor job cards still listed below (incl. single full consume).
  */
 export function resolveCoilJobCardHistory(row) {
   const list = Array.isArray(row?.job_card_assignments)
     ? row.job_card_assignments.filter((a) => String(a?.pjobcardno || "").trim())
     : [];
+  const splits = row?.fg_wire_splits;
+  const consumedZone = getCoilStockZone(row) === "consumed";
 
   if (list.length >= 2) {
     let latestIdx = list.findIndex((a) => a.kind === "balance");
     if (latestIdx < 0) latestIdx = list.length - 1;
     const latest = list[latestIdx];
+    // Consumed: wire-cut + final consume — every JC (incl. last balance JC) lives in History.
+    const fullConsume = consumedZone;
     // Desc: most recent previous = 1, older = 2…
-    const history = list
-      .filter((_, i) => i !== latestIdx)
-      .reverse()
-      .map((a) => ({
-        pjobcardno: formatJcWithQty(a.pjobcardno, a.qty),
-        macname: String(a.macname || "").trim() || null,
-      }));
+    const hopList = fullConsume ? list.slice() : list.filter((_, i) => i !== latestIdx);
+    const history = (fullConsume ? hopList : hopList.slice().reverse()).map((a) =>
+      mapJobCardHistoryEntry(splits, a, row)
+    );
     return {
       latest: formatJcWithQty(latest.pjobcardno, latest.qty) || "—",
       latestMac: String(latest.macname || "").trim() || null,
       history,
+      historyChronological: fullConsume,
     };
+  }
+
+  if (list.length === 1 && consumedZone) {
+    const only = list[0];
+    return {
+      latest: formatJcWithQty(only.pjobcardno, only.qty) || "—",
+      latestMac: String(only.macname || "").trim() || null,
+      history: [mapJobCardHistoryEntry(splits, only, row)],
+      historyChronological: true,
+    };
+  }
+
+  if (consumedZone) {
+    const jcRaw = String(row?.pjobcardno || row?.previous_coils?.[0]?.pjobcardno || "").trim();
+    if (jcRaw) {
+      const synthetic = {
+        pjobcardno: jcRaw,
+        macname: row?.macname || row?.macname_label || null,
+        qty: row?.qty,
+        kind: "consumed",
+      };
+      const latest = formatJcWithQty(synthetic.pjobcardno, synthetic.qty) || "—";
+      const latestMac = String(synthetic.macname || "").trim() || null;
+      return {
+        latest,
+        latestMac: latestMac || (resolveCoilMachineLabel(row) === "—" ? null : resolveCoilMachineLabel(row)),
+        history: [mapJobCardHistoryEntry(splits, synthetic, row)],
+        historyChronological: true,
+      };
+    }
   }
 
   const mac = resolveCoilMachineLabel(row);
@@ -195,6 +296,7 @@ export function resolveCoilJobCardHistory(row) {
     latest: resolveCoilJobCardLabel(row),
     latestMac: mac === "—" ? null : mac,
     history: [],
+    historyChronological: false,
   };
 }
 

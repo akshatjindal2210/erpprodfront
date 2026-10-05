@@ -11,7 +11,7 @@ import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import FilePreviewLink, { getFilePreviewKind } from "@/ui/common/system/FilePreviewLink";
 import {
-  formatImsErpScalar, formatIrBillDate, formatIrDateTime, irReceivingFilePaths, isImsErpNullLiteral, isIrApproved, normalizeInvoiceReceivingRow, pickIrRemarks, publicUploadHref, receivingFileLabel } from "./invoiceReceivingUtils";
+  formatImsErpScalar, formatIrBillDate, formatIrDateTime, irReceivingFilePaths, irReceivingUploadPreviewCaption, isImsErpNullLiteral, isIrApproved, normalizeInvoiceReceivingRow, pickIrRemarks, publicUploadHref, receivingFileLabel } from "./invoiceReceivingUtils";
 
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,image/*,application/pdf";
 const DISABLED = `${OK_INPUT} !bg-slate-100 !text-slate-600 border-slate-200 shadow-none focus:!ring-0 cursor-not-allowed disabled:opacity-100`;
@@ -25,31 +25,37 @@ const BTN_PRIMARY =
 const BTN_KEEP =
   "px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all disabled:opacity-50";
 
-function IrQuickPreview({ path }) {
+function IrQuickPreview({ path, previewCaption = "" }) {
   const href = publicUploadHref(path);
   const name = receivingFileLabel(path);
   const kind = getFilePreviewKind(name);
   if (!href || !name) return null;
   return (
-    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+    <FilePreviewLink
+      href={href}
+      fileName={name}
+      previewCaption={previewCaption}
+      title="Open preview"
+      className="block rounded-lg border border-slate-200 bg-white overflow-hidden cursor-pointer hover:border-indigo-300 transition-colors group"
+    >
       <div className="h-[88px] bg-slate-50 overflow-hidden">
         {kind === "image" ? (
-          <img src={href} alt={name} className="w-full h-full object-cover" />
+          <img src={href} alt={name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
         ) : kind === "pdf" ? (
           <iframe src={`${href.split("#")[0]}#toolbar=0`} title={name} className="w-full h-full border-0 pointer-events-none" />
         ) : (
-          <div className="h-full flex items-center justify-center text-slate-400">
+          <div className="h-full flex items-center justify-center text-slate-400 pointer-events-none">
             <FileText size={20} />
           </div>
         )}
       </div>
       <div className="px-2 py-1 border-t flex items-center gap-1 min-w-0">
-        <span className="text-[9px] truncate flex-1">{name}</span>
-        <FilePreviewLink href={href} fileName={name} className="text-indigo-600 p-0.5">
+        <span className="text-[9px] truncate flex-1 text-slate-700">{name}</span>
+        <span className="text-indigo-600 p-0.5 group-hover:text-indigo-800 shrink-0" aria-hidden>
           <Expand size={12} />
-        </FilePreviewLink>
+        </span>
       </div>
-    </div>
+    </FilePreviewLink>
   );
 }
 
@@ -81,6 +87,7 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
 
   const fileLocked = readOnly;
   const totalAttachments = storedPaths.length + newFiles.length;
+  const uploadPreviewCaption = useMemo(() => irReceivingUploadPreviewCaption(bill), [bill]);
   const showDocPreview = totalAttachments > 0 && (readOnly || isApprove || isEdit || isAdd);
 
   useEffect(() => {
@@ -118,8 +125,6 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
         prnbillno: bill?.prnbillno,
         billdt: bill?.billdt,
         acc_name: bill?.acc_name,
-        uploaded_by: bill?.uploaded_by,
-        uploaded_at: bill?.uploaded_at,
         remarks,
         approved: finalApproved,
         existing_paths: storedPaths,
@@ -306,7 +311,7 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
             <FormLabel>Document preview</FormLabel>
             <div className="grid grid-cols-2 gap-2">
               {storedPaths.map((p) => (
-                <IrQuickPreview key={p} path={p} />
+                <IrQuickPreview key={p} path={p} previewCaption={uploadPreviewCaption} />
               ))}
               {newFiles.map((f, i) => (
                 <div key={`${f.name}-${i}`} className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/50 p-2 h-[88px] flex flex-col justify-center">
@@ -334,7 +339,12 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
                   <li key={p} className="flex items-center gap-2 min-h-9 px-3 border border-slate-200 rounded-lg bg-white">
                     <FileText size={14} className="shrink-0 text-indigo-600" />
                     {href ? (
-                      <FilePreviewLink href={href} fileName={name} className="truncate text-[11px] font-semibold text-indigo-700 flex-1 text-left">
+                      <FilePreviewLink
+                        href={href}
+                        fileName={name}
+                        previewCaption={uploadPreviewCaption}
+                        className="truncate text-[11px] font-semibold text-indigo-700 flex-1 text-left"
+                      >
                         {name}
                       </FilePreviewLink>
                     ) : (

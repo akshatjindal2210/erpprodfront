@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#f8fafc" />
-  <title>Connect to office network — JFL ERP</title>
+  <title>Connect to the office network — JFL ERP</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -15,6 +15,8 @@
       background: #f8fafc;
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       padding: 24px;
+      padding-bottom: max(24px, env(safe-area-inset-bottom));
+      padding-top: max(24px, env(safe-area-inset-top));
       color: #1e293b;
     }
     .card {
@@ -24,9 +26,9 @@
       background: #fff;
       padding: 2rem;
       text-align: center;
-      box-shadow: 0 1px 2px rgba(0,0,0,.05);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     }
-    .icon {
+    .icon-wrap {
       width: 3.5rem;
       height: 3.5rem;
       margin: 0 auto 1rem;
@@ -36,8 +38,8 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.75rem;
     }
+    .icon-wrap svg { display: block; }
     h1 {
       font-size: 0.875rem;
       font-weight: 700;
@@ -45,35 +47,64 @@
       letter-spacing: 0.05em;
       color: #1e293b;
     }
-    p { margin-top: 0.75rem; font-size: 0.875rem; color: #475569; line-height: 1.6; }
-    .hint { margin-top: 0.5rem; font-size: 0.6875rem; color: #94a3b8; line-height: 1.5; }
+    .message {
+      margin-top: 0.75rem;
+      font-size: 0.875rem;
+      color: #475569;
+      line-height: 1.625;
+    }
+    .hint {
+      margin-top: 0.5rem;
+      font-size: 0.6875rem;
+      color: #94a3b8;
+      line-height: 1.625;
+    }
     .retry {
       margin-top: 1.5rem;
-      padding: 0.625rem 1.25rem;
+      width: 100%;
+      padding: 0.625rem 1rem;
       font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: #fff;
+      color: #1e293b;
+      border: 1px solid #cbd5e1;
+      cursor: pointer;
+    }
+    .retry:hover { background: #f8fafc; }
+    .retry:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status {
+      margin-top: 0.75rem;
+      font-size: 0.6875rem;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      background: #4f46e5;
-      color: #fff;
-      border: none;
-      cursor: pointer;
+      color: #475569;
     }
-    .retry:active { opacity: 0.9; }
-    .status { margin-top: 1rem; font-size: 0.6875rem; color: #6366f1; }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="icon" aria-hidden="true">📶</div>
-    <h1>Connect to office network</h1>
-    <p>Please connect to the office network to open the internal app.</p>
-    <p class="hint" id="external-hint" hidden>
-      For remote access, use the external portal link sent to you by email (Cloudflare sign-in).
+    <div class="icon-wrap" aria-hidden="true">
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 20h.01" />
+        <path d="M8.5 16.429a5 5 0 0 1 7 0" />
+        <path d="M5 12.859a10 10 0 0 1 5.17-2.69" />
+        <path d="M19 12.859a10 10 0 0 0-2.007-1.523" />
+        <path d="M2 8.82a15 15 0 0 1 4.177-1.889" />
+        <path d="M22 8.82a15 15 0 0 0-11.288-3.764" />
+        <path d="m2 2 20 20" />
+      </svg>
+    </div>
+    <h1>Connect to the office network</h1>
+    <p class="message">Please connect to the office network to use the internal app.</p>
+    <p class="hint" id="external-hint">
+      This internal portal requires office network access. For remote access, use the external portal link you received by email (Cloudflare sign-in).
     </p>
-    <p class="hint">The notification was delivered. Read/open is recorded when the app opens successfully.</p>
+    <p class="hint" id="push-hint" hidden>This notification was delivered. It will be marked as read when the app opens successfully.</p>
     <button type="button" class="retry" id="retry">Try again</button>
-    <p class="status" id="status" hidden>Checking connection…</p>
+    <p class="status" id="status" hidden></p>
   </div>
   <script>
     (function () {
@@ -89,17 +120,23 @@
       var statusEl = document.getElementById("status");
       var retryBtn = document.getElementById("retry");
       var externalHint = document.getElementById("external-hint");
+      var tryAgainLabel = "Try again";
+      var checkingLabel = "Checking connection\u2026";
 
+      if (trackingId) {
+        document.getElementById("push-hint").hidden = false;
+      }
       if (externalHost) {
-        externalHint.hidden = false;
         externalHint.textContent =
-          "For remote access, open https://" + externalHost + " (Cloudflare sign-in required).";
+          "This internal portal requires office network access. For remote access, go to https://" +
+          externalHost +
+          " (Cloudflare sign-in required).";
       }
 
       function pingBackend() {
         if (!backend) return Promise.resolve(false);
         var controller = new AbortController();
-        var timer = setTimeout(function () { controller.abort(); }, 4000);
+        var timer = setTimeout(function () { controller.abort(); }, 3000);
         return fetch(backend + "/api/version", {
           method: "GET",
           cache: "no-store",
@@ -141,18 +178,22 @@
       }
 
       function tryConnect() {
-        statusEl.hidden = false;
-        statusEl.textContent = "Checking connection…";
+        statusEl.hidden = true;
+        retryBtn.textContent = checkingLabel;
         retryBtn.disabled = true;
         pingBackend().then(function (pingOk) {
           if (pingOk) {
-            statusEl.textContent = "Connected — opening app…";
+            retryBtn.textContent = tryAgainLabel;
+            statusEl.hidden = false;
+            statusEl.textContent = "Connected. Opening the app\u2026";
             return markReadOnOfficeNetwork().finally(function () {
               window.location.replace(returnUrl);
             });
           }
           retryBtn.disabled = false;
-          statusEl.textContent = "Still offline — connect to office network and try again.";
+          retryBtn.textContent = tryAgainLabel;
+          statusEl.hidden = false;
+          statusEl.textContent = "Unable to reach the office network. Please connect and try again.";
         });
       }
 

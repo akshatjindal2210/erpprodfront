@@ -18,11 +18,8 @@ export const LUNCH_DEFAULT_LABEL = "30 min";
 export const LUNCH_AUTO_HOURS = 4;
 export const LUNCH_AUTO_MINUTES = LUNCH_AUTO_HOURS * 60;
 
-/** Next-day Out allowed until this HH:mm (inclusive). */
-export const OUT_NEXT_DAY_CUTOFF = "08:30";
-
-/** In time ≥ this hour (24h) → Night shift (B). */
-export const NIGHT_SHIFT_FROM_HOUR = 17;
+export const NIGHT_SHIFT_FROM = "17:00";
+export const NIGHT_SHIFT_END = "08:00";
 
 export const DAY_TYPES = [
   { value: "full", label: "Full Day" },
@@ -30,7 +27,6 @@ export const DAY_TYPES = [
 ];
 export const DEFAULT_DAY_TYPE = "full";
 
-/* ── Date helpers ────────────────────────────────────────── */
 export function todayYmd() {
   return dayjs().format("YYYY-MM-DD");
 }
@@ -39,20 +35,33 @@ function ymd(date) {
   return String(date || "").slice(0, 10);
 }
 
-function nextYmd(date) {
-  const d = ymd(date);
-  return d ? dayjs(d).add(1, "day").format("YYYY-MM-DD") : "";
-}
-
 function minutesOfHHmm(t) {
   const [h, m] = String(t || "").split(":").map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   return h * 60 + m;
 }
 
+/** Before NIGHT_SHIFT_END IST → previous attendance date (night shift). */
+export function attendanceBusinessTodayYmd() {
+  const istMs = Date.now() + 330 * 60 * 1000;
+  const d = new Date(istMs);
+  const y = d.getUTCFullYear();
+  const mo = d.getUTCMonth();
+  const day = d.getUTCDate();
+  const nowMins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  let anchor = new Date(Date.UTC(y, mo, day));
+  if (nowMins < minutesOfHHmm(NIGHT_SHIFT_END)) anchor = new Date(Date.UTC(y, mo, day - 1));
+  return anchor.toISOString().slice(0, 10);
+}
+
+function nextYmd(date) {
+  const d = ymd(date);
+  return d ? dayjs(d).add(1, "day").format("YYYY-MM-DD") : "";
+}
+
 export function outMaxDateTime(date) {
   const n = nextYmd(ymd(date));
-  return n ? `${n}T${OUT_NEXT_DAY_CUTOFF}` : "";
+  return n ? `${n}T${NIGHT_SHIFT_END}` : "";
 }
 
 /* ── Time parse / format ─────────────────────────────────── */
@@ -113,8 +122,8 @@ export function normalizeInDateTime(value, date) {
 
 /**
  * Out ≥ In.
- * Same-day morning Out before In → bump to next day if ≤ OUT_NEXT_DAY_CUTOFF.
- * Never later than next day OUT_NEXT_DAY_CUTOFF.
+ * Same-day morning Out before In → bump to next day if ≤ cutoff hour.
+ * Never later than next day cutoff hour.
  */
 export function normalizeOutDateTime(value, date, inValue = "") {
   const d = ymd(date);
@@ -124,7 +133,7 @@ export function normalizeOutDateTime(value, date, inValue = "") {
 
   const maxOut = outMaxDateTime(d);
   const inDt = toDateTimeInput(inValue, d) || normalizeInDateTime(inValue, d) || "";
-  const cutoffMins = minutesOfHHmm(OUT_NEXT_DAY_CUTOFF);
+  const cutoffMins = minutesOfHHmm(NIGHT_SHIFT_END);
   const tMins = minutesOfHHmm(t);
   const morningOk = tMins != null && cutoffMins != null && tMins <= cutoffMins;
 
@@ -193,12 +202,11 @@ export function defaultShift(row) {
   return row?.shift === "B" ? "B" : "A";
 }
 
-/** In ≥ NIGHT_SHIFT_FROM_HOUR → Night (B), else Day (A). */
+/** In ≥ NIGHT_SHIFT_FROM → Night (B), else Day (A). */
 export function suggestShiftFromIn(inValue) {
   const hm = toTimeInput(inValue);
   if (!hm) return "A";
-  const [h, m] = hm.split(":").map(Number);
-  return h * 60 + m >= NIGHT_SHIFT_FROM_HOUR * 60 ? "B" : "A";
+  return minutesOfHHmm(hm) >= minutesOfHHmm(NIGHT_SHIFT_FROM) ? "B" : "A";
 }
 
 export function defaultTimesFromEmployee(item) {

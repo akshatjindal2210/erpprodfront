@@ -29,4 +29,20 @@ export const ENDPOINTS = {
     VERIFY_MANAGER: `${BASE}/gate-pass/verify/manager`,
     DELETE: `${BASE}/gate-pass/delete`,
   },
+  LEAVE: {
+    LIST: `${BASE}/leave/list`,
+    SUBMIT: `${BASE}/leave/submit`,
+    UPDATE: `${BASE}/leave/update`,
+    VERIFY_HR: `${BASE}/leave/verify/hr`,
+    VERIFY_MANAGER: `${BASE}/leave/verify/manager`,
+    DELETE: `${BASE}/leave/delete`,
+  },
+  LOAN: {
+    LIST: `${BASE}/loan/list`,
+    SUBMIT: `${BASE}/loan/submit`,
+    UPDATE: `${BASE}/loan/update`,
+    VERIFY_HR: `${BASE}/loan/verify/hr`,
+    VERIFY_MANAGER: `${BASE}/loan/verify/manager`,
+    DELETE: `${BASE}/loan/delete`,
+  },
 };

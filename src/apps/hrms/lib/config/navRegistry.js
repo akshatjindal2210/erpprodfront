@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap, CalendarCheck, Users, ScrollText, History, DoorOpen } from "lucide-react";
+import { Zap, CalendarCheck, Users, ScrollText, History, DoorOpen, CalendarDays, Wallet } from "lucide-react";
 import { ROUTES } from "@/apps/hrms/lib/utils/routes";
 
 export const HRMS_NAV_REGISTRY = [
@@ -8,6 +8,8 @@ export const HRMS_NAV_REGISTRY = [
   { id: "hrms-employees", name: "Employee Master", icon: <Users size={16} />, href: ROUTES.HRMS_EMPLOYEES, module: "hrms_employee" },
   { id: "attendance", name: "Daily Attendance", icon: <CalendarCheck size={16} />, href: ROUTES.HRMS_ATTENDANCE, module: "hrms_attendance" },
   { id: "gate-pass", name: "Gate Pass", icon: <DoorOpen size={16} />, href: ROUTES.HRMS_GATE_PASS, module: "hrms_gate_pass" },
+  { id: "leave", name: "Leave", icon: <CalendarDays size={16} />, href: ROUTES.HRMS_LEAVE, module: "hrms_leave" },
+  { id: "loan", name: "Loan", icon: <Wallet size={16} />, href: ROUTES.HRMS_LOAN, module: "hrms_loan" },
   { id: "attendance-log", name: "Attendance Log", icon: <ScrollText size={16} />, href: ROUTES.HRMS_ATTENDANCE_LOG, module: "hrms_attendance_log" },
   {
     id: "hrms-logs-group",

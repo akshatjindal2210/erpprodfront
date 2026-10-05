@@ -299,3 +299,14 @@ export function formatIrDateTime(v) {
     .replace(/\//g, "-")
     .replace(", ", " ");
 }
+
+/** Full preview overlay — uploader + uploaded time (Invoice Receiving attachments). */
+export function irReceivingUploadPreviewCaption(row) {
+  if (!row || typeof row !== "object") return "";
+  const by = formatImsErpScalar(row.uploaded_by);
+  const at = formatIrDateTime(row.uploaded_at);
+  const parts = [];
+  if (by && by !== "—" && by !== "null") parts.push(by);
+  if (at && at !== "—" && at !== "null") parts.push(at);
+  return parts.join(" · ");
+}

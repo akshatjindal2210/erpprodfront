@@ -93,6 +93,8 @@ export const MODULES = {
     { name: "hrms_attendance", label: "Attendance" },
     { name: "hrms_employee", label: "Employee Master" },
     { name: "hrms_gate_pass", label: "Gate Pass" },
+    { name: "hrms_leave", label: "Leave" },
+    { name: "hrms_loan", label: "Loan" },
     { name: "hrms_activity_logs", label: "Activity Logs" },
   ],
   purchase: [

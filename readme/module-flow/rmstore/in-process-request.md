@@ -87,7 +87,7 @@ Source file (do not change unless following this checklist):
 1. Deploy with `RUN_IPR_BACKFILL = false`.
 2. Spot-check Register Type badges (consume / return / reassign / reject_*).
 3. Confirm legacy columns gone (or dropped on boot).
-4. Optional cleanup: comment out `await recoverIprTypeLight()` so boot skips type UPDATEs.
+4. **Done in repo:** `recoverIprTypeLight` / backfill calls commented out in `createRmStoreInProcessRequestTable`.
 5. Do not turn `RUN_IPR_BACKFILL` back on in production.
 
 Also noted in [v4.4.5.md](../../version-notes/v4.4.5.md) §1.

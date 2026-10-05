@@ -9,7 +9,11 @@ import { formatFgWireSplitLine, resolveCoilJobCardLabel, resolveCoilMachineLabel
 
 function hasValue(v) {
   if (v == null || v === "") return false;
-  if (typeof v === "string" && !v.trim()) return false;
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (!t || t === "—" || t === "-") return false;
+  }
+  if (Array.isArray(v) && !v.length) return false;
   return true;
 }
 

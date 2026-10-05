@@ -5,12 +5,14 @@ import { getLocationDisplayNo } from "@/apps/rmstore/lib/helpers/locationQrLabel
 import { isSaMinusWriteOff } from "@/apps/rmstore/lib/utils/saMinusInventory";
 import { getCoilStockZone, resolveCoilJobCardLabel, resolveCoilLocationDetail, resolveCoilLocationLabel, resolveCoilMachineLabel } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 
-function ImsDetail({ label, value, mono, uppercase }) {
+function ImsDetail({ label, value, mono, uppercase, tone = "blue" }) {
+  const labelClass = tone === "amber" ? "text-amber-700" : "text-blue-500";
+  const valueClass = tone === "amber" ? "text-amber-950" : "text-blue-900";
   return (
     <div className="min-w-0">
-      <dt className="text-[9px] font-bold uppercase text-blue-500">{label}</dt>
+      <dt className={`text-[9px] font-bold uppercase ${labelClass}`}>{label}</dt>
       <dd
-        className={`text-[11px] font-semibold text-blue-900 break-words ${mono ? "font-mono" : ""} ${uppercase ? "uppercase" : ""}`}
+        className={`text-[11px] font-semibold break-words ${valueClass} ${mono ? "font-mono" : ""} ${uppercase ? "uppercase" : ""}`}
       >
         {value || "—"}
       </dd>
@@ -31,16 +33,20 @@ export function CoilFinderConsumedDetails({ coil }) {
     : "No rack shown — this coil has been consumed.";
 
   return (
-    <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
-      <p className="text-xs font-semibold text-blue-900">Consumed Details</p>
+    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+      <p className="text-xs font-semibold text-amber-950">Consumed Details</p>
       <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
-        {iprUid ? <ImsDetail label="IPR UID" value={`IPR-${iprUid}`} mono /> : null}
-        {saId ? <ImsDetail label="Adjustment" value={`SA-${saId}`} mono /> : null}
-        {iprUid ? <ImsDetail label="Job Card" value={resolveCoilJobCardLabel(coil)} mono uppercase /> : null}
-        {iprUid ? <ImsDetail label="Machine" value={resolveCoilMachineLabel(coil)} mono uppercase /> : null}
-        <ImsDetail label="Entry Type" value={entryType} uppercase />
+        {iprUid ? <ImsDetail tone="amber" label="IPR UID" value={`IPR-${iprUid}`} mono /> : null}
+        {saId ? <ImsDetail tone="amber" label="Adjustment" value={`SA-${saId}`} mono /> : null}
+        {iprUid ? (
+          <ImsDetail tone="amber" label="Job Card" value={resolveCoilJobCardLabel(coil)} mono uppercase />
+        ) : null}
+        {iprUid ? (
+          <ImsDetail tone="amber" label="Machine" value={resolveCoilMachineLabel(coil)} mono uppercase />
+        ) : null}
+        <ImsDetail tone="amber" label="Entry Type" value={entryType} uppercase />
       </dl>
-      <p className="text-[11px] text-blue-800 mt-2 leading-snug">{footnote}</p>
+      <p className="text-[11px] text-amber-900/90 mt-2 leading-snug">{footnote}</p>
     </div>
   );
 }
@@ -186,6 +192,16 @@ export function coilFinderHeaderTone(coil) {
       title: "text-emerald-900",
       meta: "text-emerald-700/80",
       divider: "border-emerald-100/90",
+    };
+  }
+  if (zone === "consumed") {
+    return {
+      shell: "bg-amber-50 border-amber-200",
+      icon: "bg-amber-600 text-white",
+      kicker: "text-amber-800",
+      title: "text-amber-950",
+      meta: "text-amber-900/85",
+      divider: "border-amber-200/90",
     };
   }
   return {

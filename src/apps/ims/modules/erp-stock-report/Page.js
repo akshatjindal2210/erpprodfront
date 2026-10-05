@@ -18,6 +18,7 @@ import { ERP_STOCK_REPORT_TABLE_COLUMNS, exportErpStockReport, formatErpStockTab
 import { EMPTY_FILTERS, buildErpStockBaseMeta, buildErpStockFilterOptions, deriveErpStockView, hasActiveErpStockFilters,
   readErpStockReportSessionCache, writeErpStockReportSessionCache } from "@/apps/ims/modules/erp-stock-report/erpStockReportClient";
 import { normalizeMultiFilterIds } from "@/apps/ims/modules/inventory-report/inventoryReportClient";
+import { getSelectedFinancialYear } from "@/platform/utils/global/financialYear";
 
 const LOAD_LIMIT = 10000;
 const TABLE_RENDER_CHUNK = 100;
@@ -277,15 +278,21 @@ export default function ErpStockReportPage() {
     const docno = packingDocNo(selectedRow.packing_number);
     const docdt = toIsoDate(selectedRow.doc_dt);
     const qty = Number(selectedRow.stock_diff);
+    const fyid = Number(getSelectedFinancialYear().id);
     if (!docno || !docdt || !Number.isFinite(qty) || qty === 0) {
       toast.error("Select a mismatch row with packing no, date, and balance qty.");
       return;
     }
+    if (!Number.isFinite(fyid) || fyid <= 0) {
+      toast.error("Select a financial year first.");
+      return;
+    }
     setAdjusting(true);
     try {
+      const payload = { docno, docdt, qty, fyid };
       const body = useAdjust2
-        ? await erpStockReportService.adjust2({ docno, docdt, qty })
-        : await erpStockReportService.adjust({ docno, docdt, qty });
+        ? await erpStockReportService.adjust2(payload)
+        : await erpStockReportService.adjust(payload);
       const rec = Array.isArray(body?.records) ? body.records[0] : null;
       const newDoc = rec?.NewAdjDocNo ?? rec?.newAdjDocNo;
       toast.success(newDoc ? `Adjusted. New doc ${newDoc}.` : body?.message || "Adjusted.");

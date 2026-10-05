@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Loader2, ScanLine, CameraOff, Layers, Package, QrCode, Factory, History } from "lucide-react";
+import { Loader2, ScanLine, CameraOff, Layers, Package, QrCode, Factory } from "lucide-react";
 import Drawer from "@/ui/primitives/Drawer";
 import Snackbar from "@/ui/primitives/Snackbar";
 import { lookupCoilByUid } from "@/apps/rmstore/lib/services/coil";
@@ -31,6 +31,48 @@ function IconLabeledRow({ icon: Icon, label, children, iconClass = "text-slate-4
       <div className="min-w-0 flex-1 pt-0.5">
         <p className="text-[10px] font-medium text-slate-500 mb-0.5">{label}</p>
         <div className="text-xs font-semibold text-slate-800 leading-snug">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function coilFinderMachineSub(mac) {
+  const label = String(mac || "").trim();
+  if (!label || label === "—") return null;
+  return (
+    <p className="text-[11px] font-normal text-slate-600 normal-case mt-0.5 font-mono uppercase">{label}</p>
+  );
+}
+
+/** One card per hop — same shell as “This coil” (title = job card, meta = machine). */
+function CoilFinderHistoryHopCard({ hop, step, multi, coilData, headerTone }) {
+  return (
+    <div className={`p-3 rounded-xl border ${headerTone.shell}`}>
+      <div className="flex items-start gap-2">
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${headerTone.icon}`}>
+          <Layers size={18} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className={`text-[10px] font-medium leading-none ${headerTone.kicker}`}>
+            {multi ? `History · ${step}` : "History"}
+          </p>
+          <p className={`text-sm font-bold font-mono leading-tight break-all ${headerTone.title}`}>
+            {hop.pjobcardno}
+          </p>
+          {hop.macname ? (
+            <p className={`text-[11px] mt-1 ${headerTone.meta}`}>
+              Machine{" "}
+              <span className="font-mono font-semibold uppercase">{hop.macname}</span>
+            </p>
+          ) : null}
+          {hop.fgSplit ? (
+            <div className={`mt-2 pt-2 border-t ${headerTone.divider} space-y-2.5`}>
+              <IconLabeledRow icon={Factory} label="FG item (production)" iconClass="text-violet-600">
+                <FgWireSplitBody split={hop.fgSplit} reassign={coilData.reassign} hideJobCard />
+              </IconLabeledRow>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -167,9 +209,10 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
   const coilZone = coilData ? getCoilStockZone(coilData) : null;
   const shopFloorCoil = coilZone === "out";
   const consumedCoil = coilZone === "consumed";
+  const showProduction = shopFloorCoil || consumedCoil;
   const jobCardHistory = coilData
     ? resolveCoilJobCardHistory(coilData)
-    : { latest: "—", latestMac: null, history: [] };
+    : { latest: "—", latestMac: null, history: [], historyChronological: false };
 
   return (
     <>
@@ -262,96 +305,65 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
                           <p className="text-[11px] font-normal text-slate-600 normal-case mt-0.5">{coilData.item_desc}</p>
                         ) : null}
                       </IconLabeledRow>
-                      <IconLabeledRow icon={Factory} label="FG item (production)" iconClass="text-violet-600">
-                        {fgPartition.primary ? (
-                          <FgWireSplitBody
-                            split={fgPartition.primary}
-                            reassign={coilData.reassign}
-                            hideJobCard={shopFloorCoil}
-                          />
-                        ) : (
-                          <span className="font-mono uppercase">{coilData.fg_item_code || "—"}</span>
-                        )}
-                        {!fgPartition.primary &&
-                        coilData.fg_item_desc &&
-                        String(coilData.fg_item_desc).trim() &&
-                        String(coilData.fg_item_desc).trim() !== String(coilData.fg_item_code || "").trim() ? (
-                          <p className="text-[11px] font-normal text-slate-600 normal-case mt-0.5">{coilData.fg_item_desc}</p>
-                        ) : null}
-                      </IconLabeledRow>
-                      {shopFloorCoil ? (
-                        <>
-                          <IconLabeledRow icon={Layers} label="Job card" iconClass="text-indigo-500">
-                            <span
-                              className={`font-mono uppercase ${
-                                jobCardHistory.history.length ? "text-indigo-700" : ""
-                              }`}
-                            >
-                              {jobCardHistory.latest}
-                            </span>
-                          </IconLabeledRow>
-                          <IconLabeledRow icon={Package} label="Machine" iconClass="text-indigo-500">
-                            <span className="font-mono uppercase">
-                              {jobCardHistory.latestMac || resolveCoilMachineLabel(coilData)}
-                            </span>
-                          </IconLabeledRow>
-                        </>
+                      {shopFloorCoil || (consumedCoil && !jobCardHistory.history.length) ? (
+                        <IconLabeledRow icon={Factory} label="FG item (production)" iconClass="text-violet-600">
+                          {fgPartition.primary ? (
+                            <FgWireSplitBody
+                              split={fgPartition.primary}
+                              reassign={coilData.reassign}
+                              hideJobCard={showProduction}
+                            />
+                          ) : (
+                            <span className="font-mono uppercase">{coilData.fg_item_code || "—"}</span>
+                          )}
+                          {!fgPartition.primary &&
+                          coilData.fg_item_desc &&
+                          String(coilData.fg_item_desc).trim() &&
+                          String(coilData.fg_item_desc).trim() !== String(coilData.fg_item_code || "").trim() ? (
+                            <p className="text-[11px] font-normal text-slate-600 normal-case mt-0.5">{coilData.fg_item_desc}</p>
+                          ) : null}
+                        </IconLabeledRow>
+                      ) : null}
+                      {shopFloorCoil || (consumedCoil && !jobCardHistory.history.length) ? (
+                        <IconLabeledRow icon={Layers} label="Job card" iconClass="text-indigo-500">
+                          <span
+                            className={`font-mono uppercase ${
+                              jobCardHistory.history.length ? "text-indigo-700" : ""
+                            }`}
+                          >
+                            {jobCardHistory.latest}
+                          </span>
+                          {coilFinderMachineSub(
+                            jobCardHistory.latestMac || resolveCoilMachineLabel(coilData)
+                          )}
+                        </IconLabeledRow>
                       ) : null}
                     </div>
                   </div>
                 </div>
               </div>
 
-              {shopFloorCoil && jobCardHistory.history.length ? (
-                <div className={`p-3 rounded-xl border ${headerTone.shell}`}>
-                  <div className="flex items-start gap-2">
-                    <div
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${headerTone.icon}`}
-                    >
-                      <History size={18} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className={`text-[10px] font-medium leading-none ${headerTone.kicker}`}>
-                        History
-                      </p>
-                      <p className={`text-sm font-bold leading-tight mt-1 ${headerTone.title}`}>
-                        Earlier job cards
-                      </p>
-                      <div className={`mt-2 pt-2 border-t ${headerTone.divider} space-y-2`}>
-                        {jobCardHistory.history.map((h, idx) => (
-                          <div
-                            key={`${h.pjobcardno}-${idx}`}
-                            className="grid grid-cols-2 gap-x-3 gap-y-0.5"
-                          >
-                            <div className="min-w-0">
-                              <p className={`text-[10px] font-medium mb-0.5 ${headerTone.kicker}`}>
-                                {jobCardHistory.history.length - idx} · Job card
-                              </p>
-                              <p
-                                className={`text-xs font-semibold font-mono uppercase leading-snug break-all ${headerTone.title}`}
-                              >
-                                {h.pjobcardno}
-                              </p>
-                            </div>
-                            <div className="min-w-0">
-                              <p className={`text-[10px] font-medium mb-0.5 ${headerTone.kicker}`}>
-                                Machine
-                              </p>
-                              <p
-                                className={`text-xs font-semibold font-mono uppercase leading-snug break-all ${headerTone.title}`}
-                              >
-                                {h.macname || "—"}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
+              {showProduction && jobCardHistory.history.length
+                ? (jobCardHistory.historyChronological
+                    ? [...jobCardHistory.history].reverse()
+                    : jobCardHistory.history
+                  ).map((hop, idx, hops) => {
+                    const step = hops.length - idx;
+                    return (
+                      <CoilFinderHistoryHopCard
+                        key={`${hop.pjobcardno}-${idx}`}
+                        hop={hop}
+                        step={step}
+                        multi={hops.length > 1}
+                        coilData={coilData}
+                        headerTone={headerTone}
+                      />
+                    );
+                  })
+                : null}
 
-              {fgPartition.others.map((split, idx) => (
+              {!(showProduction && jobCardHistory.history.length) &&
+                fgPartition.others.map((split, idx) => (
                 <div
                   key={`${split.fg_item_code}-${split.kind}-${idx}`}
                   className={`p-3 rounded-xl border ${headerTone.shell}`}

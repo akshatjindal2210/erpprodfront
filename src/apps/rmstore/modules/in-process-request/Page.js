@@ -106,6 +106,8 @@ const PENDING_HEADERS = [
     (v) => renderCoilCompactCell(v, "font-mono font-bold text-indigo-700"),
     { width: "130px", align: "center", copyValue: (row) => row?.pjobcardno ?? "—" },
   ],
+  ["FG Item", "fg_item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold text-slate-800"), { width: "110px" }],
+  ["FG Description", "fg_item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block normal-case", v), { width: "160px" }],
   [
     "Machine",
     "macname",
@@ -132,8 +134,8 @@ const PENDING_HEADERS = [
     { fixed: true, width: "140px" },
   ],
   ["MRN", "mrn_uid", renderCoilMrnCell, { width: "80px" }],
-  ["Item Code", "item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold"), { width: "110px" }],
-  ["Description", "item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block", v), { width: "160px" }],
+  ["RM Item", "item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold"), { width: "110px" }],
+  ["RM Description", "item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block", v), { width: "160px" }],
   ["Qty", "qty", renderCoilQtyCell, { width: "70px", align: "center" }],
   ["Heat No", "heat_no", (v) => renderCoilCompactCell(v, "font-mono text-slate-700"), { width: "130px" }],
   ["Out UID", "out_uid", renderCoilOutUidCell, { width: "80px", copyValue: (row) => (row.out_uid != null ? String(row.out_uid) : "—") }],
@@ -142,7 +144,7 @@ const PENDING_HEADERS = [
 const PENDING_CARD_CONFIG = {
   titleKey: "coil_no_uid",
   badgeIndices: [4],
-  detailKeys: ["item_code", "item_desc", "pjobcardno", "macname", "shop_floor_at", "heat_no", "qty", "mrn_uid", "out_uid"],
+  detailKeys: ["item_code", "item_desc", "fg_item_code", "fg_item_desc", "pjobcardno", "macname", "shop_floor_at", "heat_no", "qty", "mrn_uid", "out_uid"],
   footerKey: "macname",
 };
 

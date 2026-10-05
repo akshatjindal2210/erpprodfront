@@ -17,6 +17,18 @@ function getDisplayLabel(item, labelKey) {
   return toSearchText(item[labelKey]).trim();
 }
 
+/** Keep wheel inside dropdown list (drawer / body scroll-lock). */
+function handleDropdownListWheel(e) {
+  const el = e.currentTarget;
+  e.stopPropagation();
+  if (el.scrollHeight <= el.clientHeight + 1) return;
+  const atTop = el.scrollTop <= 0;
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+  if ((e.deltaY < 0 && atTop) || (e.deltaY > 0 && atBottom)) {
+    e.preventDefault();
+  }
+}
+
 export default function SearchableSelect({ value, onChange, fetchService, getByIdService, dataKey = "id", labelKey = "name", subLabelKey = "", 
   /** When set, closed trigger shows this field instead of labelKey (dropdown rows still use labelKey). */
   selectedLabelKey = "",
@@ -279,7 +291,12 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           ? ordered.filter((item) => getDisplayLabel(item, labelKey))
           : ordered;
       });
-      setHasMore(list.length === PAGE_SIZE);
+      const totalFromApi = res?.total;
+      setHasMore(
+        totalFromApi != null && Number.isFinite(Number(totalFromApi))
+          ? p * PAGE_SIZE < Number(totalFromApi)
+          : list.length === PAGE_SIZE
+      );
       setPage(p);
       setLastFetchedQuery(query);
       lastFetchedQueryRef.current = query;
@@ -777,6 +794,16 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     }
   }, [activeIndex, open, listIndexOffset]);
 
+  // Non-passive wheel so list scrolls inside drawers / scroll-locked modals
+  useEffect(() => {
+    if (!open) return;
+    const el = listRef.current;
+    if (!el) return;
+    const onWheel = (e) => handleDropdownListWheel(e);
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [open, items.length]);
+
   const dropdownEl = open && dropPos.width > 0 ? (
     <div
       ref={dropdownRef}
@@ -802,6 +829,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
             }
       }
       className={`searchable-select-dropdown bg-white border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-100 ${dropdownSurface}`}
+      onWheel={(e) => e.stopPropagation()}
     >
       {pinSelectedAtTop && selectedCount > 0 ? (
         <div className="border-b border-slate-200 bg-slate-50/60">
@@ -820,7 +848,11 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
               Clear all
             </button>
           </div>
-          <ul className="max-h-[96px] overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar">
+          <ul
+            className="max-h-[96px] overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar"
+            style={{ touchAction: "pan-y" }}
+            onWheel={handleDropdownListWheel}
+          >
             {(selected || []).map((item, idx) => renderOptionRow(item, idx, "sel-"))}
           </ul>
         </div>
@@ -828,7 +860,9 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
 
       <ul
         ref={listRef}
-        className={`overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar ${pinSelectedAtTop && selectedCount > 0 ? "max-h-[124px]" : "max-h-[220px]"}`}
+        className={`overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar ${pinSelectedAtTop && selectedCount > 0 ? "max-h-[124px]" : "max-h-[min(280px,42vh)]"}`}
+        style={{ touchAction: "pan-y" }}
+        onWheel={handleDropdownListWheel}
         onScroll={(e) => {
           const el = e.currentTarget;
           if (el.scrollTop + el.clientHeight >= el.scrollHeight - 20 && hasMore && !loadingMore && !loading) {

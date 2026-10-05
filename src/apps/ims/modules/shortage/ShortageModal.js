@@ -218,7 +218,7 @@ export default function ShortageModal({
         type: form.type,
         qty: parseInt(String(form.qty), 10),
         // Always send calendar YYYY-MM-01 (month picker has no day/TZ)
-        month: showMonthField || isEdit || isApprove ? monthToSaveDate(form.month) : todayYmd(),
+        month: showMonthField || isEdit || isApprove ? monthToSaveDate(form.month) : monthToSaveDate(todayYm()),
         remarks: form.remarks ? String(form.remarks).trim() : null,
         approved: finalApproved,
       };

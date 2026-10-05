@@ -1,4 +1,4 @@
-const CACHE_NAME = "jfl-erp-static-v28";
+const CACHE_NAME = "jfl-erp-static-v37";
 const APP_BADGE_CACHE = "jfl-app-badge-count-v1";
 const DELIVERY_RETRY_MS = [0, 1500, 4000, 10000, 25000];
 const API_BASE_CACHE = "jfl-push-api-base-v1";
@@ -119,18 +119,6 @@ async function ensureApiConfig(fromMeta = {}) {
   return mergePushMeta(fromMeta);
 }
 
-async function readCachedAppBadgeCount() {
-  try {
-    const cache = await caches.open(APP_BADGE_CACHE);
-    const res = await cache.match("count");
-    if (!res) return 0;
-    const n = Math.floor(Number(await res.text()));
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  } catch {
-    return 0;
-  }
-}
-
 async function writeCachedAppBadgeCount(count) {
   try {
     const n = Math.floor(Number(count));
@@ -200,6 +188,11 @@ function isExternalFrontendHost(hostname, cfg = {}) {
 
 function isInternalFrontendHost(hostname, cfg = {}) {
   return matchesHost(hostname, cfg.internalFrontendHost);
+}
+
+function isLocalDevHost(hostname) {
+  const h = String(hostname || "").toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "[::1]";
 }
 
 async function buildDeliveryBody(tracking_id, meta = {}, options = {}) {
@@ -365,6 +358,94 @@ async function cacheStaticAssets(cache) {
   await Promise.allSettled(STATIC_ASSETS.map((url) => cache.add(url)));
 }
 
+async function officeNetworkReminderNavigate(request) {
+  await loadApiConfig();
+  const cfg = {
+    companyBackendUrl: cachedCompanyBackendUrl,
+    apiBase: cachedApiBase,
+    externalFrontendHost: cachedExternalFrontendHost,
+    deliveryApiBases: cachedDeliveryApiBases,
+  };
+  const returnUrl = new URL(request.url);
+  const returnPath = `${returnUrl.pathname}${returnUrl.search}` || "/";
+  const target = offlineReminderUrl(returnPath, cfg);
+  const reminder = await caches.match("/offline-vpn-reminder.html");
+  if (reminder) {
+    return Response.redirect(new URL(target, self.location.origin).href, 302);
+  }
+  return new Response(
+    "<!DOCTYPE html><html><body style='font-family:system-ui;padding:24px'><h1>Connect to the office network</h1><p>Please connect to the office network to use the internal app.</p></body></html>",
+    { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } }
+  );
+}
+
+async function respondToNavigate(request) {
+  const url = new URL(request.url);
+  const host = url.hostname;
+
+  try {
+    const networkResponse = await fetch(request);
+    if (networkResponse && networkResponse.ok) {
+      const clone = networkResponse.clone();
+      caches
+        .open(CACHE_NAME)
+        .then((cache) => cache.put(request.url, clone))
+        .catch(() => {});
+      return networkResponse;
+    }
+  } catch {
+    /* fall back below */
+  }
+
+  const cached =
+    (await caches.match(request)) ||
+    (await caches.match(url.pathname)) ||
+    (await caches.match("/"));
+
+  if (cached) return cached;
+
+  if (isLocalDevHost(host) || isExternalFrontendHost(host)) {
+    try {
+      return await fetch(request);
+    } catch {
+      return new Response("Unable to load this page.", {
+        status: 503,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+  }
+
+  await loadApiConfig();
+  const cfg = {
+    companyBackendUrl: cachedCompanyBackendUrl,
+    apiBase: cachedApiBase,
+    internalFrontendHost: cachedInternalFrontendHost,
+    externalFrontendHost: cachedExternalFrontendHost,
+    deliveryApiBases: cachedDeliveryApiBases,
+  };
+
+  if (!isInternalFrontendHost(host, cfg)) {
+    try {
+      return await fetch(request);
+    } catch {
+      return new Response("Unable to load this page.", {
+        status: 503,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+  }
+
+  if (await canOpenAppFromOrigin(cfg)) {
+    try {
+      return await fetch(request);
+    } catch {
+      /* document still failed — show reminder only on true internal domain */
+    }
+  }
+
+  return officeNetworkReminderNavigate(request);
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cacheStaticAssets(cache)).then(() => self.skipWaiting())
@@ -395,9 +476,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request).catch(() => caches.match("/"))
-    );
+    event.respondWith(respondToNavigate(request));
     return;
   }
 
@@ -525,12 +604,20 @@ self.addEventListener("push", (event) => {
         data: notifyData,
       })
       .then(async () => {
-        let badgeCount = payload.unread_count ?? meta.unread_count;
-        if (badgeCount == null || !Number.isFinite(Number(badgeCount))) {
-          const prev = await readCachedAppBadgeCount();
-          badgeCount = prev + 1;
+        const rawAll =
+          payload.unread_count_all ??
+          meta.unread_count_all ??
+          payload.unread_count ??
+          meta.unread_count;
+        const clientList = await self.clients.matchAll({
+          type: "window",
+          includeUncontrolled: true,
+        });
+        if (clientList.length > 0) {
+          clientList.forEach((client) => client.postMessage({ type: "SYNC_APP_BADGE" }));
+        } else if (rawAll != null && Number.isFinite(Number(rawAll))) {
+          await applyAppBadgeCount(rawAll);
         }
-        await applyAppBadgeCount(badgeCount);
         return ensureApiConfig(notifyData)
           .then(() => postDeliveryStatus("received", trackingId, notifyData))
           .then(() => flushPendingDeliveries())

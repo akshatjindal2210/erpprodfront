@@ -9,13 +9,14 @@ export const FLOW_SCAN_CAMERA_INSECURE_MSG = "Camera access requires a secure co
 
 export const FLOW_SCAN_CAMERA_DENIED_MSG = "Camera access was blocked. In your browser, open this site's settings and set Camera to Allow (not “Ask every time”), then reload and tap Scan again. After Allow, the app will not ask again for about 30 days on this device.";
 
-export const COMPANY_WIFI_TITLE = "Company WiFi required";
-export const COMPANY_WIFI_MESSAGE = "Please connect to company WiFi network.";
-export const OFFLINE_INTERNET_TITLE = "No internet";
-export const OFFLINE_INTERNET_MESSAGE = "Internet connection nahi hai.";
-
-export const COMPANY_WIFI_HINT =
-  "Remote access ke liye email wala external portal link use karein (Cloudflare sign-in).";
+export const COMPANY_WIFI_TITLE = "Connect to the office network";
+export const COMPANY_WIFI_MESSAGE = "Please connect to the office network to use the internal app.";
+export const COMPANY_WIFI_HINT = "This internal portal requires office network access. For remote access, use the external portal link you received by email (Cloudflare sign-in).";
+export const COMPANY_WIFI_TRY_AGAIN = "Try again";
+export const COMPANY_WIFI_CHECKING = "Checking connection…";
+export const COMPANY_WIFI_STILL_UNREACHABLE = "Unable to reach the office network. Please connect and try again.";
+export const COMPANY_WIFI_CONNECTED = "Connected. Opening the app…";
+export const COMPANY_WIFI_PUSH_HINT = "This notification was delivered. It will be marked as read when the app opens successfully.";
 
 export const SESSION_SLOW_MESSAGE = "This is taking longer than usual. Please wait or try again.";
 export const SESSION_SLOW_HINT = "If it keeps loading, refresh the page or contact support.";

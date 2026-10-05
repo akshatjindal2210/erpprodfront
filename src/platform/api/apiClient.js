@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "../utils/core/lib";
-import { isNetworkReachabilityError, isNetworkMarkedDown, markNetworkReachableFromApi, notifyNetworkUnreachable } from "../utils/auth/companyNetwork";
+import { isNetworkReachabilityError, markNetworkReachableFromApi, notifyNetworkUnreachable } from "../utils/auth/companyNetwork";
 
 /** Dedupe IMS / network warning toasts when many parallel API calls fail together */
 const IMS_TOAST_THROTTLE_MS = 14000;
@@ -168,12 +168,9 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
     const res = await fetch(url, options);
     const data = await res.json().catch(() => null);
 
-    if (typeof window !== "undefined" && res.status) {
-      if (isNetworkMarkedDown()) markNetworkReachableFromApi();
-    }
-
     if (!res.ok) {
       if (expectStatuses.includes(res.status)) {
+        markNetworkReachableFromApi();
         return {
           success: false,
           status: res.status,
@@ -205,6 +202,8 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
     }
 
     maybeToastImsUnavailable(data?.ims_meta, data, { requestFailed: false });
+
+    markNetworkReachableFromApi();
 
     return data;
   } catch (err) {

@@ -6,5 +6,7 @@ export const ROUTES = {
   HRMS_ATTENDANCE: `${HRMS}/attendance`,
   HRMS_EMPLOYEES: `${HRMS}/employees`,
   HRMS_GATE_PASS: `${HRMS}/gate-pass`,
+  HRMS_LEAVE: `${HRMS}/leave`,
+  HRMS_LOAN: `${HRMS}/loan`,
   HRMS_ACTIVITY_LOGS: `${HRMS}/logs`,
 };

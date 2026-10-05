@@ -574,7 +574,7 @@ export default function InvoiceReceivingPage() {
         applyRegisterDefaultDates();
       }
       setDisplayLimit(100);
-      setSort({ key: "prnbillno", dir: "desc" });
+      setSort(tab === TABS.REGISTER ? { key: "uploaded_at", dir: "desc" } : { key: "prnbillno", dir: "desc" });
     },
     [resetSearch, applyRegisterDefaultDates]
   );

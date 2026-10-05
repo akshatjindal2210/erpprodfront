@@ -1,48 +1,51 @@
 import { fetchInboxUnreadCount } from "@/common/pwa/task/taskInboxApi";
 
+let globalIconGen = 0;
+
 function normalizeBadgeCount(count) {
   const n = Math.floor(Number(count));
   if (!Number.isFinite(n) || n <= 0) return 0;
   return n;
 }
 
-/** Home-screen icon badge: 1, 2, 3… (Badging API). No-op when unsupported. */
-export function applyAppBadgeCount(count) {
-  if (typeof navigator === "undefined") return;
-  try {
-    const n = normalizeBadgeCount(count);
-    if (n <= 0) {
-      if (typeof navigator.clearAppBadge === "function") void navigator.clearAppBadge();
-      return;
+function postBadgeCountToServiceWorkers(count) {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+  const n = normalizeBadgeCount(count);
+  navigator.serviceWorker.ready
+    .then((reg) => {
+      [reg.active, reg.waiting, reg.installing].filter(Boolean).forEach((worker) => {
+        worker.postMessage({ type: "SET_APP_BADGE_COUNT", count: n });
+      });
+    })
+    .catch(() => {});
+}
+
+export function syncIconBadge(count) {
+  const n = normalizeBadgeCount(count);
+  if (typeof navigator !== "undefined") {
+    try {
+      if (n <= 0) {
+        if (typeof navigator.clearAppBadge === "function") void navigator.clearAppBadge();
+      } else if (typeof navigator.setAppBadge === "function") {
+        void navigator.setAppBadge(n);
+      }
+    } catch {
+      /* unsupported */
     }
-    if (typeof navigator.setAppBadge === "function") void navigator.setAppBadge(n);
-  } catch {
-    /* unsupported or denied */
   }
+  postBadgeCountToServiceWorkers(n);
+  return n;
 }
 
-export function clearAppBadge() {
-  applyAppBadgeCount(0);
-}
-
-/** Total unread across all apps — icon badge is never filtered by task/ims scope. */
-export async function syncAppBadgeFromServer() {
-  if (typeof window === "undefined") return;
-  if (!("Notification" in window) || Notification.permission !== "granted") {
-    clearAppBadge();
-    return;
-  }
+/** PWA taskbar icon — always all apps combined (bell stays per-screen). */
+export async function syncGlobalIconBadge() {
+  if (typeof window === "undefined") return null;
+  const gen = ++globalIconGen;
   try {
     const count = await fetchInboxUnreadCount(null);
-    applyAppBadgeCount(count);
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.ready
-        .then((reg) => {
-          reg.active?.postMessage({ type: "SET_APP_BADGE_COUNT", count: normalizeBadgeCount(count) });
-        })
-        .catch(() => {});
-    }
+    if (gen !== globalIconGen) return null;
+    return syncIconBadge(count);
   } catch {
-    /* keep current badge */
+    return null;
   }
 }

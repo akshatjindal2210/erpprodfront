@@ -1,8 +1,9 @@
 "use client";
 
-import { PackageMinus, PackagePlus, RefreshCcwDot } from "lucide-react";
+import { PackagePlus, RefreshCcwDot } from "lucide-react";
 
 import { coilUidDisplayLabel } from "@/apps/rmstore/lib/helpers/qrScan";
+import { formatPjobcardnoDisplay } from "@/apps/rmstore/modules/coil/coilTableVisuals";
 import { OK_INPUT } from "@/ui/common/Constants";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 
@@ -44,21 +45,40 @@ export default function UpdateCoilStatusForm({
       : totalQty;
   const validUsed = Number.isFinite(used) ? used : NaN;
   const showQtySection = partialMode && !readOnly;
+  const jc = formatPjobcardnoDisplay(coil.source_pjobcardno || coil.pjobcardno);
+  const val = (v) => (v != null && String(v).trim() !== "" ? String(v).trim() : "—");
+  const summaryRows = [
+    ["Coil", coilUidDisplayLabel(coil.coil_no_uid), "mono"],
+    ["MRN UID", val(coil.mrn_uid), "mono"],
+    ["RM Item", val(coil.item_code), "mono"],
+    ["RM Desc", val(coil.item_desc), "desc"],
+    ["FG Item", val(coil.fg_item_code), "mono"],
+    ["FG Desc", val(coil.fg_item_desc), "desc"],
+    ["Job Card", val(jc), "mono"],
+    ["Qty", totalQty.toLocaleString(), "num"],
+  ];
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-indigo-50 border border-indigo-200 min-w-0">
-        <PackageMinus size={14} className="text-indigo-600 shrink-0" />
-        <div className="min-w-0">
-          <p className="text-[10px] font-bold text-indigo-900 uppercase truncate">
-            {coilUidDisplayLabel(coil.coil_no_uid)}
-          </p>
-          <p className="text-[8px] font-bold text-indigo-700/80 uppercase truncate">
-            MRN {coil.mrn_no ?? "—"} · Total qty {totalQty.toLocaleString()}
-            {coil.item_code ? ` · ${coil.item_code}` : ""}
-          </p>
-        </div>
-      </div>
+      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5 min-w-0">
+        {summaryRows.map(([label, value, kind]) => (
+          <div key={label} className="grid grid-cols-[4.5rem_1fr] gap-x-1.5 items-baseline min-w-0">
+            <dt className="text-[8px] font-bold uppercase text-slate-500 truncate">{label}</dt>
+            <dd
+              className={`text-[9px] truncate min-w-0 ${
+                kind === "desc"
+                  ? "font-medium normal-case text-slate-700"
+                  : kind === "num"
+                    ? "font-bold tabular-nums text-indigo-950"
+                    : "font-mono font-bold uppercase text-indigo-950"
+              }`}
+              title={value}
+            >
+              {value}
+            </dd>
+          </div>
+        ))}
+      </dl>
 
       {!readOnly ? (
         <div className="space-y-2">
@@ -184,7 +204,7 @@ export default function UpdateCoilStatusForm({
           getOptionStyle={
             reassignRowRmColor
               ? (item) =>
-                  item._isPrimaryProd
+                  Number(item.is_primary) === 1 || item._isPrimaryProd
                     ? {
                         backgroundColor: reassignRowRmColor.soft,
                         borderLeft: `3px solid ${reassignRowRmColor.accent}`,
@@ -194,7 +214,8 @@ export default function UpdateCoilStatusForm({
           }
           getOptionClassName={
             reassignRowRmColor
-              ? (item) => (item._isPrimaryProd ? "font-semibold" : "")
+              ? (item) =>
+                  Number(item.is_primary) === 1 || item._isPrimaryProd ? "font-semibold" : ""
               : undefined
           }
         />

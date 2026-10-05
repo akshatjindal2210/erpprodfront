@@ -55,6 +55,48 @@ export const gatePassService = {
   },
 };
 
+export const leaveService = {
+  list(body = {}) {
+    return api(ENDPOINTS.LEAVE.LIST, { method: "POST", body });
+  },
+  submit(body) {
+    return api(ENDPOINTS.LEAVE.SUBMIT, { method: "POST", body });
+  },
+  update(body) {
+    return api(ENDPOINTS.LEAVE.UPDATE, { method: "POST", body });
+  },
+  verifyHr(body) {
+    return api(ENDPOINTS.LEAVE.VERIFY_HR, { method: "POST", body });
+  },
+  verifyManager(body) {
+    return api(ENDPOINTS.LEAVE.VERIFY_MANAGER, { method: "POST", body });
+  },
+  delete(id) {
+    return api(ENDPOINTS.LEAVE.DELETE, { method: "POST", body: typeof id === "object" ? id : { id } });
+  },
+};
+
+export const loanService = {
+  list(body = {}) {
+    return api(ENDPOINTS.LOAN.LIST, { method: "POST", body });
+  },
+  submit(body) {
+    return api(ENDPOINTS.LOAN.SUBMIT, { method: "POST", body });
+  },
+  update(body) {
+    return api(ENDPOINTS.LOAN.UPDATE, { method: "POST", body });
+  },
+  verifyHr(body) {
+    return api(ENDPOINTS.LOAN.VERIFY_HR, { method: "POST", body });
+  },
+  verifyManager(body) {
+    return api(ENDPOINTS.LOAN.VERIFY_MANAGER, { method: "POST", body });
+  },
+  delete(id) {
+    return api(ENDPOINTS.LOAN.DELETE, { method: "POST", body: typeof id === "object" ? id : { id } });
+  },
+};
+
 export const employeeService = {
   list(body = {}) {
     return api(ENDPOINTS.EMPLOYEE.LIST, { method: "POST", body });

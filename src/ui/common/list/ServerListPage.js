@@ -81,6 +81,8 @@ export default function ServerListPage({
   onRowDoubleClick,
   /** Permission module for view-days date range (IMS-style min/max + default span). */
   viewModule,
+  /** Optional: force From/To default length in days (e.g. 1 = today only). Only used with viewModule. */
+  dateDefaultSpanDays,
   initialSort = { sortKey: "", sortDir: "desc" },
   /** Optional override for Quick Search parts (defaults to visible table column text). */
   getSearchParts,
@@ -111,7 +113,7 @@ export default function ServerListPage({
     () => (viewModule ? canAccess(viewModule, "view") : null),
     [canAccess, viewModule]
   );
-  const dateFilterDefaults = useViewDateFilterDefaults(viewAccess || { allowed: false, days: 0 });
+  const dateFilterDefaults = useViewDateFilterDefaults(viewAccess || { allowed: false, days: 0 }, dateDefaultSpanDays);
 
   const {
     loading,

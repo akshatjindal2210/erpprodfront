@@ -82,7 +82,7 @@ function ToolbarDivider() {
   return <span className="mx-1 h-6 w-px bg-white/15" aria-hidden="true" />;
 }
 
-function FilePreviewOverlay({ url, fileName, kind, onClose }) {
+function FilePreviewOverlay({ url, fileName, kind, previewCaption = "", onClose }) {
   const [rotation, setRotation] = useState(0);
   const [view, setView] = useState(INITIAL_VIEW);
   const [dragging, setDragging] = useState(false);
@@ -207,7 +207,12 @@ function FilePreviewOverlay({ url, fileName, kind, onClose }) {
           ) : (
             <FileText size={16} className="shrink-0 opacity-80" />
           )}
-          <span className="text-sm font-medium truncate">{fileName || "Preview"}</span>
+          <div className="min-w-0 flex flex-col">
+            <span className="text-sm font-medium truncate">{fileName || "Preview"}</span>
+            {previewCaption ? (
+              <span className="text-[11px] font-medium text-white/75 truncate">{previewCaption}</span>
+            ) : null}
+          </div>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
           {isImage ? (
@@ -298,6 +303,11 @@ function FilePreviewOverlay({ url, fileName, kind, onClose }) {
               draggable={ALLOW_FILE_DOWNLOAD && !zoomed}
               onContextMenu={ALLOW_FILE_DOWNLOAD ? undefined : (e) => e.preventDefault()}
             />
+            {previewCaption ? (
+              <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 max-w-[min(92vw,36rem)] rounded-lg bg-black/75 px-4 py-2 text-center text-sm font-semibold text-white shadow-lg border border-white/10">
+                {previewCaption}
+              </div>
+            ) : null}
             <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-[11px] text-white/75 whitespace-nowrap">
               {zoomed
                 ? "Scroll to zoom · Drag to move · Double-click to reset"
@@ -305,11 +315,18 @@ function FilePreviewOverlay({ url, fileName, kind, onClose }) {
             </div>
           </>
         ) : (
-          <iframe
-            src={pdfSrc}
-            title={fileName || "Document"}
-            className="w-full h-full max-w-5xl rounded-lg bg-white shadow-2xl border-0"
-          />
+          <div className="relative w-full h-full max-w-5xl flex flex-col min-h-0">
+            {previewCaption ? (
+              <div className="shrink-0 mb-2 rounded-lg bg-black/75 px-4 py-2 text-center text-sm font-semibold text-white border border-white/10">
+                {previewCaption}
+              </div>
+            ) : null}
+            <iframe
+              src={pdfSrc}
+              title={fileName || "Document"}
+              className="w-full flex-1 min-h-0 rounded-lg bg-white shadow-2xl border-0"
+            />
+          </div>
         )}
       </div>
     </div>
@@ -325,6 +342,8 @@ export default function FilePreviewLink({
   mimeType = "",
   className = "",
   title,
+  /** Shown in full preview (toolbar + on image/PDF stage), e.g. uploader · timestamp */
+  previewCaption = "",
   children,
   onClick,
   ...rest
@@ -367,6 +386,7 @@ export default function FilePreviewLink({
           url={href}
           fileName={fileName}
           kind={kind}
+          previewCaption={previewCaption}
           onClose={() => setOpen(false)}
         />
       ) : null}

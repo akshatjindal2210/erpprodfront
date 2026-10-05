@@ -13,8 +13,9 @@ function clampSpanDays(n) {
 /**
  * @param {object} viewAccess - from `useCanAccess(module, "view")`
  * @param {number} [listViewSpanDays] - from store or API; defaults to `getListViewSpanSnapshot()`
+ * @param {number} [defaultSpanDays] - optional override for From/To default length (e.g. 1 = today only)
  */
-export function buildViewDateFilterDefaults(viewAccess, listViewSpanDays) {
+export function buildViewDateFilterDefaults(viewAccess, listViewSpanDays, defaultSpanDays) {
   const spanBase =
     listViewSpanDays != null && Number.isFinite(Number(listViewSpanDays))
       ? clampSpanDays(listViewSpanDays)
@@ -34,15 +35,27 @@ export function buildViewDateFilterDefaults(viewAccess, listViewSpanDays) {
     maxDate = today;
   }
 
-  const span = hasCap ? Math.min(spanBase, raw) : spanBase;
-  const to = today;
-  const from = dayjs().subtract(span - 1, "day").format("YYYY-MM-DD");
+  // Optional page override (e.g. Daily Attendance → always 1 day).
+  const forced = Number(defaultSpanDays);
+  if (Number.isFinite(forced) && forced >= 1) {
+    const span = hasCap ? Math.min(forced, raw) : forced;
+    return {
+      from: dayjs().subtract(span - 1, "day").format("YYYY-MM-DD"),
+      to: today,
+      minDate,
+      maxDate,
+    };
+  }
 
-  return { from, to, minDate, maxDate };
+  const span = hasCap ? Math.min(spanBase, raw) : spanBase;
+  return { from: dayjs().subtract(span - 1, "day").format("YYYY-MM-DD"), to: today, minDate, maxDate };
 }
 
-/** Subscribes to DB-backed span from `ListViewSpanBootstrap`; use on list pages instead of raw `buildViewDateFilterDefaults`. */
-export function useViewDateFilterDefaults(viewAccess) {
+/** Subscribes to DB-backed span from `ListViewSpanBootstrap`. */
+export function useViewDateFilterDefaults(viewAccess, defaultSpanDays) {
   const spanDays = useSyncExternalStore(subscribeListViewSpan, getListViewSpanSnapshot);
-  return useMemo(() => buildViewDateFilterDefaults(viewAccess, spanDays), [viewAccess, spanDays]);
+  return useMemo(
+    () => buildViewDateFilterDefaults(viewAccess, spanDays, defaultSpanDays),
+    [viewAccess, spanDays, defaultSpanDays]
+  );
 }

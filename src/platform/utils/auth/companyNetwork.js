@@ -1,5 +1,4 @@
 import { BACKEND_URL } from "@/platform/utils/core/lib";
-import { isPwaStandalone } from "@/platform/utils/pwa/pwa";
 
 export const NETWORK_UNREACHABLE_EVENT = "imp:network-unreachable";
 export const NETWORK_REACHABLE_EVENT = "imp:network-reachable";
@@ -36,11 +35,10 @@ export function isExternalFrontendHost(hostname = typeof window !== "undefined" 
 }
 
 /**
- * PWA only on the internal domain. External portal users are never blocked here.
- * Off internal domain + no route to backend — not when server responds (5xx).
+ * Internal live domain only. External portal (Cloudflare) is never blocked here.
+ * Wrong network / no route to backend — not when server responds (5xx).
  */
 export async function shouldShowCompanyWifiGate({ offline = false, transportFailure = false } = {}) {
-  if (!isPwaStandalone()) return false;
   if (isExternalFrontendHost()) return false;
   if (!isInternalFrontendHost()) return false;
   if (!offline && !transportFailure) return false;
@@ -74,6 +72,7 @@ export function isNetworkMarkedDown() {
 /** Show office-network screen once when network errors start (throttled). */
 export function notifyNetworkUnreachable() {
   if (typeof window === "undefined") return;
+  if (!shouldNotifyNetworkUnreachable()) return;
 
   void (async () => {
     if (!(await shouldShowCompanyWifiGate({ transportFailure: true }))) return;
@@ -89,19 +88,28 @@ export function notifyNetworkUnreachable() {
   })();
 }
 
-/** Clear office-network screen only when we were blocked — not on every API success. */
+/** Clear office-network overlay (ping ok, or any API success on internal site). */
 export function notifyNetworkReachable() {
   if (typeof window === "undefined") return;
-  if (!networkDown) return;
-
   networkDown = false;
   window.__IMP_NETWORK_DOWN__ = false;
   window.dispatchEvent(new CustomEvent(NETWORK_REACHABLE_EVENT));
 }
 
-/** After a real API response succeeds while the gate was open. */
+/** Successful API on internal frontend — dismiss gate if ping was a false alarm (logged-in app only). */
 export function markNetworkReachableFromApi() {
+  if (typeof window === "undefined") return;
+  if (!isInternalFrontendHost() || isExternalFrontendHost()) return;
   notifyNetworkReachable();
+}
+
+/** Skip opening gate from API errors on login / before session exists. */
+export function shouldNotifyNetworkUnreachable() {
+  if (typeof window === "undefined") return false;
+  if (!isInternalFrontendHost() || isExternalFrontendHost()) return false;
+  const path = window.location.pathname || "";
+  if (path === "/login" || path.startsWith("/login/")) return false;
+  return true;
 }
 
 /**
@@ -121,7 +129,9 @@ export async function pingCompanyBackend(signal) {
     });
     return { reached: true, transportFailure: false };
   } catch (err) {
-    if (err?.name === "AbortError") return { reached: false, transportFailure: false };
+    if (err?.name === "AbortError") {
+      return { reached: false, transportFailure: false };
+    }
     return { reached: false, transportFailure: isNetworkReachabilityError(err) };
   }
 }
