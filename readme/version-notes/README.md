@@ -4,7 +4,7 @@ Cross-app **internal helper API** catalog (paths, allowlists, caller pages): [..
 
 | Note | Topic |
 |------|--------|
-| [v4.4.7.md](./v4.4.7.md) | **HRMS** Leave · Loan · Attendance/OT · OT 0/1/2 · remarks · SOP bottom · list audit order · permission harden |
+| [v4.4.7.md](./v4.4.7.md) | **HRMS** Leave · Loan · Deduction · Attendance/OT · `/calc` + Adjust · OT 0/1/2 · remarks · SOP · Gate Pass QR |
 | [v4.4.6.md](./v4.4.6.md) | PWA icon badge · office-network gate · IMS shortage · RM dropdown color · IPR reassign picker |
 | [v4.4.5.md](./v4.4.5.md) | **RM IPR** · canonical types · Return qty → Store In · Coil reassign JC chain · Finder History · Register UX · Inventory Report unchanged |
 | [v4.4.4.md](./v4.4.4.md) | **RM IPR** Reassign JC picker · Issue Request list qty · IMS Store In QC Hold |

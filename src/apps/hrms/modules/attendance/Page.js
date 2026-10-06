@@ -89,7 +89,7 @@ export default function AttendancePage() {
       headers={ATTENDANCE_HEADERS}
       moduleName="Daily Attendance"
       viewModule={MODULE}
-      dateDefaultSpanDays={1}
+      dateDefaultSpanDays={2}
       getRowId={(row) => row.id ?? `${row.emp_dcode}-${row.attendance_date}`}
       cardConfig={{
         titleKey: "emp_code",

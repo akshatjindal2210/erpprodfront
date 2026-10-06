@@ -15,7 +15,7 @@ import { fetchEmployeeByDcode, fetchEmployeeViews } from "@/apps/hrms/lib/helper
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { todayYmd, toTimeInput, rowIn, rowOut, rowFingerprint, defaultShift, defaultTimesFromEmployee, 
-  isUnapproved, formatDefaultTimeLabel, rowTotals, toDateTimeInput, dateTimeFieldValue,
+  isUnapproved, formatDefaultTimeLabel, formatDurationShort, hoursFromApi, pickHoursFields, EMPTY_HOURS_FIELDS, toDateTimeInput, dateTimeFieldValue,
   normalizeInDateTime, normalizeOutDateTime, dateRangeForIn, dateRangeForOut, inOutOrderError,
   withDerivedFields, suggestShiftFromIn, DAY_TYPES, DEFAULT_DAY_TYPE, normalizeDayType, NIGHT_SHIFT_END } from "@/apps/hrms/lib/attendanceUtils";
 
@@ -32,7 +32,7 @@ const BTN_CANCEL = "px-5 py-2.5 text-sm font-bold text-slate-500 disabled:opacit
 const BTN_SECONDARY = "px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl disabled:opacity-50";
 const BTN_PRIMARY = "min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl inline-flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50";
 const BTN_APPROVE = "min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl inline-flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-50";
-const EMPTY_MANUAL = { emp_dcode: "", emp_code: "", name: "", shift: "A", day_type: DEFAULT_DAY_TYPE, in: "", out: "" };
+const EMPTY_MANUAL = { emp_dcode: "", emp_code: "", name: "", shift: "A", day_type: DEFAULT_DAY_TYPE, in: "", out: "", default_in: "", default_out: "" };
 const EMPTY_ROW = { emp_dcode: "", emp_code: "", name: "", shift: "A", in: "", out: "", lunch: "no", day_type: DEFAULT_DAY_TYPE, default_in: "", default_out: "" };
 const HOURS_TONE = {
   slate: "text-slate-800",
@@ -41,7 +41,11 @@ const HOURS_TONE = {
   ot: "text-amber-700",
   neg: "text-red-600",
   lunch: "text-red-600",
+  default: "text-indigo-600",
+  adjust: "text-sky-600",
 };
+const ADD_HOURS_KEYS = new Set(["total", "lunch", "normal", "ot", "adjust"]);
+const hoursTone = (line) => (line.mins == null ? "text-slate-400" : HOURS_TONE[line.tone] || HOURS_TONE.muted);
 
 function outErrorText(code) {
   if (code === "before_in") return "Out must be after In";
@@ -105,6 +109,81 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
   /** From attendance API — `ims_app_config` via backend (not browser session). */
   const [overtimeBufferMinutes, setOvertimeBufferMinutes] = useState(null);
   const [approvalRemark, setApprovalRemark] = useState("");
+  const hoursTimer = useRef({});
+  const hoursSeq = useRef({});
+  const lastHoursKey = useRef({});
+
+  const hoursKey = useCallback(
+    (row) => [date, row?.in || "", row?.out || "", row?.shift || "", row?.day_type || "", row?.default_in || "", row?.default_out || ""].join("|"),
+    [date]
+  );
+
+  const calcHoursPayload = useCallback(
+    (row) => ({
+      attendance_date: date,
+      in: row?.in,
+      out: row?.out,
+      shift: row?.shift,
+      day_type: row?.day_type,
+      default_in: row?.default_in,
+      default_out: row?.default_out,
+    }),
+    [date]
+  );
+
+  const requestRowHours = useCallback(
+    (index, row) => {
+      if (!String(row?.in || "").trim() || !String(row?.out || "").trim()) {
+        lastHoursKey.current[index] = "";
+        setRows((prev) => prev.map((item, i) => (i === index ? { ...item, ...EMPTY_HOURS_FIELDS } : item)));
+        return;
+      }
+      const key = hoursKey(row);
+      if (lastHoursKey.current[index] === key) return;
+      hoursSeq.current[index] = (hoursSeq.current[index] || 0) + 1;
+      const seq = hoursSeq.current[index];
+      clearTimeout(hoursTimer.current[index]);
+      hoursTimer.current[index] = setTimeout(async () => {
+        try {
+          const res = await attendanceService.calc(calcHoursPayload(row));
+          if (hoursSeq.current[index] !== seq) return;
+          lastHoursKey.current[index] = key;
+          const hours = pickHoursFields(res.data || res);
+          setRows((prev) => prev.map((item, i) => (i === index ? { ...item, ...hours } : item)));
+        } catch {
+          /* keep last backend hours */
+        }
+      }, 200);
+    },
+    [calcHoursPayload, hoursKey]
+  );
+
+  const requestManualHours = useCallback(
+    (row) => {
+      if (!String(row?.in || "").trim() || !String(row?.out || "").trim()) {
+        lastHoursKey.current.manual = "";
+        setManual((prev) => ({ ...prev, ...EMPTY_HOURS_FIELDS }));
+        return;
+      }
+      const key = hoursKey(row);
+      if (lastHoursKey.current.manual === key) return;
+      hoursSeq.current.manual = (hoursSeq.current.manual || 0) + 1;
+      const seq = hoursSeq.current.manual;
+      clearTimeout(hoursTimer.current.manual);
+      hoursTimer.current.manual = setTimeout(async () => {
+        try {
+          const res = await attendanceService.calc(calcHoursPayload(row));
+          if (hoursSeq.current.manual !== seq) return;
+          lastHoursKey.current.manual = key;
+          const hours = pickHoursFields(res.data || res);
+          setManual((prev) => ({ ...prev, ...hours }));
+        } catch {
+          /* keep last backend hours */
+        }
+      }, 200);
+    },
+    [calcHoursPayload, hoursKey]
+  );
 
   const resetForm = useCallback((nextRecord) => {
     setEntryType(nextRecord ? (nextRecord.entry_type === "manual" ? "manual" : "automatic") : "");
@@ -126,6 +205,9 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
             name: nextRecord.name || "",
             shift: defaultShift(nextRecord),
             day_type: normalizeDayType(nextRecord.day_type),
+            default_in: toTimeInput(nextRecord.default_in) || defaultTimesFromEmployee(nextRecord).in || "",
+            default_out: toTimeInput(nextRecord.default_out) || defaultTimesFromEmployee(nextRecord).out || "",
+            ...pickHoursFields(nextRecord),
             in: toDateTimeInput(rowIn(nextRecord), nextRecord?.attendance_date || todayYmd()),
             out: (() => {
               const d = nextRecord?.attendance_date || todayYmd();
@@ -206,8 +288,14 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
     [date]
   );
 
-  const patchRow = useCallback((index, patch) => {
-    setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  const patchRow = useCallback((index, patch, { recalcHours = false } = {}) => {
+    let nextRow = null;
+    setRows((prev) => {
+      const next = prev.map((row, i) => (i === index ? { ...row, ...patch } : row));
+      nextRow = next[index];
+      return next;
+    });
+    if (recalcHours && nextRow) requestRowHours(index, nextRow);
     setFieldErrors((prev) => {
       if (!prev[index]) return prev;
       const next = { ...prev };
@@ -219,24 +307,26 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
       else next[index] = cleared;
       return next;
     });
-  }, []);
+  }, [requestRowHours]);
 
   const patchRowDateTime = useCallback((index, key, value) => {
-    setRows((prev) =>
-      prev.map((row, i) => {
+    let nextRow = null;
+    setRows((prev) => {
+      const next = prev.map((row, i) => {
         if (i !== index) return row;
         if (key === "in") {
           const nextIn = normalizeInDateTime(value, date) || null;
           const nextOut = row.out ? normalizeOutDateTime(row.out, date, nextIn) || null : null;
-          // New rows: auto Day/Night from In. Saved rows: keep stored shift.
           const syncShift = !(row.already_exists || row.id);
           return withDerivedFields({ ...row, in: nextIn, out: nextOut }, { syncShift });
         }
         const nextOut = normalizeOutDateTime(value, date, row.in) || null;
-        // Out change → keep user's shift selection
         return withDerivedFields({ ...row, out: nextOut }, { syncShift: false });
-      })
-    );
+      });
+      nextRow = next[index];
+      return next;
+    });
+    if (nextRow) requestRowHours(index, nextRow);
     if (String(value || "").trim()) {
       setFieldErrors((prev) => {
         if (!prev[index]?.[key] && !(key === "in" && prev[index]?.out)) return prev;
@@ -247,7 +337,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
         return next;
       });
     }
-  }, [date]);
+  }, [date, requestRowHours]);
 
   const addEmptyRow = useCallback(() => {
     setRows((prev) => [...prev, { ...EMPTY_ROW }]);
@@ -373,17 +463,24 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
       return;
     }
     let filled = false;
+    let targetIndex = -1;
+    let nextRow = null;
     setRows((prev) => {
       if (prev.some((row) => parseEmpDcode(row.emp_dcode) === empDcode)) {
         toast.warning("Already in list.");
         return prev;
       }
-      const nextRow = buildManualRow(empDcode, item);
+      nextRow = buildManualRow(empDcode, item);
       const emptyIdx = prev.findIndex((row) => !parseEmpDcode(row.emp_dcode));
       filled = true;
-      if (emptyIdx >= 0) return prev.map((row, i) => (i === emptyIdx ? nextRow : row));
+      if (emptyIdx >= 0) {
+        targetIndex = emptyIdx;
+        return prev.map((row, i) => (i === emptyIdx ? nextRow : row));
+      }
+      targetIndex = prev.length;
       return [...prev, nextRow];
     });
+    if (filled && targetIndex >= 0 && nextRow) requestRowHours(targetIndex, nextRow);
     if (filled) {
       setFieldErrors((prev) => {
         const next = { ...prev };
@@ -398,7 +495,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
       });
     }
     setAddEmployeeCode("");
-  }, [existingCodes, buildManualRow]);
+  }, [existingCodes, buildManualRow, requestRowHours]);
 
   const handleSubmit = async (statusOverride = null) => {
     if (isView) return onClose?.();
@@ -593,6 +690,9 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
   const showSingleForm = isEdit || isView || isApprove;
   const fieldsLocked = isView || isApprove;
   const title = isView ? "View attendance" : isApprove ? "Approve attendance" : isEdit ? "Edit attendance" : "Add daily attendance";
+  const fromEmpTimes = defaultTimesFromEmployee(record || {});
+  const singleDefaultIn = toTimeInput(manual.default_in) || toTimeInput(record?.default_in) || fromEmpTimes.in || "";
+  const singleDefaultOut = toTimeInput(manual.default_out) || toTimeInput(record?.default_out) || fromEmpTimes.out || "";
 
   const footer =
     isAdd && !loaded ? null : (
@@ -740,10 +840,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                         const baseDate = String(date || "").slice(0, 10);
                         const inRange = dateRangeForIn(baseDate);
                         const outRange = dateRangeForOut(baseDate, rowIn(row));
-                        const totals = rowTotals(
-                          { ...row, attendance_date: row.attendance_date || date },
-                          { overtimeBufferMinutes: overtimeBufferMinutes ?? row.overtime_buffer_minutes }
-                        );
+                        const totals = hoursFromApi(row);
                         return (
                           <tr
                             key={rowKey(row, index)}
@@ -779,7 +876,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                                       toast.warning("Already in list.");
                                       return;
                                     }
-                                    patchRow(index, buildManualRow(dcode, item));
+                                    patchRow(index, buildManualRow(dcode, item), { recalcHours: true });
                                   }}
                                   fetchService={fetchEmployees}
                                   getByIdService={(dcode) =>
@@ -832,7 +929,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                             <td className="px-2.5 sm:px-3 py-1.5 border-b border-slate-100 align-top">
                               <select
                                 value={defaultShift(row)}
-                                onChange={(e) => patchRow(index, { shift: e.target.value })}
+                                onChange={(e) => patchRow(index, { shift: e.target.value }, { recalcHours: true })}
                                 disabled={skipKeep}
                                 className={`${FIELD} w-[7.5rem]`}
                               >
@@ -896,7 +993,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                                   patchRow(index, {
                                     day_type: normalizeDayType(e.target.value),
                                     ...(alreadyExists ? { override: true } : {}),
-                                  })
+                                  }, { recalcHours: true })
                                 }
                                 className={`${FIELD} w-[7rem]`}
                               >
@@ -905,17 +1002,17 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                                 ))}
                               </select>
                               <p className="mt-0.5 text-[10px] font-semibold text-slate-500 tabular-nums">
-                                Default {totals.defaultLabel}
+                                Default {formatDurationShort(totals.defaultMins)}
                               </p>
                             </td>
                             <td className="px-2.5 sm:px-3 py-1.5 border-b border-slate-100 align-top">
                               <div className="relative group min-w-[10.5rem]">
                                 <div className="space-y-0.5 text-[10px] font-semibold text-slate-500 leading-tight cursor-help">
-                                  {totals.lines.map((line) => (
+                                  {totals.lines.filter((line) => ADD_HOURS_KEYS.has(line.key) && (line.key !== "adjust" || line.mins > 0)).map((line) => (
                                     <p key={line.key} className="flex justify-between gap-2">
                                       <span>{line.label}</span>
-                                      <span className={`tabular-nums font-black ${line.mins == null ? "text-slate-400" : HOURS_TONE[line.tone] || HOURS_TONE.muted}`} >
-                                        {line.value}
+                                      <span className={`tabular-nums font-black ${hoursTone(line)}`}>
+                                        {formatDurationShort(line.mins)}
                                       </span>
                                     </p>
                                   ))}
@@ -976,10 +1073,12 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                       <div>
                         <p className="text-[10px] font-bold uppercase text-slate-500">In Time</p>
                         <p className="mt-0.5 text-sm font-semibold tabular-nums">{record?.in_display || "—"}</p>
+                        <p className="mt-0.5 text-[10px] font-semibold text-slate-500 tabular-nums">Default {formatDefaultTimeLabel(singleDefaultIn)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] font-bold uppercase text-slate-500">Out Time</p>
                         <p className="mt-0.5 text-sm font-semibold tabular-nums">{record?.out_display || "—"}</p>
+                        <p className="mt-0.5 text-[10px] font-semibold text-slate-500 tabular-nums">Default {formatDefaultTimeLabel(singleDefaultOut)}</p>
                       </div>
                     </>
                   ) : null}
@@ -991,7 +1090,11 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                   </div>
                   <div>
                     <FormLabel>Shift</FormLabel>
-                    <select value={manual.shift} disabled={fieldsLocked} onChange={(e) => setManual((p) => ({ ...p, shift: e.target.value }))} className={`${FIELD} mt-1`}>
+                    <select value={manual.shift} disabled={fieldsLocked} onChange={(e) => setManual((p) => {
+                      const next = { ...p, shift: e.target.value };
+                      requestManualHours(next);
+                      return next;
+                    })} className={`${FIELD} mt-1`}>
                       {SHIFTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                     </select>
                   </div>
@@ -1000,26 +1103,20 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                     <select
                       value={normalizeDayType(manual.day_type)}
                       disabled={fieldsLocked}
-                      onChange={(e) => setManual((p) => ({ ...p, day_type: normalizeDayType(e.target.value) }))}
+                      onChange={(e) => setManual((p) => {
+                        const next = { ...p, day_type: normalizeDayType(e.target.value) };
+                        requestManualHours(next);
+                        return next;
+                      })}
                       className={`${FIELD} mt-1`}
                     >
                       {DAY_TYPES.map((item) => (
                         <option key={item.value} value={item.value}>{item.label}</option>
                       ))}
                     </select>
-                    {!fieldsLocked ? (
-                      <p className="mt-0.5 text-[10px] font-semibold text-slate-500 tabular-nums">
-                        Default {rowTotals({
-                          attendance_date: date,
-                          in: manual.in,
-                          out: manual.out,
-                          shift: manual.shift,
-                          day_type: normalizeDayType(manual.day_type),
-                          default_in: toTimeInput(record?.default_in) || defaultTimesFromEmployee(record || {}).in || "",
-                          default_out: toTimeInput(record?.default_out) || defaultTimesFromEmployee(record || {}).out || "",
-                        }).defaultLabel}
-                      </p>
-                    ) : null}
+                    <p className="mt-0.5 text-[10px] font-semibold text-slate-500 tabular-nums">
+                      Default {hoursFromApi(isView || isApprove ? record : manual).defaultLabel}
+                    </p>
                   </div>
                   <div>
                     <FormLabel>In Date & Time</FormLabel>
@@ -1036,7 +1133,9 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                           const nextOut = p.out
                             ? normalizeOutDateTime(p.out, date, nextIn) || ""
                             : "";
-                          return { ...p, in: nextIn, out: nextOut };
+                          const next = { ...p, in: nextIn, out: nextOut };
+                          requestManualHours(next);
+                          return next;
                         });
                         if (String(v || "").trim()) {
                           setFieldErrors((prev) => {
@@ -1056,6 +1155,9 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                       aria-invalid={fieldErrors.manual?.in ? "true" : undefined}
                       className={`${FIELD} mt-1 w-full ${fieldErrors.manual?.in ? FIELD_ERR : ""}`}
                     />
+                    <p className="mt-0.5 text-[10px] font-semibold text-slate-500 tabular-nums">
+                      Default {formatDefaultTimeLabel(singleDefaultIn)}
+                    </p>
                     {fieldErrors.manual?.in ? <p className="mt-0.5 text-[10px] font-bold uppercase text-red-600">In required</p> : null}
                   </div>
                   <div>
@@ -1068,7 +1170,11 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                       max={date ? dateRangeForOut(date, manual.in).max : undefined}
                       onChange={(e) => {
                         const v = e.target.value;
-                        setManual((p) => ({ ...p, out: normalizeOutDateTime(v, date, p.in) || "" }));
+                        setManual((p) => {
+                          const next = { ...p, out: normalizeOutDateTime(v, date, p.in) || "" };
+                          requestManualHours(next);
+                          return next;
+                        });
                         if (String(v || "").trim()) {
                           setFieldErrors((prev) => {
                             if (!prev.manual?.out) return prev;
@@ -1086,9 +1192,11 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                       aria-invalid={fieldErrors.manual?.out ? "true" : undefined}
                       className={`${FIELD} mt-1 w-full ${fieldErrors.manual?.out ? FIELD_ERR : ""}`}
                     />
-                    {!String(manual.in || "").trim() && !isView ? (
-                      <p className="mt-0.5 text-[10px] font-semibold text-slate-500">Set In first</p>
-                    ) : null}
+                    <p className="mt-0.5 text-[10px] font-semibold text-slate-500 tabular-nums">
+                      {!String(manual.in || "").trim() && !isView
+                        ? "Set In first"
+                        : `Default ${formatDefaultTimeLabel(singleDefaultOut)}`}
+                    </p>
                     {outErrorText(fieldErrors.manual?.out) ? (
                       <p className="mt-0.5 text-[10px] font-bold uppercase text-red-600">{outErrorText(fieldErrors.manual?.out)}</p>
                     ) : null}
@@ -1096,29 +1204,16 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                   <div className="min-[400px]:col-span-2 min-w-0">
                     <FormLabel>Working Hours</FormLabel>
                     {(() => {
-                      const defaults = defaultTimesFromEmployee(record || {});
-                      const totals = rowTotals(
-                        {
-                          attendance_date: date,
-                          in: manual.in,
-                          out: manual.out,
-                          shift: manual.shift,
-                          day_type: normalizeDayType(manual.day_type),
-                          default_in: toTimeInput(record?.default_in) || defaults.in || "",
-                          default_out: toTimeInput(record?.default_out) || defaults.out || "",
-                          overtime_buffer_minutes: overtimeBufferMinutes ?? record?.overtime_buffer_minutes,
-                        },
-                        { overtimeBufferMinutes: overtimeBufferMinutes ?? record?.overtime_buffer_minutes }
-                      );
+                      const totals = hoursFromApi(isView || isApprove ? record : manual);
                       const lines = Number(record?.ot_approved) === 2
                         ? totals.lines.map((line) => (line.key === "ot" ? { ...line, mins: null, value: "—" } : line))
                         : totals.lines;
                       return (
-                        <div className="mt-1 space-y-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                          {lines.map((line) => (
-                            <p key={line.key} className="flex min-w-0 items-center justify-between gap-3 text-[11px] font-semibold text-slate-500">
+                        <div className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                          {lines.filter((line) => line.key !== "adjust" || line.mins > 0).map((line) => (
+                            <p key={line.key} className={`flex min-w-0 items-center justify-between gap-3 text-[11px] font-semibold text-slate-500 ${line.key === "default" ? "mb-1.5 pb-1.5 border-b border-dashed border-indigo-200" : line.key === "adjust" ? "mt-1.5 pt-1.5 border-t border-dashed border-slate-200" : "mt-1"}`}>
                               <span className="shrink-0">{line.label}</span>
-                              <span className={`min-w-0 text-right tabular-nums font-black ${line.mins == null ? "text-slate-400" : HOURS_TONE[line.tone] || HOURS_TONE.muted}`}>
+                              <span className={`min-w-0 text-right tabular-nums font-black ${hoursTone(line)}`}>
                                 {line.value}
                               </span>
                             </p>

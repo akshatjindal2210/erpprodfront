@@ -241,7 +241,7 @@ export default function OtApprovalPage() {
       headers={HEADERS}
       moduleName="OT Approval"
       viewModule={MODULE}
-      dateDefaultSpanDays={1}
+      dateDefaultSpanDays={2}
       getRowId={(r) => r.id}
       initialSort={{ sortKey: "ot_minutes", sortDir: "desc" }}
       extraFilters={extraFilters}

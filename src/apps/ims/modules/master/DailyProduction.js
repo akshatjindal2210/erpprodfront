@@ -434,6 +434,7 @@ export default function DailyProductionPage() {
           toast.warning(`${msg} Create Deviation first, then try New Sticker again.`, {
             autoClose: 9000,
           });
+          setIsDeviationOpen(true);
         } else {
           toast.info(msg, { autoClose: 9000 });
         }

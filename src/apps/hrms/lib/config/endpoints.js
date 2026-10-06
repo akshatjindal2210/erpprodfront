@@ -10,6 +10,7 @@ export const ENDPOINTS = {
   ATTENDANCE: {
     LIST: `${BASE}/attendance/list`,
     PREVIEW: `${BASE}/attendance/preview`,
+    CALC: `${BASE}/attendance/calc`,
     SUBMIT: `${BASE}/attendance/submit`,
     UPDATE: `${BASE}/attendance/update`,
     DELETE: `${BASE}/attendance/delete`,

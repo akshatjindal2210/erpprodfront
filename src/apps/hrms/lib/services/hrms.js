@@ -23,6 +23,9 @@ export const attendanceService = {
   preview(body) {
     return api(ENDPOINTS.ATTENDANCE.PREVIEW, { method: "POST", body });
   },
+  calc(body) {
+    return api(ENDPOINTS.ATTENDANCE.CALC, { method: "POST", body });
+  },
   submit(body) {
     return api(ENDPOINTS.ATTENDANCE.SUBMIT, { method: "POST", body });
   },
