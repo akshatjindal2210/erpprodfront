@@ -54,20 +54,24 @@ export function toGatePassForm(record) {
   };
 }
 
-export function validateGatePassForm(form) {
+export function validateGatePassForm(form, opts = {}) {
   const next = {};
+  const dateOpts = opts.existing ? { existingPassDate: opts.existing.pass_date } : {};
   if (!Number.isFinite(Number(form.emp_dcode)) || Number(form.emp_dcode) <= 0) {
     next.emp_dcode = "Employee is required";
   }
   if (!String(form.pass_date || "").trim()) next.pass_date = "Date is required";
-  else if (!validatePassDateYmd(form.pass_date).ok) next.pass_date = validatePassDateYmd(form.pass_date).message;
+  else {
+    const dateCheck = validatePassDateYmd(form.pass_date, dateOpts);
+    if (!dateCheck.ok) next.pass_date = dateCheck.message;
+  }
   if (!form.out_time) next.out_time = "Out time is required";
   if (!form.in_time) next.in_time = "In time is required";
   if (!next.pass_date && !next.out_time && !next.in_time) {
-    const r = resolveGatePassOutIn(form.pass_date, form.out_time, form.in_time);
+    const r = resolveGatePassOutIn(form.pass_date, form.out_time, form.in_time, dateOpts);
     if (!r.ok) {
       const msg = r.message || "Invalid time";
-      if (/pass date|day ahead/i.test(msg)) next.pass_date = msg;
+      if (/pass date|day ahead|before today|after tomorrow/i.test(msg)) next.pass_date = msg;
       else {
         next.out_time = msg;
         if (/in time/i.test(msg)) next.in_time = msg;
@@ -78,8 +82,9 @@ export function validateGatePassForm(form) {
   return next;
 }
 
-export function gatePassPayload(form) {
-  const r = resolveGatePassOutIn(form.pass_date, form.out_time, form.in_time);
+export function gatePassPayload(form, opts = {}) {
+  const dateOpts = opts.existing ? { existingPassDate: opts.existing.pass_date } : {};
+  const r = resolveGatePassOutIn(form.pass_date, form.out_time, form.in_time, dateOpts);
   if (!r.ok) throw new Error(r.message || "Invalid date or time.");
   return {
     emp_dcode: Number(form.emp_dcode),

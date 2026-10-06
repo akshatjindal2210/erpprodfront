@@ -44,3 +44,11 @@ export const RMSTORE_SPECIAL_PERMS = [
     desc: "Submit in-process rejection requests. Approving still needs module authorize permission.",
   },
 ];
+
+export const HRMS_SPECIAL_PERMS = [
+  {
+    key: "gate_pass_supervisor",
+    label: "Manager / Team Head",
+    desc: "Manager Approve button. Module Approve is separate.",
+  },
+];

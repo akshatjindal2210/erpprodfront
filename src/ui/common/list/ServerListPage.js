@@ -41,6 +41,20 @@ function rowMatchesClientFilter(row, key, value) {
     return String(row?.shift ?? "").trim().toUpperCase() === want.toUpperCase();
   }
 
+  if (key === "ot_status") {
+    const mins = Number(row?.ot_minutes);
+    const flag = Number(row?.ot_approved);
+    const hasOt = Number.isFinite(mins) && mins !== 0;
+    if (wantLower === "pending") return hasOt && mins > 0 && flag !== 1 && flag !== 2;
+    if (wantLower === "approved") return flag === 1;
+    if (wantLower === "rejected") return flag === 2;
+    return true;
+  }
+
+  if (key === "emp_dcode") {
+    return String(row?.emp_dcode ?? "").trim() === want;
+  }
+
   const cell = row?.[key];
   return String(cell ?? "").trim().toLowerCase() === wantLower;
 }
@@ -67,6 +81,8 @@ export default function ServerListPage({
   defaultToday = true,
   clientQuickSearch = false,
   applyExtrasOnChange = false,
+  /** false = hide Search; From/To reload on change. */
+  showSearchButton,
   toolbarActions,
   selectionLabel,
   extraFilters = [],
@@ -79,6 +95,8 @@ export default function ServerListPage({
   /** Notify parent when row selection changes (for list hotkeys). */
   onSelectionChange,
   onRowDoubleClick,
+  /** Optional row tone (IMS pending amber, etc.). */
+  getRowClassName,
   /** Permission module for view-days date range (IMS-style min/max + default span). */
   viewModule,
   /** Optional: force From/To default length in days (e.g. 1 = today only). Only used with viewModule. */
@@ -86,6 +104,8 @@ export default function ServerListPage({
   initialSort = { sortKey: "", sortDir: "desc" },
   /** Optional override for Quick Search parts (defaults to visible table column text). */
   getSearchParts,
+  /** Initial / reset values for extra filters (e.g. `{ ot_status: "pending" }`). */
+  defaultExtraFilters = null,
 }) {
   const allFilterKeys = useMemo(() => {
     const resolvedExtraKeys =
@@ -136,6 +156,7 @@ export default function ServerListPage({
     serverExtraFilterKeys: serverFilterKeys,
     clientQuickSearch,
     dateDefaults: viewModule ? dateFilterDefaults : null,
+    defaultExtras: defaultExtraFilters,
   });
 
   const resolvedFilterDefs = typeof extraFilters === "function" ? extraFilters(params) : extraFilters;
@@ -276,6 +297,7 @@ export default function ServerListPage({
           extraFilters={bindFilterValues(resolvedFilterDefs)}
           moreFilters={bindFilterValues(resolvedMoreFilterDefs)}
           applyExtrasOnChange={applyExtrasOnChange}
+          showSearchButton={showSearchButton}
           onApply={handleApply}
           onReset={resetFilters}
           searchValue={tempSearch}
@@ -312,6 +334,7 @@ export default function ServerListPage({
           totalItems={displayRows.length}
           cardConfig={cardConfig}
           onRowDoubleClick={onRowDoubleClick}
+          getRowClassName={getRowClassName}
           {...(tableHotkeyProps || {})}
         />
       </ListPageTableArea>

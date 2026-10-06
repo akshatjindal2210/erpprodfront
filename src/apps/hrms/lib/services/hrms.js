@@ -34,6 +34,18 @@ export const attendanceService = {
   },
 };
 
+export const otApprovalService = {
+  list(body = {}) {
+    return api(ENDPOINTS.OT_APPROVAL.LIST, { method: "POST", body });
+  },
+  approve(body) {
+    return api(ENDPOINTS.OT_APPROVAL.APPROVE, { method: "POST", body });
+  },
+  reject(body) {
+    return api(ENDPOINTS.OT_APPROVAL.REJECT, { method: "POST", body });
+  },
+};
+
 export const gatePassService = {
   list(body = {}) {
     return api(ENDPOINTS.GATE_PASS.LIST, { method: "POST", body });
@@ -44,11 +56,17 @@ export const gatePassService = {
   update(body) {
     return api(ENDPOINTS.GATE_PASS.UPDATE, { method: "POST", body });
   },
-  verifyHr(body) {
-    return api(ENDPOINTS.GATE_PASS.VERIFY_HR, { method: "POST", body });
+  verifyApprove(body) {
+    return api(ENDPOINTS.GATE_PASS.VERIFY_APPROVE, { method: "POST", body });
   },
   verifyManager(body) {
     return api(ENDPOINTS.GATE_PASS.VERIFY_MANAGER, { method: "POST", body });
+  },
+  view(id) {
+    return api(ENDPOINTS.GATE_PASS.VIEW, { method: "POST", body: { id } });
+  },
+  scan(body) {
+    return api(ENDPOINTS.GATE_PASS.SCAN, { method: "POST", body });
   },
   delete(id) {
     return api(ENDPOINTS.GATE_PASS.DELETE, { method: "POST", body: typeof id === "object" ? id : { id } });
@@ -65,8 +83,8 @@ export const leaveService = {
   update(body) {
     return api(ENDPOINTS.LEAVE.UPDATE, { method: "POST", body });
   },
-  verifyHr(body) {
-    return api(ENDPOINTS.LEAVE.VERIFY_HR, { method: "POST", body });
+  verifyApprove(body) {
+    return api(ENDPOINTS.LEAVE.VERIFY_APPROVE, { method: "POST", body });
   },
   verifyManager(body) {
     return api(ENDPOINTS.LEAVE.VERIFY_MANAGER, { method: "POST", body });
@@ -86,14 +104,47 @@ export const loanService = {
   update(body) {
     return api(ENDPOINTS.LOAN.UPDATE, { method: "POST", body });
   },
-  verifyHr(body) {
-    return api(ENDPOINTS.LOAN.VERIFY_HR, { method: "POST", body });
+  verifyApprove(body) {
+    return api(ENDPOINTS.LOAN.VERIFY_APPROVE, { method: "POST", body });
   },
   verifyManager(body) {
     return api(ENDPOINTS.LOAN.VERIFY_MANAGER, { method: "POST", body });
   },
   delete(id) {
     return api(ENDPOINTS.LOAN.DELETE, { method: "POST", body: typeof id === "object" ? id : { id } });
+  },
+  deductionsList(body) {
+    return api(ENDPOINTS.LOAN.DEDUCTIONS_LIST, { method: "POST", body });
+  },
+};
+
+export const loanDeductionService = {
+  list(body = {}) {
+    return api(ENDPOINTS.LOAN_DEDUCTION.LIST, { method: "POST", body });
+  },
+  detail(body) {
+    return api(ENDPOINTS.LOAN_DEDUCTION.DETAIL, { method: "POST", body });
+  },
+  mark(body) {
+    return api(ENDPOINTS.LOAN_DEDUCTION.MARK, { method: "POST", body });
+  },
+  undo(body) {
+    return api(ENDPOINTS.LOAN_DEDUCTION.UNDO, { method: "POST", body });
+  },
+  approve(body) {
+    return api(ENDPOINTS.LOAN_DEDUCTION.APPROVE, { method: "POST", body });
+  },
+  extra(body) {
+    return api(ENDPOINTS.LOAN_DEDUCTION.EXTRA, { method: "POST", body });
+  },
+  extraUpdate(body) {
+    return api(ENDPOINTS.LOAN_DEDUCTION.EXTRA_UPDATE, { method: "POST", body });
+  },
+  extraDelete(body) {
+    return api(ENDPOINTS.LOAN_DEDUCTION.EXTRA_DELETE, { method: "POST", body });
+  },
+  delete(id) {
+    return api(ENDPOINTS.LOAN_DEDUCTION.EXTRA_DELETE, { method: "POST", body: { id } });
   },
 };
 

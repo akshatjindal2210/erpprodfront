@@ -15,7 +15,7 @@ import { focusFirstError } from "@/platform/utils/form/formFocus";
 import { partitionModulesForUserForm, resolveAppAccessEnabled, moduleIdsForAppType, sanitizePermissionsPayload, shouldIncludeInUserPermissionForm, isAppGateModule, PORTAL_APP_KEYS, clearModulePermissions } from "@/config/moduleAppRegistry";
 import UserPermissionsPanel from "./UserPermissionsPanel";
 import SpecialPermCheckboxes from "./SpecialPermCheckboxes";
-import { IMS_SPECIAL_PERMS, RMSTORE_SPECIAL_PERMS } from "./specialPermissions.ui";
+import { IMS_SPECIAL_PERMS, RMSTORE_SPECIAL_PERMS, HRMS_SPECIAL_PERMS } from "./specialPermissions.ui";
 import { departmentService } from "@/apps/settings/lib/services/departmentService";
 import { designationService } from "@/apps/settings/lib/services/designationService";
 import { attributeService } from "@/apps/settings/lib/services/attributeService";
@@ -23,6 +23,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 
 const imsPermDefaults = () => Object.fromEntries(IMS_SPECIAL_PERMS.map((p) => [p.key, false]));
 const rmstorePermDefaults = () => Object.fromEntries(RMSTORE_SPECIAL_PERMS.map((p) => [p.key, false]));
+const hrmsPermDefaults = () => Object.fromEntries(HRMS_SPECIAL_PERMS.map((p) => [p.key, false]));
 
 const FIELD_ORDER = ["name", "email", "phone", "username", "auth_source", "usercode", "password", "type", "status", "department_id", "designation_id"];
 
@@ -92,6 +93,7 @@ const EMPTY_FORM = {
       verification_user_id: "",
     },
     rmstore: rmstorePermDefaults(),
+    hrms: hrmsPermDefaults(),
   },
 };
 
@@ -156,6 +158,10 @@ function normalizedUserPayload(user) {
         rmstore: {
           ...rmstorePermDefaults(),
           ...(raw.rmstore || {}),
+        },
+        hrms: {
+          ...hrmsPermDefaults(),
+          ...(raw.hrms || {}),
         },
       };
     })(),
@@ -965,6 +971,10 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
           ...rmstorePermDefaults(),
           ...(payload.special_permissions?.rmstore || {}),
         },
+        hrms: {
+          ...hrmsPermDefaults(),
+          ...(payload.special_permissions?.hrms || {}),
+        },
       };
 
       if (isDbUpdate) {
@@ -1504,6 +1514,26 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
                         special_permissions: {
                           ...prev.special_permissions,
                           rmstore: { ...prev.special_permissions?.rmstore, [key]: checked },
+                        },
+                      }))
+                    }
+                  />
+                </div>
+              }
+              hrmsSpecialPermissionsSection={
+                <div className="space-y-3">
+                  <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                    Special Permissions
+                  </h3>
+                  <SpecialPermCheckboxes
+                    items={HRMS_SPECIAL_PERMS}
+                    checkedOf={(key) => form.special_permissions?.hrms?.[key]}
+                    onToggle={(key, checked) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        special_permissions: {
+                          ...prev.special_permissions,
+                          hrms: { ...prev.special_permissions?.hrms, [key]: checked },
                         },
                       }))
                     }

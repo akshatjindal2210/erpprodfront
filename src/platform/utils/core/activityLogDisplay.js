@@ -200,10 +200,12 @@ const MODULE_LABELS = {
   audit: "Audit",
   hrms_attendance: "Daily Attendance",
   hrms_attendance_log: "Attendance Log",
+  hrms_ot_approval: "OT Approval",
   hrms_employee: "Employee Master",
   hrms_gate_pass: "Gate Pass",
   hrms_leave: "Leave",
   hrms_loan: "Loan",
+  hrms_deduction: "Deduction",
   hrms_activity_logs: "Activity Logs",
   purchase_master: "Product Master",
   purchase_shortage: "Shortage",
@@ -389,10 +391,12 @@ const TASK_MODULE_ROUTES = {
 const HRMS_MODULE_ROUTES = {
   hrms_attendance: HRMS_ROUTES.HRMS_ATTENDANCE,
   hrms_attendance_log: HRMS_ROUTES.HRMS_ATTENDANCE_LOG,
+  hrms_ot_approval: HRMS_ROUTES.HRMS_OT_APPROVAL,
   hrms_employee: HRMS_ROUTES.HRMS_EMPLOYEES,
   hrms_gate_pass: HRMS_ROUTES.HRMS_GATE_PASS,
   hrms_leave: HRMS_ROUTES.HRMS_LEAVE,
   hrms_loan: HRMS_ROUTES.HRMS_LOAN,
+  hrms_deduction: HRMS_ROUTES.HRMS_DEDUCTION,
   hrms_activity_logs: HRMS_ROUTES.HRMS_ACTIVITY_LOGS,
 };
 

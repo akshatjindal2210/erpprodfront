@@ -77,12 +77,14 @@ export const QUICK_LAUNCH_CODES = [
 
   // ── HRMS (H…) ───────────────────────────────────────────────────
   { code: "HR",  label: "HRMS Dashboard",             route: ROUTES.HRMS_DASHBOARD,          module: null,                        app: "hrms" },
-  { code: "EM",  label: "Employee Master",            route: ROUTES.HRMS_EMPLOYEES,          module: "hrms_employee",             app: "hrms" },
-  { code: "DA",  label: "Daily Attendance",           route: ROUTES.HRMS_ATTENDANCE,         module: "hrms_attendance",           app: "hrms" },
-  { code: "HGP",  label: "Gate Pass",                  route: ROUTES.HRMS_GATE_PASS,          module: "hrms_gate_pass",            app: "hrms" },
+  { code: "HEM",  label: "Employee Master",            route: ROUTES.HRMS_EMPLOYEES,          module: "hrms_employee",             app: "hrms" },
+  { code: "HDA",  label: "Daily Attendance",           route: ROUTES.HRMS_ATTENDANCE,         module: "hrms_attendance",           app: "hrms" },
+  { code: "HOA", label: "OT Approval",                route: ROUTES.HRMS_OT_APPROVAL,        module: "hrms_ot_approval",          app: "hrms" },
+  { code: "HGP", label: "Gate Pass",                  route: ROUTES.HRMS_GATE_PASS,          module: "hrms_gate_pass",            app: "hrms" },
   { code: "HLV", label: "Leave",                      route: ROUTES.HRMS_LEAVE,              module: "hrms_leave",                app: "hrms" },
   { code: "HLN", label: "Loan",                       route: ROUTES.HRMS_LOAN,               module: "hrms_loan",                 app: "hrms" },
-  { code: "AT",  label: "Attendance Log",             route: ROUTES.HRMS_ATTENDANCE_LOG,     module: "hrms_attendance_log",       app: "hrms" },
+  { code: "HLD", label: "Deduction",                   route: ROUTES.HRMS_DEDUCTION,          module: "hrms_deduction",            app: "hrms" },
+  { code: "HAT",  label: "Attendance Log",             route: ROUTES.HRMS_ATTENDANCE_LOG,     module: "hrms_attendance_log",       app: "hrms" },
   { code: "HAL", label: "HRMS Activity Logs",         route: ROUTES.HRMS_ACTIVITY_LOGS,      module: "hrms_activity_logs",        app: "hrms" },
 
   // ── Purchase ────────────────────────────────────────────────────

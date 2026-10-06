@@ -1,18 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, Download, Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import Drawer from "@/ui/primitives/Drawer";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
+import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { gatePassService } from "@/apps/hrms/lib/services/hrms";
 import { employeeHelperRows, fetchEmployeeByDcode, fetchEmployeeViews } from "@/apps/hrms/lib/helpers/employeeHelper";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { IMS_DRAWER_BTN_APPROVE, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_CLOSE, IMS_DRAWER_BTN_PRIMARY, IMS_DRAWER_FOOTER_WRAP } from "@/apps/ims/lib/helpers/masterListUi";
-import { PASS_TYPE_OPTIONS, gatePassTimeView, isPendingHr, isPendingManager, maxAllowedPassDateYmd, minAllowedPassDateYmd } from "@/apps/hrms/lib/gatePassUtils";
+import {
+  PASS_TYPE_OPTIONS,
+  gatePassTimeView,
+  isPendingApprove,
+  isPendingManager,
+  canApproveAsManager,
+  maxAllowedPassDateYmd,
+  minAllowedPassDateYmd,
+  getGatePassQrValue,
+  resolveGatePassPkId,
+  buildGatePassQrDataUrlFromSvg,
+  downloadGatePassQrDataUrl,
+} from "@/apps/hrms/lib/gatePassUtils";
 import { GP_FIELD, GP_LABEL, GP_ROW2, ReadonlyField, TextInput, durationLabel, empPickerRow, empResolved, gatePassPayload, toGatePassForm, validateGatePassForm } from "@/apps/hrms/lib/gatePassForm";
+import QRCode from "react-qr-code";
+import { useSelector } from "react-redux";
 
 const MODULE = "hrms_gate_pass";
 const DRAWER_DESC = "Employee gate pass";
@@ -20,13 +35,46 @@ const DRAWER_DESC = "Employee gate pass";
 const TITLES = {
   add: "New Gate Pass",
   edit: "Edit Gate Pass",
-  "verify-hr": "Gate Pass",
+  "verify-approve": "Gate Pass",
   "verify-manager": "Gate Pass",
   view: "View Gate Pass",
 };
 
-/** Same layout for view, supervisor approve, HR approve — one screen for everyone */
-export function GatePassReadonlyFields({ r }) {
+function GatePassQrCard({ r }) {
+  const qrRef = useRef(null);
+  const pk = resolveGatePassPkId(r);
+  const qrValue = getGatePassQrValue(r);
+  if (!pk || !qrValue) return null;
+
+  const download = async () => {
+    const svg = qrRef.current?.querySelector("svg");
+    if (!svg) return toast.error("QR not ready.");
+    try {
+      downloadGatePassQrDataUrl(r, await buildGatePassQrDataUrlFromSvg(svg, r));
+      toast.success("Downloaded.");
+    } catch (err) {
+      toast.error(err?.message || "Download failed.");
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <div ref={qrRef} className="bg-white p-1">
+        <QRCode value={qrValue} size={256} level="H" />
+      </div>
+      <button
+        type="button"
+        onClick={() => void download()}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+      >
+        <Download size={14} /> Download QR
+      </button>
+    </div>
+  );
+}
+
+/** Same layout for view, manager approve, approve — one screen for everyone */
+export function GatePassReadonlyFields({ r, showSup = false, showApprove = false, showQr = true, remark = "", onRemarkChange, saving = false }) {
   if (!r) return null;
   return (
     <div className="space-y-4">
@@ -47,7 +95,41 @@ export function GatePassReadonlyFields({ r }) {
         <ReadonlyField label="In Time" value={gatePassTimeView(r, "in")} tabular />
       </div>
       <ReadonlyField label="Duration" value={r.duration || "—"} tabular />
+      <div className={GP_ROW2}>
+        <ReadonlyField label="Gate" value={r.movement_display || "—"} />
+        <ReadonlyField label="Gone At" value={r.gone_at_display || "—"} tabular />
+      </div>
+      <ReadonlyField label="Returned At" value={r.returned_at_display || "—"} tabular />
       <ReadonlyField label="Reason" value={r.reason || "—"} />
+      <div className={GP_ROW2}>
+        <ReadonlyField label="Manager By" value={r.sup_by || "—"} />
+        <ReadonlyField label="Manager At" value={r.sup_at_display || "—"} tabular />
+      </div>
+      {showSup ? (
+        <FormTextarea label="Remark" required rows={3} value={remark} onChange={onRemarkChange} placeholder="Enter remark" disabled={saving} />
+      ) : (
+        <ReadonlyField label="Manager Remark" value={r.sup_remarks || "—"} />
+      )}
+      <div className={GP_ROW2}>
+        <ReadonlyField label="Approved By" value={r.approved_by || "—"} />
+        <ReadonlyField label="Approved At" value={r.approved_at_display || "—"} tabular />
+      </div>
+      {showApprove ? (
+        <FormTextarea label="Remark" required rows={3} value={remark} onChange={onRemarkChange} placeholder="Enter remark" disabled={saving} />
+      ) : (
+        <ReadonlyField label="Approved Remark" value={r.approved_remarks || "—"} />
+      )}
+      <div className={GP_ROW2}>
+        <ReadonlyField label="Created By" value={r.created_by || "—"} />
+        <ReadonlyField label="Created At" value={r.created_at_display || "—"} tabular />
+      </div>
+      {r.updated_by || r.updated_at || r.updated_at_display ? (
+        <div className={GP_ROW2}>
+          <ReadonlyField label="Updated By" value={r.updated_by || "—"} />
+          <ReadonlyField label="Updated At" value={r.updated_at_display || "—"} tabular />
+        </div>
+      ) : null}
+      {showQr && resolveGatePassPkId(r) ? <GatePassQrCard r={r} /> : null}
     </div>
   );
 }
@@ -70,9 +152,16 @@ async function runAction(fn, okMsg, onSuccess, onClose, setSaving) {
 export default function GatePassDrawer({ open, mode = "add", record = null, onClose, onSuccess }) {
   const readOnly = mode === "view" || mode.startsWith("verify-");
   const canAccess = useCanAccess();
+  const authUser = useSelector((s) => s.auth?.user);
+  const authRole = useSelector((s) => s.auth?.role);
+  const canSup = canApproveAsManager({ ...authUser, type: authUser?.type || authRole, role: authRole });
   const [form, setForm] = useState(() => toGatePassForm(record));
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
+  const [remark, setRemark] = useState("");
+  const sopAckRef = useRef(null);
+  const sopPermissionType =
+    mode === "verify-approve" ? "authorize" : mode === "verify-manager" ? "view" : mode === "edit" ? "edit" : mode === "add" ? "add" : "view";
   const patch = useCallback((p) => setForm((f) => ({ ...f, ...p })), []);
   const clr = useCallback((...keys) => {
     setErrors((prev) => {
@@ -90,6 +179,7 @@ export default function GatePassDrawer({ open, mode = "add", record = null, onCl
     if (open) {
       setForm(toGatePassForm(record));
       setErrors({});
+      setRemark("");
     }
   }, [open, record, mode]);
 
@@ -125,8 +215,8 @@ export default function GatePassDrawer({ open, mode = "add", record = null, onCl
   const canAuthorize = canAccess(MODULE, "authorize").allowed;
   const canView = canAccess(MODULE, "view").allowed;
 
-  const showHr = mode === "verify-hr" && canAuthorize && isPendingHr(record);
-  const showSup = mode === "verify-manager" && canEdit && isPendingManager(record);
+  const showApprove = mode === "verify-approve" && canAuthorize && isPendingApprove(record);
+  const showSup = mode === "verify-manager" && canSup && isPendingManager(record);
   const canSaveForm = (mode === "add" && canAdd) || (mode === "edit" && canEdit);
 
   useEffect(() => {
@@ -135,27 +225,29 @@ export default function GatePassDrawer({ open, mode = "add", record = null, onCl
       (mode === "add" && canAdd) ||
       (mode === "edit" && canEdit) ||
       (mode === "view" && canView) ||
-      (mode === "verify-manager" && canEdit) ||
-      (mode === "verify-hr" && canAuthorize);
+      (mode === "verify-manager" && canSup) ||
+      (mode === "verify-approve" && canAuthorize);
     if (!allowed) {
       toast.error("You do not have permission for this action.");
       onClose?.();
     }
-  }, [open, mode, canAdd, canEdit, canView, canAuthorize, onClose]);
+  }, [open, mode, canAdd, canEdit, canView, canAuthorize, canSup, onClose]);
 
   const save = () => {
     if (!canSaveForm) {
       toast.error("You do not have permission for this action.");
       return;
     }
-    const next = validateGatePassForm(form);
+    if (!sopAckRef.current?.assertAcknowledged()) return;
+    const existingOpts = mode === "edit" ? { existing: record } : undefined;
+    const next = validateGatePassForm(form, existingOpts);
     setErrors(next);
     if (Object.keys(next).length) return toast.error("Please fix the highlighted fields.");
     void runAction(
       () =>
         gatePassService[mode === "edit" ? "update" : "submit"]({
           ...(mode === "edit" ? { id: record?.id } : {}),
-          ...gatePassPayload(form),
+          ...gatePassPayload(form, existingOpts),
         }),
       mode === "edit" ? "Updated." : "Saved.",
       onSuccess,
@@ -167,7 +259,22 @@ export default function GatePassDrawer({ open, mode = "add", record = null, onCl
   const r = record;
   const isView = mode === "view";
   const showFormFooter = !readOnly && canSaveForm;
-  const closeOnly = isView || (readOnly && !showHr && !showSup);
+  const closeOnly = isView || (readOnly && !showApprove && !showSup);
+
+  const decide = (fn, okMsg) => {
+    if (!sopAckRef.current?.assertAcknowledged()) return;
+    const text = String(remark).trim();
+    if (!text) return toast.warning("Remark is required.");
+    void runAction(() => fn({ id: r?.id, remarks: text }), okMsg, onSuccess, onClose, setSaving);
+  };
+
+  const onDrawerSubmit = showFormFooter
+    ? save
+    : showSup
+      ? () => decide(gatePassService.verifyManager, "Manager approval done.")
+      : showApprove
+        ? () => decide(gatePassService.verifyApprove, "Approved.")
+        : undefined;
 
   const footer = (
     <div className={IMS_DRAWER_FOOTER_WRAP}>
@@ -180,7 +287,7 @@ export default function GatePassDrawer({ open, mode = "add", record = null, onCl
         {closeOnly ? "Close" : "Cancel"}
       </button>
       {showFormFooter ? (
-        <button type="button" onClick={save} disabled={saving} className={IMS_DRAWER_BTN_PRIMARY}>
+        <button type="button" title="Ctrl+S" onClick={save} disabled={saving} className={IMS_DRAWER_BTN_PRIMARY}>
           {saving ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
           {mode === "edit" ? "Update" : "Save"}
         </button>
@@ -188,33 +295,25 @@ export default function GatePassDrawer({ open, mode = "add", record = null, onCl
       {showSup ? (
         <button
           type="button"
+          title="Ctrl+S"
           disabled={saving}
           className={IMS_DRAWER_BTN_APPROVE}
-          onClick={() =>
-            runAction(
-              () => gatePassService.verifyManager({ id: r?.id }),
-              "Supervisor approval done.",
-              onSuccess,
-              onClose,
-              setSaving
-            )
-          }
+          onClick={() => decide(gatePassService.verifyManager, "Manager approval done.")}
         >
           {saving ? <Loader2 size={18} className="animate-spin" /> : null}
-          Supervisor Approve
+          Manager Approve
         </button>
       ) : null}
-      {showHr ? (
+      {showApprove ? (
         <button
           type="button"
+          title="Ctrl+S"
           disabled={saving}
           className={IMS_DRAWER_BTN_APPROVE}
-          onClick={() =>
-            runAction(() => gatePassService.verifyHr({ id: r?.id }), "HR approval done.", onSuccess, onClose, setSaving)
-          }
+          onClick={() => decide(gatePassService.verifyApprove, "Approved.")}
         >
           {saving ? <Loader2 size={18} className="animate-spin" /> : null}
-          HR Approve
+          Approve
         </button>
       ) : null}
     </div>
@@ -224,7 +323,7 @@ export default function GatePassDrawer({ open, mode = "add", record = null, onCl
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={showFormFooter ? save : undefined}
+      onSubmit={onDrawerSubmit}
       title={TITLES[mode] || TITLES.view}
       description={DRAWER_DESC}
       maxWidth="max-w-2xl"
@@ -232,7 +331,14 @@ export default function GatePassDrawer({ open, mode = "add", record = null, onCl
     >
       <div className="space-y-4 pb-4">
         {readOnly ? (
-          <GatePassReadonlyFields r={r} />
+          <GatePassReadonlyFields
+            r={r}
+            showSup={showSup}
+            showApprove={showApprove}
+            remark={remark}
+            onRemarkChange={(e) => setRemark(e.target.value)}
+            saving={saving}
+          />
         ) : (
           <>
             <SearchableSelect
@@ -338,6 +444,15 @@ export default function GatePassDrawer({ open, mode = "add", record = null, onCl
             />
           </>
         )}
+        {mode !== "view" ? (
+          <ModuleSopAcknowledgment
+            ref={sopAckRef}
+            key={`${open}-${sopPermissionType}`}
+            isOpen={open}
+            moduleSlug={MODULE}
+            permissionType={sopPermissionType}
+          />
+        ) : null}
       </div>
     </Drawer>
   );

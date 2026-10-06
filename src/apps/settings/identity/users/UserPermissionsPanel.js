@@ -83,7 +83,15 @@ function ModulePermissionTable({
   onSelectAll,
   onDaysChange,
   onApplyGlobalDays,
+  authorizeLabel = "Approve",
 }) {
+  const permColumns = useMemo(
+    () =>
+      PERM_COLUMNS.map((c) =>
+        c.key === "can_authorize" ? { ...c, label: authorizeLabel } : c
+      ),
+    [authorizeLabel]
+  );
   const [globalViewDays, setGlobalViewDays] = useState("");
   const [globalEditDays, setGlobalEditDays] = useState("");
   const [moduleSearch, setModuleSearch] = useState("");
@@ -111,15 +119,15 @@ function ModulePermissionTable({
 
   // Master "select all" across every module + every permission column.
   const masterState = useMemo(() => {
-    const total = filteredModuleList.length * PERM_COLUMNS.length;
+    const total = filteredModuleList.length * permColumns.length;
     let on = 0;
     filteredModuleList.forEach((m) => {
-      PERM_COLUMNS.forEach(({ key }) => {
+      permColumns.forEach(({ key }) => {
         if (permissions[m.id]?.[key]) on += 1;
       });
     });
     return { all: total > 0 && on === total, some: on > 0 && on < total };
-  }, [filteredModuleList, permissions]);
+  }, [filteredModuleList, permissions, permColumns]);
 
   if (!moduleList?.length) {
     return (
@@ -175,7 +183,7 @@ function ModulePermissionTable({
                     <span>Module</span>
                   </div>
                 </th>
-                {PERM_COLUMNS.map(({ key, label }) => {
+                {permColumns.map(({ key, label }) => {
                   const { all, some } = colState(key);
                   return (
                     <th key={key} className="py-1.5 px-2 text-center align-top bg-slate-50">
@@ -226,7 +234,7 @@ function ModulePermissionTable({
             <tbody className="divide-y divide-slate-100 bg-white">
               {filteredModuleList.length === 0 ? (
                 <tr>
-                  <td colSpan={PERM_COLUMNS.length + 3} className="py-6 text-center text-xs text-slate-400">
+                  <td colSpan={permColumns.length + 3} className="py-6 text-center text-xs text-slate-400">
                     No module matches &ldquo;{moduleSearch.trim()}&rdquo;
                   </td>
                 </tr>
@@ -238,7 +246,7 @@ function ModulePermissionTable({
                     <td className="py-2.5 px-3 text-slate-700 text-[13px] sticky left-0 bg-white group-hover:bg-indigo-50/40 z-10 border-r border-slate-100 transition-colors">
                       {mod.label}
                     </td>
-                    {PERM_COLUMNS.map(({ key, label }) => (
+                    {permColumns.map(({ key, label }) => (
                       <td key={key} className="py-2.5 text-center">
                         <input
                           type="checkbox"
@@ -301,6 +309,7 @@ export default function UserPermissionsPanel({
   imsSpecialPermissionsSection = null,
   taskSpecialPermissionsSection = null,
   rmstoreSpecialPermissionsSection = null,
+  hrmsSpecialPermissionsSection = null,
 }) {
   const isSuperAdmin = userRole === "super_admin";
   const activeMeta = APP_ACCESS[activePermTab];
@@ -439,6 +448,7 @@ export default function UserPermissionsPanel({
             onSelectAll={onSelectAllPermissions}
             onDaysChange={onPermissionDaysChange}
             onApplyGlobalDays={onApplyGlobalDays}
+            authorizeLabel="Approve"
           />
         ) : null}
 
@@ -457,6 +467,12 @@ export default function UserPermissionsPanel({
         {(enabled || isSuperAdmin) && activePermTab === "rmstore" && rmstoreSpecialPermissionsSection ? (
           <div className="border-t border-slate-100 px-3 py-4 bg-slate-50/40">
             {rmstoreSpecialPermissionsSection}
+          </div>
+        ) : null}
+
+        {(enabled || isSuperAdmin) && activePermTab === "hrms" && hrmsSpecialPermissionsSection ? (
+          <div className="border-t border-slate-100 px-3 py-4 bg-slate-50/40">
+            {hrmsSpecialPermissionsSection}
           </div>
         ) : null}
       </div>

@@ -10,5 +10,6 @@ export const hrmsSelectionLabel = {
   gatePass: (r) => `Selected: ${t(r?.emp_code)} | ${t(r?.emp_name)} | ${t(r?.pass_date_display || r?.pass_date)}`,
   leave: (r) => `Selected: ${t(r?.emp_code)} | ${t(r?.emp_name)} | ${t(r?.leave_type)} | ${t(r?.from_date_display || r?.from_date)}`,
   loan: (r) => `Selected: ${t(r?.emp_code)} | ${t(r?.emp_name)} | ${t(r?.type_display || r?.type)} | ${t(r?.amount)}`,
+  loanDeduction: (r) => `Selected: ${t(r?.emp_code)} | ${t(r?.emp_name)} | ${t(r?.type_display || r?.type)} | ${t(r?.amount)}`,
   attendanceLog: (r) => `Selected: ${t(r?.employee_code)} | ${t(r?.name)} | ${t(r?.event_datetime_display || r?.event_timestamp)}`,
 };

@@ -1,4 +1,5 @@
 /** IMS list-table cell styles (Box / Store Out / Gate Entry). */
+import { formatDateTime } from "@/platform/utils/core/utilHelper";
 
 export function hrmsEmpty(v) {
   if (v === 0) return <span className="text-[10px] font-bold text-slate-700 tabular-nums">0</span>;
@@ -67,10 +68,27 @@ export function hrmsApproveCell(v) {
   return (
     <span
       className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-widest border ${
-        ok ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"
+        ok ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-red-50 text-red-600 border-red-100"
       }`}
     >
       {v || "—"}
     </span>
   );
+}
+
+/** Audit: Created/Updated/Approved By — same style as IMS shortage. */
+export function hrmsAuditBy(v) {
+  return <span className="text-[10px] text-slate-500">{v || "—"}</span>;
+}
+
+/** Audit: Created/Updated/Approved At — same style as IMS shortage. */
+export function hrmsAuditAt(v) {
+  if (v == null || v === "") return <span className="text-[10px] text-slate-400 font-medium">—</span>;
+  const label = typeof v === "string" && !/^\d{4}-\d{2}-\d{2}/.test(v) ? v : formatDateTime(v);
+  return <span className="text-[10px] text-slate-400 font-medium">{label || "—"}</span>;
+}
+
+/** Prefer `key_display` then raw `key` (leave/loan/gate-pass list rows). */
+export function hrmsAuditAtField(row, key) {
+  return hrmsAuditAt(row?.[`${key}_display`] ?? row?.[key]);
 }

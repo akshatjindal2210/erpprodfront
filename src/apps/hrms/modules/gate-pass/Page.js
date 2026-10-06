@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { DoorOpen } from "lucide-react";
+import { DoorOpen, Download } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { gatePassService } from "@/apps/hrms/lib/services/hrms";
 import { fetchEmployeeByDcode, fetchEmployeeViews } from "@/apps/hrms/lib/helpers/employeeHelper";
 import { GATE_PASS_HEADERS } from "@/apps/hrms/lib/columns/gatePassColumns";
-import { isPendingHr, isPendingManager, isFullyApproved, PASS_TYPE_FILTER_OPTIONS } from "@/apps/hrms/lib/gatePassUtils";
+import { isPendingApprove, isPendingManager, isFullyApproved, PASS_TYPE_FILTER_OPTIONS, canApproveAsManager, downloadGatePassQr, resolveGatePassPkId } from "@/apps/hrms/lib/gatePassUtils";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { hrmsSelectionLabel } from "@/apps/hrms/lib/hrmsSelectionLabel";
 import ServerListPage from "@/ui/common/list/ServerListPage";
@@ -16,21 +16,23 @@ import ActionButton from "@/ui/primitives/ActionButton";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
 import GatePassDrawer from "@/apps/hrms/modules/gate-pass/GatePassDrawer";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { useSelector } from "react-redux";
 
 const MODULE = "hrms_gate_pass";
 
-function gatePassModePermission(mode, canAccess) {
+function gatePassModePermission(mode, canAccess, canSup) {
   if (mode === "add") return canAccess(MODULE, "add").allowed;
-  if (mode === "edit" || mode === "verify-manager") return canAccess(MODULE, "edit").allowed;
-  if (mode === "verify-hr") return canAccess(MODULE, "authorize").allowed;
+  if (mode === "edit") return canAccess(MODULE, "edit").allowed;
+  if (mode === "verify-manager") return canSup;
+  if (mode === "verify-approve") return canAccess(MODULE, "authorize").allowed;
   if (mode === "view") return canAccess(MODULE, "view").allowed;
   return false;
 }
 
 const STATUS_OPTIONS = [
   { label: "All Status", value: "" },
-  { label: "Pending Supervisor", value: "pending_manager" },
-  { label: "Pending HR", value: "pending_hr" },
+  { label: "Pending Manager", value: "pending_manager" },
+  { label: "Pending Approve", value: "pending_approve" },
   { label: "Approved", value: "approved" },
 ];
 
@@ -43,6 +45,9 @@ function toFilterRow(row) {
 
 export default function GatePassPage() {
   const canAccess = useCanAccess();
+  const authUser = useSelector((s) => s.auth?.user);
+  const authRole = useSelector((s) => s.auth?.role);
+  const canSup = canApproveAsManager({ ...authUser, type: authUser?.type || authRole, role: authRole });
   const [drawer, setDrawer] = useState({ open: false, mode: "add", record: null });
   const [deleteItem, setDeleteItem] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -103,13 +108,13 @@ export default function GatePassPage() {
 
   const openDrawer = useCallback(
     (mode, record = null) => {
-      if (!gatePassModePermission(mode, canAccess)) {
+      if (!gatePassModePermission(mode, canAccess, canSup)) {
         toast.error("You do not have permission for this action.");
         return;
       }
       setDrawer({ open: true, mode, record });
     },
-    [canAccess]
+    [canAccess, canSup]
   );
   const closeDrawer = useCallback(() => setDrawer({ open: false, mode: "add", record: null }), []);
 
@@ -127,9 +132,9 @@ export default function GatePassPage() {
     getSelectedRow,
     openAdd: () => openDrawer("add"),
     openEdit: (row) => openDrawer("edit", row),
-    openApprove: (row) => openDrawer("verify-hr", row),
+    openApprove: (row) => openDrawer("verify-approve", row),
     canApproveSelection: () =>
-      Boolean(selectedRecord && isPendingHr(selectedRecord) && canAccess(MODULE, "authorize").allowed),
+      Boolean(selectedRecord && isPendingApprove(selectedRecord) && canAccess(MODULE, "authorize").allowed),
     openDelete: (row) => {
       if (!canAccess(MODULE, "delete").allowed) {
         toast.error("You do not have permission to delete.");
@@ -152,14 +157,16 @@ export default function GatePassPage() {
       getRowId={(row) => row.id}
       cardConfig={{
         titleKey: "emp_code",
-        badgeIndices: [8],
+        badgeIndices: [11],
         detailKeys: ["emp_name", "out_time_display", "in_time_display", "pass_type_display"],
         footerKey: "status_display",
       }}
       extraFilterKeys={["emp_dcode", "pass_type", "status"]}
       extraFilters={extraFilters}
       searchPlaceholder="Code, name, reason…"
+      clientQuickSearch
       applyExtrasOnChange
+      showSearchButton={false}
       selectionLabel={hrmsSelectionLabel.gatePass}
       tableHotkeyProps={tableHotkeyProps}
       onSelectionChange={onSelectionChange}
@@ -173,18 +180,35 @@ export default function GatePassPage() {
             <ListPageViewButton module={MODULE} disabled={!selected} record={row} onClick={() => openDrawer("view", row)} />
             <ActionButton
               module={MODULE}
-              action="edit"
+              action="view"
               variant="outline"
-              label="Supervisor Approve"
-              disabled={!selected || !isPendingManager(row)}
+              label="Download QR"
+              icon={Download}
+              disabled={!selected || !resolveGatePassPkId(row)}
               record={row}
-              onClick={() => openDrawer("verify-manager", row)}
+              onClick={() => {
+                void downloadGatePassQr(row)
+                  .then(() => toast.success("Downloaded."))
+                  .catch((e) => toast.error(e?.message || "Download failed."));
+              }}
               className={LIST_PAGE_OUTLINE_ACTION}
             />
+            {canSup ? (
+              <ActionButton
+                module={MODULE}
+                action="view"
+                variant="outline"
+                label="Manager Approve"
+                disabled={!selected || !isPendingManager(row)}
+                record={row}
+                onClick={() => openDrawer("verify-manager", row)}
+                className={LIST_PAGE_OUTLINE_ACTION}
+              />
+            ) : null}
             <ListPageApproveButton
               module={MODULE}
-              label="HR Approve"
-              disabled={!selected || !isPendingHr(row)}
+              label="Approve"
+              disabled={!selected || !isPendingApprove(row)}
               record={row}
               onClick={openApproveModal}
             />

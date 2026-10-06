@@ -33,11 +33,15 @@ export function useServerList({
   clientQuickSearch = false,
   /** Permission span from `useViewDateFilterDefaults`. When set, replaces the today-only default. */
   dateDefaults = null,
+  /** Initial / reset values for extra filter keys (e.g. `{ ot_status: "pending" }`). */
+  defaultExtras = null,
 }) {
   const extraKeys = Array.isArray(extraFilterKeys) ? extraFilterKeys : [];
   const serverKeys = Array.isArray(serverExtraFilterKeys) ? serverExtraFilterKeys : null;
   const extraSig = extraKeys.join("|");
   const serverSig = serverKeys ? serverKeys.join("|") : "";
+  const defaultExtrasRef = useRef(defaultExtras);
+  defaultExtrasRef.current = defaultExtras;
   const dateDefaultsRef = useRef(dateDefaults);
   dateDefaultsRef.current = dateDefaults;
   const [loading, setLoading] = useState(true);
@@ -48,7 +52,9 @@ export function useServerList({
   const [appliedSearch, setAppliedSearch] = useState("");
   const [selected, setSelected] = useState(null);
   const [params, setParams] = useState(() => {
-    const extras = Object.fromEntries(extraKeys.map((k) => [k, ""]));
+    const extras = Object.fromEntries(
+      extraKeys.map((k) => [k, defaultExtras?.[k] != null ? String(defaultExtras[k]) : ""])
+    );
     const { from, to } = rangeFromDefaults(dateDefaults, defaultToday);
     return { fromDate: from, toDate: to, ...extras };
   });
@@ -122,7 +128,10 @@ export function useServerList({
     setTempSearch("");
     setAppliedSearch("");
     setQueryVersion((v) => v + 1);
-    const extras = Object.fromEntries(extraSig.split("|").filter(Boolean).map((k) => [k, ""]));
+    const defaults = defaultExtrasRef.current || {};
+    const extras = Object.fromEntries(
+      extraSig.split("|").filter(Boolean).map((k) => [k, defaults[k] != null ? String(defaults[k]) : ""])
+    );
     const { from, to } = rangeFromDefaults(dateDefaultsRef.current, defaultToday);
     setParams({ fromDate: from, toDate: to, ...extras });
   }, [defaultToday, extraSig]);

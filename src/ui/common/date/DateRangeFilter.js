@@ -186,8 +186,8 @@ export default function DateRangeFilter({
   /** When true (with date pickers): extra dropdowns call onApply immediately on change. */
   applyExtrasOnChange = false,
   /**
-   * When false, hide the Search/Apply button (client-only filters — typing + dropdowns filter loaded rows).
-   * Reset remains. Dates/extras still apply via onChange when applyExtrasOnChange / client mode.
+   * When false, hide Search — From/To then apply on change (no Search click).
+   * Reset remains. Extras use applyExtrasOnChange.
    */
   showSearchButton = true,
   searchValue,
@@ -261,8 +261,8 @@ export default function DateRangeFilter({
     ? false
     : !showInstantExtras && allowSearchButton && (showActionButtons || hasSearchField);
   const showActionsColumn = secondaryFilters.length > 0 || showResetButton || showSearchAction;
-  /** Instant-apply dates when Search is hidden OR extras already apply on change (client filters). */
-  const applyDatesOnChange = Boolean(showDate && (!allowSearchButton || applyExtrasOnChange));
+  /** Dates apply on change only when Search is hidden. */
+  const applyDatesOnChange = Boolean(showDate && !allowSearchButton);
 
   useEffect(() => {
     setLocalFrom((prev) => {
@@ -322,7 +322,8 @@ export default function DateRangeFilter({
     setLocalExtras(nextExtras);
     onExtraFilterChange?.(filter.key, v, nextExtras);
     if (showInstantExtras || applyExtrasOnChange) {
-      onApply?.({ fromDate: localFrom, toDate: localTo, ...nextExtras });
+      // Keep draft dates local until Search; only push applied (external) dates with extras.
+      onApply?.({ fromDate: externalFromDate || "", toDate: externalToDate || "", ...nextExtras });
       if (showInstantExtras) mobileFilterStrip?.collapseMobile?.();
     }
   };
@@ -336,7 +337,7 @@ export default function DateRangeFilter({
     });
     setLocalExtras(cleared);
     if (showInstantExtras || applyExtrasOnChange) {
-      onApply?.({ fromDate: localFrom, toDate: localTo, ...cleared });
+      onApply?.({ fromDate: externalFromDate || "", toDate: externalToDate || "", ...cleared });
     }
   };
 
@@ -500,6 +501,7 @@ export default function DateRangeFilter({
             <div className={`md:w-[10.5rem] md:shrink-0 ${dateDisabled ? "pointer-events-none opacity-50" : ""}`}>
               <FilterDateInput
                 label="From Date"
+                variant={applyDatesOnChange ? "quick" : "server"}
                 valueYmd={localFrom}
                 onChangeYmd={(v) => {
                   setLocalFrom(v);
@@ -516,6 +518,7 @@ export default function DateRangeFilter({
             <div className={`md:w-[10.5rem] md:shrink-0 ${dateDisabled ? "pointer-events-none opacity-50" : ""}`}>
               <FilterDateInput
                 label="To Date"
+                variant={applyDatesOnChange ? "quick" : "server"}
                 valueYmd={localTo}
                 onChangeYmd={(v) => {
                   setLocalTo(v);

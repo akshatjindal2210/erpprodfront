@@ -82,6 +82,8 @@ export default function FilterDateInput({
   maxYmd,
   placeholder = "DD/MM/YYYY",
   onEnter,
+  /** `quick` = indigo (client apply); `server` = white (Search apply) */
+  variant = "server",
   "aria-label": ariaLabel,
 }) {
   const [text, setText] = useState(() => filterDateToDisplay(valueYmd));
@@ -255,7 +257,7 @@ export default function FilterDateInput({
     <div
       className={`${LIST_PAGE_FILTER_FIELD_WRAP_CLASS}${disabled ? " opacity-50" : ""}`}
     >
-      {label ? <label className={`${listPageFilterLabelClass("server")} max-md:hidden`}>{label}</label> : null}
+      {label ? <label className={`${listPageFilterLabelClass(variant)} max-md:hidden`}>{label}</label> : null}
       <div ref={wrapRef} className="relative min-w-0">
         <input
           ref={textInputRef}
@@ -333,7 +335,7 @@ export default function FilterDateInput({
             applyEditResult(result);
             if (!open && !disabled) setOpen(true);
           }}
-          className={`${listPageSearchInputClass("server")} pr-8 md:pr-9 ${disabled ? "cursor-not-allowed bg-slate-50" : ""}`}
+          className={`${listPageSearchInputClass(variant)} pr-8 md:pr-9 ${disabled ? "cursor-not-allowed bg-slate-50" : ""}`}
         />
         <button
           type="button"

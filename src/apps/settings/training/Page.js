@@ -442,7 +442,7 @@ export default function TrainingPage() {
   const disabledPermissionCells = !canAddTraining && !canEditTraining;
 
   const appTypeFilterOptions = useMemo(() => {
-    const knownOrder = ["core", "ims", "task"];
+    const knownOrder = ["core", "ims", "hrms", "task", "rmstore"];
     const types = [
       ...new Set(
         allModules

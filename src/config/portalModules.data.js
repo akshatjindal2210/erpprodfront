@@ -91,6 +91,7 @@ export const MODULES = {
   hrms: [
     { name: "hrms_attendance_log", label: "Attendance Log" },
     { name: "hrms_attendance", label: "Attendance" },
+    { name: "hrms_ot_approval", label: "OT Approval" },
     { name: "hrms_employee", label: "Employee Master" },
     { name: "hrms_gate_pass", label: "Gate Pass" },
     { name: "hrms_leave", label: "Leave" },

@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Trash2, Check, Shield, Plus } from "lucide-react";
 import dayjs from "dayjs";
 import { toast } from "react-toastify";
 
 import Drawer from "@/ui/primitives/Drawer";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
+import FormTextarea from "@/ui/common/forms/FormTextarea";
+import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { FormLabel, OK_INPUT } from "@/ui/common/Constants";
 import { attendanceService } from "@/apps/hrms/lib/services/hrms";
 import { fetchEmployeeByDcode, fetchEmployeeViews } from "@/apps/hrms/lib/helpers/employeeHelper";
@@ -15,12 +17,12 @@ import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { todayYmd, toTimeInput, rowIn, rowOut, rowFingerprint, defaultShift, defaultTimesFromEmployee, 
   isUnapproved, formatDefaultTimeLabel, rowTotals, toDateTimeInput, dateTimeFieldValue,
   normalizeInDateTime, normalizeOutDateTime, dateRangeForIn, dateRangeForOut, inOutOrderError,
-  withDerivedFields, suggestShiftFromIn, DAY_TYPES, DEFAULT_DAY_TYPE, NIGHT_SHIFT_END } from "@/apps/hrms/lib/attendanceUtils";
+  withDerivedFields, suggestShiftFromIn, DAY_TYPES, DEFAULT_DAY_TYPE, normalizeDayType, NIGHT_SHIFT_END } from "@/apps/hrms/lib/attendanceUtils";
 
 const MODULE = "hrms_attendance";
 const SHIFTS = [
-  { value: "A", label: "Day (A)" },
-  { value: "B", label: "Night (B)" },
+  { value: "A", label: "A" },
+  { value: "B", label: "B" },
 ];
 const FIELD = `${OK_INPUT} min-h-10 sm:min-h-9 text-slate-900 placeholder:text-slate-500 scheme-light [color-scheme:light]`;
 const FIELD_ERR = "border-red-500 bg-red-50 ring-1 ring-red-300 focus:border-red-600 focus:ring-red-400";
@@ -30,7 +32,7 @@ const BTN_CANCEL = "px-5 py-2.5 text-sm font-bold text-slate-500 disabled:opacit
 const BTN_SECONDARY = "px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl disabled:opacity-50";
 const BTN_PRIMARY = "min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl inline-flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50";
 const BTN_APPROVE = "min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl inline-flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-50";
-const EMPTY_MANUAL = { emp_dcode: "", emp_code: "", name: "", shift: "A", in: "", out: "" };
+const EMPTY_MANUAL = { emp_dcode: "", emp_code: "", name: "", shift: "A", day_type: DEFAULT_DAY_TYPE, in: "", out: "" };
 const EMPTY_ROW = { emp_dcode: "", emp_code: "", name: "", shift: "A", in: "", out: "", lunch: "no", day_type: DEFAULT_DAY_TYPE, default_in: "", default_out: "" };
 const HOURS_TONE = {
   slate: "text-slate-800",
@@ -69,8 +71,23 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
   const isApprove = mode === "approve";
   const isAdd = mode === "add";
   const canAccess = useCanAccess();
+  const canAdd = canAccess(MODULE, "add").allowed;
+  const canEdit = canAccess(MODULE, "edit").allowed;
+  const canAuthorize = canAccess(MODULE, "authorize").allowed;
+  const canView = canAccess(MODULE, "view").allowed;
+  const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
+  const sopAckRef = useRef(null);
   const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
   const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
+
+  useEffect(() => {
+    if (!open) return;
+    const ok = (isAdd && canAdd) || (isEdit && canEdit) || (isView && canView) || (isApprove && canAuthorize);
+    if (!ok) {
+      toast.error("You do not have permission for this action.");
+      onClose?.();
+    }
+  }, [open, isAdd, isEdit, isView, isApprove, canAdd, canEdit, canView, canAuthorize, onClose]);
 
   const [entryType, setEntryType] = useState("");
   const [date, setDate] = useState(todayYmd);
@@ -87,6 +104,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
   const [fieldErrors, setFieldErrors] = useState({});
   /** From attendance API — `ims_app_config` via backend (not browser session). */
   const [overtimeBufferMinutes, setOvertimeBufferMinutes] = useState(null);
+  const [approvalRemark, setApprovalRemark] = useState("");
 
   const resetForm = useCallback((nextRecord) => {
     setEntryType(nextRecord ? (nextRecord.entry_type === "manual" ? "manual" : "automatic") : "");
@@ -98,6 +116,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
     setAddEmployeeCode("");
     setExistingCodes(new Set());
     setFieldErrors({});
+    setApprovalRemark("");
     setOvertimeBufferMinutes(nextRecord?.overtime_buffer_minutes != null ? Number(nextRecord.overtime_buffer_minutes) : null);
     setManual(
       nextRecord
@@ -106,6 +125,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
             emp_code: nextRecord.emp_code || "",
             name: nextRecord.name || "",
             shift: defaultShift(nextRecord),
+            day_type: normalizeDayType(nextRecord.day_type),
             in: toDateTimeInput(rowIn(nextRecord), nextRecord?.attendance_date || todayYmd()),
             out: (() => {
               const d = nextRecord?.attendance_date || todayYmd();
@@ -176,6 +196,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
         name: item?.emp_name || item?.name || "",
         attendance_date: date,
         shift: "A",
+        day_type: DEFAULT_DAY_TYPE,
         in: normalizeInDateTime(inRaw, date) || null,
         out: normalizeOutDateTime(outRaw, date, inRaw) || null,
         default_in: times.in || "",
@@ -207,8 +228,9 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
         if (key === "in") {
           const nextIn = normalizeInDateTime(value, date) || null;
           const nextOut = row.out ? normalizeOutDateTime(row.out, date, nextIn) || null : null;
-          // In change → auto Day/Night from In (≥17:00 → Night)
-          return withDerivedFields({ ...row, in: nextIn, out: nextOut }, { syncShift: true });
+          // New rows: auto Day/Night from In. Saved rows: keep stored shift.
+          const syncShift = !(row.already_exists || row.id);
+          return withDerivedFields({ ...row, in: nextIn, out: nextOut }, { syncShift });
         }
         const nextOut = normalizeOutDateTime(value, date, row.in) || null;
         // Out change → keep user's shift selection
@@ -242,13 +264,18 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
           normalizeOutDateTime(rowOut(row), attendanceDate, inVal) ||
           toDateTimeInput(rowOut(row), attendanceDate) ||
           null;
+        const alreadyExists = Boolean(row.already_exists || row.id);
         const shiftFromApi = row.shift === "B" || row.shift === "A" ? row.shift : null;
+        // Saved row → keep stored shift; new row may suggest from In.
+        const shift = alreadyExists
+          ? (shiftFromApi || "A")
+          : (shiftFromApi || (inVal ? suggestShiftFromIn(inVal) : "A"));
         return withDerivedFields({
           ...row,
           in: inVal,
           out: outVal,
-          shift: shiftFromApi || (inVal ? suggestShiftFromIn(inVal) : "A"),
-          already_exists: Boolean(row.already_exists || row.id),
+          shift,
+          already_exists: alreadyExists,
           override: false,
           default_in: toTimeInput(row.default_in) || toTimeInput(row.emp_intime_display) || toTimeInput(row.emp_intime) || "",
           default_out: toTimeInput(row.default_out) || toTimeInput(row.emp_outtime_display) || toTimeInput(row.emp_outtime) || "",
@@ -279,11 +306,13 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
     setFieldErrors({});
   }, []);
 
-  const willSubmitRow = useCallback((row) => {
+  const willSubmitRow = useCallback((row, index) => {
     if (!parseEmpDcode(row?.emp_dcode)) return false;
-    if (row.already_exists && !row.override) return false;
-    return true;
-  }, []);
+    if (!row.already_exists) return true;
+    if (row.override) return true;
+    // Existing + Day/Shift/In/Out changed → still save (Half/Full was getting skipped).
+    return rowFingerprint(row) !== (baselines[rowKey(row, index)] || "");
+  }, [baselines]);
 
   const handleLoad = async () => {
     if (!entryType) return toast.warning("Select type.");
@@ -318,10 +347,10 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
   const editedCount = useMemo(
     () =>
       rows.filter((row, index) => {
-        if (row.already_exists && !row.override) return false;
+        if (!willSubmitRow(row, index)) return false;
         return rowFingerprint(row) !== (baselines[rowKey(row, index)] || "");
       }).length,
-    [rows, baselines]
+    [rows, baselines, willSubmitRow]
   );
 
   const existingCount = useMemo(() => rows.filter((row) => row.already_exists).length, [rows]);
@@ -373,6 +402,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
 
   const handleSubmit = async (statusOverride = null) => {
     if (isView) return onClose?.();
+    if (!sopAckRef.current?.assertAcknowledged()) return;
     if (!date) return toast.warning("Date required.");
     if (isFutureDate(date)) return toast.warning("Future date is not allowed.");
 
@@ -406,14 +436,24 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
         if (statusOverride !== null) approved = statusOverride;
         else if (isEdit && !isUnapproved(record)) approved = false;
 
+        if (approved === true) {
+          const text = String(approvalRemark).trim();
+          if (!text) {
+            toast.warning("Remark is required.");
+            return;
+          }
+        }
+
         const res = await attendanceService.update({
           id: record.id,
           attendance_date: date,
           shift: manual.shift,
+          day_type: normalizeDayType(manual.day_type),
           name: manual.name,
           in: normalizeInDateTime(manual.in, date) || manual.in || null,
           out: normalizeOutDateTime(manual.out, date, manual.in) || manual.out || null,
           ...(approved !== undefined ? { approved } : {}),
+          ...(approved === true ? { approval_remarks: String(approvalRemark).trim() } : {}),
         });
         toast.success(res.message || "Saved.");
       } else if (entryType === "manual") {
@@ -476,6 +516,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
             emp_dcode: row.emp_dcode,
             name: row.name,
             shift: defaultShift(row),
+            day_type: normalizeDayType(row.day_type),
             in: normalizeInDateTime(rowIn(row), date) || rowIn(row) || null,
             out: normalizeOutDateTime(rowOut(row), date, rowIn(row)) || rowOut(row) || null,
           })),
@@ -483,7 +524,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
         toast.success(res.message || `Saved ${payloadRows.length} employee${payloadRows.length > 1 ? "s" : ""}.`);
       } else {
         if (!rows.length) return toast.warning("No rows.");
-        const submitRows = rows.filter(willSubmitRow);
+        const submitRows = rows.filter((row, index) => willSubmitRow(row, index));
         if (!submitRows.length) {
           return toast.warning(
             existingCount > 0
@@ -493,7 +534,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
         }
         const errors = {};
         rows.forEach((row, index) => {
-          if (!willSubmitRow(row)) return;
+          if (!willSubmitRow(row, index)) return;
           const err = {};
           if (!String(rowIn(row) || "").trim()) err.in = true;
           if (!String(rowOut(row) || "").trim()) err.out = true;
@@ -523,14 +564,17 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
           entry_type: "automatic",
           rows: submitRows.map((row) => {
             const index = rows.indexOf(row);
+            const edited = rowFingerprint(row) !== (baselines[rowKey(row, index)] || "");
             return {
               emp_dcode: row.emp_dcode,
               name: row.name,
               shift: defaultShift(row),
+              day_type: normalizeDayType(row.day_type),
               in: normalizeInDateTime(rowIn(row), date) || rowIn(row) || null,
               out: normalizeOutDateTime(rowOut(row), date, rowIn(row)) || rowOut(row) || null,
-              edited: rowFingerprint(row) !== (baselines[rowKey(row, index)] || ""),
-              override: Boolean(row.already_exists && row.override),
+              edited,
+              // Existing row Day/Shift/time change must override BE skip.
+              override: Boolean(row.already_exists && (row.override || edited)),
             };
           }),
         });
@@ -547,6 +591,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
 
   const showBulkTable = loaded && isAdd && (entryType === "automatic" || entryType === "manual");
   const showSingleForm = isEdit || isView || isApprove;
+  const fieldsLocked = isView || isApprove;
   const title = isView ? "View attendance" : isApprove ? "Approve attendance" : isEdit ? "Edit attendance" : "Add daily attendance";
 
   const footer =
@@ -558,12 +603,12 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
         {!isView && isApprove ? (
           <>
             <button type="button" onClick={() => handleSubmit(false)} disabled={saving || loadingPreview} className={BTN_SECONDARY}>Keep Pending</button>
-            <button type="button" onClick={() => handleSubmit(true)} disabled={saving || loadingPreview} className={BTN_APPROVE}>
+            <button type="button" title="Ctrl+S" onClick={() => handleSubmit(true)} disabled={saving || loadingPreview} className={BTN_APPROVE}>
               {saving ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
             </button>
           </>
         ) : !isView ? (
-          <button type="button" onClick={() => handleSubmit()} disabled={saving || loadingPreview} className={BTN_PRIMARY}>
+          <button type="button" title="Ctrl+S" onClick={() => handleSubmit()} disabled={saving || loadingPreview} className={BTN_PRIMARY}>
             {saving ? <><Loader2 size={18} className="animate-spin" /> Processing</> : <><Check size={18} /> {isEdit ? "Save" : "Submit"}</>}
           </button>
         ) : null}
@@ -574,7 +619,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
     <Drawer
       isOpen={open}
       onClose={onClose}
-      onSubmit={isView || (isAdd && !loaded) ? undefined : handleSubmit}
+      onSubmit={isView || (isAdd && !loaded) ? undefined : () => handleSubmit(isApprove ? true : null)}
       title={title}
       maxWidth={showBulkTable ? "max-w-full xl:max-w-7xl" : "max-w-2xl"}
       noPadding
@@ -845,11 +890,14 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                               <p className="mt-0.5 text-[10px] font-semibold text-slate-500">Default {LUNCH_DEFAULT_LABEL}</p>
                             </td> */}
                             <td className="px-2.5 sm:px-3 py-1.5 border-b border-slate-100 align-top">
-                              {/* Future: auto Full/Half from working vs default hours */}
                               <select
-                                value={String(row.day_type || DEFAULT_DAY_TYPE).toLowerCase() === "half" ? "half" : "full"}
-                                onChange={(e) => patchRow(index, { day_type: e.target.value })}
-                                disabled={skipKeep}
+                                value={normalizeDayType(row.day_type)}
+                                onChange={(e) =>
+                                  patchRow(index, {
+                                    day_type: normalizeDayType(e.target.value),
+                                    ...(alreadyExists ? { override: true } : {}),
+                                  })
+                                }
                                 className={`${FIELD} w-[7rem]`}
                               >
                                 {DAY_TYPES.map((item) => (
@@ -943,17 +991,42 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                   </div>
                   <div>
                     <FormLabel>Shift</FormLabel>
-                    <select value={manual.shift} disabled={isView} onChange={(e) => setManual((p) => ({ ...p, shift: e.target.value }))} className={`${FIELD} mt-1`}>
+                    <select value={manual.shift} disabled={fieldsLocked} onChange={(e) => setManual((p) => ({ ...p, shift: e.target.value }))} className={`${FIELD} mt-1`}>
                       {SHIFTS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                     </select>
                   </div>
-                  <div />
+                  <div>
+                    <FormLabel>Day</FormLabel>
+                    <select
+                      value={normalizeDayType(manual.day_type)}
+                      disabled={fieldsLocked}
+                      onChange={(e) => setManual((p) => ({ ...p, day_type: normalizeDayType(e.target.value) }))}
+                      className={`${FIELD} mt-1`}
+                    >
+                      {DAY_TYPES.map((item) => (
+                        <option key={item.value} value={item.value}>{item.label}</option>
+                      ))}
+                    </select>
+                    {!fieldsLocked ? (
+                      <p className="mt-0.5 text-[10px] font-semibold text-slate-500 tabular-nums">
+                        Default {rowTotals({
+                          attendance_date: date,
+                          in: manual.in,
+                          out: manual.out,
+                          shift: manual.shift,
+                          day_type: normalizeDayType(manual.day_type),
+                          default_in: toTimeInput(record?.default_in) || defaultTimesFromEmployee(record || {}).in || "",
+                          default_out: toTimeInput(record?.default_out) || defaultTimesFromEmployee(record || {}).out || "",
+                        }).defaultLabel}
+                      </p>
+                    ) : null}
+                  </div>
                   <div>
                     <FormLabel>In Date & Time</FormLabel>
                     <input
                       type="datetime-local"
                       value={dateTimeFieldValue(manual.in, date, "in")}
-                      disabled={isView}
+                      disabled={fieldsLocked}
                       min={date ? dateRangeForIn(date).min : undefined}
                       max={date ? dateRangeForIn(date).max : undefined}
                       onChange={(e) => {
@@ -990,7 +1063,7 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                     <input
                       type="datetime-local"
                       value={dateTimeFieldValue(manual.out, date, "out", manual.in)}
-                      disabled={isView || !String(manual.in || "").trim()}
+                      disabled={fieldsLocked || !String(manual.in || "").trim()}
                       min={date ? dateRangeForOut(date, manual.in).min : undefined}
                       max={date ? dateRangeForOut(date, manual.in).max : undefined}
                       onChange={(e) => {
@@ -1020,11 +1093,75 @@ export default function AttendanceDrawer({ open, mode = "add", record = null, on
                       <p className="mt-0.5 text-[10px] font-bold uppercase text-red-600">{outErrorText(fieldErrors.manual?.out)}</p>
                     ) : null}
                   </div>
+                  <div className="min-[400px]:col-span-2 min-w-0">
+                    <FormLabel>Working Hours</FormLabel>
+                    {(() => {
+                      const defaults = defaultTimesFromEmployee(record || {});
+                      const totals = rowTotals(
+                        {
+                          attendance_date: date,
+                          in: manual.in,
+                          out: manual.out,
+                          shift: manual.shift,
+                          day_type: normalizeDayType(manual.day_type),
+                          default_in: toTimeInput(record?.default_in) || defaults.in || "",
+                          default_out: toTimeInput(record?.default_out) || defaults.out || "",
+                          overtime_buffer_minutes: overtimeBufferMinutes ?? record?.overtime_buffer_minutes,
+                        },
+                        { overtimeBufferMinutes: overtimeBufferMinutes ?? record?.overtime_buffer_minutes }
+                      );
+                      const lines = Number(record?.ot_approved) === 2
+                        ? totals.lines.map((line) => (line.key === "ot" ? { ...line, mins: null, value: "—" } : line))
+                        : totals.lines;
+                      return (
+                        <div className="mt-1 space-y-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                          {lines.map((line) => (
+                            <p key={line.key} className="flex min-w-0 items-center justify-between gap-3 text-[11px] font-semibold text-slate-500">
+                              <span className="shrink-0">{line.label}</span>
+                              <span className={`min-w-0 text-right tabular-nums font-black ${line.mins == null ? "text-slate-400" : HOURS_TONE[line.tone] || HOURS_TONE.muted}`}>
+                                {line.value}
+                              </span>
+                            </p>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  {isApprove ? (
+                    <div className="min-[400px]:col-span-2">
+                      <FormTextarea
+                        label="Remark"
+                        required
+                        rows={3}
+                        value={approvalRemark}
+                        onChange={(e) => setApprovalRemark(e.target.value)}
+                        placeholder="Enter remark"
+                        disabled={saving}
+                      />
+                    </div>
+                  ) : null}
+                  {isView ? (
+                    <div className="min-[400px]:col-span-2">
+                      <FormLabel>Remark</FormLabel>
+                      <p className="mt-1 text-sm font-semibold text-slate-700 whitespace-pre-wrap">{record?.approval_remarks || "—"}</p>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
           </div>
         )}
+        {!isView ? (
+          <div className="shrink-0 border-t border-slate-100 px-3 py-3 sm:px-4">
+            <ModuleSopAcknowledgment
+              ref={sopAckRef}
+              key={`${open}-${sopPermissionType}`}
+              isOpen={open}
+              moduleSlug={MODULE}
+              permissionType={sopPermissionType}
+            />
+          </div>
+        ) : null}
       </div>
     </Drawer>
   );

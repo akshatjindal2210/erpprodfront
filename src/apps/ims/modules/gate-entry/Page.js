@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Trash2, Eye, Pencil, Truck, CheckCircle2, X } from "lucide-react";
+import { Plus, RefreshCw, Trash2, Eye, Pencil, Truck, CheckCircle2, QrCode } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { gateEntryService } from "@/apps/ims/lib/services/gateEntry";
 import GateEntryModal from "@/apps/ims/modules/gate-entry/GateEntryModal";
+import GatePassScanDrawer from "@/apps/ims/modules/gate-entry/GatePassScanDrawer";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
@@ -98,6 +99,7 @@ export default function GateEntryPage({
   const [modalMode, setModalMode] = useState("add");
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
+  const [gatePassScanOpen, setGatePassScanOpen] = useState(false);
   const [sort, setSort] = useState({ key: "billno", dir: "desc" });
   const [typeFilter, setTypeFilter] = useState("all");
   const [appliedFromDate, setAppliedFromDate] = useState("");
@@ -313,6 +315,15 @@ export default function GateEntryPage({
             actions={
               <>
                 <ActionButton module={moduleSlug} action="add" label="New" icon={Plus} onClick={openNewModal} className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4`} />
+                <ActionButton
+                  module={moduleSlug}
+                  action="view"
+                  variant="outline"
+                  label="Scan Gate Pass"
+                  icon={QrCode}
+                  onClick={() => setGatePassScanOpen(true)}
+                  className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4 bg-white border-slate-300`}
+                />
 
                 {!isPending ? (
                   <>
@@ -476,6 +487,8 @@ export default function GateEntryPage({
           }}
         />
       ) : null}
+
+      <GatePassScanDrawer open={gatePassScanOpen} onClose={() => setGatePassScanOpen(false)} />
 
       {deleteItem ? (
         <DeleteModal

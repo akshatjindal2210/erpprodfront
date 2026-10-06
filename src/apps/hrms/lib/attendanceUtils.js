@@ -1,6 +1,12 @@
 import dayjs from "dayjs";
 
-/** Fallback only if API row/meta did not send buffer (attendance reads DB via backend). */
+/**
+ * HRMS attendance UI — display only.
+ * ALL formulas / rules → backend/.../attendanceCommon.js (file top).
+ * Live preview: rowTotals({ overtimeBufferMinutes })
+ */
+
+/** Fallback if API did not send buffer */
 const OT_BUFFER_FALLBACK_MINUTES = 30;
 
 function resolveOvertimeBufferMinutes(row, options = {}) {
@@ -9,23 +15,46 @@ function resolveOvertimeBufferMinutes(row, options = {}) {
   return Number.isFinite(n) && n >= 0 ? n : OT_BUFFER_FALLBACK_MINUTES;
 }
 
-/* ── (change here only) ─────────────────────────── */
-/** Deduct this many minutes when lunch applies. */
+/** Lunch deduct */
 export const LUNCH_DEFAULT_MINUTES = 30;
-export const LUNCH_DEFAULT_LABEL = "30 min";
 
-/** Punch Total ≥ this many hours → apply lunch. (4.5 = 4h 30m) */
+/** Total ≥ this → apply lunch */
 export const LUNCH_AUTO_HOURS = 4;
 export const LUNCH_AUTO_MINUTES = LUNCH_AUTO_HOURS * 60;
 
+/** ≥ this → Shift B */
 export const NIGHT_SHIFT_FROM = "17:00";
+/** Night Out cutoff */
 export const NIGHT_SHIFT_END = "08:00";
 
-export const DAY_TYPES = [
-  { value: "full", label: "Full Day" },
-  { value: "half", label: "Half Day" },
-];
-export const DEFAULT_DAY_TYPE = "full";
+/** Day codes */
+export const DAY_TYPE_MASTER = {
+  FD: { name: "Full", value: 1 },
+  HD: { name: "Half", value: 0.5 },
+};
+
+export const DAY_TYPES = Object.entries(DAY_TYPE_MASTER).map(([value, meta]) => ({
+  value,
+  label: meta.name,
+}));
+
+export const DEFAULT_DAY_TYPE = "FD";
+
+export function normalizeDayType(value) {
+  const s = String(value ?? "").trim().toUpperCase();
+  if (s === "HD" || s === "HALF") return "HD";
+  if (s === "FD" || s === "FULL" || !s) return "FD";
+  return DAY_TYPE_MASTER[s] ? s : "FD";
+}
+
+export function dayTypeDisplay(value) {
+  const code = normalizeDayType(value);
+  return DAY_TYPE_MASTER[code]?.name || code;
+}
+
+export function dayTypeValue(value) {
+  return DAY_TYPE_MASTER[normalizeDayType(value)]?.value ?? 1;
+}
 
 export function todayYmd() {
   return dayjs().format("YYYY-MM-DD");
@@ -39,19 +68,6 @@ function minutesOfHHmm(t) {
   const [h, m] = String(t || "").split(":").map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   return h * 60 + m;
-}
-
-/** Before NIGHT_SHIFT_END IST → previous attendance date (night shift). */
-export function attendanceBusinessTodayYmd() {
-  const istMs = Date.now() + 330 * 60 * 1000;
-  const d = new Date(istMs);
-  const y = d.getUTCFullYear();
-  const mo = d.getUTCMonth();
-  const day = d.getUTCDate();
-  const nowMins = d.getUTCHours() * 60 + d.getUTCMinutes();
-  let anchor = new Date(Date.UTC(y, mo, day));
-  if (nowMins < minutesOfHHmm(NIGHT_SHIFT_END)) anchor = new Date(Date.UTC(y, mo, day - 1));
-  return anchor.toISOString().slice(0, 10);
 }
 
 function nextYmd(date) {
@@ -226,12 +242,12 @@ function dateTimeKey(value) {
 }
 
 export function rowFingerprint(row) {
-  return [dateTimeKey(rowIn(row)), dateTimeKey(rowOut(row)), defaultShift(row)].join("|");
+  return [dateTimeKey(rowIn(row)), dateTimeKey(rowOut(row)), defaultShift(row), normalizeDayType(row?.day_type)].join("|");
 }
 
 /* ── Duration / lunch / derived ──────────────────────────── */
 /** Full datetimes if both have dates; else HH:mm (+24h if end < start). */
-function minutesBetween(a, b) {
+function minutesBetween(a, b, { allowNegative = false } = {}) {
   const sa = String(a ?? "").trim();
   const sb = String(b ?? "").trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(sa) && /^\d{4}-\d{2}-\d{2}/.test(sb)) {
@@ -239,6 +255,7 @@ function minutesBetween(a, b) {
     const end = dayjs(sb);
     if (start.isValid() && end.isValid()) {
       const mins = end.diff(start, "minute");
+      if (allowNegative) return mins;
       return mins >= 0 ? mins : null;
     }
   }
@@ -272,10 +289,7 @@ export function suggestLunch(row) {
   return raw != null && raw >= LUNCH_AUTO_MINUTES ? "yes" : "no";
 }
 
-/**
- * lunch / day_type / optional shift sync.
- * syncShift: true → In ≥ 17:00 forces Night (use on In change / new row).
- */
+/** Sync lunch/day/shift; syncShift=true → In≥17:00 → B */
 export function withDerivedFields(row, { syncShift = false } = {}) {
   const inVal = rowIn(row);
   let shift = "A";
@@ -290,25 +304,23 @@ export function withDerivedFields(row, { syncShift = false } = {}) {
   return {
     ...row,
     lunch: suggestLunch(row),
-    day_type: row?.day_type === "half" || row?.day_type === "full" ? row.day_type : DEFAULT_DAY_TYPE,
+    day_type: normalizeDayType(row?.day_type),
     shift,
   };
 }
 
-/** Half expected = (full − lunch) / 2 + lunch  e.g. 8h30 → 4h30 */
+/** Half day expected */
 function halfDayExpectedMinutes(fullDefaultMins) {
   if (fullDefaultMins == null) return null;
   const net = Math.max(0, fullDefaultMins - LUNCH_DEFAULT_MINUTES);
   return net / 2 + LUNCH_DEFAULT_MINUTES;
 }
 
-/** Actual lunch from punch: ≥ LUNCH_AUTO hours → 30 min, else 0. */
 function lunchFromPunch(punchedMins) {
   if (punchedMins == null) return null;
   return punchedMins >= LUNCH_AUTO_MINUTES ? LUNCH_DEFAULT_MINUTES : 0;
 }
 
-/** Expected day length (Full = default In→Out, Half = half formula). */
 function expectedDayMinutes(fullDefaultMins, isHalf) {
   if (fullDefaultMins == null) return null;
   return isHalf ? halfDayExpectedMinutes(fullDefaultMins) : fullDefaultMins;
@@ -321,33 +333,53 @@ function otTone(otMins) {
   return "muted";
 }
 
-/**
- * Working Hours — one place for UI math. Change carefully.
- *
- * Inputs:  default_in/out, day_type, in, out
- * Outputs: defaultLabel + Total / Lunch / Normal / OT
- *
- *   Total   = In → Out
- *   Lunch   = 30 if Total ≥ LUNCH_AUTO else 0
- *   Expected= Full default | Half = (full − 30)/2 + 30
- *   Normal  = min(Total − Lunch, Expected − lunchInExpected)
- *   OT      = minutes after default Out only (early In ignored), minus HRMS overtime buffer
- */
+/** UI Working Hours — Total / Lunch / Normal / OT */
+function defaultOutDateTime(row) {
+  const raw = String(row?.default_out ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.includes("T") ? raw : `${raw.slice(0, 10)}T${toTimeInput(raw) || "00:00"}`;
+  const date = ymd(row?.attendance_date);
+  const defaultIn = toTimeInput(row?.default_in);
+  const defaultOut = toTimeInput(row?.default_out);
+  if (!date || !defaultOut) return null;
+  const inMins = minutesOfHHmm(defaultIn);
+  const outMins = minutesOfHHmm(defaultOut);
+  const nightShift = defaultShift(row) === "B";
+  const crossesMidnight = inMins != null && outMins != null && outMins < inMins;
+  const sameDaySpan = inMins != null && outMins != null && outMins >= inMins;
+  // Shift B alone must not +1 day when defaults are same-calendar-day (e.g. 08:30–18:30) — that caused OT = -1440.
+  const outDate = crossesMidnight || (nightShift && !sameDaySpan) ? nextYmd(date) : date;
+  return outDate ? `${outDate}T${defaultOut}` : null;
+}
+
 function minutesAfterDefaultOut(row) {
   const date = ymd(row?.attendance_date);
   const out = rowOut(row);
-  const defaultOut = toTimeInput(row?.default_out);
-  if (!date || !out || !defaultOut) return null;
-  const defaultOutDt = `${date}T${defaultOut}`;
+  const defaultOutDt = defaultOutDateTime(row);
+  if (!date || !out || !defaultOutDt) return null;
   const outRaw = String(out).trim();
-  const outDt = /^\d{4}-\d{2}-\d{2}/.test(outRaw) ? outRaw : `${date}T${toTimeInput(outRaw) || defaultOut}`;
-  const late = minutesBetween(defaultOutDt, outDt);
-  return late != null && late > 0 ? late : 0;
+  const outHm = toTimeInput(outRaw);
+  const outDt = /^\d{4}-\d{2}-\d{2}/.test(outRaw)
+    ? outRaw
+    : outHm
+      ? `${date}T${outHm}`
+      : "";
+  if (!outDt) return null;
+  // Plain HH:mm Out before default Out on same day → treat as next-day out (night)
+  let resolvedOut = outDt;
+  if (!/^\d{4}-\d{2}-\d{2}/.test(outRaw) && outHm && outDt < defaultOutDt) {
+    const n = nextYmd(date);
+    if (n) {
+      const nextOut = `${n}T${outHm}`;
+      if (nextOut >= defaultOutDt) resolvedOut = nextOut;
+    }
+  }
+  // Signed: after default Out → positive; early → negative; exact → 0
+  return minutesBetween(defaultOutDt, resolvedOut, { allowNegative: true });
 }
 
 export function rowTotals(row, options = {}) {
   const fullDefault = minutesBetween(row?.default_in, row?.default_out);
-  const isHalf = String(row?.day_type || "").toLowerCase() === "half";
+  const isHalf = normalizeDayType(row?.day_type) === "HD";
   const total = minutesBetween(rowIn(row), rowOut(row)); // null until both In + Out
 
   const lunch = lunchFromPunch(total);
@@ -360,7 +392,15 @@ export function rowTotals(row, options = {}) {
   const normal = worked == null || normalCap == null ? null : Math.min(worked, normalCap);
   const otBuffer = resolveOvertimeBufferMinutes(row, options);
   const lateOut = minutesAfterDefaultOut(row);
-  let ot = lateOut == null ? null : Math.max(0, lateOut - otBuffer);
+  let ot = null;
+  const halfExcess = isHalf && worked != null && normalCap != null ? Math.max(0, worked - normalCap) : 0;
+  if (halfExcess > 0) {
+    ot = Math.round(halfExcess);
+  } else if (lateOut != null) {
+    ot = lateOut > 0 ? lateOut - otBuffer : lateOut;
+  } else if (row?.ot_minutes != null && Number.isFinite(Number(row.ot_minutes))) {
+    ot = Math.round(Number(row.ot_minutes));
+  }
 
   const lines = [
     { key: "total", label: "Total", mins: total, tone: "slate" },
@@ -369,7 +409,6 @@ export function rowTotals(row, options = {}) {
     { key: "ot", label: "OT", mins: ot, tone: otTone(ot) },
   ].map((line) => ({ ...line, value: formatDuration(line.mins) }));
 
-  /** Hover only — minute math (minus steps), same numbers as lines above. */
   const calcHints = [];
   if (total != null) calcHints.push({ key: "total", text: `${total} min (In → Out)` });
   if (total != null && lunch != null) {
@@ -382,11 +421,15 @@ export function rowTotals(row, options = {}) {
   if (worked != null && normalCap != null && normal != null) {
     calcHints.push({ key: "normal", text: `min(${worked}, ${normalCap}) = ${normal} min normal` });
   }
-  if (lateOut != null && otBuffer != null) {
+  if (halfExcess > 0) {
+    calcHints.push({ key: "ot", text: `${worked} − ${normalCap} = ${ot} min OT (half-day excess)` });
+  } else if (lateOut != null && otBuffer != null) {
     if (lateOut > 0) {
       calcHints.push({ key: "ot", text: `${lateOut} − ${otBuffer} = ${ot ?? 0} min OT (after default out)` });
+    } else if (lateOut < 0) {
+      calcHints.push({ key: "ot", text: `${lateOut} min OT (left before default out)` });
     } else {
-      calcHints.push({ key: "ot", text: "0 min OT (out on/before default out)" });
+      calcHints.push({ key: "ot", text: "0 min OT (out on default out)" });
     }
   }
 

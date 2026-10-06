@@ -7,7 +7,8 @@ import { toast } from "react-toastify";
 import { loanService } from "@/apps/hrms/lib/services/hrms";
 import { fetchEmployeeByDcode, fetchEmployeeViews } from "@/apps/hrms/lib/helpers/employeeHelper";
 import { LOAN_HEADERS } from "@/apps/hrms/lib/columns/loanColumns";
-import { LOAN_STATUS_OPTIONS, LOAN_TYPE_FILTER_OPTIONS, isFullyApproved, isPendingHr, isPendingManager } from "@/apps/hrms/lib/loanUtils";
+import { LOAN_STATUS_OPTIONS, LOAN_TYPE_FILTER_OPTIONS, isFullyApproved, isPendingApprove, isPendingManager } from "@/apps/hrms/lib/loanUtils";
+import { canApproveAsManager } from "@/apps/hrms/lib/gatePassUtils";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { hrmsSelectionLabel } from "@/apps/hrms/lib/hrmsSelectionLabel";
 import ServerListPage from "@/ui/common/list/ServerListPage";
@@ -16,13 +17,15 @@ import ActionButton from "@/ui/primitives/ActionButton";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
 import LoanDrawer from "@/apps/hrms/modules/loan/LoanDrawer";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { useSelector } from "react-redux";
 
 const MODULE = "hrms_loan";
 
-function loanModePermission(mode, canAccess) {
+function loanModePermission(mode, canAccess, canMgr) {
   if (mode === "add") return canAccess(MODULE, "add").allowed;
-  if (mode === "edit" || mode === "verify-manager") return canAccess(MODULE, "edit").allowed;
-  if (mode === "verify-hr") return canAccess(MODULE, "authorize").allowed;
+  if (mode === "edit") return canAccess(MODULE, "edit").allowed;
+  if (mode === "verify-manager") return canMgr;
+  if (mode === "verify-approve") return canAccess(MODULE, "authorize").allowed;
   if (mode === "view") return canAccess(MODULE, "view").allowed;
   return false;
 }
@@ -36,6 +39,9 @@ function toFilterRow(row) {
 
 export default function LoanPage() {
   const canAccess = useCanAccess();
+  const authUser = useSelector((s) => s.auth?.user);
+  const authRole = useSelector((s) => s.auth?.role);
+  const canMgr = canApproveAsManager({ ...authUser, type: authUser?.type || authRole, role: authRole });
   const [drawer, setDrawer] = useState({ open: false, mode: "add", record: null });
   const [deleteItem, setDeleteItem] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -93,13 +99,13 @@ export default function LoanPage() {
 
   const openDrawer = useCallback(
     (mode, record = null) => {
-      if (!loanModePermission(mode, canAccess)) {
+      if (!loanModePermission(mode, canAccess, canMgr)) {
         toast.error("You do not have permission for this action.");
         return;
       }
       setDrawer({ open: true, mode, record });
     },
-    [canAccess]
+    [canAccess, canMgr]
   );
   const closeDrawer = useCallback(() => setDrawer({ open: false, mode: "add", record: null }), []);
 
@@ -117,8 +123,8 @@ export default function LoanPage() {
     getSelectedRow,
     openAdd: () => openDrawer("add"),
     openEdit: (row) => openDrawer("edit", row),
-    openApprove: (row) => openDrawer("verify-hr", row),
-    canApproveSelection: () => Boolean(selectedRecord && isPendingHr(selectedRecord) && canAccess(MODULE, "authorize").allowed),
+    openApprove: (row) => openDrawer("verify-approve", row),
+    canApproveSelection: () => Boolean(selectedRecord && isPendingApprove(selectedRecord) && canAccess(MODULE, "authorize").allowed),
     openDelete: (row) => {
       if (!canAccess(MODULE, "delete").allowed) {
         toast.error("You do not have permission to delete.");
@@ -140,14 +146,16 @@ export default function LoanPage() {
       getRowId={(row) => row.id}
       cardConfig={{
         titleKey: "emp_code",
-        badgeIndices: [8],
+        badgeIndices: [9],
         detailKeys: ["emp_name", "type_display", "amount", "start_month_display"],
         footerKey: "status_display",
       }}
       extraFilterKeys={["emp_dcode", "type", "status"]}
       extraFilters={extraFilters}
       searchPlaceholder="Code, name, reason…"
+      clientQuickSearch
       applyExtrasOnChange
+      showSearchButton={false}
       selectionLabel={hrmsSelectionLabel.loan}
       tableHotkeyProps={tableHotkeyProps}
       onSelectionChange={onSelectionChange}
@@ -159,20 +167,22 @@ export default function LoanPage() {
             <ListPageAddButton module={MODULE} onClick={openNewModal} />
             <ListPageEditButton module={MODULE} disabled={!selected || isFullyApproved(row)} record={row} onClick={openEditModal} />
             <ListPageViewButton module={MODULE} disabled={!selected} record={row} onClick={() => openDrawer("view", row)} />
-            <ActionButton
-              module={MODULE}
-              action="edit"
-              variant="outline"
-              label="Supervisor Approve"
-              disabled={!selected || !isPendingManager(row)}
-              record={row}
-              onClick={() => openDrawer("verify-manager", row)}
-              className={LIST_PAGE_OUTLINE_ACTION}
-            />
+            {canMgr ? (
+              <ActionButton
+                module={MODULE}
+                action="view"
+                variant="outline"
+                label="Manager Approve"
+                disabled={!selected || !isPendingManager(row)}
+                record={row}
+                onClick={() => openDrawer("verify-manager", row)}
+                className={LIST_PAGE_OUTLINE_ACTION}
+              />
+            ) : null}
             <ListPageApproveButton
               module={MODULE}
-              label="HR Approve"
-              disabled={!selected || !isPendingHr(row)}
+              label="Approve"
+              disabled={!selected || !isPendingApprove(row)}
               record={row}
               onClick={openApproveModal}
             />
