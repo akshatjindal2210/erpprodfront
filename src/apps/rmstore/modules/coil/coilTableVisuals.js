@@ -195,12 +195,23 @@ function fgSplitForHistory(splits, assignment, row) {
   const zone = getCoilStockZone(row);
   if (zone !== "consumed" && zone !== "out") return null;
   const kind = assignment.kind || "consumed";
-  if (splitList.length && kind === "consumed") return null;
+  const assignKey = jcKeyForFgMatch(assignment.pjobcardno);
+  const rowKey = jcKeyForFgMatch(row.pjobcardno);
+  // Only reuse header FG when this history hop is the same JC (avoid wrong FG on older hops).
+  if (splitList.length && kind === "consumed" && assignKey && assignKey !== rowKey) return null;
+  if (splitList.length && kind === "consumed" && assignKey && splitList.some((s) => jcKeyForFgMatch(s.pjobcardno) === assignKey)) {
+    return null;
+  }
+  const qty = assignment.qty ?? row.qty;
+  const unit = String(row.it_unit || "kg").trim() || "kg";
+  const wireQty = qty != null && Number(qty) > 0 ? Number(qty) : null;
   return {
     fg_item_code: code,
     fg_item_desc: row.fg_item_desc,
     kind,
-    wire_qty: assignment.qty ?? row.qty,
+    wire_qty: wireQty,
+    wire_unit: unit,
+    wire_qty_label: wireQty != null ? `${wireQty} ${unit}` : null,
     pjobcardno: assignment.pjobcardno,
   };
 }

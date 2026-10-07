@@ -11,7 +11,14 @@ import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { lookupCoilByUid, lookupCoils } from "@/apps/rmstore/lib/services/coil";
 import { mrnService } from "@/apps/rmstore/lib/services/mrn";
-import { inProcessRequestService, IPR_REQUEST_TYPE, IPR_DOWNSTREAM, IPR_REQUEST_TYPE_LABEL, IPR_REJECTION_SCOPE_LABEL } from "@/apps/rmstore/lib/services/inProcessRequest";
+import {
+  inProcessRequestService,
+  IPR_REQUEST_TYPE,
+  IPR_DOWNSTREAM,
+  IPR_REQUEST_TYPE_LABEL,
+  IPR_REJECTION_SCOPE_LABEL,
+  reassignJcNo,
+} from "@/apps/rmstore/lib/services/inProcessRequest";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import { extractCoilUid, normalizeScanInput, coilUidDisplayLabel, stickerUidsMatch } from "@/apps/rmstore/lib/helpers/qrScan";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
@@ -392,6 +399,7 @@ export default function InProcessRequestModal({
   const [reassignEnabled, setReassignEnabled] = useState(false);
   const [reassignJobCardNo, setReassignJobCardNo] = useState("");
   const [reassignMachine, setReassignMachine] = useState("");
+  const reassignTargetSnapshotRef = useRef(null);
   const coilsRef = useRef([]);
   coilsRef.current = coils;
   const reassignJcFilteredListCacheRef = useRef(null);
@@ -527,6 +535,7 @@ export default function InProcessRequestModal({
     setReassignEnabled(false);
     setReassignJobCardNo("");
     setReassignMachine("");
+    reassignTargetSnapshotRef.current = null;
   }, []);
 
   const resetForm = useCallback(() => {
@@ -637,7 +646,7 @@ export default function InProcessRequestModal({
           partial ? String(wasReassign ? used : remaining) : ""
         );
         setReassignEnabled(wasReassign && partial);
-        setReassignJobCardNo(wasReassign ? String(row.reassign_jc || "").trim() : "");
+        setReassignJobCardNo(wasReassign ? reassignJcNo(row.reassign_jc) : "");
         setReassignMachine("");
       } else {
         setConsumeMode("full");
@@ -847,6 +856,15 @@ export default function InProcessRequestModal({
 
     setReassignJobCardNo(jobCardNo);
     setReassignMachine(machineName);
+    reassignTargetSnapshotRef.current = {
+      pjobcardno: jobCardNo,
+      macname: machineName || null,
+      item_code: row?.item_code ? String(row.item_code).trim() : null,
+      itemdcode: row?.itemdcode ?? row?.item_dcode ?? null,
+      item_desc: row?.itemdesc || row?.item_desc ? String(row.itemdesc || row.item_desc).trim() : null,
+      source_pjobcardno: String(coil?.source_pjobcardno || coil?.pjobcardno || "").trim() || null,
+      source_macname: String(coil?.source_macname || coil?.macname || "").trim() || null,
+    };
     setErrors((prev) => ({
       ...prev,
       reassignJobCard: undefined,
@@ -1834,10 +1852,23 @@ export default function InProcessRequestModal({
     const reassignTargetJc =
       isUpdateStatusFlow && reassignEnabled ? String(reassignJobCardNo || "").trim() : "";
 
+    const reassignJcPayload =
+      reassignTargetJc && reassignTargetSnapshotRef.current?.pjobcardno
+        ? {
+            ...reassignTargetSnapshotRef.current,
+            pjobcardno: reassignTargetJc,
+            macname: String(reassignMachine || reassignTargetSnapshotRef.current.macname || "").trim() || null,
+            source_pjobcardno: String(coils[0]?.source_pjobcardno || coils[0]?.pjobcardno || "").trim() || reassignTargetSnapshotRef.current.source_pjobcardno || null,
+            source_macname: String(coils[0]?.source_macname || coils[0]?.macname || "").trim() || reassignTargetSnapshotRef.current.source_macname || null,
+          }
+        : reassignTargetJc
+          ? { pjobcardno: reassignTargetJc, macname: reassignMachine || null }
+          : null;
+
     const payload = {
       request_type: requestType,
       type: reassignTargetJc ? "reassign" : undefined,
-      reassign_jc: reassignTargetJc || null,
+      reassign_jc: reassignJcPayload,
       rejection_type: isRejection ? rejectionType : null,
       reason: String(reason || (isUpdateStatusFlow ? "Coil status update" : "")).trim(),
       remarks: remarks || null,

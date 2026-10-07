@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Plus, RefreshCw, Edit3, Trash2, CheckCircle, Eye, Database, ClipboardList } from "lucide-react";
 import { toast } from "react-toastify";
 
-import { inProcessRequestService, IPR_DOWNSTREAM, IPR_REQUEST_TYPE, IPR_REQUEST_TYPE_FILTER_OPTIONS } from "@/apps/rmstore/lib/services/inProcessRequest";
+import { inProcessRequestService, IPR_DOWNSTREAM, IPR_REQUEST_TYPE, IPR_REQUEST_TYPE_FILTER_OPTIONS, IPR_TYPE, parseReassignJc, reassignJcNo, resolveIprCanonicalType } from "@/apps/rmstore/lib/services/inProcessRequest";
 import { IprRequestTypeCell, isIprRejectionRow } from "@/apps/rmstore/modules/in-process-request/iprTypeVisuals";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
@@ -53,22 +53,65 @@ function pendingRowId(row) {
   return `ipr:${row?.ipr_uid ?? ""}`;
 }
 
+function coilUidsFromPendingRow(row) {
+  if (row?._pendingKind === PENDING_KIND.SHOP_FLOOR) {
+    const uid = String(row?.coil_no_uid || "").trim();
+    return uid ? [uid.toLowerCase()] : [];
+  }
+  const coils = Array.isArray(row?.coils) ? row.coils : [];
+  return [...new Set(coils.map((c) => String(c?.coil_no_uid || "").trim()).filter(Boolean))].map((u) =>
+    u.toLowerCase()
+  );
+}
+
+function isPendingReassignIprRow(row) {
+  return row?._pendingKind === PENDING_KIND.IPR && row?.type === IPR_TYPE.REASSIGN;
+}
+
+/** Backend `pending_reassign_ref` or unapproved Reassign IPR — Out column shows R, not OUT. */
+function isPendingReassignRefRow(row) {
+  if (row?.pending_reassign_ref === true) return true;
+  return isPendingReassignIprRow(row);
+}
+
+function renderPendingOutRefCell(v, row) {
+  if (isPendingReassignRefRow(row)) {
+    const ipr = row?.ipr_uid;
+    const title = ipr ? `Reassign · IPR ${ipr}` : "Reassign";
+    return (
+      <span
+        className="inline-flex min-w-[1.25rem] justify-center px-1.5 py-0.5 rounded-sm border text-[9px] font-black font-mono bg-indigo-100 text-indigo-900 border-indigo-300"
+        title={title}
+      >
+        R
+      </span>
+    );
+  }
+  return renderCoilOutUidCell(v, row);
+}
+
 /** Map unapproved IPR into pending coil columns using backend fields only. */
 function mapPendingIprRow(row) {
   const coils = Array.isArray(row.coils) ? row.coils : [];
   const coilUids = [...new Set(coils.map((c) => String(c?.coil_no_uid || "").trim()).filter(Boolean))];
+  const isReassign = row?.type === IPR_TYPE.REASSIGN || resolveIprCanonicalType(row) === IPR_TYPE.REASSIGN;
+  const tgt = parseReassignJc(row?.reassign_jc);
+  const targetJc = String(tgt?.pjobcardno || reassignJcNo(row.reassign_jc) || "").trim();
   return {
     ...row,
     _pendingKind: PENDING_KIND.IPR,
-    pjobcardno: row.pjobcardno || null,
-    macname: row.macname || null,
+    pending_reassign_ref: isReassign,
+    pjobcardno: (isReassign && tgt?.source_pjobcardno ? tgt.source_pjobcardno : row.pjobcardno) || null,
+    macname: (isReassign && tgt?.source_macname ? tgt.source_macname : row.macname) || null,
+    fg_item_code: (isReassign && tgt?.item_code ? tgt.item_code : row.fg_item_code) || null,
+    fg_item_desc: (isReassign && tgt?.item_desc ? tgt.item_desc : row.fg_item_desc) || null,
     coil_no_uid: coilUids.length ? coilUids.join(", ") : row.coil_label || row.seed_coil_uid || "—",
     mrn_uid: row.mrn_uid || row.mrn_no || null,
     item_code: row.item_code || "—",
     item_desc: row.item_desc || row.reason || "—",
     qty: row.total_qty ?? row.qty ?? 0,
     heat_no: row.heat_label || row.heat_no || "—",
-    out_uid: row.ipr_uid ?? null,
+    out_uid: isReassign ? null : row.ipr_uid ?? null,
     shop_floor_at: row.created_at || null,
   };
 }
@@ -104,10 +147,12 @@ const PENDING_HEADERS = [
     "Job Card",
     "pjobcardno",
     (v) => renderCoilCompactCell(v, "font-mono font-bold text-indigo-700"),
-    { width: "130px", align: "center", copyValue: (row) => row?.pjobcardno ?? "—" },
+    {
+      width: "160px",
+      align: "center",
+      copyValue: (row) => row?.pjobcardno ?? "—",
+    },
   ],
-  ["FG Item", "fg_item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold text-slate-800"), { width: "110px" }],
-  ["FG Description", "fg_item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block normal-case", v), { width: "160px" }],
   [
     "Machine",
     "macname",
@@ -133,12 +178,14 @@ const PENDING_HEADERS = [
     (v) => renderCoilCompactCell(v, "font-bold text-slate-800", v),
     { fixed: true, width: "140px" },
   ],
+  ["FG Item", "fg_item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold text-slate-800"), { width: "110px" }],
+  ["FG Description", "fg_item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block normal-case", v), { width: "160px" }],
   ["MRN", "mrn_uid", renderCoilMrnCell, { width: "80px" }],
   ["RM Item", "item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold"), { width: "110px" }],
   ["RM Description", "item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block", v), { width: "160px" }],
   ["Qty", "qty", renderCoilQtyCell, { width: "70px", align: "center" }],
   ["Heat No", "heat_no", (v) => renderCoilCompactCell(v, "font-mono text-slate-700"), { width: "130px" }],
-  ["Out UID", "out_uid", renderCoilOutUidCell, { width: "80px", copyValue: (row) => (row.out_uid != null ? String(row.out_uid) : "—") }],
+  ["Out UID", "out_uid", renderPendingOutRefCell, { width: "80px", copyValue: (row) =>isPendingReassignRefRow(row) ? "Reassign" : row.out_uid != null ? String(row.out_uid) : "—" }],
 ];
 
 const PENDING_CARD_CONFIG = {
@@ -151,7 +198,18 @@ const PENDING_CARD_CONFIG = {
 const REGISTER_CARD_CONFIG = {
   titleKey: "ipr_uid",
   badgeIndices: [10],
-  detailKeys: ["item_code", "item_desc", "mrn_label", "heat_label", "reason", "total_qty"],
+  detailKeys: [
+    "fg_item_code",
+    "fg_item_desc",
+    "item_code",
+    "item_desc",
+    "pjobcardno",
+    "macname",
+    "mrn_label",
+    "heat_label",
+    "reason",
+    "total_qty",
+  ],
   footerKey: "created_at",
 };
 
@@ -246,6 +304,7 @@ export default function InProcessRequestPage() {
           fetchAllListPages(async (page, limit) => {
             const body = await inProcessRequestService.getAll({
               filters: { approved: false },
+              list_surface: "pending",
               page,
               limit,
               ...(appliedSearch && { search: appliedSearch }),
@@ -255,21 +314,37 @@ export default function InProcessRequestPage() {
         ]);
         if (gen !== fetchGenRef.current) return;
 
-        const shopRows = (shopFloor.data || []).map((row) => {
-          // IPR Pending: JC only — no "(qty)" suffix (Coils list keeps full pjobcardno_label).
-          const assignments = Array.isArray(row.job_card_assignments) ? row.job_card_assignments : [];
-          const balance = assignments.find((a) => a?.kind === "balance");
-          const currentJc = String(balance?.pjobcardno || row.reassign_target_pjobcardno || row.pjobcardno || "").trim();
-          const currentMac = String(balance?.macname || row.reassign_target_macname || row.macname_label || row.macname || "").trim();
-          return {
-            ...row,
-            _pendingKind: PENDING_KIND.SHOP_FLOOR,
-            coil_count: 1,
-            pjobcardno: currentJc || null,
-            macname: currentMac || null,
-          };
-        });
         const iprRows = (pendingIprs.data || []).map(mapPendingIprRow);
+        const reassignPendingCoils = new Set();
+        for (const row of iprRows) {
+          if (!isPendingReassignIprRow(row)) continue;
+          for (const uid of coilUidsFromPendingRow(row)) reassignPendingCoils.add(uid);
+        }
+
+        const shopRows = (shopFloor.data || []).filter((row) => {
+          const key = String(row?.coil_no_uid || "").trim().toLowerCase();
+            return !key || !reassignPendingCoils.has(key);
+          })
+          .map((row) => {
+            // IPR Pending: JC only — no "(qty)" suffix (Coils list keeps full pjobcardno_label).
+            const assignments = Array.isArray(row.job_card_assignments) ? row.job_card_assignments : [];
+            const balance = assignments.find((a) => a?.kind === "balance");
+            const currentJc = String(balance?.pjobcardno || row.reassign_target_pjobcardno || row.pjobcardno || "").trim();
+            const currentMac = String(row.pending_jc_macname || balance?.macname || row.reassign_target_macname || row.macname_label || row.macname || "").trim();
+            return {
+              ...row,
+              _pendingKind: PENDING_KIND.SHOP_FLOOR,
+              coil_count: 1,
+              pjobcardno: currentJc || null,
+              macname: currentMac || null,
+              ...(row.pending_rm_item_code
+                ? {
+                    item_code: row.pending_rm_item_code,
+                    item_desc: row.pending_rm_item_desc || row.item_desc,
+                  }
+                : {}),
+            };
+          });
         setPendingRows([...iprRows, ...shopRows]);
         tabCacheRef.current.pending = true;
       } else {
@@ -494,7 +569,10 @@ export default function InProcessRequestPage() {
         "Job Card",
         "pjobcardno",
         (v) => renderCoilCompactCell(v, "font-mono font-bold text-indigo-700"),
-        { width: "120px", copyValue: (row) => row?.pjobcardno ?? "—" },
+        {
+          width: "160px",
+          copyValue: (row) => row?.pjobcardno ?? "—",
+        },
       ],
       [
         "Machine",
@@ -502,22 +580,23 @@ export default function InProcessRequestPage() {
         (v) => renderCoilCompactCell(v, "font-bold text-slate-800 uppercase"),
         { width: "110px", copyValue: (row) => row?.macname ?? "—" },
       ],
+      ["FG Item", "fg_item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold text-slate-800"), { width: "110px" }],
       [
-        "Item Code",
-        "item_code",
-        (v) => (
-          <span className="font-bold text-slate-800 uppercase text-[11px] truncate block">{v || "—"}</span>
-        ),
-        { width: "180px" },
+        "FG Description",
+        "fg_item_desc",
+        (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block normal-case", v),
+        { width: "160px" },
       ],
       [
-        "Description",
+        "RM Item",
+        "item_code",
+        (v) => renderCoilCompactCell(v, "font-mono font-bold text-slate-800 uppercase"),
+        { width: "110px" },
+      ],
+      [
+        "RM Description",
         "item_desc",
-        (v) => (
-          <span className="text-[11px] text-slate-600 truncate block" title={v || ""}>
-            {v || "—"}
-          </span>
-        ),
+        (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block normal-case", v),
         { width: "160px" },
       ],
       [
@@ -568,10 +647,11 @@ export default function InProcessRequestPage() {
                   : label === "Rejected"
                     ? "bg-rose-50 text-rose-800 border-rose-200"
                     : "bg-slate-50 text-slate-600 border-slate-200";
-          const targetJc =
-            label === "Reassign"
-              ? String(row?.reassign_jc || "").trim()
-              : "";
+          const tgt = parseReassignJc(row?.reassign_jc);
+          const targetJc = label === "Reassign" ? String(tgt?.pjobcardno || reassignJcNo(row?.reassign_jc) || "").trim() : "";
+          const sub = tgt
+            ? [tgt.item_code, tgt.macname].filter(Boolean).join(" · ")
+            : "";
           return (
             <div className="flex flex-col items-center gap-0.5 min-w-0 py-0.5">
               <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${cls}`}>
@@ -580,7 +660,7 @@ export default function InProcessRequestPage() {
               {targetJc ? (
                 <span
                   className="text-[9px] font-mono font-bold text-indigo-700 truncate max-w-full"
-                  title={targetJc}
+                  title={[targetJc, tgt?.item_desc, sub].filter(Boolean).join(" · ")}
                 >
                   → {targetJc}
                 </span>
@@ -589,11 +669,14 @@ export default function InProcessRequestPage() {
           );
         },
         {
-          width: "140px",
+          width: "160px",
           align: "center",
           copyValue: (row) => {
-            const jc = String(row?.reassign_jc || "").trim();
-            if (row?.balance_status === "Reassign" && jc) return `Reassign → ${jc}`;
+            const t = parseReassignJc(row?.reassign_jc);
+            const jc = String(t?.pjobcardno || reassignJcNo(row?.reassign_jc) || "").trim();
+            if (row?.balance_status === "Reassign" && jc) {
+              return `Reassign → ${jc}${t?.item_code ? ` (${t.item_code})` : ""}`;
+            }
             return row?.balance_status || "—";
           },
         },

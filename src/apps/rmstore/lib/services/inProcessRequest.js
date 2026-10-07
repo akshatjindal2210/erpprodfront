@@ -83,10 +83,34 @@ export function isIprRejectionType(type) {
   return t === IPR_TYPE.COIL || t === IPR_TYPE.LOT;
 }
 
+/** Reassign target snapshot — DB column `reassign_jc` (JSON). */
+export function parseReassignJc(raw) {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const pjobcardno = String(raw.pjobcardno || "").trim();
+    if (pjobcardno || raw.item_code || raw.macname) return raw;
+    return null;
+  }
+  const t = String(raw).trim();
+  if (!t) return null;
+  if (t.startsWith("{")) {
+    try {
+      return parseReassignJc(JSON.parse(t));
+    } catch {
+      return { pjobcardno: t };
+    }
+  }
+  return { pjobcardno: t };
+}
+
+export function reassignJcNo(raw) {
+  return String(parseReassignJc(raw)?.pjobcardno || "").trim() || "";
+}
+
 /** Resolve canonical type from API row (prefers `type`). */
 export function resolveIprCanonicalType(row = {}) {
   // Reassign header/flag wins even if type was saved as consume.
-  if (String(row?.reassign_jc || "").trim()) return IPR_TYPE.REASSIGN;
+  if (reassignJcNo(row?.reassign_jc)) return IPR_TYPE.REASSIGN;
   const coils = Array.isArray(row?.coils) ? row.coils : [];
   if (coils.some((c) => c?.reassign === true)) return IPR_TYPE.REASSIGN;
 

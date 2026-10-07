@@ -64,7 +64,7 @@ function mapPendingJobCardOption(row) {
     ...row,
     jc_key: jcKey,
     jc_label: jcNo ? `${jcNo} · Issue #${row?.issue_uid ?? "—"}` : `Issue #${row?.issue_uid ?? "—"}`,
-    jc_sub: [mac, row?.rm_item_code || row?.item_code || ""].filter(Boolean).join(" · "),
+    jc_sub: [mac, row?.rm_item_code || ""].filter(Boolean).join(" · "),
   };
 }
 
@@ -1758,67 +1758,89 @@ export default function CoilScanEntryModal({
                               </dd>
                             </div> */}
                           </>
+                        ) : isJobCardOut ? (
+                          <div className="min-w-0 col-span-2 sm:col-span-3 lg:col-span-5">
+                            <div className="grid grid-cols-2 sm:grid-cols-12 gap-x-4 gap-y-3 text-[11px] leading-snug">
+                              <div className="min-w-0 col-span-2 sm:col-span-3">
+                                <dt className="text-[8px] font-bold text-slate-400 uppercase">Job Card</dt>
+                                <dd className="font-semibold text-slate-800 break-words">
+                                  {selectedJobCardMeta?.jc_label ?? "—"}
+                                </dd>
+                              </div>
+                              <div className="min-w-0 col-span-1 sm:col-span-3">
+                                <dt className="text-[8px] font-bold text-slate-400 uppercase">Machine</dt>
+                                <dd className="font-semibold text-slate-800 break-words uppercase">
+                                  {selectedJobCardMeta?.macname || seedFromCoil?.macname || "—"}
+                                </dd>
+                              </div>
+                              <div className="min-w-0 col-span-1 sm:col-span-3">
+                                <dt className="text-[8px] font-bold text-slate-400 uppercase">FG Item</dt>
+                                <dd className="font-semibold text-slate-800 break-words">
+                                  <span>{selectedJobCardMeta?.item_code || "—"}</span>
+                                  {selectedJobCardMeta?.item_desc ? (
+                                    <span className="block font-normal text-slate-600 normal-case text-[10px] leading-snug mt-0.5">
+                                      {selectedJobCardMeta.item_desc}
+                                    </span>
+                                  ) : null}
+                                </dd>
+                              </div>
+                              <div className="min-w-0 col-span-1 sm:col-span-3">
+                                <dt className="text-[8px] font-bold text-slate-400 uppercase">RM Item</dt>
+                                <dd className="font-semibold text-slate-800 break-words">
+                                  <span>{selectedJobCardMeta?.rm_item_code || "—"}</span>
+                                  {selectedJobCardMeta?.rm_item_desc ? (
+                                    <span className="block font-normal text-slate-600 normal-case text-[10px] leading-snug mt-0.5">
+                                      {selectedJobCardMeta.rm_item_desc}
+                                    </span>
+                                  ) : null}
+                                </dd>
+                              </div>
+                              <div className="min-w-0 col-span-1 sm:col-span-3">
+                                <dt className="text-[8px] font-bold text-slate-400 uppercase">MRN UID</dt>
+                                <dd
+                                  className="font-semibold text-slate-800 font-mono text-[10px] break-all"
+                                  title={planMrnUidLabel(mrnPlan)}
+                                >
+                                  {planMrnUidLabel(mrnPlan)}
+                                </dd>
+                              </div>
+                              <div className="min-w-0 col-span-1 sm:col-span-3">
+                                <dt className="text-[8px] font-bold text-slate-400 uppercase">Heat</dt>
+                                <dd className="font-semibold text-slate-800 break-words">{mrnPlan.heat_nos || "—"}</dd>
+                              </div>
+                              <div className="min-w-0 col-span-1 sm:col-span-3">
+                                <dt className="text-[8px] font-bold text-slate-400 uppercase">Supplier</dt>
+                                <dd className="font-semibold text-slate-800 break-words">{mrnPlan.acc_name || "—"}</dd>
+                              </div>
+                            </div>
+                          </div>
                         ) : (
                           <>
-                        {isJobCardOut ? (
-                          <>
-                            <div className="min-w-0">
-                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Job Card</dt>
-                              <dd className="font-semibold text-slate-800 break-words">
-                                {selectedJobCardMeta?.jc_label ?? "—"}
+                            <div className="min-w-0 sm:col-span-2">
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">MRN UID</dt>
+                              <dd
+                                className="font-semibold text-slate-800 font-mono text-[10px] break-words"
+                                title={planMrnUidLabel(mrnPlan)}
+                              >
+                                {planMrnUidLabel(mrnPlan)}
                               </dd>
                             </div>
                             <div className="min-w-0">
-                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Issue #</dt>
-                              <dd className="font-semibold text-slate-800">{selectedJobCardMeta?.issue_uid ?? "—"}</dd>
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Item</dt>
+                              <dd className="font-semibold text-slate-800 break-words">{mrnItemCodeLabel(mrnPlan)}</dd>
                             </div>
                             <div className="min-w-0">
-                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Machine</dt>
-                              <dd className="font-semibold text-slate-800 break-words uppercase">
-                                {selectedJobCardMeta?.macname || seedFromCoil?.macname || "—"}
-                              </dd>
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Heat</dt>
+                              <dd className="font-semibold text-slate-800 break-words">{mrnPlan.heat_nos || "—"}</dd>
                             </div>
                             <div className="min-w-0">
-                              <dt className="text-[8px] font-bold text-slate-400 uppercase">RM Item</dt>
-                              <dd className="font-semibold text-slate-800 break-words">
-                                {selectedJobCardMeta?.rm_item_code || selectedJobCardMeta?.jc_sub || "—"}
-                              </dd>
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Supplier</dt>
+                              <dd className="font-semibold text-slate-800 break-words">{mrnPlan.acc_name || "—"}</dd>
                             </div>
                             <div className="min-w-0">
-                              <dt className="text-[8px] font-bold text-slate-400 uppercase">RM Item Description</dt>
-                              <dd className="font-semibold text-slate-800 break-words">
-                                {selectedJobCardMeta?.rm_item_desc || "—"}
-                              </dd>
+                              <dt className="text-[8px] font-bold text-slate-400 uppercase">Out Reason</dt>
+                              <dd className="font-semibold text-rose-800 break-words">{reason || "—"}</dd>
                             </div>
-                          </>
-                        ) : null}
-                        <div className="min-w-0 sm:col-span-2">
-                          <dt className="text-[8px] font-bold text-slate-400 uppercase">MRN UID</dt>
-                          <dd
-                            className="font-semibold text-slate-800 font-mono text-[10px] break-words"
-                            title={planMrnUidLabel(mrnPlan)}
-                          >
-                            {planMrnUidLabel(mrnPlan)}
-                          </dd>
-                        </div>
-                        <div className="min-w-0">
-                          <dt className="text-[8px] font-bold text-slate-400 uppercase">Item</dt>
-                          <dd className="font-semibold text-slate-800 break-words">{mrnItemCodeLabel(mrnPlan)}</dd>
-                        </div>
-                        <div className="min-w-0">
-                          <dt className="text-[8px] font-bold text-slate-400 uppercase">Heat</dt>
-                          <dd className="font-semibold text-slate-800 break-words">{mrnPlan.heat_nos || "—"}</dd>
-                        </div>
-                        <div className="min-w-0">
-                          <dt className="text-[8px] font-bold text-slate-400 uppercase">Supplier</dt>
-                          <dd className="font-semibold text-slate-800 break-words">{mrnPlan.acc_name || "—"}</dd>
-                        </div>
-                        {!isJobCardOut ? (
-                          <div className="min-w-0">
-                            <dt className="text-[8px] font-bold text-slate-400 uppercase">Out Reason</dt>
-                            <dd className="font-semibold text-rose-800 break-words">{reason || "—"}</dd>
-                          </div>
-                        ) : null}
                           </>
                         )}
                       </dl>
