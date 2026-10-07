@@ -24,6 +24,7 @@ Flow: **Issue Out sets coil → IPR reads coil.**
 |------|------|
 | JC pick → machine from ERP row | `issue-request/IssueRequestModal.js` — `handleJcChange` |
 | One machine = one JC on same request | `lib/config/app.config.js` — `ISSUE_REQUEST_MACHINE_JOB_CARD_LOCK` |
+| Shop-floor lock after reassign | [ISSUE_REQUEST_MACHINE_LOCK_REASSIGN.md](./ISSUE_REQUEST_MACHINE_LOCK_REASSIGN.md) — effective JC/mac (ERP + IPR) |
 | ERP job card API (FE) | `lib/services/production.js` — `getPrdRunJcViews`, `getPrdRunJcViewById` |
 | ERP data (BE) | `backend/.../production/utils/erpItems.js` — `loadMappedPrdRunJc` (IMS `prdrunjc`, field `macname`) |
 | Save issue + JC lines (BE) | `backend/.../issue-request/controllers/issueRequest.controller.js` |

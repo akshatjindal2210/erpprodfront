@@ -153,6 +153,7 @@ const PENDING_HEADERS = [
       copyValue: (row) => row?.pjobcardno ?? "—",
     },
   ],
+  ["FG Item", "fg_item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold text-slate-800"), { width: "110px" }],
   [
     "Machine",
     "macname",
@@ -178,8 +179,6 @@ const PENDING_HEADERS = [
     (v) => renderCoilCompactCell(v, "font-bold text-slate-800", v),
     { fixed: true, width: "140px" },
   ],
-  ["FG Item", "fg_item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold text-slate-800"), { width: "110px" }],
-  ["FG Description", "fg_item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block normal-case", v), { width: "160px" }],
   ["MRN", "mrn_uid", renderCoilMrnCell, { width: "80px" }],
   ["RM Item", "item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold"), { width: "110px" }],
   ["RM Description", "item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block", v), { width: "160px" }],
@@ -574,18 +573,12 @@ export default function InProcessRequestPage() {
           copyValue: (row) => row?.pjobcardno ?? "—",
         },
       ],
+      ["FG Item", "fg_item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold text-slate-800"), { width: "110px" }],
       [
         "Machine",
         "macname",
         (v) => renderCoilCompactCell(v, "font-bold text-slate-800 uppercase"),
         { width: "110px", copyValue: (row) => row?.macname ?? "—" },
-      ],
-      ["FG Item", "fg_item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold text-slate-800"), { width: "110px" }],
-      [
-        "FG Description",
-        "fg_item_desc",
-        (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block normal-case", v),
-        { width: "160px" },
       ],
       [
         "RM Item",
