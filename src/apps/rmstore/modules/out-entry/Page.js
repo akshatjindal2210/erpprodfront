@@ -265,12 +265,12 @@ export default function StoreOutPage() {
 
   const openDraftForm = useCallback((row) => {
     if (!row?.out_uid || !isRmOutEntryScanDraft(row)) return;
-    if (!editAccess.allowed) return;
+    if (!editAccess.allowed && !addAccess.allowed) return;
     setModalMode("edit");
     setSeedFromCoil(null);
     setEditItem(row);
     setModalOpen(true);
-  }, [editAccess]);
+  }, [editAccess, addAccess]);
 
   const openEdit = useCallback((row) => {
     if (!row?.out_uid) return;
@@ -387,6 +387,10 @@ export default function StoreOutPage() {
       return;
     }
     if (selectedRecord.out_uid) {
+      if (selectedIsDraft && addAccess.allowed) {
+        openDraftForm(buildPendingDraftRow(selectedRecord));
+        return;
+      }
       if (selectedIsDraft) {
         toast.info("An existing draft is open — use the Draft button to continue.");
       } else {
@@ -395,7 +399,7 @@ export default function StoreOutPage() {
       return;
     }
     handleStartOutEntry(selectedRecord);
-  }, [isStoreOut, selectedRecord, selectedIsDraft, openBlankStoreOut, handleStartOutEntry]);
+  }, [isStoreOut, selectedRecord, selectedIsDraft, addAccess.allowed, buildPendingDraftRow, openDraftForm, openBlankStoreOut, handleStartOutEntry]);
 
   const handleDraftClick = useCallback(() => {
     if (!selectedRecord?.out_uid || !selectedIsDraft) {
@@ -473,8 +477,8 @@ export default function StoreOutPage() {
     openAdd: handleNewClick,
     canOpenNew: useCallback(() => {
       if (isStoreOut) return true;
-      return Boolean(selectedRecord && !selectedRecord?.out_uid);
-    }, [isStoreOut, selectedRecord]),
+      return Boolean(selectedRecord && (!selectedRecord?.out_uid || (selectedIsDraft && addAccess.allowed)));
+    }, [isStoreOut, selectedRecord, selectedIsDraft, addAccess.allowed]),
     onNewBlocked: useCallback(() => {
       if (!isStoreOut && !selectedRecord) toast.info("Select a pending row first.");
     }, [isStoreOut, selectedRecord]),
@@ -531,7 +535,7 @@ export default function StoreOutPage() {
       }
       toast.info("Scanning is incomplete — use Draft to continue.");
     },
-    [getRowId, editAccess, addAccess, openDraftForm, openView, openFromPendingRow, buildPendingDraftRow]
+    [getRowId, editAccess, openDraftForm, openView, openFromPendingRow, buildPendingDraftRow]
   );
 
   const STORE_OUT_HEADERS = useMemo(
@@ -858,7 +862,11 @@ export default function StoreOutPage() {
                   action="add"
                   label="New"
                   icon={Plus}
-                  disabled={!isStoreOut && (!selectedRecord || Boolean(selectedRecord?.out_uid))}
+                  disabled={
+                    !isStoreOut &&
+                    (!selectedRecord ||
+                      (Boolean(selectedRecord?.out_uid) && !(selectedIsDraft && addAccess.allowed)))
+                  }
                   onClick={handleNewClick}
                   className={`${LIST_PAGE_ACTION_CLASS} px-3 sm:px-4`}
                 />

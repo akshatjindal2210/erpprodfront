@@ -1081,7 +1081,9 @@ export default function CoilScanEntryModal({
       if (isApproveMode) {
         if (!canAccess(permissionModule, "authorize").allowed) return;
       } else if (isEdit) {
-        if (!canAccess(permissionModule, "edit").allowed) return;
+        if (!canAccess(permissionModule, "edit").allowed && !(permissionModule === "rm_out_entry" && canAccess(permissionModule, "add").allowed && !isAuthorizedEdit)) {
+          return;
+        }
       } else if (!canAccess(permissionModule, "add").allowed) {
         return;
       }
