@@ -303,6 +303,7 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
     hrmsModules,
     purchaseModules,
     productionModules,
+    engineeringModules,
   } = useMemo(() => partitionModulesForUserForm(modules), [modules]);
 
   const syncAppAccessFromPermissions = useCallback(
@@ -1423,6 +1424,7 @@ export default function UserModal({ open, onClose, onSuccess, editUser }) {
               hrmsModules={hrmsModules}
               purchaseModules={purchaseModules}
               productionModules={productionModules}
+              engineeringModules={engineeringModules}
               appAccess={appAccess}
               activePermTab={activePermTab}
               onActivePermTabChange={setActivePermTab}

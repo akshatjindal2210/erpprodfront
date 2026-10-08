@@ -498,6 +498,7 @@ const DASHBOARD_APP_OPTIONS = [
   { value: "hrms", label: "HRMS Dashboard" },
   { value: "purchase", label: "Purchase Dashboard" },
   { value: "production", label: "Production Dashboard" },
+  { value: "engineering", label: "Engineering Dashboard" },
   { value: "task", label: "Task Dashboard" },
   { value: "settings", label: "Admin Console Dashboard" },
 ];

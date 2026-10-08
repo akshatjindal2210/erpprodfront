@@ -32,6 +32,18 @@ import { renderCoilCompactCell, renderCoilMrnCell, renderCoilOutUidCell, renderC
 
 const MODULE = "rm_in_process_request";
 
+const IPR_GENERIC_REASON = "coil status update";
+
+/** Register list — hide default update-status placeholder; prefer real rejection reason. */
+function iprRegisterReasonText(row) {
+  const reason = String(row?.reason || "").trim();
+  const remarks = String(row?.remarks || "").trim();
+  const isGeneric = (s) => !s || s.toLowerCase() === IPR_GENERIC_REASON;
+  if (!isGeneric(reason)) return reason;
+  if (!isGeneric(remarks)) return remarks;
+  return "";
+}
+
 const PAGE_TABS = {
   REGISTER: "register",
   PENDING: "pending",
@@ -80,7 +92,7 @@ function renderPendingOutRefCell(v, row) {
     const title = ipr ? `Reassign · IPR ${ipr}` : "Reassign";
     return (
       <span
-        className="inline-flex min-w-[1.25rem] justify-center px-1.5 py-0.5 rounded-sm border text-[9px] font-black font-mono bg-indigo-100 text-indigo-900 border-indigo-300"
+        className="inline-flex min-w-[1.25rem] justify-center px-1.5 py-0.5 rounded-sm border text-[9px] font-black font-mono bg-purple-100 text-indigo-900 border-indigo-300"
         title={title}
       >
         R
@@ -148,17 +160,17 @@ const PENDING_HEADERS = [
     "pjobcardno",
     (v) => renderCoilCompactCell(v, "font-mono font-bold text-indigo-700"),
     {
-      width: "160px",
+      width: "70px",
       align: "center",
       copyValue: (row) => row?.pjobcardno ?? "—",
     },
   ],
-  ["FG Item", "fg_item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold text-slate-800"), { width: "110px" }],
+  ["FG Item", "fg_item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold text-slate-800"), { width: "120px" }],
   [
     "Machine",
     "macname",
     (v) => renderCoilCompactCell(v, "font-bold text-slate-800 uppercase"),
-    { width: "120px", align: "center", copyValue: (row) => row?.macname ?? "—" },
+    { width: "90px", align: "center", copyValue: (row) => row?.macname ?? "—" },
   ],
   [
     "Shop Floor",
@@ -171,7 +183,7 @@ const PENDING_HEADERS = [
       ) : (
         <IprRequestTypeCell row={row} />
       ),
-    { width: "150px", align: "center" },
+    { width: "120px", align: "center" },
   ],
   [
     "Coil No",
@@ -179,10 +191,10 @@ const PENDING_HEADERS = [
     (v) => renderCoilCompactCell(v, "font-bold text-slate-800", v),
     { fixed: true, width: "140px" },
   ],
-  ["MRN", "mrn_uid", renderCoilMrnCell, { width: "80px" }],
+  ["MRN", "mrn_uid", renderCoilMrnCell, { width: "60px" }],
   ["RM Item", "item_code", (v) => renderCoilCompactCell(v, "font-mono font-bold"), { width: "110px" }],
   ["RM Description", "item_desc", (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[160px] block", v), { width: "160px" }],
-  ["Qty", "qty", renderCoilQtyCell, { width: "70px", align: "center" }],
+  ["Qty", "qty", renderCoilQtyCell, { width: "50px", align: "center" }],
   ["Heat No", "heat_no", (v) => renderCoilCompactCell(v, "font-mono text-slate-700"), { width: "130px" }],
   ["Out UID", "out_uid", renderPendingOutRefCell, { width: "80px", copyValue: (row) =>isPendingReassignRefRow(row) ? "Reassign" : row.out_uid != null ? String(row.out_uid) : "—" }],
 ];
@@ -190,18 +202,19 @@ const PENDING_HEADERS = [
 const PENDING_CARD_CONFIG = {
   titleKey: "coil_no_uid",
   badgeIndices: [4],
-  detailKeys: ["item_code", "item_desc", "fg_item_code", "fg_item_desc", "pjobcardno", "macname", "shop_floor_at", "heat_no", "qty", "mrn_uid", "out_uid"],
+  detailKeys: ["item_code", "item_desc", "acc_name", "fg_item_code", "fg_item_desc", "pjobcardno", "macname", "shop_floor_at", "heat_no", "qty", "mrn_uid", "out_uid"],
   footerKey: "macname",
 };
 
 const REGISTER_CARD_CONFIG = {
   titleKey: "ipr_uid",
-  badgeIndices: [10],
+  badgeIndices: [11],
   detailKeys: [
     "fg_item_code",
     "fg_item_desc",
     "item_code",
     "item_desc",
+    "acc_name",
     "pjobcardno",
     "macname",
     "mrn_label",
@@ -563,13 +576,13 @@ export default function InProcessRequestPage() {
 
   const registerHeaders = useMemo(
     () => [
-      ["IPR UID", "ipr_uid", (v) => <span className="font-bold text-teal-700 text-[10px]">{v}</span>, { fixed: true, width: "90px" }],
+      ["IPR UID", "ipr_uid", (v) => <span className="font-bold text-teal-700 text-[10px]">{v}</span>, { fixed: true, width: "45px" }],
       [
         "Job Card",
         "pjobcardno",
         (v) => renderCoilCompactCell(v, "font-mono font-bold text-indigo-700"),
         {
-          width: "160px",
+          width: "80px",
           copyValue: (row) => row?.pjobcardno ?? "—",
         },
       ],
@@ -593,6 +606,12 @@ export default function InProcessRequestPage() {
         { width: "160px" },
       ],
       [
+        "Supplier",
+        "acc_name",
+        (v) => renderCoilCompactCell(v, "font-bold text-slate-700 truncate max-w-[180px] block normal-case", v),
+        { width: "180px" },
+      ],
+      [
         "Coil",
         "coil_label",
         (v) => (
@@ -613,7 +632,7 @@ export default function InProcessRequestPage() {
             {row.lot_label ? `Lot ${row.lot_label}` : v || "—"}
           </span>
         ),
-        { width: "110px" },
+        { width: "80px" },
       ],
       [
         "Heat No",
@@ -642,33 +661,30 @@ export default function InProcessRequestPage() {
                     : "bg-slate-50 text-slate-600 border-slate-200";
           const tgt = parseReassignJc(row?.reassign_jc);
           const targetJc = label === "Reassign" ? String(tgt?.pjobcardno || reassignJcNo(row?.reassign_jc) || "").trim() : "";
+          const rejectReason = label === "Rejected" ? iprRegisterReasonText(row) : "";
           const sub = tgt
             ? [tgt.item_code, tgt.macname].filter(Boolean).join(" · ")
             : "";
           return (
             <div className="flex flex-col items-center gap-0.5 min-w-0 py-0.5">
-              <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${cls}`}>
-                {label}
-              </span>
-              {targetJc ? (
-                <span
-                  className="text-[9px] font-mono font-bold text-indigo-700 truncate max-w-full"
-                  title={[targetJc, tgt?.item_code, sub].filter(Boolean).join(" · ")}
-                >
-                  → {targetJc}
-                </span>
-              ) : null}
+              <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${cls}`}>{label}</span>
+              {targetJc ? (<span className="text-[9px] font-mono font-bold text-indigo-700 truncate max-w-full" title={[targetJc, tgt?.item_code, sub].filter(Boolean).join(" · ")}>→ {targetJc}</span>) : null}
+              {rejectReason ? (<span className="text-[9px] font-bold text-rose-800 truncate max-w-full normal-case text-center px-0.5" title={rejectReason}>{rejectReason}</span>) : null}
             </div>
           );
         },
         {
-          width: "160px",
+          width: "120px",
           align: "center",
           copyValue: (row) => {
             const t = parseReassignJc(row?.reassign_jc);
             const jc = String(t?.pjobcardno || reassignJcNo(row?.reassign_jc) || "").trim();
             if (row?.balance_status === "Reassign" && jc) {
               return `Reassign → ${jc}${t?.item_code ? ` (${t.item_code})` : ""}`;
+            }
+            if (row?.balance_status === "Rejected") {
+              const r = iprRegisterReasonText(row);
+              return r ? `Rejected — ${r}` : "Rejected";
             }
             return row?.balance_status || "—";
           },
@@ -677,7 +693,7 @@ export default function InProcessRequestPage() {
       ["Consumed", "consumed_qty", qtyCell, { width: "80px" }],
       ["Balance", "balance_qty", qtyCell, { width: "80px" }],
       ["Total Qty", "total_qty", qtyCell, { width: "80px" }],
-      ["Type", "type", (_v, row) => <IprRequestTypeCell row={row} />, { width: "140px", align: "center" }],
+      // ["Type", "type", (_v, row) => <IprRequestTypeCell row={row} />, { width: "140px", align: "center" }],
       [
         "Remarks",
         "remarks",
@@ -686,18 +702,18 @@ export default function InProcessRequestPage() {
             {v || "—"}
           </span>
         ),
-        { width: "150px" },
+        { width: "100px" },
       ],
-      [
-        "Reason",
-        "reason",
-        (v) => (
-          <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>
-            {v || "—"}
-          </span>
-        ),
-        { width: "150px" },
-      ],
+      // [
+      //   "Reason",
+      //   "reason",
+      //   (v) => (
+      //     <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>
+      //       {v || "—"}
+      //     </span>
+      //   ),
+      //   { width: "150px" },
+      // ],
       [
         "Status",
         "approved",

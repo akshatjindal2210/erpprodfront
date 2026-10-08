@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "4.4.8",
+  "version": "4.5.0",
   "private": true,
   "overrides": {
     "postcss": "^8.5.10",

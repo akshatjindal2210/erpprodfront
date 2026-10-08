@@ -5,6 +5,7 @@ import { ROUTES as RM_STORE_ROUTES } from "@/apps/rmstore/lib/utils/routes";
 import { ROUTES as HRMS_ROUTES } from "@/apps/hrms/lib/utils/routes";
 import { ROUTES as PURCHASE_ROUTES } from "@/apps/purchase/lib/utils/routes";
 import { ROUTES as PRODUCTION_ROUTES } from "@/apps/production/lib/utils/routes";
+import { ROUTES as ENGINEERING_ROUTES } from "@/apps/engineering/lib/utils/routes";
 
 /** Portal — all app routes in one place (launcher, navbar, guards). */
 export const ROUTES = {
@@ -16,6 +17,7 @@ export const ROUTES = {
   ...HRMS_ROUTES,
   ...PURCHASE_ROUTES,
   ...PRODUCTION_ROUTES,
+  ...ENGINEERING_ROUTES,
   ...SETTINGS_ROUTES,
 };
 

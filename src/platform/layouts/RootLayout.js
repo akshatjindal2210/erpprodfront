@@ -117,6 +117,7 @@ export default function RootLayout({ children, shell = APP_SHELL.IMS }) {
     pathname === "/hrms/dashboard" ||
     pathname === "/purchase/dashboard" ||
     pathname === "/production/dashboard" ||
+    pathname === "/engineering/dashboard" ||
     pathname === "/settings/dashboard" ||
     pathname === "/settings/dashboard-builder";
 

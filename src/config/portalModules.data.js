@@ -8,6 +8,7 @@ export const APP_GATES = {
   hrms: "app_hrms",
   purchase: "app_purchase",
   production: "app_production",
+  engineering: "app_engineering",
 };
 
 export const APP_META = {
@@ -18,6 +19,7 @@ export const APP_META = {
   hrms: { label: "HRMS", permissions: true },
   purchase: { label: "Purchase", permissions: true },
   production: { label: "Production", permissions: true },
+  engineering: { label: "Engineering", permissions: true },
 };
 
 export const APP_TYPE_LABELS = Object.fromEntries(
@@ -108,8 +110,12 @@ export const MODULES = {
     { name: "production_shortage", label: "Shortage" },
     { name: "production_activity_logs", label: "Activity Logs" },
   ],
+  engineering: [
+    { name: "eng_process_master", label: "Process Master" },
+    { name: "eng_machine_master", label: "Machine Master" },
+  ],
 };
 
-export const PORTAL_APP_KEYS = ["core", "ims", "rmstore", "task", "hrms", "purchase", "production"];
+export const PORTAL_APP_KEYS = ["core", "ims", "rmstore", "task", "hrms", "purchase", "production", "engineering"];
 
 export const SETTINGS_MODULES = ["users", "modules", "training_videos", "departments", "designations"];

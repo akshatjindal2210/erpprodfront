@@ -1,4 +1,4 @@
-import { Boxes, Home, ListTodo, Settings, Warehouse, Users, ShoppingCart, Factory } from "lucide-react";
+import { Boxes, Home, ListTodo, Settings, Warehouse, Users, ShoppingCart, Factory, Wrench } from "lucide-react";
 import { ROUTES } from "@/config/routes";
 import { userHasAppAccess } from "@/config/moduleAppRegistry";
 import { getTaskHomePath } from "@/apps/task/lib/config/appConfig";
@@ -13,6 +13,7 @@ export const APP_SHELL = {
   HRMS: "hrms",
   PURCHASE: "purchase",
   PRODUCTION: "production",
+  ENGINEERING: "engineering",
 };
 
 /** Top navbar 9-dot launcher — fixed order: Home → IMS → RM Store → Task → Settings. */
@@ -84,6 +85,16 @@ export const APPS = [
     shell: APP_SHELL.PRODUCTION,
     icon: Factory,
     accent: "from-cyan-500 to-cyan-700",
+    inLauncher: true,
+  },
+  {
+    id: "engineering",
+    name: "Engineering",
+    subtitle: "Engineering",
+    href: ROUTES.ENGINEERING_DASHBOARD,
+    shell: APP_SHELL.ENGINEERING,
+    icon: Wrench,
+    accent: "from-indigo-500 to-indigo-700",
     inLauncher: true,
   },
   {
@@ -192,6 +203,18 @@ export function isProductionShell(shell, pathname) {
   return shell === APP_SHELL.PRODUCTION || isProductionShellPath(pathname);
 }
 
+export function isEngineeringShellPath(pathname) {
+  return (
+    pathname === ROUTES.ENGINEERING_DASHBOARD ||
+    pathname?.startsWith(`${ROUTES.ENGINEERING_DASHBOARD}/`) ||
+    pathname?.startsWith("/engineering/")
+  );
+}
+
+export function isEngineeringShell(shell, pathname) {
+  return shell === APP_SHELL.ENGINEERING || isEngineeringShellPath(pathname);
+}
+
 /** Resolve launcher app label + home href for navbar breadcrumbs. */
 export function getShellAppFromPathname(pathname) {
   if (isPortalShellPath(pathname)) {
@@ -214,6 +237,9 @@ export function getShellAppFromPathname(pathname) {
   }
   if (isProductionShellPath(pathname)) {
     return { id: "production", name: "Production", href: ROUTES.PRODUCTION_DASHBOARD };
+  }
+  if (isEngineeringShellPath(pathname)) {
+    return { id: "engineering", name: "Engineering", href: ROUTES.ENGINEERING_DASHBOARD };
   }
   if (pathname?.startsWith("/ims")) {
     return { id: "ims", name: "IMS", href: ROUTES.IMS_DASHBOARD };

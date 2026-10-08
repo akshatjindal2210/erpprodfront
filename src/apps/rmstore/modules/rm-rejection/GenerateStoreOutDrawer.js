@@ -305,6 +305,8 @@ function mapLinkedCoilRow(c, fallback = {}) {
     heat_no: c.heat_no || fallback.heat_no,
     item_code: c.item_code || fallback.item_code,
     qty: c.qty,
+    pjobcardno: c.pjobcardno || null,
+    macname: c.macname || null,
   };
 }
 
@@ -344,6 +346,17 @@ function formatCoilUidSummary(detail, row, coilRows = []) {
     return first ? `Batch · ${count} coils (${first}…)` : `Batch · ${count} coils`;
   }
   return detail?.coil_no_uid || row?.coil_no_uid || "—";
+}
+
+/** Shop-floor origin of an in-process rejection (job card / machine / issue Store Out). */
+function iprSourceFields(detail, row) {
+  const outUid = detail?.source_out_uid ?? row?.source_out_uid;
+  return [
+    { label: "Job Card", value: detail?.pjobcardno || row?.pjobcardno || null, mono: true },
+    { label: "Machine", value: detail?.macname || row?.macname || null },
+    { label: "FG Item", value: detail?.fg_item_code || row?.fg_item_code || null, mono: true },
+    { label: "Issued Via", value: outUid != null ? `OUT-${outUid}` : null, mono: true },
+  ];
 }
 
 function collectIprAttachmentPaths(detail) {
@@ -473,6 +486,7 @@ export {
   primaryCoilUid,
   buildRejectedCoilRows,
   collectIprAttachmentPaths,
+  iprSourceFields,
   resolveIprQcChecks,
   formatCoilUidSummary,
 };
@@ -656,6 +670,7 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
           label: "Supplier",
           value: detail?.acc_name || row?.vendor_acc_name || row?.acc_name || null,
         },
+        ...iprSourceFields(detail, row),
         {
           label: "Total Qty",
           value:

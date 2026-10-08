@@ -89,7 +89,8 @@ function isHistoricalLoc(loc) {
 
 function isLiveInwardCoil(coil) {
   const st = String(coil?.status || "active").toLowerCase();
-  return st === "active" || st === "rejected";
+  if (st === "active") return true;
+  return st === "rejected" && coil?.ipr_uid != null;
 }
 
 /** Normalize API locations[] — backend is source of truth for edit layout. */
@@ -137,7 +138,7 @@ function inwardLocationFingerprint(locs) {
       .map((loc) => ({
         id: loc.location_id,
         coils: (loc.coils || [])
-          .filter((c) => String(c.status || "active").toLowerCase() === "active")
+          .filter(isLiveInwardCoil)
           .map((c) => String(c.coil_no_uid || "").trim())
           .filter(Boolean)
           .sort(),
@@ -611,7 +612,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
         return;
       }
       const status = String(coil.status || "active").toLowerCase();
-      if (status !== "active") {
+      if (status !== "active" && !(status === "rejected" && coil.ipr_uid)) {
         const zone = resolveCoilLocationLabel(coil);
         const ref = resolveCoilLocationDetail(coil);
         const held = ref && ref !== zone ? `${zone} (${ref})` : zone;
@@ -820,7 +821,7 @@ export default function InwardModal({ open, onClose, onSuccess, mode = "add", ed
         .map((loc) => ({
           location_id: loc.location_id,
           coils: (loc.coils || [])
-            .filter((c) => String(c.status || "active").toLowerCase() === "active")
+            .filter(isLiveInwardCoil)
             .map((c) => ({ coil_no_uid: c.coil_no_uid })),
         }))
         .filter((loc) => loc.coils.length > 0);

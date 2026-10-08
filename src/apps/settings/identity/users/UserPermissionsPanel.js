@@ -294,6 +294,7 @@ export default function UserPermissionsPanel({
   hrmsModules,
   purchaseModules,
   productionModules,
+  engineeringModules,
   appAccess,
   activePermTab,
   onActivePermTabChange,
@@ -325,8 +326,9 @@ export default function UserPermissionsPanel({
         hrmsModules,
         purchaseModules,
         productionModules,
+        engineeringModules,
       }),
-    [activePermTab, imsModules, coreModules, taskModules, rmStoreModules, hrmsModules, purchaseModules, productionModules]
+    [activePermTab, imsModules, coreModules, taskModules, rmStoreModules, hrmsModules, purchaseModules, productionModules, engineeringModules]
   );
 
   const handleTabKeyDown = useCallback(

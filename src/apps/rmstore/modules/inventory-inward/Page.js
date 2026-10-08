@@ -524,6 +524,13 @@ export default function StoreInPage() {
         </span>
       );
     }
+    if (s === "IPR REJECTION") {
+      return (
+        <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-rose-50 text-rose-700 border-rose-200">
+          ● IPR REJECTION
+        </span>
+      );
+    }
     if (s === "PRODUCTION RETURN") {
       return (
         <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-indigo-50 text-indigo-700 border-indigo-200">

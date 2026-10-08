@@ -11,7 +11,7 @@ import { printCoilReport } from "@/apps/rmstore/lib/utils/coilReportActions";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import Drawer from "@/ui/primitives/Drawer";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
-import { Info, RejectionReport, SectionHeader, primaryCoilUid, buildRejectedCoilRows, collectIprAttachmentPaths, resolveIprQcChecks, formatCoilUidSummary } from "@/apps/rmstore/modules/rm-rejection/GenerateStoreOutDrawer";
+import { Info, RejectionReport, SectionHeader, primaryCoilUid, buildRejectedCoilRows, collectIprAttachmentPaths, iprSourceFields, resolveIprQcChecks, formatCoilUidSummary } from "@/apps/rmstore/modules/rm-rejection/GenerateStoreOutDrawer";
 import { isMrnPortalRejection } from "@/apps/rmstore/lib/helpers/mrnPortalRejection";
 
 const REJECTION_VIEW_PERMS = { permission_module: "rm_rejection", permission_action: "view" };
@@ -231,6 +231,7 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
             row?.acc_name ||
             null,
         },
+        ...iprSourceFields(detail, row),
         {
           label: "Total Qty",
           value:

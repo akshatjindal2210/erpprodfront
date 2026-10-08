@@ -5,6 +5,7 @@ import { RM_STORE_NAV_REGISTRY } from "@/apps/rmstore/lib/config/navRegistry";
 import { HRMS_NAV_REGISTRY } from "@/apps/hrms/lib/config/navRegistry";
 import { PURCHASE_NAV_REGISTRY } from "@/apps/purchase/lib/config/navRegistry";
 import { PRODUCTION_NAV_REGISTRY } from "@/apps/production/lib/config/navRegistry";
+import { ENGINEERING_NAV_REGISTRY } from "@/apps/engineering/lib/config/navRegistry";
 
 const HOME_PAGES = [
   { value: "default", label: "Home", module: null, href: "/home", roles: null },
@@ -28,7 +29,7 @@ function hrefTailKey(href = "") {
     .split("/")
     .filter(Boolean);
   if (parts.length === 0) return "default";
-  if (["ims", "task", "settings", "home", "rmstore", "hrms", "purchase", "production"].includes(parts[0])) {
+  if (["ims", "task", "settings", "home", "rmstore", "hrms", "purchase", "production", "engineering"].includes(parts[0])) {
     parts.shift();
   }
   return slugify(parts.join("-") || "default");
@@ -91,6 +92,7 @@ const APP_NAV_PAGES = {
   hrms: flattenNavRegistry(HRMS_NAV_REGISTRY),
   purchase: flattenNavRegistry(PURCHASE_NAV_REGISTRY),
   production: flattenNavRegistry(PRODUCTION_NAV_REGISTRY),
+  engineering: flattenNavRegistry(ENGINEERING_NAV_REGISTRY),
   task: flattenTaskSidebar(TASK_SIDEBAR_MENU),
   settings: flattenNavRegistry(SETTINGS_NAV_REGISTRY, { includeGroupInLabel: false }),
 };
@@ -158,6 +160,7 @@ export function isAppMainDashboardRoute(appKey = "ims", pathname = "", pageKey =
     hrms: "/hrms/dashboard",
     purchase: "/purchase/dashboard",
     production: "/production/dashboard",
+    engineering: "/engineering/dashboard",
     task: "/task/dashboard",
     settings: "/settings/dashboard",
     home: "/home",

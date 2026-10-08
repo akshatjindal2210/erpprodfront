@@ -71,6 +71,7 @@ export function partitionModulesForUserForm(modules = []) {
   const hrmsModules = [];
   const purchaseModules = [];
   const productionModules = [];
+  const engineeringModules = [];
   const sort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0);
 
   for (const mod of modules) {
@@ -83,6 +84,7 @@ export function partitionModulesForUserForm(modules = []) {
     else if (t === "hrms") hrmsModules.push(mod);
     else if (t === "purchase") purchaseModules.push(mod);
     else if (t === "production") productionModules.push(mod);
+    else if (t === "engineering") engineeringModules.push(mod);
   }
 
   return {
@@ -93,6 +95,7 @@ export function partitionModulesForUserForm(modules = []) {
     hrmsModules: hrmsModules.sort(sort),
     purchaseModules: purchaseModules.sort(sort),
     productionModules: productionModules.sort(sort),
+    engineeringModules: engineeringModules.sort(sort),
   };
 }
 
@@ -204,7 +207,7 @@ export function moduleIdsForAppType(modules, appTypeKey) {
 
 export function getModulesForAppKey(
   appKey,
-  { imsModules = [], coreModules = [], taskModules = [], rmStoreModules = [], hrmsModules = [], purchaseModules = [], productionModules = [] } = {}
+  { imsModules = [], coreModules = [], taskModules = [], rmStoreModules = [], hrmsModules = [], purchaseModules = [], productionModules = [], engineeringModules = [] } = {}
 ) {
   if (appKey === "ims") return imsModules;
   if (appKey === "core") return coreModules;
@@ -213,6 +216,7 @@ export function getModulesForAppKey(
   if (appKey === "hrms") return hrmsModules;
   if (appKey === "purchase") return purchaseModules;
   if (appKey === "production") return productionModules;
+  if (appKey === "engineering") return engineeringModules;
   return [];
 }
 

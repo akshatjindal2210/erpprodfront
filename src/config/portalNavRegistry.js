@@ -14,13 +14,14 @@
  * sidebar code needs to change.
  */
 
-import { Boxes, Warehouse, ListTodo, Users, ShoppingCart, Factory, Settings } from "lucide-react";
+import { Boxes, Warehouse, ListTodo, Users, ShoppingCart, Factory, Wrench, Settings } from "lucide-react";
 import { NAV_REGISTRY as IMS_NAV_REGISTRY } from "@/apps/ims/lib/config/navRegistry";
 import { RM_STORE_NAV_REGISTRY } from "@/apps/rmstore/lib/config/navRegistry";
 import { TASK_NAV_REGISTRY } from "@/apps/task/lib/config/navRegistry";
 import { HRMS_NAV_REGISTRY } from "@/apps/hrms/lib/config/navRegistry";
 import { PURCHASE_NAV_REGISTRY } from "@/apps/purchase/lib/config/navRegistry";
 import { PRODUCTION_NAV_REGISTRY } from "@/apps/production/lib/config/navRegistry";
+import { ENGINEERING_NAV_REGISTRY } from "@/apps/engineering/lib/config/navRegistry";
 import { SETTINGS_NAV_REGISTRY } from "@/apps/settings/configuration/config/settingsNavRegistry";
 import { userHasAppAccess } from "@/config/moduleAppRegistry";
 import { getQuickLaunchCodeForHref } from "@/config/quickLaunchCodes";
@@ -36,6 +37,7 @@ export const PORTAL_APP_GROUPS = [
   { id: "hrms",       name: "HRMS",       appKey: "hrms",       code: "HR",  icon: <Users size={16} />,        registry: HRMS_NAV_REGISTRY },
   { id: "purchase",   name: "Purchase",   appKey: "purchase",   code: "PU",  icon: <ShoppingCart size={16} />, registry: PURCHASE_NAV_REGISTRY },
   { id: "production", name: "Production", appKey: "production", code: "PR",  icon: <Factory size={16} />,      registry: PRODUCTION_NAV_REGISTRY },
+  { id: "engineering", name: "Engineering", appKey: "engineering", code: "EN", icon: <Wrench size={16} />,    registry: ENGINEERING_NAV_REGISTRY },
   { id: "core",       name: "Admin Console", appKey: "core",    code: "AD",  icon: <Settings size={16} />,     registry: SETTINGS_NAV_REGISTRY },
 ];
 
