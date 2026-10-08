@@ -13,7 +13,7 @@ function clampSpanDays(n) {
 /**
  * @param {object} viewAccess - from `useCanAccess(module, "view")`
  * @param {number} [listViewSpanDays] - from store or API; defaults to `getListViewSpanSnapshot()`
- * @param {number} [defaultSpanDays] - optional override for From/To default length (e.g. 1 = today only)
+ * @param {number} [defaultSpanDays] - optional: `0` = empty From/To; `>=1` = that many days ending today
  */
 export function buildViewDateFilterDefaults(viewAccess, listViewSpanDays, defaultSpanDays) {
   const spanBase =
@@ -28,15 +28,18 @@ export function buildViewDateFilterDefaults(viewAccess, listViewSpanDays, defaul
   const hasCap = Number.isFinite(raw) && raw > 0;
   const today = dayjs().format("YYYY-MM-DD");
 
+  // Always block future dates; minDate only when view-days cap applies.
   let minDate = "";
-  let maxDate = "";
+  const maxDate = today;
   if (hasCap) {
     minDate = dayjs().subtract(raw - 1, "day").format("YYYY-MM-DD");
-    maxDate = today;
   }
 
-  // Optional page override (e.g. Daily Attendance → always 1 day).
+  // Optional page override: 0 = empty From/To; >=1 = that many days ending today.
   const forced = Number(defaultSpanDays);
+  if (Number.isFinite(forced) && forced === 0) {
+    return { from: "", to: "", minDate, maxDate };
+  }
   if (Number.isFinite(forced) && forced >= 1) {
     const span = hasCap ? Math.min(forced, raw) : forced;
     return {

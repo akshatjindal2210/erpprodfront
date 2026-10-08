@@ -183,7 +183,7 @@ export default function DateRangeFilter({
   moreFiltersTitle = "More filters",
   /** When true with no date pickers: extra dropdowns apply on change and Reset/Search are hidden. */
   instantClientExtras = false,
-  /** When true (with date pickers): extra dropdowns call onApply immediately on change. */
+  /** When true (with date pickers): all extras call onApply on change. Quick (tinted) extras always apply on change. */
   applyExtrasOnChange = false,
   /**
    * When false, hide Search — From/To then apply on change (no Search click).
@@ -321,10 +321,15 @@ export default function DateRangeFilter({
     const nextExtras = { ...localExtras, [filter.key]: v };
     setLocalExtras(nextExtras);
     onExtraFilterChange?.(filter.key, v, nextExtras);
+    const variant = getExtraFilterVariant(filter);
+    // quick (tinted) = instant client; server (white) waits for Search unless applyExtrasOnChange.
     if (showInstantExtras || applyExtrasOnChange) {
-      // Keep draft dates local until Search; only push applied (external) dates with extras.
       onApply?.({ fromDate: externalFromDate || "", toDate: externalToDate || "", ...nextExtras });
       if (showInstantExtras) mobileFilterStrip?.collapseMobile?.();
+      return;
+    }
+    if (variant === "quick" && filter.key) {
+      onApply?.({ fromDate: externalFromDate || "", toDate: externalToDate || "", [filter.key]: v });
     }
   };
 

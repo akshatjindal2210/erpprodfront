@@ -101,10 +101,10 @@ function mapPendingIprRow(row) {
     ...row,
     _pendingKind: PENDING_KIND.IPR,
     pending_reassign_ref: isReassign,
-    pjobcardno: (isReassign && tgt?.source_pjobcardno ? tgt.source_pjobcardno : row.pjobcardno) || null,
-    macname: (isReassign && tgt?.source_macname ? tgt.source_macname : row.macname) || null,
+    pjobcardno: row.pjobcardno || null,
+    macname: row.macname || null,
     fg_item_code: (isReassign && tgt?.item_code ? tgt.item_code : row.fg_item_code) || null,
-    fg_item_desc: (isReassign && tgt?.item_desc ? tgt.item_desc : row.fg_item_desc) || null,
+    fg_item_desc: row.fg_item_desc || null,
     coil_no_uid: coilUids.length ? coilUids.join(", ") : row.coil_label || row.seed_coil_uid || "—",
     mrn_uid: row.mrn_uid || row.mrn_no || null,
     item_code: row.item_code || "—",
@@ -653,7 +653,7 @@ export default function InProcessRequestPage() {
               {targetJc ? (
                 <span
                   className="text-[9px] font-mono font-bold text-indigo-700 truncate max-w-full"
-                  title={[targetJc, tgt?.item_desc, sub].filter(Boolean).join(" · ")}
+                  title={[targetJc, tgt?.item_code, sub].filter(Boolean).join(" · ")}
                 >
                   → {targetJc}
                 </span>

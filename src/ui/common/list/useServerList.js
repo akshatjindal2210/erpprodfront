@@ -11,7 +11,8 @@ function todayRange() {
 }
 
 function rangeFromDefaults(dateDefaults, defaultToday) {
-  if (dateDefaults && (dateDefaults.from || dateDefaults.to)) {
+  // When caller passes dateDefaults (incl. empty From/To), honor it — do not fall back to today.
+  if (dateDefaults != null) {
     return { from: dateDefaults.from || "", to: dateDefaults.to || "" };
   }
   if (defaultToday) return todayRange();

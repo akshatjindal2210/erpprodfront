@@ -22,8 +22,9 @@ import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys
 import { IMS_DRAWER_BTN_AMBER, IMS_DRAWER_BTN_APPROVE, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_CLOSE, IMS_DRAWER_FOOTER_WRAP } from "@/apps/ims/lib/helpers/masterListUi";
 
 const MODULE = "hrms_ot_approval";
-/** temp "quick" = instant client | later "server" = API + Search (BE already ready) */
-const FILTER = "quick";
+/** User/search = quick (tint). Status = server so large OT sets stay fast. */
+const FILTER_USER = "quick";
+const FILTER_STATUS = "server";
 const PENDING_ROW = "[&_td]:!bg-amber-50 [&_td:first-child]:!shadow-[inset_3px_0_0_0_#f59e0b]";
 const REJECTED_ROW = "[&_td]:!bg-rose-50 [&_td:first-child]:!shadow-[inset_3px_0_0_0_#f43f5e]";
 const minsLabel = (m) => {
@@ -81,10 +82,10 @@ const HEADERS = [
 ];
 
 const STATUS_OPTIONS = [
-  { label: "Pending", value: "pending" },
-  { label: "Approved", value: "approved" },
-  { label: "Rejected", value: "rejected" },
   { label: "All Status", value: "" },
+  { label: "Approved", value: "approved" },
+  { label: "Pending", value: "pending" },
+  { label: "Rejected", value: "rejected" },
 ];
 
 function OtDrawer({ open, mode, record: r, onClose, onSuccess, canOverride }) {
@@ -193,13 +194,12 @@ export default function OtApprovalPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [row, setRow] = useState(null);
   const reloadRef = useRef(null);
-  const quick = FILTER === "quick";
-  const userFilter = useHrmsUserQuickFilter(MODULE, FILTER);
+  const userFilter = useHrmsUserQuickFilter(MODULE, FILTER_USER);
 
   const extraFilters = useMemo(
     () => [
       userFilter,
-      { label: "Status", key: "ot_status", variant: FILTER, preserveOrder: true, options: STATUS_OPTIONS },
+      { label: "Status", key: "ot_status", variant: FILTER_STATUS, preserveOrder: true, options: STATUS_OPTIONS },
     ],
     [userFilter]
   );
@@ -241,16 +241,17 @@ export default function OtApprovalPage() {
       headers={HEADERS}
       moduleName="OT Approval"
       viewModule={MODULE}
-      dateDefaultSpanDays={2}
+      dateDefaultSpanDays={0}
+      defaultToday={false}
       getRowId={(r) => r.id}
       initialSort={{ sortKey: "ot_minutes", sortDir: "desc" }}
       extraFilters={extraFilters}
       extraFilterKeys={["emp_dcode", "ot_status"]}
       defaultExtraFilters={{ ot_status: "pending" }}
       searchPlaceholder="Search code, name…"
-      clientQuickSearch={quick}
-      applyExtrasOnChange={quick}
-      showSearchButton={!quick}
+      clientQuickSearch
+      applyExtrasOnChange={false}
+      showSearchButton
       selectionLabel={hrmsSelectionLabel.attendance}
       tableHotkeyProps={tableHotkeyProps}
       onSelectionChange={(id, record) => {

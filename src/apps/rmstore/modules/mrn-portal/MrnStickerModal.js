@@ -137,10 +137,6 @@ function formatQty(v) {
   return Number.isFinite(n) ? n.toLocaleString() : "—";
 }
 
-function sanitizeHeatNo(raw) {
-  return String(raw ?? "").toUpperCase().replace(/[^A-Z0-9#_-]/g, "");
-}
-
 function SpecHeaderColorBadge({ label, color }) {
   const value = String(color || "").trim();
   const style = value ? specColorInputStyle(value) : undefined;
@@ -445,7 +441,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     } else {
       setCoilQtys(Array.from({ length: count }, () => ""));
     }
-    setHeatNo(sanitizeHeatNo(draft.heat_no || ""));
+    setHeatNo(draft.heat_no != null ? String(draft.heat_no) : "");
     setRemarks(draft.remarks || data?.remarks || "");
     setTcFile(null);
     setRmtcFile(null);
@@ -477,7 +473,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       if ((data?.coils || []).length > 0) {
         setCoilCount(String(data.coils.length));
         setCoilQtys(data.coils.map((c) => roundQty3(c.qty)));
-        setHeatNo(sanitizeHeatNo(data.coils[0]?.heat_no || data?.heat_no || ""));
+        setHeatNo(String(data.coils[0]?.heat_no || data?.heat_no || ""));
         setRemarks(resolveMrnRemarks(data));
       } else if (data?.has_sticker_draft || data?.sticker_draft) {
         applyDraftInputs(data);
@@ -727,11 +723,6 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       setTab(TABS.DETAILS);
       return false;
     }
-    if (!/^[A-Z0-9]+$/.test(heat)) {
-      toast.error("Heat number must contain uppercase letters and numbers only.");
-      setTab(TABS.DETAILS);
-      return false;
-    }
     const specErr = getSpecValidationError();
     if (specErr) {
       toast.error(specErr);
@@ -755,7 +746,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const isReadyToGenerate = useMemo(() => {
     if (alreadyGenerated) return false;
     const heat = String(heatNo || "").trim();
-    if (!heat || !/^[A-Z0-9]+$/.test(heat)) return false;
+    if (!heat) return false;
     if (getSpecValidationError()) return false;
     if (!Number.isFinite(targetQty) || targetQty <= 0) return false;
     if (!fillQtysAuto && coilQtys.some((q) => q === "" || q == null || !Number.isFinite(Number(q)))) {
@@ -1339,7 +1330,7 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
               <input
                 className={`mt-0.5 ${OK_INPUT} ${MODAL_INPUT_CLASS} font-mono font-bold !text-slate-900 uppercase`}
                 value={heatNo}
-                onChange={(e) => setHeatNo(sanitizeHeatNo(e.target.value))}
+                onChange={(e) => setHeatNo(String(e.target.value ?? "").toUpperCase())}
                 placeholder="Enter the heat number"
                 autoCapitalize="characters"
                 spellCheck={false}

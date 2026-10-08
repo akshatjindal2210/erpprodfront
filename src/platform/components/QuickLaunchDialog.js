@@ -124,7 +124,7 @@ export default function QuickLaunchDialog() {
     (entry) => {
       if (!entry?.route) return;
       // Final safety check — permission may have changed between render + click.
-      const isPermitted = permittedCodes.some((e) => e.code === entry.code);
+      const isPermitted = permittedCodes.some((e) => e.code === entry.code && e.route === entry.route);
       if (!isPermitted) return;
       router.push(entry.route);
       closeDialog();
@@ -372,7 +372,7 @@ export default function QuickLaunchDialog() {
               {suggestions.map((entry, idx) => {
                 const isActive = idx === activeIndex;
                 return (
-                  <li key={entry.code} role="presentation">
+                  <li key={`${entry.code}:${entry.route}`} role="presentation">
                     <button
                       type="button"
                       id={`quick-launch-option-${entry.code}`}

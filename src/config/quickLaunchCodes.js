@@ -121,7 +121,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "MD",  label: "System Module",              route: ROUTES.SETTINGS_MODULES,        module: "modules",                   app: "core" },
   { code: "TV",  label: "Training & SOPs",            route: ROUTES.SETTINGS_TRAINING,       module: "training_videos",           app: "core" },
   { code: "NT",  label: "Notifications",              route: ROUTES.SETTINGS_NOTIFICATIONS,  module: null,                        app: "core" },
-  { code: "AC",  label: "Application Configuration",  route: ROUTES.SETTINGS_APP_CONFIG,     module: null,                        app: "core" },
+  { code: "SC",  label: "Application Configuration",  route: ROUTES.SETTINGS_APP_CONFIG,     module: null,                        app: "core" },
   { code: "DB",  label: "Dashboard Builder",          route: ROUTES.SETTINGS_DASHBOARD_BUILDER, module: null,                      app: "core" },
 ];
 

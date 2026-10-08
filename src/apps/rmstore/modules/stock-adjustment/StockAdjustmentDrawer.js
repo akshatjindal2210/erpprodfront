@@ -1864,9 +1864,7 @@ export default function StockAdjustmentDrawer({
       billNo={mrnMeta.bill_no}
       billDt={mrnMeta.bill_dt}
       heatNo={heatNo}
-      onHeatNoChange={
-        !readOnly ? (v) => setHeatNo(sanitizeStockAdjustmentHeatNo(v)) : undefined
-      }
+      onHeatNoChange={!readOnly ? (v) => setHeatNo(String(v ?? "").toUpperCase()) : undefined}
       heatInputClassName={`${FIELD_CONTROL} font-mono font-bold uppercase`}
       mrnUid={mrnUid}
       mrnDt={mrnMeta.mrn_dt}

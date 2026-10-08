@@ -861,9 +861,6 @@ export default function InProcessRequestModal({
       macname: machineName || null,
       item_code: row?.item_code ? String(row.item_code).trim() : null,
       itemdcode: row?.itemdcode ?? row?.item_dcode ?? null,
-      item_desc: row?.itemdesc || row?.item_desc ? String(row.itemdesc || row.item_desc).trim() : null,
-      source_pjobcardno: String(coil?.source_pjobcardno || coil?.pjobcardno || "").trim() || null,
-      source_macname: String(coil?.source_macname || coil?.macname || "").trim() || null,
     };
     setErrors((prev) => ({
       ...prev,
@@ -1855,11 +1852,10 @@ export default function InProcessRequestModal({
     const reassignJcPayload =
       reassignTargetJc && reassignTargetSnapshotRef.current?.pjobcardno
         ? {
-            ...reassignTargetSnapshotRef.current,
             pjobcardno: reassignTargetJc,
             macname: String(reassignMachine || reassignTargetSnapshotRef.current.macname || "").trim() || null,
-            source_pjobcardno: String(coils[0]?.source_pjobcardno || coils[0]?.pjobcardno || "").trim() || reassignTargetSnapshotRef.current.source_pjobcardno || null,
-            source_macname: String(coils[0]?.source_macname || coils[0]?.macname || "").trim() || reassignTargetSnapshotRef.current.source_macname || null,
+            item_code: reassignTargetSnapshotRef.current.item_code || null,
+            itemdcode: reassignTargetSnapshotRef.current.itemdcode ?? null,
           }
         : reassignTargetJc
           ? { pjobcardno: reassignTargetJc, macname: reassignMachine || null }
