@@ -50,6 +50,22 @@ export function iprRejectionPendingStoreInMessage(coil) {
   return `Coil ${uid} is queued in Store In Pending (IPR #${iprUid}). Receive or cancel that store-in before rejecting this coil.`;
 }
 
+/** Store-in / consume scan — clearer than generic “not on shop floor”. */
+export function iprStoreInScanError(coil, uid) {
+  const id = uid || coil?.coil_no_uid || "unknown";
+  if (isSaMinusWriteOff(coil)) {
+    return `Coil ${id} was removed by stock adjustment and is not on the shop floor.`;
+  }
+  const status = String(coil?.status || "active").toLowerCase();
+  if (status === "rejected" && coil?.ipr_uid != null) {
+    return `Coil ${id} is held for in-process rejection IPR #${coil.ipr_uid}. Unapprove that rejection before Store In.`;
+  }
+  if (coil?.pending_store_in_ipr_uid) {
+    return `Coil ${id} is already in Store In Pending (IPR #${coil.pending_store_in_ipr_uid}). Partial consume balance is queued automatically.`;
+  }
+  return `Coil ${id} is not on the shop floor (status: ${status}). Only issued-out coils can be scanned.`;
+}
+
 export async function findRejectionCoilsBlockedByPendingStoreIn(coils = [], lookupCoilByUid, pageModule) {
   const blocked = [];
   for (const c of coils || []) {

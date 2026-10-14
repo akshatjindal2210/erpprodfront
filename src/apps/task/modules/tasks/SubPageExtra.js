@@ -2,7 +2,7 @@ import { AlertTriangle, Download, Trash2, FileText, CheckCircle2, ThumbsUp, XCir
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import { uploadUrl } from "@/lib/documents";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { ALLOW_FILE_DOWNLOAD } from "@/platform/config/filePreviewConfig";
 import SearchableSelect  from "@/apps/task/lib/ui/common/SearchableSelect";
@@ -255,7 +255,7 @@ export function FilePill({ file, onRemove, isNew = false }) {
   const isImg =
     mime.startsWith("image/") ||
     /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(fileName || "");
-  const fileUrl = file.preview ?? (file.file_path ? `${FILE_BASE_URL}/${file.file_path}` : null);
+  const fileUrl = file.preview ?? (file.file_path ? uploadUrl(file.file_path) : null);
   return (
     <div className="relative group flex-shrink-0">
       {fileUrl ? (
@@ -327,10 +327,9 @@ export function ChatBubble({ msg, onReply, onDelete, isTaskDone, isSuperAdmin })
           <div className={`flex flex-wrap gap-1.5 mt-0.5 ${isOwn ? "justify-end" : ""}`}>
             {atts.map((a, i) => {
               const isImg = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(a.file_name ?? "");
-              const url = `${FILE_BASE_URL}/${a.file_path}`;
-              return isImg ? (
+              const url = uploadUrl(a.file_path);
+              const link = isImg ? (
                 <FilePreviewLink
-                  key={i}
                   href={url}
                   fileName={a.file_name}
                   mimeType={a.mime_type || ""}
@@ -340,7 +339,6 @@ export function ChatBubble({ msg, onReply, onDelete, isTaskDone, isSuperAdmin })
                 </FilePreviewLink>
               ) : (
                 <FilePreviewLink
-                  key={i}
                   href={url}
                   fileName={a.file_name}
                   mimeType={a.mime_type || ""}
@@ -348,6 +346,12 @@ export function ChatBubble({ msg, onReply, onDelete, isTaskDone, isSuperAdmin })
                 >
                   <FileText size={11} /><span className="truncate max-w-[100px]">{a.file_name}</span>{ALLOW_FILE_DOWNLOAD ? <Download size={10} /> : null}
                 </FilePreviewLink>
+              );
+              return (
+                <div key={i} className="flex flex-col gap-0.5 max-w-[10rem]">
+                  {link}
+                  {a.remark ? <span className="text-[10px] text-slate-500 truncate" title={a.remark}>{a.remark}</span> : null}
+                </div>
               );
             })}
           </div>

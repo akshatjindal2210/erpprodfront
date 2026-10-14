@@ -7,7 +7,7 @@ import { toast } from "react-toastify";
 
 import "@/apps/ims/lib/config/inwardUi.theme.css";
 
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import { uploadAccept, uploadUrl } from "@/lib/documents";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { lookupCoilByUid, lookupCoils } from "@/apps/rmstore/lib/services/coil";
 import { mrnService } from "@/apps/rmstore/lib/services/mrn";
@@ -40,8 +40,8 @@ import StoreInRequestForm from "@/apps/rmstore/modules/in-process-request/StoreI
 import ConsumeRequestForm from "@/apps/rmstore/modules/in-process-request/ConsumeRequestForm";
 import UpdateCoilStatusForm from "@/apps/rmstore/modules/in-process-request/UpdateCoilStatusForm";
 import ApprovalStatusToggle from "@/apps/rmstore/modules/shared/ApprovalStatusToggle";
-import { isCoilEligibleForIprRejection, iprRejectionIneligibleMessage, iprRejectionPendingStoreInMessage, findRejectionCoilsBlockedByPendingStoreIn, filterCoilsForRejectionLot } from "@/apps/rmstore/lib/utils/iprRejectionEligibility";
-import { isIssuedToShopFloor, isSaMinusWriteOff } from "@/apps/rmstore/lib/utils/saMinusInventory";
+import { isCoilEligibleForIprRejection, iprRejectionIneligibleMessage, iprRejectionPendingStoreInMessage, iprStoreInScanError, findRejectionCoilsBlockedByPendingStoreIn, filterCoilsForRejectionLot } from "@/apps/rmstore/lib/utils/iprRejectionEligibility";
+import { isIssuedToShopFloor } from "@/apps/rmstore/lib/utils/saMinusInventory";
 import { canSubmitInProcessRejection, issueRmSelectionMode } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
 import { getSuperAdminRowRmColor } from "@/apps/rmstore/lib/utils/issueRmWireSelect";
 import { productionErpHelpers } from "@/apps/rmstore/lib/services/production";
@@ -58,24 +58,6 @@ function sourceJobCardKey(coil) {
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
 const INITIAL_SNACK = { open: false, variant: "success", title: "", message: "", duration: SNACK_DUR.med };
-
-function iprShopFloorScanError(coil, uid) {
-  if (isSaMinusWriteOff(coil)) {
-    return `Coil ${uid} was removed by stock adjustment and is not on the shop floor.`;
-  }
-  const status = String(coil?.status || "active").toLowerCase();
-  return `Coil ${uid} is not on the shop floor (status: ${status}). Only issued-out coils can be scanned.`;
-}
-
-function resolveDocUrl(noteOrPath) {
-  const raw = String(noteOrPath || "").trim();
-  if (!raw) return "";
-  if (/^https?:\/\//i.test(raw) || raw.startsWith("blob:")) return raw;
-  let path = raw.replace(/^\/+/, "").replace(/\\/g, "/");
-  if (path.startsWith("rmstore/")) path = `uploads/${path}`;
-  if (path.startsWith("uploads/")) return `${String(FILE_BASE_URL || "").replace(/\/$/, "")}/${path}`;
-  return "";
-}
 
 /** Same accent tokens as IMS QC Pending  type picker. */
 const TYPE_PICKER_ACCENT = {
@@ -384,6 +366,8 @@ export default function InProcessRequestModal({
   const [reason, setReason] = useState("");
   const [remarks, setRemarks] = useState("");
   const [attachments, setAttachments] = useState([]);
+  /** Per-file attachment remarks: Invoice Receiving only (not used on IPR). */
+  const [attachmentRemarks, setAttachmentRemarks] = useState([]);
   const [approved, setApproved] = useState(false);
   const [coils, setCoils] = useState([]);
   const [proposedCoils, setProposedCoils] = useState([]);
@@ -544,6 +528,7 @@ export default function InProcessRequestModal({
     setReason("");
     setRemarks("");
     setAttachments([]);
+    setAttachmentRemarks([]);
     setApproved(false);
     setCoils([]);
     setProposedCoils([]);
@@ -581,7 +566,15 @@ export default function InProcessRequestModal({
       setTypePicked(true);
       setReason(row.reason || "");
       setRemarks(row.remarks || "");
-      setAttachments(Array.isArray(row.attachments) ? row.attachments : []);
+      const docRows = Array.isArray(row.attachment_documents) ? row.attachment_documents : [];
+      const docPath = (d) => d?.path || d?.doc_path;
+      const paths = docRows.length
+        ? docRows.map(docPath).filter(Boolean)
+        : Array.isArray(row.attachments)
+          ? row.attachments
+          : [];
+      setAttachments(paths);
+      setAttachmentRemarks([]);
       setApproved(isApprove ? true : Boolean(row.approved));
       setCoils(
         Array.isArray(row.coils)
@@ -1114,7 +1107,7 @@ export default function InProcessRequestModal({
 
     if (needsOut) {
       if (!isIssuedToShopFloor(coil)) {
-        showScanToast("error", "coil-status", iprShopFloorScanError(coil, uid));
+        showScanToast("error", "coil-status", iprStoreInScanError(coil, uid));
         return null;
       }
       return coil;
@@ -1257,7 +1250,7 @@ export default function InProcessRequestModal({
 
         if (needsOut) {
           if (!isIssuedToShopFloor(coil)) {
-            showScanToast("error", "coil-status", iprShopFloorScanError(coil, uid));
+            showScanToast("error", "coil-status", iprStoreInScanError(coil, uid));
             return;
           }
           if (reqType === IPR_REQUEST_TYPE.STORE_IN) {
@@ -1523,12 +1516,23 @@ export default function InProcessRequestModal({
     }
 
     setAttachments((prev) => [...prev, ...files]);
+    setAttachmentRemarks((prev) => [...prev, ...files.map(() => "")]);
     e.target.value = "";
   };
 
   const removeFile = (idx) => {
     if (readOnly) return;
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
+    setAttachmentRemarks((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const setPhotoRemark = (idx, value) => {
+    setAttachmentRemarks((prev) => {
+      const next = [...prev];
+      while (next.length < attachments.length) next.push("");
+      next[idx] = value;
+      return next;
+    });
   };
 
   const handleLaserScanRejected = useCallback(
@@ -1904,13 +1908,7 @@ export default function InProcessRequestModal({
         }
       });
 
-      if (attachments.length) {
-        attachments.forEach((file) => {
-          if (file instanceof File) {
-            formData.append("attachments", file);
-          }
-        });
-      }
+      attachments.filter((a) => a instanceof File).forEach((a) => formData.append("attachments", a));
 
       if (isApprove && editData?.ipr_uid) {
         if (approvedFlag === false) {
@@ -2309,7 +2307,7 @@ export default function InProcessRequestModal({
                   <div className={`grid gap-1.5 ${attachments.length <= 1 ? "grid-cols-1" : "grid-cols-2"}`}>
                     {attachments.map((file, idx) => {
                       const name = typeof file === "string" ? file.split("/").pop() : file?.name || `File ${idx + 1}`;
-                      const href = typeof file === "string" ? resolveDocUrl(file) : "";
+                      const href = typeof file === "string" ? uploadUrl(file, "rm_in_process_request") : "";
                       const isImage = /\.(png|jpe?g|webp|gif)$/i.test(String(name || ""));
                       const imgClass =
                         attachments.length <= 1
@@ -2711,11 +2709,15 @@ export default function InProcessRequestModal({
               )}
 
               <FormTextarea
-                label="Remark"
+                label={isRejectionFlow ? "Request remark" : "Remark"}
                 value={remarks}
                 onChange={(e) => setRemarks(e?.target?.value ?? e ?? "")}
                 disabled={readOnly}
-                placeholder="Notes (optional)"
+                placeholder={
+                  isRejectionFlow
+                    ? "Overall rejection notes (not per photo)"
+                    : "Notes (optional)"
+                }
                 rows={3}
               />
 
@@ -2736,7 +2738,7 @@ export default function InProcessRequestModal({
                         <input
                           type="file"
                           multiple
-                          accept={isRejectionFlow ? "image/jpeg,image/png,image/webp,image/gif" : ".pdf,.png,.jpg,.jpeg,.webp"}
+                          accept={isRejectionFlow ? uploadAccept("rm_in_process_request_rejection") : uploadAccept("rm_in_process_request")}
                           onChange={handleFilePick}
                           className="hidden"
                         />
@@ -2747,33 +2749,39 @@ export default function InProcessRequestModal({
                       const isExisting = typeof file === "string";
                       const name = isExisting ? file.split("/").pop() : file.name;
                       return (
-                        <div key={idx} className="flex items-center justify-between p-2 rounded-lg border border-indigo-100 bg-indigo-50/30 group">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <FileText size={14} className="text-indigo-600 shrink-0" />
-                            {isExisting ? (
-                              <FilePreviewLink
-                                href={resolveDocUrl(file)}
-                                fileName={name}
-                                className="text-[10px] font-bold text-indigo-700 truncate hover:underline"
-                                title={name}
+                        <div
+                          key={idx}
+                          className="rounded-lg border border-indigo-100 bg-indigo-50/30 p-2 space-y-1.5 group"
+                        >
+                          <div className="flex items-center justify-between gap-2 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText size={14} className="text-indigo-600 shrink-0" />
+                              {isExisting ? (
+                                <FilePreviewLink
+                                  href={uploadUrl(file, "rm_in_process_request")}
+                                  fileName={name}
+                                  className="text-[10px] font-bold text-indigo-700 truncate hover:underline"
+                                  title={name}
+                                >
+                                  {name}
+                                </FilePreviewLink>
+                              ) : (
+                                <span className="text-[10px] font-bold text-slate-700 truncate" title={name}>
+                                  {name}
+                                </span>
+                              )}
+                            </div>
+                            {!readOnly && (
+                              <button
+                                type="button"
+                                onClick={() => removeFile(idx)}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-all shrink-0"
                               >
-                                {name}
-                              </FilePreviewLink>
-                            ) : (
-                              <span className="text-[10px] font-bold text-slate-700 truncate" title={name}>
-                                {name}
-                              </span>
+                                <TrashIcon size={14} />
+                              </button>
                             )}
                           </div>
-                          {!readOnly && (
-                            <button
-                              type="button"
-                              onClick={() => removeFile(idx)}
-                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-all opacity-0 group-hover:opacity-100"
-                            >
-                              <TrashIcon size={14} />
-                            </button>
-                          )}
+                          {/* Per-file attachment remark: Invoice Receiving only */}
                         </div>
                       );
                     })}

@@ -1,6 +1,6 @@
 import { formatLocationDisplay } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
 import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import { uploadUrl } from "@/lib/documents";
 import { getCoilStickerEntries } from "@/apps/rmstore/lib/utils/coilTransactionStickerEntries";
 import { getCoilTxTypeBadgeClass, parseDetails, resolveCoilTxTypeLabel } from "@/apps/rmstore/lib/utils/coilTransactionVisuals";
 import { buildCoilFinderDetailRowsFromConfig } from "@/apps/rmstore/lib/finder/coilFinderFullRecordConfig.js";
@@ -308,17 +308,7 @@ export function qcLineResult(spec) {
 }
 
 export function qcDocUrl(note) {
-  const raw = String(note || "").trim();
-  if (!raw) return "";
-  if (/^https?:\/\//i.test(raw) || raw.startsWith("blob:")) return raw;
-  let path = raw.replace(/^\/+/, "").replace(/\\/g, "/");
-  if (path.startsWith("rmstore/")) path = `uploads/${path}`;
-  if (!path.startsWith("uploads/") && /^[\w.\-]+\.(pdf|png|jpe?g|webp|gif)$/i.test(path)) {
-    path = `uploads/rmstore/qc/${path}`;
-  }
-  return path.startsWith("uploads/")
-    ? `${String(FILE_BASE_URL || "").replace(/\/$/, "")}/${path}`
-    : "";
+  return uploadUrl(note, "rm_qc_check");
 }
 
 export function qcDocName(note) {

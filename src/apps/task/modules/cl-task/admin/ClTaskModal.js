@@ -173,6 +173,7 @@ export default function ClTaskModal({ open, onClose, onSuccess, editItem = null,
   const [designations, setDesignations] = useState([]);
   /** Mixed list: existing meta objects + new File instances */
   const [attachments, setAttachments] = useState([]);
+  const [attachmentRemarks, setAttachmentRemarks] = useState([]);
   /** Hard lock — prevents double API create if Save is triggered twice before React re-renders */
   const savingLockRef = useRef(false);
 
@@ -183,13 +184,18 @@ export default function ClTaskModal({ open, onClose, onSuccess, editItem = null,
     setMaxStep(0);
     if (isEdit) {
       setForm(masterToForm(editItem));
-      setAttachments(parseAttachments(editItem.attachment));
+      const list = parseAttachments(editItem.attachment);
+      setAttachments(list);
+      setAttachmentRemarks(list.map((a) => (a?.remark != null ? String(a.remark) : "")));
     } else if (isClone) {
       setForm(masterToCloneForm(cloneItem));
-      setAttachments(parseAttachments(cloneItem.attachment));
+      const list = parseAttachments(cloneItem.attachment);
+      setAttachments(list);
+      setAttachmentRemarks(list.map(() => ""));
     } else {
       setForm(EMPTY);
       setAttachments([]);
+      setAttachmentRemarks([]);
     }
     setErrors({});
     setLoading(true);
@@ -516,6 +522,7 @@ export default function ClTaskModal({ open, onClose, onSuccess, editItem = null,
     const newest = attachments.filter((a) => a instanceof File);
     appendJson(fd, "existing_attachments", kept);
     newest.forEach((f) => fd.append("attachments", f));
+    /* Per-file attachment remark: Invoice Receiving only */
 
     return fd;
   };
@@ -764,6 +771,8 @@ export default function ClTaskModal({ open, onClose, onSuccess, editItem = null,
               <ClTaskAttachmentsField
                 value={attachments}
                 onChange={setAttachments}
+                remarks={attachmentRemarks}
+                onRemarksChange={setAttachmentRemarks}
                 label="Attachments (optional)"
               />
 

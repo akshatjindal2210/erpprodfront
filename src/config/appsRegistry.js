@@ -1,4 +1,4 @@
-import { Boxes, Home, ListTodo, Settings, Warehouse, Users, ShoppingCart, Factory, Wrench } from "lucide-react";
+import { Boxes, Home, ListTodo, Settings, Warehouse, Users, ShoppingCart, Factory, PencilRuler } from "lucide-react";
 import { ROUTES } from "@/config/routes";
 import { userHasAppAccess } from "@/config/moduleAppRegistry";
 import { getTaskHomePath } from "@/apps/task/lib/config/appConfig";
@@ -93,7 +93,7 @@ export const APPS = [
     subtitle: "Engineering",
     href: ROUTES.ENGINEERING_DASHBOARD,
     shell: APP_SHELL.ENGINEERING,
-    icon: Wrench,
+    icon: PencilRuler,
     accent: "from-indigo-500 to-indigo-700",
     inLauncher: true,
   },

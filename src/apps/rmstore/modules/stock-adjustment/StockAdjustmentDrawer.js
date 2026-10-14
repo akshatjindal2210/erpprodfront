@@ -21,13 +21,15 @@ import { splitQtyAcrossCoils, equalSplitQtyAcrossCoils, roundQty3, QTY_EPS } fro
 import { formatStockAdjustmentCoilUid } from "@/apps/rmstore/lib/coilUidFormat";
 import { resolveSerialNoForUid } from "@/apps/rmstore/lib/coilUidHelpers";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 import { getCurrentIndianFinancialYearStartYear } from "@/platform/utils/core/indianFinancialYear";
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
 import { getBoxNoUidPrefix, SCAN_SNACK_DUR, SCAN_SNACK_MSG, useScanSnackbarActions } from "@/platform/utils/global";
 import RmMinusCoilBreakdownTable from "./RmMinusCoilBreakdownTable";
 import RmAddCoilBreakdownTable from "./RmAddCoilBreakdownTable";
-import RmStockAdjustmentDetailCards, { resolveUploadUrl } from "./RmStockAdjustmentDetailCards";
+import RmStockAdjustmentDetailCards from "./RmStockAdjustmentDetailCards";
+import { uploadAccept, uploadUrl } from "@/lib/documents";
+
+const ACCEPT = uploadAccept("rm_stock_adjustment");
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { isSaAddLike, usesLotGate, needsFinancialYear, normalizeSaEntryType } from "@/apps/rmstore/lib/utils/stockAdjustmentEntryTypes";
 import { extractCoilUid, findMatchingCoilUid, normalizeScanInput } from "@/apps/rmstore/lib/helpers/qrScan";
@@ -303,9 +305,9 @@ function previewCoilUid({ mrnNo, serialNo, adjustmentId, total, index }) {
   });
 }
 
-function SaDocFileInput({ label, file, onChange, disabled, savedPath, savedName, required = false }) {
+function SaDocFileInput({ label, file, onChange, disabled, savedPath, savedName, required = false, remark = "", savedRemark = "", onRemarkChange }) {
   const localUrl = file instanceof File ? URL.createObjectURL(file) : "";
-  const savedUrl = resolveUploadUrl(savedPath, FILE_BASE_URL);
+  const savedUrl = uploadUrl(savedPath);
   const previewUrl = localUrl || savedUrl;
   const displayName = file?.name || savedName || fileNameFromPath(savedPath) || "";
 
@@ -332,17 +334,18 @@ function SaDocFileInput({ label, file, onChange, disabled, savedPath, savedName,
             </FilePreviewLink>
             <label className="shrink-0 text-[9px] font-bold text-indigo-600 cursor-pointer hover:underline">
               Change
-              <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden" onChange={(e) => { onChange?.(e.target.files?.[0] || null); e.target.value = ""; }} />
+              <input type="file" accept={ACCEPT} className="hidden" onChange={(e) => { onChange?.(e.target.files?.[0] || null); e.target.value = ""; }} />
             </label>
           </>
         ) : (
           <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
             <Upload size={14} className="text-slate-500 shrink-0" />
             <span className="text-[11px] font-medium text-slate-800 truncate">Choose file…</span>
-            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden" onChange={(e) => { onChange?.(e.target.files?.[0] || null); e.target.value = ""; }} />
+            <input type="file" accept={ACCEPT} className="hidden" onChange={(e) => { onChange?.(e.target.files?.[0] || null); e.target.value = ""; }} />
           </label>
         )}
       </div>
+      {/* Per-file attachment remark: Invoice Receiving only */}
     </div>
   );
 }
@@ -384,6 +387,8 @@ export default function StockAdjustmentDrawer({
   const [coilQtys, setCoilQtys] = useState([0]);
   const [tcFile, setTcFile] = useState(null);
   const [rmtcFile, setRmtcFile] = useState(null);
+  const [tcRemark, setTcRemark] = useState("");
+  const [rmtcRemark, setRmtcRemark] = useState("");
   const [savedDocs, setSavedDocs] = useState({ tc_file_path: null, rmtc_file_path: null });
   const [remarks, setRemarks] = useState("");
   const [approveOnSave, setApproveOnSave] = useState(false);
@@ -461,6 +466,8 @@ export default function StockAdjustmentDrawer({
     setCoilQtys([0]);
     setTcFile(null);
     setRmtcFile(null);
+    setTcRemark("");
+    setRmtcRemark("");
     setSavedDocs({ tc_file_path: null, rmtc_file_path: null });
     setRemarks("");
     setApproveOnSave(false);
@@ -543,6 +550,8 @@ export default function StockAdjustmentDrawer({
           tc_file_path: d.tc_file_path ?? null,
           rmtc_file_path: d.rmtc_file_path ?? null,
         });
+        setTcRemark(d.tc_remark != null ? String(d.tc_remark) : "");
+        setRmtcRemark(d.rmtc_remark != null ? String(d.rmtc_remark) : "");
         setApproveOnSave(isApprove ? true : false);
         setEditingWasApproved(Boolean(d.approved));
         setAddExtraCoils("0");
@@ -1736,12 +1745,17 @@ export default function StockAdjustmentDrawer({
           );
         }
 
-        if (savedId && (tcFile || rmtcFile)) {
+        const docPathsExist = Boolean(savedDocs.tc_file_path || savedDocs.rmtc_file_path);
+        const docRemarkTouched =
+          String(tcRemark).trim() || String(rmtcRemark).trim();
+        if (savedId && (tcFile || rmtcFile || (docPathsExist && docRemarkTouched))) {
           try {
             await stockAdjustmentService.uploadDocs({
               adjustment_id: savedId,
               tcFile,
               rmtcFile,
+              tc_remark: tcRemark,
+              rmtc_remark: rmtcRemark,
             });
           } catch (upErr) {
             toast.warn(upErr?.message || "Saved, but document upload failed.");
@@ -1918,6 +1932,9 @@ export default function StockAdjustmentDrawer({
               onChange={setTcFile}
               disabled={readOnly}
               savedPath={savedDocs.tc_file_path || editData?.tc_file_path}
+              remark={tcRemark}
+              savedRemark={tcRemark}
+              onRemarkChange={setTcRemark}
             />
             <SaDocFileInput
               label="RMTC Document"
@@ -1925,6 +1942,9 @@ export default function StockAdjustmentDrawer({
               onChange={setRmtcFile}
               disabled={readOnly}
               savedPath={savedDocs.rmtc_file_path || editData?.rmtc_file_path}
+              remark={rmtcRemark}
+              savedRemark={rmtcRemark}
+              onRemarkChange={setRmtcRemark}
             />
           </>
         ) : null

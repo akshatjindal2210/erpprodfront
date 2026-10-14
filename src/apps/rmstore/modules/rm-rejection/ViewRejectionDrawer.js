@@ -34,6 +34,14 @@ function rejectionSourceLabel(row) {
   return "—";
 }
 
+function resolveRejectionSupplier(...sources) {
+  for (const src of sources) {
+    const name = src?.vendor_acc_name || src?.acc_name;
+    if (String(name || "").trim()) return String(name).trim();
+  }
+  return null;
+}
+
 async function fetchQcByHelper(qcCheckUid) {
   const id = Number(qcCheckUid);
   if (!Number.isFinite(id) || id <= 0) return null;
@@ -223,13 +231,7 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
         { label: "Item Description", value: detail?.item_desc || row?.item_descs || registerOrRow?.item_descs },
         {
           label: "Supplier",
-          value:
-            registerOrRow?.vendor_acc_name ||
-            registerOrRow?.acc_name ||
-            detail?.acc_name ||
-            row?.vendor_acc_name ||
-            row?.acc_name ||
-            null,
+          value: resolveRejectionSupplier(registerOrRow, detail, row),
         },
         ...iprSourceFields(detail, row),
         {
@@ -266,13 +268,7 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
           { label: "Item Description", value: detail?.item_desc || row?.item_descs || row?.item_desc },
           {
             label: "Supplier",
-            value:
-              registerOrRow?.vendor_acc_name ||
-              registerOrRow?.acc_name ||
-              detail?.acc_name ||
-              row?.vendor_acc_name ||
-              row?.acc_name ||
-              null,
+            value: resolveRejectionSupplier(registerOrRow, detail, row),
           },
           { label: "Inspected By", value: detail?.approved_by_name || detail?.created_by_name || row?.inspected_by_name },
           {
@@ -293,7 +289,7 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
           { label: "Item Description", value: registerOrRow?.item_descs || registerOrRow?.item_desc },
           {
             label: "Supplier",
-            value: registerOrRow?.vendor_acc_name || registerOrRow?.acc_name || null,
+            value: resolveRejectionSupplier(registerOrRow, detail, row),
           },
           {
             label: "Total Qty",

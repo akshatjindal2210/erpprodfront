@@ -23,11 +23,15 @@ import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common
 import { ENG_MODULES } from "@/apps/engineering/lib/config/modules";
 
 const MODULE = ENG_MODULES.PROCESS_MASTER;
+const DEFAULT_PARAMS = { pageSize: 1000, status: "all", sortKey: "id", sortDir: "desc" };
+
+/** "A > B > C" → parent path "A > B" (empty for a master). */
+const parentPath = (row) => String(row.path_label || "").split(" > ").slice(0, -1).join(" > ");
 
 export default function ProcessMasterPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
-  const [params, setParams] = useState({ pageSize: 1000, status: "all", sortKey: "id", sortDir: "desc" });
+  const [params, setParams] = useState(DEFAULT_PARAMS);
   const [tempSearch, setTempSearch] = useState("");
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
@@ -98,15 +102,20 @@ export default function ProcessMasterPage() {
   });
 
   const HEADERS = [
-    ["Path", "path_label", (v, row) => {
-      const depth = row.type === "SUB_SUB" ? 2 : row.type === "SUB" ? 1 : 0;
+    ["Process", "name", (v, row) => {
+      const under = parentPath(row);
       return (
-        <div className="flex flex-col leading-tight py-1" style={{ paddingLeft: depth * 12 }}>
-          <span className="font-bold text-slate-900 text-[11px] whitespace-normal break-words">{v || row.name || "—"}</span>
+        <div className="flex flex-col leading-tight py-1">
+          <span className="font-bold text-slate-900 text-[11px] whitespace-normal break-words">{v || "—"}</span>
+          {under && <span className="text-[9px] text-slate-400 whitespace-normal break-words">{under}</span>}
         </div>
       );
     }, { fixed: true, width: "260px", wrap: true, copyValue: (row) => row.path_label || row.name || "—" }],
-    ["Type", "type", (v) => <span className="font-bold text-indigo-600 uppercase text-[10px] tracking-tight">{v || "—"}</span>, { width: "90px" }],
+    ["Level", "depth", (v, row) => (
+      <span className="font-bold text-indigo-600 uppercase text-[10px] tracking-tight">
+        {Number(v) > 0 ? `L${v}` : "Master"}
+      </span>
+    ), { width: "70px" }],
     ["Stage", "stage", (v) => (
       <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${
         v === "START" ? "bg-emerald-50 text-emerald-700 border-emerald-100"
@@ -114,9 +123,20 @@ export default function ProcessMasterPage() {
             : "bg-slate-50 text-slate-600 border-slate-100"
       }`}>{v || "MID"}</span>
     ), { width: "90px", align: "center" }],
-    ["Multi MC", "multi_mc", (v) => (
+    ["Multi JC", "multi_jc", (v) => (
       <span className="text-[10px] font-bold text-slate-700">{v ? "Yes" : "No"}</span>
-    ), { width: "80px", align: "center" }],
+    ), { width: "72px", align: "center" }],
+    ["Flags", "rm_wire", (_v, row) => {
+      const tags = [];
+      if (row.rm_wire) tags.push("Wire");
+      if (row.tooling) tags.push("Tool");
+      if (row.fg) tags.push("FG");
+      if (row.prime) tags.push("Prime");
+      if (row.rework) tags.push("Rework");
+      return (
+        <span className="text-[9px] text-slate-600">{tags.length ? tags.join(", ") : "—"}</span>
+      );
+    }, { width: "120px", wrap: true }],
     ["Pattern", "pattern", (v) => (
       <span className="text-[10px] font-mono text-slate-500 truncate block" title={v || ""}>{v || "—"}</span>
     ), { width: "140px" }],
@@ -197,7 +217,7 @@ export default function ProcessMasterPage() {
             showDate={false}
             extraFilters={extraFilters}
             onApply={(data) => setParams((p) => ({ ...p, status: data.approvedStatus || p.status }))}
-            onReset={() => { setTempSearch(""); setParams({ pageSize: 1000, status: "all", sortKey: "id", sortDir: "desc" }); }}
+            onReset={() => { setTempSearch(""); setParams(DEFAULT_PARAMS); }}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             searchPlaceholder="Search name, parent, pattern..."

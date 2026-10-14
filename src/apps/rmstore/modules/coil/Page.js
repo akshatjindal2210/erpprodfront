@@ -68,6 +68,7 @@ export default function CoilTablePage() {
   const [displayLimit, setDisplayLimit] = useState(100);
   const [selected, setSelected] = useState(null);
   const [finderOpen, setFinderOpen] = useState(false);
+  const [finderCoilUid, setFinderCoilUid] = useState(null); // set by row double-click
 
   const fetchCoils = useCallback(async () => {
     const journey = String(appliedJourney ?? "").trim();
@@ -219,7 +220,10 @@ export default function CoilTablePage() {
               <>
                 <button
                   type="button"
-                  onClick={() => setFinderOpen(true)}
+                  onClick={() => {
+                    setFinderCoilUid(null);
+                    setFinderOpen(true);
+                  }}
                   className="h-9 px-4 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shadow-none shrink-0"
                 >
                   <Locate size={14} className="text-indigo-600" />
@@ -289,6 +293,11 @@ export default function CoilTablePage() {
             showSelection
             emptyIcon={Layers}
             {...tableHotkeyProps}
+            onRowDoubleClick={(row) => {
+              if (!row?.coil_no_uid) return;
+              setFinderCoilUid(row.coil_no_uid);
+              setFinderOpen(true);
+            }}
             sortKey={params.sortKey ?? ""}
             sortDir={params.sortDir}
             onSort={(key) => {
@@ -342,7 +351,7 @@ export default function CoilTablePage() {
       </div>
 
       {finderOpen && (
-        <CoilFinderDrawer open={finderOpen} onClose={() => setFinderOpen(false)} />
+        <CoilFinderDrawer open={finderOpen} initialCoilUid={finderCoilUid} onClose={() => setFinderOpen(false)} />
       )}
     </div>
   );

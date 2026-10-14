@@ -1,5 +1,5 @@
 import { Layers, List } from "lucide-react";
-import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
+import { formatDateTime } from "@/platform/utils/core/utilHelper";
 
 /** Calendar YYYY-MM (date prefix, no TZ shift). */
 export function shortageYearMonthKey(value) {
@@ -7,15 +7,46 @@ export function shortageYearMonthKey(value) {
   return m ? m[1] : "";
 }
 
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-10-01" → "Oct 2026". */
 export function formatShortageMonthDate(value) {
   const ym = shortageYearMonthKey(value);
-  return ym ? (formatDocDate(`${ym}-01`) || "—") : "—";
+  if (!ym) return "—";
+  const [year, month] = ym.split("-");
+  const name = MONTH_SHORT[Number(month) - 1];
+  return name ? `${name} ${year}` : "—";
 }
 
 const monthCell = (v) => (
   <span className="text-[10px] font-bold text-indigo-700 tabular-nums whitespace-nowrap">{formatShortageMonthDate(v)}</span>
 );
 const monthCol = (field) => ["Month", field, monthCell, { width: "110px", copyValue: (row) => formatShortageMonthDate(row[field]) }];
+
+/** Item weight (KG) × qty, rounded to 2 decimals; null when item master has no weight. */
+function weightKg(weight, qty) {
+  if (weight == null || weight === "") return null;
+  const n = Number(weight) * Number(qty ?? 0);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
+}
+
+function formatWeightKg(weight, qty) {
+  const n = weightKg(weight, qty);
+  return n == null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function weightKgTitle(weight, qty) {
+  if (weight == null || weight === "") return "Item weight not set in item master";
+  const q = Number(qty ?? 0);
+  return `Item weight: ${Number(weight).toLocaleString(undefined, { maximumFractionDigits: 6 })} kg × Qty: ${q.toLocaleString()} = ${formatWeightKg(weight, q)} kg`;
+}
+
+// Virtual key (not on row) so Excel export uses copyValue (weight × qty), not raw item_weight.
+const weightCol = (qtyField) => ["Weight (KG)", "shortage_weight_kg", (_v, row) => (
+  <span className="font-semibold text-slate-700 text-[11px] tabular-nums cursor-help" title={weightKgTitle(row.item_weight, row[qtyField])}>
+    {formatWeightKg(row.item_weight, row[qtyField])}
+  </span>
+), { width: "100px", align: "center", copyValue: (row) => weightKg(row.item_weight, row[qtyField]) ?? "—" }];
 
 export const SHORTAGE_PAGE_TABS = [
   { id: "master", label: "Master-wise", icon: Layers },
@@ -127,6 +158,7 @@ export function buildShortageMasterHeaders({ onDrillToItems } = {}) {
         </div>
       );
     }, { width: "180px", copyValue: (row) => (row.type_qty || []).map(({ type, qty }) => `${type} (${qty})`).join(", ") }],
+    weightCol("total_shortage_qty"),
     ["Total Shortage", "total_shortage_qty", (v) => (
       <span className="font-black text-slate-800 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
     ), { width: "120px", align: "center" }],
@@ -158,6 +190,7 @@ export function buildShortageItemWiseHeaders() {
     ["Type", "type", (v) => (
       <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${typeBadgeClass(v)}`}>{v}</span>
     ), { width: "110px" }],
+    weightCol("qty"),
     ["Qty", "qty", (v) => <span className="font-black text-slate-700 text-[11px]">{v}</span>, { width: "80px", align: "center" }],
     ["Remarks", "remarks", (v) => (
       <span className="text-[10px] text-slate-500 whitespace-pre-line block max-h-28 overflow-auto" title={v || ""}>

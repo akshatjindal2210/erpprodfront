@@ -455,12 +455,23 @@ export default function QcCheckPage() {
         ],
         ["Status", "status", (v) => <StatusBadge status={v} />, { width: "160px" }],
         ["Failure Reason", "failure_reason", (v) => <span className="text-rose-700 text-[10px] truncate block">{v || "—"}</span>, { width: "180px" }],
-        ...auditPair("Inspected", "inspected_by_name", "inspected_at"),
       ];
 
-      if (isPendingTab) return base;
+      const inspectedCols = auditPair("Inspected", "inspected_by_name", "inspected_at", {
+        hideUnlessNameKey: "inspected_at",
+      });
 
-      return [...base, ...auditHeaders()];
+      if (isPendingTab) {
+        return [
+          ...base,
+          ...auditPair("QC Created", "qc_pending_by_name", "qc_pending_at", {
+            hideUnlessNameKey: "qc_pending_at",
+          }),
+          ...inspectedCols,
+        ];
+      }
+
+      return [...base, ...inspectedCols, ...auditHeaders()];
     },
     [isPendingTab]
   );

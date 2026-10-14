@@ -113,6 +113,8 @@ export const MODULES = {
   engineering: [
     { name: "eng_process_master", label: "Process Master" },
     { name: "eng_machine_master", label: "Machine Master" },
+    { name: "eng_prime_item_master", label: "Prime Process Master" },
+    { name: "eng_finish_process_master", label: "Finish Process Master" },
   ],
 };
 

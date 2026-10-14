@@ -251,7 +251,11 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     return () => cancelAnimationFrame(id);
   }, [defaultOpen, disabled, calcPosition, prepareOpenSearch]);
 
-  // Update position on scroll/resize
+  useLayoutEffect(() => {
+    if (!open) return;
+    calcPosition();
+  }, [open, calcPosition]);
+
   useEffect(() => {
     if (!open) return;
     window.addEventListener("scroll", calcPosition, true);
@@ -1036,7 +1040,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
             }
             disabled={disabled}
             autoComplete="off"
-            className={`min-w-[4.5rem] flex-1 self-center bg-transparent outline-none ${
+            className={`${multiCompactMode ? "min-w-0" : "min-w-[4.5rem]"} flex-1 self-center bg-transparent outline-none ${
               multiTagsMode ? "min-h-7 leading-normal py-0.5" : "truncate min-h-7"
             } ${isToolbar ? LIST_PAGE_FILTER_VALUE_CLASS : "text-sm font-normal text-slate-800"} placeholder:text-slate-400${uppercase ? " uppercase" : ""}`}
           />

@@ -77,9 +77,7 @@ function erpField(row, detail, key) {
  */
 export default function MrnRejectDrawer({ open, onClose, onSuccess, row }) {
   const role = useSelector(selectRole);
-  console.log("role - ; ",role);
   const isSuperAdmin = String(role || "").toLowerCase() === "super_admin";
-  console.log("isSuperAdmin - ; ",isSuperAdmin);
 
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);

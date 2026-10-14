@@ -2,9 +2,10 @@
 
 import { useRef } from "react";
 import { ImageIcon, FileText, ClipboardList, X } from "lucide-react";
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import { uploadAccept, uploadUrl } from "@/lib/documents";
 import { FORM_LABEL_CLASS } from "@/ui/common/Constants";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
+import { FileRemarkInput } from "@/ui/common/forms/DocumentUploadWithRemark";
 
 /** Normalize DB / form value → array of meta objects or File. Legacy single object supported. */
 export function parseAttachments(raw) {
@@ -37,7 +38,7 @@ function fileUrl(file) {
   if (!file) return null;
   if (file instanceof File) return URL.createObjectURL(file);
   if (file.preview) return file.preview;
-  if (file.file_path) return `${FILE_BASE_URL}/${file.file_path}`;
+  if (file.file_path) return uploadUrl(file.file_path) || uploadUrl(file.file_path, "cl_task");
   return null;
 }
 
@@ -61,10 +62,13 @@ export default function ClTaskAttachmentsField({
   /** File[] | meta[] | single File/meta | null */
   value = null,
   onChange,
+  /** Parallel per-file notes (new uploads + kept rows when editable) */
+  remarks = [],
+  onRemarksChange,
   /** When true, upload zone hidden (view-only list) */
   readOnly = false,
   label = "ATTACHMENTS",
-  accept = ".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx",
+  accept = uploadAccept("cl_task"),
   inputId = "cl-task-attachment-input",
   maxFiles = 10,
 }) {
@@ -77,12 +81,24 @@ export default function ClTaskAttachmentsField({
     if (!picked.length || !onChange) return;
     const next = [...items, ...picked].slice(0, maxFiles);
     onChange(next);
+    if (onRemarksChange) {
+      onRemarksChange([...(remarks || []), ...picked.map(() => "")].slice(0, maxFiles));
+    }
   };
 
   const removeAt = (e, index) => {
     e.stopPropagation();
     if (!onChange) return;
     onChange(items.filter((_, i) => i !== index));
+    if (onRemarksChange) {
+      onRemarksChange((remarks || []).filter((_, i) => i !== index));
+    }
+  };
+
+  const remarkAt = (index, file) => {
+    if (remarks?.[index] != null && String(remarks[index]).trim()) return remarks[index];
+    if (file && !(file instanceof File) && file.remark != null) return file.remark;
+    return "";
   };
 
   const canUpload = !readOnly && items.length < maxFiles;
@@ -129,45 +145,64 @@ export default function ClTaskAttachmentsField({
                 ? `new-${name}-${file.size}-${i}`
                 : `${file.file_path || name}-${i}`;
 
+            const showRemark = false; /* Per-file attachment remark: Invoice Receiving only */
             return (
-              <div
-                key={key}
-                className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
-              >
-                <FilePreviewLink
-                  href={url}
-                  fileName={name}
-                  mimeType={mime}
-                  className="flex items-center gap-2 min-w-0 flex-1 hover:opacity-90"
-                >
-                  <div
-                    className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 ${
-                      isImage ? "bg-emerald-100" : isPdf ? "bg-rose-100" : "bg-indigo-100"
-                    }`}
+              <div key={key} className="space-y-1">
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
+                  <FilePreviewLink
+                    href={url}
+                    fileName={name}
+                    mimeType={mime}
+                    className="flex items-center gap-2 min-w-0 flex-1 hover:opacity-90"
                   >
-                    {isImage ? (
-                      <ImageIcon size={11} className="text-emerald-600" />
-                    ) : isPdf ? (
-                      <FileText size={11} className="text-rose-600" />
-                    ) : (
-                      <ClipboardList size={11} className="text-indigo-600" />
+                    <div
+                      className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 ${
+                        isImage ? "bg-emerald-100" : isPdf ? "bg-rose-100" : "bg-indigo-100"
+                      }`}
+                    >
+                      {isImage ? (
+                        <ImageIcon size={11} className="text-emerald-600" />
+                      ) : isPdf ? (
+                        <FileText size={11} className="text-rose-600" />
+                      ) : (
+                        <ClipboardList size={11} className="text-indigo-600" />
+                      )}
+                    </div>
+                    <span className="text-xs text-slate-700 truncate">{name}</span>
+                    {size > 0 && (
+                      <span className="text-xs text-slate-400 flex-shrink-0">{formatSize(size)}</span>
                     )}
-                  </div>
-                  <span className="text-xs text-slate-700 truncate">{name}</span>
-                  {size > 0 && (
-                    <span className="text-xs text-slate-400 flex-shrink-0">{formatSize(size)}</span>
+                  </FilePreviewLink>
+                  {!readOnly && onChange && (
+                    <button
+                      type="button"
+                      onClick={(e) => removeAt(e, i)}
+                      className="text-slate-400 hover:text-rose-500 transition-colors flex-shrink-0 ml-2"
+                      aria-label="Remove attachment"
+                    >
+                      <X size={13} />
+                    </button>
                   )}
-                </FilePreviewLink>
-                {!readOnly && onChange && (
-                  <button
-                    type="button"
-                    onClick={(e) => removeAt(e, i)}
-                    className="text-slate-400 hover:text-rose-500 transition-colors flex-shrink-0 ml-2"
-                    aria-label="Remove attachment"
-                  >
-                    <X size={13} />
-                  </button>
-                )}
+                </div>
+                {showRemark ? (
+                  <FileRemarkInput
+                    value={remarkAt(i, file)}
+                    disabled={readOnly}
+                    onChange={(val) => {
+                      if (readOnly || !onRemarksChange) return;
+                      const next = [...(remarks || [])];
+                      while (next.length < items.length) next.push("");
+                      next[i] = val;
+                      onRemarksChange(next);
+                      if (!(file instanceof File) && file?.file_path && onChange) {
+                        const patched = items.map((it, idx) =>
+                          idx === i && it?.file_path ? { ...it, remark: val } : it
+                        );
+                        onChange(patched);
+                      }
+                    }}
+                  />
+                ) : null}
               </div>
             );
           })}

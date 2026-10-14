@@ -33,13 +33,19 @@ export const stockAdjustmentService = {
     api(ENDPOINTS.STOCK_ADJUSTMENT.STICKER_RENDER_SINGLE, { method: "POST", body }),
   renderBulkStickers: (body) =>
     api(ENDPOINTS.STOCK_ADJUSTMENT.STICKER_RENDER_BULK, { method: "POST", body }),
-  uploadDocs: async ({ adjustment_id, tcFile, rmtcFile }) => {
+  uploadDocs: async ({ adjustment_id, tcFile, rmtcFile, tc_remark, rmtc_remark }) => {
     if (!adjustment_id) throw new Error("adjustment_id required for document upload");
-    if (!tcFile && !rmtcFile) return { success: true, data: { adjustment_id } };
+    const hasRemark = (tc_remark != null && String(tc_remark).trim()) || (rmtc_remark != null && String(rmtc_remark).trim());
+    const sendsRemarkField = tc_remark != null || rmtc_remark != null;
+    if (!tcFile && !rmtcFile && !hasRemark && !sendsRemarkField) {
+      return { success: true, data: { adjustment_id } };
+    }
     const form = new FormData();
     form.append("adjustment_id", String(adjustment_id));
     if (tcFile instanceof File) form.append("tc", tcFile);
     if (rmtcFile instanceof File) form.append("rmtc", rmtcFile);
+    if (tc_remark != null) form.append("tc_remark", String(tc_remark).trim());
+    if (rmtc_remark != null) form.append("rmtc_remark", String(rmtc_remark).trim());
     return postMultipart(ENDPOINTS.STOCK_ADJUSTMENT.UPLOAD_DOCS, form);
   },
 };

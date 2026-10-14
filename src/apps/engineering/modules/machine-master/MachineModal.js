@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Check, AlertCircle, Loader2, Shield, X, Paperclip, ExternalLink } from "lucide-react";
+import { Check, AlertCircle, Loader2, Shield, X, FileText, Upload } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { machineMasterService } from "@/apps/engineering/lib/services/machineMaster";
@@ -13,23 +13,14 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { ERR_INPUT, OK_INPUT, FormLabel } from "@/ui/common/Constants";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { helperPerms } from "@/apps/engineering/lib/helpers/helperPerms";
 import { ENG_MODULES } from "@/apps/engineering/lib/config/modules";
+import { uploadAccept, uploadUrl } from "@/lib/documents";
 
-/** Resolve stored upload path (e.g. uploads/eng/machine/…) to a browser URL. */
-function attachmentHref(storedPath) {
-  if (!storedPath) return "";
-  const p = String(storedPath).trim().replace(/\\/g, "/");
-  if (!p) return "";
-  if (/^https?:\/\//i.test(p) || p.startsWith("blob:")) return p;
-  const base = String(FILE_BASE_URL || "").replace(/\/$/, "");
-  const rel = p.replace(/^\/+/, "");
-  if (rel.startsWith("uploads/")) return `${base}/${rel}`;
-  return `${base}/uploads/${rel}`;
-}
+const ATTACH_ACCEPT = uploadAccept("eng_machine_master");
 
-const FIELD_ORDER = ["name", "number", "process_id", "speed", "duration_value"];
+const FIELD_ORDER = ["name", "number", "process_id", "speed", "duration_value", "setup_time_value"];
 const FIELD_INPUT_CLASS = "min-h-9 h-9 sm:h-[38px] text-sm sm:text-[11px] rounded-lg border-slate-200 text-slate-900 placeholder:text-slate-500 placeholder:opacity-100";
 
 const INITIAL_FORM = {
@@ -39,18 +30,61 @@ const INITIAL_FORM = {
   speed: "",
   duration_value: 60,
   duration_unit: "sec",
+  setup_time_value: 0,
+  setup_time_unit: "sec",
   make: "",
   model: "",
   remark: "",
   approved: false,
 };
 
-function secondsToDisplay(seconds) {
-  const s = Number(seconds);
-  if (!Number.isFinite(s) || s < 0) return { duration_value: 60, duration_unit: "sec" };
-  if (s >= 3600 && s % 3600 === 0) return { duration_value: s / 3600, duration_unit: "hour" };
-  if (s >= 60 && s % 60 === 0) return { duration_value: s / 60, duration_unit: "min" };
-  return { duration_value: s, duration_unit: "sec" };
+/** Time fields: stored in seconds (DB), edited as value + unit (sec / min / hour). field → default seconds */
+const TIME_FIELDS = { duration: 60, setup_time: 0 };
+
+/** Seconds → `{ <field>_value, <field>_unit }` in the biggest whole unit. */
+function secondsToDisplay(seconds, field) {
+  let s = Number(seconds);
+  if (seconds == null || !Number.isFinite(s) || s < 0) s = TIME_FIELDS[field];
+  const [value, unit] = s >= 3600 && s % 3600 === 0 ? [s / 3600, "hour"] : s >= 60 && s % 60 === 0 ? [s / 60, "min"] : [s, "sec"];
+  return { [`${field}_value`]: value, [`${field}_unit`]: unit };
+}
+
+/** All time fields of a machine row → form values. */
+const timeFormValues = (row) => Object.assign({}, ...Object.keys(TIME_FIELDS).map((f) => secondsToDisplay(row?.[f], f)));
+
+/** Number + unit (Sec / Min / Hour) input. */
+function TimeInput({ field, form, errors, onChange, placeholder }) {
+  const valueKey = `${field}_value`;
+  const unitKey = `${field}_unit`;
+  return (
+    <>
+      <div
+        className={`flex items-stretch overflow-hidden rounded-lg border bg-white ${
+          errors[valueKey] ? "border-rose-300" : "border-slate-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-50/80"
+        }`}
+      >
+        <input
+          data-field={valueKey}
+          type="number"
+          min={0}
+          value={form[valueKey]}
+          onChange={(e) => onChange(valueKey, e.target.value)}
+          placeholder={placeholder}
+          className="min-h-9 h-9 sm:h-[38px] flex-1 min-w-0 border-0 px-3 text-sm sm:text-[11px] text-slate-900 outline-none bg-transparent"
+        />
+        <select
+          value={form[unitKey]}
+          onChange={(e) => onChange(unitKey, e.target.value)}
+          className="w-[84px] shrink-0 border-0 border-l border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 outline-none cursor-pointer"
+        >
+          <option value="sec">Sec</option>
+          <option value="min">Min</option>
+          <option value="hour">Hour</option>
+        </select>
+      </div>
+      {errors[valueKey] && <p className="text-[9px] text-rose-500 font-bold flex items-center gap-1"><AlertCircle size={10} />{errors[valueKey]}</p>}
+    </>
+  );
 }
 
 export default function MachineModal({ open, onClose, onSuccess, editData, mode = "add" }) {
@@ -71,6 +105,7 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
   const [existingAttachments, setExistingAttachments] = useState([]);
   const [removeAttachmentIds, setRemoveAttachmentIds] = useState([]);
   const [newFiles, setNewFiles] = useState([]);
+  const [newFileRemarks, setNewFileRemarks] = useState([]);
   const [newFileUrls, setNewFileUrls] = useState([]);
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
@@ -95,6 +130,7 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
           setExistingAttachments([]);
           setRemoveAttachmentIds([]);
           setNewFiles([]);
+          setNewFileRemarks([]);
         }, 300);
         return;
       }
@@ -104,14 +140,12 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
           const res = await machineMasterService.getById(editData.id);
           const row = res?.data || editData;
           if (cancelled) return;
-          const dur = secondsToDisplay(row.duration);
           setForm({
             name: row.name || "",
             number: row.number || "",
             process_id: row.process_id || null,
             speed: row.speed ?? "",
-            duration_value: dur.duration_value,
-            duration_unit: dur.duration_unit,
+            ...timeFormValues(row),
             make: row.make || "",
             model: row.model || "",
             remark: row.remark || "",
@@ -120,15 +154,13 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
           setExistingAttachments(Array.isArray(row.attachments) ? row.attachments : []);
         } catch {
           if (cancelled) return;
-          const dur = secondsToDisplay(editData.duration);
           setForm({
             ...INITIAL_FORM,
             name: editData.name || "",
             number: editData.number || "",
             process_id: editData.process_id || null,
             speed: editData.speed ?? "",
-            duration_value: dur.duration_value,
-            duration_unit: dur.duration_unit,
+            ...timeFormValues(editData),
             make: editData.make || "",
             model: editData.model || "",
             remark: editData.remark || "",
@@ -138,15 +170,13 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
         }
       } else if (editData && mode === "add") {
         // clone
-        const dur = secondsToDisplay(editData.duration);
         setForm({
           ...INITIAL_FORM,
           name: editData.name || "",
           number: "",
           process_id: editData.process_id || null,
           speed: editData.speed ?? "",
-          duration_value: dur.duration_value,
-          duration_unit: dur.duration_unit,
+          ...timeFormValues(editData),
           make: editData.make || "",
           model: editData.model || "",
           remark: editData.remark || "",
@@ -158,6 +188,7 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
       }
       setRemoveAttachmentIds([]);
       setNewFiles([]);
+      setNewFileRemarks([]);
       setErrors({});
     }
 
@@ -179,6 +210,7 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
     if (!form.number?.trim()) e.number = "Number is required";
     if (!form.process_id) e.process_id = "Process is required";
     if (form.duration_value === "" || Number(form.duration_value) < 0) e.duration_value = "Enter valid duration";
+    if (form.setup_time_value !== "" && Number(form.setup_time_value) < 0) e.setup_time_value = "Enter valid setup time";
     return e;
   };
 
@@ -206,6 +238,8 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
       if (form.speed !== "" && form.speed != null) fd.append("speed", String(form.speed));
       fd.append("duration_value", String(form.duration_value));
       fd.append("duration_unit", form.duration_unit);
+      fd.append("setup_time_value", String(form.setup_time_value === "" ? 0 : form.setup_time_value));
+      fd.append("setup_time_unit", form.setup_time_unit);
       if (form.make) fd.append("make", form.make);
       if (form.model) fd.append("model", form.model);
       if (form.remark) fd.append("remark", form.remark);
@@ -214,7 +248,6 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
         fd.append("remove_attachment_ids", JSON.stringify(removeAttachmentIds));
       }
       newFiles.forEach((file) => fd.append("attachments", file));
-
       const isUpdate = isEdit || isApprove;
       const response = isUpdate
         ? await machineMasterService.update(editData.id, fd)
@@ -292,13 +325,14 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
             {errors.number && <p className="text-[9px] text-rose-500 font-bold flex items-center gap-1"><AlertCircle size={10} />{errors.number}</p>}
           </div>
 
-          <div className="space-y-1 md:col-span-2" data-field="process_id">
+          <div className="space-y-1" data-field="process_id">
             <SearchableSelect
-              label="Process (approved only)"
+              label="Process"
               required
               placeholder="Select process..."
               value={form.process_id}
               onChange={(id) => handleChange("process_id", id || null)}
+              preserveApiOrder
               fetchService={(params) =>
                 processMasterService.getViews({
                   ...params,
@@ -309,10 +343,11 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
               getByIdService={async (id) => {
                 const res = await processMasterService.getViewById(id, helperPerms(MODULE, sopPermissionType));
                 const row = res?.data;
-                return row ? { id: row.id, label: row.label || row.name, name: row.name } : null;
+                return row ? { id: row.id, name: row.name, label: row.name, path_label: row.path_label || row.name } : null;
               }}
               dataKey="id"
-              labelKey="label"
+              labelKey="name"
+              subLabelKey="path_label"
               labelOnlyDisplay
             />
             {errors.process_id && <p className="text-[9px] text-rose-500 font-bold flex items-center gap-1"><AlertCircle size={10} />{errors.process_id}</p>}
@@ -333,31 +368,12 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
 
           <div className="space-y-1">
             <FormLabel required>Duration</FormLabel>
-            <div
-              className={`flex items-stretch overflow-hidden rounded-lg border bg-white ${
-                errors.duration_value ? "border-rose-300" : "border-slate-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-50/80"
-              }`}
-            >
-              <input
-                data-field="duration_value"
-                type="number"
-                min={0}
-                value={form.duration_value}
-                onChange={(e) => handleChange("duration_value", e.target.value)}
-                placeholder="60"
-                className="min-h-9 h-9 sm:h-[38px] flex-1 min-w-0 border-0 px-3 text-sm sm:text-[11px] text-slate-900 outline-none bg-transparent"
-              />
-              <select
-                value={form.duration_unit}
-                onChange={(e) => handleChange("duration_unit", e.target.value)}
-                className="w-[84px] shrink-0 border-0 border-l border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 outline-none cursor-pointer"
-              >
-                <option value="sec">Sec</option>
-                <option value="min">Min</option>
-                <option value="hour">Hour</option>
-              </select>
-            </div>
-            {errors.duration_value && <p className="text-[9px] text-rose-500 font-bold flex items-center gap-1"><AlertCircle size={10} />{errors.duration_value}</p>}
+            <TimeInput field="duration" form={form} errors={errors} onChange={handleChange} placeholder="60" />
+          </div>
+
+          <div className="space-y-1">
+            <FormLabel>Setup Time</FormLabel>
+            <TimeInput field="setup_time" form={form} errors={errors} onChange={handleChange} placeholder="0" />
           </div>
 
           <div className="space-y-1">
@@ -376,52 +392,86 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
 
         <div className="space-y-2">
           <FormLabel>Attachments</FormLabel>
-          <label className="flex items-center gap-2 px-3 py-2 border border-dashed border-slate-300 rounded-lg cursor-pointer hover:bg-slate-50 text-[11px] font-bold text-slate-600">
-            <Paperclip size={14} /> Add files
+
+          {visibleExisting.length > 0 ? (
+            <ul className="space-y-1">
+              {visibleExisting.map((att) => {
+                const href = uploadUrl(att.path);
+                const name = att.file_name || "—";
+                return (
+                  <li key={att.id} className="flex flex-col gap-1 px-3 py-2 border border-slate-200 rounded-lg bg-white">
+                    <div className="flex items-center gap-2 min-h-5">
+                      <FileText size={14} className="shrink-0 text-indigo-600" />
+                      {href ? (
+                        <FilePreviewLink href={href} fileName={name} className="truncate text-[11px] font-semibold text-indigo-700 flex-1 text-left">
+                          {name}
+                        </FilePreviewLink>
+                      ) : (
+                        <span className="truncate text-[11px] flex-1">{name}</span>
+                      )}
+                      <button type="button" disabled={loading} onClick={() => setRemoveAttachmentIds((prev) => [...prev, att.id])}
+                        className="text-slate-400 hover:text-rose-600 shrink-0" title="Remove">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    {/* Per-file attachment remark: Invoice Receiving only */}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+
+          {newFiles.length > 0 ? (
+            <ul className="space-y-1">
+              {newFiles.map((file, idx) => (
+                <li key={`${file.name}-${idx}`} className="flex flex-col gap-1 px-3 py-2 border border-emerald-200 rounded-lg bg-emerald-50/40">
+                  <div className="flex items-center gap-2">
+                    <FileText size={14} className="shrink-0 text-emerald-600" />
+                    {newFileUrls[idx] ? (
+                      <FilePreviewLink href={newFileUrls[idx]} fileName={file.name} mimeType={file.type} className="truncate text-[11px] font-medium flex-1 text-left">
+                        {file.name}
+                      </FilePreviewLink>
+                    ) : (
+                      <span className="truncate text-[11px] font-medium flex-1">{file.name}</span>
+                    )}
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => {
+                        setNewFiles((prev) => prev.filter((_, i) => i !== idx));
+                        setNewFileRemarks((prev) => prev.filter((_, i) => i !== idx));
+                      }}
+                      className="text-slate-400 hover:text-rose-600"
+                      title="Remove"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {/* Per-file attachment remark: Invoice Receiving only */}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          <label className="flex items-center gap-2 min-h-9 px-3 border border-dashed border-slate-300 rounded-lg bg-slate-50 cursor-pointer hover:bg-slate-100">
+            <Upload size={14} className="text-slate-500 shrink-0" />
+            <span className="text-[11px] font-medium text-slate-600">Add file(s)…</span>
             <input
               type="file"
               multiple
-              className="hidden"
+              accept={ATTACH_ACCEPT}
+              className="sr-only"
+              disabled={loading}
               onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                if (files.length) setNewFiles((prev) => [...prev, ...files]);
+                const picked = Array.from(e.target.files || []);
+                if (picked.length) {
+                  setNewFiles((prev) => [...prev, ...picked]);
+                  setNewFileRemarks((prev) => [...prev, ...picked.map(() => "")]);
+                }
                 e.target.value = "";
               }}
             />
           </label>
-          {visibleExisting.map((att) => {
-            const href = attachmentHref(att.path);
-            return (
-              <div key={att.id} className="flex items-center justify-between gap-2 text-[11px] bg-slate-50 border border-slate-200 px-2 py-1.5 rounded">
-                {href ? (
-                  <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-indigo-600 font-bold truncate min-w-0 hover:underline" title="Open attachment">
-                    <ExternalLink size={12} className="shrink-0" />
-                    <span className="truncate">{att.file_name}</span>
-                  </a>
-                ) : (
-                  <span className="font-bold text-slate-500 truncate">{att.file_name || "—"}</span>
-                )}
-                <button type="button" onClick={() => setRemoveAttachmentIds((prev) => [...prev, att.id])} className="text-rose-500 shrink-0" title="Remove">
-                  <X size={14} />
-                </button>
-              </div>
-            );
-          })}
-          {newFiles.map((file, idx) => (
-            <div key={`${file.name}-${idx}`} className="flex items-center justify-between gap-2 text-[11px] bg-indigo-50 border border-indigo-100 px-2 py-1.5 rounded">
-              {newFileUrls[idx] ? (
-                <a href={newFileUrls[idx]} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-indigo-700 font-bold truncate min-w-0 hover:underline" title="Preview file">
-                  <ExternalLink size={12} className="shrink-0" />
-                  <span className="truncate">{file.name}</span>
-                </a>
-              ) : (
-                <span className="font-bold text-indigo-700 truncate">{file.name}</span>
-              )}
-              <button type="button" onClick={() => setNewFiles((prev) => prev.filter((_, i) => i !== idx))} className="text-rose-500 shrink-0" title="Remove">
-                <X size={14} />
-              </button>
-            </div>
-          ))}
         </div>
 
         <div className="h-px bg-slate-100" />

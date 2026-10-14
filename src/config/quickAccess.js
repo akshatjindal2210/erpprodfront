@@ -3,7 +3,8 @@ import { ROUTES as RMSTORE_ROUTES } from "@/apps/rmstore/lib/utils/routes";
 import { ROUTES as HRMS_ROUTES } from "@/apps/hrms/lib/utils/routes";
 import { ROUTES as PURCHASE_ROUTES } from "@/apps/purchase/lib/utils/routes";
 import { ROUTES as PRODUCTION_ROUTES } from "@/apps/production/lib/utils/routes";
-import { FileText, Activity, Shield, Clock, History, Zap, ClipboardCheck, ShieldCheck, ShieldX, LogOut, BarChart3, CheckSquare, Recycle, LayoutDashboard, ListTodo, AlertTriangle, Truck, Boxes, ClipboardList, FileSearch, Layers, Warehouse, UserCheck, ListCheck, Briefcase, Award, Video, PencilRuler, Package, Users, CalendarCheck, ScrollText, ShoppingCart, Factory } from "lucide-react";
+import { ROUTES as ENGINEERING_ROUTES } from "@/apps/engineering/lib/utils/routes";
+import { FileText, Activity, Shield, Clock, History, Zap, ClipboardCheck, ShieldCheck, ShieldX, LogOut, BarChart3, CheckSquare, Recycle, LayoutDashboard, ListTodo, AlertTriangle, Truck, Boxes, ClipboardList, FileSearch, Layers, Warehouse, UserCheck, ListCheck, Briefcase, Award, Video, PencilRuler, Package, Users, CalendarCheck, ScrollText, ShoppingCart, Factory, GitBranch, Cpu } from "lucide-react";
 import { getShellAppFromPathname } from "@/config/appsRegistry";
 
 /** Permission-filtered; Home / role-only links when no module. */
@@ -30,6 +31,7 @@ const HOME = [
   { id: "hrms", label: "HRMS", icon: <Users size={13} />, path: HRMS_ROUTES.HRMS_DASHBOARD, appKey: "hrms" },
   { id: "purchase", label: "Purchase", icon: <ShoppingCart size={13} />, path: PURCHASE_ROUTES.PURCHASE_DASHBOARD, appKey: "purchase" },
   { id: "production", label: "Production", icon: <Factory size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_DASHBOARD, appKey: "production" },
+  { id: "engineering", label: "Engineering", icon: <PencilRuler size={13} />, path: ENGINEERING_ROUTES.ENGINEERING_DASHBOARD, appKey: "engineering" },
   { id: "users", label: "User Management", icon: <Shield size={13} />, path: ROUTES.USERS, module: "users" },
   { id: "modules", label: "Module", icon: <Activity size={13} />, path: ROUTES.MODULES, module: "modules" },
   { id: "logs", label: "Activity Logs", icon: <Clock size={13} />, path: ROUTES.LOGS, module: "activity_logs" },
@@ -82,6 +84,14 @@ const PRODUCTION = [
   { id: "logs", label: "Activity Logs", icon: <History size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_ACTIVITY_LOGS, module: "production_activity_logs" },
 ];
 
+const ENGINEERING = [
+  { id: "home", label: "Dashboard", icon: <Zap size={13} />, path: ENGINEERING_ROUTES.ENGINEERING_DASHBOARD },
+  { id: "process-master", label: "Process Master", icon: <GitBranch size={13} />, path: ENGINEERING_ROUTES.ENGINEERING_PROCESS_MASTER, module: "eng_process_master" },
+  { id: "machine-master", label: "Machine Master", icon: <Cpu size={13} />, path: ENGINEERING_ROUTES.ENGINEERING_MACHINE_MASTER, module: "eng_machine_master" },
+  { id: "prime-item-master", label: "Prime Process Master", icon: <Factory size={13} />, path: ENGINEERING_ROUTES.ENGINEERING_PRIME_ITEM_MASTER, module: "eng_prime_item_master" },
+  { id: "finish-process-master", label: "Finish Process Master", icon: <Factory size={13} />, path: ENGINEERING_ROUTES.ENGINEERING_FINISH_PROCESS_MASTER, module: "eng_finish_process_master" },
+];
+
 const SETTINGS = [
   { id: "home", label: "Dashboard", icon: <LayoutDashboard size={13} />, path: ROUTES.SETTINGS_DASHBOARD, roles: ["super_admin", "super admin"] },
   { id: "builder", label: "Dashboard Builder", icon: <PencilRuler size={13} />, path: ROUTES.SETTINGS_DASHBOARD_BUILDER, roles: ["super_admin", "super admin"] },
@@ -92,7 +102,7 @@ const SETTINGS = [
   { id: "training", label: "Training", icon: <Video size={13} />, path: ROUTES.TRAINING, module: "training_videos" },
 ];
 
-const BY_APP = { home: HOME, ims: IMS, rmstore: RMSTORE, task: TASK, hrms: HRMS, purchase: PURCHASE, production: PRODUCTION, settings: SETTINGS };
+const BY_APP = { home: HOME, ims: IMS, rmstore: RMSTORE, task: TASK, hrms: HRMS, purchase: PURCHASE, production: PRODUCTION, engineering: ENGINEERING, settings: SETTINGS };
 
 export function getQuickLinksForPathname(pathname) {
   return BY_APP[getShellAppFromPathname(pathname)?.id] ?? IMS;

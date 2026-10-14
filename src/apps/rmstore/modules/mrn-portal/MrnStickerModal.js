@@ -38,7 +38,9 @@ import { getBoxNoUidPrefix } from "@/platform/utils/global";
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import { uploadAccept, uploadUrl } from "@/lib/documents";
+
+const ACCEPT = uploadAccept("rm_mrn_portal");
 
 const APPROVE_QR_READER_ID = "mrn-approve-qr-reader";
 const INITIAL_SNACK = {
@@ -106,15 +108,6 @@ function withPreviewZoom(html, scale) {
   const src = String(html || "");
   if (src.includes("</head>")) return src.replace("</head>", `${inject}</head>`);
   return `${inject}${src}`;
-}
-
-function resolveUploadUrl(noteOrPath) {
-  const raw = String(noteOrPath || "").trim();
-  if (!raw) return "";
-  if (/^https?:\/\//i.test(raw) || raw.startsWith("blob:")) return raw;
-  const p = raw.replace(/^\/+/, "");
-  if (p.startsWith("uploads/")) return `${String(FILE_BASE_URL || "").replace(/\/$/, "")}/${p}`;
-  return "";
 }
 
 function docFileLabel(nameOrPath) {
@@ -206,14 +199,14 @@ function hydrateFromSourceRow(row) {
 }
 
 /** Upload picker — click document name to preview (local file or saved path). */
-function SimpleFileInput({ label, required, file, onChange, disabled, savedPath, savedName }) {
+function SimpleFileInput({ label, required, file, onChange, disabled, savedPath, savedName, remark, onRemarkChange, savedRemark }) {
   const localUrl = useMemo(() => (file instanceof File ? URL.createObjectURL(file) : ""), [file]);
   useEffect(() => {
     if (!localUrl) return undefined;
     return () => URL.revokeObjectURL(localUrl);
   }, [localUrl]);
 
-  const savedUrl = resolveUploadUrl(savedPath);
+  const savedUrl = uploadUrl(savedPath);
   const previewUrl = localUrl || savedUrl;
   const displayName = file?.name || savedName || docFileLabel(savedPath) || "";
 
@@ -251,7 +244,7 @@ function SimpleFileInput({ label, required, file, onChange, disabled, savedPath,
               Change
               <input
                 type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.webp"
+                accept={ACCEPT}
                 className="sr-only"
                 onChange={(e) => {
                   onChange?.(e.target.files?.[0] || null);
@@ -268,7 +261,7 @@ function SimpleFileInput({ label, required, file, onChange, disabled, savedPath,
             </span>
             <input
               type="file"
-              accept=".pdf,.png,.jpg,.jpeg,.webp"
+              accept={ACCEPT}
               className="sr-only"
               onChange={(e) => {
                 onChange?.(e.target.files?.[0] || null);
@@ -278,6 +271,7 @@ function SimpleFileInput({ label, required, file, onChange, disabled, savedPath,
           </label>
         )}
       </div>
+      {/* Per-file attachment remark: Invoice Receiving only (backend documents.remark unchanged) */}
     </div>
   );
 }
@@ -310,6 +304,9 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
   const [remarks, setRemarks] = useState("");
   const [tcFile, setTcFile] = useState(null);
   const [rmtcFile, setRmtcFile] = useState(null);
+  /** null = not edited (input shows the saved remark) · "" = cleared by the user. */
+  const [tcRemark, setTcRemark] = useState(null);
+  const [rmtcRemark, setRmtcRemark] = useState(null);
   const [dlTracking, setDlTracking] = useState({});
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
@@ -393,6 +390,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     setRemarks("");
     setTcFile(null);
     setRmtcFile(null);
+    setTcRemark(null);
+    setRmtcRemark(null);
     setDlTracking({});
   }, [buildCoilQtys]);
 
@@ -445,6 +444,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
     setRemarks(draft.remarks || data?.remarks || "");
     setTcFile(null);
     setRmtcFile(null);
+    setTcRemark(null);
+    setRmtcRemark(null);
     setDlTracking({});
   }, [applyFreshInputs, buildCoilQtys]);
 
@@ -927,6 +928,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
         remarks: remarks || "",
         tcFile,
         rmtcFile,
+        tc_remark: tcRemark,
+        rmtc_remark: rmtcRemark,
       });
       notify(res, "Draft saved successfully.");
       setDetail((prev) => ({
@@ -944,6 +947,8 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       }));
       setTcFile(null);
       setRmtcFile(null);
+      setTcRemark(null);
+      setRmtcRemark(null);
       onSuccess?.();
       setDrawerCloneKey((k) => k + 1);
       onClose?.();
@@ -973,13 +978,15 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
       const newUid = res?.data?.uid ?? uid;
       if (!newUid) throw new Error("The stickers were generated but the MRN ID is missing.");
       let uploadedDocs = null;
-      const needsDocUpload = tcFile instanceof File || rmtcFile instanceof File;
+      const needsDocUpload = tcFile instanceof File || rmtcFile instanceof File || tcRemark !== null || rmtcRemark !== null;
       if (needsDocUpload) {
         try {
           const upRes = await mrnService.uploadDocs({
             uid: newUid,
-            tcFile,
-            rmtcFile,
+            tcFile: tcFile instanceof File ? tcFile : null,
+            rmtcFile: rmtcFile instanceof File ? rmtcFile : null,
+            tc_remark: tcRemark,
+            rmtc_remark: rmtcRemark,
             requireBoth: false,
           });
           uploadedDocs = upRes?.data || null;
@@ -1363,6 +1370,9 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                 file={tcFile}
                 onChange={setTcFile}
                 savedPath={detail?.tc_file_path}
+                remark={tcRemark}
+                onRemarkChange={setTcRemark}
+                savedRemark={detail?.tc_remark}
               />
               <SimpleFileInput
                 label="RMTC Document"
@@ -1370,6 +1380,9 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                 file={rmtcFile}
                 onChange={setRmtcFile}
                 savedPath={detail?.rmtc_file_path}
+                remark={rmtcRemark}
+                onRemarkChange={setRmtcRemark}
+                savedRemark={detail?.rmtc_remark}
               />
               <FormTextarea
                 label="Remarks"
@@ -1385,11 +1398,13 @@ export default function MrnStickerModal({ open, onClose, onSuccess, mrnId, sourc
                 label="TC Document"
                 disabled
                 savedPath={detail?.tc_file_path}
+                savedRemark={detail?.tc_remark}
               />
               <SimpleFileInput
                 label="RMTC Document"
                 disabled
                 savedPath={detail?.rmtc_file_path}
+                savedRemark={detail?.rmtc_remark}
               />
               <div className="min-w-0">
                 <FormLabel className="text-[10px] lg:text-[11px] font-bold text-slate-400 uppercase tracking-tighter ml-0">

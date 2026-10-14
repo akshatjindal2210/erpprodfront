@@ -457,43 +457,30 @@ export function getCoilRowClassName(row) {
 }
 
 export function resolveCoilQcStatusLabel(row) {
-  const qcId = row?.qc_uid;
-  if (qcId == null) return null;
   const raw = String(row?.qc_check_status || "").trim().toLowerCase();
   if (raw === "passed") return "Passed";
   if (raw === "failed") return "Failed";
   if (raw === "awaiting_approval") return "Awaiting";
-  if (row?.rm_uid != null) return "Failed";
-  if (String(row?.status || "").toLowerCase() === "rejected" && row?.qc_uid != null) return "Failed";
-  return "Pending";
+  if (row?.rm_uid != null || (String(row?.status || "").toLowerCase() === "rejected" && row?.qc_uid != null)) return "Failed";
+  return "QC Pending"; // was blank when qc_uid missing
 }
 
 export function resolveCoilQcIdStatusLabel(row) {
-  if (row?.qc_uid == null) return "—";
-  const status = resolveCoilQcStatusLabel(row) || "Pending";
-  if (row?.rm_uid != null) {
-    return `QC ${row.qc_uid} · ${status} · RM ${row.rm_uid}`;
-  }
-  return `QC ${row.qc_uid} · ${status}`;
+  const status = resolveCoilQcStatusLabel(row);
+  if (row?.qc_uid == null) return status;
+  return row?.rm_uid != null ? `QC ${row.qc_uid} · ${status} · RM ${row.rm_uid}` : `QC ${row.qc_uid} · ${status}`;
 }
 
 export function renderCoilQcStatusCell(_v, row) {
-  if (row?.qc_uid == null) {
-    return <span className="text-[10px] text-slate-400">—</span>;
-  }
-  const id = String(row.qc_uid);
-  const label = resolveCoilQcStatusLabel(row) || "Pending";
-  let cls = "bg-amber-100 text-amber-800 border-amber-200";
-  if (label === "Passed") cls = "bg-emerald-100 text-emerald-800 border-emerald-200";
-  else if (label === "Failed") cls = "bg-rose-100 text-rose-800 border-rose-200";
-  else if (label === "Awaiting") cls = "bg-sky-100 text-sky-800 border-sky-200";
+  const label = resolveCoilQcStatusLabel(row);
+  const cls =
+    label === "Passed" ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+    : label === "Failed" ? "bg-rose-100 text-rose-800 border-rose-200"
+    : label === "Awaiting" ? "bg-sky-100 text-sky-800 border-sky-200"
+    : "bg-amber-100 text-amber-800 border-amber-200";
   return (
-    <span
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border text-[9px] font-bold uppercase leading-tight whitespace-nowrap ${cls}`}
-      title={resolveCoilQcIdStatusLabel(row)}
-    >
-      <span className="font-mono tabular-nums">{id}</span>
-      <span className="opacity-60 font-black">·</span>
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border text-[9px] font-bold uppercase leading-tight whitespace-nowrap ${cls}`} title={resolveCoilQcIdStatusLabel(row)}>
+      {row?.qc_uid != null && <><span className="font-mono tabular-nums">{row.qc_uid}</span><span className="opacity-60 font-black">·</span></>}
       <span>{label}</span>
     </span>
   );

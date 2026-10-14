@@ -3,19 +3,10 @@
 import { Box, User, ClipboardList, FileText } from "lucide-react";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 import { OK_INPUT, MODAL_INPUT_CLASS } from "@/ui/common/Constants";
+import { uploadUrl } from "@/lib/documents";
 
 const FIELD_LABEL = "block text-[8px] font-bold uppercase tracking-wider text-slate-500 mb-1 leading-none";
-
-export function resolveUploadUrl(noteOrPath, fileBaseUrl = "") {
-  const raw = String(noteOrPath || "").trim();
-  if (!raw) return "";
-  if (/^https?:\/\//i.test(raw) || raw.startsWith("blob:")) return raw;
-  const p = raw.replace(/^\/+/, "");
-  if (p.startsWith("uploads/")) return `${String(fileBaseUrl || "").replace(/\/$/, "")}/${p}`;
-  return "";
-}
 
 /** Map saved adjustment row → detail card props (View / Print read-only). */
 export function buildRmSaDetailCardProps(detail, coils = []) {
@@ -29,15 +20,17 @@ export function buildRmSaDetailCardProps(detail, coils = []) {
   if (row.tc_file_path || row.tc_file_name) {
     documents.push({
       label: "TC Document",
-      url: resolveUploadUrl(row.tc_file_path, FILE_BASE_URL),
+      url: uploadUrl(row.tc_file_path),
       name: row.tc_file_name,
+      remark: row.tc_remark,
     });
   }
   if (row.rmtc_file_path || row.rmtc_file_name) {
     documents.push({
       label: "RMTC Document",
-      url: resolveUploadUrl(row.rmtc_file_path, FILE_BASE_URL),
+      url: uploadUrl(row.rmtc_file_path),
       name: row.rmtc_file_name,
+      remark: row.rmtc_remark,
     });
   }
 
@@ -259,6 +252,7 @@ export default function RmStockAdjustmentDetailCards({
                 ) : (
                   <span className="text-slate-400">—</span>
                 )}
+                {/* Per-file attachment remark: Invoice Receiving only */}
               </div>
             ))}
           </div>

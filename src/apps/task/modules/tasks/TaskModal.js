@@ -22,7 +22,7 @@ import RichTextEditor from "../../lib/ui/common/RichTextEditor";
 import YearlyRecurrencePicker from "../../lib/ui/common/YearlyRecurrencePicker";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { TaskRatingPicker } from "./SubPageExtra";
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import { uploadAccept, uploadUrl } from "@/lib/documents";
 
 // ─── IMS drawer density — same height / radius as SearchableSelect ─────────────
 const okCls   = OK_INPUT;
@@ -534,6 +534,7 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
   };
 
   const [form,           setForm]           = useState(emptyForm);
+  const [attachmentRemarks, setAttachmentRemarks] = useState([]);
   const [errors,         setErrors]         = useState({});
   const [loading,        setLoading]        = useState(false);
   const [users,          setUsers]          = useState([]);
@@ -711,6 +712,7 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
     } else {
       setForm(emptyForm);
     }
+    setAttachmentRemarks([]);
     setErrors({});
   }, [taskDetail, prefillTask, open, isEdit, isClone, isSelf]);
 
@@ -826,6 +828,9 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
       else fd.append(k, v);
     });
     form.attachments.forEach((f) => fd.append("attachments", f));
+    if (form.attachments.length) {
+      /* Per-file attachment remark: Invoice Receiving only */
+    }
     return fd;
   };
 
@@ -1265,7 +1270,7 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                     type="file"
                     multiple
                     className="hidden"
-                    accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx"
+                    accept={uploadAccept("task_form")}
                     onChange={(e) => {
                       const allowed = [
                         "image/jpeg", "image/png", "image/jpg",
@@ -1340,7 +1345,7 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                       type="file"
                       multiple
                       className="hidden"
-                      accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx"
+                      accept={uploadAccept("task_form")}
                       onChange={(e) => {
                         const allowed = [
                           "image/jpeg", "image/png", "image/jpg",
@@ -1356,8 +1361,10 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                         if (invalid.length > 0)
                           toast.error(`${invalid.length} file(s) rejected — only images & documents allowed`);
 
-                        if (valid.length > 0)
+                        if (valid.length > 0) {
                           setForm((p) => ({ ...p, attachments: [...p.attachments, ...valid] }));
+                          setAttachmentRemarks((prev) => [...prev, ...valid.map(() => "")]);
+                        }
 
                         e.target.value = "";
                       }}
@@ -1375,46 +1382,55 @@ export default function TaskModal({open, onClose, onSuccess, editTask, prefillTa
                         const isImage = mime.startsWith("image/") || /\.(png|jpe?g|gif|webp)$/i.test(name || "");
                         const isPdf = mime === "application/pdf" || /\.pdf$/i.test(name || "");
                         const fileUrl = isExisting
-                          ? `${FILE_BASE_URL}/${file.file_path}`
+                          ? uploadUrl(file.file_path)
                           : file instanceof File
                             ? URL.createObjectURL(file)
                             : null;
                         return (
-                          <div key={i} className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 ${
-                                isImage ? "bg-emerald-100" : isPdf ? "bg-rose-100" : "bg-indigo-100"
-                              }`}>
-                                {isImage
-                                  ? <ImageIcon size={11} className="text-emerald-600" />
-                                  : isPdf
-                                    ? <FileText size={11} className="text-rose-600" />
-                                    : <ClipboardList size={11} className="text-indigo-600" />
-                                }
+                          <div key={i} className="space-y-1">
+                            <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 ${
+                                  isImage ? "bg-emerald-100" : isPdf ? "bg-rose-100" : "bg-indigo-100"
+                                }`}>
+                                  {isImage
+                                    ? <ImageIcon size={11} className="text-emerald-600" />
+                                    : isPdf
+                                      ? <FileText size={11} className="text-rose-600" />
+                                      : <ClipboardList size={11} className="text-indigo-600" />
+                                  }
+                                </div>
+                                {fileUrl ? (
+                                  <FilePreviewLink
+                                    href={fileUrl}
+                                    fileName={name}
+                                    mimeType={mime}
+                                    className="text-xs text-slate-700 truncate hover:underline"
+                                  >
+                                    {name}
+                                  </FilePreviewLink>
+                                ) : (
+                                  <span className="text-xs text-slate-700 truncate">{name}</span>
+                                )}
+                                <span className="text-xs text-slate-400 flex-shrink-0">
+                                  {((file.size || file.file_size || 0) / 1024).toFixed(0)} KB
+                                </span>
                               </div>
-                              {fileUrl ? (
-                                <FilePreviewLink
-                                  href={fileUrl}
-                                  fileName={name}
-                                  mimeType={mime}
-                                  className="text-xs text-slate-700 truncate hover:underline"
-                                >
-                                  {name}
-                                </FilePreviewLink>
-                              ) : (
-                                <span className="text-xs text-slate-700 truncate">{name}</span>
-                              )}
-                              <span className="text-xs text-slate-400 flex-shrink-0">
-                                {((file.size || file.file_size || 0) / 1024).toFixed(0)} KB
-                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setForm((p) => ({
+                                    ...p,
+                                    attachments: p.attachments.filter((_, idx) => idx !== i),
+                                  }));
+                                  setAttachmentRemarks((prev) => prev.filter((_, idx) => idx !== i));
+                                }}
+                                className="text-slate-400 hover:text-rose-500 transition-colors flex-shrink-0 ml-2"
+                              >
+                                <X size={13} />
+                              </button>
                             </div>
-                            <button type="button"
-                              onClick={() => setForm((p) => ({
-                                ...p, attachments: p.attachments.filter((_, idx) => idx !== i),
-                              }))}
-                              className="text-slate-400 hover:text-rose-500 transition-colors flex-shrink-0 ml-2">
-                              <X size={13} />
-                            </button>
+                            {/* Per-file attachment remark: Invoice Receiving only */}
                           </div>
                         );
                       })}

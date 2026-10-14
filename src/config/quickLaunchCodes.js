@@ -3,7 +3,7 @@
  *
  * App letter prefix (first character of every code):
  *   I = IMS · R = RM Store · H = HRMS · T = Task
- *   P = Purchase / Production · A/U/D/M = Admin / portal as needed
+ *   P = Purchase / Production · E = Engineering · A/U/D/M = Admin / portal as needed
  *
  * Extend this list to add new shortcuts. Every entry:
  *   - code   : 2–4 character uppercase (must be unique; respect app prefix)
@@ -12,7 +12,7 @@
  *   - module : permission module_name (matches MODULES in portalModules.data.js).
  *              `null` = only gated by app access (used for app dashboards).
  *   - app    : app key from PORTAL_APP_KEYS (ims / rmstore / task / hrms /
- *              purchase / production / core). Used with userHasAppAccess so
+ *              purchase / production / engineering / core). Used with userHasAppAccess so
  *              a user without app access can't jump into it.
  *
  * The dialog filters this list at runtime via useCanAccess + userHasAppAccess
@@ -98,6 +98,13 @@ export const QUICK_LAUNCH_CODES = [
   { code: "PRM", label: "Production Product Master",  route: ROUTES.PRODUCTION_MASTER,       module: "production_master",         app: "production" },
   { code: "PRS", label: "Production Shortage",        route: ROUTES.PRODUCTION_SHORTAGE,     module: "production_shortage",       app: "production" },
   { code: "PRL", label: "Production Activity Logs",   route: ROUTES.PRODUCTION_ACTIVITY_LOGS,module: "production_activity_logs",  app: "production" },
+
+  // ── Engineering (E…) ────────────────────────────────────────────
+  { code: "ENG",  label: "Engineering Dashboard",      route: ROUTES.ENGINEERING_DASHBOARD,           module: null,                           app: "engineering" },
+  { code: "EPM", label: "Process Master",             route: ROUTES.ENGINEERING_PROCESS_MASTER,      module: "eng_process_master",           app: "engineering" },
+  { code: "EMM", label: "Machine Master",             route: ROUTES.ENGINEERING_MACHINE_MASTER,      module: "eng_machine_master",           app: "engineering" },
+  { code: "EPP", label: "Prime Process Master",       route: ROUTES.ENGINEERING_PRIME_ITEM_MASTER,   module: "eng_prime_item_master",        app: "engineering" },
+  { code: "EFP", label: "Finish Process Master",      route: ROUTES.ENGINEERING_FINISH_PROCESS_MASTER, module: "eng_finish_process_master",  app: "engineering" },
 
   // ── Task (T…) ───────────────────────────────────────────────────
   { code: "TSK", label: "Task Dashboard",             route: ROUTES.TASK_DASHBOARD,          module: null,                        app: "task" },

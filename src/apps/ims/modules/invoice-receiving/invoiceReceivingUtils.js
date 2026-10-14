@@ -1,7 +1,6 @@
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import { uploadAccept, uploadUrl } from "@/lib/documents";
 
-/** Match backend `IR_RECEIVING_UPLOAD_PREFIX` in buildInvReceivingUploadFilter.js */
-const IR_RECEIVING_UPLOAD_PREFIX = "uploads/ims/invoice-receiving/";
+export const IR_UPLOAD_ACCEPT = uploadAccept("invoice_receiving");
 
 /**
  * ERP/IMS often sends JSON null as the literal string `"null"`.
@@ -30,27 +29,16 @@ export function imsErpScalarHasValue(value) {
   return !isImsErpNullString(value);
 }
 
-/** Read: path hai → waise; sirf naam → prefix lagao (backend same). */
+/** Same rule as backend `IR_RECEIVING_UPLOAD_PREFIX`. */
 export function expandIrUploadPath(ref) {
-  const s = String(ref ?? "")
-    .trim()
-    .replace(/\\/g, "/");
-  if (isImsErpNullString(s)) return "";
+  if (isImsErpNullString(ref)) return "";
+  const s = String(ref).trim().replace(/\\/g, "/").replace(/^\/+/, "");
   if (s.startsWith("uploads/")) return s;
-  return `${IR_RECEIVING_UPLOAD_PREFIX}${s.replace(/^\/+/, "")}`;
+  return `uploads/ims/invoice-receiving/${s}`;
 }
 
-/** Browser URL for stored path e.g. `uploads/ims/invoice-receiving/…` from ERP / internal API. */
-export function publicUploadHref(storedPath) {
-  if (isImsErpNullString(storedPath)) return "";
-  const p = expandIrUploadPath(storedPath).replace(/\\/g, "/");
-  if (!p) return "";
-  if (/^https?:\/\//i.test(p)) return p;
-  const base = String(FILE_BASE_URL || "").replace(/\/$/, "");
-  const rel = p.replace(/^\/+/, "");
-  if (rel.startsWith("uploads/")) return `${base}/${rel}`;
-  return `${base}/uploads/${rel}`;
-}
+export const publicUploadHref = (storedPath) =>
+  isImsErpNullString(storedPath) ? "" : uploadUrl(storedPath, "invoice_receiving");
 
 export function receivingFileLabel(storedPath) {
   if (isImsErpNullString(storedPath)) return "";

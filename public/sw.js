@@ -1,4 +1,4 @@
-const CACHE_NAME = "jfl-erp-static-v37";
+const CACHE_NAME = "jfl-erp-static-v48";
 const APP_BADGE_CACHE = "jfl-app-badge-count-v1";
 const DELIVERY_RETRY_MS = [0, 1500, 4000, 10000, 25000];
 const API_BASE_CACHE = "jfl-push-api-base-v1";
@@ -7,12 +7,19 @@ const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/icon-192.png",
   "/icon-512.png",
+  "/icon-512-maskable.png",
   "/logo.png",
   "/offline-vpn-reminder.html",
-  "/push-icons/task.svg",
-  "/push-icons/ims.svg",
-  "/push-icons/core.svg",
   "/push-icons/home.svg",
+  "/push-icons/ims.svg",
+  "/push-icons/rmstore.svg",
+  "/push-icons/task.svg",
+  "/push-icons/hrms.svg",
+  "/push-icons/purchase.svg",
+  "/push-icons/production.svg",
+  "/push-icons/engineering.svg",
+  "/push-icons/settings.svg",
+  "/push-icons/core.svg",
 ];
 
 let cachedApiBase = null;
@@ -150,10 +157,10 @@ async function applyAppBadgeCount(count) {
 
 function pushIconForAppType(appType) {
   const key = String(appType || "task").toLowerCase();
-  if (key === "core" || key === "settings" || key === "admin") return "/push-icons/core.svg";
-  if (key === "ims") return "/push-icons/ims.svg";
-  if (key === "home") return "/push-icons/home.svg";
-  if (key === "task") return "/push-icons/task.svg";
+  if (key === "core" || key === "admin" || key === "admin_console") return "/push-icons/core.svg";
+  if (key === "settings") return "/push-icons/settings.svg";
+  const known = ["home", "ims", "rmstore", "task", "hrms", "purchase", "production", "engineering"];
+  if (known.includes(key)) return `/push-icons/${key}.svg`;
   return "/push-icons/task.svg";
 }
 

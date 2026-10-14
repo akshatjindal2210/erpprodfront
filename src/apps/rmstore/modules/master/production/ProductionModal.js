@@ -14,7 +14,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
 import { rmDcodesFromRow } from "./productionRmHelpers";
 
-const MODULE = "rm_production_master";
+const DEFAULT_MODULE = "rm_production_master";
 const FIELD_ORDER = ["item_dcode", "rm_item_dcodes"];
 
 const INITIAL_FORM = {
@@ -23,7 +23,7 @@ const INITIAL_FORM = {
   approved: false,
 };
 
-export default function ProductionModal({ open, onClose, onSuccess, editData, mode = "add" }) {
+export default function ProductionModal({ open, onClose, onSuccess, editData, mode = "add", module: MODULE = DEFAULT_MODULE, service = productionService, helpers = productionErpHelpers, title = "Item RM Master"}) {
   const canAccess = useCanAccess();
   const canApprove = canAccess(MODULE, "authorize").allowed;
 
@@ -120,8 +120,8 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
 
       const isUpdate = isEdit || isApprove;
       const response = isUpdate
-        ? await productionService.update(editData.production_id, payload)
-        : await productionService.create(payload);
+        ? await service.update(editData.production_id, payload)
+        : await service.create(payload);
 
       notify(response, "Saved successfully.");
       onSuccess();
@@ -154,7 +154,7 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
       isOpen={open}
       onClose={onClose}
       onSubmit={() => handleSave(isApprove ? true : null, isApprove ? "approve" : "save")}
-      title={isApprove ? "Approve Item RM Master" : isEdit ? "Edit Item RM Master" : "New Item RM Master"}
+      title={`${isApprove ? "Approve" : isEdit ? "Edit" : "New"} ${title}`}
       description="Map a production item to one or more raw material items"
       footer={footerContent}
       maxWidth="max-w-4xl"
@@ -177,10 +177,10 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
             value={form.item_dcode}
             onChange={(id) => handleChange("item_dcode", id)}
             fetchService={(params) =>
-              productionErpHelpers.getProductionItemsViews({ ...params, ...helperPerms })
+              helpers.getProductionItemsViews({ ...params, ...helperPerms })
             }
             getByIdService={(id) =>
-              productionErpHelpers.getProductionItemViewById(id, helperPerms)
+              helpers.getProductionItemViewById(id, helperPerms)
             }
             dataKey="id"
             labelKey="item_code"
@@ -204,9 +204,9 @@ export default function ProductionModal({ open, onClose, onSuccess, editData, mo
             value={form.rm_item_dcodes}
             onChange={(ids) => handleChange("rm_item_dcodes", Array.isArray(ids) ? ids : [])}
             fetchService={(params) =>
-              productionErpHelpers.getRmItemsViews({ ...params, ...helperPerms })
+              helpers.getRmItemsViews({ ...params, ...helperPerms })
             }
-            getByIdService={(id) => productionErpHelpers.getRmItemViewById(id, helperPerms)}
+            getByIdService={(id) => helpers.getRmItemViewById(id, helperPerms)}
             dataKey="id"
             labelKey="item_code"
             selectedLabelKey="itemdesc"

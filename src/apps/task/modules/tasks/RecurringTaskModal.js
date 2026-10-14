@@ -18,7 +18,7 @@ import {
 import SelectField      from "../../lib/ui/common/SelectField";
 import SearchableSelect from "../../lib/ui/common/SearchableSelect";
 import { recurringTaskService } from "@/apps/task/lib/services/recurringTaskApi";
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import { uploadAccept, uploadUrl } from "@/lib/documents";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import RichTextEditor from "../../lib/ui/common/RichTextEditor";
 import YearlyRecurrencePicker from "../../lib/ui/common/YearlyRecurrencePicker";
@@ -1291,7 +1291,7 @@ export default function RecurringTaskModal({open, onClose, onSuccess, editTask, 
                     type="file"
                     multiple
                     className="hidden"
-                    accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx"
+                    accept={uploadAccept("recurring_task")}
                     onChange={(e) => {
                       const allowed = [
                         "image/jpeg", "image/png", "image/jpg",
@@ -1324,7 +1324,7 @@ export default function RecurringTaskModal({open, onClose, onSuccess, editTask, 
                       const name = file.name || file.file_name;
                       const size = file.size || file.file_size || 0;
 
-                      const fileUrl = isExisting ? `${FILE_BASE_URL}/${file.file_path}` : URL.createObjectURL(file);
+                      const fileUrl = isExisting ? uploadUrl(file.file_path) : URL.createObjectURL(file);
 
                       const isImage = (file.type || file.mime_type || "").startsWith("image/");
                       const isPdf   = (file.type || file.mime_type) === "application/pdf";

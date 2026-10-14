@@ -27,10 +27,13 @@ function escapeCsvCell(value) {
 
 const XLSX_DATE_FORMAT = "dd/mm/yyyy";
 const XLSX_NUMBER_FORMAT = "#,##0";
+const XLSX_DECIMAL_FORMAT = "#,##0.00####";
 
 function asXlsxNumber(value) {
   const n = Number(value);
-  return { value: Number.isFinite(n) ? n : 0, format: XLSX_NUMBER_FORMAT };
+  const v = Number.isFinite(n) ? n : 0;
+  // Whole numbers stay "1,250"; decimals keep their digits ("12.75") instead of rounding.
+  return { value: v, format: Number.isInteger(v) ? XLSX_NUMBER_FORMAT : XLSX_DECIMAL_FORMAT };
 }
 
 function finishXlsxCell(value) {

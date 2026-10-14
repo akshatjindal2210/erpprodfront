@@ -42,6 +42,7 @@ export const qcCheckService = {
         (items || []).map((it) => ({
           spec_id: it.spec_id,
           actual_value: it.actual_value,
+          document_remark: it.document_remark != null ? String(it.document_remark) : "",
         }))
       )
     );
@@ -72,6 +73,7 @@ export const qcCheckService = {
         (items || []).map((it) => ({
           spec_id: it.spec_id,
           actual_value: it.actual_value,
+          document_remark: it.document_remark != null ? String(it.document_remark) : "",
         }))
       )
     );

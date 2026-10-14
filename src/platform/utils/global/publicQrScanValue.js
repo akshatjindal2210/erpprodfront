@@ -63,7 +63,7 @@ export function resolveInAppScanValue(rawValue) {
     /^https?:\/\//i.test(trimmed) ||
     trimmed.includes("://") ||
     /^[?&][a-z_]+=/i.test(trimmed) ||
-    /[?&](box_no_uid|coil_no_uid|qc|location_no|fuid|uid|kind)=/i.test(trimmed);
+    /[?&](box_no_uid|coil_no_uid|qc|location_no|fuid|uid|kind|machine_no)=/i.test(trimmed);
   if (!isUrl) return trimmed;
 
   // QC public URL: `?qc=…` or legacy `?kind=qc&coil_no_uid=…`
@@ -93,6 +93,10 @@ export function resolveInAppScanValue(rawValue) {
 
   const locationNo = firstQueryMatch(trimmed, /[?&]location_no=([^&#\s]+)/i);
   if (locationNo) return locationNo.toUpperCase();
+
+  // Engineering machine — plain machine number
+  const machineNo = firstQueryMatch(trimmed, /[?&]machine_no=([^&#\s]+)/i);
+  if (machineNo) return machineNo;
 
   // FN — short query (classifiers match fuid=)
   const fuid = firstQueryMatch(trimmed, /[?&]fuid=([^&#\s]+)/i);

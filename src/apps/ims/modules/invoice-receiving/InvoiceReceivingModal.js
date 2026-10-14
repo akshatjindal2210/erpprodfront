@@ -10,10 +10,10 @@ import { FormLabel, OK_INPUT } from "@/ui/common/Constants";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import FilePreviewLink, { getFilePreviewKind } from "@/ui/common/system/FilePreviewLink";
-import {
-  formatImsErpScalar, formatIrBillDate, formatIrDateTime, irReceivingFilePaths, irReceivingUploadPreviewCaption, isImsErpNullLiteral, isIrApproved, normalizeInvoiceReceivingRow, pickIrRemarks, publicUploadHref, receivingFileLabel } from "./invoiceReceivingUtils";
+import { expandIrUploadPath, formatImsErpScalar, formatIrBillDate, formatIrDateTime, irReceivingFilePaths, irReceivingUploadPreviewCaption, isImsErpNullLiteral, isIrApproved, normalizeInvoiceReceivingRow, 
+  pickIrRemarks, publicUploadHref, receivingFileLabel, IR_UPLOAD_ACCEPT } from "./invoiceReceivingUtils";
 
-const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,image/*,application/pdf";
+const ACCEPT = IR_UPLOAD_ACCEPT;
 const DISABLED = `${OK_INPUT} !bg-slate-100 !text-slate-600 border-slate-200 shadow-none focus:!ring-0 cursor-not-allowed disabled:opacity-100`;
 
 const BTN_CANCEL =
@@ -80,6 +80,7 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
 
   const [storedPaths, setStoredPaths] = useState([]);
   const [newFiles, setNewFiles] = useState([]);
+  const [newFileRemarks, setNewFileRemarks] = useState([]);
   const [remarks, setRemarks] = useState("");
   const [approved, setApproved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -88,11 +89,23 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
   const fileLocked = readOnly;
   const totalAttachments = storedPaths.length + newFiles.length;
   const uploadPreviewCaption = useMemo(() => irReceivingUploadPreviewCaption(bill), [bill]);
+
+  const normPath = (p) => expandIrUploadPath(p).replace(/^\/+/, "");
+
+  const docByPath = useMemo(() => {
+    const m = new Map();
+    for (const d of bill?.receiving_documents || []) {
+      if (d?.path) m.set(normPath(d.path), d);
+    }
+    return m;
+  }, [bill]);
+
   const showDocPreview = totalAttachments > 0 && (readOnly || isApprove || isEdit || isAdd);
 
   useEffect(() => {
     if (!open) return;
     setNewFiles([]);
+    setNewFileRemarks([]);
     setSaving(false);
     setStoredPaths(irReceivingFilePaths(bill));
     setRemarks(pickIrRemarks(bill));
@@ -129,6 +142,7 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
         approved: finalApproved,
         existing_paths: storedPaths,
         files: newFiles,
+        file_remarks: newFileRemarks,
         mode,
       });
       if (!res?.success) throw new Error(res?.message || "Update failed.");
@@ -335,31 +349,31 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
               {storedPaths.map((p) => {
                 const name = receivingFileLabel(p);
                 const href = publicUploadHref(p);
+                const doc = docByPath.get(normPath(p));
                 return (
-                  <li key={p} className="flex items-center gap-2 min-h-9 px-3 border border-slate-200 rounded-lg bg-white">
-                    <FileText size={14} className="shrink-0 text-indigo-600" />
-                    {href ? (
-                      <FilePreviewLink
-                        href={href}
-                        fileName={name}
-                        previewCaption={uploadPreviewCaption}
-                        className="truncate text-[11px] font-semibold text-indigo-700 flex-1 text-left"
-                      >
-                        {name}
-                      </FilePreviewLink>
-                    ) : (
-                      <span className="truncate text-[11px] flex-1">{name}</span>
-                    )}
-                    {!fileLocked ? (
-                      <button
-                        type="button"
-                        disabled={saving}
-                        onClick={() => setStoredPaths((prev) => prev.filter((x) => x !== p))}
-                        className="text-slate-400 hover:text-rose-600 shrink-0"
-                        title="Remove"
-                      >
-                        <X size={14} />
-                      </button>
+                  <li key={p} className="flex flex-col gap-1 px-3 py-2 border border-slate-200 rounded-lg bg-white">
+                    <div className="flex items-center gap-2 min-h-5">
+                      <FileText size={14} className="shrink-0 text-indigo-600" />
+                      {href ? (
+                        <FilePreviewLink href={href} fileName={name} previewCaption={uploadPreviewCaption}
+                          className="truncate text-[11px] font-semibold text-indigo-700 flex-1 text-left">
+                          {name}
+                        </FilePreviewLink>
+                      ) : (
+                        <span className="truncate text-[11px] flex-1">{name}</span>
+                      )}
+                      {!fileLocked ? (
+                        <button type="button" disabled={saving}
+                          onClick={() => setStoredPaths((prev) => prev.filter((x) => x !== p))}
+                          className="text-slate-400 hover:text-rose-600 shrink-0" title="Remove">
+                          <X size={14} />
+                        </button>
+                      ) : null}
+                    </div>
+                    {doc?.remark ? (
+                      <p className="text-[10px] text-slate-500 pl-6">
+                        <span className="font-semibold text-slate-600">Remark:</span> {doc.remark}
+                      </p>
                     ) : null}
                   </li>
                 );
@@ -370,18 +384,34 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
           {newFiles.length > 0 ? (
             <ul className="space-y-1">
               {newFiles.map((f, idx) => (
-                <li key={`${f.name}-${idx}`} className="flex items-center gap-2 h-9 px-3 border border-emerald-200 rounded-lg bg-emerald-50/40">
-                  <FileText size={14} className="shrink-0 text-emerald-600" />
-                  <span className="truncate text-[11px] font-medium flex-1">{f.name}</span>
+                <li key={`${f.name}-${idx}`} className="flex flex-col gap-1 px-3 py-2 border border-emerald-200 rounded-lg bg-emerald-50/40">
+                  <div className="flex items-center gap-2">
+                    <FileText size={14} className="shrink-0 text-emerald-600" />
+                    <span className="truncate text-[11px] font-medium flex-1">{f.name}</span>
+                    {!fileLocked ? (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => {
+                          setNewFiles((prev) => prev.filter((_, i) => i !== idx));
+                          setNewFileRemarks((prev) => prev.filter((_, i) => i !== idx));
+                        }}
+                        className="text-slate-400 hover:text-rose-600"
+                      >
+                        <X size={14} />
+                      </button>
+                    ) : null}
+                  </div>
                   {!fileLocked ? (
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => setNewFiles((prev) => prev.filter((_, i) => i !== idx))}
-                      className="text-slate-400 hover:text-rose-600"
-                    >
-                      <X size={14} />
-                    </button>
+                    <input
+                      type="text"
+                      value={newFileRemarks[idx] || ""}
+                      onChange={(e) =>
+                        setNewFileRemarks((prev) => prev.map((r, i) => (i === idx ? e.target.value : r)))
+                      }
+                      placeholder="Remark (optional)"
+                      className="h-7 px-2 text-[10px] border border-slate-200 rounded-md bg-white"
+                    />
                   ) : null}
                 </li>
               ))}
@@ -400,7 +430,10 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
                 disabled={saving}
                 onChange={(e) => {
                   const picked = [...(e.target.files || [])];
-                  if (picked.length) setNewFiles((prev) => [...prev, ...picked]);
+                  if (picked.length) {
+                    setNewFiles((prev) => [...prev, ...picked]);
+                    setNewFileRemarks((prev) => [...prev, ...picked.map(() => "")]);
+                  }
                   e.target.value = "";
                 }}
               />

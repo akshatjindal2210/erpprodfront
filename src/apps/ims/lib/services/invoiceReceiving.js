@@ -30,7 +30,7 @@ export const invoiceReceivingService = {
     return api(ENDPOINTS.INVOICE_RECEIVING.LIST, { method: "POST", body });
   },
 
-  update: async ({ files = [], file, existing_paths = [], mode = "add", approved, remarks, prnbillno, billdt, uploaded_by, uploaded_at, acc_name }) => {
+  update: async ({ files = [], file, file_remarks = [], existing_paths = [], mode = "add", approved, remarks, prnbillno, billdt, uploaded_by, uploaded_at, acc_name }) => {
     const form = new FormData();
     form.append("mode", String(mode || "add"));
     if (approved != null) form.append("approved", approved ? "true" : "false");
@@ -49,6 +49,8 @@ export const invoiceReceivingService = {
     uploads.forEach((f) => {
       if (f instanceof File) form.append("attachments", f);
     });
+    const remarksList = Array.isArray(file_remarks) ? file_remarks : [];
+    if (remarksList.length) form.append("file_remarks", JSON.stringify(remarksList));
 
     return postMultipart(ENDPOINTS.INVOICE_RECEIVING.UPDATE, form);
   },

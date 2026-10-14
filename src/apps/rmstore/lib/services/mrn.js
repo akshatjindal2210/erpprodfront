@@ -120,7 +120,7 @@ export const mrnService = {
   },
 
   /** Save in-progress sticker form without generating coils (optional TC/RMTC upload). */
-  saveStickerDraft: async ({ uid, sourceRow, heat_no, coil_count, total_qty, coil_qtys, remarks, tcFile, rmtcFile }) => {
+  saveStickerDraft: async ({ uid, sourceRow, heat_no, coil_count, total_qty, coil_qtys, remarks, tcFile, rmtcFile, tc_remark, rmtc_remark }) => {
     const rowUid = uid || sourceRow?.uid;
     const form = new FormData();
     const body = {
@@ -137,20 +137,25 @@ export const mrnService = {
     });
     if (tcFile instanceof File) form.append("tc", tcFile);
     if (rmtcFile instanceof File) form.append("rmtc", rmtcFile);
+    if (tc_remark != null) form.append("tc_remark", String(tc_remark).trim());
+    if (rmtc_remark != null) form.append("rmtc_remark", String(rmtc_remark).trim());
     return postMultipart(ENDPOINTS.MRN.SAVE_STICKER_DRAFT, form);
   },
 
   /** TC + RMTC upload — both required on MRN after merge; pass only changed files when one already saved. */
-  uploadDocs: async ({ uid, tcFile, rmtcFile, requireBoth = true }) => {
+  uploadDocs: async ({ uid, tcFile, rmtcFile, tc_remark, rmtc_remark, requireBoth = true }) => {
     if (!uid) throw new Error("uid required for document upload");
     if (requireBoth && (!tcFile || !rmtcFile)) throw new Error("Both TC and RMTC documents are required");
-    if (!tcFile && !rmtcFile) return { success: true, data: { uid } };
+    const hasRemark = tc_remark != null || rmtc_remark != null;
+    if (!tcFile && !rmtcFile && !hasRemark) return { success: true, data: { uid } };
     const form = new FormData();
     form.append("uid", String(uid));
     if (requireBoth) form.append("require_both", "true");
     else form.append("require_both", "false");
     if (tcFile instanceof File) form.append("tc", tcFile);
     if (rmtcFile instanceof File) form.append("rmtc", rmtcFile);
+    if (tc_remark != null) form.append("tc_remark", String(tc_remark).trim());
+    if (rmtc_remark != null) form.append("rmtc_remark", String(rmtc_remark).trim());
     return postMultipart(ENDPOINTS.MRN.UPLOAD_DOCS, form);
   },
 };

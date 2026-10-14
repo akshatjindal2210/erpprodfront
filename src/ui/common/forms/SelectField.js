@@ -19,14 +19,15 @@ function SelectField({ label, value, onChange, options = [], labelMap, placehold
       
       <div className="relative">
         <select
-          value={value}
+          value={value ?? ""}
           onChange={onChange}
           required={required}
           className={`${baseStyles} ${stateStyles} ${selectCls || ""}`}
           {...props}
         >
           {placeholder && (
-            <option value="" disabled selected hidden={required}>{placeholder}
+            <option value="" disabled={Boolean(required)}>
+              {placeholder}
             </option>
           )}
           

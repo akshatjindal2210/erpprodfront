@@ -43,6 +43,11 @@ export function sortSelectRowsAsc(rows, labelKey, extraKeys = []) {
   );
 }
 
+/** Sort dropdown rows Z→A. */
+export function sortSelectRowsDesc(rows, labelKey, extraKeys = []) {
+  return sortSelectRowsAsc(rows, labelKey, extraKeys).reverse();
+}
+
 /**
  * Sort plain strings or `{ label, value }` filter options (keeps empty “All” first).
  */

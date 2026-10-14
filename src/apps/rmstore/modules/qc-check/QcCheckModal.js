@@ -13,7 +13,9 @@ import Drawer from "@/ui/primitives/Drawer";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { selectUser, selectRole } from "@/platform/store/slices/authSlice";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import { uploadAccept, uploadUrl } from "@/lib/documents";
+
+const ACCEPT = uploadAccept("rm_qc_check");
 import FormTextarea from "@/ui/common/forms/FormTextarea";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 
@@ -47,19 +49,6 @@ function QcStatusStrip({ filled, total, remaining, allFilled, isDirty }) {
       <span className="tabular-nums font-semibold shrink-0">{filled}/{total}</span>
     </div>
   );
-}
-
-function resolveDocUrl(noteOrPath) {
-  const raw = String(noteOrPath || "").trim();
-  if (!raw) return "";
-  if (/^https?:\/\//i.test(raw) || raw.startsWith("blob:")) return raw;
-  let path = raw.replace(/^\/+/, "").replace(/\\/g, "/");
-  if (path.startsWith("rmstore/")) path = `uploads/${path}`;
-  if (!path.startsWith("uploads/") && /^[\w.\-]+\.(pdf|png|jpe?g|webp|gif)$/i.test(path)) {
-    path = `uploads/rmstore/qc/${path}`;
-  }
-  if (path.startsWith("uploads/")) return `${String(FILE_BASE_URL || "").replace(/\/$/, "")}/${path}`;
-  return "";
 }
 
 function liveResult(spec, actualRaw) {
@@ -176,20 +165,21 @@ function valuesFingerprint(checklist, values, remarks) {
         id: s.spec_id,
         a: String(v.actual_value || ""),
         d: String(v.document_note || ""),
+        dr: String(v.document_remark || ""),
         fn: f instanceof File ? `${f.name}:${f.size}` : "",
       };
     }),
   });
 }
 
-function DocUploadCell({ file, savedNote, hasErr, pending, disabled, onChange, onClear }) {
+function DocUploadCell({ file, savedNote, remark = "", savedRemark = "", onRemarkChange, hasErr, pending, disabled, onChange, onClear }) {
   const localUrl = useMemo(() => (file instanceof File ? URL.createObjectURL(file) : ""), [file]);
   useEffect(() => {
     if (!localUrl) return undefined;
     return () => URL.revokeObjectURL(localUrl);
   }, [localUrl]);
 
-  const savedUrl = resolveDocUrl(savedNote);
+  const savedUrl = uploadUrl(savedNote, "rm_qc_check");
   const previewUrl = localUrl || savedUrl;
   const label = file?.name || docDisplayName(savedNote) || "Document";
   const hasDoc = Boolean(file || savedNote);
@@ -209,60 +199,69 @@ function DocUploadCell({ file, savedNote, hasErr, pending, disabled, onChange, o
     </span>
   );
 
+  /** Per-file attachment remark: Invoice Receiving only */
+  const remarkInput = null;
+
   if (!hasDoc) {
     return (
-      <label
-        className={`inline-flex items-center gap-1.5 ${QC_CELL} cursor-pointer ${
-          hasErr
-            ? "border border-rose-400 bg-rose-50"
-            : pending
-              ? "border border-amber-400 bg-white"
-              : "border border-slate-200 bg-white hover:bg-slate-50"
-        } ${disabled ? "opacity-50 pointer-events-none" : ""}`}
-      >
-        <Upload size={11} className={`shrink-0 ${pending && !hasErr ? "text-amber-500" : "text-slate-500"}`} />
-        <span className="text-[11px] font-medium whitespace-nowrap text-slate-600">Upload</span>
-        <input
-          type="file"
-          accept=".pdf,.png,.jpg,.jpeg,.webp"
-          className="hidden"
-          disabled={disabled}
-          onChange={(e) => {
-            onChange(e.target.files?.[0] || null);
-            e.target.value = "";
-          }}
-        />
-      </label>
-    );
-  }
-
-  return (
-    <div
-      className={`flex items-center gap-1.5 min-w-0 ${QC_CELL} bg-white ${
-        hasErr ? "border border-rose-400" : "border border-slate-200"
-      }`}
-    >
-      <FileText size={11} className="shrink-0 text-emerald-600" />
-      {nameNode}
-      {!disabled && file ? (
-        <button type="button" onClick={onClear} className="shrink-0 text-slate-400 hover:text-rose-600" title="Remove">
-          <X size={11} />
-        </button>
-      ) : null}
-      {!disabled && savedNote && !file ? (
-        <label className="shrink-0 text-[9px] font-bold text-indigo-600 cursor-pointer hover:underline">
-          Replace
+      <div className="space-y-1 min-w-0">
+        <label
+          className={`inline-flex items-center gap-1.5 w-full ${QC_CELL} cursor-pointer ${
+            hasErr
+              ? "border border-rose-400 bg-rose-50"
+              : pending
+                ? "border border-amber-400 bg-white"
+                : "border border-slate-200 bg-white hover:bg-slate-50"
+          } ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+        >
+          <Upload size={11} className={`shrink-0 ${pending && !hasErr ? "text-amber-500" : "text-slate-500"}`} />
+          <span className="text-[11px] font-medium whitespace-nowrap text-slate-600">Upload</span>
           <input
             type="file"
-            accept=".pdf,.png,.jpg,.jpeg,.webp"
+            accept={ACCEPT}
             className="hidden"
+            disabled={disabled}
             onChange={(e) => {
               onChange(e.target.files?.[0] || null);
               e.target.value = "";
             }}
           />
         </label>
-      ) : null}
+        {remarkInput}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1 min-w-0">
+      <div
+        className={`flex items-center gap-1.5 min-w-0 ${QC_CELL} bg-white ${
+          hasErr ? "border border-rose-400" : "border border-slate-200"
+        }`}
+      >
+        <FileText size={11} className="shrink-0 text-emerald-600" />
+        {nameNode}
+        {!disabled && file ? (
+          <button type="button" onClick={onClear} className="shrink-0 text-slate-400 hover:text-rose-600" title="Remove">
+            <X size={11} />
+          </button>
+        ) : null}
+        {!disabled && savedNote && !file ? (
+          <label className="shrink-0 text-[9px] font-bold text-indigo-600 cursor-pointer hover:underline">
+            Replace
+            <input
+              type="file"
+              accept={ACCEPT}
+              className="hidden"
+              onChange={(e) => {
+                onChange(e.target.files?.[0] || null);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        ) : null}
+      </div>
+      {remarkInput}
     </div>
   );
 }
@@ -332,6 +331,7 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
             actual_value: it.actual_value ?? "",
             document_file: null,
             document_note: it.document_note ?? "",
+            document_remark: it.document_remark ?? "",
           };
         }
         setValues(next);
@@ -356,6 +356,7 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
             actual_value: it.actual_value ?? "",
             document_file: null,
             document_note: it.document_note ?? "",
+            document_remark: it.document_remark ?? "",
           };
         }
         setValues(next);
@@ -532,7 +533,11 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
   const setDocFile = (specId, file) => {
     setValues((prev) => ({
       ...prev,
-      [specId]: { ...(prev[specId] || {}), document_file: file },
+      [specId]: {
+        ...(prev[specId] || {}),
+        document_file: file,
+        document_remark: prev[specId]?.document_remark ?? "",
+      },
     }));
     setErrors((prev) => {
       if (!prev[specId]) return prev;
@@ -540,6 +545,13 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
       delete next[specId];
       return next;
     });
+  };
+
+  const setDocRemark = (specId, val) => {
+    setValues((prev) => ({
+      ...prev,
+      [specId]: { ...(prev[specId] || {}), document_remark: val },
+    }));
   };
 
   const buildItemsPayload = () =>
@@ -550,6 +562,7 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
         spec_id: s.spec_id,
         actual_value: isDropdown ? raw.toUpperCase() : raw,
         document_file: values[s.spec_id]?.document_file || null,
+        document_remark: String(values[s.spec_id]?.document_remark ?? "").trim(),
       };
     });
 
@@ -962,6 +975,9 @@ export default function QcCheckModal({ open, onClose, onSuccess, row, mode = "in
                               <DocUploadCell
                                 file={values[sid]?.document_file || null}
                                 savedNote={values[sid]?.document_note || ""}
+                                remark={values[sid]?.document_remark ?? ""}
+                                savedRemark={values[sid]?.document_remark ?? ""}
+                                onRemarkChange={(v) => setDocRemark(sid, v)}
                                 hasErr={hasErr && needsDoc}
                                 pending={docPending}
                                 disabled={readOnly}

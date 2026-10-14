@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
 import { LogOut, ChevronLeft, ChevronRight, ChevronDown, Zap, Circle, Activity, Clock, LayoutDashboard, History, Store, Box, Truck, Users, FileText,  Layout,  Link as LinkIcon,  Boxes, Package, Database, 
   FileSearch, BarChart3, Map, ClipboardCheck, Locate, ClipboardList, Scale, Sticker, ShieldAlert, Home, Toolbox, Wrench, Hammer, Briefcase, Calendar, Cloud, Filter, Flag, Folder, Layers, LifeBuoy, PieChart, 
-  Printer, ShoppingCart, Tag, Target, TrendingUp, Wallet
+  Printer, ShoppingCart, Tag, Target, TrendingUp, Wallet, PencilRuler, Cpu, Factory
 } from "lucide-react";
 import { NAV_REGISTRY } from "@/apps/ims/lib/config/navRegistry";
 import { THEME_CONFIG } from "@/config/theme";
@@ -46,6 +46,9 @@ const ICON_MAP = {
   Toolbox: <Toolbox size={14} />,
   Wrench: <Wrench size={14} />,
   Hammer: <Hammer size={14} />,
+  PencilRuler: <PencilRuler size={14} />,
+  Cpu: <Cpu size={14} />,
+  Factory: <Factory size={14} />,
   Briefcase: <Briefcase size={14} />,
   Calendar: <Calendar size={14} />,
   Cloud: <Cloud size={14} />,

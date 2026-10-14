@@ -11,6 +11,7 @@ import { RM_STORE_NAV_REGISTRY } from "@/apps/rmstore/lib/config/navRegistry";
 import { HRMS_NAV_REGISTRY } from "@/apps/hrms/lib/config/navRegistry";
 import { PURCHASE_NAV_REGISTRY } from "@/apps/purchase/lib/config/navRegistry";
 import { PRODUCTION_NAV_REGISTRY } from "@/apps/production/lib/config/navRegistry";
+import { ENGINEERING_NAV_REGISTRY } from "@/apps/engineering/lib/config/navRegistry";
 import { THEME_CONFIG } from "@/config/theme";
 import Drawer from "@/ui/primitives/Drawer";
 import { trainingVideoService } from "@/apps/settings/lib/services/trainingService";
@@ -379,6 +380,7 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
   const isHrmsPath = pathname?.startsWith("/hrms/");
   const isPurchasePath = pathname?.startsWith("/purchase/");
   const isProductionPath = pathname?.startsWith("/production/");
+  const isEngineeringPath = pathname?.startsWith("/engineering/");
   const navRegistry = isRmStorePath
     ? RM_STORE_NAV_REGISTRY
     : isHrmsPath
@@ -387,7 +389,9 @@ export default function QuickAccessBar({ hideQuickLinks = false }) {
         ? PURCHASE_NAV_REGISTRY
         : isProductionPath
           ? PRODUCTION_NAV_REGISTRY
-          : NAV_REGISTRY;
+          : isEngineeringPath
+            ? ENGINEERING_NAV_REGISTRY
+            : NAV_REGISTRY;
   const currentModule = useMemo(() => {
     for (const item of navRegistry) {
       if (item.href === pathname) return item;

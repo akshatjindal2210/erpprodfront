@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Loader2, ScanLine, CameraOff, MapPin, Info, Package, User, QrCode } from "lucide-react";
 import Drawer from "@/ui/primitives/Drawer";
 import Snackbar from "@/ui/primitives/Snackbar";
@@ -143,7 +143,8 @@ function formatDispatchEntryType(value) {
   return raw.replace(/_/g, " ");
 }
 
-export default function BoxFinderDrawer({ open, onClose }) {
+/** `initialBoxCode` (e.g. row double-click) loads that box as soon as the drawer opens. */
+export default function BoxFinderDrawer({ open, onClose, initialBoxCode = null }) {
   const [loading, setLoading] = useState(false);
   const [locationData, setLocationData] = useState(null);
   const [boxData, setBoxData] = useState(null);
@@ -161,7 +162,7 @@ export default function BoxFinderDrawer({ open, onClose }) {
 
   const { showScanToast } = useScanSnackbarActions(setSnackbar, scanToastRef);
 
-  const fetchBoxInfo = async (rawValue) => {
+  const fetchBoxInfo = async (rawValue, { silent = false } = {}) => {
     const boxCode = extractBoxCode(rawValue);
     if (!boxCode) {
       showScanToast("error", "invalid-box-qr", SCAN_SNACK_MSG.REJECTED);
@@ -188,14 +189,14 @@ export default function BoxFinderDrawer({ open, onClose }) {
 
       /** Dispatched: keep location_id in DB, do not show store place in finder. */
       if (getBoxStockZone(box) === "dispatched") {
-        void playScanSuccessBeep();
+        if (!silent) void playScanSuccessBeep();
         return;
       }
 
       const locationId = box.location_id;
       if (!locationId) {
         showScanToast("warning", "no-location-assigned", "This box has no saved place yet.");
-        void playScanSuccessBeep();
+        if (!silent) void playScanSuccessBeep();
         return;
       }
 
@@ -206,7 +207,7 @@ export default function BoxFinderDrawer({ open, onClose }) {
       });
       if (locRes.data) {
         setLocationData(locRes.data);
-        void playScanSuccessBeep();
+        if (!silent) void playScanSuccessBeep();
       } else {
         showScanToast("error", "assigned-location-not-found", "Saved place not found in the list.");
       }
@@ -219,6 +220,10 @@ export default function BoxFinderDrawer({ open, onClose }) {
 
   const fetchBoxInfoRef = useRef(fetchBoxInfo);
   fetchBoxInfoRef.current = fetchBoxInfo;
+
+  useEffect(() => {
+    if (open && initialBoxCode) void fetchBoxInfoRef.current(initialBoxCode, { silent: true });
+  }, [open, initialBoxCode]);
 
   const handleScanEnter = useCallback((code) => {
     void fetchBoxInfoRef.current(code);

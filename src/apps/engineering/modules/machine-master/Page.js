@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, Cpu, RefreshCcw, Edit3, Trash2, CheckCircle, Copy } from "lucide-react";
+import { Plus, Cpu, RefreshCcw, Edit3, Trash2, CheckCircle, Copy, Printer } from "lucide-react";
 import AppListFooter from "@/ui/common/list/listPageFooter";
 import { toast } from "react-toastify";
 
@@ -10,12 +10,14 @@ import { machineMasterService } from "@/apps/engineering/lib/services/machineMas
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import ActionButton from "@/ui/primitives/ActionButton";
+import PrintActionButton from "@/ui/primitives/PrintActionButton";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { ListPageToolbar, ListPageToolbarLayout } from "@/ui/common/list/ListPageToolbar";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
 import DataTable from "@/ui/primitives/DataTable";
 import MachineModal from "./MachineModal";
+import MachineQRDrawer from "./MachineQRDrawer";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
@@ -44,6 +46,8 @@ export default function MachineMasterPage() {
   const [modalMode, setModalMode] = useState("add");
   const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [qrMachineId, setQrMachineId] = useState(null);
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -85,9 +89,18 @@ export default function MachineMasterPage() {
   const selectedRecord = useMemo(() => filteredRows.find((u) => u.id === selected), [filteredRows, selected]);
   const getSelectedRow = useCallback(() => filteredRows.find((u) => u.id === selected), [filteredRows, selected]);
 
+  const openPrintModal = useCallback(() => {
+    if (!selected || !selectedRecord?.approved) {
+      toast.info("Select an authorized machine to print QR.");
+      return;
+    }
+    setQrMachineId(selectedRecord.id);
+    setQrModalOpen(true);
+  }, [selected, selectedRecord]);
+
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
-    modalOpen: modalOpen || !!deleteItem,
+    modalOpen: modalOpen || !!deleteItem || qrModalOpen,
     selectedId: selected,
     getSelectedRow,
     openAdd: useCallback(() => { setEditItem(null); setModalMode("add"); setModalOpen(true); }, []),
@@ -101,6 +114,17 @@ export default function MachineMasterPage() {
       if (selectedRecord?.approved) toast.info("Already approved. Edit before approving again.");
       else toast.info("Select a pending row to open approve (Ctrl+A).");
     }, [selectedRecord]),
+    onPrint: useCallback((row) => {
+      setQrMachineId(row.id);
+      setQrModalOpen(true);
+    }, []),
+    canPrintSelection: useCallback(
+      () => Boolean(selected) && Boolean(selectedRecord?.approved),
+      [selected, selectedRecord?.approved]
+    ),
+    printBlockedMessage: "Select an authorized machine to print QR (Ctrl+Alt+P).",
+    printModule: MODULE,
+    printAction: "view",
     openDelete: useCallback((row) => setDeleteItem(row), []),
     canDeleteSelection: useCallback(() => !!selected, [selected]),
   });
@@ -117,6 +141,9 @@ export default function MachineMasterPage() {
     ["Duration", "duration", (v) => (
       <span className="font-black text-slate-700 text-[11px]">{formatDuration(v)}</span>
     ), { width: "100px", align: "center", copyValue: (row) => formatDuration(row.duration) }],
+    ["Setup Time", "setup_time", (v) => (
+      <span className="font-black text-slate-700 text-[11px]">{formatDuration(v)}</span>
+    ), { width: "100px", align: "center", copyValue: (row) => formatDuration(row.setup_time) }],
     ["Make", "make", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
     ["Model", "model", (v) => <span className="text-[10px] text-slate-500 uppercase">{v || "—"}</span>, { width: "110px" }],
     ["Status", "approved", (v) => (
@@ -169,6 +196,17 @@ export default function MachineMasterPage() {
                 <ActionButton module={MODULE} action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none" />
 
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
+
+                <PrintActionButton
+                  module={MODULE}
+                  variant="outline"
+                  label="Print QR"
+                  icon={Printer}
+                  disabled={!selected || !selectedRecord?.approved}
+                  onClick={openPrintModal}
+                  title="Print QR label (Ctrl+Alt+P / Ctrl+P in app)"
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none"
+                />
 
                 <button
                   onClick={() => fetchRows()}
@@ -235,6 +273,11 @@ export default function MachineMasterPage() {
       {modalOpen && (
         <MachineModal open={modalOpen} onClose={() => setModalOpen(false)} onSuccess={() => { fetchRows(); setSelected(null); }} editData={editItem} mode={modalMode} />
       )}
+      <MachineQRDrawer
+        isOpen={qrModalOpen}
+        onClose={() => { setQrModalOpen(false); setQrMachineId(null); }}
+        machineId={qrMachineId}
+      />
       {deleteItem && (
         <DeleteModal
           item={deleteItem}

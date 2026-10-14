@@ -1,58 +1,39 @@
 import { api } from "@/platform/api/apiClient";
 import { ENDPOINTS } from "@/apps/rmstore/lib/config/endpoints";
 
-export const productionService = {
-  getAll: (params) => api(ENDPOINTS.PRODUCTION.LIST, { method: "POST", body: params }),
-  getById: (production_id) => api(ENDPOINTS.PRODUCTION.GET, { method: "POST", body: { production_id } }),
-  create: (data) => api(ENDPOINTS.PRODUCTION.CREATE, { method: "POST", body: data }),
-  update: (production_id, data) => api(ENDPOINTS.PRODUCTION.UPDATE, { method: "POST", body: { production_id, ...data } }),
-  delete: (production_id) => api(ENDPOINTS.PRODUCTION.DELETE, { method: "POST", body: { production_id } }),
-};
+/** Same API shape for any mount of the production table (RM Store Item RM Master, Engineering Prime Item Master). */
+export function createProductionService(EP) {
+  return {
+    getAll: (params) => api(EP.LIST, { method: "POST", body: params }),
+    getById: (production_id) => api(EP.GET, { method: "POST", body: { production_id } }),
+    create: (data) => api(EP.CREATE, { method: "POST", body: data }),
+    update: (production_id, data) => api(EP.UPDATE, { method: "POST", body: { production_id, ...data } }),
+    delete: (production_id) => api(EP.DELETE, { method: "POST", body: { production_id } }),
+  };
+}
 
-export const productionErpHelpers = {
-  getProductionItemsViews: async (params = {}) => {
+function viewsCall(url) {
+  return async (params = {}) => {
     const { permission_module, permission_action = "view", ...rest } = params;
     if (!permission_module) {
       return { success: false, message: "permission_module required", data: [], total: 0 };
     }
-    return api(ENDPOINTS.PRODUCTION.PRODUCTION_ITEMS_VIEWS, {
-      method: "POST",
-      body: { permission_module, permission_action, ...rest },
-    });
-  },
-  getProductionItemViewById: (id, perms = {}) =>  
-    api(ENDPOINTS.PRODUCTION.PRODUCTION_ITEMS_VIEWS, {
-      method: "POST",
-      body: { id, ...perms },
-    }),
-  getRmItemsViews: async (params = {}) => {
-    const { permission_module, permission_action = "view", ...rest } = params;
-    if (!permission_module) {
-      return { success: false, message: "permission_module required", data: [], total: 0 };
-    }
-    return api(ENDPOINTS.PRODUCTION.RM_ITEMS_VIEWS, {
-      method: "POST",
-      body: { permission_module, permission_action, ...rest },
-    });
-  },
-  getRmItemViewById: (id, perms = {}) =>
-    api(ENDPOINTS.PRODUCTION.RM_ITEMS_VIEWS, {
-      method: "POST",
-      body: { id, ...perms },
-    }),
-  getPrdRunJcViews: async (params = {}) => {
-    const { permission_module, permission_action = "view", ...rest } = params;
-    if (!permission_module) {
-      return { success: false, message: "permission_module required", data: [], total: 0 };
-    }
-    return api(ENDPOINTS.PRODUCTION.PRD_RUN_JC_VIEWS, {
-      method: "POST",
-      body: { permission_module, permission_action, ...rest },
-    });
-  },
-  getPrdRunJcViewById: (id, perms = {}) =>
-    api(ENDPOINTS.PRODUCTION.PRD_RUN_JC_VIEWS, {
-      method: "POST",
-      body: { id, ...perms },
-    }),
-};
+    return api(url, { method: "POST", body: { permission_module, permission_action, ...rest } });
+  };
+}
+
+const byIdCall = (url) => (id, perms = {}) => api(url, { method: "POST", body: { id, ...perms } });
+
+export function createProductionErpHelpers(EP) {
+  return {
+    getProductionItemsViews: viewsCall(EP.PRODUCTION_ITEMS_VIEWS),
+    getProductionItemViewById: byIdCall(EP.PRODUCTION_ITEMS_VIEWS),
+    getRmItemsViews: viewsCall(EP.RM_ITEMS_VIEWS),
+    getRmItemViewById: byIdCall(EP.RM_ITEMS_VIEWS),
+    getPrdRunJcViews: viewsCall(EP.PRD_RUN_JC_VIEWS),
+    getPrdRunJcViewById: byIdCall(EP.PRD_RUN_JC_VIEWS),
+  };
+}
+
+export const productionService = createProductionService(ENDPOINTS.PRODUCTION);
+export const productionErpHelpers = createProductionErpHelpers(ENDPOINTS.PRODUCTION);

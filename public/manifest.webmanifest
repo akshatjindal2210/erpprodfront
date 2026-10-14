@@ -3,28 +3,86 @@
   "name": "JFL ERP",
   "short_name": "JFL ERP",
   "description": "ERP application for inventory, packing, and dispatch operations.",
-  "start_url": "/",
+  "start_url": "/?mode=standalone",
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "minimal-ui"],
   "background_color": "#000000",
   "theme_color": "#000000",
-  "orientation": "portrait",
+  "orientation": "any",
   "launch_handler": {
-    "client_mode": ["focus-existing", "navigate-existing"]
+    "client_mode": "focus-existing"
   },
-  "icons": [
+  "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
+  "shortcuts": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
+      "name": "Home",
+      "short_name": "Home",
+      "description": "Open Home",
+      "url": "/home?mode=standalone",
+      "icons": [{ "src": "/push-icons/home.svg", "sizes": "192x192", "type": "image/svg+xml" }]
     },
     {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
+      "name": "IMS",
+      "short_name": "IMS",
+      "description": "Open IMS",
+      "url": "/ims/dashboard?mode=standalone",
+      "icons": [{ "src": "/push-icons/ims.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "RM Store",
+      "short_name": "RM Store",
+      "description": "Open RM Store",
+      "url": "/rmstore/dashboard?mode=standalone",
+      "icons": [{ "src": "/push-icons/rmstore.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Task",
+      "short_name": "Task",
+      "description": "Open Task",
+      "url": "/task/dashboard?mode=standalone",
+      "icons": [{ "src": "/push-icons/task.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "HRMS",
+      "short_name": "HRMS",
+      "description": "Open HRMS",
+      "url": "/hrms/dashboard?mode=standalone",
+      "icons": [{ "src": "/push-icons/hrms.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Purchase",
+      "short_name": "Purchase",
+      "description": "Open Purchase",
+      "url": "/purchase/dashboard?mode=standalone",
+      "icons": [{ "src": "/push-icons/purchase.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Production",
+      "short_name": "Production",
+      "description": "Open Production",
+      "url": "/production/dashboard?mode=standalone",
+      "icons": [{ "src": "/push-icons/production.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Engineering",
+      "short_name": "Engineering",
+      "description": "Open Engineering",
+      "url": "/engineering/dashboard?mode=standalone",
+      "icons": [{ "src": "/push-icons/engineering.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Admin Console",
+      "short_name": "Admin",
+      "description": "Open Admin Console",
+      "url": "/settings?mode=standalone",
+      "icons": [{ "src": "/push-icons/settings.svg", "sizes": "192x192", "type": "image/svg+xml" }]
     }
+  ],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

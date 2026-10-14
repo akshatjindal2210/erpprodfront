@@ -13,20 +13,12 @@ import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
 import ActionButton from "@/ui/primitives/ActionButton";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import { uploadUrl } from "@/lib/documents";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 
 const MODULE = "rm_rejection";
 
-function resolveDocUrl(noteOrPath) {
-  const raw = String(noteOrPath || "").trim();
-  if (!raw) return "";
-  if (/^https?:\/\//i.test(raw) || raw.startsWith("blob:")) return raw;
-  let path = raw.replace(/^\/+/, "").replace(/\\/g, "/");
-  if (path.startsWith("rmstore/")) path = `uploads/${path}`;
-  if (path.startsWith("uploads/")) return `${String(FILE_BASE_URL || "").replace(/\/$/, "")}/${path}`;
-  return "";
-}
+const docHref = (p) => uploadUrl(p) || uploadUrl(p, "rm_qc_check") || uploadUrl(p, "rm_in_process_request");
 
 function formatExpected(spec) {
   const t = String(spec?.spec_type || "").toLowerCase();
@@ -140,7 +132,7 @@ function AttachmentsPanel({ attachments = [], title = "Rejection photos / docume
         {list.map((file, idx) => {
           const isPath = typeof file === "string";
           const name = isPath ? file.split("/").pop() : file?.name || `File ${idx + 1}`;
-          const href = isPath ? resolveDocUrl(file) : null;
+          const href = isPath ? docHref(file) : null;
           const isImage = /\.(png|jpe?g|webp|gif)$/i.test(String(name || ""));
           return (
             <div key={`${name}-${idx}`} className="rounded border border-slate-200 overflow-hidden bg-white min-w-0">
@@ -189,7 +181,7 @@ function QcChecklistTable({ items = [], hideHeader = false }) {
         </thead>
         <tbody>
           {items.map((it, idx) => {
-            const docUrl = resolveDocUrl(it.document_note);
+            const docUrl = docHref(it.document_note);
             const docName = it.document_note ? String(it.document_note).split("/").pop() : null;
             return (
               <tr key={it.spec_id ?? idx} className="border-b border-slate-50 last:border-0">
@@ -420,7 +412,10 @@ function RejectionReport({
 }) {
   return (
     <div className="space-y-2 pb-1">
+      {/* 1. Reason → 2. Details → 3. Rejection → 4. QC check */}
       <RejectionReasonBanner reason={reason} subtitle={subtitle} failCount={failCount} />
+
+      <InfoGrid fields={infoFields} />
 
       <div className="flex items-center justify-between gap-2">
         <p className="text-[10px] font-black uppercase tracking-wider text-slate-600">
@@ -430,6 +425,8 @@ function RejectionReport({
       </div>
 
       {isIpr ? <AttachmentsPanel attachments={attachments} title="Photos" /> : null}
+
+      <RejectedCoilsTable coils={rejectedCoils} batchLabel={rejectedCoilsBatchLabel} />
 
       {qcChecks.length === 1 ? (
         <QcChecklistTable items={qcChecks[0].items || []} />
@@ -452,10 +449,6 @@ function RejectionReport({
           </div>
         </div>
       ) : null}
-
-      <RejectedCoilsTable coils={rejectedCoils} batchLabel={rejectedCoilsBatchLabel} />
-
-      <InfoGrid fields={infoFields} />
     </div>
   );
 }

@@ -22,6 +22,7 @@ import { buildTaskDetailUrl, resolveTaskId } from "@/apps/task/lib/helpers/taskR
 import { readReportFilterStateFromSession, buildReportTaskListApiParams, applyReportDisplayTaskFilter } from "@/apps/task/lib/helpers/reportTaskListParams";
 import { applyTaskListQuickSearch } from "@/apps/task/lib/helpers/taskListQuickSearch";
 import { usePersistedScroll } from "@/apps/task/lib/hooks/usePersistedScroll";
+import { uploadAccept } from "@/lib/documents";
 
 
 function ActionBtn({ onClick, cls, icon: Icon, label, pulse }) {
@@ -359,6 +360,7 @@ export default function TaskDetailPage() {
       fd.append("note", selfNote);
       fd.append("reminder_at", includeReminder ? (selfReminder || "") : (savedReminder || ""));
       selfNewFiles.forEach((f) => fd.append("files", f.file));
+      /* Per-file attachment remark: Invoice Receiving only */
       if (selfRemove.length > 0) fd.append("remove_files", JSON.stringify(selfRemove));
       await taskService.upsertSelfNote(id, fd);
       await fetchSelfNote();
@@ -373,6 +375,7 @@ export default function TaskDetailPage() {
       fd.append("note", selfNote);
       fd.append("reminder_at", selfReminder || "");
       selfNewFiles.forEach((f) => fd.append("files", f.file));
+      /* Per-file attachment remark: Invoice Receiving only */
       if (selfRemove.length > 0) fd.append("remove_files", JSON.stringify(selfRemove));
       await taskService.upsertSelfNote(id, fd);
       setSavedReminder(selfReminder);
@@ -407,6 +410,7 @@ export default function TaskDetailPage() {
       if (chatMsg.trim()) fd.append("message", chatMsg.trim());
       if (replyTo)        fd.append("reply_to_id", replyTo.chat_id);
       chatFiles.forEach((f) => fd.append("files", f.file));
+      /* Per-file attachment remark: Invoice Receiving only */
       await taskService.sendChatMessage(id, fd);
       setChatMsg(""); setChatFiles([]); setReplyTo(null);
       await fetchChat();
@@ -432,6 +436,7 @@ export default function TaskDetailPage() {
       file: f,
       name: f.name,
       preview: URL.createObjectURL(f),
+      remark: "",
     })));
   };
 
@@ -1201,12 +1206,14 @@ export default function TaskDetailPage() {
                     {chatFiles.length > 0 && !isReadOnlyDone && !isChatLockedByTarget && (
                       <div className="flex-shrink-0 px-3 py-2 border-t border-slate-100 bg-white flex gap-2 overflow-x-auto">
                         {chatFiles.map((f, i) => (
-                          <FilePill
-                            key={i}
-                            file={{ file_name: f.name, preview: f.preview, mime_type: f.file?.type || "", type: f.file?.type || "" }}
-                            isNew
-                            onRemove={() => removeChatFile(i)}
-                          />
+                          <div key={i} className="flex flex-col gap-1 min-w-[140px]">
+                            <FilePill
+                              file={{ file_name: f.name, preview: f.preview, mime_type: f.file?.type || "", type: f.file?.type || "" }}
+                              isNew
+                              onRemove={() => removeChatFile(i)}
+                            />
+                            {/* Per-file attachment remark: Invoice Receiving only */}
+                          </div>
                         ))}
                       </div>
                     )}
@@ -1228,7 +1235,7 @@ export default function TaskDetailPage() {
                             disabled={isReadOnlyDone} />
                           <div className="flex items-center gap-1 flex-shrink-0 pb-0.5">
                             <input ref={chatFileRef} type="file" multiple className="hidden"
-                              accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx" onChange={handleChatFilePick} />
+                              accept={uploadAccept("task_form")} onChange={handleChatFilePick} />
                             <button
                               type="button"
                               onClick={() => chatFileRef.current?.click()}
@@ -1290,7 +1297,7 @@ export default function TaskDetailPage() {
                             <span className="text-xs font-semibold text-slate-600">Attachments ({selfAtts.length + selfNewFiles.length})</span>
                           </div>
                           <>
-                            <input ref={selfFileRef} type="file" multiple className="hidden" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx" onChange={handleSelfFilePick} />
+                            <input ref={selfFileRef} type="file" multiple className="hidden" accept={uploadAccept("task_self_note")} onChange={handleSelfFilePick} />
                             <button onClick={() => selfFileRef.current?.click()}
                               className="flex items-center gap-1 text-[10px] font-semibold text-indigo-600 hover:text-indigo-700 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors">
                               <Paperclip size={10} /> Add Files
@@ -1314,14 +1321,18 @@ export default function TaskDetailPage() {
                             {selfNewFiles.length > 0 && (
                               <div>
                                 <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Pending Upload</p>
-                                <div className="flex flex-wrap gap-2">{selfNewFiles.map((f, i) => (
-                                  <FilePill
-                                    key={i}
-                                    file={{ file_name: f.name, preview: f.preview, mime_type: f.file?.type || "", type: f.file?.type || "" }}
-                                    isNew
-                                    onRemove={() => removeSelfNew(i)}
-                                  />
-                                ))}</div>
+                                <div className="flex flex-wrap gap-2">
+                                  {selfNewFiles.map((f, i) => (
+                                    <div key={i} className="flex flex-col gap-1 min-w-[140px]">
+                                      <FilePill
+                                        file={{ file_name: f.name, preview: f.preview, mime_type: f.file?.type || "", type: f.file?.type || "" }}
+                                        isNew
+                                        onRemove={() => removeSelfNew(i)}
+                                      />
+                                      {/* Per-file attachment remark: Invoice Receiving only */}
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </div>

@@ -3,12 +3,13 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Plus, Trash2, ArrowUp, ArrowDown, Settings, Link as LinkIcon, ChevronDown, Store, Box, Truck, Users as UsersIcon, FileText, Home, Zap, Package, Database, FileSearch, BarChart3, Map, Boxes, 
   ClipboardCheck, Locate, ClipboardList, Scale, Sticker, History, ShieldAlert, Activity, Clock, Briefcase, Calendar, Cloud, Filter,
-  Flag, Folder, Layers, LifeBuoy, PieChart, Printer, ShoppingCart, Tag, Target, Toolbox, Wrench, Hammer, Wallet, X, Check, User, Users, Edit3, RefreshCcw
+  Flag, Folder, Layers, LifeBuoy, PieChart, Printer, ShoppingCart, Tag, Target, Toolbox, Wrench, Hammer, Wallet, X, Check, User, Users, Edit3, RefreshCcw, PencilRuler, Cpu, Factory
 } from "lucide-react";
 import { appConfigService } from "@/apps/settings/lib/services/appConfigService";
 import { userService } from "@/common/auth/services/userService";
 import { NAV_REGISTRY } from "@/apps/ims/lib/config/navRegistry";
 import { SETTINGS_NAV_REGISTRY } from "@/apps/settings/configuration/config/settingsNavRegistry";
+import { ENGINEERING_NAV_REGISTRY } from "@/apps/engineering/lib/config/navRegistry";
 import { APPS } from "@/config/appsRegistry";
 import { toast } from "react-toastify";
 import { AppConfigFormFooter, AppConfigFormLoading, CONFIG_INPUT, CONFIG_LABEL, CONFIG_SELECT } from "./AppConfigFormFields";
@@ -58,6 +59,9 @@ const ICON_OPTIONS = [
   { name: "Toolbox", icon: <Toolbox size={14} /> },
   { name: "Wrench", icon: <Wrench size={14} /> },
   { name: "Hammer", icon: <Hammer size={14} /> },
+  { name: "PencilRuler", icon: <PencilRuler size={14} /> },
+  { name: "Cpu", icon: <Cpu size={14} /> },
+  { name: "Factory", icon: <Factory size={14} /> },
   { name: "Wallet", icon: <Wallet size={14} /> },
 ];
 
@@ -391,17 +395,23 @@ export default function ShortcutConfigForm() {
   }, [hasUnsavedChanges]);
 
   const appPagesMap = useMemo(() => {
-    const map = {
-      ims: NAV_REGISTRY.flatMap(item => {
+    const flattenNav = (registry) =>
+      (Array.isArray(registry) ? registry : []).flatMap((item) => {
         const pages = [];
         if (item.href) pages.push({ id: item.id, name: item.name, url: item.href, permission: item.module });
         if (item.subItems) {
-          item.subItems.forEach(sub => pages.push({ id: sub.id, name: `${item.name} > ${sub.name}`, url: sub.href, permission: sub.module }));
+          item.subItems.forEach((sub) =>
+            pages.push({ id: sub.id, name: `${item.name} > ${sub.name}`, url: sub.href, permission: sub.module })
+          );
         }
         return pages;
-      }),
-      settings: SETTINGS_NAV_REGISTRY.map(item => ({ id: item.id, name: item.name, url: item.href, permission: item.module })),
-      task: [{ id: "task-home", name: "Task Dashboard", url: "/task", permission: "task_view" }]
+      });
+
+    const map = {
+      ims: flattenNav(NAV_REGISTRY),
+      engineering: flattenNav(ENGINEERING_NAV_REGISTRY),
+      settings: SETTINGS_NAV_REGISTRY.map((item) => ({ id: item.id, name: item.name, url: item.href, permission: item.module })),
+      task: [{ id: "task-home", name: "Task Dashboard", url: "/task", permission: "task_view" }],
     };
     return map;
   }, []);

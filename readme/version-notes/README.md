@@ -4,7 +4,7 @@ Cross-app **internal helper API** catalog (paths, allowlists, caller pages): [..
 
 | Note | Topic |
 |------|--------|
-| [v4.5.0.md](./v4.5.0.md) | **Engineering** Process Master · Machine Master · `eng_` tables · IMS approve flow · JSON attachments |
+| [v5.0.0.md](./v5.0.0.md) | **Engineering** Process / Machine / Prime · **Documents** IDs · UUID uploads · **Part D (14 Oct)** Machine QR · Eng shortcuts/icon · IMS Store In vs QC Area · RM Coil QC Pending · RM Rejection supplier |
 | [v4.4.8.md](./v4.4.8.md) | **IMS** OEM Tray · **HRMS** OT Approval empty dates + Pending default · Status All/A–Z · no future date |
 | [v4.4.7.md](./v4.4.7.md) | **HRMS** Leave · Loan · Deduction · Attendance/OT · `/calc` + Adjust · OT 0/1/2 · remarks · SOP · Gate Pass QR · **RM** IPR `reassign_jc` JSONB · Coil Finder History FG |
 | [v4.4.6.md](./v4.4.6.md) | PWA icon badge · office-network gate · IMS shortage · RM dropdown color · IPR reassign picker |

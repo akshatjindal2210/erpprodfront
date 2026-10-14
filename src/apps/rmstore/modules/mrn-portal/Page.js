@@ -27,7 +27,7 @@ import { rmStoreMrnPortalSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelect
 import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
 import { MasterDetailBody, MasterDetailHero, MasterDetailSection, MasterDetailGrid, MasterDetailKV, MasterDetailProse } from "@/apps/ims/modules/master/MasterDetailLayout";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
-import { FILE_BASE_URL } from "@/platform/utils/core/lib";
+import { uploadUrl } from "@/lib/documents";
 import MrnStickerModal from "./MrnStickerModal";
 import MrnRejectDrawer from "./MrnRejectDrawer";
 import MrnStickerRemoveConfirmModal from "./MrnStickerRemoveConfirmModal";
@@ -122,17 +122,8 @@ function renderMrnLastAction(_v, row) {
   return <span className={`text-[10px] font-bold uppercase tracking-tight ${tone}`}>{action}</span>;
 }
 
-function resolveUploadUrl(noteOrPath) {
-  const raw = String(noteOrPath || "").trim();
-  if (!raw) return "";
-  if (/^https?:\/\//i.test(raw) || raw.startsWith("blob:")) return raw;
-  const p = raw.replace(/^\/+/, "");
-  if (p.startsWith("uploads/")) return `${String(FILE_BASE_URL || "").replace(/\/$/, "")}/${p}`;
-  return "";
-}
-
-function MrnDocPreviewRow({ label, path }) {
-  const url = resolveUploadUrl(path);
+function MrnDocPreviewRow({ label, path, remark }) {
+  const url = uploadUrl(path);
   const display = fileNameFromPath(path) || "—";
   if (!url && display === "—") {
     return <MasterDetailKV label={label} value="—" />;
@@ -154,6 +145,7 @@ function MrnDocPreviewRow({ label, path }) {
           <span className="text-sm font-medium text-slate-800 truncate min-w-0">{display}</span>
         )}
       </div>
+      {/* Per-file attachment remark: Invoice Receiving only */}
     </MasterDetailSection>
   );
 }
@@ -976,10 +968,12 @@ export default function MrnPortalPage() {
                 <MrnDocPreviewRow
                   label="TC Document"
                   path={selectedRecord.tc_file_path}
+                  remark={selectedRecord.tc_remark}
                 />
                 <MrnDocPreviewRow
                   label="RMTC Document"
                   path={selectedRecord.rmtc_file_path}
+                  remark={selectedRecord.rmtc_remark}
                 />
               </MasterDetailGrid>
             ) : null}

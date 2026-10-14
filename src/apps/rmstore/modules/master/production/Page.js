@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, Factory, RefreshCcw, Edit3, Trash2, CheckCircle } from "lucide-react";
+import { Plus, Factory, RefreshCcw, Edit3, Trash2, CheckCircle, Eye } from "lucide-react";
 import { rmStoreSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
 import { toast } from "react-toastify";
 
-import { productionService } from "@/apps/rmstore/lib/services/production";
+import { productionService, productionErpHelpers } from "@/apps/rmstore/lib/services/production";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import { LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 
@@ -26,9 +26,24 @@ import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys
 import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 
-const MODULE = "rm_production_master";
+const DEFAULT_MODULE = "rm_production_master";
 
-export default function ProductionMasterPage() {
+/** `module` / `service` / `helpers` / `title` let Engineering Prime Process Master reuse this page on the same table. */
+export default function ProductionMasterPage({
+  module: MODULE = DEFAULT_MODULE,
+  service = productionService,
+  helpers = productionErpHelpers,
+  title = "Item RM Master",
+  /** Optional form (Engineering). When set, used for add + edit. */
+  AddModal = null,
+  /** Hide Approve toolbar action (Prime Process Master has no approve flow). */
+  hideApprove = false,
+  /** Show View toolbar (Engineering process mapping preview). */
+  showView = false,
+  deleteEntityLabel = null,
+  /** Extra list filters (e.g. `{ has_prime_process: true }` for Engineering tables). */
+  listFilters = null,
+} = {}) {
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
 
@@ -54,10 +69,10 @@ export default function ProductionMasterPage() {
       const base = {
         sortBy: params.sortKey || "production_id",
         order: params.sortDir.toUpperCase(),
-        filters: {},
+        filters: { ...(listFilters || {}) },
       };
       const { data } = await fetchAllListPages(async (page, limit) => {
-        const body = await productionService.getAll({ ...base, page, limit });
+        const body = await service.getAll({ ...base, page, limit });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
       setAllRows((data ?? []).map(enrichProductionRow));
@@ -68,7 +83,7 @@ export default function ProductionMasterPage() {
     } finally {
       setLoading(false);
     }
-  }, [params.pageSize, params.sortKey, params.sortDir]);
+  }, [service, listFilters, params.pageSize, params.sortKey, params.sortDir]);
 
   useEffect(() => {
     fetchProductions();
@@ -261,7 +276,7 @@ export default function ProductionMasterPage() {
   }, []);
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({
-    moduleName: "Item RM Master",
+    moduleName: title,
     rows: filteredRows,
     headers: HEADERS,
   });
@@ -274,21 +289,41 @@ export default function ProductionMasterPage() {
             actions={
               <>
                 <ActionButton module={MODULE} action="add" label="New" icon={Plus} onClick={openNewModal} className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
+                {showView && (
+                  <ActionButton
+                    module={MODULE}
+                    action="view"
+                    variant="outline"
+                    label="View"
+                    icon={Eye}
+                    disabled={!selected}
+                    record={selectedRecord}
+                    onClick={() => {
+                      if (!selectedRecord) return;
+                      setEditItem(selectedRecord);
+                      setModalMode("view");
+                      setModalOpen(true);
+                    }}
+                    className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
+                  />
+                )}
                 <ActionButton module={MODULE} action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected} record={selectedRecord} onClick={openEditModal}
                   className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 shadow-none shrink-0"
                 />
-                <ActionButton module={MODULE} action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected || isRowApproved(selectedRecord)}
-                  onClick={() => {
-                    if (isRowApproved(selectedRecord)) {
-                      toast.info("This record is already approved. Edit it before approving again.");
-                      return;
-                    }
-                    setEditItem(selectedRecord);
-                    setModalMode("approve");
-                    setModalOpen(true);
-                  }}
-                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
-                />
+                {!hideApprove && (
+                  <ActionButton module={MODULE} action="authorize" variant="outline" label="Approve" icon={CheckCircle} disabled={!selected || isRowApproved(selectedRecord)}
+                    onClick={() => {
+                      if (isRowApproved(selectedRecord)) {
+                        toast.info("This record is already approved. Edit it before approving again.");
+                        return;
+                      }
+                      setEditItem(selectedRecord);
+                      setModalMode("approve");
+                      setModalOpen(true);
+                    }}
+                    className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
+                  />
+                )}
                 <ActionButton module={MODULE} action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)}
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0"
                 />
@@ -372,13 +407,26 @@ export default function ProductionMasterPage() {
         />
       </div>
 
-      {modalOpen && (
+      {modalOpen && AddModal && (
+        <AddModal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          onSuccess={() => {
+            fetchProductions();
+            setSelected(null);
+          }}
+          editData={editItem}
+          mode={modalMode}
+        />
+      )}
+      {modalOpen && !AddModal && (
         <ProductionModal open={modalOpen} onClose={() => setModalOpen(false)}
           onSuccess={() => {
             fetchProductions();
             setSelected(null);
           }}
           editData={editItem} mode={modalMode}
+          module={MODULE} service={service} helpers={helpers} title={title}
         />
       )}
       {deleteItem && (
@@ -387,7 +435,7 @@ export default function ProductionMasterPage() {
             fetchProductions();
             setSelected(null);
           }}
-          service={productionService} entityLabel="Item RM Mapping" idKey="production_id" moduleSlug={MODULE}
+          service={service} entityLabel={deleteEntityLabel || title} idKey="production_id" moduleSlug={MODULE}
         />
       )}
     </div>

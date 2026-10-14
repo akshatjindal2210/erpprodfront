@@ -16,6 +16,7 @@ import { RM_STORE_NAV_REGISTRY } from "@/apps/rmstore/lib/config/navRegistry";
 import { HRMS_NAV_REGISTRY } from "@/apps/hrms/lib/config/navRegistry";
 import { PURCHASE_NAV_REGISTRY } from "@/apps/purchase/lib/config/navRegistry";
 import { PRODUCTION_NAV_REGISTRY } from "@/apps/production/lib/config/navRegistry";
+import { ENGINEERING_NAV_REGISTRY } from "@/apps/engineering/lib/config/navRegistry";
 import { canShowTaskReportMenu } from "@/apps/task/lib/config/appConfig";
 import { useSelector } from "react-redux";
 import { selectRole, selectUser } from "@/platform/store/slices/authSlice";
@@ -205,6 +206,7 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
     const isHrmsPath = pathname?.startsWith("/hrms/");
     const isPurchasePath = pathname?.startsWith("/purchase/");
     const isProductionPath = pathname?.startsWith("/production/");
+    const isEngineeringPath = pathname?.startsWith("/engineering/");
 
     if (isRmStorePath) {
       RM_STORE_NAV_REGISTRY.forEach((item) => {
@@ -237,6 +239,15 @@ export default function Navbar({ setSidebarOpen, whoAmi, hideQuickLinks = false,
       PRODUCTION_NAV_REGISTRY.forEach((item) => {
         if (item.href && !item.subItems?.length) {
           items.push({ name: item.name, path: item.href, type: "Production", icon: item.icon });
+        }
+        (item.subItems || []).forEach((sub) => {
+          if (sub.href) items.push({ name: sub.name, path: sub.href, type: item.name, icon: sub.icon });
+        });
+      });
+    } else if (isEngineeringPath) {
+      ENGINEERING_NAV_REGISTRY.forEach((item) => {
+        if (item.href && !item.subItems?.length) {
+          items.push({ name: item.name, path: item.href, type: "Engineering", icon: item.icon });
         }
         (item.subItems || []).forEach((sub) => {
           if (sub.href) items.push({ name: sub.name, path: sub.href, type: item.name, icon: sub.icon });

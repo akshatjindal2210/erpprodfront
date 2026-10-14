@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Loader2, ScanLine, CameraOff, Layers, Package, QrCode, Factory } from "lucide-react";
 import Drawer from "@/ui/primitives/Drawer";
 import Snackbar from "@/ui/primitives/Snackbar";
@@ -105,7 +105,8 @@ function FgWireSplitBody({ split, reassign, hideJobCard = false }) {
   );
 }
 
-export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm_coils" }) {
+/** `initialCoilUid` (e.g. row double-click) loads that coil as soon as the drawer opens. */
+export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm_coils", initialCoilUid = null }) {
   const [loading, setLoading] = useState(false);
   const [coilData, setCoilData] = useState(null);
   const [cameraOn, setCameraOn] = useState(false);
@@ -122,7 +123,7 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
 
   const { showScanToast } = useScanSnackbarActions(setSnackbar, scanToastRef);
 
-  const fetchCoilInfo = async (rawValue) => {
+  const fetchCoilInfo = async (rawValue, { silent = false } = {}) => {
     const coilUid = extractCoilUid(rawValue);
     if (!coilUid) {
       showScanToast("error", "invalid-coil-qr", SCAN_SNACK_MSG.REJECTED);
@@ -140,7 +141,7 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
       }
 
       setCoilData(coil);
-      void playScanSuccessBeep();
+      if (!silent) void playScanSuccessBeep();
     } catch (err) {
       showScanToast("error", "fetch-error", err?.message || "Could not load the coil details. Please try again.");
     } finally {
@@ -150,6 +151,10 @@ export default function CoilFinderDrawer({ open, onClose, permissionModule = "rm
 
   const fetchCoilInfoRef = useRef(fetchCoilInfo);
   fetchCoilInfoRef.current = fetchCoilInfo;
+
+  useEffect(() => {
+    if (open && initialCoilUid) void fetchCoilInfoRef.current(initialCoilUid, { silent: true });
+  }, [open, initialCoilUid]);
 
   const handleScanEnter = useCallback((code) => {
     void fetchCoilInfoRef.current(code);

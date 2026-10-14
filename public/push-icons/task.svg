@@ -5,7 +5,7 @@
       <stop offset="1" stop-color="#6D28D9"/>
     </linearGradient>
   </defs>
-  <rect width="192" height="192" rx="52" fill="url(#taskGrad)"/>
+  <rect width="192" height="192" rx="42" fill="url(#taskGrad)"/>
   <g transform="translate(96 96) scale(3.65) translate(-12 -12)" fill="none" stroke="white" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M13 5h8"/>
     <path d="M13 12h8"/>

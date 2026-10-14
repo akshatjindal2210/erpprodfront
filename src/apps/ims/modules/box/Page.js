@@ -76,6 +76,7 @@ export default function BoxTablePage() {
   const [selected, setSelected] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
   const [finderOpen, setFinderOpen] = useState(false);
+  const [finderBoxCode, setFinderBoxCode] = useState(null); // set by row double-click
 
   const fetchBoxes = useCallback(async () => {
     const journey = String(appliedJourney ?? "").trim();
@@ -279,7 +280,10 @@ export default function BoxTablePage() {
               <>
               <button
                 type="button"
-                onClick={() => setFinderOpen(true)}
+                onClick={() => {
+                  setFinderBoxCode(null);
+                  setFinderOpen(true);
+                }}
                 className="h-9 px-4 border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shadow-none shrink-0"
               >
                 <Locate size={14} className="text-indigo-600" />
@@ -342,7 +346,13 @@ export default function BoxTablePage() {
               loading={loading}
               viewMode={viewMode} 
               {...tableHotkeyProps}
-              sortKey={params.sortKey} 
+              onRowDoubleClick={(row) => {
+                const code = row?.box_no_uid || row?.box_uid;
+                if (!code) return;
+                setFinderBoxCode(String(code));
+                setFinderOpen(true);
+              }}
+              sortKey={params.sortKey}
               sortDir={params.sortDir}
               allowCopy={true}
               getRowClassName={boxRowClassName}
@@ -392,7 +402,7 @@ export default function BoxTablePage() {
         />
       </div>
 
-      {finderOpen && <BoxFinderDrawer open={finderOpen} onClose={() => setFinderOpen(false)} />}
+      {finderOpen && <BoxFinderDrawer open={finderOpen} initialBoxCode={finderBoxCode} onClose={() => setFinderOpen(false)} />}
       <DeleteModal item={deleteItem} onClose={() => setDeleteItem(null)} onSuccess={() => { fetchBoxes(); setSelected(null); }} service={boxService} entityLabel="Box Record" idKey="box_uid" moduleSlug="boxes" />
     </div>
   );
