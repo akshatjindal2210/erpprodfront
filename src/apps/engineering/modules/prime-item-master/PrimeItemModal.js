@@ -10,26 +10,17 @@ import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment"
 import { ENG_MODULES } from "@/apps/engineering/lib/config/modules";
 import { helperPerms } from "@/apps/engineering/lib/helpers/helperPerms";
 import { primeItemMasterService, primeItemMasterHelpers } from "@/apps/engineering/lib/services/primeItemMaster";
-import { appConfigService } from "@/apps/settings/lib/services/appConfigService";
 import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_PRIMARY } from "@/apps/ims/lib/helpers/masterListUi";
-import ProcessStagesBlock, { SELECT_H, asList, createNewStage, stagesFromJson, buildProcessPayload, normalizeRmItems, stampItemRmOnStages } from "@/apps/engineering/modules/process-mapping/ProcessStagesBlock";
+import ProcessStagesBlock, { SELECT_H, asList, createNewStage, stagesFromJson, buildProcessPayload, validateStages, normalizeRmItems, stampItemRmOnStages, fetchRmSelectable } from "@/apps/engineering/modules/process-mapping/ProcessStagesBlock";
 import ProcessMappingView from "@/apps/engineering/modules/process-mapping/ProcessMappingView";
 import ProcessItemHeader from "@/apps/engineering/modules/process-mapping/ProcessItemHeader";
 
 const MODULE = ENG_MODULES.PRIME_ITEM_MASTER;
-const RM_CONFIG_KEY = "prime_item_rm_wire_selectable";
 
-async function fetchRmConfig() {
-  try {
-    const res = await appConfigService.list("engineering");
-    const item = asList(res?.data ?? res).find((r) => String(r?.config_key ?? r?.key ?? "") === RM_CONFIG_KEY);
-    const val = String(item?.config_value ?? item?.value ?? "").trim().toLowerCase();
-    return val === "true" ? true : val === "false" ? false : null;
-  } catch {
-    return null;
-  }
-}
-
+/**
+ * Prime process of a prime item — saved in eng_item_process as type "prime".
+ * RM wire processes come with the item's Item RM (production) RM pre-selected, in DB order.
+ */
 export default function PrimeItemModal({ open, onClose, onSuccess, editData = null, mode = "add" }) {
   const sopAckRef = useRef(null);
   const isEdit = mode === "edit";
@@ -38,72 +29,58 @@ export default function PrimeItemModal({ open, onClose, onSuccess, editData = nu
   const PERMS = helperPerms(MODULE, sopPermissionType);
 
   const [itemDcode, setItemDcode] = useState(null);
-  const [productionId, setProductionId] = useState(null);
   const [defaultRm, setDefaultRm] = useState([]);
   const [stages, setStages] = useState([]);
   const [rmSelectable, setRmSelectable] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [hydratedId, setHydratedId] = useState(null);
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    fetchRmConfig().then((v) => alive && setRmSelectable(v));
+    fetchRmSelectable().then((v) => alive && setRmSelectable(v));
     return () => {
       alive = false;
     };
   }, [open]);
 
+  // Edit / view → the row's own prime
   useEffect(() => {
     if (!open) {
       setItemDcode(null);
-      setProductionId(null);
-      setStages([]);
       setDefaultRm([]);
-      setHydratedId(null);
+      setStages([]);
       return;
     }
-
     if ((isEdit || isView) && editData?.item_dcode != null) {
-      const id = editData.production_id;
-      if (hydratedId === id) return;
-      setHydratedId(id);
-      setItemDcode(editData.item_dcode);
-      setProductionId(editData.production_id);
       const rm = normalizeRmItems(editData.rm_items);
+      setItemDcode(editData.item_dcode);
       setDefaultRm(rm);
-      // Every process gets Item RM Master wires (1 or multiple as in DB)
-      setStages(stampItemRmOnStages(stagesFromJson(editData.prime_process, rm), rm));
-      return;
+      setStages(stagesFromJson(editData.prime_process, rm));
     }
+  }, [open, isEdit, isView, editData]);
 
-    setItemDcode(null);
-    setProductionId(null);
-    setStages([]);
-    setDefaultRm([]);
-    setHydratedId(null);
-  }, [open, isEdit, isView, editData, hydratedId]);
-
+  // New → picked item: its RM (+ its saved prime, which save then updates)
   useEffect(() => {
     if (!open || isEdit || isView) return;
-    setStages(itemDcode ? [createNewStage()] : []);
     setDefaultRm([]);
-    setProductionId(null);
+    setStages(itemDcode ? [createNewStage()] : []);
     if (!itemDcode) return;
     let alive = true;
     (async () => {
-      const res = await primeItemMasterService.getAll({ page: 1, limit: 1, filters: { item_dcode: itemDcode } });
-      const row = asList(res?.data?.data ?? res?.data)[0];
-      if (!alive) return;
-      if (row) {
+      try {
+        const res = await primeItemMasterService.getByItem(itemDcode);
+        const row = res?.data;
+        if (!alive || !row) return;
         const rm = normalizeRmItems(row.rm_items);
-        setProductionId(row.production_id);
         setDefaultRm(rm);
         if (asList(row.prime_process?.stages).length) {
           setStages(stagesFromJson(row.prime_process, rm));
-        } else if (rm.length) {
+          toast.info("This item already has a prime process — saving will update it.");
+        } else {
           setStages((prev) => stampItemRmOnStages(prev, rm));
         }
+      } catch {
+        /* new prime */
       }
     })();
     return () => {
@@ -112,34 +89,18 @@ export default function PrimeItemModal({ open, onClose, onSuccess, editData = nu
   }, [itemDcode, open, isEdit, isView]);
 
   const handleSubmit = async () => {
-    if (!itemDcode) return toast.info("Select a production item.");
-    if (!productionId && !isEdit) {
-      return toast.info("Item RM mapping not found. Create the item in Item RM Master first.");
-    }
-    if (!stages.length) return toast.info("Add at least one stage.");
-
-    for (const [sIdx, stage] of stages.entries()) {
-      if (!stage.processes.length) return toast.info(`Select at least one process in Stage ${sIdx + 1}.`);
-      const missingMachine = stage.processes.find((p) => !p.machines.length);
-      if (missingMachine) {
-        return toast.info(`Select at least one machine for ${missingMachine.process_name} (Stage ${sIdx + 1}).`);
-      }
-    }
-
+    if (!itemDcode) return toast.info("Select a prime item.");
+    const invalid = validateStages(stages);
+    if (invalid) return toast.info(invalid);
     if (!sopAckRef.current?.assertAcknowledged()) return;
 
-    const body = {
-      production_id: productionId || editData?.production_id,
-      item_dcode: itemDcode,
-      prime_process: buildProcessPayload(stages, itemDcode),
-    };
-
+    const body = { item_dcode: itemDcode, process: buildProcessPayload(stages, itemDcode) };
     setLoading(true);
     try {
       const res = isEdit
-        ? await primeItemMasterService.update(body.production_id, body)
+        ? await primeItemMasterService.update(editData.id, body)
         : await primeItemMasterService.create(body);
-      toast.success(res?.message || "Prime process mapping saved.");
+      toast.success(res?.message || "Prime process saved.");
       onSuccess?.();
       onClose?.();
     } catch (err) {
@@ -156,15 +117,19 @@ export default function PrimeItemModal({ open, onClose, onSuccess, editData = nu
       </button>
       {!isView && (
         <button type="button" onClick={handleSubmit} disabled={loading} className={IMS_DRAWER_BTN_PRIMARY}>
-          {loading ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
-          Save mapping
+          {loading ? (
+            <>
+              <Loader2 size={18} className="animate-spin" /> Saving...
+            </>
+          ) : (
+            <>
+              <Check size={18} /> Save
+            </>
+          )}
         </button>
       )}
     </div>
   );
-
-  const itemCode = editData?.item_code || null;
-  const itemDesc = editData?.item_desc || null;
 
   return (
     <Drawer
@@ -172,31 +137,20 @@ export default function PrimeItemModal({ open, onClose, onSuccess, editData = nu
       onClose={onClose}
       onSubmit={isView ? onClose : handleSubmit}
       title={isView ? "View Prime Process" : isEdit ? "Edit Prime Process" : "New Prime Process Master"}
-      description={isView ? "Production item mapping" : "Item → stages → processes → machines + RM"}
+      description={isView ? "Prime item process" : "Prime item → stages → processes → machines + RM"}
       footer={footer}
       maxWidth="max-w-7xl"
     >
       <div className="space-y-2 pb-3">
         {isView ? (
           <>
-            <ProcessItemHeader
-              label="Production Item"
-              itemCode={itemCode}
-              itemDesc={itemDesc}
-              accent="indigo"
-            />
-            <ProcessMappingView
-              title="Prime process"
-              stages={stages}
-              defaultRm={defaultRm}
-              accent="indigo"
-              emptyHint="No prime process mapping saved."
-            />
+            <ProcessItemHeader label="Prime Item" itemCode={editData?.item_code} itemDesc={editData?.item_desc} accent="indigo" />
+            <ProcessMappingView title="Prime process" stages={stages} defaultRm={defaultRm} accent="indigo" emptyHint="No prime process saved." />
           </>
         ) : (
           <>
             <SearchableSelect
-              label="Production Item"
+              label="Prime Item"
               required
               value={itemDcode}
               onChange={(id) => setItemDcode(id || null)}

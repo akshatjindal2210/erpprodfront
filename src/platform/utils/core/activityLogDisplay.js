@@ -212,6 +212,8 @@ const MODULE_LABELS = {
   purchase_activity_logs: "Activity Logs",
   production_master: "Product Master",
   production_shortage: "Shortage",
+  production_job_card: "Maintain Job Card",
+  production_tooling: "Tooling",
   production_activity_logs: "Activity Logs",
   rm_mrn_portal: "MRN Portal",
   rm_inventory_inwards: "Store In",
@@ -409,6 +411,8 @@ const PURCHASE_MODULE_ROUTES = {
 const PRODUCTION_MODULE_ROUTES = {
   production_master: PRODUCTION_ROUTES.PRODUCTION_MASTER,
   production_shortage: PRODUCTION_ROUTES.PRODUCTION_SHORTAGE,
+  production_job_card: PRODUCTION_ROUTES.PRODUCTION_JOB_CARD,
+  production_tooling: PRODUCTION_ROUTES.PRODUCTION_TOOLING,
   production_activity_logs: PRODUCTION_ROUTES.PRODUCTION_ACTIVITY_LOGS,
 };
 

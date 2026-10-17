@@ -17,7 +17,23 @@ shortageService.bulkCreate = (records, month, type = "PPC") =>
     body: { data: records, month, type },
   });
 
-shortageService.bulkPreview = (rows, month, type = "PPC") =>
+/** Prime Item tab — all statuses in one call (screen filters Pending / Approved / Rejected). */
+shortageService.getPrimeItems = () =>
+  api(ENDPOINTS.SHORTAGE.PRIME_ITEMS, { method: "POST", body: {} });
+
+shortageService.getPrimeItemEntries = (prime_key, status) =>
+  api(ENDPOINTS.SHORTAGE.PRIME_ENTRIES, { method: "POST", body: { prime_key, status } });
+
+shortageService.approvePrimeItems = (primeItems, remark = "") =>
+  api(ENDPOINTS.SHORTAGE.PRIME_APPROVE, { method: "POST", body: { prime_items: primeItems, remark } });
+
+shortageService.rejectPrimeItems = (primeItems, remark = "") =>
+  api(ENDPOINTS.SHORTAGE.PRIME_REJECT, { method: "POST", body: { prime_items: primeItems, remark } });
+
+shortageService.resetPrimeItems = (primeItems, remark = "") =>
+  api(ENDPOINTS.SHORTAGE.PRIME_RESET, { method: "POST", body: { prime_items: primeItems, remark } });
+
+shortageService.bulkPreview =(rows, month, type = "PPC") =>
   api(ENDPOINTS.SHORTAGE.BULK_PREVIEW, {
     method: "POST",
     body: { data: rows, month, type },

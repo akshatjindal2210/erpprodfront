@@ -108,6 +108,8 @@ export const MODULES = {
   production: [
     { name: "production_master", label: "Product Master" },
     { name: "production_shortage", label: "Shortage" },
+    { name: "production_job_card", label: "Maintain Job Card" },
+    { name: "production_tooling", label: "Tooling" },
     { name: "production_activity_logs", label: "Activity Logs" },
   ],
   engineering: [

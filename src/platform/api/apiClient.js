@@ -1,11 +1,19 @@
 import { API_BASE_URL } from "../utils/core/lib";
 import { isNetworkReachabilityError, markNetworkReachableFromApi, notifyNetworkUnreachable } from "../utils/auth/companyNetwork";
+import { clearAuthSession, isAuthSessionClearing } from "../utils/auth/clearAuthSession";
 
 /** Dedupe IMS / network warning toasts when many parallel API calls fail together */
 const IMS_TOAST_THROTTLE_MS = 14000;
 let __lastImsToastAt = 0;
 let __lastImsToastMsg = "";
 let __lastNetworkToastAt = 0;
+
+function maybeLogoutOn401(endpoint, status, expectStatuses) {
+  if (status !== 401 || isAuthSessionClearing()) return;
+  if (expectStatuses?.includes?.(401)) return;
+  if (/\/core\/auth\/(login|logout|me)/.test(String(endpoint || ""))) return;
+  void clearAuthSession();
+}
 
 function showWarningToast(msg, toastId) {
   if (typeof window === "undefined") return;
@@ -178,6 +186,8 @@ export async function api(endpoint, { method = "GET", body, headers = {}, signal
           data: data?.data ?? null,
         };
       }
+
+      maybeLogoutOn401(endpoint, res.status, expectStatuses);
 
       maybeToastImsUnavailable(data?.ims_meta, data, { requestFailed: true });
       if (typeof window !== "undefined") {

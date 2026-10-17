@@ -2,9 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSelector } from "react-redux";
-import { Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
-import Drawer from "@/ui/primitives/Drawer";
 import { reportPanelService } from "@/apps/task/lib/services/reportApi";
 import ClVerificationFormModal from "../verification/ClVerificationFormModal";
 
@@ -61,7 +59,7 @@ function findFill(fills, next) {
 }
 
 /**
- * Report click → one load per instance. Fill Edit switches locally (no drawer blink).
+ * Report click → load instance for that cell's day. One drawer open (no loading drawer).
  */
 export default function TaskReportFormModal({ open, task, onClose, onSaved, onSwitchTask }) {
   const role = useSelector((s) => s.auth?.role);
@@ -72,20 +70,20 @@ export default function TaskReportFormModal({ open, task, onClose, onSaved, onSw
 
   const [fullTask, setFullTask] = useState(null);
   const [loading, setLoading] = useState(false);
-  const loadedInstanceRef = useRef(null);
+  const loadedKeyRef = useRef(null);
 
   useEffect(() => {
     if (!open || !task?.instance_id) {
       setFullTask(null);
-      loadedInstanceRef.current = null;
+      loadedKeyRef.current = null;
       setLoading(false);
       return undefined;
     }
 
     const instanceId = Number(task.instance_id);
-    if (loadedInstanceRef.current === instanceId) {
-      return undefined;
-    }
+    const day = task.report_day || task.scheduled_date || "";
+    const loadKey = `${instanceId}:${task.fill_id || ""}:${day}`;
+    if (loadedKeyRef.current === loadKey) return undefined;
 
     let cancelled = false;
     (async () => {
@@ -102,8 +100,12 @@ export default function TaskReportFormModal({ open, task, onClose, onSaved, onSw
             onClose?.();
             return;
           }
-          setFullTask(payload);
-          loadedInstanceRef.current = instanceId;
+          setFullTask({
+            ...payload,
+            scheduled_date: day || payload.scheduled_date,
+            report_day: day || null,
+          });
+          loadedKeyRef.current = loadKey;
         }
       } catch (err) {
         if (!cancelled) {
@@ -118,38 +120,9 @@ export default function TaskReportFormModal({ open, task, onClose, onSaved, onSw
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per instance open
-  }, [open, task?.instance_id]);
+  }, [open, task?.instance_id, task?.fill_id, task?.report_day, task?.scheduled_date]);
 
-  if (!open || !task) return null;
-
-  if (loading || !fullTask) {
-    return (
-      <Drawer
-        isOpen
-        onClose={onClose}
-        title="CL Task Report"
-        description={task.title || ""}
-        headerVariant="form"
-        maxWidth="max-w-2xl"
-        closeOnOutside={false}
-        footer={
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2.5 text-sm font-semibold text-slate-500"
-          >
-            Close
-          </button>
-        }
-      >
-        <div className="flex items-center justify-center py-16 text-slate-400 gap-2">
-          <Loader2 size={20} className="animate-spin" />
-          <span className="text-sm font-medium">Loading…</span>
-        </div>
-      </Drawer>
-    );
-  }
+  if (!open || !task || loading || !fullTask) return null;
 
   return (
     <ClVerificationFormModal
@@ -167,24 +140,24 @@ export default function TaskReportFormModal({ open, task, onClose, onSaved, onSw
           setFullTask((prev) => hydrateTaskFromFill(prev, match));
           return;
         }
-        /** Different instance not in list — soft parent switch (rare). */
         if (!next?.instance_id) return;
-        loadedInstanceRef.current = null;
+        loadedKeyRef.current = null;
         onSwitchTask?.({
           instance_id: next.instance_id,
           fill_id: next.fill_id || undefined,
           title: next.title || task?.title,
           scheduled_date: next.scheduled_date,
+          report_day: next.scheduled_date,
         });
       }}
       onClose={() => {
         setFullTask(null);
-        loadedInstanceRef.current = null;
+        loadedKeyRef.current = null;
         onClose?.();
       }}
       onSuccess={() => {
         setFullTask(null);
-        loadedInstanceRef.current = null;
+        loadedKeyRef.current = null;
         onSaved?.();
         onClose?.();
       }}

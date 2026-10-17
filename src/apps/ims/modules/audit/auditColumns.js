@@ -7,7 +7,7 @@ import {
   renderAuditExecutionStatusBadge,
   renderAuditLocationResultBadge,
   getAuditLocationResultLabel,
-} from "./auditStatusHelpers";
+} from "@/platform/utils/inventory-audit/auditStatusHelpers";
 import {
   getLocationStatusBadgeClass,
   getLocationStatusLabel,

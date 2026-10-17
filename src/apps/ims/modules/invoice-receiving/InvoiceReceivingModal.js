@@ -10,7 +10,7 @@ import { FormLabel, OK_INPUT } from "@/ui/common/Constants";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import FilePreviewLink, { getFilePreviewKind } from "@/ui/common/system/FilePreviewLink";
-import { expandIrUploadPath, formatImsErpScalar, formatIrBillDate, formatIrDateTime, irReceivingFilePaths, irReceivingUploadPreviewCaption, isImsErpNullLiteral, isIrApproved, normalizeInvoiceReceivingRow, 
+import { expandIrUploadPath, formatImsErpScalar, formatIrDateTime, irReceivingFilePaths, irReceivingUploadPreviewCaption, isImsErpNullLiteral, isIrApproved, normalizeInvoiceReceivingRow, 
   pickIrRemarks, publicUploadHref, receivingFileLabel, IR_UPLOAD_ACCEPT } from "./invoiceReceivingUtils";
 
 const ACCEPT = IR_UPLOAD_ACCEPT;
@@ -278,7 +278,7 @@ export default function InvoiceReceivingModal({ open, onClose, bill: billProp, m
           </div>
           <div className="space-y-1">
             <FormLabel>Bill date</FormLabel>
-            <input readOnly disabled value={formatIrBillDate(bill?.billdt)} className={DISABLED} />
+            <input readOnly disabled value={bill?.billdt || "—"} className={DISABLED} />
           </div>
           <div className="space-y-1 sm:col-span-2">
             <FormLabel>Customer</FormLabel>

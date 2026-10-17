@@ -44,7 +44,7 @@ export default function ClTaskSubmissionFillsList({
   onOpenFill,
 }) {
   const list = useMemo(() => {
-    return dedupeFills(fills).filter((fill) => {
+    const filtered = dedupeFills(fills).filter((fill) => {
       if (clTaskId != null && Number(fill.cl_task_id) !== Number(clTaskId)) return false;
       if (personId != null && fill.person_id != null && Number(fill.person_id) !== Number(personId)) {
         return false;
@@ -65,6 +65,12 @@ export default function ClTaskSubmissionFillsList({
       }
       return true;
     });
+    // Latest first
+    return filtered.sort((a, b) =>
+      String(b.submitted_at || b.scheduled_date || b.completed_at || "").localeCompare(
+        String(a.submitted_at || a.scheduled_date || a.completed_at || ""),
+      ),
+    );
   }, [fills, clTaskId, personId, currentInstanceId, currentFillId, excludeCurrent]);
 
   const [sectionOpen, setSectionOpen] = useState(!defaultCollapsed);

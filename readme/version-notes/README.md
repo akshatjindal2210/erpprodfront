@@ -4,6 +4,7 @@ Cross-app **internal helper API** catalog (paths, allowlists, caller pages): [..
 
 | Note | Topic |
 |------|--------|
+| [v5.1.0.md](./v5.1.0.md) | **IMS FN** super admin packing FIFO start · **Inventory Audit** unified (IMS + RM) · **RM Store SA** coils on save · **Production** Prime Item · **Maintain Job Card** · **Engineering** RM wire rule |
 | [v5.0.0.md](./v5.0.0.md) | **Engineering** Process / Machine / Prime · **Documents** IDs · UUID uploads · **Part D (14 Oct)** Machine QR · Eng shortcuts/icon · IMS Store In vs QC Area · RM Coil QC Pending · RM Rejection supplier |
 | [v4.4.8.md](./v4.4.8.md) | **IMS** OEM Tray · **HRMS** OT Approval empty dates + Pending default · Status All/A–Z · no future date |
 | [v4.4.7.md](./v4.4.7.md) | **HRMS** Leave · Loan · Deduction · Attendance/OT · `/calc` + Adjust · OT 0/1/2 · remarks · SOP · Gate Pass QR · **RM** IPR `reassign_jc` JSONB · Coil Finder History FG |

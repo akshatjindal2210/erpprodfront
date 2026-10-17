@@ -28,6 +28,21 @@ const DEFAULT_PARAMS = { pageSize: 1000, status: "all", sortKey: "id", sortDir: 
 /** "A > B > C" → parent path "A > B" (empty for a master). */
 const parentPath = (row) => String(row.path_label || "").split(" > ").slice(0, -1).join(" > ");
 
+/** Same keys as backend PROCESS_FLAGS — list/export only; modal has full labels. */
+const PROCESS_FLAG_LABELS = [
+  { key: "multi_jc", label: "Multi JC" },
+  { key: "rm_wire", label: "Wire" },
+  { key: "tooling", label: "Tool" },
+  { key: "fg", label: "FG" },
+  { key: "prime", label: "Prime" },
+  { key: "rework", label: "Rework" },
+  { key: "inhouse", label: "Inhouse" },
+  { key: "jobwork", label: "Jobwork" },
+];
+
+const flagsCopyText = (row) =>
+  PROCESS_FLAG_LABELS.map(({ key }) => `${key}=${row[key] ? "true" : "false"}`).join(", ");
+
 export default function ProcessMasterPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
@@ -123,20 +138,22 @@ export default function ProcessMasterPage() {
             : "bg-slate-50 text-slate-600 border-slate-100"
       }`}>{v || "MID"}</span>
     ), { width: "90px", align: "center" }],
-    ["Multi JC", "multi_jc", (v) => (
-      <span className="text-[10px] font-bold text-slate-700">{v ? "Yes" : "No"}</span>
-    ), { width: "72px", align: "center" }],
-    ["Flags", "rm_wire", (_v, row) => {
-      const tags = [];
-      if (row.rm_wire) tags.push("Wire");
-      if (row.tooling) tags.push("Tool");
-      if (row.fg) tags.push("FG");
-      if (row.prime) tags.push("Prime");
-      if (row.rework) tags.push("Rework");
+    ["Options", "multi_jc", (_v, row) => {
+      const on = PROCESS_FLAG_LABELS.filter(({ key }) => row[key]);
+      if (!on.length) return <span className="text-[10px] text-slate-400">—</span>;
       return (
-        <span className="text-[9px] text-slate-600">{tags.length ? tags.join(", ") : "—"}</span>
+        <div className="flex flex-wrap gap-1 py-0.5 max-w-[220px]">
+          {on.map(({ key, label }) => (
+            <span
+              key={key}
+              className="px-1.5 py-0.5 text-[8px] font-bold uppercase border border-slate-200 bg-slate-50 text-slate-600"
+            >
+              {label}
+            </span>
+          ))}
+        </div>
       );
-    }, { width: "120px", wrap: true }],
+    }, { width: "220px", wrap: true, sortable: false, copyValue: flagsCopyText }],
     ["Pattern", "pattern", (v) => (
       <span className="text-[10px] font-mono text-slate-500 truncate block" title={v || ""}>{v || "—"}</span>
     ), { width: "140px" }],

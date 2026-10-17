@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect, useDeferredValue } from "react";
-import { AlertTriangle, RefreshCcw } from "lucide-react";
+import { useState, useCallback, useMemo, useEffect, useDeferredValue, useRef } from "react";
+import { AlertTriangle, RefreshCcw, CheckCircle, Undo2 } from "lucide-react";
+import ActionButton from "@/ui/primitives/ActionButton";
 import AppListFooter, { ListPageFooterContextStrip } from "@/ui/common/list/listPageFooter";
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { toast } from "react-toastify";
@@ -25,6 +26,7 @@ import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSea
 import { SCHEDULE_REPORT_FILTER, SCHEDULE_REPORT_FILTER_OPTIONS, MONTH_FILTER_OPTIONS } from "@/apps/production/lib/config/reportFilters";
 import { getSelectedFinancialYear } from "@/platform/utils/global/financialYear";
 import { resolveShortageListDateRange } from "@/platform/utils/core/indianFinancialYear";
+import PrimeItemTab from "@/apps/production/modules/shortage/PrimeItemTab";
 import { SHORTAGE_PAGE_TABS, buildShortageMasterHeaders, buildShortageItemWiseHeaders, formatShortageMonthDate, shortageYearMonthKey, shortageMasterSearchParts, shortageItemWiseSearchParts } from "@/apps/production/modules/shortage/shortageColumns";
 
 const TYPE_FILTER_OPTIONS = [
@@ -38,7 +40,7 @@ const STATUS_FILTER_OPTIONS = [
   { label: "Pending", value: "pending" },
 ];
 
-const DEFAULT_PAGE_TAB = "master";
+const DEFAULT_PAGE_TAB = "prime-item";
 const DEFAULT_ITEM_WISE_STATUS = "pending";
 const MASTER_STATUS = "approved";
 
@@ -69,6 +71,13 @@ export default function ShortagePage() {
   const [masterDisplayLimit, setMasterDisplayLimit] = useState(100);
 
   const isMasterTab = pageTab === "master";
+  // Prime Item tab owns its own data / filters; the toolbar refresh bumps this key.
+  const isPrimeTab = pageTab === "prime-item";
+  const [primeRefreshKey, setPrimeRefreshKey] = useState(0);
+  // Prime Item tab mounts on first open; already open when it is the default tab (else the page stays blank).
+  const [primeOpened, setPrimeOpened] = useState(DEFAULT_PAGE_TAB === "prime-item");
+  const primeTabRef = useRef(null);
+  const [primeSelection, setPrimeSelection] = useState({ row: null, status: "pending" });
 
   const viewDateBounds = useMemo(
     () => ({ minDate: dateFilterDefaults.minDate, maxDate: dateFilterDefaults.maxDate }),
@@ -129,9 +138,13 @@ export default function ShortagePage() {
   }, [fetchMasterRows]);
 
   const refreshAll = useCallback(() => {
+    if (isPrimeTab) {
+      setPrimeRefreshKey((k) => k + 1);
+      return;
+    }
     fetchRows();
     void fetchMasterRows();
-  }, [fetchRows, fetchMasterRows]);
+  }, [isPrimeTab, fetchRows, fetchMasterRows]);
 
   const isCustomReport = String(draftReportType) === SCHEDULE_REPORT_FILTER.CUSTOM;
 
@@ -303,10 +316,12 @@ export default function ShortagePage() {
     }
   }, [tableLoading, tableRows.length, tableTotal, isMasterTab]);
 
+  // Prime Item tab sends its filtered rows + headers up (onDataChange) so the same Export button works there.
+  const [primeData, setPrimeData] = useState({ rows: [], headers: [] });
   const { exporting, handleExport, exportDisabled } = useListPageExport({
-    moduleName: isMasterTab ? "Shortage Master" : "Shortage",
-    rows: isMasterTab ? masterFilteredRows : itemFilteredRows,
-    headers: HEADERS,
+    moduleName: isPrimeTab ? "Shortage Prime Item" : isMasterTab ? "Shortage Master" : "Shortage",
+    rows: isPrimeTab ? primeData.rows : isMasterTab ? masterFilteredRows : itemFilteredRows,
+    headers: isPrimeTab ? primeData.headers : HEADERS,
   });
 
   const drillBannerText = useMemo(() => {
@@ -342,6 +357,11 @@ export default function ShortagePage() {
                 onChange={(id) => {
                   setPageTab(id);
                   setSelected(null);
+                  // Prime Item has its own data — don't touch list params (that would re-fetch Master / Item-wise).
+                  if (id === "prime-item") {
+                    setPrimeOpened(true);
+                    return;
+                  }
                   if (id === "master") setItemWiseItemdcodeFilter(null);
                   setParams((prev) => ({
                     ...prev,
@@ -355,18 +375,53 @@ export default function ShortagePage() {
             }
             actions={
               <>
+                {/* Prime Item tab — select a pending row → one button → drawer: details, Approve / Reject, remark, Save. Hidden without authorize. */}
+                {isPrimeTab && primeSelection.status === "pending" ? (
+                  <ActionButton
+                    module="production_shortage"
+                    action="authorize"
+                    variant="outline"
+                    label="Approve / Reject"
+                    icon={CheckCircle}
+                    disabled={!primeSelection.row}
+                    onClick={() => primeTabRef.current?.openAction("decide")}
+                    className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
+                  />
+                ) : null}
+                {isPrimeTab && primeSelection.status === "rejected" ? (
+                  <ActionButton
+                    module="production_shortage"
+                    action="authorize"
+                    variant="outline"
+                    label="Move to Pending"
+                    icon={Undo2}
+                    disabled={!primeSelection.row}
+                    onClick={() => primeTabRef.current?.openAction("reset")}
+                    className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-amber-600 shadow-none shrink-0"
+                  />
+                ) : null}
+                {isPrimeTab ? <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" /> : null}
                 <button onClick={refreshAll} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase shadow-none shrink-0">
                   <RefreshCcw size={14} className={tableLoading ? "animate-spin" : ""} />
                 </button>
               </>
             }
             viewToggle={
-              <ListPageExportToggle viewMode={viewMode} setMode={handleViewMode} exporting={exporting} disabled={tableLoading || exportDisabled} onExport={handleExport} />
+              <ListPageExportToggle viewMode={viewMode} setMode={handleViewMode} exporting={exporting} disabled={(!isPrimeTab && tableLoading) || exportDisabled} onExport={handleExport} />
             }
           />
 
         </ListPageToolbar>
 
+        {/* Mounted on first open, then only hidden — switching tabs back does not call the API again. */}
+        {primeOpened ? (
+          <div className={isPrimeTab ? "contents" : "hidden"}>
+            <PrimeItemTab ref={primeTabRef} refreshKey={primeRefreshKey} active={isPrimeTab} viewMode={viewMode} onSelectionChange={setPrimeSelection} onDataChange={setPrimeData} />
+          </div>
+        ) : null}
+
+        {isPrimeTab ? null : (
+        <>
         <ListPageFilterStrip>
           <DateRangeFilter
             key={draftReportType}
@@ -449,8 +504,8 @@ export default function ShortagePage() {
             totalItems={tableTotal}
             cardConfig={
               isMasterTab
-                ? { titleKey: "item_code", badgeIndices: [4, 6], detailIndices: [3, 7, 8], footerKey: "entry_count" }
-                : { titleKey: "item_code", badgeIndices: [3, 7], detailIndices: [4, 5, 6], footerKey: "created_at" }
+                ? { titleKey: "item_code", badgeIndices: [4, 7], detailIndices: [3, 6, 8, 9], footerKey: "entry_count" }
+                : { titleKey: "item_code", badgeIndices: [3, 8], detailIndices: [4, 5, 7], footerKey: "created_at" }
             }
           />
         </div>
@@ -466,6 +521,8 @@ export default function ShortagePage() {
           selectionLabel={imsSelectionLabel.shortage}
           onClearSelection={() => setSelected(null)}
         />
+        </>
+        )}
       </div>
     </div>
   );

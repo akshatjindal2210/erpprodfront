@@ -30,7 +30,7 @@ import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { useSelector } from "react-redux";
 import { selectUser, selectRole } from "@/platform/store/slices/authSlice";
-import { getAuditExecutionStatusLabel } from "./auditStatusHelpers";
+import { getAuditExecutionStatusLabel } from "@/platform/utils/inventory-audit/auditStatusHelpers";
 import { isLocationClosed, getLocationStatusLabel, isLocationSubmittedRow, canExecuteAuditLocationRow, findNextExecutableLocationRow } from "./auditScanHelpers";
 import {
   getAssignedUsersLabel,

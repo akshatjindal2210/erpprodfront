@@ -1,22 +1,18 @@
 "use client";
 
-import ProductionMasterPage from "@/apps/rmstore/modules/master/production/Page";
+import ItemProcessPage from "@/apps/engineering/modules/process-mapping/ItemProcessPage";
 import { ENG_MODULES } from "@/apps/engineering/lib/config/modules";
-import { finishProcessMasterService, finishProcessMasterHelpers } from "@/apps/engineering/lib/services/finishProcessMaster";
+import { finishProcessMasterService } from "@/apps/engineering/lib/services/finishProcessMaster";
 import FinishProcessModal from "./FinishProcessModal";
 
 export default function FinishProcessMasterPage() {
   return (
-    <ProductionMasterPage
+    <ItemProcessPage
+      type="fg"
       module={ENG_MODULES.FINISH_PROCESS_MASTER}
       service={finishProcessMasterService}
-      helpers={finishProcessMasterHelpers}
       title="Finish Process Master"
-      AddModal={FinishProcessModal}
-      hideApprove
-      showView
-      deleteEntityLabel="Finish process mapping"
-      listFilters={{ has_finish_process: true }}
+      Modal={FinishProcessModal}
     />
   );
 }

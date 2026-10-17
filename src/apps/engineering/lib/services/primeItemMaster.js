@@ -4,15 +4,17 @@ import { createProductionErpHelpers } from "@/apps/rmstore/lib/services/producti
 
 const EP = ENDPOINTS.PRIME_ITEM_MASTER;
 
-/** List / get reuse production table; create/update/delete only touch `prime_process` JSON. */
+/** Prime process plans — eng_item_process type "prime" (one row per prime item). */
 export const primeItemMasterService = {
   getAll: (params) => api(EP.LIST, { method: "POST", body: params }),
-  getById: (production_id) => api(EP.GET, { method: "POST", body: { production_id } }),
-  /** Insert or update full prime_process JSON on existing Item RM row. */
+  getById: (id) => api(EP.GET, { method: "POST", body: { id } }),
+  /** The prime item's saved prime (data null when none). */
+  getByItem: (item_dcode) => api(EP.GET, { method: "POST", body: { item_dcode } }),
+  /** Body `{ item_dcode, process: { stages } }` — insert or update the item's prime. */
   create: (data) => api(EP.CREATE, { method: "POST", body: data }),
-  update: (production_id, data) => api(EP.UPDATE, { method: "POST", body: { production_id, ...data } }),
-  /** Clears prime_process only (does not delete Item RM row). */
-  delete: (production_id) => api(EP.DELETE, { method: "POST", body: { production_id } }),
+  update: (id, data) => api(EP.UPDATE, { method: "POST", body: { id, ...data } }),
+  delete: (id) => api(EP.DELETE, { method: "POST", body: { id } }),
 };
 
+/** IMS item pickers only (prime item, RM). */
 export const primeItemMasterHelpers = createProductionErpHelpers(EP);

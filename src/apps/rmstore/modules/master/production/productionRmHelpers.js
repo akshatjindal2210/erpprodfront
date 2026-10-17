@@ -40,19 +40,6 @@ export function formatRmField(row, key, legacyKey = key) {
   return legacy != null && String(legacy).trim() !== "" ? String(legacy) : "";
 }
 
-function normalizeJsonObject(raw) {
-  if (raw == null) return null;
-  if (typeof raw === "object") return raw;
-  if (typeof raw === "string" && raw.trim()) {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
 /** Flatten rm_items onto row for list search, copy, sort, and export. */
 export function enrichProductionRow(row) {
   if (!row) return row;
@@ -62,8 +49,6 @@ export function enrichProductionRow(row) {
   return {
     ...row,
     rm_items: normalizeRmItems(row),
-    prime_process: normalizeJsonObject(row?.prime_process),
-    finish_process: normalizeJsonObject(row?.finish_process),
     rm_item_code: rmCodes || row.rm_item_code || "",
     rm_item_desc: rmDescs || row.rm_item_desc || "",
     approved,

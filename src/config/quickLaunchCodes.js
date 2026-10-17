@@ -88,15 +88,17 @@ export const QUICK_LAUNCH_CODES = [
   { code: "HAL", label: "HRMS Activity Logs",         route: ROUTES.HRMS_ACTIVITY_LOGS,      module: "hrms_activity_logs",        app: "hrms" },
 
   // ── Purchase ────────────────────────────────────────────────────
-  { code: "PU",  label: "Purchase Dashboard",         route: ROUTES.PURCHASE_DASHBOARD,      module: null,                        app: "purchase" },
+  { code: "PUD",  label: "Purchase Dashboard",         route: ROUTES.PURCHASE_DASHBOARD,      module: null,                        app: "purchase" },
   { code: "PPM", label: "Purchase Product Master",    route: ROUTES.PURCHASE_MASTER,         module: "purchase_master",           app: "purchase" },
   { code: "PSH", label: "Purchase Shortage",          route: ROUTES.PURCHASE_SHORTAGE,       module: "purchase_shortage",         app: "purchase" },
   { code: "PUL", label: "Purchase Activity Logs",     route: ROUTES.PURCHASE_ACTIVITY_LOGS,  module: "purchase_activity_logs",    app: "purchase" },
 
   // ── Production ──────────────────────────────────────────────────
-  { code: "PR",  label: "Production Dashboard",       route: ROUTES.PRODUCTION_DASHBOARD,    module: null,                        app: "production" },
+  { code: "PRD", label: "Production Dashboard",       route: ROUTES.PRODUCTION_DASHBOARD,    module: null,                        app: "production" },
   { code: "PRM", label: "Production Product Master",  route: ROUTES.PRODUCTION_MASTER,       module: "production_master",         app: "production" },
   { code: "PRS", label: "Production Shortage",        route: ROUTES.PRODUCTION_SHORTAGE,     module: "production_shortage",       app: "production" },
+  { code: "PRT", label: "Production Tooling",         route: ROUTES.PRODUCTION_TOOLING,      module: "production_tooling",        app: "production" },
+  { code: "PRJ", label: "Maintain Job Card",          route: ROUTES.PRODUCTION_JOB_CARD,     module: "production_job_card",       app: "production" },
   { code: "PRL", label: "Production Activity Logs",   route: ROUTES.PRODUCTION_ACTIVITY_LOGS,module: "production_activity_logs",  app: "production" },
 
   // ── Engineering (E…) ────────────────────────────────────────────

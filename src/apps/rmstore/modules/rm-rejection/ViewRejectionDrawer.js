@@ -13,6 +13,7 @@ import Drawer from "@/ui/primitives/Drawer";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { Info, RejectionReport, SectionHeader, primaryCoilUid, buildRejectedCoilRows, collectIprAttachmentPaths, iprSourceFields, resolveIprQcChecks, formatCoilUidSummary } from "@/apps/rmstore/modules/rm-rejection/GenerateStoreOutDrawer";
 import { isMrnPortalRejection } from "@/apps/rmstore/lib/helpers/mrnPortalRejection";
+import { rejectionBill } from "@/apps/rmstore/lib/utils/rejectionBillDisplay";
 
 const REJECTION_VIEW_PERMS = { permission_module: "rm_rejection", permission_action: "view" };
 
@@ -222,6 +223,12 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
         ? `QC #${row?.qc_check_uid || ""}`
         : "Pending Rejection";
 
+  const { billNo, billDt } = rejectionBill(registerOrRow, detail, row);
+  const billFields = [
+    { label: "Bill Number", value: billNo, mono: true, alwaysShow: true },
+    { label: "Bill Date", value: billDt, alwaysShow: true },
+  ];
+
   const infoFields = isIpr
     ? [
         { label: "IPR #", value: detail?.ipr_uid ?? row?.ipr_uid },
@@ -233,6 +240,7 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
           label: "Supplier",
           value: resolveRejectionSupplier(registerOrRow, detail, row),
         },
+        ...billFields,
         ...iprSourceFields(detail, row),
         {
           label: "Total Qty",
@@ -241,13 +249,10 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
               ? Number(detail?.total_qty ?? row?.total_qty ?? registerOrRow?.total_qty).toLocaleString()
               : null,
         },
-        { label: "Approved By", value: detail?.approved_by_name || row?.inspected_by_name },
+        { label: "Approved By", value: detail?.approved_by_name || row?.approved_by_name },
         {
           label: "Approved At",
-          value:
-            detail?.approved_at || row?.inspected_at
-              ? formatDateTime(detail?.approved_at || row?.inspected_at)
-              : null,
+          value: detail?.approved_at ? formatDateTime(detail.approved_at) : null,
         },
       ]
     : isQc
@@ -270,12 +275,20 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
             label: "Supplier",
             value: resolveRejectionSupplier(registerOrRow, detail, row),
           },
-          { label: "Inspected By", value: detail?.approved_by_name || detail?.created_by_name || row?.inspected_by_name },
+          ...billFields,
+          {
+            label: "Inspected By",
+            value:
+              detail?.inspected_by_name ||
+              detail?.inspected_by ||
+              row?.inspected_by_name ||
+              detail?.created_by_name,
+          },
           {
             label: "Inspected At",
             value:
-              detail?.approved_at || detail?.created_at || row?.inspected_at
-                ? formatDateTime(detail?.approved_at || detail?.created_at || row?.inspected_at)
+              detail?.inspected_at || row?.inspected_at
+                ? formatDateTime(detail?.inspected_at || row?.inspected_at)
                 : null,
           },
         ]
@@ -296,6 +309,7 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
             value: registerOrRow?.total_qty != null ? Number(registerOrRow.total_qty).toLocaleString() : null,
           },
           { label: "Coils", value: registerOrRow?.coil_count ?? rejectedCoils.length },
+          ...billFields,
         ];
 
   const registerMetaFields =
@@ -303,7 +317,6 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
       ? [
           { label: "Stage", value: stageLabel(registerOrRow) },
           { label: "Store Out", value: registerOrRow?.out_uid != null ? `OUT-${registerOrRow.out_uid}` : null },
-          { label: "Bill Number", value: registerOrRow?.bill_no || null },
           { label: "Registered By", value: registerOrRow?.created_by_name },
           {
             label: "Registered At",
@@ -362,9 +375,15 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
         <div className="space-y-3 pb-2">
           <SectionHeader title="Rejection details" />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
-            {infoFields.filter((f) => f.value != null && String(f.value).trim() !== "" && String(f.value).trim() !== "—").map((field) => (
-              <Info key={field.label} label={field.label} value={field.value} mono={field.mono} />
-            ))}
+            {infoFields
+              .filter(
+                (f) =>
+                  f?.alwaysShow ||
+                  (f.value != null && String(f.value).trim() !== "" && String(f.value).trim() !== "—")
+              )
+              .map((field) => (
+                <Info key={field.label} label={field.label} value={field.value} mono={field.mono} />
+              ))}
           </div>
           {(registerOrRow?.remarks || detail?.remarks) ? (
             <div className="border border-slate-200 px-2 py-1.5 bg-white">
@@ -377,10 +396,14 @@ export default function ViewRejectionDrawer({ open, onClose, row }) {
           {registerMetaFields.length ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
               {registerMetaFields
-                .filter((f) => f.value != null && String(f.value).trim() !== "" && String(f.value).trim() !== "—")
+                .filter(
+                  (f) =>
+                    f?.alwaysShow ||
+                    (f.value != null && String(f.value).trim() !== "" && String(f.value).trim() !== "—")
+                )
                 .map((field) => (
-                <Info key={field.label} label={field.label} value={field.value} />
-              ))}
+                  <Info key={field.label} label={field.label} value={field.value} mono={field.mono} />
+                ))}
             </div>
           ) : null}
         </div>

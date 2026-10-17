@@ -57,9 +57,13 @@ export default function ProcessMappingView({
                 <tbody>
                   {asList(stage.processes).map((proc, pIdx) => {
                     const machines = asList(proc.machines);
-                    const rms = asList(proc.rm_items).length
-                      ? normalizeRmItems(proc.rm_items)
-                      : normalizeRmItems(defaultRm);
+                    // Match editor: RM wire OFF → no RM; else show saved RM or Item RM defaults.
+                    const rms =
+                      proc.rm_wire === false
+                        ? []
+                        : asList(proc.rm_items).length
+                          ? normalizeRmItems(proc.rm_items)
+                          : normalizeRmItems(defaultRm);
                     return (
                       <tr key={proc.process_id || pIdx} className="border-b border-slate-50 last:border-0">
                         <td className="px-3 py-2 align-top">

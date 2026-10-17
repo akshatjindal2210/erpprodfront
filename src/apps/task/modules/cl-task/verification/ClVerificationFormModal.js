@@ -188,7 +188,7 @@ export default function ClVerificationFormModal({
     setFieldError("");
     setVerifyError("");
     setCreateAsRedTicket(false);
-  }, [task?.instance_id, task?.fill_id]);
+  }, [task?.instance_id, task?.fill_id, task?.scheduled_date]);
 
   useEffect(() => {
     if (!task?.instance_id && !task?.cl_task_id) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap, Package, AlertTriangle, History } from "lucide-react";
+import { Zap, Package, AlertTriangle, History, ClipboardList, Wrench } from "lucide-react";
 import { ROUTES } from "@/apps/production/lib/utils/routes";
 
 export const PRODUCTION_NAV_REGISTRY = [
@@ -15,6 +15,8 @@ export const PRODUCTION_NAV_REGISTRY = [
     ],
   },
   { id: "shortage", name: "Shortage", icon: <AlertTriangle size={16} />, href: ROUTES.PRODUCTION_SHORTAGE, module: "production_shortage" },
+  { id: "tooling", name: "Tooling", icon: <Wrench size={16} />, href: ROUTES.PRODUCTION_TOOLING, module: "production_tooling" },
+  { id: "job-card", name: "Maintain Job Card", icon: <ClipboardList size={16} />, href: ROUTES.PRODUCTION_JOB_CARD, module: "production_job_card" },
   {
     id: "production-logs-group",
     name: "Logs",

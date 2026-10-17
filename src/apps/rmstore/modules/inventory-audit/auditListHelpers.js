@@ -1,7 +1,7 @@
 "use client";
 
 import { expandLocationAssignmentRows, getAuditPlanUsers, formatAuditParticipantNames, filterLocationListRows, computeAuditBatchScore, isLocationSubmittedRow, formatLocationScorePct, getLocationStatusLabel, getLocationStatusBadgeClass } from "./auditScanHelpers";
-import { getAuditExecutionStatusLabel } from "./auditStatusHelpers";
+import { getAuditExecutionStatusLabel } from "@/platform/utils/inventory-audit/auditStatusHelpers";
 
 export function auditMasterSearchParts(row) {
   const parts = [

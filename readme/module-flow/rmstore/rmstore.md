@@ -34,6 +34,7 @@ ERP mrn_rm → MRN Portal (stickers) → Unassigned
 | Store Out             | [store-out.md](./store-out.md)                         |
 | Stock Adjustment      | [stock-adjustment.md](./stock-adjustment.md)           |
 | RM Inventory          | [inventory-report.md](./inventory-report.md)           |
+| Inventory Audit       | [../INVENTORY-AUDIT.md](../INVENTORY-AUDIT.md) (shared `ims_audit_*`, coils) |
 | Activity Logs         | [activity-logs.md](./activity-logs.md)                 |
 | Coil Transaction Logs | [coil-transaction-logs.md](./coil-transaction-logs.md) |
 | Sticker Download Logs | [sticker-download-logs.md](./sticker-download-logs.md) |

@@ -10,6 +10,7 @@ import Drawer from "@/ui/primitives/Drawer";
 import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
+import { rejectionBill } from "@/apps/rmstore/lib/utils/rejectionBillDisplay";
 
 const MODULE = "rm_rejection";
 
@@ -87,6 +88,7 @@ export default function ApproveRejectionDrawer({ open, onClose, onSuccess, row }
       : coilUids.length > 1
         ? coilUids.join(", ")
         : row?.coil_no_uid || "—";
+  const { billNo, billDt } = rejectionBill(detail, row);
 
   const footer = (
     <RmStoreDrawerFooter
@@ -157,6 +159,8 @@ export default function ApproveRejectionDrawer({ open, onClose, onSuccess, row }
               }
             />
             <Info label="Coils" value={detail?.coil_count ?? row?.coil_count ?? coils.length} />
+            <Info label="Bill Number" value={billNo} mono />
+            <Info label="Bill Date" value={billDt} />
             <Info label="Registered By" value={detail?.created_by_name || row?.created_by_name} />
             <Info
               label="Registered At"

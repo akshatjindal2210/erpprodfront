@@ -35,6 +35,8 @@ const FLAG_FIELDS = [
   { key: "fg", label: "FG" },
   { key: "prime", label: "Prime" },
   { key: "rework", label: "Rework" },
+  { key: "inhouse", label: "Inhouse" },
+  { key: "jobwork", label: "Jobwork" },
 ];
 
 const INITIAL_FORM = {
@@ -47,6 +49,8 @@ const INITIAL_FORM = {
   fg: false,
   prime: false,
   rework: false,
+  inhouse: false,
+  jobwork: false,
   pattern: "",
   approved: false,
 };
@@ -121,6 +125,8 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
           fg: !!editData.fg,
           prime: !!editData.prime,
           rework: !!editData.rework,
+          inhouse: !!editData.inhouse,
+          jobwork: !!editData.jobwork,
           pattern: editData.pattern || "",
           approved: isApprove ? (editData.approved ?? false) : false,
         });
@@ -203,6 +209,8 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
         fg: !!form.fg,
         prime: !!form.prime,
         rework: !!form.rework,
+        inhouse: !!form.inhouse,
+        jobwork: !!form.jobwork,
         pattern: form.pattern?.trim() || null,
         approved: finalApproved,
       };

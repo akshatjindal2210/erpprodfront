@@ -154,7 +154,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
 
   const selectedCount = multiple ? (selected?.length ?? 0) : 0;
 
-  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
+  const [dropPos, setDropPos] = useState({ top: 0, bottom: null, left: 0, width: 0, room: 0 });
   const [openUp, setOpenUp] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [apiMessage, setApiMessage] = useState("");
@@ -208,9 +208,10 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
     const margin = 8;
-    const panelHeight = 264;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const nextOpenUp = spaceBelow < panelHeight && rect.top > spaceBelow;
+    const minBelow = 180; // ~3 options — prefer opening below the input, list shrinks to fit
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const nextOpenUp = spaceBelow < minBelow && spaceAbove > spaceBelow;
 
     let width = Math.min(rect.width, window.innerWidth - margin * 2);
     let left = rect.left;
@@ -223,10 +224,13 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     }
 
     setOpenUp(nextOpenUp);
+    // Open up → anchor the panel's bottom to the input's top, so it never covers the input or floats away
     setDropPos({
       width,
       left,
-      top: !nextOpenUp ? rect.bottom + 4 : Math.max(margin, rect.top - panelHeight - 4),
+      top: nextOpenUp ? null : rect.bottom + 4,
+      bottom: nextOpenUp ? window.innerHeight - rect.top + 4 : null,
+      room: (nextOpenUp ? spaceAbove : spaceBelow) - 4,
     });
   }, []);
 
@@ -251,10 +255,32 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
     return () => cancelAnimationFrame(id);
   }, [defaultOpen, disabled, calcPosition, prepareOpenSearch]);
 
+  /** Portal near the bottom of a scroll box (drawer body) → scroll the box so the list fits below the input. */
+  const makeRoomBelow = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const want = 300; // list + gap
+    const rect = trigger.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom - 8;
+    if (below >= want) return;
+    let box = trigger.parentElement;
+    while (box && box !== document.body) {
+      const oy = getComputedStyle(box).overflowY;
+      if ((oy === "auto" || oy === "scroll") && box.scrollHeight > box.clientHeight) break;
+      box = box.parentElement;
+    }
+    if (!box || box === document.body) return;
+    const canScroll = box.scrollHeight - box.clientHeight - box.scrollTop;
+    const keepVisible = rect.top - box.getBoundingClientRect().top - 8; // input stays inside the box
+    const by = Math.min(want - below, canScroll, keepVisible);
+    if (by > 0) box.scrollBy({ top: by });
+  }, []);
+
   useLayoutEffect(() => {
     if (!open) return;
+    if (usePortal) makeRoomBelow();
     calcPosition();
-  }, [open, calcPosition]);
+  }, [open, calcPosition, makeRoomBelow, usePortal]);
 
   useEffect(() => {
     if (!open) return;
@@ -815,7 +841,7 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       style={
         usePortal
           ? {
-              top: dropPos.top,
+              ...(dropPos.bottom != null ? { bottom: dropPos.bottom } : { top: dropPos.top }),
               left: dropPos.left,
               width: dropPos.width,
               maxWidth: "calc(100vw - 16px)",
@@ -865,7 +891,13 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
       <ul
         ref={listRef}
         className={`overflow-y-auto overscroll-y-contain touch-pan-y custom-scrollbar ${pinSelectedAtTop && selectedCount > 0 ? "max-h-[124px]" : "max-h-[min(280px,42vh)]"}`}
-        style={{ touchAction: "pan-y" }}
+        style={{
+          touchAction: "pan-y",
+          // Portal: never taller than the room next to the input (pinned "Selected" panel ≈ 130px)
+          ...(usePortal && dropPos.room > 0
+            ? { maxHeight: `min(${pinSelectedAtTop && selectedCount > 0 ? "124px" : "min(280px, 42vh)"}, ${Math.max(96, dropPos.room - (pinSelectedAtTop && selectedCount > 0 ? 130 : 0))}px)` }
+            : {}),
+        }}
         onWheel={handleDropdownListWheel}
         onScroll={(e) => {
           const el = e.currentTarget;

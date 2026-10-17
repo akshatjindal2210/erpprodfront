@@ -1,4 +1,6 @@
-# Inventory Audit
+# Inventory Audit (IMS)
+
+> **Shared design (tables, score formula, RM Store coils):** [../INVENTORY-AUDIT.md](../INVENTORY-AUDIT.md)
 
 Physical count vs system boxes by location. Optional comparison adjustment moves boxes.
 
@@ -9,7 +11,7 @@ Physical count vs system boxes by location. Optional comparison adjustment moves
 | FE            | `modules/audit/`                                                                     |
 | BE            | `modules/audit/`                                                                     |
 | API           | `POST /api/audit/` (`list|create|update|delete|submit-scan|comparison-adjustment|…`) |
-| Table         | `ims_audit_master`, `ims_audit_locations` (scans in `scanned_boxes` JSONB)           |
+| Table         | `ims_audit_master` (`app_type = ims`), `ims_audit_locations` (`scanned_boxes` JSONB) |
 
 **Files**
 

@@ -411,7 +411,7 @@ export default function RmRejectionPage() {
     if (isPendingTab) return false;
     if (!selectedRecord?.qc_reject_uid) return false;
     if (String(selectedRecord?.bill_no || "").trim()) return false;
-    if (isStoreOutStartedRow(selectedRecord)) return false;
+    if (isStoreOutApproved(selectedRecord)) return false;
     return true;
   }, [isPendingTab, selectedRecord]);
 
@@ -419,10 +419,10 @@ export default function RmRejectionPage() {
     if (isPendingTab) return "";
     if (!selectedRecord?.qc_reject_uid) return "Select a register entry to delete";
     if (String(selectedRecord?.bill_no || "").trim()) return "Complete register entries cannot be deleted";
-    if (isStoreOutStartedRow(selectedRecord)) {
+    if (isStoreOutApproved(selectedRecord)) {
       return selectedRecord?.out_uid
-        ? `Store Out #${selectedRecord.out_uid} has started. Delete Store Out first.`
-        : "Store Out work has started. Delete Store Out first.";
+        ? `Store Out #${selectedRecord.out_uid} is authorized. Register cannot be deleted.`
+        : "Store Out is authorized. Register cannot be deleted.";
     }
     return "";
   }, [isPendingTab, selectedRecord]);
@@ -1078,7 +1078,7 @@ export default function RmRejectionPage() {
         idKey="qc_reject_uid"
         titleKey="qc_reject_uid"
         moduleSlug={MODULE}
-        warningMessage="This removes the register entry and unlinks coils. Allowed only before Store Out work starts (Scan/Edit)."
+        warningMessage="This removes the register entry and unlinks coils. Unapproved Store Out drafts for this rejection are removed automatically. Not allowed after Store Out authorize or bill attach."
       />
     </div>
   );

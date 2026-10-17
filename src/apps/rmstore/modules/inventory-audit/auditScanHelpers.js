@@ -15,9 +15,9 @@ function parseJsonCoilList(raw) {
 /** Parse expected_coils JSON array on a location row. */
 export function parseExpectedCoils(loc) {
   const raw =
-    loc != null && typeof loc === "object" && !Array.isArray(loc) && !("expected_coils" in loc)
+    loc != null && typeof loc === "object" && !Array.isArray(loc) && !("expected_coils" in loc) && !("expected_boxes" in loc)
       ? parseJsonCoilList(loc)
-      : parseJsonCoilList(loc?.expected_coils);
+      : parseJsonCoilList(loc?.expected_coils ?? loc?.expected_boxes);
   return raw.map(normalizeExpectedCoil).filter((row) => row?.coil_no_uid);
 }
 
@@ -35,10 +35,10 @@ function normalizeExpectedCoil(row) {
 
 /** Parse scanned_coils JSON array on a location row. */
 export function parseScannedCoils(loc) {
-  if (loc != null && typeof loc === "object" && !Array.isArray(loc) && !("scanned_coils" in loc)) {
+  if (loc != null && typeof loc === "object" && !Array.isArray(loc) && !("scanned_coils" in loc) && !("scanned_boxes" in loc)) {
     return parseJsonCoilList(loc);
   }
-  const list = parseJsonCoilList(loc?.scanned_coils);
+  const list = parseJsonCoilList(loc?.scanned_coils ?? loc?.scanned_boxes);
   return list
     .map((row) => ({
       coil_no_uid: String(row?.coil_no_uid || "").trim().toUpperCase(),

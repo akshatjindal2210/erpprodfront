@@ -592,28 +592,15 @@ export default function StockAdjustmentDrawer({
               : uids.map((uid) => ({ coil_no_uid: uid }));
           setSelectedCoils(coils);
           if (seedMrnUid) {
-            try {
-              const mrnRes = await mrnService.getDetail(seedMrnUid);
-              if (mrnRes?.data) {
-                setMrnDetail(mrnRes.data);
-                if (mrnRes.data.serial_no != null) setSerialNo(String(mrnRes.data.serial_no));
-                if (!d.acc_name && mrnRes.data.acc_name) {
-                  setSupplierId(mrnRes.data.acc_code ?? null);
-                  setSupplierRow({
-                    id: mrnRes.data.acc_code,
-                    acc_code: mrnRes.data.acc_code,
-                    acc_name: mrnRes.data.acc_name,
-                  });
-                }
-                const resolvedHeat =
-                  d.heat_no != null && String(d.heat_no).trim()
-                    ? String(d.heat_no)
-                    : mrnRes.data.heat_no ?? mrnRes.data.coil_no ?? mrnRes.data.it_lot_no ?? coils[0]?.heat_no ?? "";
-                if (resolvedHeat) setHeatNo(String(resolvedHeat));
-              }
-            } catch {
-              /* MRN may exist in ERP only */
-            }
+            setMrnDetail({
+              uid: seedMrnUid,
+              mrn_no: seedMrnNo,
+              serial_no: d.serial_no ?? resolveSerialNo({ uid: seedMrnUid, mrn_uid: seedMrnUid }),
+              mrn_dt: d.mrn_dt ?? null,
+              bill_no: d.bill_no ?? null,
+              bill_dt: d.bill_dt ?? null,
+              heat_no: d.heat_no ?? coils[0]?.heat_no ?? null,
+            });
           }
           if (!d.acc_name && coils[0]?.acc_name) {
             setSupplierId(coils[0].acc_code ?? null);
@@ -625,55 +612,26 @@ export default function StockAdjustmentDrawer({
           }
         }
         setLinkedCoils(Array.isArray(d.coils) ? d.coils : []);
+
+        // Seed MRN from the adjustment row first so the drawer can paint immediately.
+        // Do NOT call searchErp on open — that pulls a full FY of IMS MRNs and made edit/approve very slow.
         if (isSaAddLike(d.entry_type) && seedMrnUid) {
-          let mrnLoaded = false;
-          const fy = d.financial_year || defaultFinancialYear();
-          const lotKey = String(d.it_lot_no || d.heat_no || "").trim();
-          const lotGate = usesLotGate(d.entry_type);
-          try {
-            const erpRes = await mrnService.searchErp({
-              entry_type: d.entry_type,
-              search_mode: lotGate ? "lot" : "mrn",
-              financial_year: fy,
-              ...(lotGate && lotKey
-                ? { lot_no: lotKey, search: lotKey }
-                : { search: seedMrnUid }),
-              exclude_adjustment_id: editId ?? undefined,
-            });
-            const matches = Array.isArray(erpRes?.data) ? erpRes.data : erpRes?.data ? [erpRes.data] : [];
-            const hit = matches.find((m) => String(m?.uid || "").trim() === seedMrnUid) || matches[0] || null;
-            if (hit) {
-              setMrnDetail(hit);
-              setSerialNo(resolveSerialNo(hit));
-              mrnLoaded = true;
-            }
-          } catch {
-            /* try local detail */
-          }
-          if (!mrnLoaded) {
-            try {
-              const mrnRes = await mrnService.getDetail(seedMrnUid);
-              if (mrnRes?.data) {
-                setMrnDetail(mrnRes.data);
-                if (mrnRes.data.serial_no != null) setSerialNo(String(mrnRes.data.serial_no));
-                mrnLoaded = true;
-              }
-            } catch {
-              /* MRN may exist in ERP only */
-            }
-          }
-          if (!mrnLoaded) {
-            setMrnDetail({
-              uid: seedMrnUid,
-              mrn_no: seedMrnNo,
-              serial_no: d.serial_no ?? resolveSerialNo({ uid: seedMrnUid, mrn_uid: seedMrnUid }),
-              mrn_dt: d.mrn_dt ?? null,
-              bill_no: d.bill_no ?? null,
-              bill_dt: d.bill_dt ?? null,
-              qty_editable: true,
-              qty_auto_calc: true,
-            });
-          }
+          setMrnDetail({
+            uid: seedMrnUid,
+            mrn_no: seedMrnNo,
+            serial_no: d.serial_no ?? resolveSerialNo({ uid: seedMrnUid, mrn_uid: seedMrnUid }),
+            mrn_dt: d.mrn_dt ?? null,
+            bill_no: d.bill_no ?? null,
+            bill_dt: d.bill_dt ?? null,
+            item_dcode: d.item_dcode ?? null,
+            item_code: d.item_code ?? null,
+            item_desc: d.item_desc ?? null,
+            acc_code: d.acc_code ?? null,
+            acc_name: d.acc_name ?? null,
+            heat_no: d.heat_no ?? null,
+            qty_editable: true,
+            qty_auto_calc: true,
+          });
         }
         if (d.mrn_dt || d.bill_no || d.bill_dt) {
           setMrnDetail((prev) => ({
@@ -685,10 +643,45 @@ export default function StockAdjustmentDrawer({
         }
         setGateReady(true);
         if (isApprove && !cancelled) setMobileTab("coils");
+        if (!cancelled) setFormReady(true);
+
+        // Light MRN detail enrich in background (single UID) — never blocks drawer open.
+        if (seedMrnUid) {
+          try {
+            const mrnRes = await mrnService.getDetail(seedMrnUid);
+            if (cancelled || !mrnRes?.data) return;
+            const m = mrnRes.data;
+            setMrnDetail((prev) => ({
+              ...(prev || {}),
+              ...m,
+              uid: String(m.uid || seedMrnUid).trim(),
+              mrn_dt: m.mrn_dt ?? d.mrn_dt ?? prev?.mrn_dt ?? null,
+              bill_no: m.bill_no ?? d.bill_no ?? prev?.bill_no ?? null,
+              bill_dt: m.bill_dt ?? d.bill_dt ?? prev?.bill_dt ?? null,
+            }));
+            if (m.serial_no != null) setSerialNo(String(m.serial_no));
+            if (!d.acc_name && m.acc_name) {
+              setSupplierId(m.acc_code ?? null);
+              setSupplierRow({
+                id: m.acc_code,
+                acc_code: m.acc_code,
+                acc_name: m.acc_name,
+              });
+            }
+            if (d.entry_type === "minus") {
+              const resolvedHeat =
+                d.heat_no != null && String(d.heat_no).trim()
+                  ? String(d.heat_no)
+                  : m.heat_no ?? m.coil_no ?? m.it_lot_no ?? "";
+              if (resolvedHeat) setHeatNo(String(resolvedHeat));
+            }
+          } catch {
+            /* row seed is enough for view/edit/approve UI */
+          }
+        }
       } catch (err) {
         if (!cancelled)
           toast.error(err?.message || "Could not load the stock adjustment. Please try again.");
-      } finally {
         if (!cancelled) setFormReady(true);
       }
     };
@@ -1612,7 +1605,7 @@ export default function StockAdjustmentDrawer({
         });
         toast.success(
           isSaAddLike(entryType)
-            ? "Approved — coils created in inventory."
+            ? "Approved — now reflected in inventory."
             : "Stock adjustment approved."
         );
         finishSave();
@@ -1730,8 +1723,8 @@ export default function StockAdjustmentDrawer({
           }
           toast.success(
             doApprove
-              ? "Approved — coils created in inventory. Opening sticker print…"
-              : "Updated and set to pending."
+              ? "Approved — now reflected in inventory. Opening sticker print…"
+              : "Updated. Coils are in Store In — approve to reflect in inventory."
           );
         } else {
           const createRes = await stockAdjustmentService.create(payload);
@@ -1740,8 +1733,8 @@ export default function StockAdjustmentDrawer({
           didApproveAdd = Boolean(doApprove);
           toast.success(
             doApprove
-              ? "Approved — coils created in inventory. Opening sticker print…"
-              : "Saved as pending. Approve it to create the coils."
+              ? "Approved — now reflected in inventory. Opening sticker print…"
+              : "Saved. Coils are in Store In — approve to reflect in inventory."
           );
         }
 
@@ -2006,12 +1999,12 @@ export default function StockAdjustmentDrawer({
                 {noRemainingQty
                   ? "No remaining MRN qty — breakdown not available"
                   : editId && !isApprovedAdd
-                    ? "Preview UIDs — final coil_no_uid is set on Approve"
+                    ? "Coils available in Store In — approve to reflect in inventory"
                     : addPreviewRows.length > 0
-                      ? `${addPreviewRows.length} coil${addPreviewRows.length === 1 ? "" : "s"} · Created in inventory only after Approve`
+                      ? `${addPreviewRows.length} coil${addPreviewRows.length === 1 ? "" : "s"} · Store In now · inventory after Approve`
                       : adjustmentQty <= 0
                         ? "Enter total qty to preview coils"
-                        : "Created in inventory only after Approve"}
+                        : "Store In on save · inventory after Approve"}
               </p>
             ) : entryType === "minus" ? (
               <p className="text-[8px] font-medium text-slate-500 leading-tight truncate">

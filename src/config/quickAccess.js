@@ -4,7 +4,7 @@ import { ROUTES as HRMS_ROUTES } from "@/apps/hrms/lib/utils/routes";
 import { ROUTES as PURCHASE_ROUTES } from "@/apps/purchase/lib/utils/routes";
 import { ROUTES as PRODUCTION_ROUTES } from "@/apps/production/lib/utils/routes";
 import { ROUTES as ENGINEERING_ROUTES } from "@/apps/engineering/lib/utils/routes";
-import { FileText, Activity, Shield, Clock, History, Zap, ClipboardCheck, ShieldCheck, ShieldX, LogOut, BarChart3, CheckSquare, Recycle, LayoutDashboard, ListTodo, AlertTriangle, Truck, Boxes, ClipboardList, FileSearch, Layers, Warehouse, UserCheck, ListCheck, Briefcase, Award, Video, PencilRuler, Package, Users, CalendarCheck, ScrollText, ShoppingCart, Factory, GitBranch, Cpu } from "lucide-react";
+import { FileText, Activity, Shield, Clock, History, Zap, ClipboardCheck, ShieldCheck, ShieldX, LogOut, BarChart3, CheckSquare, Recycle, LayoutDashboard, ListTodo, AlertTriangle, Truck, Boxes, ClipboardList, FileSearch, Layers, Warehouse, UserCheck, ListCheck, Briefcase, Award, Video, PencilRuler, Package, Users, CalendarCheck, ScrollText, ShoppingCart, Factory, GitBranch, Cpu, Wrench } from "lucide-react";
 import { getShellAppFromPathname } from "@/config/appsRegistry";
 
 /** Permission-filtered; Home / role-only links when no module. */
@@ -81,6 +81,8 @@ const PRODUCTION = [
   { id: "home", label: "Dashboard", icon: <Zap size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_DASHBOARD },
   { id: "product-master", label: "Product Master", icon: <Layers size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_MASTER, module: "production_master" },
   { id: "shortage", label: "Shortage", icon: <AlertTriangle size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_SHORTAGE, module: "production_shortage" },
+  { id: "tooling", label: "Tooling", icon: <Wrench size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_TOOLING, module: "production_tooling" },
+  { id: "job-card", label: "Maintain Job Card", icon: <ClipboardList size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_JOB_CARD, module: "production_job_card" },
   { id: "logs", label: "Activity Logs", icon: <History size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_ACTIVITY_LOGS, module: "production_activity_logs" },
 ];
 

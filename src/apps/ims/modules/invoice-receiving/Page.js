@@ -24,7 +24,7 @@ import DataTable from "@/ui/primitives/DataTable";
 import ActionButton from "@/ui/primitives/ActionButton";
 import InvoiceReceivingModal from "./InvoiceReceivingModal";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
-import { canIrApproveRow, canIrClearReceivingRow, canIrEditOnPendingTab, canIrEditOnRegisterTab, formatImsErpScalar, formatIrBillDate, formatIrDateTime, getIrPendingRowClassName, hasIrReceivingFile, irRemarksDisplay, isImsErpNullLiteral, isIrApproved, isIrAwaitingReceive, filterIrRegisterRows, isIrReceivedNotApproved, mergeIrPendingRows } from "./invoiceReceivingUtils";
+import { canIrApproveRow, canIrClearReceivingRow, canIrEditOnPendingTab, canIrEditOnRegisterTab, formatImsErpScalar, formatIrDateTime, getIrPendingRowClassName, hasIrReceivingFile, irRemarksDisplay, isImsErpNullLiteral, isIrApproved, isIrAwaitingReceive, filterIrRegisterRows, isIrReceivedNotApproved, mergeIrPendingRows } from "./invoiceReceivingUtils";
 /* Re-enable with Attachments column:
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { irReceivingFilePaths, publicUploadHref, receivingFileLabel } from "./invoiceReceivingUtils";
@@ -177,15 +177,7 @@ const SHARED_HEADERS = [
     ),
     { width: "160px" },
   ],
-  [
-    "Bill Date",
-    "billdt",
-    (v, row) => (
-      <span className="text-[10px] text-slate-500 font-medium tabular-nums">{formatIrBillDate(v ?? row?.billdt)}
-      </span>
-    ),
-    { width: "140px" },
-  ],
+  ["Bill Date", "billdt", (v) => <span className="text-[10px] text-slate-500 font-medium">{v || "—"}</span>, { width: "140px" }],
   [
     "Customer",
     "acc_name",

@@ -4,12 +4,17 @@ import { createProductionErpHelpers } from "@/apps/rmstore/lib/services/producti
 
 const EP = ENDPOINTS.FINISH_PROCESS_MASTER;
 
+/** FG process plans — eng_item_process type "fg" (one row per FG item, on its prime item's prime). */
 export const finishProcessMasterService = {
   getAll: (params) => api(EP.LIST, { method: "POST", body: params }),
-  getById: (production_id) => api(EP.GET, { method: "POST", body: { production_id } }),
+  getById: (id) => api(EP.GET, { method: "POST", body: { id } }),
+  /** The FG item's row, or a draft (id null) with its prime item's prime. */
+  getByItem: (item_dcode) => api(EP.GET, { method: "POST", body: { item_dcode } }),
+  /** Body `{ item_dcode, process: { stages } }` — insert or update the item's FG process. */
   create: (data) => api(EP.CREATE, { method: "POST", body: data }),
-  update: (production_id, data) => api(EP.UPDATE, { method: "POST", body: { production_id, ...data } }),
-  delete: (production_id) => api(EP.DELETE, { method: "POST", body: { production_id } }),
+  update: (id, data) => api(EP.UPDATE, { method: "POST", body: { id, ...data } }),
+  delete: (id) => api(EP.DELETE, { method: "POST", body: { id } }),
 };
 
+/** IMS item pickers only (FG item, RM). */
 export const finishProcessMasterHelpers = createProductionErpHelpers(EP);

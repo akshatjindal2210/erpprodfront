@@ -15,6 +15,7 @@ import ActionButton from "@/ui/primitives/ActionButton";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { uploadUrl } from "@/lib/documents";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
+import { rejectionBill } from "@/apps/rmstore/lib/utils/rejectionBillDisplay";
 
 const MODULE = "rm_rejection";
 
@@ -63,18 +64,22 @@ function hasFieldValue(value) {
 }
 
 function Info({ label, value, mono }) {
+  const display = value != null && String(value).trim() !== "" ? String(value) : "—";
   return (
     <div className="bg-slate-50 border border-slate-200 px-1.5 py-1 min-w-0">
       <div className="text-[8px] font-bold uppercase tracking-wider text-slate-400 leading-none">{label}</div>
       <div className={`text-[11px] font-bold text-slate-800 truncate mt-0.5 ${mono ? "font-mono" : ""}`}>
-        {value}
+        {display}
       </div>
     </div>
   );
 }
 
 function InfoGrid({ fields = [] }) {
-  const visible = (fields || []).filter((f) => f && !f.empty && hasFieldValue(f.value));
+  // alwaysShow: keep fields like Bill Number/Date visible even when empty (renders "—").
+  const visible = (fields || []).filter(
+    (f) => f && !f.empty && (f.alwaysShow || hasFieldValue(f.value))
+  );
   if (!visible.length) return null;
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
@@ -653,6 +658,12 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
     ? "Review in-process rejection details and linked QC checks. Submit skips approval and queues Store Out Pending — scan and authorize there."
     : "Review QC failure details, documents, and coils. Submit skips approval and queues Store Out Pending — scan and authorize there.";
 
+  const { billNo, billDt } = rejectionBill(detail, row);
+  const billFields = [
+    { label: "Bill Number", value: billNo, mono: true, alwaysShow: true },
+    { label: "Bill Date", value: billDt, alwaysShow: true },
+  ];
+
   const infoFields = isIpr
     ? [
         { label: "IPR #", value: detail?.ipr_uid ?? row?.ipr_uid },
@@ -663,6 +674,7 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
           label: "Supplier",
           value: detail?.acc_name || row?.vendor_acc_name || row?.acc_name || null,
         },
+        ...billFields,
         ...iprSourceFields(detail, row),
         {
           label: "Total Qty",
@@ -671,13 +683,10 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
               ? Number(detail?.total_qty ?? row?.total_qty).toLocaleString()
               : null,
         },
-        { label: "Approved By", value: detail?.approved_by_name || row?.inspected_by_name },
+        { label: "Approved By", value: detail?.approved_by_name || row?.approved_by_name },
         {
           label: "Approved At",
-          value:
-            detail?.approved_at || row?.inspected_at
-              ? formatDateTime(detail?.approved_at || row?.inspected_at)
-              : null,
+          value: detail?.approved_at ? formatDateTime(detail.approved_at) : null,
         },
       ]
     : [
@@ -698,13 +707,14 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
           label: "Supplier",
           value: detail?.acc_name || row?.vendor_acc_name || row?.acc_name || null,
         },
-        { label: "Inspected By", value: detail?.approved_by_name || detail?.created_by_name },
+        ...billFields,
+        {
+          label: "Inspected By",
+          value: detail?.inspected_by_name || detail?.inspected_by || detail?.created_by_name,
+        },
         {
           label: "Inspected At",
-          value:
-            detail?.approved_at || detail?.created_at
-              ? formatDateTime(detail?.approved_at || detail?.created_at)
-              : null,
+          value: detail?.inspected_at ? formatDateTime(detail.inspected_at) : null,
         },
       ];
 

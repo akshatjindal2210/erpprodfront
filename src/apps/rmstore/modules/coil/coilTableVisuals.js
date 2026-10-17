@@ -54,6 +54,14 @@ function isQcFailedCoil(row) {
   return status === "rejected" && row?.qc_uid != null && row?.rm_uid == null;
 }
 
+/** Rack / store location while coil is on IPR hold (location kept in DB). */
+function coilIprHoldLocationLabel(row) {
+  if (rejectionKind(row) !== "ipr") return "";
+  const hasLoc = row?.location_id != null && String(row.location_id).trim() !== "";
+  if (!hasLoc) return "";
+  return formatLocationDisplay(row) || String(row.location_no || "").trim() || "";
+}
+
 function rejectionKind(row) {
   const status = String(row?.status || "").toLowerCase();
   if (status === "returned") return "returned";
@@ -378,7 +386,10 @@ export function resolveCoilLocationDetail(row) {
   const zone = getCoilStockZone(row);
   if (zone === "rejected" || zone === "returned") {
     const kind = rejectionKind(row);
-    return kind ? REJECTION_STYLE[kind].detail(row) : zone === "returned" ? "Returned" : "Rejected";
+    const base = kind ? REJECTION_STYLE[kind].detail(row) : zone === "returned" ? "Returned" : "Rejected";
+    const loc = coilIprHoldLocationLabel(row);
+    if (loc) return `${base} · Location ${loc}`;
+    return base;
   }
   if (zone === "consumed" && row?.sa_id != null) return `SA-${row.sa_id} · Adjustment`;
   if (zone === "consumed" && row?.ipr_uid != null) return `IPR-${row.ipr_uid} · Consumed`;
@@ -458,8 +469,12 @@ export function getCoilRowClassName(row) {
 
 export function resolveCoilQcStatusLabel(row) {
   const raw = String(row?.qc_check_status || "").trim().toLowerCase();
+  const isSaStockIn =
+    row?.sa_id != null && String(row?.sa_entry_type || "stock_in").toLowerCase() === "stock_in";
   if (raw === "passed") return "Passed";
   if (raw === "failed") return "Failed";
+  // Stock Adjustment coils are not QC'd — pending SA stays blank (not "QC Pending").
+  if (isSaStockIn) return "";
   if (raw === "awaiting_approval") return "Awaiting";
   if (row?.rm_uid != null || (String(row?.status || "").toLowerCase() === "rejected" && row?.qc_uid != null)) return "Failed";
   return "QC Pending"; // was blank when qc_uid missing
@@ -473,6 +488,9 @@ export function resolveCoilQcIdStatusLabel(row) {
 
 export function renderCoilQcStatusCell(_v, row) {
   const label = resolveCoilQcStatusLabel(row);
+  if (!label) {
+    return <span className="text-slate-400 text-[9px] font-bold">—</span>;
+  }
   const cls =
     label === "Passed" ? "bg-emerald-100 text-emerald-800 border-emerald-200"
     : label === "Failed" ? "bg-rose-100 text-rose-800 border-rose-200"
@@ -499,6 +517,17 @@ export function renderCoilLocationCell(_v, row) {
   if (zone === "rejected" || zone === "returned") {
     const kind = rejectionKind(row);
     const tone = kind ? REJECTION_STYLE[kind].badge : zone === "returned" ? REJECTION_STYLE.returned.badge : REJECTION_STYLE.register.badge;
+    const holdLoc = coilIprHoldLocationLabel(row);
+    if (kind === "ipr" && holdLoc) {
+      return (
+        <span className="inline-flex flex-row flex-wrap items-center justify-center gap-1 py-0.5 leading-tight" title={title}>
+          <span className={`${BADGE} ${tone}`}>{label}</span>
+          <span className="text-[10px] font-bold uppercase bg-emerald-100 text-emerald-900 border border-emerald-300 px-1.5 py-0.5 rounded-sm tabular-nums">
+            {holdLoc}
+          </span>
+        </span>
+      );
+    }
     return (
       <span className={`${BADGE} ${tone}`} title={title}>
         {label}

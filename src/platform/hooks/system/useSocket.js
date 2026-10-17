@@ -1,14 +1,13 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { usePathname, useRouter } from "next/navigation";
-import { setCredentials, logout, selectRole, selectUser, selectPermissions, selectAppAccess } from "@/platform/store/slices/authSlice";
+import { setCredentials, selectRole, selectUser, selectPermissions, selectAppAccess } from "@/platform/store/slices/authSlice";
 import { io } from "socket.io-client";
 import { FILE_BASE_URL } from "@/platform/utils/core/lib";
 import { userService } from "@/common/auth/services/userService";
 import { applyListViewSpanFromSession } from "@/platform/utils/global";
 import { bindTaskNotifySocket } from "@/common/pwa/task/taskNotifySocket";
 import { authProfileUnchanged, buildCredentialsFromMe } from "@/platform/utils/auth/authProfile";
-import { persistor } from "@/platform/store/index";
+import { clearAuthSession } from "@/platform/utils/auth/clearAuthSession";
 
 function closeSocketQuietly(socket) {
   if (!socket) return;
@@ -28,8 +27,6 @@ const AUTH_REFRESH_MS = 8_000;
 
 export const useSocket = (userId) => {
   const dispatch = useDispatch();
-  const router = useRouter();
-  const pathname = usePathname();
   const user = useSelector(selectUser);
   const role = useSelector(selectRole);
   const permissions = useSelector(selectPermissions);
@@ -52,23 +49,11 @@ export const useSocket = (userId) => {
     if (clearingSessionRef.current) return;
     clearingSessionRef.current = true;
     try {
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem("imp_skip_auth_sync", "1");
-      }
-      dispatch(logout());
-      try {
-        await persistor.purge();
-      } catch {
-        /* ignore */
-      }
-      const path = pathname || "/";
-      if (path !== "/login" && !path.startsWith("/login/")) {
-        router.replace(`/login?redirect=${encodeURIComponent(path)}`);
-      }
+      await clearAuthSession();
     } finally {
       clearingSessionRef.current = false;
     }
-  }, [dispatch, pathname, router]);
+  }, []);
 
   const refreshAuthFromServer = useCallback(async (force = false) => {
     const currentUser = userRef.current;

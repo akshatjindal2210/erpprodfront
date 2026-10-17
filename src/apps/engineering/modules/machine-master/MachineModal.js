@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Check, AlertCircle, Loader2, Shield, X, FileText, Upload } from "lucide-react";
+import { Check, AlertCircle, Loader2, Shield, X, FileText, Upload, MessageSquareQuote } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { machineMasterService } from "@/apps/engineering/lib/services/machineMaster";
@@ -17,6 +17,7 @@ import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import { helperPerms } from "@/apps/engineering/lib/helpers/helperPerms";
 import { ENG_MODULES } from "@/apps/engineering/lib/config/modules";
 import { uploadAccept, uploadUrl } from "@/lib/documents";
+import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_PRIMARY, IMS_DRAWER_BTN_APPROVE, IMS_DRAWER_BTN_KEEP_PENDING } from "@/apps/ims/lib/helpers/masterListUi";
 
 const ATTACH_ACCEPT = uploadAccept("eng_machine_master");
 
@@ -267,26 +268,36 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
   const visibleExisting = existingAttachments.filter((a) => !removeAttachmentIds.includes(a.id));
 
   const drawerFooter = (
-    <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 sm:gap-3 w-full">
-      <button onClick={onClose} disabled={loading} className="w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 rounded-xl bg-white">Cancel</button>
+    <div className={`${IMS_DRAWER_FOOTER_WRAP} flex-wrap sm:flex-nowrap gap-2 sm:gap-3`}>
+      <button type="button" onClick={onClose} disabled={loading} className={IMS_DRAWER_BTN_CANCEL}>
+        Cancel
+      </button>
       {isApprove ? (
         <>
-          <button onClick={() => handleSave(false, "keep_pending")} disabled={loading} className="w-full sm:w-auto px-4 sm:px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 rounded-xl">
-            {loading && activeSubmit === "keep_pending" ? <span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Saving...</span> : "Keep Pending"}
+          <button type="button" onClick={() => handleSave(false, "keep_pending")} disabled={loading} className={IMS_DRAWER_BTN_KEEP_PENDING} >
+            {loading && activeSubmit === "keep_pending" ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 size={16} className="animate-spin" /> Saving...
+              </span>
+            ) : ( "Keep Pending" )}
           </button>
-          <button onClick={() => handleSave(true, "approve")} disabled={loading} className="w-full sm:w-auto sm:min-w-[140px] px-5 py-2.5 text-sm font-bold text-white bg-emerald-600 rounded-xl flex items-center justify-center gap-2">
-            {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Approve
+          <button type="button" onClick={() => handleSave(true, "approve")} disabled={loading} className={IMS_DRAWER_BTN_APPROVE} >
+            {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
+            Approve
           </button>
         </>
       ) : (
         <>
-          {isEdit && canApprove && (
-            <button onClick={() => handleSave(true, "approve")} disabled={loading} className="w-full sm:w-auto sm:min-w-[160px] px-5 py-2.5 text-sm font-bold text-white bg-emerald-600 rounded-xl flex items-center justify-center gap-2">
-              {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />} Save & Approve
+          {isEdit && canApprove ? (
+            <button type="button" onClick={() => handleSave(true, "approve")} disabled={loading} className={IMS_DRAWER_BTN_APPROVE} >
+              {loading && activeSubmit === "approve" ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
+              Save & Approve
             </button>
-          )}
-          <button onClick={() => handleSave(null, "save")} disabled={loading} title="Ctrl+S" className="w-full sm:w-auto sm:min-w-[160px] px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 rounded-xl flex items-center justify-center gap-2">
-            {loading && activeSubmit === "save" ? <><Loader2 size={18} className="animate-spin" /> Saving...</> : <><Check size={18} /> Save</>}
+          ) : null}
+          <button type="button" onClick={() => handleSave(null, "save")} disabled={loading} title="Ctrl+S" className={IMS_DRAWER_BTN_PRIMARY} >
+            {loading && activeSubmit === "save" ? (
+              <><Loader2 size={18} className="animate-spin" /> Saving...</>
+            ) : (<><Check size={18} /> Save</>)}
           </button>
         </>
       )}
@@ -337,7 +348,7 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
                 processMasterService.getViews({
                   ...params,
                   ...helperPerms(MODULE, sopPermissionType),
-                  filters: { approved: true },
+                  filters: { approved: true, inhouse: true },
                 })
               }
               getByIdService={async (id) => {
@@ -386,7 +397,14 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
           </div>
 
           <div className="md:col-span-2">
-            <FormTextarea label="Remark" value={form.remark} onChange={(e) => handleChange("remark", e.target.value)} rows={2} />
+            <FormTextarea
+              label="Remarks"
+              labelIcon={<MessageSquareQuote size={12} className="text-indigo-500" />}
+              rows={3}
+              value={form.remark}
+              onChange={(e) => handleChange("remark", e.target.value)}
+              placeholder="Optional notes"
+            />
           </div>
         </div>
 

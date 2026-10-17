@@ -1,4 +1,4 @@
-import { Layers, List } from "lucide-react";
+import { Layers, List, GitMerge } from "lucide-react";
 import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
 
 /** Calendar YYYY-MM (date prefix, no TZ shift). */
@@ -17,12 +17,39 @@ const monthCell = (v) => (
 );
 const monthCol = (field) => ["Month", field, monthCell, { width: "110px", copyValue: (row) => formatShortageMonthDate(row[field]) }];
 
+/** Item weight (KG) × qty, rounded to 2 decimals; null when item master has no weight. Same as IMS shortage. */
+export function weightKg(weight, qty) {
+  if (weight == null || weight === "") return null;
+  const n = Number(weight) * Number(qty ?? 0);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
+}
+
+export function formatWeightKg(weight, qty) {
+  const n = weightKg(weight, qty);
+  return n == null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+/** Hover text: "Item weight: 0.01 kg × Qty: 10,000 = 100 kg". */
+export function weightKgTitle(weight, qty) {
+  if (weight == null || weight === "") return "Item weight not set in item master";
+  const q = Number(qty ?? 0);
+  return `Item weight: ${Number(weight).toLocaleString(undefined, { maximumFractionDigits: 6 })} kg × Qty: ${q.toLocaleString()} = ${formatWeightKg(weight, q)} kg`;
+}
+
+// Virtual key (not on row) so Excel export uses copyValue (weight × qty), not raw item_weight.
+const weightCol = (qtyField) => ["Weight (KG)", "shortage_weight_kg", (_v, row) => (
+  <span className="font-semibold text-slate-700 text-[11px] tabular-nums cursor-help" title={weightKgTitle(row.item_weight, row[qtyField])}>
+    {formatWeightKg(row.item_weight, row[qtyField])}
+  </span>
+), { width: "100px", align: "center", copyValue: (row) => weightKg(row.item_weight, row[qtyField]) ?? "—" }];
+
 export const SHORTAGE_PAGE_TABS = [
   { id: "master", label: "Master-wise", icon: Layers },
   { id: "item-wise", label: "Item-wise", icon: List },
+  { id: "prime-item", label: "Prime Item", icon: GitMerge },
 ];
 
-function typeBadgeClass(type) {
+export function typeBadgeClass(type) {
   if (type === "Deviation") return "bg-amber-50 text-amber-700 border border-amber-200";
   if (type === "PPC") return "bg-blue-50 text-blue-700 border border-blue-200";
   if (type === "WIP") return "bg-violet-50 text-violet-700 border border-violet-200";
@@ -127,6 +154,7 @@ export function buildShortageMasterHeaders({ onDrillToItems } = {}) {
         </div>
       );
     }, { width: "180px", copyValue: (row) => (row.type_qty || []).map(({ type, qty }) => `${type} (${qty})`).join(", ") }],
+    weightCol("total_shortage_qty"),
     ["Total Shortage", "total_shortage_qty", (v) => (
       <span className="font-black text-slate-800 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>
     ), { width: "120px", align: "center" }],
@@ -158,6 +186,7 @@ export function buildShortageItemWiseHeaders() {
     ["Type", "type", (v) => (
       <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${typeBadgeClass(v)}`}>{v}</span>
     ), { width: "110px" }],
+    weightCol("qty"),
     ["Qty", "qty", (v) => <span className="font-black text-slate-700 text-[11px]">{v}</span>, { width: "80px", align: "center" }],
     ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-500 truncate block">{v || "—"}</span>, { width: "160px" }],
     ["Status", "approved", (v) => (

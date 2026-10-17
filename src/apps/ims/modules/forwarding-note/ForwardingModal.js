@@ -19,6 +19,9 @@ import FormPanelLoader           from "@/ui/common/system/FormPanelLoader";
 import { OK_INPUT, FORM_LABEL_CLASS, FORM_MICRO_LABEL_CLASS, FORM_ERROR_CLASS } from "@/ui/common/Constants";
 import { useCanAccess }          from "@/platform/hooks/auth/useCanAccess";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
+import { useSelector } from "react-redux";
+import { selectRole, selectUser } from "@/platform/store/slices/authSlice";
+import { isImsSuperAdmin } from "@/apps/ims/lib/utils/imsSpecialPermissions";
 
 const FIELD_ORDER = ["acc_code", "po_number"];
 
@@ -46,6 +49,8 @@ const INITIAL_ITEM_ROW = {
   available_boxes: [], // full stock from API
   selected_boxes:  [], // Boxes selected in FIFO order
   loose_priority:  false,
+  /** Super admin: rotate FIFO to start at this packing # (then continue in order). */
+  fifo_start_packing_key: null,
   fg_qty:          0,
   erp_qty:         0,
   erp_by_packing:  {},
@@ -123,7 +128,7 @@ const reallocateExclusiveFifoForDcode = (items, itemDcode) => {
       const key = forwardingBoxKey(box);
       return !key || !claimed.has(key);
     });
-    const ordered = reorderBoxesForSelection(remaining, Boolean(row?.loose_priority));
+    const ordered = fifoOrderedBoxesForItem(row, remaining);
     const built = buildDispatchFromTarget(
       { ...row, available_boxes: ordered, loose_priority: Boolean(row?.loose_priority) },
       dispatchQty
@@ -335,7 +340,7 @@ const getToleranceCapQty = (item) => {
 const getStandardFifoQtyAtBalance = (item) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
   if (!(balanceCap > 0)) return 0;
-  const ordered = reorderBoxesForSelection(item.available_boxes || [], item.loose_priority);
+  const ordered = fifoOrderedBoxesForItem(item);
   if (!ordered.length) return 0;
   return sumQty(selectBoxesByQty(ordered, balanceCap));
 };
@@ -429,7 +434,7 @@ const getFifoSelectionCount = (item, orderedBoxes) => {
 
 const canAddMoreFifoBoxes = (item) => {
   if (!item?.available_boxes?.length) return false;
-  const orderedBoxes = reorderBoxesForSelection(item.available_boxes, item.loose_priority);
+  const orderedBoxes = fifoOrderedBoxesForItem(item);
   const fifoLimit = maxFifoBoxesForItem(item, orderedBoxes);
   const current =
     !item.boxes_edited && item.original_breakdowns?.length > 0
@@ -529,11 +534,64 @@ const reorderBoxesForSelection = (boxes = [], loosePriority = false) => {
   });
 };
 
+const packingGroupKey = (box) => String(box?.packing_number ?? "").trim() || "N/A";
+
+const orderedPackingKeysFromSorted = (sorted = []) => {
+  const keys = [];
+  for (const box of sorted) {
+    const k = packingGroupKey(box);
+    if (!keys.includes(k)) keys.push(k);
+  }
+  return keys;
+};
+
+/** Rotate packing groups: start packing first, then wrap (4→5→1→2…). */
+const applyFifoStartPacking = (sorted, startKey) => {
+  const list = sorted || [];
+  const start = String(startKey || "").trim();
+  if (!start || !list.length) return list;
+  const keys = orderedPackingKeysFromSorted(list);
+  const idx = keys.indexOf(start);
+  if (idx <= 0) return list;
+  const rotated = [...keys.slice(idx), ...keys.slice(0, idx)];
+  const byPacking = new Map();
+  for (const box of list) {
+    const k = packingGroupKey(box);
+    if (!byPacking.has(k)) byPacking.set(k, []);
+    byPacking.get(k).push(box);
+  }
+  return rotated.flatMap((k) => byPacking.get(k) || []);
+};
+
+const fifoStartKeyForItem = (item) => {
+  const k = String(item?.fifo_start_packing_key || "").trim();
+  return k || null;
+};
+
+/** Re-open edit: if first saved packing ≠ standard FIFO first, treat it as the rotate start. */
+const inferFifoStartFromSavedBreakdowns = (item, pool = []) => {
+  const breakdowns = item?.original_breakdowns || [];
+  if (!breakdowns.length || !pool?.length) return null;
+  const defaultKeys = listPackingKeysInDefaultFifoOrder(pool);
+  const firstSaved = String(breakdowns[0]?.packing_number ?? "").trim();
+  if (!firstSaved || !defaultKeys.length) return null;
+  if (firstSaved === defaultKeys[0]) return null;
+  return defaultKeys.includes(firstSaved) ? firstSaved : null;
+};
+
+const fifoOrderedBoxesForItem = (item, boxes = item?.available_boxes) => {
+  const sorted = reorderBoxesForSelection(boxes || [], Boolean(item?.loose_priority));
+  return applyFifoStartPacking(sorted, fifoStartKeyForItem(item));
+};
+
+const listPackingKeysInDefaultFifoOrder = (pool = []) =>
+  orderedPackingKeysFromSorted(reorderBoxesForSelection(pool, false));
+
 /** Build row state from user target — dispatch_qty = system FIFO total sent. */
 const buildDispatchFromTarget = (item, targetQty) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
   const scheduleCap = getScheduleMaxAllowedQty(item);
-  const ordered = reorderBoxesForSelection(item.available_boxes || [], item.loose_priority);
+  const ordered = fifoOrderedBoxesForItem(item);
   const target = Number(targetQty) || 0;
 
   if (target <= 0 || !ordered.length) {
@@ -584,7 +642,7 @@ const reconcileRowSelectionToBalance = (row, balanceCap) => {
   const pool = withBal.available_boxes || [];
   if (!pool.length) return withBal;
 
-  const ordered = reorderBoxesForSelection(pool, withBal.loose_priority);
+  const ordered = fifoOrderedBoxesForItem(withBal, pool);
   const maxBoxes = maxFifoBoxesForItem(withBal, ordered);
   const currentCount =
     withBal.selected_boxes?.length > 0
@@ -612,7 +670,7 @@ const reconcileRowSelectionToBalance = (row, balanceCap) => {
 const resolveDispatchQtySelection = (item, rawVal, { emptyMeansSystem = false } = {}) => {
   const balanceCap = Number(item?.source_dispatch_qty ?? 0);
   const scheduleCap = getScheduleMaxAllowedQty(item);
-  const ordered = reorderBoxesForSelection(item.available_boxes || [], item.loose_priority);
+  const ordered = fifoOrderedBoxesForItem(item);
 
   if (rawVal === "" || rawVal == null) {
     if (emptyMeansSystem && balanceCap > 0 && ordered.length) {
@@ -664,6 +722,10 @@ export default function ForwardingModal({
   const [categoryLoading, setCategoryLoading] = useState(false);
 
   const canAccess = useCanAccess();
+  const currentUser = useSelector(selectUser);
+  const authRole = useSelector(selectRole);
+  const canFifoStartPacking =
+    String(authRole || "").toLowerCase() === "super_admin" || isImsSuperAdmin(currentUser);
   const canAuthorize = canAccess("forwarding_note_master", "authorize").allowed;
   
   const isEdit = mode === "edit";
@@ -1108,9 +1170,8 @@ export default function ForwardingModal({
             const key = forwardingBoxKey(box);
             return !key || !claimed.has(key);
           });
-          const ordered = reorderBoxesForSelection(remaining, false);
           const built = buildDispatchFromTarget(
-            { ...itemRow, available_boxes: ordered, loose_priority: false },
+            { ...itemRow, available_boxes: remaining, loose_priority: false },
             dispatchQty
           );
           for (const box of built.selected_boxes || []) {
@@ -1278,6 +1339,7 @@ export default function ForwardingModal({
             fetching: Boolean(i.item_dcode && resolvedCategoryId),
             boxes_edited: false,
             original_breakdowns: i.breakdowns || [],
+            fifo_start_packing_key: null,
           };
         });
 
@@ -1334,14 +1396,16 @@ export default function ForwardingModal({
               if (!bundle) return { ...cur, fetching: false };
               const fifoBoxes = bundle.fifoBoxes || [];
               // Keep saved breakdown path (boxes_edited false). Only attach pool for +/- later.
-              const orderedBoxes = reorderBoxesForSelection(fifoBoxes, cur.loose_priority);
               const hasSavedBreakdowns =
                 !cur.boxes_edited && (cur.original_breakdowns?.length || 0) > 0;
               const previewTarget = fifoPreviewTargetForRow(cur);
               const previewSelected =
                 !hasSavedBreakdowns && previewTarget > 0
-                  ? selectBoxesByQty(orderedBoxes, previewTarget)
+                  ? selectBoxesByQty(fifoOrderedBoxesForItem(cur, fifoBoxes), previewTarget)
                   : cur.selected_boxes;
+              const inferredFifoStart = hasSavedBreakdowns
+                ? inferFifoStartFromSavedBreakdowns(cur, fifoBoxes)
+                : cur.fifo_start_packing_key;
               return {
                 ...cur,
                 available_boxes: fifoBoxes,
@@ -1350,6 +1414,7 @@ export default function ForwardingModal({
                 erp_qty: bundle.erp_qty,
                 erp_by_packing: bundle.erp_by_packing,
                 fetching: false,
+                fifo_start_packing_key: inferredFifoStart,
                 // Never flip boxes_edited here — edit save must keep original_breakdowns until user edits.
                 boxes_edited: cur.boxes_edited,
                 original_breakdowns: cur.original_breakdowns,
@@ -1523,6 +1588,7 @@ export default function ForwardingModal({
           available_boxes: [],
           selected_boxes: [],
           loose_priority: false,
+          fifo_start_packing_key: null,
           fg_qty: 0,
           erp_qty: 0,
           erp_by_packing: {},
@@ -1572,11 +1638,7 @@ export default function ForwardingModal({
               } else {
                 const sourceQty = Number(nextItems[idx]?.source_dispatch_qty ?? 0);
                 if (sourceQty > 0) {
-                  const ordered = reorderBoxesForSelection(fifoBoxes, false);
-                  const built = buildDispatchFromTarget(
-                    { ...nextItems[idx], available_boxes: ordered, loose_priority: false },
-                    sourceQty
-                  );
+                  const built = buildDispatchFromTarget(nextItems[idx], sourceQty);
                   nextItems = nextItems.map((item, i) =>
                     i === idx
                       ? {
@@ -1756,6 +1818,7 @@ export default function ForwardingModal({
       available_boxes: [],
       selected_boxes:  [],
       loose_priority:  false,
+      fifo_start_packing_key: null,
       fg_qty:          0,
       erp_qty:         0,
       erp_by_packing:  {},
@@ -1867,10 +1930,8 @@ export default function ForwardingModal({
     setForm((prev) => {
       const item = prev.items[idx];
       if (!item) return prev;
-      const orderedBoxes = reorderBoxesForSelection(
-        fifoPoolForRow(prev.items, idx),
-        item.loose_priority
-      );
+      const pooled = { ...item, available_boxes: fifoPoolForRow(prev.items, idx) };
+      const orderedBoxes = fifoOrderedBoxesForItem(pooled);
       if (!orderedBoxes.length) return prev;
 
       let prefix = getFifoPrefixFromSelection(orderedBoxes, item.selected_boxes);
@@ -1961,6 +2022,44 @@ export default function ForwardingModal({
     updateItemRow(idx, { loose_priority: checked, ...next });
   };
 
+  const handleFifoStartPacking = (idx, packingKey) => {
+    if (!canFifoStartPacking || isApprove) return;
+    setForm((prev) => {
+      const row = prev.items[idx];
+      if (!row) return prev;
+      const nextKey = packingKey ? String(packingKey).trim() : null;
+      const pooled = {
+        ...row,
+        fifo_start_packing_key: nextKey,
+        available_boxes: fifoPoolForRow(prev.items, idx),
+      };
+      const target = getItemFifoTarget(pooled);
+      const built =
+        target > 0
+          ? buildDispatchFromTarget(pooled, target)
+          : {
+              dispatch_target: "",
+              dispatch_qty: "",
+              selected_boxes: [],
+              dispatch_std: "",
+              use_system_std: false,
+              boxes_edited: true,
+            };
+      let nextItems = prev.items.map((r, i) =>
+        i === idx ? { ...r, fifo_start_packing_key: nextKey, ...built, original_breakdowns: [] } : r
+      );
+      const dcode = String(nextItems[idx]?.item_dcode ?? "").trim();
+      if (
+        dcode &&
+        nextItems.filter((r) => String(r?.item_dcode ?? "").trim() === dcode).length >= 2
+      ) {
+        nextItems = reallocateExclusiveFifoForDcode(nextItems, dcode);
+      }
+      formItemsRef.current = nextItems;
+      return { ...prev, items: nextItems };
+    });
+  };
+
   // ── Save ───────────────────────────────────────────────────────────────────
   const handleSave = async (statusOverride = null, actionKey = "save") => {
     const newErrors = {};
@@ -2044,6 +2143,10 @@ export default function ForwardingModal({
                 : null,
               use_system_std: Boolean(i.use_system_std),
               selected_boxes: i.selected_boxes,
+              ...(canFifoStartPacking && i.fifo_start_packing_key
+                ? { fifo_start_packing_number: String(i.fifo_start_packing_key).trim() }
+                : {}),
+              loose_priority: Boolean(i.loose_priority),
             }];
           }
           return [];
@@ -2724,17 +2827,86 @@ export default function ForwardingModal({
                   const showTable = display.fromSelection
                     ? display.boxes.length > 0
                     : (display.breakdowns?.length > 0);
+                  const pool = fifoPoolForRow(form.items, idx);
+                  const packingKeys =
+                    pool.length && !item.fetching
+                      ? listPackingKeysInDefaultFifoOrder(pool)
+                      : [];
+                  const showFifoStart =
+                    showTable &&
+                    canFifoStartPacking &&
+                    !isApprove &&
+                    !item.fetching &&
+                    packingKeys.length >= 2;
                   if (!showTable) return null;
+                  const startKey = fifoStartKeyForItem(item) || "";
+                  const fifoSelectClass =
+                    "block w-full font-bold text-slate-600 bg-white border border-slate-200 focus:border-indigo-400 focus:outline-none normal-case touch-manipulation h-9 py-0 pl-2.5 pr-9 text-[11px] rounded-lg md:h-6 md:min-h-0 md:max-w-[148px] md:w-auto md:py-0 md:pl-1 md:pr-5 md:text-[10px] md:rounded";
+                  const packingCellClass =
+                    "px-1.5 py-1.5 md:px-2 md:py-1 align-top md:align-middle";
+                  const packingNumClass = "font-bold text-slate-600 whitespace-nowrap text-[10px] md:text-xs";
+                  const packingQtyClass =
+                    "font-bold leading-snug break-words text-[10px] md:text-xs max-w-[5.5rem] mx-auto md:max-w-none md:mx-0";
+                  const renderFifoStartSelect = () => (
+                    <select
+                      value={startKey}
+                      onChange={(e) =>
+                        handleFifoStartPacking(idx, e.target.value || null)
+                      }
+                      title="Standard order = normal FIFO. Super admin only: pick a packing to start this row from there."
+                      aria-label="Packing FIFO start"
+                      className={fifoSelectClass}
+                    >
+                      <option value="">Standard order</option>
+                      {packingKeys.map((key, pos) => (
+                        <option key={key} value={key}>
+                          Start at {pos + 1}: #{key}
+                        </option>
+                      ))}
+                    </select>
+                  );
                   return (
-                  <div className="mt-1.5 border border-slate-100 rounded-md overflow-x-auto">
-                    <table className="w-full min-w-[280px] text-xs">
+                  <div className="mt-1.5 border border-slate-100 rounded-md overflow-hidden">
+                    {showFifoStart ? (
+                      <div className="md:hidden px-2.5 py-2.5 bg-slate-50 border-b border-slate-100 space-y-1.5">
+                        <span className="block text-[9px] font-black uppercase text-slate-400 tracking-wide">
+                          Start packing from
+                        </span>
+                        {renderFifoStartSelect()}
+                      </div>
+                    ) : null}
+                    <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table className="w-full min-w-[292px] md:min-w-[280px] text-[10px] md:text-xs">
                       <thead className="bg-slate-50 border-b border-slate-100">
                         <tr>
-                          <th className="px-2 py-1 text-left font-black text-slate-400 uppercase">Packing #</th>
-                          <th className="px-2 py-1 text-center font-black text-slate-400 uppercase">Open Boxes</th>
-                          <th className="px-2 py-1 text-center font-black text-slate-400 uppercase">Loose Boxes</th>
-                          <th className="px-2 py-1 text-right font-black text-slate-400 uppercase">Total</th>
-                          <th className="px-2 py-1 text-right font-black text-yellow-500 uppercase">ERP Stock</th>
+                          <th className={`${packingCellClass} text-left font-black text-slate-400 uppercase sticky left-0 z-[1] bg-slate-50 md:static md:z-auto`}>
+                            {showFifoStart ? (
+                              <div className="space-y-0.5 hidden md:block">
+                                <span className="block text-[10px] leading-none">Packing #</span>
+                                {renderFifoStartSelect()}
+                              </div>
+                            ) : (
+                              "Packing #"
+                            )}
+                            {showFifoStart ? (
+                              <span className="md:hidden font-black uppercase text-[9px]">Packing #</span>
+                            ) : null}
+                          </th>
+                          <th className={`${packingCellClass} text-center font-black text-slate-400 uppercase`}>
+                            <span className="md:hidden">Open</span>
+                            <span className="hidden md:inline">Open Boxes</span>
+                          </th>
+                          <th className={`${packingCellClass} text-center font-black text-slate-400 uppercase`}>
+                            <span className="md:hidden">Loose</span>
+                            <span className="hidden md:inline">Loose Boxes</span>
+                          </th>
+                          <th className={`${packingCellClass} text-right font-black text-slate-400 uppercase whitespace-nowrap`}>
+                            Total
+                          </th>
+                          <th className={`${packingCellClass} text-right font-black text-yellow-500 uppercase whitespace-nowrap`}>
+                            <span className="md:hidden">ERP</span>
+                            <span className="hidden md:inline">ERP Stock</span>
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
@@ -2759,19 +2931,19 @@ export default function ForwardingModal({
                               const boxFmtOpts = item.loose_priority ? { qtyOrder: "selection" } : undefined;
                               return (
                                 <tr key={packingNo} className="hover:bg-slate-50/30 transition-colors">
-                                  <td className="px-2 py-1 font-bold text-slate-600">#{packingNo}</td>
-                                  <td className="px-2 py-1 text-center">
+                                  <td className={`${packingCellClass} ${packingNumClass} sticky left-0 z-[1] bg-white md:static md:z-auto`}>#{packingNo}</td>
+                                  <td className={`${packingCellClass} text-center`}>
                                     {openBoxes.length > 0 ? (
-                                      <span className="text-indigo-600 font-bold">{formatBoxQtyGroups(openBoxes, boxFmtOpts)}</span>
+                                      <span className={`text-indigo-600 ${packingQtyClass}`}>{formatBoxQtyGroups(openBoxes, boxFmtOpts)}</span>
                                     ) : "—"}
                                   </td>
-                                  <td className="px-2 py-1 text-center">
+                                  <td className={`${packingCellClass} text-center`}>
                                     {looseBoxes.length > 0 ? (
-                                      <span className="text-amber-600 font-bold">{formatBoxQtyGroups(looseBoxes, boxFmtOpts)}</span>
+                                      <span className={`text-amber-600 ${packingQtyClass}`}>{formatBoxQtyGroups(looseBoxes, boxFmtOpts)}</span>
                                     ) : "—"}
                                   </td>
-                                  <td className="px-2 py-1 text-right font-black text-slate-700">{(openQty + looseQty).toLocaleString()}</td>
-                                  <td className="px-2 py-1 text-right font-bold text-slate-700 tabular-nums">{erpQtyForPacking(item, packingNo).toLocaleString()}</td>
+                                  <td className={`${packingCellClass} text-right font-black text-slate-700 tabular-nums whitespace-nowrap`}>{(openQty + looseQty).toLocaleString()}</td>
+                                  <td className={`${packingCellClass} text-right font-bold text-slate-700 tabular-nums whitespace-nowrap`}>{erpQtyForPacking(item, packingNo).toLocaleString()}</td>
                                 </tr>
                               );
                             });
@@ -2779,19 +2951,19 @@ export default function ForwardingModal({
                         ) : (
                           display.breakdowns.map((bd, bidx) => (
                             <tr key={bidx} className="hover:bg-slate-50/30 transition-colors">
-                              <td className="px-2 py-1 font-bold text-slate-600">#{bd.packing_number}</td>
-                              <td className="px-2 py-1 text-center">
+                              <td className={`${packingCellClass} ${packingNumClass} sticky left-0 z-[1] bg-white md:static md:z-auto`}>#{bd.packing_number}</td>
+                              <td className={`${packingCellClass} text-center`}>
                                 {bd.box > 0 ? (
-                                  <span className="text-indigo-600 font-bold">{formatAggregatedBoxCount(bd.box, bd.box_qty)}</span>
+                                  <span className={`text-indigo-600 ${packingQtyClass}`}>{formatAggregatedBoxCount(bd.box, bd.box_qty)}</span>
                                 ) : "—"}
                               </td>
-                              <td className="px-2 py-1 text-center">
+                              <td className={`${packingCellClass} text-center`}>
                                 {bd.loose_box > 0 ? (
-                                  <span className="text-amber-600 font-bold">{formatAggregatedBoxCount(bd.loose_box, bd.loose_box_qty)}</span>
+                                  <span className={`text-amber-600 ${packingQtyClass}`}>{formatAggregatedBoxCount(bd.loose_box, bd.loose_box_qty)}</span>
                                 ) : "—"}
                               </td>
-                              <td className="px-2 py-1 text-right font-black text-slate-700">{bd.total_qty.toLocaleString()}</td>
-                              <td className="px-2 py-1 text-right font-bold text-slate-700 tabular-nums">
+                              <td className={`${packingCellClass} text-right font-black text-slate-700 tabular-nums whitespace-nowrap`}>{bd.total_qty.toLocaleString()}</td>
+                              <td className={`${packingCellClass} text-right font-bold text-slate-700 tabular-nums whitespace-nowrap`}>
                                 {erpQtyForPacking(item, bd.packing_number).toLocaleString()}
                               </td>
                             </tr>
@@ -2799,6 +2971,7 @@ export default function ForwardingModal({
                         )}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                   );
                 })()}

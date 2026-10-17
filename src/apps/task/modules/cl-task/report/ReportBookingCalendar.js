@@ -773,7 +773,18 @@ export default function ReportBookingCalendar({
                               <button
                                 type="button"
                                 disabled={!canOpen}
-                                onClick={() => canOpen && onSelectTask?.(task)}
+                                onClick={() => {
+                                  if (!canOpen) return;
+                                  const dayRef = task.day_instance_ids?.[ymd];
+                                  const dayInstanceId = Number(dayRef?.instance_id ?? dayRef) || task.instance_id;
+                                  onSelectTask?.({
+                                    ...task,
+                                    instance_id: dayInstanceId,
+                                    fill_id: dayRef?.fill_id || null,
+                                    scheduled_date: ymd,
+                                    report_day: ymd,
+                                  });
+                                }}
                                 title={`${fullTitle} · ${weekdayLong(ymd)} · ${stateLabel} · ${label}${attempts}`}
                                 className={`w-[calc(100%-2px)] h-5 rounded-sm border text-[9px] font-semibold tabular-nums ${
                                   canOpen ? "hover:bg-white/60" : "cursor-default"

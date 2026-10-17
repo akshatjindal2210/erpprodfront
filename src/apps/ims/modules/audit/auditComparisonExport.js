@@ -1,6 +1,6 @@
 import { buildExportFilename, downloadXlsxFile, TABLE_EXPORT_FORMATS } from "@/platform/utils/list/tableExport";
 import { computeLocationScoreFromCounts, formatLocationScorePct, getLocationStatusLabel, resolveBoxAccName } from "./auditScanHelpers";
-import { getAuditExecutionStatusLabel } from "./auditStatusHelpers";
+import { getAuditExecutionStatusLabel } from "@/platform/utils/inventory-audit/auditStatusHelpers";
 
 function typeLabel(type) {
   if (type === "extra_scan") return "Extra";

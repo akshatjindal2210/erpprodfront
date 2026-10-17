@@ -28,7 +28,7 @@ import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 
 const DEFAULT_MODULE = "rm_production_master";
 
-/** `module` / `service` / `helpers` / `title` let Engineering Prime Process Master reuse this page on the same table. */
+/** `module` / `service` / `helpers` / `title` let another module reuse this page on the same table. */
 export default function ProductionMasterPage({
   module: MODULE = DEFAULT_MODULE,
   service = productionService,
@@ -75,7 +75,7 @@ export default function ProductionMasterPage({
         const body = await service.getAll({ ...base, page, limit });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, params.pageSize);
-      setAllRows((data ?? []).map(enrichProductionRow));
+      setAllRows((data ?? []).map((row) => enrichProductionRow(row)));
       setDisplayLimit(100);
     } catch (err) {
       toast.error(err?.message || "Could not load the Item RM mappings. Please try again.");
@@ -230,9 +230,9 @@ export default function ProductionMasterPage({
       );
     };
 
-    return [
+    const base = [
       ["Production ID", "production_id", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px]">{v}</span>, { fixed: true, width: "120px" }],
-      ["Item Code", "item_code", 
+      ["Item Code", "item_code",
         (v) => (
           <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">
             {v || "—"}
@@ -247,10 +247,15 @@ export default function ProductionMasterPage({
         ),
         { width: "220px" },
       ],
-      ["RM Item Code", "rm_item_code", renderRmCodes, {
-        width: "250px",
-        copyValue: (row) => productionRmCopyValue(row, "rm_item_code"),
-      }],
+    ];
+    const rmCode = ["RM Item Code", "rm_item_code", renderRmCodes, {
+      width: "250px",
+      copyValue: (row) => productionRmCopyValue(row, "rm_item_code"),
+    }];
+
+    return [
+      ...base,
+      rmCode,
       ["RM Item Description", "rm_item_desc", renderRmDescs, {
         width: "260px",
         copyValue: (row) => productionRmCopyValue(row, "rm_item_desc"),

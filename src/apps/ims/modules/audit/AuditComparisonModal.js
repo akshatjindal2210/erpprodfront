@@ -9,7 +9,7 @@ import ExportMenu from "@/ui/common/list/ExportMenu";
 import { selectRole } from "@/platform/store/slices/authSlice";
 import { auditService } from "@/apps/ims/lib/services/audit";
 import { notifyListPageExportResult } from "@/platform/utils/list/listPageExport";
-import { getAuditExecutionStatusLabel, renderAuditLocationResultBadge } from "./auditStatusHelpers";
+import { getAuditExecutionStatusLabel, renderAuditLocationResultBadge } from "@/platform/utils/inventory-audit/auditStatusHelpers";
 import { buildLocationComparisonReport, getLocationStatusLabel, getLocationStatusBadgeClass, normalizeLocationStatusKey, isLocationSubmittedRow, computeLocationScoreFromCounts, formatLocationScorePct, resolveBoxAccName } from "./auditScanHelpers";
 import { exportAuditComparisonReport } from "./auditComparisonExport";
 

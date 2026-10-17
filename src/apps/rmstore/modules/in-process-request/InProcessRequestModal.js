@@ -1738,7 +1738,9 @@ export default function InProcessRequestModal({
         : mode === "add" && isUpdateStatusFlow
           ? true
           : mode === "add" && isRejectionFlow
-            ? false
+            ? showApproval
+              ? Boolean(approved)
+              : false
             : showApproval
               ? Boolean(approved)
               : mode === "add"

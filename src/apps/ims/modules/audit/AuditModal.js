@@ -20,7 +20,7 @@ import {
 import { focusFirstError } from "@/platform/utils/form/formFocus";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { selectUser } from "@/platform/store/slices/authSlice";
-import { getActiveLabel } from "./auditStatusHelpers";
+import { getActiveLabel } from "@/platform/utils/inventory-audit/auditStatusHelpers";
 import { getOriginalAssignedUserId } from "./auditScanHelpers";
 
 const ADD_FIELD_ORDER = ["start_date", "end_date", "assignments"];

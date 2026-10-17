@@ -4,8 +4,23 @@ import { ArrowDown, Trash2, Plus } from "lucide-react";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { processMasterService } from "@/apps/engineering/lib/services/processMaster";
 import { machineMasterService } from "@/apps/engineering/lib/services/machineMaster";
+import { appConfigService } from "@/apps/settings/lib/services/appConfigService";
 
 export const SELECT_H = "h-8";
+
+const RM_CONFIG_KEY = "prime_item_rm_wire_selectable";
+
+/** App config `prime_item_rm_wire_selectable`: true → RM dropdown; false / null → prime item's RM shown locked. */
+export async function fetchRmSelectable() {
+  try {
+    const res = await appConfigService.list("engineering");
+    const item = asList(res?.data ?? res).find((r) => String(r?.config_key ?? r?.key ?? "") === RM_CONFIG_KEY);
+    const val = String(item?.config_value ?? item?.value ?? "").trim().toLowerCase();
+    return val === "true" ? true : val === "false" ? false : null;
+  } catch {
+    return null;
+  }
+}
 
 let uid = 0;
 export const createNewStage = () => ({ key: `stage-${++uid}`, processIds: [], processes: [] });
@@ -55,9 +70,18 @@ export function stampItemRmOnStages(stages, itemRm, { force = false } = {}) {
     ...stage,
     processes: asList(stage.processes).map((p) => ({
       ...p,
-      rm_items: force || !asList(p.rm_items).length ? rm : p.rm_items,
+      rm_items: p.rm_wire === false ? [] : force || !asList(p.rm_items).length ? rm : p.rm_items,
     })),
   }));
+}
+
+/**
+ * Process Master flags of a process (`{ rm_wire, tooling, … }`) exactly as the API sends them — no flag list here,
+ * a new flag in Process Master shows up on its own. Spread on the process too, so `p.rm_wire` keeps working.
+ */
+export function processFlags(src) {
+  const flags = src?.flags && typeof src.flags === "object" ? src.flags : src?.rm_wire != null ? { rm_wire: src.rm_wire === true } : {};
+  return { flags, ...flags };
 }
 
 export function stagesFromJson(processJson, itemRm = null) {
@@ -67,6 +91,7 @@ export function stagesFromJson(processJson, itemRm = null) {
     const processes = asList(st.processes).map((p) => ({
       process_id: p.process_id,
       process_name: p.process_name || `Process ${p.process_id}`,
+      ...processFlags(p), // Process Master flags, live (rm_wire false → no RM items)
       machines: asList(p.machines).map((m) => ({
         machine_id: m.machine_id,
         machine_label: m.machine_label || `Machine ${m.machine_id}`,
@@ -83,6 +108,17 @@ export function stagesFromJson(processJson, itemRm = null) {
   return itemRm ? stampItemRmOnStages(mapped, itemRm) : mapped;
 }
 
+/** First problem in the stages (toast text), else null. */
+export function validateStages(stages) {
+  if (!asList(stages).length) return "Add at least one stage.";
+  for (const [sIdx, stage] of stages.entries()) {
+    if (!stage.processes.length) return `Select at least one process in Stage ${sIdx + 1}.`;
+    const missing = stage.processes.find((p) => !p.machines.length);
+    if (missing) return `Select at least one machine for ${missing.process_name} (Stage ${sIdx + 1}).`;
+  }
+  return null;
+}
+
 export function buildProcessPayload(stages, itemDcode) {
   return {
     item_dcode: itemDcode,
@@ -94,25 +130,17 @@ export function buildProcessPayload(stages, itemDcode) {
         process_order: pIdx + 1,
         machines: p.machines,
         // Respect user unselect — do not re-inject Item RM Master defaults on save
-        rm_items: asList(p.rm_items),
+        rm_items: p.rm_wire === false ? [] : asList(p.rm_items),
       })),
     })),
   };
 }
 
-/** All process ids currently used across stages. */
-export function collectProcessIds(stages) {
-  const ids = new Set();
-  for (const st of stages || []) {
-    for (const id of st.processIds || []) ids.add(String(id));
-  }
-  return ids;
-}
-
 /**
  * Compact stage → process → machine / RM editor.
  * `readOnly` = Prime preview (disabled).
- * `blockedProcessIds` = ids that must not reappear in dropdowns (other stages + prime).
+ * A process picked in one stage is disabled in the other stages of the same block
+ * (Finish may reuse Prime's processes — they are separate blocks).
  */
 export default function ProcessStagesBlock({
   stages,
@@ -122,7 +150,6 @@ export default function ProcessStagesBlock({
   perms,
   rmHelpers,
   readOnly = false,
-  blockedProcessIds = null,
   accent = "indigo",
   emptyHint = null,
   /** `compact` = "N selected"; `tags` = show each selected process name (default). */
@@ -163,11 +190,14 @@ export default function ProcessStagesBlock({
           if (existing) {
             return { ...existing, process_name: name };
           }
+          // Flags come from Process Master (helper row). RM wire OFF → this process gets no RM items.
+          const flags = row ? processFlags(row) : {};
           return {
             process_id: id,
             process_name: name,
+            ...flags,
             machines: [],
-            rm_items: normalizeRmItems(defaultRm),
+            rm_items: flags.rm_wire === false ? [] : normalizeRmItems(defaultRm),
           };
         });
         return { ...stage, processIds: validIds, processes: updatedProcesses };
@@ -201,11 +231,10 @@ export default function ProcessStagesBlock({
     );
   };
 
-  /** Disable processes used elsewhere (or in blocked list); keep current stage selections enabled. */
+  /** Disable processes used in another stage of this block; keep current stage selections enabled. */
   const isProcessBlocked = (sIdx, item) => {
     const id = String(item?.id);
     if (stages[sIdx]?.processIds?.some((x) => String(x) === id)) return false;
-    if (blockedProcessIds?.has(id)) return true;
     for (let i = 0; i < stages.length; i++) {
       if (i === sIdx) continue;
       if (stages[i].processIds?.some((x) => String(x) === id)) return true;
@@ -359,6 +388,8 @@ export default function ProcessStagesBlock({
           <Plus size={12} /> Add Stage
         </button>
       )}
+      {/* Scroll room so the last stage's process list can open below its input */}
+      {!readOnly && <div aria-hidden className="h-64" />}
     </div>
   );
 }
@@ -380,8 +411,9 @@ function ProcessRow({
   // or unselect/clear would snap selection back to Item RM Master defaults.
   const rmValue = asList(proc.rm_items).map((r) => r.rm_item_dcode);
   // App config `prime_item_rm_wire_selectable`: true → RM dropdown; false/null → read-only defaults.
-  const canSelectRm = rmSelectable === true && !readOnly;
-  const rmDisplay = asList(proc.rm_items).length ? normalizeRmItems(proc.rm_items) : normalizeRmItems(defaultRm);
+  const rmOff = proc.rm_wire === false; // Process Master "RM wire" is OFF
+  const canSelectRm = rmSelectable === true && !readOnly && !rmOff;
+  const rmDisplay = rmOff ? [] : asList(proc.rm_items).length ? normalizeRmItems(proc.rm_items) : normalizeRmItems(defaultRm);
 
   return (
     <div className="grid grid-cols-1 items-start gap-1.5 rounded border border-slate-100 bg-slate-50/50 px-1 py-1.5 md:grid-cols-[minmax(0,7rem)_minmax(0,1fr)_minmax(0,1fr)]">
@@ -429,8 +461,9 @@ function ProcessRow({
         />
       </div>
 
+      {/* RM wire OFF in Process Master → empty cell (no box). */}
       <div className="relative z-10 min-w-0 w-full">
-        {canSelectRm ? (
+        {rmOff ? null : canSelectRm ? (
           <SearchableSelect
             multiple
             showTags
