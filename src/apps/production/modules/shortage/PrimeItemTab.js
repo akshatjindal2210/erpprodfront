@@ -148,7 +148,7 @@ export default PrimeItemTab;
 
 const TYPES = {
   approve: {
-    label: "Approve",
+    label: "Accept",
     icon: CheckCircle,
     pick: "border-emerald-600 bg-emerald-50 text-emerald-700",
     idle: "border-emerald-300 bg-emerald-50/70 text-emerald-700 hover:bg-emerald-50",
@@ -180,7 +180,7 @@ function ActionDrawer({ mode, item, onClose, onSaved }) {
   const submit = async () => {
     if (saving) return;
     if (isDecide) {
-      if (!type) return toast.error("Please select Approve or Reject.");
+      if (!type) return toast.error("Please select Accept or Reject.");
       if (remarkMissing) return toast.error("Please enter remark.");
       setSaving(true);
       try {
@@ -213,7 +213,7 @@ function ActionDrawer({ mode, item, onClose, onSaved }) {
       isOpen
       onClose={close}
       onSubmit={() => void submit()}
-      title={isDecide ? "Approve / Reject Prime Item" : "Move to Pending"}
+      title={isDecide ? "Accept / Reject Prime Item" : "Move to Pending"}
       description={item.prime_item_code ? `Prime item ${item.prime_item_code}` : undefined}
       maxWidth="max-w-2xl"
       footer={

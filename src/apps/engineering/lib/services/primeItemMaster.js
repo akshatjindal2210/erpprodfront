@@ -14,6 +14,7 @@ export const primeItemMasterService = {
   create: (data) => api(EP.CREATE, { method: "POST", body: data }),
   update: (id, data) => api(EP.UPDATE, { method: "POST", body: { id, ...data } }),
   delete: (id) => api(EP.DELETE, { method: "POST", body: { id } }),
+  approve: (id, approved = true) => api(EP.APPROVE, { method: "POST", body: { id, approved } }),
 };
 
 /** IMS item pickers only (prime item, RM). */

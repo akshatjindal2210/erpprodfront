@@ -388,8 +388,6 @@ export default function ProcessStagesBlock({
           <Plus size={12} /> Add Stage
         </button>
       )}
-      {/* Scroll room so the last stage's process list can open below its input */}
-      {!readOnly && <div aria-hidden className="h-64" />}
     </div>
   );
 }

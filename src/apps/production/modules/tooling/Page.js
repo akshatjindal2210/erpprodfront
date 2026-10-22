@@ -77,7 +77,7 @@ export default function ToolingPage() {
                     module="production_tooling"
                     action="authorize"
                     variant="outline"
-                    label="Approve / Reject"
+                    label="Accept / Reject"
                     icon={Wrench}
                     disabled={!toolingSelection}
                     onClick={() => toolingTabRef.current?.openAction()}

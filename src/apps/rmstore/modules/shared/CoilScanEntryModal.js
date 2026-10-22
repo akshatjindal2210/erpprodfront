@@ -116,7 +116,7 @@ function locationRowLabel(loc) {
 async function fetchRejectionCoilUids(rejectId, seed = {}, pageModule) {
   const uids = new Set(parseSeedCoilUidList(seed));
   try {
-    const regRes = await rmRejectionService.getById(rejectId);
+    const regRes = await rmRejectionService.getById(rejectId, { permission_module: pageModule, permission_action: "view" });
     const reg = regRes?.data;
     for (const c of reg?.coils || []) {
       const uid = String(c?.coil_no_uid || "").trim();
@@ -133,7 +133,8 @@ async function fetchRejectionCoilUids(rejectId, seed = {}, pageModule) {
   for (const status of ["rejected", "active"]) {
     if (uids.size) break;
     try {
-      const res = await lookupCoils(pageModule, { filters: { qc_reject_uid: rejectId, status }, limit: 5000 });
+      // rm_uid = rejection link on the coil (qc_reject_uid is not an allowed helper filter → would return every rejected coil).
+      const res = await lookupCoils(pageModule, { filters: { rm_uid: rejectId, status }, limit: 5000 });
       for (const c of res?.data ?? []) {
         const uid = String(c?.coil_no_uid || "").trim();
         if (uid) uids.add(uid);
@@ -463,7 +464,7 @@ export default function CoilScanEntryModal({
 
       let registerMeta = null;
       try {
-        const regRes = await rmRejectionService.getById(rejectId);
+        const regRes = await rmRejectionService.getById(rejectId, { permission_module: permissionModule, permission_action: "view" });
         registerMeta = regRes?.data ?? null;
       } catch {
         /* optional */
@@ -578,12 +579,10 @@ export default function CoilScanEntryModal({
           setCoils(loaded);
 
           if (String(data?.entry_type || editItem?.entry_type || "").toLowerCase() === "rm_rejection") {
-            const totalQty = loaded.reduce((s, c) => s + (Number(c.qty) || 0), 0);
+            // Draft coil_count / total_qty are the scanned subset — required totals come from the rejection register.
             const enriched = await loadRejectionPlan(
               data?.qc_reject_uid ?? editItem?.qc_reject_uid,
               {
-                coil_count: data?.coil_count ?? loaded.length,
-                total_qty: data?.total_qty ?? totalQty,
                 item_codes: data?.item_codes,
                 heat_nos: data?.heat_nos,
                 mrn_refs: data?.mrn_refs,

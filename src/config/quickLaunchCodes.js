@@ -99,6 +99,9 @@ export const QUICK_LAUNCH_CODES = [
   { code: "PRS", label: "Production Shortage",        route: ROUTES.PRODUCTION_SHORTAGE,     module: "production_shortage",       app: "production" },
   { code: "PRT", label: "Production Tooling",         route: ROUTES.PRODUCTION_TOOLING,      module: "production_tooling",        app: "production" },
   { code: "PRJ", label: "Maintain Job Card",          route: ROUTES.PRODUCTION_JOB_CARD,     module: "production_job_card",       app: "production" },
+  // TODO go-live: uncomment Board / Calendar shortcuts
+  // { code: "PRB", label: "Job Card Board",             route: ROUTES.PRODUCTION_JOB_CARD_BOARD, module: "production_job_card",     app: "production" },
+  // { code: "PRC", label: "Job Card Calendar",          route: ROUTES.PRODUCTION_JOB_CARD_CALENDAR, module: "production_job_card",  app: "production" },
   { code: "PRL", label: "Production Activity Logs",   route: ROUTES.PRODUCTION_ACTIVITY_LOGS,module: "production_activity_logs",  app: "production" },
 
   // ── Engineering (E…) ────────────────────────────────────────────

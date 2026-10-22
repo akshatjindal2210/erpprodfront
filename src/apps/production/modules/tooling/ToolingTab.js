@@ -133,7 +133,7 @@ const ToolingTab = forwardRef(function ToolingTab(
           emptySubMessage={
             list.error
               ? `${list.error} — use the refresh button to try again.`
-              : "Shortage entries are grouped by their prime item from IMS."
+              : "From prod_job_card — Pending: tooling not decided; Register: Yes/No saved with remark."
           }
         />
       </div>
@@ -167,7 +167,7 @@ const ToolingTab = forwardRef(function ToolingTab(
           idKey="prime_key"
           titleKey="prime_item_code"
           moduleSlug="production_tooling"
-          warningMessage="This clears the Yes/No decision in prod_shortage. The prime item will appear on Pending again."
+          warningMessage="This clears the Yes/No decision on the job card. The prime item will appear on Pending again."
         />
       ) : null}
     </>
@@ -178,7 +178,7 @@ export default ToolingTab;
 
 const TYPE_BUTTONS = {
   approve: {
-    label: "Approve",
+    label: "Accept",
     icon: CheckCircle,
     bar: "bg-emerald-500",
     pick: "border-emerald-600 bg-emerald-50 text-emerald-700",
@@ -209,7 +209,7 @@ function ToolingActionDrawer({ item, onClose, onSaved }) {
 
   const submit = async () => {
     if (saving) return;
-    if (!type) return toast.error("Please select Approve or Reject.");
+    if (!type) return toast.error("Please select Accept or Reject.");
     if (remarkMissing) return toast.error("Please enter remark.");
     setSaving(true);
     try {
@@ -229,7 +229,7 @@ function ToolingActionDrawer({ item, onClose, onSaved }) {
       isOpen
       onClose={close}
       onSubmit={() => void submit()}
-      title="Tooling Approve / Reject"
+      title="Tooling Accept / Reject"
       description={item.prime_item_code ? `Prime item ${item.prime_item_code}` : undefined}
       maxWidth="max-w-2xl"
       footer={

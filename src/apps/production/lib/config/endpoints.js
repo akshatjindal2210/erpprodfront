@@ -36,5 +36,6 @@ export const ENDPOINTS = {
     APPROVE: "/production/job-card/approve",
     DELETE: "/production/job-card/delete",
     PRIME_PROCESS: "/production/job-card/prime-process",
+    ESTIMATE_PRODUCTION: "/production/job-card/estimate-production",
   },
 };

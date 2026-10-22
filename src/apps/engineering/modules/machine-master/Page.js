@@ -131,7 +131,7 @@ export default function MachineMasterPage() {
 
   const HEADERS = [
     ["Number", "number", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px] uppercase">{v || "—"}</span>, { fixed: true, width: "110px", copyValue: (row) => row.number || "—" }],
-    ["Name", "name", (v) => <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{v || "—"}</span>, { width: "160px", copyValue: (row) => row.name || "—" }],
+    ["Name", "macname", (v, row) => <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{v || row?.name || "—"}</span>, { width: "160px", copyValue: (row) => row.macname || row.name || "—" }],
     ["Process", "process_name", (v) => (
       <span className="text-[10px] font-bold text-slate-600 uppercase whitespace-normal break-words leading-snug" title={v}>{v || "—"}</span>
     ), { width: "160px", wrap: true, copyValue: (row) => row.process_name || "—" }],

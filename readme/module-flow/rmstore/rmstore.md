@@ -17,6 +17,8 @@ ERP mrn_rm → MRN Portal (stickers) → Unassigned
   Store In (optional rack)
 ```
 
+**Full A → Z flow (pages, APIs, files, tables, inventory rules):** [RMSTORE-FULL-FLOW.md](./RMSTORE-FULL-FLOW.md)
+
 | Screen                | File                                                   |
 |-----------------------|--------------------------------------------------------|
 | Dashboard             | [dashboard.md](./dashboard.md)                         |

@@ -79,14 +79,14 @@ function rejectionKind(row) {
 const REJECTION_STYLE = {
   ipr: {
     row: "bg-violet-50 group-hover:bg-violet-100 [&_td]:!bg-violet-50",
-    badge: "bg-violet-700 text-white border border-violet-800",
-    label: "IPR Hold",
-    detail: (row) => (row?.ipr_uid != null ? `IPR-${row.ipr_uid}` : "IPR Hold"),
+    badge: "bg-red-600 text-white border border-red-700",
+    label: "IPR Reject",
+    detail: (row) => (row?.ipr_uid != null ? `IPR-${row.ipr_uid} · Reject` : "IPR Reject"),
   },
   rm_rejection: {
     row: "bg-rose-50 group-hover:bg-rose-100 [&_td]:!bg-rose-50",
-    badge: "bg-rose-700 text-white border border-rose-800",
-    label: "RM Rejection",
+    badge: "bg-red-600 text-white border border-red-700",
+    label: "QC Reject",
     detail: (row) => {
       if (row?.rm_uid != null) return `REJECT-${row.rm_uid}`;
       if (row?.qc_uid != null) return `QC-${row.qc_uid} · Failed`;
@@ -402,7 +402,7 @@ const COIL_ZONE_SEARCH_LABELS = {
   stored: ["stored", "in store"],
   out: ["dispatch", "shop floor", "outward", "out"],
   consumed: ["consumed", "used", "adjustment", "minus"],
-  rejected: ["rejected", "hold", "ipr hold", "rm rejection", "qc fail"],
+  rejected: ["rejected", "hold", "ipr hold", "ipr reject", "qc reject", "rm rejection", "qc fail"],
   returned: ["returned", "returned out"],
 };
 
@@ -679,8 +679,8 @@ export function CoilTableColorLegend() {
   const items = [
     { dot: "bg-green-600", label: "Unassigned" },
     { dot: "bg-emerald-600", label: "Stored" },
-    { dot: "bg-violet-600", label: "IPR Hold" },
-    { dot: "bg-rose-600", label: "RM Rejection" },
+    { dot: "bg-red-600", label: "IPR Reject" },
+    { dot: "bg-red-600", label: "QC Reject" },
     { dot: "bg-rose-800", label: "Rejected" },
     { dot: "bg-blue-600", label: "Shop Floor" },
     { dot: "bg-orange-500", label: "Returned" },

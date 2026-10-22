@@ -201,7 +201,8 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
   }, [open, editData?.id, isApprove, mode]);
 
   const handleChange = (k, value) => {
-    setForm((prev) => ({ ...prev, [k]: value }));
+    const next = k === "name" || k === "number" ? String(value ?? "").toUpperCase() : value;
+    setForm((prev) => ({ ...prev, [k]: next }));
     if (errors[k]) setErrors((prev) => ({ ...prev, [k]: "" }));
   };
 
@@ -233,8 +234,8 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
       else if (isEdit && editData?.approved) finalApproved = false;
 
       const fd = new FormData();
-      fd.append("name", form.name.trim());
-      fd.append("number", form.number.trim());
+      fd.append("name", form.name.trim().toUpperCase());
+      fd.append("number", form.number.trim().toUpperCase());
       fd.append("process_id", String(form.process_id));
       if (form.speed !== "" && form.speed != null) fd.append("speed", String(form.speed));
       fd.append("duration_value", String(form.duration_value));

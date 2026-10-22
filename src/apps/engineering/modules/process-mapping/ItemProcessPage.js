@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, Factory, RefreshCcw, Edit3, Trash2, Eye } from "lucide-react";
+import { Plus, Factory, RefreshCcw, Edit3, Trash2, Eye, CheckCircle } from "lucide-react";
+import { formatDateTime } from "@/platform/utils/core/utilHelper";
 import { toast } from "react-toastify";
 
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
@@ -94,6 +95,14 @@ export default function ItemProcessPage({ type, module: MODULE, service, title, 
     setModalOpen(true);
   }, []);
 
+  const openApproveDrawer = useCallback(
+    (row) => {
+      if (row?.is_approved) return toast.info("Already approved. Edit before approving again.");
+      if (row) openModal("approve", row);
+    },
+    [openModal]
+  );
+
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
     modalOpen: modalOpen || !!deleteItem,
@@ -101,6 +110,12 @@ export default function ItemProcessPage({ type, module: MODULE, service, title, 
     getSelectedRow,
     openAdd: useCallback(() => openModal("add"), [openModal]),
     openEdit: useCallback((row) => openModal("edit", row), [openModal]),
+    openApprove: openApproveDrawer,
+    canApproveSelection: useCallback(() => Boolean(selected && selectedRecord && !selectedRecord.is_approved), [selected, selectedRecord]),
+    onApproveBlocked: useCallback(() => {
+      if (selectedRecord?.is_approved) toast.info("Already approved. Edit before approving again.");
+      else toast.info("Select a pending row to open approve (Ctrl+A).");
+    }, [selectedRecord]),
     openDelete: useCallback((row) => setDeleteItem(row), []),
     canDeleteSelection: useCallback(() => !!selected, [selected]),
   });
@@ -121,6 +136,20 @@ export default function ItemProcessPage({ type, module: MODULE, service, title, 
       ...(isFg ? [["Prime Item", "prime_item_code", code("text-indigo-700"), { width: "140px" }]] : []),
       [isFg ? "Finish Process" : "Prime Process", "process_summary", text, { width: "420px" }],
       ...(isFg ? [["Prime Process", "prime_summary", text, { width: "320px" }]] : []),
+      [
+        "Status",
+        "is_approved",
+        (v) => (
+          <span
+            className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}
+          >
+            {v ? "● Approved" : "○ Pending"}
+          </span>
+        ),
+        { width: "110px", copyValue: (row) => (row.is_approved ? "Approved" : "Pending") },
+      ],
+      ["Approved By", "approved_by_name", (v) => <span className="text-[10px] text-slate-500">{v || "—"}</span>, { width: "110px" }],
+      ["Approved At", "approved_at", (v) => <span className="text-[10px] text-slate-400 font-medium">{formatDateTime(v)}</span>, { width: "150px" }],
       ...auditHeaders(["created", "updated"]),
     ];
   }, [isFg]);
@@ -144,6 +173,17 @@ export default function ItemProcessPage({ type, module: MODULE, service, title, 
                 <ActionButton module={MODULE} action="view" variant="outline" label="View" icon={Eye} disabled={!selected} record={selectedRecord}
                   onClick={() => selectedRecord && openModal("view", selectedRecord)} className={btn} />
                 <ActionButton module={MODULE} action="edit" variant="outline" label="Edit" icon={Edit3} disabled={!selected} record={selectedRecord} onClick={openEditModal} className={btn} />
+                <ActionButton
+                  module={MODULE}
+                  action="authorize"
+                  variant="outline"
+                  label="Approve"
+                  icon={CheckCircle}
+                  disabled={!selected || selectedRecord?.is_approved}
+                  record={selectedRecord}
+                  onClick={() => openApproveDrawer(selectedRecord)}
+                  className="rounded-none h-9 bg-white text-[11px] font-bold uppercase px-4 border-slate-300 text-emerald-600 shadow-none shrink-0"
+                />
                 <ActionButton module={MODULE} action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selected} onClick={() => setDeleteItem(selectedRecord)}
                   className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none shrink-0" />
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1 shrink-0" />
@@ -197,6 +237,7 @@ export default function ItemProcessPage({ type, module: MODULE, service, title, 
             selectedId={selected}
             onSelect={setSelected}
             getRowId={(item) => item.id}
+            getRowClassName={(row) => (row.is_approved ? "" : "[&_td]:bg-amber-50/60")}
             onLoadMore={() => {
               if (!loading && items.length < totalItems) setDisplayLimit((n) => n + 100);
             }}

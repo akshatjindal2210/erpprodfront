@@ -47,7 +47,7 @@ const PENDING_STORE_IN_ROW = "pending_store_in";
 
 /** SOURCE label for IPR pending store-in (consume balance or manual return). */
 function iprPendingSourceLabel(ipr) {
-  if (ipr?.request_type === "consume") {
+  if (ipr?.request_type === "consume" || ipr?.request_type === "rejection") {
     return `IPR #${ipr.ipr_uid}`;
   }
   const reason = String(ipr?.reason || "").trim();
@@ -205,7 +205,7 @@ export default function StoreInPage() {
 
   const fetchPendingStoreIn = useCallback(async () => {
     try {
-      const res = await inProcessRequestService.getPendingStoreIn();
+      const res = await inProcessRequestService.getPendingStoreIn({ permission_module: MODULE, permission_action: "view" });
       const rows = Array.isArray(res?.data) ? res.data : [];
       setPendingStoreInRows(rows);
       return rows;

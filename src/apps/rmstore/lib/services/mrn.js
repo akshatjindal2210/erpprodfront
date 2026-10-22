@@ -49,18 +49,18 @@ async function postMultipart(endpoint, formData) {
 }
 
 export const mrnService = {
-  getAll: (params) => api(ENDPOINTS.MRN.LIST, { method: "POST", body: params }),
+  getAll: (params) => api(params?.permission_module ? ENDPOINTS.MRN.LIST_HELPER : ENDPOINTS.MRN.LIST, { method: "POST", body: params }),
   /** Stock Adjustment gate — MRN search (Add) or lot search (Old). */
   searchErp: (params) => api(ENDPOINTS.MRN.ERP_SEARCH, { method: "POST", body: params }),
   /** Stock Adjustment Old gate — FY lot suggestions. */
   listErpLots: (params) => api(ENDPOINTS.MRN.ERP_LOTS, { method: "POST", body: params }),
   generate: (data) => api(ENDPOINTS.MRN.GENERATE, { method: "POST", body: data }),
   delete: (uid) => api(ENDPOINTS.MRN.DELETE, { method: "POST", body: { uid } }),
-  getDetail: (uid) => api(ENDPOINTS.MRN.DETAIL, { method: "POST", body: { uid } }),
-  getCoils: (uid, heat_no) =>
-    api(ENDPOINTS.MRN.COILS, {
+  getDetail: (uid, perms) => api(perms ? ENDPOINTS.MRN.HELPER : ENDPOINTS.MRN.DETAIL, { method: "POST", body: { uid, ...perms } }),
+  getCoils: (uid, heat_no, perms) =>
+    api(perms ? ENDPOINTS.MRN.COILS_HELPER : ENDPOINTS.MRN.COILS, {
       method: "POST",
-      body: { uid, ...(heat_no ? { heat_no } : {}) },
+      body: { uid, ...(heat_no ? { heat_no } : {}), ...perms },
     }),
   previewSticker: (body) => api(ENDPOINTS.MRN.STICKER_PREVIEW, { method: "POST", body }),
   renderSingleSticker: (body) => api(ENDPOINTS.MRN.STICKER_RENDER_SINGLE, { method: "POST", body }),

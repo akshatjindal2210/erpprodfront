@@ -23,7 +23,7 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { rmStoreInProcessSelectionLabel } from "@/apps/rmstore/lib/rmStoreSelectionLabel";
 import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
-import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
+import { applyClientSearch, defaultSearchParts, fetchAllListPages, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { auditHeaders } from "@/platform/utils/list/auditListUi";
 import { isRowApproved } from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
@@ -35,6 +35,11 @@ const MODULE = "rm_in_process_request";
 const IPR_GENERIC_REASON = "coil status update";
 
 /** Register list — hide default update-status placeholder; prefer real rejection reason. */
+/** Coil UIDs on an IPR row (register list sends coils: [{ coil_no_uid }]). */
+function iprCoilUids(row) {
+  return [...new Set((row?.coils || []).map((c) => String(c?.coil_no_uid || "").trim()).filter(Boolean))];
+}
+
 function iprRegisterReasonText(row) {
   const reason = String(row?.reason || "").trim();
   const remarks = String(row?.remarks || "").trim();
@@ -263,7 +268,7 @@ export default function InProcessRequestPage() {
     }
   }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
-  const { tempSearch, setTempSearch, appliedSearch, applySearchFromInput, resetSearch } =
+  const { tempSearch, setTempSearch, applySearchFromInput, resetSearch } =
     useAppliedListSearch();
   // Keep Pending / Register lists separate so tab switch does not flash blank.
   const [pendingRows, setPendingRows] = useState([]);
@@ -306,11 +311,7 @@ export default function InProcessRequestPage() {
       if (forPending) {
         const [shopFloor, pendingIprs] = await Promise.all([
           fetchAllListPages(async (page, limit) => {
-            const body = await inProcessRequestService.getPendingShopFloor({
-              page,
-              limit,
-              ...(appliedSearch && { search: appliedSearch }),
-            });
+            const body = await inProcessRequestService.getPendingShopFloor({ page, limit });
             return { data: body.data ?? [], total: body.total ?? 0 };
           }, params.pageSize),
           fetchAllListPages(async (page, limit) => {
@@ -319,7 +320,6 @@ export default function InProcessRequestPage() {
               list_surface: "pending",
               page,
               limit,
-              ...(appliedSearch && { search: appliedSearch }),
             });
             return { data: body.data ?? [], total: body.total ?? 0 };
           }, params.pageSize),
@@ -370,12 +370,12 @@ export default function InProcessRequestPage() {
               : { type: params.requestType })),
         };
 
+        // All pages are loaded; quick search filters on the client (FG / item / supplier are enriched, not DB columns).
         const loadPage = async (page, limit) => {
           const body = await inProcessRequestService.getAll({
             filters,
             page,
             limit,
-            ...(appliedSearch && { search: appliedSearch }),
           });
           return { data: body.data ?? [], total: body.total ?? 0 };
         };
@@ -432,7 +432,6 @@ export default function InProcessRequestPage() {
     params.toDate,
     params.status,
     params.requestType,
-    appliedSearch,
   ]);
 
   useEffect(() => {
@@ -447,7 +446,11 @@ export default function InProcessRequestPage() {
   const filteredRows = useMemo(() => {
     let data = allRows;
     if (String(tempSearch || "").trim()) {
-      data = applyClientSearch(data, tempSearch, { skipSort: !!params.sortKey });
+      // Row fields + every coil UID on the row (Coil column lists them; coils is an array of objects).
+      data = applyClientSearch(data, tempSearch, {
+        skipSort: !!params.sortKey,
+        getParts: (row) => [...defaultSearchParts(row), ...iprCoilUids(row)],
+      });
     }
     return sortRowsByKey(data, params.sortKey, params.sortDir);
   }, [allRows, tempSearch, params.sortKey, params.sortDir]);
@@ -485,8 +488,7 @@ export default function InProcessRequestPage() {
             (params.status !== "all" ||
               params.requestType !== "all" ||
               Boolean(params.fromDate) ||
-              Boolean(params.toDate))) ||
-          Boolean(appliedSearch),
+              Boolean(params.toDate))),
       }),
     [
       tempSearch,
@@ -497,7 +499,6 @@ export default function InProcessRequestPage() {
       params.toDate,
       params.status,
       params.requestType,
-      appliedSearch,
     ]
   );
 
@@ -614,25 +615,27 @@ export default function InProcessRequestPage() {
       [
         "Coil",
         "coil_label",
-        (v) => (
-          <span className="text-[10px] font-bold text-slate-600 uppercase truncate block" title={v || ""}>
-            {v || "—"}
-          </span>
-        ),
-        { width: "120px" },
+        (v, row) => {
+          // Actual coil UIDs (not "3 coils") — lot rows list every coil.
+          const uids = iprCoilUids(row);
+          const text = uids.length ? uids.join(", ") : v || "—";
+          return (
+            <span className="text-[10px] font-bold text-slate-600 uppercase truncate block" title={text}>
+              {text}
+            </span>
+          );
+        },
+        { width: "120px", copyValue: (row) => iprCoilUids(row).join(", ") || row?.coil_label || "—" },
       ],
       [
         "MRN UID",
         "mrn_uid",
         (v, row) => (
-          <span
-            className="font-bold text-indigo-700 text-[10px] truncate block"
-            title={row.lot_label ? `Lot ${row.lot_label}` : v || ""}
-          >
-            {row.lot_label ? `Lot ${row.lot_label}` : v || "—"}
+          <span className="font-bold text-indigo-700 text-[10px] truncate block" title={v || row.lot_label || ""}>
+            {v || row.lot_label || "—"}
           </span>
         ),
-        { width: "80px" },
+        { width: "80px", copyValue: (row) => row?.mrn_uid || row?.lot_label || "—" },
       ],
       [
         "Heat No",
@@ -661,7 +664,14 @@ export default function InProcessRequestPage() {
                     : "bg-slate-50 text-slate-600 border-slate-200";
           const tgt = parseReassignJc(row?.reassign_jc);
           const targetJc = label === "Reassign" ? String(tgt?.pjobcardno || reassignJcNo(row?.reassign_jc) || "").trim() : "";
-          const rejectReason = label === "Rejected" ? iprRegisterReasonText(row) : "";
+          const rejectReason =
+            label !== "Rejected"
+              ? ""
+              : row?.source_rejection_ipr_uid
+                ? `→ IPR-${row.source_rejection_ipr_uid}`
+                : row?.downstream === IPR_DOWNSTREAM.PENDING_STORE_IN
+                  ? "Store In Pending"
+                  : iprRegisterReasonText(row);
           const sub = tgt
             ? [tgt.item_code, tgt.macname].filter(Boolean).join(" · ")
             : "";
@@ -683,6 +693,7 @@ export default function InProcessRequestPage() {
               return `Reassign → ${jc}${t?.item_code ? ` (${t.item_code})` : ""}`;
             }
             if (row?.balance_status === "Rejected") {
+              if (row?.source_rejection_ipr_uid) return `Rejected → IPR-${row.source_rejection_ipr_uid}`;
               const r = iprRegisterReasonText(row);
               return r ? `Rejected — ${r}` : "Rejected";
             }
@@ -697,11 +708,18 @@ export default function InProcessRequestPage() {
       [
         "Remarks",
         "remarks",
-        (v) => (
-          <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>
-            {v || "—"}
-          </span>
-        ),
+        (v, row) => {
+          const text = row?.source_rejection_ipr_uid
+            ? `Auto Store In · IPR-${row.source_rejection_ipr_uid}`
+            : String(v ?? "").trim().toLowerCase() === "null"
+              ? ""
+              : v;
+          return (
+            <span className="text-[10px] text-slate-600 truncate block" title={text || ""}>
+              {text || "—"}
+            </span>
+          );
+        },
         { width: "100px" },
       ],
       // [
@@ -730,16 +748,16 @@ export default function InProcessRequestPage() {
         ),
         { width: "150px" },
       ],
-      [
-        "Next Step",
-        "downstream",
-        (v) => (
-          <span className="text-[10px] font-bold text-slate-600 uppercase">
-            {DOWNSTREAM_LABEL[v] || "—"}
-          </span>
-        ),
-        { width: "120px" },
-      ],
+      // [
+      //   "Next Step",
+      //   "downstream",
+      //   (v) => (
+      //     <span className="text-[10px] font-bold text-slate-600 uppercase">
+      //       {DOWNSTREAM_LABEL[v] || "—"}
+      //     </span>
+      //   ),
+      //   { width: "120px" },
+      // ],
       ...auditHeaders(),
     ],
     []

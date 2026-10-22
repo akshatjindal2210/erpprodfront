@@ -626,9 +626,9 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
                 {disabledLabel}
               </span>
             ) : null}
-            {item.box_count != null && (
+            {(item.box_count ?? item.location_coil_count) != null && (
               <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] sm:text-xs font-bold border border-slate-200">
-                {item.box_count} Boxes
+                {item.box_count != null ? `${item.box_count} Boxes` : `${item.location_coil_count} Coils`}
               </span>
             )}
             {multiple && isItemSelected ? (

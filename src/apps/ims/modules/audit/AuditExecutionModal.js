@@ -34,7 +34,7 @@ import {
 const AUDIT_SCANNER_ELEMENT_ID = "audit-execution-scanner";
 const INITIAL_SNACK = { open: false, variant: "error", title: "", message: "", duration: 4000 };
 
-export default function AuditExecutionModal({ open, onClose, onSuccess, auditData, fixedLocationId }) {
+export default function AuditExecutionModal({ open, onClose, onSuccess, auditData, fixedLocationId, candidateRows = [], onPickLocation }) {
   const [loading, setLoading] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [scannedData, setScannedData] = useState({});
@@ -49,6 +49,7 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
   const lastScanRef = useRef({ key: "", at: 0 });
   const prevOpenRef = useRef(false);
   const locationVerifiedRef = useRef(false);
+  const pickingRef = useRef(false);
   const scanToastRef = useRef({});
 
   const closeSnackbar = useCallback(() => {
@@ -147,6 +148,26 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
     const scannedLocNo = normalizedLoc || val;
 
     const looksLikeLocation = normalizedLoc && verifyFixedLocation(scannedLocNo);
+
+    // Start: whichever of the user's assigned locations is scanned starts (not only the first row).
+    if (!isLocationScanned && onPickLocation) {
+      setScannedInput("");
+      const key = String(scannedLocNo || "").trim().toLowerCase();
+      const matches = normalizedLoc ? candidateRows.filter((r) => String(r.location_no || "").trim().toLowerCase() === key) : [];
+      const row = matches.find((r) => Number(r.audit_id) === Number(auditData?.audit_id)) || matches[0];
+      if (!row) {
+        const only = candidateRows.length === 1 ? `Scan location ${candidateRows[0].location_no}.` : "This location is not assigned to you.";
+        showScanToast("error", "audit-pick-location", normalizedLoc ? only : "Scan the location QR code first.", 2200);
+        return;
+      }
+      if (pickingRef.current) return; // one pick at a time (fast double scan)
+      pickingRef.current = locationVerifiedRef.current = true; // the effect on new auditData marks the location scanned
+      locationVerifiedRef.current = await onPickLocation(row);
+      pickingRef.current = false;
+      if (locationVerifiedRef.current) showScanSuccess("audit-location-verified", SCAN_SNACK_MSG.AUDIT_LOCATION_VERIFIED(row.location_no), 4500);
+      blurActiveElement();
+      return;
+    }
 
     if (!isLocationScanned) {
       if (!looksLikeLocation) {
@@ -425,7 +446,11 @@ export default function AuditExecutionModal({ open, onClose, onSuccess, auditDat
       isOpen={open}
       onClose={onClose}
       title="Start Audit"
-      description={`Audit #${auditData?.audit_id} · ${assignedLocation.location_no}`}
+      description={
+        !isLocationScanned && onPickLocation && candidateRows.length
+          ? `${candidateRows.length === 1 ? "Scan location" : "Scan any assigned location"}: ${candidateRows.map((r) => r.location_no).join(", ")}`
+          : `Audit #${auditData?.audit_id} · ${assignedLocation.location_no}`
+      }
       footer={drawerFooter}
       maxWidth="max-w-2xl"
     >

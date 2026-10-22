@@ -126,6 +126,7 @@ export default function RmInventoryAuditPage() {
   const [executionOpen, setExecutionOpen] = useState(false);
   const [executionAudit, setExecutionAudit] = useState(null);
   const [executionLocationRow, setExecutionLocationRow] = useState(null);
+  const [executionPickRows, setExecutionPickRows] = useState([]);
   const [comparisonOpen, setComparisonOpen] = useState(false);
   const [comparisonContext, setComparisonContext] = useState(null);
   const [reopening, setReopening] = useState(false);
@@ -180,19 +181,9 @@ export default function RmInventoryAuditPage() {
         toast.info("You can start only your assigned location within the audit date range");
         return;
       }
+      // Nothing is started here — the location the user scans in the drawer starts (pickAuditLocation).
       setSelected(locationRow.row_id);
       setExecutionLocationRow(locationRow);
-      try {
-        // Freeze expected coils for this assigned location at the moment user starts
-        await inventoryAuditService.startLocation({
-          audit_id: locationRow.audit_id,
-          location_id: locationRow.location_id,
-        });
-      } catch (err) {
-        toast.error(err?.message || "Failed to lock expected coils for this location");
-        setExecutionLocationRow(null);
-        return;
-      }
       const row = await loadExecutionAudit(locationRow.audit_id);
       if (row) {
         setExecutionOpen(true);
@@ -202,6 +193,23 @@ export default function RmInventoryAuditPage() {
     },
     [loadExecutionAudit, locationExecutionContext]
   );
+
+  /** Scanned location (any of the user's assigned ones) → freeze its expected coils and switch the drawer to it. */
+  const pickAuditLocation = useCallback(async (locationRow) => {
+    try {
+      await inventoryAuditService.startLocation({ audit_id: locationRow.audit_id, location_id: locationRow.location_id });
+      const audit = (await inventoryAuditService.getById(locationRow.audit_id))?.data;
+      if (!audit) return false;
+      // set together → one render with matching audit + location
+      setExecutionAudit(audit);
+      setExecutionLocationRow(locationRow);
+      setSelected(locationRow.row_id);
+      return true;
+    } catch (err) {
+      toast.error(err?.message || "Failed to lock expected coils for this location");
+      return false;
+    }
+  }, []);
 
   const fetchAudits = useCallback(async () => {
     setLoading(true);
@@ -584,6 +592,10 @@ export default function RmInventoryAuditPage() {
   }, [isLocationView, filteredLocationRows, locationExecutionContext, selectedLocationRow]);
 
   const canExecute = Boolean(nextExecutableLocationRow);
+  const executableLocationRows = useMemo(
+    () => (isLocationView ? filteredLocationRows.filter((r) => canExecuteAuditLocationRow(r, locationExecutionContext)) : []),
+    [isLocationView, filteredLocationRows, locationExecutionContext]
+  );
 
   const canViewComparison = useMemo(() => {
     if (!canViewAudit) return false;
@@ -699,6 +711,12 @@ export default function RmInventoryAuditPage() {
                     toast.info("No location available to start for today");
                     return;
                   }
+                  // Row selected → only that location can be scanned; none selected → any assigned location.
+                  setExecutionPickRows(
+                    selectedLocationRow && canExecuteAuditLocationRow(selectedLocationRow, locationExecutionContext)
+                      ? [selectedLocationRow]
+                      : executableLocationRows
+                  );
                   openAuditExecution(nextExecutableLocationRow);
                 }} 
                 className="rounded-none h-9 text-[11px] font-bold uppercase px-4 shadow-none bg-indigo-600 hover:bg-indigo-700" 
@@ -872,6 +890,8 @@ export default function RmInventoryAuditPage() {
           }} 
           auditData={executionAudit}
           fixedLocationId={executionLocationRow.location_id}
+          candidateRows={executionPickRows}
+          onPickLocation={pickAuditLocation}
         />
       )}
 

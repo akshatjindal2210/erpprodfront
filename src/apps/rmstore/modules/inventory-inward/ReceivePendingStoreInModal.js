@@ -50,6 +50,8 @@ export default function ReceivePendingStoreInModal({ open, iprUid, initialIpr = 
   const [ipr, setIpr] = useState(null);
   const [lines, setLines] = useState([]);
   const [error, setError] = useState("");
+  // Rejection coils come back in full — no store-in / consume split.
+  const isRejection = ipr?.request_type === "rejection";
 
   const applyIprRow = useCallback((row) => {
     if (!row?.ipr_uid) {
@@ -76,7 +78,7 @@ export default function ReceivePendingStoreInModal({ open, iprUid, initialIpr = 
         applyIprRow(cached);
         return;
       }
-      const res = await inProcessRequestService.getPendingStoreInById(iprUid);
+      const res = await inProcessRequestService.getPendingStoreInById(iprUid, { permission_module: MODULE, permission_action: "add" });
       applyIprRow(res?.data);
     } catch (err) {
       setError(err?.message || "Could not load the pending store-in request.");
@@ -195,7 +197,7 @@ export default function ReceivePendingStoreInModal({ open, iprUid, initialIpr = 
       <button
         type="button"
         onClick={() => void handleReceive()}
-        disabled={saving || loading || !lines.length}
+        disabled={saving || loading || (!lines.length && !isRejection)}
         title="Ctrl+S"
         className={IMS_DRAWER_BTN_PRIMARY}
       >
@@ -213,10 +215,14 @@ export default function ReceivePendingStoreInModal({ open, iprUid, initialIpr = 
       isOpen={open}
       onClose={onClose}
       onSubmit={
-        saving || loading || !lines.length ? undefined : () => void handleReceive()
+        saving || loading || (!lines.length && !isRejection) ? undefined : () => void handleReceive()
       }
       title={`Receive · IPR #${iprUid || "—"}`}
-      description="Enter store-in quantity per coil. Remaining quantity is recorded as consume."
+      description={
+        isRejection
+          ? "Rejected coils from the shop floor. Full qty is received and held for RM Rejection Store Out."
+          : "Enter store-in quantity per coil. Remaining quantity is recorded as consume."
+      }
       footer={footer}
       maxWidth="max-w-md"
     >
@@ -230,7 +236,7 @@ export default function ReceivePendingStoreInModal({ open, iprUid, initialIpr = 
       ) : (
         <div className="space-y-2.5">
           <div className="grid grid-cols-2 gap-1.5">
-            <Info label="Source" value="Production Return" />
+            <Info label="Source" value={isRejection ? "In-Process Rejection" : "Production Return"} />
             <Info label="MRN UID" value={mrn} />
             <Info label="Machine" value={ipr?.macname || lines.find((l) => l.macname)?.macname} />
             <Info label="Item" value={item} />
@@ -269,6 +275,7 @@ export default function ReceivePendingStoreInModal({ open, iprUid, initialIpr = 
                         max={issued || undefined}
                         step="any"
                         value={Number.isFinite(remaining) ? remaining : ""}
+                        readOnly={isRejection}
                         onChange={(e) => onQtyChange(c.coil_no_uid, e.target.value)}
                         className={`${OK_INPUT} mt-0.5 h-8 w-full text-[11px] font-bold tabular-nums text-center`}
                       />

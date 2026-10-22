@@ -194,6 +194,7 @@ export default function MrnRejectDrawer({ open, onClose, onSuccess, row }) {
 
   const unit = erpField(row, detail, "it_unit") || "KGS";
   const mrnNo = erpField(row, detail, "mrn_no") ?? "—";
+  const mrnUid = erpField(row, detail, "uid") ?? "—";
   const serialNo = erpField(row, detail, "serial_no") ?? "—";
   const accName = erpField(row, detail, "acc_name") ?? "—";
   const billNo = erpField(row, detail, "bill_no") ?? "—";
@@ -246,8 +247,8 @@ export default function MrnRejectDrawer({ open, onClose, onSuccess, row }) {
               <span className="text-[12px] font-semibold text-slate-800">{mrnNo}</span>
             </div>
             <div>
-              <span className={LABEL}>Serial No</span>
-              <span className="text-[12px] font-semibold text-slate-800">{serialNo}</span>
+              <span className={LABEL}>MRN UID</span>
+              <span className="text-[12px] font-semibold text-slate-800">{mrnUid}</span>
             </div>
             <div>
               <span className={LABEL}>MRN Date</span>
@@ -320,15 +321,6 @@ export default function MrnRejectDrawer({ open, onClose, onSuccess, row }) {
               </p>
             </div>
 
-            <ModuleSopAcknowledgment
-              ref={sopAckRef}
-              key={`${open}-${uid}-authorize`}
-              moduleSlug={MODULE}
-              permissionType="authorize"
-              isOpen={open}
-              requireAckWhenPresent
-            />
-
             <FormTextarea
               label={
                 <>
@@ -342,6 +334,16 @@ export default function MrnRejectDrawer({ open, onClose, onSuccess, row }) {
               rows={3}
               disabled={loading}
             />
+
+            <ModuleSopAcknowledgment
+              ref={sopAckRef}
+              key={`${open}-${uid}-authorize`}
+              moduleSlug={MODULE}
+              permissionType="authorize"
+              isOpen={open}
+              requireAckWhenPresent
+            />
+
           </div>
         </div>
       </div>

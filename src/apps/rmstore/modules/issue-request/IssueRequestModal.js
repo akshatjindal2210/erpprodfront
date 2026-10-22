@@ -1364,6 +1364,10 @@ export default function IssueRequestModal({
       macname: machine,
       part_weight: Number(detail?.part_weight || 0) || 0,
       rm_weight: Number(detail?.rm_weight || 0) || 0,
+      // Prefer RM wire saved on Maintain Job Card process plan
+      rm_item_dcode: detail?.rm_item_dcode ?? null,
+      rm_item_code: detail?.rm_item_code ? String(detail.rm_item_code).trim() : "",
+      rm_item_desc: detail?.rm_item_desc || "",
       issue_qty: "",
       coils: [],
     };
@@ -1756,16 +1760,6 @@ export default function IssueRequestModal({
                 !balance.rmCap && balance.plan > 0 && Number(row.issue_qty) > 0
                   ? roundQty(Number(row.issue_qty) - Math.max(0, balance.pending))
                   : 0;
-              const pendingTone =
-                balance.rmCap
-                  ? balance.over || balance.pending <= 0
-                    ? "rose"
-                    : "emerald"
-                  : balance.plan <= 0
-                    ? "slate"
-                    : balance.over || balance.pending <= 0
-                      ? "rose"
-                      : "emerald";
               const remainRm = remainingRmMax(row);
               const rmComplete = isRmFullyIssued(row);
               const hasJobCard = Boolean(row.pjobcardno);
@@ -1807,52 +1801,14 @@ export default function IssueRequestModal({
                               title="Production machine for this job card"
                             />
                           ) : null}
-                          <InfoBadge
-                            label="Plan"
-                            value={balance.plan}
-                            tone="indigo"
-                            title="Planned qty on this job card"
-                          />
-                          {row.part_weight > 0 ? (
-                            <InfoBadge
-                              label="Part Wt"
-                              value={row.part_weight}
-                              tone="slate"
-                              title="Part weight from ERP"
-                            />
-                          ) : null}
                           {row.rm_weight > 0 ? (
                             <InfoBadge
-                              label="RM Wt"
+                              label="Required Qty"
                               value={row.rm_weight}
-                              tone="slate"
-                              title="RM weight from ERP"
+                              tone="indigo"
+                              title="Required Qty (KG) = (gweight × qty) + extra %"
                             />
                           ) : null}
-                          <InfoBadge
-                            label="Issued"
-                            value={balance.issued}
-                            tone={balance.issued > 0 ? "amber" : "slate"}
-                            loading={row.loadingIssued}
-                            title={
-                              row.issued_count
-                                ? `Already requested in ${row.issued_count} earlier issue request${
-                                    row.issued_count === 1 ? "" : "s"
-                                  }`
-                                : "No earlier issue request for this job card"
-                            }
-                          />
-                          <InfoBadge
-                            label={balance.over ? "Over" : "Pending"}
-                            value={balance.over ? -balance.pending : Math.max(0, balance.pending)}
-                            tone={pendingTone}
-                            loading={row.loadingIssued}
-                            title={
-                              balance.rmCap
-                                ? "Remaining RM weight (RM Wt − already issued)"
-                                : "Plan qty minus qty already issued"
-                            }
-                          />
                         </>
                       ) : null}
                     </div>

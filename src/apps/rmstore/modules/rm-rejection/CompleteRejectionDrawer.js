@@ -5,7 +5,7 @@ import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 
 import { rmRejectionService } from "@/apps/rmstore/lib/services/rmRejection";
-import { fetchBillOptions, getBillByNo } from "@/apps/rmstore/lib/utils/rejectionBillOptions";
+import { fetchBillOptions, getBillByNo, rejectionBillFilters } from "@/apps/rmstore/lib/utils/rejectionBillOptions";
 import { billDropdownOptionClasses } from "@/apps/rmstore/lib/utils/rejectionBillColors";
 import { isRmstoreSuperAdmin } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
@@ -54,7 +54,7 @@ function withBillMeta(row) {
 /**
  * Pending Awaiting Bill → bill + remark → Register.
  * Super admin: all invfnote salecat=2 bills.
- * Normal user: only vendor/item match (acc_code + item_code/dcode).
+ * Normal user: only acc_code + item_dcode match.
  */
 export default function CompleteRejectionDrawer({ open, onClose, onSuccess, row }) {
   const rejectId = row?.qc_reject_uid;
@@ -76,31 +76,7 @@ export default function CompleteRejectionDrawer({ open, onClose, onSuccess, row 
     [row?.vendor_acc_name, row?.acc_name, row?.matched_bill_acc_name]
   );
 
-  const matchFilters = useMemo(() => {
-    const itemFromCodes = String(row?.item_codes ?? row?.item_code ?? "")
-      .split(/[,|]+/)
-      .map((s) => s.trim())
-      .find(Boolean);
-    return {
-      acc_code: row?.vendor_acc_code ?? row?.acc_code ?? null,
-      item_code: row?.match_item_code || itemFromCodes || null,
-      item_dcode: row?.match_item_dcode ?? row?.item_dcode ?? null,
-    };
-  }, [
-    row?.vendor_acc_code,
-    row?.acc_code,
-    row?.match_item_code,
-    row?.item_codes,
-    row?.item_code,
-    row?.match_item_dcode,
-    row?.item_dcode,
-  ]);
-
-  /** Super admin → no vendor/item filter. Normal → match filters only. */
-  const billFilters = useMemo(
-    () => (isSuperAdmin ? {} : matchFilters),
-    [isSuperAdmin, matchFilters]
-  );
+  const billFilters = useMemo(() => rejectionBillFilters(row), [row]);
 
   useEffect(() => {
     if (!open) return;
@@ -179,7 +155,10 @@ export default function CompleteRejectionDrawer({ open, onClose, onSuccess, row 
 
   const filterHint = isSuperAdmin
     ? "All bills (super admin)"
-    : [matchFilters.acc_code && `Acc ${matchFilters.acc_code}`, matchFilters.item_code || matchFilters.item_dcode]
+    : [
+        (row?.vendor_acc_code ?? row?.acc_code) && `Acc ${row?.vendor_acc_code ?? row?.acc_code}`,
+        (row?.match_item_dcode ?? row?.item_dcode) && `Dcode ${row?.match_item_dcode ?? row?.item_dcode}`,
+      ]
         .filter(Boolean)
         .join(" · ");
 
@@ -220,7 +199,7 @@ export default function CompleteRejectionDrawer({ open, onClose, onSuccess, row 
             getByIdService={loadBillByNo}
             dataKey="bill_no"
             labelKey="bill_no"
-            subLabelKey="bill_dt_label"
+            subLabelKey="option_sub_label"
             labelOnlyDisplay
             placeholder={isSuperAdmin ? "Select bill…" : "Select matched bill…"}
             emptyMessage={

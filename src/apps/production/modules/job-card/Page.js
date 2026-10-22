@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw, ClipboardList, Loader2, Edit3, CheckCircle, CheckCircle2, Check, Shield, MessageSquareQuote } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { RefreshCw, ClipboardList, Loader2, Edit3, CheckCircle, CheckCircle2, Check, Shield, XCircle, MessageSquareQuote } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { jobCardService } from "@/apps/production/lib/services/jobCard";
+import { ROUTES } from "@/apps/production/lib/utils/routes";
+import { shortageService } from "@/apps/production/lib/services/shortage";
 import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_TEXT, IMS_TABLE_CELL_NUMBER } from "@/ui/common/list/listPageShellClasses";
 import { FormLabel, OK_INPUT } from "@/ui/common/Constants";
 import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/ui/common/list/ListPageToolbar";
@@ -20,23 +23,27 @@ import Drawer from "@/ui/primitives/Drawer";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
+import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
 import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
-import { auditHeaders } from "@/platform/utils/list/auditListUi";
+import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
 import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { DrawerSection, DrawerDetailField, PrimeItemSummary, usePrimeItemList } from "@/apps/production/modules/shortage/primeItem";
 import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_PRIMARY, IMS_DRAWER_BTN_APPROVE } from "@/apps/ims/lib/helpers/masterListUi";
+import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
+import { formatProductionDuration, displayDurationSeconds, sumShownTimeSeconds, useJobCardProductionEstimate } from "@/apps/production/modules/job-card/jobCardProductionEstimate";
 
 /**
  * Production → Maintain Job Card (IMS style — 2 tabs).
- *   Pending Shortage — shortage entries → New (create job card)
+ *   Pending Shortage — gray pending rows selectable → Approve (shortage authorize) → then New (create job card)
  *   Register         — all job cards (filter Pending / Authorized) → Approve / Edit / View / Delete
  */
 
 const MODULE = "production_job_card";
+const SHORTAGE_MODULE = "production_shortage"; // same authorize key as Shortage → Prime Item
 const TABS = [
   { id: "register", label: "Register", icon: CheckCircle2 },
   { id: "pending", label: "Pending Shortage", icon: ClipboardList },
@@ -47,19 +54,21 @@ const REGISTER_APPROVAL_OPTIONS = [
   { label: "Authorized", value: "approved" },
 ];
 const btn = LIST_PAGE_ACTION_CLASS;
-const NOT_APPROVED_TIP = "Approve this in Production → Shortage → Prime Item first";
+const NOT_APPROVED_TIP = "Shortage not approved yet — approve first, then click New";
 const EMPTY = { rows: [], headers: [] };
-const JOB_CARD_STATUSES = ["Open", "Closed", "Cancelled"];
+const JOB_CARD_STATUSES = ["Pending", "Planning", "Running", "Hold", "Complete"];
 const PAGE_CHUNK = 100;
 
 // Drawers (IMS style)
-const DRAWER_WIDTH = "max-w-5xl";
+const DRAWER_WIDTH = "max-w-[1600px]";
 const yesNoLabel = (v) => (v == null ? "—" : v ? "Yes" : "No");
 
 const STATUS_BADGE = {
-  Open: "bg-sky-50 text-sky-700 border-sky-100",
-  Closed: "bg-emerald-50 text-emerald-700 border-emerald-100",
-  Cancelled: "bg-rose-50 text-rose-700 border-rose-100",
+  Pending: "bg-amber-50 text-amber-700 border-amber-100",
+  Planning: "bg-sky-50 text-sky-700 border-sky-100",
+  Running: "bg-indigo-50 text-indigo-700 border-indigo-100",
+  Hold: "bg-rose-50 text-rose-700 border-rose-100",
+  Complete: "bg-emerald-50 text-emerald-700 border-emerald-100",
 };
 
 /** Plan step machines → "NF-1, NF-2". */
@@ -93,20 +102,36 @@ const REGISTER_HEADERS = [
   ), { width: "300px", sortable: false, copyValue: (row) => itemsText(row.items) }],
   ["Total Qty", "qty", (v) => <span className="font-black text-slate-800 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>, { width: "100px", align: "center" }],
   ["Process Plan", "process_plan", (v) => <span className="text-[10px] text-slate-600 truncate block" title={processPlanText(v)}>{processPlanText(v)}</span>, { width: "260px", sortable: false, copyValue: (row) => processPlanText(row.process_plan) }],
+  ["Shortage Approved", "shortage_approved", (v) => (
+    <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-slate-100 text-slate-500 border-slate-200"}`}>
+      {v ? "True" : "False"}
+    </span>
+  ), { width: "130px", copyValue: (row) => (row.shortage_approved ? "True" : "False") }],
+  ["Shortage Remark", "shortage_remark", (v) => <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>, { width: "180px", sortable: false }],
+  ["Tooling Approved", "tooling_approved", (v) => (
+    <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v === true ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-slate-100 text-slate-500 border-slate-200"}`}>
+      {v === true ? "True" : "False"}
+    </span>
+  ), { width: "130px", copyValue: (row) => (row.tooling_approved === true ? "True" : "False") }],
+  ["Tooling Remark", "tooling_remark", (v) => <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>, { width: "180px", sortable: false }],
+  ...auditPair("Tooling", "tooling_by_name", "tooling_at", { hideUnlessNameKey: "tooling_by_name" }),
   ["Approval", "approved", (v) => (
     <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
       {v ? "● AUTHORIZED" : "○ PENDING"}
     </span>
   ), { width: "120px", sortable: false, copyValue: (row) => (row.approved ? "AUTHORIZED" : "PENDING") }],
-  ["Status", "status", (v) => <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${STATUS_BADGE[v] || STATUS_BADGE.Open}`}>{v || "—"}</span>, { width: "100px" }],
+  ["Status", "status", (v) => <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${STATUS_BADGE[v] || STATUS_BADGE.Pending}`}>{v || "—"}</span>, { width: "100px" }],
   ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>, { width: "200px", sortable: false }],
   ...auditHeaders(["created", "updated", "approved"]), // Created / Updated / Approved — By + At (IMS)
 ];
 
-/** Pending (not yet approved) job card row → amber, like IMS pending rows. */
-const registerRowClassName = (row) => (row.approved ? "" : "[&_td]:bg-amber-50/70");
+/** Pending status or not-yet-authorized → soft amber. */
+const registerRowClassName = (row) =>
+  row.status === "Pending" || !row.approved ? "[&_td]:bg-amber-50/70" : "";
 
 export default function JobCardPage() {
+  const canAccess = useCanAccess();
+  const router = useRouter();
   const [tab, setTab] = useState("pending");
   const [opened, setOpened] = useState({ pending: true, register: false });
   const [keys, setKeys] = useState({ shortage: 0, register: 0 });
@@ -114,6 +139,7 @@ export default function JobCardPage() {
   const [shortageSelected, setShortageSelected] = useState(null);
   const [selectedCard, setSelectedCard] = useState(null);
   const [createItem, setCreateItem] = useState(null);
+  const [shortageApproveItem, setShortageApproveItem] = useState(null);
   const [drawerCard, setDrawerCard] = useState(null);
   const [deleteCard, setDeleteCard] = useState(null);
   const [viewMode, handleViewMode] = useViewMode();
@@ -134,6 +160,17 @@ export default function JobCardPage() {
     setCreateItem(row);
   }, []);
 
+  /** Shortage → Prime Item approve (same API / permission), from a gray pending row. */
+  const openShortageApprove = useCallback(
+    (row) => {
+      if (!canAccess(SHORTAGE_MODULE, "authorize").allowed) return;
+      if (!row) return toast.info("Select a prime item first.");
+      if (row.status !== "pending") return toast.info("Already approved — click New to create the job card.");
+      setShortageApproveItem(row);
+    },
+    [canAccess]
+  );
+
   const openCard = useCallback((card, mode) => {
     if (!card?.docno) return toast.info("Select a job card first.");
     setDrawerCard({ card, mode });
@@ -149,19 +186,44 @@ export default function JobCardPage() {
     }
   };
 
+  // Open from Job Card Board: ?docno=1&mode=view|edit  or  ?tab=pending
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const tabParam = q.get("tab");
+    const docno = q.get("docno");
+    const mode = q.get("mode") || "view";
+    if (!tabParam && !docno) return;
+
+    if (tabParam === "pending" || tabParam === "register") {
+      showTab(tabParam);
+      if (tabParam === "pending") toast.info("Select an approved shortage, then click New.");
+    } else if (docno) {
+      showTab("register");
+      openCard({ docno: Number(docno) }, mode);
+    }
+    router.replace(ROUTES.PRODUCTION_JOB_CARD, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** IMS style: Approve opens the card in approve mode (details + SOP → Approve). */
   const openApprove = useCallback(
     (card) => {
       if (card?.approved === true) return toast.info("Already authorized. Edit it before approving again.");
+      const plan = card?.process_plan;
+      if (!Array.isArray(plan) || !plan.length) {
+        return toast.info("Save process plan first (Edit the job card), then authorize.");
+      }
       openCard(card, "approve");
     },
     [openCard]
   );
 
-  const modalOpen = Boolean(createItem || drawerCard || deleteCard);
+  const modalOpen = Boolean(createItem || shortageApproveItem || drawerCard || deleteCard);
   const onPending = tab === "pending";
   const onRegister = tab === "register";
-  const canApproveSelected = Boolean(selectedCard && selectedCard.approved !== true);
+  const cardHasProcessPlan = (c) => Array.isArray(c?.process_plan) && c.process_plan.length > 0;
+  const canApproveSelected = Boolean(selectedCard && selectedCard.approved !== true && cardHasProcessPlan(selectedCard));
+  const canShortageApproveSelected = Boolean(shortageSelected && shortageSelected.status === "pending");
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
@@ -172,11 +234,25 @@ export default function JobCardPage() {
             actions={
               <>
                 {onPending ? (
-                  <ListPageAddButton
-                    module={MODULE}
-                    disabled={shortageSelected?.status !== "approved"}
-                    onClick={() => openCreate(shortageSelected)}
-                  />
+                  <>
+                    <ListPageAddButton
+                      module={MODULE}
+                      disabled={shortageSelected?.status !== "approved"}
+                      onClick={() => openCreate(shortageSelected)}
+                    />
+                    {/* Same production_shortage / authorize as Shortage → Prime Item; hidden without permission. */}
+                    <ActionButton
+                      module={SHORTAGE_MODULE}
+                      action="authorize"
+                      variant="outline"
+                      label="Accept / Reject"
+                      icon={CheckCircle}
+                      disabled={!canShortageApproveSelected}
+                      record={shortageSelected}
+                      onClick={() => openShortageApprove(shortageSelected)}
+                      className={`${LIST_PAGE_OUTLINE_ACTION} text-emerald-600`}
+                    />
+                  </>
                 ) : null}
 
                 {onRegister ? (
@@ -239,6 +315,7 @@ export default function JobCardPage() {
             onDataChange={setPendingExport}
             onSelectionChange={setShortageSelected}
             onOpenCreate={openCreate}
+            onOpenShortageApprove={openShortageApprove}
           />
         </div>
 
@@ -268,6 +345,20 @@ export default function JobCardPage() {
             reloadKey("shortage");
             reloadKey("register");
             showTab("register");
+          }}
+        />
+      ) : null}
+
+      {shortageApproveItem ? (
+        <ShortageApproveDrawer
+          item={shortageApproveItem}
+          onClose={() => setShortageApproveItem(null)}
+          onSaved={(item, decision) => {
+            setShortageApproveItem(null);
+            setShortageSelected(null);
+            reloadKey("shortage");
+            // Approve → row enabled + open New Job Card. Reject → just refresh (row leaves pending list).
+            if (decision === "approve") openCreate({ ...item, status: "approved" });
           }}
         />
       ) : null}
@@ -315,7 +406,8 @@ const APPROVAL_OPTIONS = [
   { label: "Not Approved", value: "pending" },
 ];
 
-function ShortageTab({ refreshKey, active, viewMode, onDataChange, onSelectionChange, onOpenCreate }) {
+function ShortageTab({ refreshKey, active, viewMode, onDataChange, onSelectionChange, onOpenCreate, onOpenShortageApprove }) {
+  const canAccess = useCanAccess();
   const [approval, setApproval] = useState("all");
   const list = usePrimeItemList({
     load: jobCardService.getPendingShortage,
@@ -338,6 +430,13 @@ function ShortageTab({ refreshKey, active, viewMode, onDataChange, onSelectionCh
     selectedId: list.selected,
     getSelectedRow: () => selectedRow,
     openAdd: () => onOpenCreate(selectedRow),
+    canOpenNew: () => selectedRow?.status === "approved",
+    newBlockedMessage: NOT_APPROVED_TIP,
+    // Shortage authorize (not job-card authorize) — same power as Prime Item Approve
+    openApprove: (row) => onOpenShortageApprove(row),
+    getAuthorizeAccess: () => canAccess(SHORTAGE_MODULE, "authorize"),
+    canApproveSelection: () => selectedRow?.status === "pending",
+    approveBlockedMessage: "Select a pending (Not Approved) prime item first.",
   });
 
   return (
@@ -371,17 +470,154 @@ function ShortageTab({ refreshKey, active, viewMode, onDataChange, onSelectionCh
           {...tableHotkeyProps}
           onRowDoubleClick={(row) => {
             list.setSelected(row.id);
-            onOpenCreate(row);
+            if (row.status === "pending") {
+              if (canAccess(SHORTAGE_MODULE, "authorize").allowed) onOpenShortageApprove(row);
+              else toast.info(NOT_APPROVED_TIP);
+            } else {
+              onOpenCreate(row);
+            }
           }}
+          // Already-approved shortage → normal row (New). Not-yet-approved → gray (Approve only).
           getRowClassName={(row) => (row.status === "approved" ? "" : "opacity-60 [&_td]:bg-slate-100 [&_td]:text-slate-500")}
           emptyIcon={ClipboardList}
           emptyMessage={list.error ? "Could not load pending shortage" : "No pending shortage"}
-          emptySubMessage={list.error ? `${list.error} — use the refresh button to try again.` : "All approved shortage entries are already on a job card."}
+          emptySubMessage={list.error ? `${list.error} — use the refresh button to try again.` : "All approved shortages already have a planned job card."}
         />
       </div>
 
       <AppListFooter {...list.footerProps} />
     </>
+  );
+}
+
+/** Same UI + APIs as Shortage → Prime Item Approve / Reject. */
+const SHORTAGE_DECIDE = {
+  approve: {
+    label: "Accept",
+    icon: CheckCircle,
+    pick: "border-emerald-600 bg-emerald-50 text-emerald-700",
+    idle: "border-emerald-300 bg-emerald-50/70 text-emerald-700 hover:bg-emerald-50",
+    call: shortageService.approvePrimeItems,
+  },
+  reject: {
+    label: "Reject",
+    icon: XCircle,
+    pick: "border-rose-600 bg-rose-50 text-rose-700",
+    idle: "border-rose-300 bg-rose-50/70 text-rose-700 hover:bg-rose-50",
+    call: shortageService.rejectPrimeItems,
+  },
+};
+const BTN_REJECT =
+  "shrink-0 min-w-[140px] px-6 py-2.5 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-all inline-flex items-center justify-center gap-2 shadow-lg shadow-rose-100 disabled:opacity-50";
+
+function ShortageApproveDrawer({ item, onClose, onSaved }) {
+  const [type, setType] = useState(null);
+  const [remark, setRemark] = useState("");
+  const [saving, setSaving] = useState(false);
+  if (!item) return null;
+
+  // Same detail source as Shortage → Prime Item: Production RM wire list (table still uses process `rm` flag).
+  const hasWireList = Array.isArray(item.rm_wire_items) && item.rm_wire_items.length > 0;
+  const drawerItem = {
+    ...item,
+    rm: hasWireList ? true : item.production_rm != null ? item.production_rm : item.rm,
+  };
+
+  const remarkMissing = !remark.trim();
+  const close = () => !saving && onClose();
+  const saveClass = type === "reject" ? BTN_REJECT : type ? IMS_DRAWER_BTN_APPROVE : `${IMS_DRAWER_BTN_APPROVE} opacity-50`;
+
+  const submit = async () => {
+    if (saving) return;
+    if (!type) return toast.error("Please select Accept or Reject.");
+    if (remarkMissing) return toast.error("Please enter remark.");
+    setSaving(true);
+    try {
+      const res = await SHORTAGE_DECIDE[type].call([item.prime_key], remark.trim());
+      if (res?.success === false) throw new Error(res?.message);
+      toast.success(res?.message || "Done.");
+      onSaved(item, type);
+    } catch (err) {
+      toast.error(err?.message || "Action failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Drawer
+      isOpen
+      onClose={close}
+      onSubmit={() => void submit()}
+      title="Accept / Reject Prime Item"
+      description={item.prime_item_code ? `Prime item ${item.prime_item_code}` : undefined}
+      maxWidth="max-w-2xl"
+      footer={
+        <div className={IMS_DRAWER_FOOTER_WRAP}>
+          <button type="button" onClick={close} disabled={saving} className={IMS_DRAWER_BTN_CANCEL}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={saving || !type || remarkMissing}
+            title="Ctrl+S"
+            className={saveClass}
+          >
+            {saving ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : type === "reject" ? (
+              <XCircle size={18} />
+            ) : (
+              <Shield size={18} />
+            )}
+            Save
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-3 pb-2">
+        <DrawerSection title="Prime Item Details" bar="bg-indigo-500">
+          <PrimeItemSummary item={drawerItem} />
+        </DrawerSection>
+
+        <div className="pt-1 space-y-4">
+          <div className="space-y-1.5">
+            <FormLabel required>Decision</FormLabel>
+            <div className="grid grid-cols-2 gap-2 w-full">
+              {["approve", "reject"].map((key) => {
+                const t = SHORTAGE_DECIDE[key];
+                const Icon = t.icon;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    disabled={saving}
+                    onClick={() => setType(key)}
+                    aria-pressed={type === key}
+                    className={`w-full min-w-0 h-9 border rounded-none flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase transition-colors disabled:opacity-50 ${type === key ? t.pick : t.idle}`}
+                  >
+                    <Icon size={14} />
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <FormTextarea
+            label="Remarks"
+            labelIcon={<MessageSquareQuote size={12} className="text-indigo-500" />}
+            rows={3}
+            required
+            value={remark}
+            onChange={(e) => setRemark(e.target.value)}
+            placeholder="Optional notes"
+            disabled={saving}
+          />
+        </div>
+      </div>
+    </Drawer>
   );
 }
 
@@ -452,8 +688,14 @@ function RegisterTab({ refreshKey, active, viewMode, onDataChange, selectedCard,
     getSelectedRow: () => selectedCard,
     openEdit: (row) => onOpenCard(row, "edit"),
     openApprove: (row) => onApproveCard(row),
-    canApproveSelection: () => Boolean(selectedCard && selectedCard.approved !== true),
-    approveBlockedMessage: "Select a pending job card to approve (Ctrl+Alt+A).",
+    canApproveSelection: () =>
+      Boolean(
+        selectedCard &&
+          selectedCard.approved !== true &&
+          Array.isArray(selectedCard.process_plan) &&
+          selectedCard.process_plan.length > 0
+      ),
+    approveBlockedMessage: "Select a job card with process plan saved to authorize (Ctrl+Alt+A).",
     openDelete: (row) => onDeleteCard(row),
     canDeleteSelection: () => Boolean(selectedCard),
   });
@@ -540,7 +782,7 @@ function CreateDrawer({ item, onClose, onSaved }) {
   useEffect(() => {
     let cancelled = false;
     jobCardService
-      .getPrimeProcess(item.prime_key)
+      .getPrimeProcess(item.prime_key, (item.items || []).map((it) => it.itemdcode).filter(Boolean))
       .then((res) => {
         if (cancelled) return;
         const loaded = res?.data?.stages ?? null;
@@ -552,32 +794,31 @@ function CreateDrawer({ item, onClose, onSaved }) {
       })
       .catch((err) => {
         if (cancelled) return;
-        setStages(null);
+        // Engineering not ready (Prime / Finish Process) → don't open the form, just the message
         toast.error(err?.message || "Failed to load prime process.");
+        onClose();
       });
     return () => {
       cancelled = true;
     };
-  }, [item.prime_key]);
+  }, [item.prime_key, item.items]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setPick = (stageNo, patch) => setPicks((prev) => ({ ...prev, [stageNo]: { ...prev[stageNo], ...patch } }));
 
-  const missing = useMemo(() => {
-    if (!stages?.length) return "No prime process saved for this item.";
-    for (const s of stages) {
-      const pick = picks[s.stage_no] || {};
-      const process = s.processes.find((p) => p.process_id === pick.process_id);
-      if (!process) return `Stage ${s.stage_no}: select a process.`;
-      if (process.machines.length && !(pick.machine_ids || []).length) return `Stage ${s.stage_no}: select a machine.`;
-      if (process.rm_items.length && !(pick.rm_item_dcodes || []).length) return `Stage ${s.stage_no}: select RM.`;
-    }
-    return null;
-  }, [stages, picks]);
+  const qty = item.total_qty ?? item.qty;
+  const { estimate, loading: estimateLoading, planError: missing } = useJobCardProductionEstimate({
+    itemDcode: item.prime_key,
+    qty,
+    stages,
+    picks,
+    active: Boolean(stages?.length),
+  });
 
   const close = () => !saving && onClose();
 
   const submit = async () => {
     if (saving) return;
+    if (!stages?.length) return toast.info("Prime process is still loading.");
     if (missing) return toast.error(missing);
     if (!sopAckRef.current?.assertAcknowledged()) return;
     setSaving(true);
@@ -594,40 +835,38 @@ function CreateDrawer({ item, onClose, onSaved }) {
     }
   };
 
+  // IMS sticky footer — Cancel + indigo Save (same as masters)
   const footer = (
-    <div className={IMS_DRAWER_FOOTER_WRAP}>
-      <button type="button" onClick={close} disabled={saving} className={IMS_DRAWER_BTN_CANCEL}>
-        Cancel
-      </button>
-      <button
-        type="button"
-        onClick={() => void submit()}
-        disabled={saving || Boolean(missing)}
-        title={missing || "Ctrl+S"}
-        className={IMS_DRAWER_BTN_PRIMARY}
-      >
-        {saving ? (
-          <>
-            <Loader2 size={18} className="animate-spin" /> Saving...
-          </>
-        ) : (
-          <>
-            <Check size={18} /> Save
-          </>
-        )}
-      </button>
-    </div>
+    <RmStoreDrawerFooter
+      onClose={close}
+      loading={saving}
+      disabled={Boolean(missing) || !stages?.length}
+      onSave={() => void submit()}
+      saveLabel="Save"
+      loadingLabel="Saving..."
+    />
   );
 
   return (
     <Drawer isOpen onClose={close} onSubmit={() => void submit()} title="New Job Card" description="Prime item → process · machine · RM per stage" maxWidth={DRAWER_WIDTH} footer={footer}>
-      <div className="space-y-3 pb-2">
+      <div className="space-y-2 pb-1">
         <DrawerSection title="Prime Item Details" bar="bg-indigo-500">
           <PrimeItemSummary item={item} jobCard />
         </DrawerSection>
 
-        <Section title={`Process Plan · ${item.prime_item_code || "—"}`} badge={stages?.length ? <CountBadge>{stages.length} stages</CountBadge> : null}>
-          <PlanBody stages={stages} picks={picks} disabled={saving} onPick={setPick} />
+        <Section
+          title={`Process Plan · ${item.prime_item_code || "—"}`}
+          badge={<PlanBadge count={stages?.length} estimate={estimate} loading={estimateLoading} qty={qty} />}
+        >
+          <PlanBody
+            stages={stages}
+            picks={picks}
+            disabled={saving}
+            onPick={setPick}
+            estimate={estimate}
+            estimateLoading={estimateLoading}
+            issueQty={item.total_weight_kg}
+          />
         </Section>
 
         <FormTextarea
@@ -651,13 +890,16 @@ function CreateDrawer({ item, onClose, onSaved }) {
 
 function JobCardDrawer({ card, mode, onClose, onSaved }) {
   const sopAckRef = useRef(null);
+  const canAccess = useCanAccess();
+  const canAuthorize = canAccess(MODULE, "authorize").allowed;
   const isView = mode === "view";
-  const isApprove = mode === "approve"; // details read only + SOP → Approve
-  const readOnly = isView || isApprove;
+  const isApprove = mode === "approve"; // IMS: details editable in approve too → saved + authorized together
+  const readOnly = isView;
   const [saving, setSaving] = useState(false);
+  const [activeSubmit, setActiveSubmit] = useState(null);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState(null);
-  const [status, setStatus] = useState("Open");
+  const [status, setStatus] = useState("Pending");
   const [remarks, setRemarks] = useState("");
   const [jobDate, setJobDate] = useState("");
   const [stages, setStages] = useState(undefined);
@@ -674,7 +916,7 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
         if (cancelled) return;
         const row = res?.data || card;
         setDetail(row);
-        setStatus(row.status || "Open");
+        setStatus(row.status || "Pending");
         setRemarks(row.remarks || "");
         setJobDate(String(row.doc_dt ?? row.job_date ?? "").slice(0, 10));
 
@@ -711,79 +953,69 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
 
   const setPick = (stageNo, patch) => setPicks((prev) => ({ ...prev, [stageNo]: { ...prev[stageNo], ...patch } }));
 
-  const missing = useMemo(() => {
-    if (readOnly || !stages?.length) return null;
-    for (const s of stages) {
-      const pick = picks[s.stage_no] || {};
-      const process = s.processes.find((p) => p.process_id === pick.process_id);
-      if (!process) return `Stage ${s.stage_no}: select a process.`;
-      if (process.machines.length && !(pick.machine_ids || []).length) return `Stage ${s.stage_no}: select a machine.`;
-      if (process.rm_items.length && !(pick.rm_item_dcodes || []).length) return `Stage ${s.stage_no}: select RM.`;
-    }
-    return null;
-  }, [readOnly, stages, picks]);
+  const qty = detail?.qty ?? card?.qty;
+  const itemDcode = detail?.prime_item_dcode ?? card?.prime_item_dcode;
+  // Same Est. time as Create — live for Edit; View / Approve use saved plan picks (+ getById fallback)
+  const { estimate: liveEstimate, loading: estimateLoading, planError: livePlanError } = useJobCardProductionEstimate({
+    itemDcode,
+    qty,
+    stages,
+    picks,
+    active: Boolean(itemDcode && stages?.length),
+  });
+  const estimate = (liveEstimate?.valid ? liveEstimate : null) || detail?.production_time || liveEstimate;
+  const missing = readOnly ? null : livePlanError;
 
   const close = () => !saving && onClose();
 
-  const submit = async () => {
+  const savedPlan = detail?.process_plan ?? card?.process_plan;
+  const hasSavedPlan = Array.isArray(savedPlan) && savedPlan.length > 0;
+
+  /** action: save | approve | keep_pending — Edit shows Cancel · Save & Approve · Save (IMS) */
+  const submit = async (action = "save") => {
     if (isView || saving) return;
     if (missing) return toast.error(missing);
+    const approving = action === "approve" || (isApprove && action !== "keep_pending");
+    if (approving && !hasSavedPlan && !stages?.length) {
+      return toast.error("Save process plan first — authorize only after process plan is set.");
+    }
     if (!sopAckRef.current?.assertAcknowledged()) return;
     setSaving(true);
+    setActiveSubmit(approving ? "approve" : action === "keep_pending" ? "keep_pending" : "save");
     try {
-      let res;
-      if (isApprove) {
-        res = await jobCardService.approve(card.docno);
-      } else {
-        const body = { status, remarks, job_date: jobDate || undefined };
-        if (stages?.length) body.process_plan = stages.map((s) => ({ stage_no: s.stage_no, ...picks[s.stage_no] }));
-        res = await jobCardService.update(card.docno, body);
-      }
-      toast.success(res?.message || (isApprove ? "Job card approved." : "Job card updated."));
+      const body = { status, remarks, job_date: jobDate || undefined };
+      if (stages?.length) body.process_plan = stages.map((s) => ({ stage_no: s.stage_no, ...picks[s.stage_no] }));
+      // Approve sends edits too (authorize permission). Keep Pending / Save = edits saved as Pending (IMS)
+      const res = isApprove && approving
+        ? await jobCardService.approve(card.docno, body)
+        : await jobCardService.update(card.docno, { ...body, approved: approving });
+      toast.success(res?.message || (approving ? "Job card authorized." : "Job card updated."));
       onSaved();
     } catch (err) {
       toast.error(err?.message || "Failed to update job card.");
     } finally {
       setSaving(false);
+      setActiveSubmit(null);
     }
   };
 
+  // Edit: Cancel · Save & Approve · Save — same as Machine Master / RM Store
   const footer = (
-    <div className={IMS_DRAWER_FOOTER_WRAP}>
-      <button type="button" onClick={close} disabled={saving} className={IMS_DRAWER_BTN_CANCEL}>
-        {isView ? "Close" : "Cancel"}
-      </button>
-      {isApprove ? (
-        <button
-          type="button"
-          onClick={() => void submit()}
-          disabled={saving || loading}
-          title="Ctrl+S"
-          className={IMS_DRAWER_BTN_APPROVE}
-        >
-          {saving ? <Loader2 size={18} className="animate-spin" /> : <Shield size={18} />}
-          Approve
-        </button>
-      ) : !isView ? (
-        <button
-          type="button"
-          onClick={() => void submit()}
-          disabled={saving || loading || Boolean(missing)}
-          title={missing || "Ctrl+S"}
-          className={IMS_DRAWER_BTN_PRIMARY}
-        >
-          {saving ? (
-            <>
-              <Loader2 size={18} className="animate-spin" /> Saving...
-            </>
-          ) : (
-            <>
-              <Check size={18} /> Save
-            </>
-          )}
-        </button>
-      ) : null}
-    </div>
+    <RmStoreDrawerFooter
+      onClose={close}
+      loading={saving}
+      disabled={loading || Boolean(missing)}
+      readOnly={isView}
+      isApprove={isApprove}
+      isEdit={!isView && !isApprove}
+      canApprove={canAuthorize}
+      activeSubmit={activeSubmit}
+      onSave={(_approved, action) => void submit(action || "save")}
+      saveLabel="Save"
+      approveLabel="Approve"
+      saveAndApproveLabel="Save & Approve"
+      loadingLabel="Saving..."
+    />
   );
 
   const cardNo = detail?.job_card_no || card.job_card_no || "Job Card";
@@ -792,7 +1024,7 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
     <Drawer
       isOpen
       onClose={close}
-      onSubmit={isView ? close : () => void submit()}
+      onSubmit={isView ? close : () => void submit(isApprove ? "approve" : "save")}
       title={isApprove ? `Approve ${cardNo}` : isView ? `View ${cardNo}` : `Edit ${cardNo}`}
       description={detail?.prime_item_code ? `Prime item ${detail.prime_item_code}` : undefined}
       maxWidth={DRAWER_WIDTH}
@@ -803,12 +1035,13 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
           <Loader2 size={14} className="animate-spin" /> Loading…
         </div>
       ) : (
-        <div className="space-y-3 pb-2">
-          <DrawerSection title="Prime Item Details" bar="bg-indigo-500">
+        <div className="space-y-2 pb-1">
+          <DrawerSection title="Prime Item Details" bar="bg-indigo-500" badge={<ApprovalBadge approved={detail.approved} />}>
             <PrimeItemSummary
               item={{
                 ...detail,
                 total_qty: detail.qty,
+                gweight: detail.gweight,
                 total_weight_kg: detail.total_weight_kg,
                 weight_missing: detail.weight_missing,
                 items: detail.items,
@@ -817,44 +1050,71 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
               }}
               jobCard
               extra={
-                <DrawerDetailField
-                  label="Job Card No"
-                  value={<span className="font-mono font-bold text-indigo-700">{detail.job_card_no}</span>}
-                />
+                <>
+                  <DrawerDetailField
+                    label="Job Card No"
+                    value={<span className="font-mono font-bold text-indigo-700">{detail.job_card_no}</span>}
+                  />
+                  <DrawerDetailField
+                    label="Doc Date"
+                    value={
+                      readOnly ? (
+                        <span className="tabular-nums">{formatDocDate(detail.doc_dt ?? detail.job_date) || "—"}</span>
+                      ) : (
+                        <input type="date" value={jobDate} onChange={(e) => setJobDate(e.target.value)} disabled={saving} className={OK_INPUT} />
+                      )
+                    }
+                  />
+                  <DrawerDetailField
+                    label="Status"
+                    value={
+                      readOnly ? (
+                        <span className={`border px-2 py-0.5 text-[9px] font-black uppercase ${STATUS_BADGE[detail.status] || STATUS_BADGE.Pending}`}>
+                          {detail.status || "—"}
+                        </span>
+                      ) : (
+                        <select value={status} onChange={(e) => setStatus(e.target.value)} disabled={saving} className={OK_INPUT}>
+                          {JOB_CARD_STATUSES.map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                      )
+                    }
+                  />
+                </>
               }
             />
           </DrawerSection>
 
-          <Section title="Job Card" badge={<ApprovalBadge approved={detail.approved} />}>
-            <div className="px-4 py-3 grid grid-cols-2 gap-x-6 gap-y-3">
-              <div className="min-w-0 space-y-1">
-                <FormLabel>Doc Date</FormLabel>
-                {readOnly ? (
-                  <span className={`${IMS_TABLE_CELL_TEXT} text-[12px] text-slate-800 tabular-nums`}>{formatDocDate(detail.doc_dt ?? detail.job_date) || "—"}</span>
-                ) : (
-                  <input type="date" value={jobDate} onChange={(e) => setJobDate(e.target.value)} disabled={saving} className={OK_INPUT} />
-                )}
-              </div>
-              <div className="min-w-0 space-y-1">
-                <FormLabel>Status</FormLabel>
-                {readOnly ? (
-                  <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${STATUS_BADGE[detail.status] || STATUS_BADGE.Open}`}>{detail.status || "—"}</span>
-                ) : (
-                  <select value={status} onChange={(e) => setStatus(e.target.value)} disabled={saving} className={OK_INPUT}>
-                    {JOB_CARD_STATUSES.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            </div>
-          </Section>
-
-          <Section title={`Process Plan · ${primeCode || "—"}`} badge={<CountBadge>{(readOnly ? detail.process_plan : stages)?.length || 0} stages</CountBadge>}>
+          <Section
+            title={`Process Plan · ${primeCode || "—"}`}
+            badge={
+              <PlanBadge
+                count={(readOnly ? detail.process_plan : stages)?.length || 0}
+                estimate={estimate}
+                loading={estimateLoading && !estimate?.valid}
+                qty={qty}
+              />
+            }
+          >
             {readOnly ? (
-              <SavedPlanTable plan={detail.process_plan} stages={stages} />
+              <SavedPlanTable
+                plan={detail.process_plan}
+                stages={stages}
+                estimate={estimate}
+                estimateLoading={estimateLoading && !estimate?.valid}
+                issueQty={detail.total_weight_kg}
+              />
             ) : (
-              <PlanBody stages={stages} picks={picks} disabled={saving} onPick={setPick} />
+              <PlanBody
+                stages={stages}
+                picks={picks}
+                disabled={saving}
+                onPick={setPick}
+                estimate={estimate}
+                estimateLoading={estimateLoading}
+                issueQty={detail.total_weight_kg}
+              />
             )}
           </Section>
 
@@ -910,10 +1170,10 @@ function defaultsFor(process) {
 /** IMS drawer card: bordered, header bar + title, optional badge on the right. */
 function Section({ title, badge = null, children }) {
   return (
-    <div className="border border-slate-200 bg-white shadow-sm rounded-sm overflow-hidden">
-      <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
-        <div className="w-1 h-4 bg-indigo-500 rounded-full shrink-0" />
-        <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">{title}</span>
+    <div className="overflow-hidden rounded-sm border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5">
+        <div className="h-3.5 w-1 shrink-0 rounded-full bg-indigo-500" />
+        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-700">{title}</span>
         {badge ? <span className="ml-auto">{badge}</span> : null}
       </div>
       {children}
@@ -962,19 +1222,181 @@ const TD = "px-2 py-1.5 border-b border-r border-slate-100 align-top";
 function PlanTable({ children }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] border-collapse text-left">
+      <table className="w-full min-w-[1100px] border-collapse text-left">
         <thead>
           <tr>
             <th className={`${TH} w-14 text-center`}>Stage</th>
-            <th className={`${TH} w-[24%]`}>Process</th>
-            <th className={TH}>Machine</th>
-            <th className={`${TH} w-[24%]`}>RM</th>
-            <th className={`${TH} w-20 text-center border-r-0`}>Tooling</th>
+            <th className={`${TH} w-[14%]`}>Process</th>
+            <th className={`${TH} w-[16%]`}>M/C</th>
+            <th className={`${TH} w-[16%]`}>RM</th>
+            <th className={`${TH} w-28 text-right`} title="(gweight × Total Qty) + extra % — same as RM Store">RM Required</th>
+            <th className={`${TH} w-28 text-right`} title="RM stock available (KG)">RM Available</th>
+            <th className={`${TH} w-16 text-center`}>Tooling</th>
+            {/* dont tis commnet remove because this is use in future purpose */}
+            {/* Est. time — one line per machine, straight from the backend */}
+            {/* <th className={TH}>M/C</th> */}
+            {/* <th className={`${TH} text-right`}>Qty</th> */}
+            {/* <th className={`${TH} text-right`}>Speed</th> */}
+            {/* <th className={`${TH} text-right`}>Setup</th>
+            <th className={`${TH} text-right`}>Run</th>
+            <th className={`${TH} text-right`}>Total</th>
+            <th className={`${TH} text-right border-r-0`}>Shifts</th>
+             */}
+            <th className={`${TH} text-right`}>Time Required</th>
+            <th className={`${TH} text-right border-r-0`}>Shift Required</th>
           </tr>
         </thead>
         <tbody>{children}</tbody>
       </table>
     </div>
+  );
+}
+
+/** RM-wire stages: show RM Required (KG). Else —. */
+function IssueQtyCell({ show, issueQty }) {
+  const kg = Number(issueQty);
+  const hasKg = Number.isFinite(kg) && kg > 0;
+  return (
+    <td className={`${TD} ${IMS_TABLE_CELL_TEXT} text-right tabular-nums text-[11px] font-semibold text-slate-800`}>
+      {show && hasKg ? kg.toLocaleString(undefined, { maximumFractionDigits: 3 }) : "—"}
+    </td>
+  );
+}
+
+/** RM Available (KG) — issuable store qty for selected RM (Issue Request pool). */
+function RmAvailableCell({ show, availableQty, requiredQty, loading }) {
+  if (!show) {
+    return <td className={`${TD} ${IMS_TABLE_CELL_TEXT} text-right text-[11px] text-slate-400`}>—</td>;
+  }
+  if (loading) {
+    return (
+      <td className={`${TD} text-right`}>
+        <Loader2 size={12} className="inline animate-spin text-slate-400" />
+      </td>
+    );
+  }
+  const kg = Number(availableQty);
+  const hasKg = Number.isFinite(kg) && kg >= 0;
+  const req = Number(requiredQty);
+  const short = hasKg && Number.isFinite(req) && req > 0 && kg < req;
+  return (
+    <td
+      className={`${TD} ${IMS_TABLE_CELL_TEXT} text-right tabular-nums text-[11px] font-semibold ${
+        short ? "text-rose-600" : "text-slate-800"
+      }`}
+      title={short ? `Available ${kg.toLocaleString(undefined, { maximumFractionDigits: 3 })} KG is less than RM Required` : undefined}
+    >
+      {hasKg ? kg.toLocaleString(undefined, { maximumFractionDigits: 3 }) : "—"}
+    </td>
+  );
+}
+
+/** Section badge: time = sum of shown Time Required lines (matches table). */
+function PlanBadge({ count, estimate, loading, qty }) {
+  const shownSec = sumShownTimeSeconds(estimate);
+  const hasTime = estimate?.valid && (shownSec > 0 || estimate.total_seconds != null);
+  return (
+    <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+      {loading ? (
+        <span className="text-[10px] text-slate-500 flex items-center gap-1">
+          <Loader2 size={12} className="animate-spin" /> Est. time…
+        </span>
+      ) : hasTime ? (
+        <span className={`${IMS_TABLE_CELL_TEXT} text-[11px] font-semibold text-slate-700 tabular-nums`}>
+          {formatProductionDuration(shownSec || estimate.total_seconds)}
+          <span className="text-slate-300 mx-1.5">·</span>
+          {estimate.shifts} shift{estimate.shifts === 1 ? "" : "s"} ({estimate.shift_hours}h)
+          <span className="text-slate-300 mx-1.5">·</span>
+          {Number(estimate.qty ?? qty ?? 0).toLocaleString()} pcs
+        </span>
+      ) : null}
+      {count ? <CountBadge>{count} stages</CountBadge> : null}
+    </div>
+  );
+}
+
+const timeTd = `${TD} ${IMS_TABLE_CELL_TEXT} text-right tabular-nums text-[11px] whitespace-nowrap`;
+
+function stageEstimateRow(estimate, stageNo) {
+  if (!estimate?.valid) return null;
+  return (estimate.stages || []).find((s) => Number(s.stage_no) === Number(stageNo)) || null;
+}
+
+/** Hover: same minute values as cells; multi → header Total = sum of machine Totals. */
+function machineTimeTitle(machines) {
+  if (!machines?.length) return "";
+  const totalSec = machines.reduce((s, m) => s + displayDurationSeconds(m.seconds), 0);
+  const totalShifts = machines.reduce((s, m) => s + (Number(m.shifts) || 0), 0);
+  const head =
+    machines.length > 1
+      ? `Multiple machines (${machines.length}) · Total ${formatProductionDuration(totalSec)} · ${totalShifts} shift${totalShifts === 1 ? "" : "s"}`
+      : "";
+  const lines = machines.map((m) => {
+    const name = [m.machine_name, m.machine_number ? `(${m.machine_number})` : null].filter(Boolean).join(" ");
+    const setup = displayDurationSeconds(m.setup_seconds);
+    const run = displayDurationSeconds(m.run_seconds);
+    const total = displayDurationSeconds(m.seconds);
+    return `${name || "—"}: Setup ${formatProductionDuration(setup)} · Run ${formatProductionDuration(run)} · Total ${formatProductionDuration(total)} · ${m.shifts ?? 0} shift${m.shifts === 1 ? "" : "s"}`;
+  });
+  return [head, ...lines].filter(Boolean).join("\n");
+}
+
+/**
+ * Single M/C → one line. Multiple → stage sum in cell; hover = machine-wise (totals add up to cell).
+ */
+function TimeShiftCells({ estimate, stageNo, loading }) {
+  if (loading) {
+    return (
+      <td colSpan={2} className={`${TD} border-r-0 text-right`}>
+        <Loader2 size={12} className="inline animate-spin text-slate-400" />
+      </td>
+    );
+  }
+  const stageRow = stageEstimateRow(estimate, stageNo);
+  const machines = stageRow?.machines || [];
+  // Fallback: stage total (same as board View drawer Est. time) when machine lines are empty
+  if (!machines.length) {
+    const secs = displayDurationSeconds(stageRow?.seconds);
+    if (secs > 0 || stageRow?.seconds != null) {
+      return (
+        <>
+          <td className={timeTd}>
+            <div className="leading-6 font-semibold text-slate-800">{formatProductionDuration(secs)}</div>
+          </td>
+          <td className={`${timeTd} border-r-0`}>
+            <div className="leading-6 font-semibold text-indigo-700">{stageRow?.shifts ?? "—"}</div>
+          </td>
+        </>
+      );
+    }
+    return (
+      <>
+        <td className={timeTd}>—</td>
+        <td className={`${timeTd} border-r-0`}>—</td>
+      </>
+    );
+  }
+  const multi = machines.length > 1;
+  const totalSec = machines.reduce((s, m) => s + displayDurationSeconds(m.seconds), 0);
+  const totalShifts = machines.reduce((s, m) => s + (Number(m.shifts) || 0), 0);
+  const title = machineTimeTitle(machines);
+  return (
+    <>
+      <td className={timeTd} title={title}>
+        {multi ? (
+          <div className="leading-6 font-semibold text-slate-800">{formatProductionDuration(totalSec)}</div>
+        ) : (
+          <div className="leading-6 font-semibold text-slate-800">{formatProductionDuration(displayDurationSeconds(machines[0].seconds))}</div>
+        )}
+      </td>
+      <td className={`${timeTd} border-r-0`} title={title}>
+        {multi ? (
+          <div className="leading-6 font-semibold text-indigo-700">{totalShifts}</div>
+        ) : (
+          <div className="leading-6 font-semibold text-indigo-700">{machines[0].shifts ?? "—"}</div>
+        )}
+      </td>
+    </>
   );
 }
 
@@ -985,7 +1407,7 @@ const StageNo = ({ no }) => (
 );
 
 const ToolingCell = ({ on }) => (
-  <td className={`${TD} text-center border-r-0`}>
+  <td className={`${TD} text-center`}>
     {on ? (
       <span className="px-1.5 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-100">Yes</span>
     ) : (
@@ -994,8 +1416,8 @@ const ToolingCell = ({ on }) => (
   </td>
 );
 
-/** New / Edit body: loading / empty / editable table. */
-function PlanBody({ stages, picks, disabled, onPick }) {
+/** New / Edit body: loading / empty / editable table. RM Available from estimate (backend). */
+function PlanBody({ stages, picks, disabled, onPick, estimate, estimateLoading, issueQty }) {
   if (stages === undefined) {
     return (
       <div className="px-4 py-6 flex items-center justify-center gap-2 text-[11px] text-slate-500">
@@ -1009,37 +1431,62 @@ function PlanBody({ stages, picks, disabled, onPick }) {
   return (
     <PlanTable>
       {stages.map((s) => (
-        <StageRow key={s.stage_no} stage={s} pick={picks[s.stage_no] || {}} disabled={disabled} onChange={(patch) => onPick(s.stage_no, patch)} />
+        <StageRow
+          key={s.stage_no}
+          stage={s}
+          pick={picks[s.stage_no] || {}}
+          disabled={disabled}
+          onChange={(patch) => onPick(s.stage_no, patch)}
+          estimate={estimate}
+          estimateLoading={estimateLoading}
+          issueQty={issueQty}
+        />
       ))}
     </PlanTable>
   );
 }
 
 /** View / Approve — saved process_plan, read only. Tooling comes live from the prime process (`stages`). */
-function SavedPlanTable({ plan, stages }) {
+function SavedPlanTable({ plan, stages, estimate, estimateLoading = false, issueQty }) {
   if (!plan?.length) return <p className="px-4 py-4 text-[11px] text-slate-500">No process plan saved.</p>;
-  const toolingOf = (step) =>
-    (stages || []).find((s) => s.stage_no === step.stage_no)?.processes.find((p) => p.process_id === step.process_id)?.tooling;
+  const processOf = (step) =>
+    (stages || []).find((s) => s.stage_no === step.stage_no)?.processes.find((p) => p.process_id === step.process_id);
   return (
     <PlanTable>
-      {plan.map((step) => (
-        <tr key={step.stage_no}>
-          <StageNo no={step.stage_no} />
-          <td className={`${TD} ${IMS_TABLE_CELL_TEXT} text-slate-800 font-semibold`}>{step.process_name || "—"}</td>
-          <td className={`${TD} ${IMS_TABLE_CELL_TEXT}`}>{machinesText(step) || "—"}</td>
-          <td className={`${TD} ${IMS_TABLE_CELL_TEXT}`}>{rmText(step) || "—"}</td>
-          <ToolingCell on={toolingOf(step)} />
-        </tr>
-      ))}
+      {plan.map((step) => {
+        const process = processOf(step);
+        const hasRmWire = Boolean(process?.rm_wire) || (step.rm_items || []).length > 0;
+        return (
+          <tr key={step.stage_no}>
+            <StageNo no={step.stage_no} />
+            <td className={`${TD} ${IMS_TABLE_CELL_TEXT} text-slate-800 font-semibold`}>{step.process_name || "—"}</td>
+            <td className={`${TD} ${IMS_TABLE_CELL_TEXT}`}>{machinesText(step) || "—"}</td>
+            <td className={`${TD} ${IMS_TABLE_CELL_TEXT}`}>{rmText(step) || (hasRmWire ? "—" : "No RM")}</td>
+            <IssueQtyCell show={hasRmWire} issueQty={issueQty} />
+            <RmAvailableCell
+              show={hasRmWire}
+              availableQty={estimate?.rm_available_by_stage?.[step.stage_no] ?? estimate?.rm_available_by_stage?.[String(step.stage_no)]}
+              requiredQty={issueQty}
+              loading={estimateLoading}
+            />
+            <ToolingCell on={process?.tooling} />
+            <TimeShiftCells estimate={estimate} stageNo={step.stage_no} loading={estimateLoading} />
+          </tr>
+        );
+      })}
     </PlanTable>
   );
 }
 
-function StageRow({ stage, pick, disabled, onChange }) {
+function StageRow({ stage, pick, disabled, onChange, estimate, estimateLoading, issueQty }) {
   const process = stage.processes.find((p) => p.process_id === pick.process_id);
   const processOptions = stage.processes.map((p) => ({ id: p.process_id, label: p.process_name }));
-  const machineOptions = (process?.machines || []).map((m) => ({ id: m.machine_id, label: m.number ? `${m.name} (${m.number})` : m.name }));
+  const machineOptions = (process?.machines || []).map((m) => ({
+    id: m.machine_id,
+    label: m.number ? `${m.macname || m.name} (${m.number})` : (m.macname || m.name),
+  }));
   const rmOptions = (process?.rm_items || []).map((r) => ({ id: r.rm_item_dcode, label: r.rm_item_code }));
+  const hasRm = Boolean(process?.rm_wire);
 
   return (
     <tr>
@@ -1064,7 +1511,7 @@ function StageRow({ stage, pick, disabled, onChange }) {
         {process?.multi_jc ? <span className="mt-1 block text-[9px] font-bold uppercase text-indigo-600">Multiple job card</span> : null}
       </td>
       <td className={TD}>
-        {process?.rm_wire ? (
+        {hasRm ? (
           // More than one RM → multi-select (all pre-selected, priority order), else single
           <ListSelect
             key={`r-${pick.process_id}`}
@@ -1079,7 +1526,15 @@ function StageRow({ stage, pick, disabled, onChange }) {
           <span className="text-[11px] text-slate-400">No RM</span>
         )}
       </td>
+      <IssueQtyCell show={hasRm} issueQty={issueQty} />
+      <RmAvailableCell
+        show={hasRm}
+        availableQty={estimate?.rm_available_by_stage?.[stage.stage_no] ?? estimate?.rm_available_by_stage?.[String(stage.stage_no)]}
+        requiredQty={issueQty}
+        loading={estimateLoading}
+      />
       <ToolingCell on={process?.tooling} />
+      <TimeShiftCells estimate={estimate} stageNo={stage.stage_no} loading={estimateLoading} />
     </tr>
   );
 }

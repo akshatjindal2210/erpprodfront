@@ -7,7 +7,7 @@ import { toast } from "react-toastify";
 
 import { rmRejectionService } from "@/apps/rmstore/lib/services/rmRejection";
 import DeleteModal from "@/ui/common/modals/DeleteModal";
-import { uniqueBillNos, parseSavedBillNos, formatBillNosForSave, fetchBillOptions, getBillByNo } from "@/apps/rmstore/lib/utils/rejectionBillOptions";
+import { uniqueBillNos, parseSavedBillNos, formatBillNosForSave, fetchBillOptions, getBillByNo, rejectionBillFilters } from "@/apps/rmstore/lib/utils/rejectionBillOptions";
 import { isRmstoreSuperAdmin } from "@/apps/rmstore/lib/utils/rmstoreSpecialPermissions";
 import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
@@ -182,13 +182,13 @@ function registerStage(row) {
   return { label: "Store Out Pending", className: "bg-orange-50 text-orange-700 border-orange-100" };
 }
 
-/** Display bill on list: saved bill_no first, else matched invfnote (salecat=2) suggestion. */
+/** Display bill: saved → matched invfnote → supplier MRN bill. */
 function displayBillNo(row) {
-  return String(row?.bill_no || row?.matched_bill_no || "").trim() || null;
+  return String(row?.bill_no || row?.matched_bill_no || row?.mrn_bill_no || "").trim() || null;
 }
 
 function displayBillDt(row) {
-  return row?.bill_no ? row?.bill_dt : row?.matched_bill_dt || row?.bill_dt || null;
+  return row?.bill_no ? row?.bill_dt : row?.matched_bill_dt || row?.mrn_bill_dt || row?.bill_dt || null;
 }
 
 function billColumnTextClass(row) {
@@ -465,6 +465,10 @@ export default function RmRejectionPage() {
     return true;
   }, [canAddBill, selectedRecord, isPendingTab, isSuperAdmin]);
 
+  const billFilters = useMemo(() => rejectionBillFilters(selectedRecord), [selectedRecord]);
+  const loadRegisterBills = useCallback((params) => fetchBillOptions({ ...params, ...billFilters }), [billFilters]);
+  const loadRegisterBillByNo = useCallback((id) => getBillByNo(id, billFilters), [billFilters]);
+
   useEffect(() => {
     if (selectedRecord?.qc_reject_uid != null && canEditBill) {
       setBillDraftNos(parseSavedBillNos(selectedRecord.bill_no));
@@ -509,6 +513,7 @@ export default function RmRejectionPage() {
             ? {
                 ...row,
                 bill_no: savedBill,
+                bill_dt: saved ? saved.bill_dt ?? null : row.bill_dt,
                 updated_at: saved?.updated_at ?? row.updated_at,
                 updated_by: saved?.updated_by ?? row.updated_by,
                 updated_by_name: saved?.updated_by_name ?? saved?.updated_by ?? row.updated_by_name,
@@ -884,14 +889,14 @@ export default function RmRejectionPage() {
                     heightClass="h-8"
                     value={billDraftNos}
                     onChange={(nos) => setBillDraftNos(uniqueBillNos(nos))}
-                    fetchService={fetchBillOptions}
-                    getByIdService={getBillByNo}
+                    fetchService={loadRegisterBills}
+                    getByIdService={loadRegisterBillByNo}
                     dataKey="bill_no"
                     labelKey="bill_no"
-                    subLabelKey="bill_dt"
+                    subLabelKey="option_sub_label"
                     labelOnlyDisplay
                     placeholder="Bill number..."
-                    emptyMessage="No bills found"
+                    emptyMessage={isSuperAdmin ? "No bills found" : "No matching bills for this supplier/item"}
                     isOptionDisabled={(item) => item?.is_green !== true}
                     getOptionClassName={billDropdownOptionClasses}
                     usePortal

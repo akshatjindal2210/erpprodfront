@@ -52,6 +52,7 @@ const INITIAL_SNACK = {
 };
 
 const MODULE = "rm_stock_adjustment";
+const SA_VIEW = { permission_module: MODULE, permission_action: "view" };
 
 const FIELD_LABEL = "block text-[8px] font-bold uppercase tracking-wider text-slate-500 mb-1 leading-none";
 const FIELD_LABEL_ROW =
@@ -648,7 +649,7 @@ export default function StockAdjustmentDrawer({
         // Light MRN detail enrich in background (single UID) — never blocks drawer open.
         if (seedMrnUid) {
           try {
-            const mrnRes = await mrnService.getDetail(seedMrnUid);
+            const mrnRes = await mrnService.getDetail(seedMrnUid, SA_VIEW);
             if (cancelled || !mrnRes?.data) return;
             const m = mrnRes.data;
             setMrnDetail((prev) => ({
@@ -766,7 +767,7 @@ export default function StockAdjustmentDrawer({
 
       const [saRes, mrnRes] = await Promise.all([
         stockAdjustmentService.getActiveCoils(apiOpts),
-        mrnUid ? mrnService.getCoils(mrnUid).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+        mrnUid ? mrnService.getCoils(mrnUid, null, SA_VIEW).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
       ]);
 
       const activeOnly = (rows) =>
@@ -779,7 +780,10 @@ export default function StockAdjustmentDrawer({
         const uid = String(row?.coil_no_uid || "").trim();
         if (uid) merged.set(uid, row);
       }
-      const rows = sortMinusCoilRows([...merged.values()]);
+      let rows = sortMinusCoilRows([...merged.values()]);
+      if (mrnUid) {
+        rows = rows.filter((c) => String(c?.mrn_uid || "").trim() === mrnUid);
+      }
 
       setCoilOptions(rows);
       if (!rows.length && mrnUid) {

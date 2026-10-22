@@ -31,12 +31,15 @@ export function formatBillNosForSave(billNos) {
   return unique.join(",");
 }
 
-/** Live invfnote bills (salecat=2). Pass acc_code / item_code / item_dcode to filter. */
-export async function fetchBillOptions({ search = "", page = 1, limit = 50, acc_code, item_code, item_dcode } = {}) {
+/** Bill filter is decided by the backend from the rejection (acc_code + item_dcode; super admin: all) — send only its id. */
+export function rejectionBillFilters(row) {
+  return { qc_reject_uid: row?.qc_reject_uid ?? null };
+}
+
+/** Live invfnote bills (salecat=2) allowed for this rejection. */
+export async function fetchBillOptions({ search = "", page = 1, limit = 50, qc_reject_uid } = {}) {
   const res = await rmRejectionService.getBillNumbers({ search, page, limit,
-    ...(acc_code != null && acc_code !== "" && { acc_code }),
-    ...(item_code != null && item_code !== "" && { item_code }),
-    ...(item_dcode != null && item_dcode !== "" && { item_dcode }),
+    ...(qc_reject_uid != null && { qc_reject_uid }),
   });
   const data = Array.isArray(res?.data) ? res.data : [];
   return {
@@ -50,12 +53,10 @@ export async function getBillByNo(billNo, filters = {}) {
   const label = String(billNo ?? "").trim();
   if (!label) return { data: null };
 
-  const { acc_code, item_code, item_dcode } = filters || {};
+  const { qc_reject_uid } = filters || {};
   try {
     const res = await rmRejectionService.getBillNumbers({ search: label, page: 1, limit: 100,
-      ...(acc_code != null && acc_code !== "" && { acc_code }),
-      ...(item_code != null && item_code !== "" && { item_code }),
-      ...(item_dcode != null && item_dcode !== "" && { item_dcode }),
+      ...(qc_reject_uid != null && { qc_reject_uid }),
     });
     const data = Array.isArray(res?.data) ? res.data : [];
     const found = data.find((row) => String(row?.bill_no ?? "").trim() === label);

@@ -1,6 +1,7 @@
 "use client";
 
 import { Zap, Package, AlertTriangle, History, ClipboardList, Wrench } from "lucide-react";
+// go-live: also import LayoutGrid, CalendarDays
 import { ROUTES } from "@/apps/production/lib/utils/routes";
 
 export const PRODUCTION_NAV_REGISTRY = [
@@ -16,7 +17,19 @@ export const PRODUCTION_NAV_REGISTRY = [
   },
   { id: "shortage", name: "Shortage", icon: <AlertTriangle size={16} />, href: ROUTES.PRODUCTION_SHORTAGE, module: "production_shortage" },
   { id: "tooling", name: "Tooling", icon: <Wrench size={16} />, href: ROUTES.PRODUCTION_TOOLING, module: "production_tooling" },
+  // TODO go-live: uncomment group below (add LayoutGrid, CalendarDays to import), remove single job-card line
   { id: "job-card", name: "Maintain Job Card", icon: <ClipboardList size={16} />, href: ROUTES.PRODUCTION_JOB_CARD, module: "production_job_card" },
+  // {
+  //   id: "job-card-group",
+  //   name: "Maintain Job Card",
+  //   icon: <ClipboardList size={16} />,
+  //   module: "production_job_card",
+  //   subItems: [
+  //     { id: "job-card", name: "Maintain Job Card", icon: <ClipboardList size={14} />, href: ROUTES.PRODUCTION_JOB_CARD, module: "production_job_card" },
+  //     { id: "job-card-board", name: "Job Card Board", icon: <LayoutGrid size={14} />, href: ROUTES.PRODUCTION_JOB_CARD_BOARD, module: "production_job_card" },
+  //     { id: "job-card-calendar", name: "Job Card Calendar", icon: <CalendarDays size={14} />, href: ROUTES.PRODUCTION_JOB_CARD_CALENDAR, module: "production_job_card" },
+  //   ],
+  // },
   {
     id: "production-logs-group",
     name: "Logs",

@@ -552,14 +552,26 @@ export default function StoreOutPage() {
         },
         { width: "120px", align: "center" },
       ],
-      ["Issue ID", "issue_uid", (v) => (
-          <span className="font-mono font-bold text-indigo-600 text-[10px]">{v != null && v !== "" ? v : "—"}</span>
-        ), { width: "90px" }],
+      ["Issue ID", "issue_uid", (v, row) =>
+          v != null && v !== "" ? (
+            <span className="font-mono font-bold text-indigo-600 text-[10px]">{v}</span>
+          ) : row?.qc_reject_uid != null ? (
+            // RM Rejection Store Out has no Issue Request — show its register no.
+            <span className="font-mono font-bold text-rose-600 text-[10px]">REJECT #{row.qc_reject_uid}</span>
+          ) : (
+            <span className="font-mono font-bold text-indigo-600 text-[10px]">—</span>
+          ),
+        {
+          width: "90px",
+          copyValue: (row) => row?.issue_uid ?? (row?.qc_reject_uid != null ? `REJECT #${row.qc_reject_uid}` : "—"),
+        }],
       ["MRN UID", "mrn_uids", (v) => <span className="font-bold text-slate-800 text-[10px] font-mono tracking-tight">{v || "—"}</span>, { width: "120px" }],
-      ["Job Card No", "pjobcardno", (v) => <span className="font-bold text-slate-800 text-[10px] font-mono tracking-tight">{v || "—"}</span>, { width: "120px" }],
+      ["Job Card No", "pjobcardno", (v, row) => (
+          <span className="font-bold text-slate-800 text-[10px] font-mono tracking-tight">{v || row?.rejection_pjobcardno || "—"}</span>
+        ), { width: "120px", copyValue: (row) => row?.pjobcardno || row?.rejection_pjobcardno || "—" }],
       ["Machine / Reason", "macname", (_v, row) => {
-          const machine = String(row?.macname || "").trim();
-          const reason = String(row?.reason || "").trim();
+          const machine = String(row?.macname || row?.rejection_macname || "").trim();
+          const reason = String(row?.reason || row?.rejection_reason || "").trim();
           const text = [machine, reason].filter(Boolean).join(" · ");
           return (
             <span className="text-[10px] font-bold text-slate-700 uppercase truncate block" title={text || ""}>
@@ -728,7 +740,7 @@ export default function StoreOutPage() {
             type === PENDING_TYPE.JOB_CARD
               ? row.pending_coil_count
               : type === PENDING_TYPE.REJECTION
-                ? row.coil_count ?? 0
+                ? row.pending_coil_count ?? row.coil_count ?? 0
                 : row.coil_count ?? (type === PENDING_TYPE.COIL ? 1 : 0);
           return (
             <span className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded bg-indigo-50 text-indigo-700 text-[10px] font-black tabular-nums border border-indigo-100">

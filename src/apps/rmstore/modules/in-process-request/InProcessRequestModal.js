@@ -821,7 +821,7 @@ export default function InProcessRequestModal({
           pjobcardno: jobCardNo,
           reassign_wire: String(coil?.item_code || "").trim(),
           exclude_coil_uid: String(coil?.coil_no_uid || "").trim(),
-        });
+        }, helperPerms);
         if (lockRes?.allowed === false) {
           toast.warning(
             lockRes.message ||
@@ -860,7 +860,7 @@ export default function InProcessRequestModal({
       reassignJobCard: undefined,
       reassignMachine: undefined,
     }));
-  }, [showScanToast]);
+  }, [showScanToast, helperPerms]);
 
   const applyLotCoils = (lotCoils, { seedUid = null, lotLabel = null } = {}) => {
     const mapped = lotCoils.map((c) =>
@@ -939,6 +939,7 @@ export default function InProcessRequestModal({
           page,
           limit,
           search: no,
+          ...helperPerms,
         });
         return { data: body.data ?? [], total: body.total ?? 0 };
       }, 200);
@@ -1047,15 +1048,20 @@ export default function InProcessRequestModal({
         mrnUids = [mrnUid];
       }
 
-      // Fallback to mrn_no if no coils found for uid or no uid present
-      if (!lotCoils.length && mrnNo) {
+      // Fallback to mrn_no only when the coil has no mrn_uid — an empty mrn_uid lot must not
+      // widen to every MRN line of that mrn_no (other items / heats).
+      if (!lotCoils.length && !mrnUid && mrnNo) {
         const byNo = await loadLotCoilsByMrnNo(mrnNo);
         lotCoils = byNo.coils || [];
         mrnUids = byNo.mrnUids || [];
       }
 
       if (!lotCoils.length) {
-        showScanToast("error", "lot-empty", "No rejectable coils were found for this lot.");
+        showScanToast(
+          "error",
+          "lot-empty",
+          `No rejectable coils were found for MRN UID ${mrnUid || mrnNo}. They may already be on another rejection or queued in Store In Pending.`
+        );
         return false;
       }
 
@@ -1092,6 +1098,11 @@ export default function InProcessRequestModal({
     const reqType = requestTypeRef.current;
 
     if (isRejectionScanContext()) {
+      // Same guard as the lot-mode scan: coil already queued in Store In Pending (e.g. auto store-in of another rejection).
+      if (coil.pending_store_in_ipr_uid) {
+        showScanToast("error", "store-in-pending", iprRejectionPendingStoreInMessage(coil));
+        return null;
+      }
       if (!isCoilEligibleForIprRejection(coil, { editIprUid: editData?.ipr_uid ?? null })) {
         showScanToast("error", "coil-status", iprRejectionIneligibleMessage(coil));
         return null;
@@ -1766,7 +1777,7 @@ export default function InProcessRequestModal({
             pjobcardno: jc,
             reassign_wire: String(coil0?.item_code || "").trim(),
             exclude_coil_uid: String(coil0?.coil_no_uid || "").trim(),
-          });
+          }, helperPerms);
           if (lockRes?.allowed === false) {
             toast.warning(
               lockRes.message ||
@@ -1997,7 +2008,7 @@ export default function InProcessRequestModal({
   );
 
   /** Banner on an already-approved request, keyed by where it went next. */
-  const downstreamNotice =
+  const stageNotice =
     {
       [IPR_DOWNSTREAM.PENDING_STORE_IN]: {
         box: "bg-teal-50 border-teal-200",
@@ -2033,6 +2044,19 @@ export default function InProcessRequestModal({
         message: "Authorized — transfer request recorded (pending implementation).",
       },
     }[editData?.downstream] || null;
+  // Rejection waiting on its own shop-floor coils (same row, no separate store-in request).
+  const rejectionStoreInNotice =
+    editData?.request_type === IPR_REQUEST_TYPE.REJECTION &&
+    editData?.downstream === IPR_DOWNSTREAM.PENDING_STORE_IN
+      ? {
+          box: "bg-rose-50 border-rose-200",
+          icon: "text-rose-500",
+          text: "text-rose-800",
+          message:
+            "Approved. Shop-floor coils of this rejection wait in Unassigned → Pending — receive them there, then it moves to RM Rejection Pending.",
+        }
+      : null;
+  const downstreamNotice = rejectionStoreInNotice || stageNotice;
 
   const footerContent = showTypePicker ? (
     <RmStoreDrawerFooter onClose={onClose} cancelOnly />

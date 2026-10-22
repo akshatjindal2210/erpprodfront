@@ -381,7 +381,7 @@ export default function ShortagePage() {
                     module="production_shortage"
                     action="authorize"
                     variant="outline"
-                    label="Approve / Reject"
+                    label="Accept / Reject"
                     icon={CheckCircle}
                     disabled={!primeSelection.row}
                     onClick={() => primeTabRef.current?.openAction("decide")}

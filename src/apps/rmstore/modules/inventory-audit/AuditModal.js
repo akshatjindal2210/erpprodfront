@@ -603,7 +603,7 @@ export default function AuditModal({ open, onClose, onSuccess, editData, mode = 
                     value={row.location_ids}
                     onChange={(ids) => handleAssignmentChange(row.row_id, { location_ids: ids ?? [] })}
                     fetchService={wrapExcludeFetcher(fetchAuditLocations, takenLocationIds, "location_id")}
-                    getByIdService={(id) => storeLocationService.getById(id)}
+                    getByIdService={(id) => fetchAuditLocations({ id: Number(id) })}
                     dataKey="location_id"
                     labelKey="location_no"
                     icon={MapPin}

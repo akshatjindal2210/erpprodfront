@@ -610,6 +610,7 @@ export default function GenerateStoreOutDrawer({ open, onClose, onSuccess, row }
   };
 
   const handleSubmit = async () => {
+    if (submitting || loading) return;
     if (!sopAckRef.current?.assertAcknowledged()) return;
     setSubmitting(true);
     try {
