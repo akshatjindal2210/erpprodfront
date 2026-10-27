@@ -79,6 +79,23 @@ export function resolveInAppScanValue(rawValue) {
   const coil = firstQueryMatch(trimmed, /[?&]coil_no_uid=([^&#\s]+)/i);
   if (coil) return coil;
 
+  const locationNo = firstQueryMatch(trimmed, /[?&]location_no=([^&#\s]+)/i);
+  if (locationNo) return locationNo.toUpperCase();
+
+  // IMS tray — before box (`tray_code` + tray primary `id=`; do not treat tray `id` as box_uid)
+  const trayCode =
+    firstQueryMatch(trimmed, /[?&]tray_code=([^&#\s]+)/i) ||
+    firstQueryMatch(trimmed, /[?&]tray=([^&#\s]+)/i);
+  const trayId = firstQueryMatch(trimmed, /[?&]id=(\d+)/i);
+  const isBoxStickerUrl = /[?&]box_no_uid=/i.test(trimmed);
+  const isOtherEntityUrl = /[?&](?:fuid|coil_no_uid)=/i.test(trimmed);
+  if (trayCode || (trayId && !isBoxStickerUrl && !isOtherEntityUrl)) {
+    const parts = [];
+    if (trayCode) parts.push(`tray_code=${encodeURIComponent(trayCode.toUpperCase())}`);
+    if (trayId) parts.push(`id=${encodeURIComponent(trayId)}`);
+    return parts.length ? `?${parts.join("&")}` : trayId;
+  }
+
   // IMS box — keep short query so detectQrType / parseStickerScan still see box + id
   const box = firstQueryMatch(trimmed, /[?&]box_no_uid=([^&#\s]+)/i);
   const boxId =
@@ -88,23 +105,6 @@ export function resolveInAppScanValue(rawValue) {
     const parts = [];
     if (box) parts.push(`box_no_uid=${encodeURIComponent(box)}`);
     if (boxId) parts.push(`id=${encodeURIComponent(boxId)}`);
-    return `?${parts.join("&")}`;
-  }
-
-  const locationNo = firstQueryMatch(trimmed, /[?&]location_no=([^&#\s]+)/i);
-  if (locationNo) return locationNo.toUpperCase();
-
-  // IMS tray — short query (tray_code + primary id), like box sticker URLs
-  const trayCode =
-    firstQueryMatch(trimmed, /[?&]tray_code=([^&#\s]+)/i) ||
-    firstQueryMatch(trimmed, /[?&]tray=([^&#\s]+)/i);
-  const trayId = /[?&](?:tray_code|tray)=/i.test(trimmed)
-    ? firstQueryMatch(trimmed, /[?&]id=(\d+)/i)
-    : "";
-  if (trayCode || trayId) {
-    const parts = [];
-    if (trayCode) parts.push(`tray_code=${encodeURIComponent(trayCode.toUpperCase())}`);
-    if (trayId) parts.push(`id=${encodeURIComponent(trayId)}`);
     return `?${parts.join("&")}`;
   }
 

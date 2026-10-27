@@ -245,6 +245,13 @@ export function parseTrayScan(rawValue) {
     if (code) return { code, id: "" };
   }
 
+  if (!isBoxUrl) {
+    const loneTrayId = trayQueryParam(trimmed, "id");
+    if (loneTrayId && /^\d+$/.test(loneTrayId) && /[?&]id=/i.test(trimmed)) {
+      return { code: "", id: loneTrayId };
+    }
+  }
+
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
       const p = JSON.parse(trimmed);
