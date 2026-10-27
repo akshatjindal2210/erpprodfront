@@ -1760,6 +1760,15 @@ export default function IssueRequestModal({
                 !balance.rmCap && balance.plan > 0 && Number(row.issue_qty) > 0
                   ? roundQty(Number(row.issue_qty) - Math.max(0, balance.pending))
                   : 0;
+              const pendingTone = balance.rmCap
+                ? balance.over || balance.pending <= 0
+                  ? "rose"
+                  : "emerald"
+                : balance.plan <= 0
+                  ? "slate"
+                  : balance.over || balance.pending <= 0
+                    ? "rose"
+                    : "emerald";
               const remainRm = remainingRmMax(row);
               const rmComplete = isRmFullyIssued(row);
               const hasJobCard = Boolean(row.pjobcardno);
@@ -1801,6 +1810,20 @@ export default function IssueRequestModal({
                               title="Production machine for this job card"
                             />
                           ) : null}
+                          <InfoBadge
+                            label="Plan"
+                            value={balance.plan}
+                            tone="indigo"
+                            title="Planned qty on this job card"
+                          />
+                          {row.part_weight > 0 ? (
+                            <InfoBadge
+                              label="Part Wt"
+                              value={row.part_weight}
+                              tone="slate"
+                              title="Part weight from ERP"
+                            />
+                          ) : null}
                           {row.rm_weight > 0 ? (
                             <InfoBadge
                               label="Required Qty"
@@ -1809,6 +1832,30 @@ export default function IssueRequestModal({
                               title="Required Qty (KG) = (gweight × qty) + extra %"
                             />
                           ) : null}
+                          <InfoBadge
+                            label="Issued"
+                            value={balance.issued}
+                            tone={balance.issued > 0 ? "amber" : "slate"}
+                            loading={row.loadingIssued}
+                            title={
+                              row.issued_count
+                                ? `Already requested in ${row.issued_count} earlier issue request${
+                                    row.issued_count === 1 ? "" : "s"
+                                  }`
+                                : "No earlier issue request for this job card"
+                            }
+                          />
+                          <InfoBadge
+                            label={balance.over ? "Over" : "Pending"}
+                            value={balance.over ? -balance.pending : Math.max(0, balance.pending)}
+                            tone={pendingTone}
+                            loading={row.loadingIssued}
+                            title={
+                              balance.rmCap
+                                ? "Remaining RM weight (Required Qty − already issued)"
+                                : "Plan qty minus qty already issued"
+                            }
+                          />
                         </>
                       ) : null}
                     </div>

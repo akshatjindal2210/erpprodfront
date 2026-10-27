@@ -1,17 +1,11 @@
 import React from "react";
 import QRCode from "react-qr-code";
 import { formatLocationDisplay, getLocationStoredNo } from "@/apps/rmstore/lib/helpers/formatLocationDisplay";
-
 /**
- * RM location QR sticker — change size / QR / font ONLY here.
- * Print QR + Bulk QR both use this. Do not hardcode sizes anywhere else.
+ * RM Store location QR sticker — change RM print width×height here (inch).
+ * IMS Tray uses ims/locationQrLabel.js (50×25 mm) — not this RM inch sticker.
  *
- * widthIn / heightIn  → paper size (IMS packing sticker is 5.9 × 3.8 in)
- * marginMm            → white edge (raise if the printer clips the QR)
- * gapMm               → space between QR and location text
- * minTextShare        → minimum % of inner width kept for the code (0.36–0.55)
- * qrSourcePx          → QR sharpness only, not printed size
- * fontMinPx           → smallest location-code font
+ * marginMm, gapMm, minTextShare, qrSourcePx, fontMinPx — layout tuning (not paper size).
  */
 export const RM_LOCATION_LABEL = {
   widthIn: 5.9,
@@ -24,13 +18,25 @@ export const RM_LOCATION_LABEL = {
 };
 
 const PX_PER_MM = 12;
-const LABEL_W_MM = RM_LOCATION_LABEL.widthIn * 25.4;
-const LABEL_H_MM = RM_LOCATION_LABEL.heightIn * 25.4;
-const PAGE_W = `${RM_LOCATION_LABEL.widthIn}in`;
-const PAGE_H = `${RM_LOCATION_LABEL.heightIn}in`;
+
+function labelPageCss(label) {
+  const pageW = `${label.widthIn}in`;
+  const pageH = `${label.heightIn}in`;
+  return { pageW, pageH, pageSize: `${pageW} ${pageH}` };
+}
+
+function labelCanvasPx(label) {
+  const labelWMm = label.widthIn * 25.4;
+  const labelHMm = label.heightIn * 25.4;
+  return {
+    baseWidth: Math.round(labelWMm * PX_PER_MM),
+    baseHeight: Math.round(labelHMm * PX_PER_MM),
+  };
+}
 
 export function rmLocationLabelSizeText() {
-  return `${RM_LOCATION_LABEL.widthIn}×${RM_LOCATION_LABEL.heightIn} in`;
+  const { widthIn, heightIn } = RM_LOCATION_LABEL;
+  return `${widthIn}×${heightIn} in`;
 }
 
 export function getLocationQrValue(data) {
@@ -53,6 +59,13 @@ function requireLocationQrValue(data) {
   return value;
 }
 
+/** QR image payload — optional `qr_value` (e.g. tray public URL); label text still uses location_no. */
+function getQrEncodeValue(data) {
+  const custom = String(data?.qr_value ?? "").trim();
+  if (custom) return custom;
+  return requireLocationQrValue(data);
+}
+
 export function getLocationDisplayNo(data) {
   const display = formatLocationDisplay(data);
   return display || "—";
@@ -65,8 +78,8 @@ function getPrintedLocationText(data) {
 
 export { getLocationStoredNo, formatLocationDisplay };
 
-function fitFontSize(ctx, text, maxWidth, maxHeight) {
-  const fontMin = RM_LOCATION_LABEL.fontMinPx;
+function fitFontSize(ctx, text, maxWidth, maxHeight, fontMinPx) {
+  const fontMin = fontMinPx;
   let lo = fontMin;
   let hi = Math.max(fontMin, Math.floor(maxHeight));
   let best = fontMin;
@@ -84,10 +97,25 @@ function fitFontSize(ctx, text, maxWidth, maxHeight) {
   return best;
 }
 
-function drawLabelOnCanvas(ctx, canvas, img, data) {
-  const { marginMm, gapMm, minTextShare } = RM_LOCATION_LABEL;
-  const baseWidth = Math.round(LABEL_W_MM * PX_PER_MM);
-  const baseHeight = Math.round(LABEL_H_MM * PX_PER_MM);
+function drawCenteredTextBlock(ctx, lines, centerX, blockTop, blockH, maxWidth, fontMinPx) {
+  const rows = (lines || []).map((s) => String(s ?? "").trim()).filter(Boolean);
+  if (!rows.length) return;
+  const rowH = Math.floor(blockH / rows.length);
+  const ref = rows.reduce((a, b) => (a.length >= b.length ? a : b), "");
+  const fontSize = fitFontSize(ctx, ref, maxWidth, Math.max(8, rowH - 2), fontMinPx);
+  ctx.font = `900 ${fontSize}px Arial`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#000000";
+  rows.forEach((line, i) => {
+    const y = blockTop + Math.floor(rowH * i + rowH / 2);
+    ctx.fillText(line, centerX, y);
+  });
+}
+
+function drawLabelOnCanvas(ctx, canvas, img, data, label = RM_LOCATION_LABEL) {
+  const { marginMm, gapMm, minTextShare, fontMinPx } = label;
+  const { baseWidth, baseHeight } = labelCanvasPx(label);
   const rackRow = getPrintedLocationText(data);
   const safe = Math.round(marginMm * PX_PER_MM);
   const gap = Math.round(gapMm * PX_PER_MM);
@@ -118,17 +146,23 @@ function drawLabelOnCanvas(ctx, canvas, img, data) {
   ctx.fillRect(0, 0, baseWidth, baseHeight);
   ctx.drawImage(img, qrX, qrY, qrSize, qrSize);
 
-  const fontSize = fitFontSize(ctx, rackRow, textW, innerH);
-  ctx.font = `900 ${fontSize}px Arial`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = "#000000";
-  ctx.fillText(rackRow, textX + Math.floor(textW / 2), textY + Math.floor(innerH / 2));
+  const textCenterX = textX + Math.floor(textW / 2);
+  const trayLines = Array.isArray(data?.label_lines) ? data.label_lines : null;
+  if (trayLines?.length >= 2) {
+    drawCenteredTextBlock(ctx, trayLines.slice(0, 2), textCenterX, textY, innerH, textW, fontMinPx);
+  } else {
+    const fontSize = fitFontSize(ctx, rackRow, textW, innerH, fontMinPx);
+    ctx.font = `900 ${fontSize}px Arial`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#000000";
+    ctx.fillText(rackRow, textCenterX, textY + Math.floor(innerH / 2));
+  }
 }
 
 /** Build label PNG from a rendered QR <svg> element (single drawer preview). */
-export function buildLocationLabelDataUrlFromSvg(svgElement, data) {
-  requireLocationQrValue(data);
+export function buildLocationLabelDataUrlFromSvg(svgElement, data, label = RM_LOCATION_LABEL) {
+  getQrEncodeValue(data);
   const svgData = new XMLSerializer().serializeToString(svgElement);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -140,7 +174,7 @@ export function buildLocationLabelDataUrlFromSvg(svgElement, data) {
     img.onload = () => {
       URL.revokeObjectURL(url);
       try {
-        drawLabelOnCanvas(ctx, canvas, img, data);
+        drawLabelOnCanvas(ctx, canvas, img, data, label);
         resolve(canvas.toDataURL("image/png", 1.0));
       } catch (e) {
         reject(e);
@@ -155,11 +189,11 @@ export function buildLocationLabelDataUrlFromSvg(svgElement, data) {
 }
 
 /** Build label PNG for one location row (bulk — no DOM ref). */
-export async function buildLocationLabelDataUrlFromRow(data) {
+export async function buildLocationLabelDataUrlFromRow(data, label = RM_LOCATION_LABEL) {
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const qrValue = requireLocationQrValue(data);
+  const qrValue = getQrEncodeValue(data);
   const svgMarkup = renderToStaticMarkup(
-    React.createElement(QRCode, { value: qrValue, size: RM_LOCATION_LABEL.qrSourcePx, level: "H" })
+    React.createElement(QRCode, { value: qrValue, size: label.qrSourcePx, level: "H" })
   );
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -171,7 +205,7 @@ export async function buildLocationLabelDataUrlFromRow(data) {
     img.onload = () => {
       URL.revokeObjectURL(url);
       try {
-        drawLabelOnCanvas(ctx, canvas, img, data);
+        drawLabelOnCanvas(ctx, canvas, img, data, label);
         resolve(canvas.toDataURL("image/png", 1.0));
       } catch (e) {
         reject(e);
@@ -185,17 +219,18 @@ export async function buildLocationLabelDataUrlFromRow(data) {
   });
 }
 
-export async function buildLocationLabelDataUrlsForRows(rows) {
+export async function buildLocationLabelDataUrlsForRows(rows, label = RM_LOCATION_LABEL) {
   const out = [];
   for (const row of rows) {
-    out.push(await buildLocationLabelDataUrlFromRow(row));
+    out.push(await buildLocationLabelDataUrlFromRow(row, label));
   }
   return out;
 }
 
 /** @returns {boolean} false if the browser blocked the print pop-up */
-export function printLocationLabelDataUrls(dataUrls) {
+export function printLocationLabelDataUrls(dataUrls, label = RM_LOCATION_LABEL) {
   if (!dataUrls?.length) return false;
+  const { pageW, pageH, pageSize } = labelPageCss(label);
   const pages = dataUrls
     .map(
       (url) =>
@@ -208,15 +243,15 @@ export function printLocationLabelDataUrls(dataUrls) {
     <html>
       <head>
         <style>
-          @page { size: ${PAGE_W} ${PAGE_H}; margin: 0; }
+          @page { size: ${pageSize}; margin: 0; }
           html, body {
             margin: 0;
             padding: 0;
             background: #fff;
           }
           .label-page {
-            width: ${PAGE_W};
-            height: ${PAGE_H};
+            width: ${pageW};
+            height: ${pageH};
             page-break-after: always;
             break-after: page;
             page-break-inside: avoid;
@@ -228,15 +263,15 @@ export function printLocationLabelDataUrls(dataUrls) {
             break-after: auto;
           }
           .label {
-            width: ${PAGE_W};
-            height: ${PAGE_H};
+            width: ${pageW};
+            height: ${pageH};
             display: block;
             box-sizing: border-box;
             overflow: hidden;
           }
           .label img {
-            width: ${PAGE_W};
-            height: ${PAGE_H};
+            width: ${pageW};
+            height: ${pageH};
             display: block;
             object-fit: contain;
             image-rendering: -webkit-optimize-contrast;

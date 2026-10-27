@@ -2,12 +2,14 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCw, ClipboardList, Loader2, Edit3, CheckCircle, CheckCircle2, Check, Shield, XCircle, MessageSquareQuote } from "lucide-react";
+import { useSelector } from "react-redux";
+import { RefreshCw, ClipboardList, Loader2, Edit3, CheckCircle, CheckCircle2, Check, Shield, XCircle, MessageSquareQuote, History } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { jobCardService } from "@/apps/production/lib/services/jobCard";
 import { ROUTES } from "@/apps/production/lib/utils/routes";
 import { shortageService } from "@/apps/production/lib/services/shortage";
+import { isProductionSuperAdmin } from "@/apps/production/lib/utils/superAdmin";
 import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_TEXT, IMS_TABLE_CELL_NUMBER } from "@/ui/common/list/listPageShellClasses";
 import { FormLabel, OK_INPUT } from "@/ui/common/Constants";
 import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/ui/common/list/ListPageToolbar";
@@ -29,17 +31,21 @@ import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
 import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
 import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
+import { selectUser } from "@/platform/store/slices/authSlice";
 import { DrawerSection, DrawerDetailField, PrimeItemSummary, usePrimeItemList } from "@/apps/production/modules/shortage/primeItem";
 import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_PRIMARY, IMS_DRAWER_BTN_APPROVE } from "@/apps/ims/lib/helpers/masterListUi";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
 import { formatProductionDuration, displayDurationSeconds, sumShownTimeSeconds, useJobCardProductionEstimate } from "@/apps/production/modules/job-card/jobCardProductionEstimate";
-
+import JobCardActivityDrawer from "@/apps/production/modules/job-card/JobCardActivityDrawer";
+import { JOB_CARD_DRAWER_MAX_WIDTH, JOB_CARD_PLAN_RM_EMPTY_EDIT, JOB_CARD_PLAN_RM_EMPTY_VIEW, JOB_CARD_PLAN_TH, JOB_CARD_PLAN_TD, jobCardPlanColgroupWidths, jobCardPlanTableMinWidthClass } from "@/apps/production/modules/job-card/jobCardUi.config";
+import { PROCESS_STATUS_VALUES, PROCESS_STATUS_LABELS, PROCESS_STATUS_BADGE, ProcessStatusChips, machineStatusRows, parseProcessPlan } from "@/apps/production/lib/constants/processStatus";
+import { fetchMaintainJobcardToolingRequired, toolingBlocksMaintainJobCardSave } from "@/apps/production/lib/helpers/maintainJobCardToolingConfig";
 /**
- * Production → Maintain Job Card (IMS style — 2 tabs).
- *   Pending Shortage — gray pending rows selectable → Approve (shortage authorize) → then New (create job card)
- *   Register         — all job cards (filter Pending / Authorized) → Approve / Edit / View / Delete
+ * Production → Maintain Job Card — 2 tabs.
+ *   Pending Shortage — Accept → New (create drawer) until JC saved · then Edit / View / Delete (job_card_no or plan)
+ *   Register         — all job cards → Edit / View / Delete (no separate Authorize — status Pending/Planning/…)
  */
 
 const MODULE = "production_job_card";
@@ -48,19 +54,12 @@ const TABS = [
   { id: "register", label: "Register", icon: CheckCircle2 },
   { id: "pending", label: "Pending Shortage", icon: ClipboardList },
 ];
-const REGISTER_APPROVAL_OPTIONS = [
-  { label: "All", value: "all" },
-  { label: "Pending", value: "pending" },
-  { label: "Authorized", value: "approved" },
-];
 const btn = LIST_PAGE_ACTION_CLASS;
-const NOT_APPROVED_TIP = "Shortage not approved yet — approve first, then click New";
+const NOT_APPROVED_TIP = "Shortage not accepted yet — Accept first, then click New";
 const EMPTY = { rows: [], headers: [] };
 const JOB_CARD_STATUSES = ["Pending", "Planning", "Running", "Hold", "Complete"];
 const PAGE_CHUNK = 100;
 
-// Drawers (IMS style)
-const DRAWER_WIDTH = "max-w-[1600px]";
 const yesNoLabel = (v) => (v == null ? "—" : v ? "Yes" : "No");
 
 const STATUS_BADGE = {
@@ -102,6 +101,12 @@ const REGISTER_HEADERS = [
   ), { width: "300px", sortable: false, copyValue: (row) => itemsText(row.items) }],
   ["Total Qty", "qty", (v) => <span className="font-black text-slate-800 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>, { width: "100px", align: "center" }],
   ["Process Plan", "process_plan", (v) => <span className="text-[10px] text-slate-600 truncate block" title={processPlanText(v)}>{processPlanText(v)}</span>, { width: "260px", sortable: false, copyValue: (row) => processPlanText(row.process_plan) }],
+  /** Process status chips — Super Admin only (same gate as plan Status column). */
+  ["Process", "process_chips", (_, row) => {
+    const plan = row?.process_plan;
+    if (!machineStatusRows(plan).length) return <span className="text-[10px] text-slate-400">—</span>;
+    return <ProcessStatusChips list={plan} />;
+  }, { width: "280px", sortable: false, saOnly: true, copyValue: (row) => machineStatusRows(row.process_plan).map((p) => `${p.machineName || p.processName}:${p.status}`).join(", ") || "—" }],
   ["Shortage Approved", "shortage_approved", (v) => (
     <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-slate-100 text-slate-500 border-slate-200"}`}>
       {v ? "True" : "False"}
@@ -115,19 +120,30 @@ const REGISTER_HEADERS = [
   ), { width: "130px", copyValue: (row) => (row.tooling_approved === true ? "True" : "False") }],
   ["Tooling Remark", "tooling_remark", (v) => <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>, { width: "180px", sortable: false }],
   ...auditPair("Tooling", "tooling_by_name", "tooling_at", { hideUnlessNameKey: "tooling_by_name" }),
-  ["Approval", "approved", (v) => (
-    <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
-      {v ? "● AUTHORIZED" : "○ PENDING"}
-    </span>
-  ), { width: "120px", sortable: false, copyValue: (row) => (row.approved ? "AUTHORIZED" : "PENDING") }],
   ["Status", "status", (v) => <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${STATUS_BADGE[v] || STATUS_BADGE.Pending}`}>{v || "—"}</span>, { width: "100px" }],
   ["Remarks", "remarks", (v) => <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>, { width: "200px", sortable: false }],
-  ...auditHeaders(["created", "updated", "approved"]), // Created / Updated / Approved — By + At (IMS)
+  ...auditHeaders(["created", "updated"]),
 ];
 
-/** Pending status or not-yet-authorized → soft amber. */
-const registerRowClassName = (row) =>
-  row.status === "Pending" || !row.approved ? "[&_td]:bg-amber-50/70" : "";
+const registerHeaders = (isSa) => REGISTER_HEADERS.filter((h) => isSa || !h[3]?.saOnly);
+
+const registerRowClassName = (row) => (row.status === "Pending" ? "[&_td]:bg-amber-50/70" : "");
+
+/** Accept creates stub (docno only). User “saved” JC when number or process plan exists. */
+function shortageRowHasSavedJobCard(row) {
+  return Boolean(row?.job_card_no || row?.jc_has_plan);
+}
+
+function cardFromShortageRow(row) {
+  if (!row?.docno || !shortageRowHasSavedJobCard(row)) return null;
+  return {
+    docno: row.docno,
+    job_card_no: row.job_card_no,
+    prime_item_code: row.prime_item_code,
+    prime_item_dcode: row.prime_key ?? row.id,
+    qty: row.total_qty,
+  };
+}
 
 export default function JobCardPage() {
   const canAccess = useCanAccess();
@@ -142,6 +158,7 @@ export default function JobCardPage() {
   const [shortageApproveItem, setShortageApproveItem] = useState(null);
   const [drawerCard, setDrawerCard] = useState(null);
   const [deleteCard, setDeleteCard] = useState(null);
+  const [activityCard, setActivityCard] = useState(null);
   const [viewMode, handleViewMode] = useViewMode();
 
   const reloadKey = (id) => setKeys((k) => ({ ...k, [id]: k[id] + 1 }));
@@ -155,8 +172,14 @@ export default function JobCardPage() {
   });
 
   const openCreate = useCallback((row) => {
-    if (!row) return toast.info("Select an approved prime item first.");
-    if (row.status !== "approved") return toast.info(NOT_APPROVED_TIP);
+    if (!row) return toast.info("Select an accepted prime item first.");
+    if (row.status !== "accepted") return toast.info(NOT_APPROVED_TIP);
+    if (shortageRowHasSavedJobCard(row)) {
+      const card = cardFromShortageRow(row);
+      if (!card) return toast.error("Job card link missing — refresh the list.");
+      setDrawerCard({ card, mode: "edit" });
+      return;
+    }
     setCreateItem(row);
   }, []);
 
@@ -165,7 +188,7 @@ export default function JobCardPage() {
     (row) => {
       if (!canAccess(SHORTAGE_MODULE, "authorize").allowed) return;
       if (!row) return toast.info("Select a prime item first.");
-      if (row.status !== "pending") return toast.info("Already approved — click New to create the job card.");
+      if (row.status !== "pending") return toast.info("Already accepted — click New to create the job card.");
       setShortageApproveItem(row);
     },
     [canAccess]
@@ -205,25 +228,11 @@ export default function JobCardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** IMS style: Approve opens the card in approve mode (details + SOP → Approve). */
-  const openApprove = useCallback(
-    (card) => {
-      if (card?.approved === true) return toast.info("Already authorized. Edit it before approving again.");
-      const plan = card?.process_plan;
-      if (!Array.isArray(plan) || !plan.length) {
-        return toast.info("Save process plan first (Edit the job card), then authorize.");
-      }
-      openCard(card, "approve");
-    },
-    [openCard]
-  );
-
-  const modalOpen = Boolean(createItem || shortageApproveItem || drawerCard || deleteCard);
+  const modalOpen = Boolean(createItem || shortageApproveItem || drawerCard || deleteCard || activityCard);
   const onPending = tab === "pending";
   const onRegister = tab === "register";
-  const cardHasProcessPlan = (c) => Array.isArray(c?.process_plan) && c.process_plan.length > 0;
-  const canApproveSelected = Boolean(selectedCard && selectedCard.approved !== true && cardHasProcessPlan(selectedCard));
-  const canShortageApproveSelected = Boolean(shortageSelected && shortageSelected.status === "pending");
+  const pendingCard = cardFromShortageRow(shortageSelected);
+  const canShortageApproveSelected = Boolean(shortageSelected?.status === "pending" && !shortageSelected?.job_card_no);
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
@@ -237,10 +246,44 @@ export default function JobCardPage() {
                   <>
                     <ListPageAddButton
                       module={MODULE}
-                      disabled={shortageSelected?.status !== "approved"}
+                      disabled={shortageSelected?.status !== "accepted" || shortageRowHasSavedJobCard(shortageSelected)}
                       onClick={() => openCreate(shortageSelected)}
                     />
-                    {/* Same production_shortage / authorize as Shortage → Prime Item; hidden without permission. */}
+                    <ListPageEditButton
+                      module={MODULE}
+                      icon={Edit3}
+                      disabled={!pendingCard}
+                      record={pendingCard}
+                      onClick={() => pendingCard && openCard(pendingCard, "edit")}
+                    />
+                    <ListPageViewButton
+                      module={MODULE}
+                      disabled={!pendingCard}
+                      record={pendingCard}
+                      onClick={() => pendingCard && openCard(pendingCard, "view")}
+                    />
+                    <ActionButton
+                      module={MODULE}
+                      action="view"
+                      variant="outline"
+                      label="Activity Log"
+                      icon={History}
+                      disabled={!pendingCard}
+                      record={pendingCard}
+                      onClick={() => {
+                        if (!pendingCard) return toast.info("Select a row with a job card first.");
+                        setActivityCard(pendingCard);
+                      }}
+                      className={`${LIST_PAGE_OUTLINE_ACTION} text-slate-600`}
+                    />
+                    <ListPageDeleteButton
+                      module={MODULE}
+                      disabled={!pendingCard}
+                      onClick={() => {
+                        if (!pendingCard) return toast.info("Select a row with a job card first.");
+                        setDeleteCard(pendingCard);
+                      }}
+                    />
                     <ActionButton
                       module={SHORTAGE_MODULE}
                       action="authorize"
@@ -264,22 +307,25 @@ export default function JobCardPage() {
                       record={selectedCard}
                       onClick={() => openCard(selectedCard, "edit")}
                     />
-                    <ActionButton
-                      module={MODULE}
-                      action="authorize"
-                      variant="outline"
-                      label="Approve"
-                      icon={CheckCircle}
-                      disabled={!canApproveSelected}
-                      record={selectedCard}
-                      onClick={() => openApprove(selectedCard)}
-                      className={`${LIST_PAGE_OUTLINE_ACTION} text-emerald-600`}
-                    />
                     <ListPageViewButton
                       module={MODULE}
                       disabled={!selectedCard}
                       record={selectedCard}
                       onClick={() => openCard(selectedCard, "view")}
+                    />
+                    <ActionButton
+                      module={MODULE}
+                      action="view"
+                      variant="outline"
+                      label="Activity Log"
+                      icon={History}
+                      disabled={!selectedCard}
+                      record={selectedCard}
+                      onClick={() => {
+                        if (!selectedCard) return toast.info("Select a job card first.");
+                        setActivityCard(selectedCard);
+                      }}
+                      className={`${LIST_PAGE_OUTLINE_ACTION} text-slate-600`}
                     />
                     <ListPageDeleteButton
                       module={MODULE}
@@ -329,7 +375,6 @@ export default function JobCardPage() {
               selectedCard={selectedCard}
               onSelectCard={setSelectedCard}
               onOpenCard={openCard}
-              onApproveCard={openApprove}
               onDeleteCard={setDeleteCard}
             />
           </div>
@@ -344,7 +389,6 @@ export default function JobCardPage() {
             setCreateItem(null);
             reloadKey("shortage");
             reloadKey("register");
-            showTab("register");
           }}
         />
       ) : null}
@@ -353,14 +397,16 @@ export default function JobCardPage() {
         <ShortageApproveDrawer
           item={shortageApproveItem}
           onClose={() => setShortageApproveItem(null)}
-          onSaved={(item, decision) => {
+          onSaved={() => {
             setShortageApproveItem(null);
             setShortageSelected(null);
             reloadKey("shortage");
-            // Approve → row enabled + open New Job Card. Reject → just refresh (row leaves pending list).
-            if (decision === "approve") openCreate({ ...item, status: "approved" });
           }}
         />
+      ) : null}
+
+      {activityCard ? (
+        <JobCardActivityDrawer card={activityCard} onClose={() => setActivityCard(null)} />
       ) : null}
 
       {drawerCard ? (
@@ -372,6 +418,7 @@ export default function JobCardPage() {
             setDrawerCard(null);
             setSelectedCard(null);
             reloadKey("register");
+            reloadKey("shortage");
           }}
         />
       ) : null}
@@ -383,6 +430,7 @@ export default function JobCardPage() {
           onSuccess={() => {
             setDeleteCard(null);
             setSelectedCard(null);
+            setShortageSelected(null);
             reloadKey("register");
             reloadKey("shortage");
           }}
@@ -400,10 +448,11 @@ export default function JobCardPage() {
 
 /* ───────────── Shortage tab (create source) ───────────── */
 
-const APPROVAL_OPTIONS = [
+const SHORTAGE_DECISION_OPTIONS = [
   { label: "All", value: "all" },
-  { label: "Approved", value: "approved" },
-  { label: "Not Approved", value: "pending" },
+  { label: "Pending", value: "pending" },
+  { label: "Accepted", value: "accepted" },
+  { label: "Rejected", value: "rejected" },
 ];
 
 function ShortageTab({ refreshKey, active, viewMode, onDataChange, onSelectionChange, onOpenCreate, onOpenShortageApprove }) {
@@ -430,13 +479,18 @@ function ShortageTab({ refreshKey, active, viewMode, onDataChange, onSelectionCh
     selectedId: list.selected,
     getSelectedRow: () => selectedRow,
     openAdd: () => onOpenCreate(selectedRow),
-    canOpenNew: () => selectedRow?.status === "approved",
+    canOpenNew: () => selectedRow?.status === "accepted" && !shortageRowHasSavedJobCard(selectedRow),
     newBlockedMessage: NOT_APPROVED_TIP,
+    openEdit: (row) => {
+      const c = cardFromShortageRow(row);
+      if (c) onOpenCreate(row);
+    },
+    canEditSelection: () => Boolean(cardFromShortageRow(selectedRow)),
     // Shortage authorize (not job-card authorize) — same power as Prime Item Approve
     openApprove: (row) => onOpenShortageApprove(row),
     getAuthorizeAccess: () => canAccess(SHORTAGE_MODULE, "authorize"),
     canApproveSelection: () => selectedRow?.status === "pending",
-    approveBlockedMessage: "Select a pending (Not Approved) prime item first.",
+    approveBlockedMessage: "Select a Pending prime item first.",
   });
 
   return (
@@ -444,7 +498,7 @@ function ShortageTab({ refreshKey, active, viewMode, onDataChange, onSelectionCh
       <ListPageFilterStrip>
         <DateRangeFilter
           showDate={false}
-          extraFilters={[{ label: "Approval", key: "approval", value: approval, options: APPROVAL_OPTIONS, preserveOrder: true }]}
+          extraFilters={[{ label: "Decision", key: "approval", value: approval, options: SHORTAGE_DECISION_OPTIONS, preserveOrder: true }]}
           applyOnSearchEnter={false}
           searchVariant="quick"
           onApply={(data) => {
@@ -477,11 +531,10 @@ function ShortageTab({ refreshKey, active, viewMode, onDataChange, onSelectionCh
               onOpenCreate(row);
             }
           }}
-          // Already-approved shortage → normal row (New). Not-yet-approved → gray (Approve only).
-          getRowClassName={(row) => (row.status === "approved" ? "" : "opacity-60 [&_td]:bg-slate-100 [&_td]:text-slate-500")}
+          getRowClassName={(row) => (row.status === "accepted" ? "" : "opacity-60 [&_td]:bg-slate-100 [&_td]:text-slate-500")}
           emptyIcon={ClipboardList}
           emptyMessage={list.error ? "Could not load pending shortage" : "No pending shortage"}
-          emptySubMessage={list.error ? `${list.error} — use the refresh button to try again.` : "All approved shortages already have a planned job card."}
+          emptySubMessage={list.error ? `${list.error} — use the refresh button to try again.` : "No rows match the filter, or all accepted shortages already have a planned job card."}
         />
       </div>
 
@@ -523,17 +576,15 @@ function ShortageApproveDrawer({ item, onClose, onSaved }) {
     rm: hasWireList ? true : item.production_rm != null ? item.production_rm : item.rm,
   };
 
-  const remarkMissing = !remark.trim();
   const close = () => !saving && onClose();
   const saveClass = type === "reject" ? BTN_REJECT : type ? IMS_DRAWER_BTN_APPROVE : `${IMS_DRAWER_BTN_APPROVE} opacity-50`;
 
   const submit = async () => {
     if (saving) return;
     if (!type) return toast.error("Please select Accept or Reject.");
-    if (remarkMissing) return toast.error("Please enter remark.");
     setSaving(true);
     try {
-      const res = await SHORTAGE_DECIDE[type].call([item.prime_key], remark.trim());
+      const res = await SHORTAGE_DECIDE[type].call([item.prime_key], remark.trim() || undefined);
       if (res?.success === false) throw new Error(res?.message);
       toast.success(res?.message || "Done.");
       onSaved(item, type);
@@ -560,7 +611,7 @@ function ShortageApproveDrawer({ item, onClose, onSaved }) {
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={saving || !type || remarkMissing}
+            disabled={saving || !type}
             title="Ctrl+S"
             className={saveClass}
           >
@@ -609,7 +660,6 @@ function ShortageApproveDrawer({ item, onClose, onSaved }) {
             label="Remarks"
             labelIcon={<MessageSquareQuote size={12} className="text-indigo-500" />}
             rows={3}
-            required
             value={remark}
             onChange={(e) => setRemark(e.target.value)}
             placeholder="Optional notes"
@@ -623,13 +673,14 @@ function ShortageApproveDrawer({ item, onClose, onSaved }) {
 
 /* ───────────── Register (one row per job card) ───────────── */
 
-function RegisterTab({ refreshKey, active, viewMode, onDataChange, selectedCard, onSelectCard, onOpenCard, onApproveCard, onDeleteCard }) {
+function RegisterTab({ refreshKey, active, viewMode, onDataChange, selectedCard, onSelectCard, onOpenCard, onDeleteCard }) {
+  const isSa = isProductionSuperAdmin(useSelector(selectUser));
+  const headers = useMemo(() => registerHeaders(isSa), [isSa]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearchValue] = useState("");
   const deferredSearch = useDeferredValue(search);
-  const [approval, setApproval] = useState("all");
   const [sort, setSort] = useState({ sortKey: "docno", sortDir: "desc" });
   const [limit, setLimit] = useState(PAGE_CHUNK);
   const requestRef = useRef(0);
@@ -665,7 +716,7 @@ function RegisterTab({ refreshKey, active, viewMode, onDataChange, selectedCard,
   };
 
   const filteredRows = useMemo(() => {
-    let data = approval === "all" ? rows : rows.filter((c) => Boolean(c.approved) === (approval === "approved"));
+    let data = rows;
     if (deferredSearch.trim()) {
       data = applyClientSearch(data, deferredSearch, {
         skipSort: true,
@@ -673,13 +724,13 @@ function RegisterTab({ refreshKey, active, viewMode, onDataChange, selectedCard,
       });
     }
     return sortRowsByKey(data, sort.sortKey, sort.sortDir);
-  }, [rows, deferredSearch, sort, approval]);
+  }, [rows, deferredSearch, sort]);
 
   const visibleRows = useMemo(() => filteredRows.slice(0, limit), [filteredRows, limit]);
 
   useEffect(() => {
-    onDataChange({ rows: filteredRows, headers: REGISTER_HEADERS });
-  }, [filteredRows, onDataChange]);
+    onDataChange({ rows: filteredRows, headers });
+  }, [filteredRows, headers, onDataChange]);
 
   const { tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
@@ -687,15 +738,6 @@ function RegisterTab({ refreshKey, active, viewMode, onDataChange, selectedCard,
     selectedId: selectedCard?.docno ?? null,
     getSelectedRow: () => selectedCard,
     openEdit: (row) => onOpenCard(row, "edit"),
-    openApprove: (row) => onApproveCard(row),
-    canApproveSelection: () =>
-      Boolean(
-        selectedCard &&
-          selectedCard.approved !== true &&
-          Array.isArray(selectedCard.process_plan) &&
-          selectedCard.process_plan.length > 0
-      ),
-    approveBlockedMessage: "Select a job card with process plan saved to authorize (Ctrl+Alt+A).",
     openDelete: (row) => onDeleteCard(row),
     canDeleteSelection: () => Boolean(selectedCard),
   });
@@ -707,14 +749,9 @@ function RegisterTab({ refreshKey, active, viewMode, onDataChange, selectedCard,
           showDate={false}
           applyOnSearchEnter={false}
           searchVariant="quick"
-          extraFilters={[{ label: "Approval", key: "approval", value: approval, options: REGISTER_APPROVAL_OPTIONS, preserveOrder: true }]}
-          onApply={(data) => {
-            setApproval(data.approval || "all");
-            setLimit(PAGE_CHUNK);
-          }}
+          onApply={() => setLimit(PAGE_CHUNK)}
           onReset={() => {
             setSearch("");
-            setApproval("all");
             setLimit(PAGE_CHUNK);
           }}
           searchValue={search}
@@ -726,7 +763,7 @@ function RegisterTab({ refreshKey, active, viewMode, onDataChange, selectedCard,
 
       <div className="flex-1 min-h-0 h-0 relative bg-white flex flex-col overflow-hidden isolate z-0">
         <DataTable
-          headers={REGISTER_HEADERS}
+          headers={headers}
           data={visibleRows}
           loading={loading}
           viewMode={viewMode}
@@ -773,11 +810,46 @@ function RegisterTab({ refreshKey, active, viewMode, onDataChange, selectedCard,
 /* ───────────── Create Job Card drawer ───────────── */
 
 function CreateDrawer({ item, onClose, onSaved }) {
+  const isSa = isProductionSuperAdmin(useSelector(selectUser));
+  const showMachineStatus = isSa;
   const sopAckRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [stages, setStages] = useState(undefined);
   const [picks, setPicks] = useState({});
   const [remarks, setRemarks] = useState("");
+  const [erpJobcardno, setErpJobcardno] = useState("");
+  const [erpNoLoading, setErpNoLoading] = useState(false);
+  const [toolingRequired, setToolingRequired] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchMaintainJobcardToolingRequired().then((on) => {
+      if (!cancelled) setToolingRequired(on);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isSa) return;
+    let cancelled = false;
+    setErpNoLoading(true);
+    jobCardService
+      .suggestErpJobcardno()
+      .then((res) => {
+        if (cancelled) return;
+        const n = res?.data?.jobcardno;
+        if (Number.isFinite(Number(n)) && Number(n) > 0) setErpJobcardno(String(n));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setErpNoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isSa]);
 
   useEffect(() => {
     let cancelled = false;
@@ -816,16 +888,45 @@ function CreateDrawer({ item, onClose, onSaved }) {
 
   const close = () => !saving && onClose();
 
+  const toolingBlock = toolingBlocksMaintainJobCardSave({ toolingRequired, toolingStatus: item?.tooling });
+
   const submit = async () => {
     if (saving) return;
     if (!stages?.length) return toast.info("Prime process is still loading.");
     if (missing) return toast.error(missing);
+    if (toolingBlock) return toast.error(toolingBlock);
     if (!sopAckRef.current?.assertAcknowledged()) return;
     setSaving(true);
     try {
-      const plan = stages.map((s) => ({ stage_no: s.stage_no, ...picks[s.stage_no] }));
+      const plan = stages.map((s) => {
+        const pick = picks[s.stage_no] || {};
+        const machine_status = {};
+        for (const mid of pick.machine_ids || []) {
+          const id = Number(mid);
+          if (id) machine_status[id] = pick.machine_status?.[id] || "pending";
+        }
+        return {
+          stage_no: s.stage_no,
+          process_id: pick.process_id,
+          machine_ids: pick.machine_ids,
+          rm_item_dcodes: pick.rm_item_dcodes,
+          machine_status,
+        };
+      });
       const shortageIds = item.shortage_ids ?? (item.children || []).map((c) => c.id);
-      const res = await jobCardService.create(item.prime_key, shortageIds, plan, remarks.trim());
+      const extra = {};
+      if (isSa) {
+        const manualNo = String(erpJobcardno ?? "").trim();
+        if (manualNo) {
+          const n = Number(manualNo);
+          if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
+            setSaving(false);
+            return toast.error("Job Card No must be a whole number.");
+          }
+          extra.jobcardno = n;
+        }
+      }
+      const res = await jobCardService.create(item.prime_key, shortageIds, plan, remarks.trim(), extra);
       toast.success(res?.message || "Job card created.");
       onSaved();
     } catch (err) {
@@ -840,7 +941,7 @@ function CreateDrawer({ item, onClose, onSaved }) {
     <RmStoreDrawerFooter
       onClose={close}
       loading={saving}
-      disabled={Boolean(missing) || !stages?.length}
+      disabled={Boolean(missing) || Boolean(toolingBlock) || !stages?.length}
       onSave={() => void submit()}
       saveLabel="Save"
       loadingLabel="Saving..."
@@ -848,13 +949,34 @@ function CreateDrawer({ item, onClose, onSaved }) {
   );
 
   return (
-    <Drawer isOpen onClose={close} onSubmit={() => void submit()} title="New Job Card" description="Prime item → process · machine · RM per stage" maxWidth={DRAWER_WIDTH} footer={footer}>
+    <Drawer isOpen onClose={close} onSubmit={() => void submit()} title="New Job Card" description="Prime item → process · machine · RM per stage" maxWidth={JOB_CARD_DRAWER_MAX_WIDTH} footer={footer}>
       <div className="space-y-2 pb-1">
         <DrawerSection title="Prime Item Details" bar="bg-indigo-500">
-          <PrimeItemSummary item={item} jobCard />
+          <PrimeItemSummary
+            item={item}
+            jobCard
+            extra={
+              isSa ? (
+                <DrawerDetailField
+                  label="Job Card No"
+                  value={
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={erpJobcardno}
+                      onChange={(e) => setErpJobcardno(e.target.value)}
+                      disabled={saving || erpNoLoading}
+                      className={`${OK_INPUT} w-full`}
+                    />
+                  }
+                />
+              ) : null
+            }
+          />
         </DrawerSection>
 
-        <Section
+        <DrawerSection
           title={`Process Plan · ${item.prime_item_code || "—"}`}
           badge={<PlanBadge count={stages?.length} estimate={estimate} loading={estimateLoading} qty={qty} />}
         >
@@ -866,8 +988,9 @@ function CreateDrawer({ item, onClose, onSaved }) {
             estimate={estimate}
             estimateLoading={estimateLoading}
             issueQty={item.total_weight_kg}
+            showMachineStatus={showMachineStatus}
           />
-        </Section>
+        </DrawerSection>
 
         <FormTextarea
           label="Remarks"
@@ -886,14 +1009,12 @@ function CreateDrawer({ item, onClose, onSaved }) {
   );
 }
 
-/* ───────────── View / Edit / Approve Job Card drawer (IMS style) ───────────── */
+/* ───────────── View / Edit Job Card drawer (IMS style) ───────────── */
 
 function JobCardDrawer({ card, mode, onClose, onSaved }) {
+  const showMachineStatus = isProductionSuperAdmin(useSelector(selectUser));
   const sopAckRef = useRef(null);
-  const canAccess = useCanAccess();
-  const canAuthorize = canAccess(MODULE, "authorize").allowed;
   const isView = mode === "view";
-  const isApprove = mode === "approve"; // IMS: details editable in approve too → saved + authorized together
   const readOnly = isView;
   const [saving, setSaving] = useState(false);
   const [activeSubmit, setActiveSubmit] = useState(null);
@@ -904,8 +1025,19 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
   const [jobDate, setJobDate] = useState("");
   const [stages, setStages] = useState(undefined);
   const [picks, setPicks] = useState({});
+  const [toolingRequired, setToolingRequired] = useState(false);
 
   const primeCode = detail?.prime_item_code || card?.prime_item_code;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchMaintainJobcardToolingRequired().then((on) => {
+      if (!cancelled) setToolingRequired(on);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -920,7 +1052,7 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
         setRemarks(row.remarks || "");
         setJobDate(String(row.doc_dt ?? row.job_date ?? "").slice(0, 10));
 
-        const plan = Array.isArray(row.process_plan) ? row.process_plan : [];
+        const plan = parseProcessPlan(row.process_plan);
         const procRes = await jobCardService.getPrimeProcess(row.prime_item_dcode);
         if (cancelled) return;
         const loaded = procRes?.data?.stages ?? null;
@@ -928,10 +1060,15 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
         const nextPicks = {};
         // Saved plan first; a stage without one gets its first process + defaults
         for (const step of plan) {
+          const machine_status = {};
+          for (const m of step.machines || []) {
+            machine_status[m.machine_id] = m.status || step.status || "pending";
+          }
           nextPicks[step.stage_no] = {
             process_id: step.process_id ?? null,
             machine_ids: (step.machines || []).map((m) => m.machine_id),
             rm_item_dcodes: (step.rm_items || []).map((r) => r.rm_item_dcode),
+            machine_status,
           };
         }
         for (const s of loaded || []) {
@@ -951,7 +1088,25 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
     };
   }, [card.docno]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const setPick = (stageNo, patch) => setPicks((prev) => ({ ...prev, [stageNo]: { ...prev[stageNo], ...patch } }));
+  const setPick = (stageNo, patch) => {
+    setPicks((prev) => {
+      const cur = prev[stageNo] || {};
+      const next = { ...cur, ...patch };
+      // Keep machine_status in sync when machines / process change
+      if (patch.machine_ids !== undefined || patch.process_id !== undefined || patch.machine_status !== undefined) {
+        const ids = (next.machine_ids || []).map(Number).filter(Boolean);
+        const machine_status = { ...(next.machine_status || {}) };
+        for (const id of ids) {
+          if (machine_status[id] == null) machine_status[id] = "pending";
+        }
+        for (const key of Object.keys(machine_status)) {
+          if (!ids.includes(Number(key))) delete machine_status[key];
+        }
+        next.machine_status = machine_status;
+      }
+      return { ...prev, [stageNo]: next };
+    });
+  };
 
   const qty = detail?.qty ?? card?.qty;
   const itemDcode = detail?.prime_item_dcode ?? card?.prime_item_dcode;
@@ -971,25 +1126,40 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
   const savedPlan = detail?.process_plan ?? card?.process_plan;
   const hasSavedPlan = Array.isArray(savedPlan) && savedPlan.length > 0;
 
-  /** action: save | approve | keep_pending — Edit shows Cancel · Save & Approve · Save (IMS) */
-  const submit = async (action = "save") => {
+  const toolingBlock = toolingBlocksMaintainJobCardSave({
+    toolingRequired,
+    toolingStatus: detail?.tooling_approved ?? card?.tooling_approved,
+  });
+
+  const submit = async () => {
     if (isView || saving) return;
     if (missing) return toast.error(missing);
-    const approving = action === "approve" || (isApprove && action !== "keep_pending");
-    if (approving && !hasSavedPlan && !stages?.length) {
-      return toast.error("Save process plan first — authorize only after process plan is set.");
-    }
+    if (stages?.length && toolingBlock) return toast.error(toolingBlock);
     if (!sopAckRef.current?.assertAcknowledged()) return;
     setSaving(true);
-    setActiveSubmit(approving ? "approve" : action === "keep_pending" ? "keep_pending" : "save");
+    setActiveSubmit("save");
     try {
       const body = { status, remarks, job_date: jobDate || undefined };
-      if (stages?.length) body.process_plan = stages.map((s) => ({ stage_no: s.stage_no, ...picks[s.stage_no] }));
-      // Approve sends edits too (authorize permission). Keep Pending / Save = edits saved as Pending (IMS)
-      const res = isApprove && approving
-        ? await jobCardService.approve(card.docno, body)
-        : await jobCardService.update(card.docno, { ...body, approved: approving });
-      toast.success(res?.message || (approving ? "Job card authorized." : "Job card updated."));
+      if (stages?.length) {
+        body.process_plan = stages.map((s) => {
+          const pick = picks[s.stage_no] || {};
+          const row = {
+            stage_no: s.stage_no,
+            process_id: pick.process_id,
+            machine_ids: pick.machine_ids,
+            rm_item_dcodes: pick.rm_item_dcodes,
+          };
+          // Machine-level status — Super Admin only; others keep existing via backend withPlanStatuses
+          if (showMachineStatus) {
+            row.machine_status = Object.fromEntries(
+              (pick.machine_ids || []).map(Number).filter(Boolean).map((id) => [id, pick.machine_status?.[id] || "pending"])
+            );
+          }
+          return row;
+        });
+      }
+      const res = await jobCardService.update(card.docno, body);
+      toast.success(res?.message || "Job card updated.");
       onSaved();
     } catch (err) {
       toast.error(err?.message || "Failed to update job card.");
@@ -999,21 +1169,17 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
     }
   };
 
-  // Edit: Cancel · Save & Approve · Save — same as Machine Master / RM Store
   const footer = (
     <RmStoreDrawerFooter
       onClose={close}
       loading={saving}
-      disabled={loading || Boolean(missing)}
+      disabled={loading || Boolean(missing) || Boolean(!readOnly && stages?.length && toolingBlock)}
       readOnly={isView}
-      isApprove={isApprove}
-      isEdit={!isView && !isApprove}
-      canApprove={canAuthorize}
+      isEdit={!isView}
+      canApprove={false}
       activeSubmit={activeSubmit}
-      onSave={(_approved, action) => void submit(action || "save")}
+      onSave={() => void submit()}
       saveLabel="Save"
-      approveLabel="Approve"
-      saveAndApproveLabel="Save & Approve"
       loadingLabel="Saving..."
     />
   );
@@ -1024,10 +1190,10 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
     <Drawer
       isOpen
       onClose={close}
-      onSubmit={isView ? close : () => void submit(isApprove ? "approve" : "save")}
-      title={isApprove ? `Approve ${cardNo}` : isView ? `View ${cardNo}` : `Edit ${cardNo}`}
+      onSubmit={isView ? close : () => void submit()}
+      title={isView ? `View ${cardNo}` : `Edit ${cardNo}`}
       description={detail?.prime_item_code ? `Prime item ${detail.prime_item_code}` : undefined}
-      maxWidth={DRAWER_WIDTH}
+      maxWidth={JOB_CARD_DRAWER_MAX_WIDTH}
       footer={footer}
     >
       {loading || !detail ? (
@@ -1036,7 +1202,17 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
         </div>
       ) : (
         <div className="space-y-2 pb-1">
-          <DrawerSection title="Prime Item Details" bar="bg-indigo-500" badge={<ApprovalBadge approved={detail.approved} />}>
+          <DrawerSection
+            title="Prime Item Details"
+            bar="bg-indigo-500"
+            badge={
+              detail?.status ? (
+                <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${STATUS_BADGE[detail.status] || STATUS_BADGE.Pending}`}>
+                  {detail.status}
+                </span>
+              ) : null
+            }
+          >
             <PrimeItemSummary
               item={{
                 ...detail,
@@ -1086,7 +1262,7 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
             />
           </DrawerSection>
 
-          <Section
+          <DrawerSection
             title={`Process Plan · ${primeCode || "—"}`}
             badge={
               <PlanBadge
@@ -1104,6 +1280,8 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
                 estimate={estimate}
                 estimateLoading={estimateLoading && !estimate?.valid}
                 issueQty={detail.total_weight_kg}
+                showMachineStatus={showMachineStatus}
+                toolingApproved={detail.tooling_approved}
               />
             ) : (
               <PlanBody
@@ -1114,9 +1292,10 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
                 estimate={estimate}
                 estimateLoading={estimateLoading}
                 issueQty={detail.total_weight_kg}
+                showMachineStatus={showMachineStatus}
               />
             )}
-          </Section>
+          </DrawerSection>
 
           {readOnly ? (
             <div className="px-1">
@@ -1141,7 +1320,7 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
               ref={sopAckRef}
               key={`job-card-${mode}`}
               moduleSlug={MODULE}
-              permissionType={isApprove ? "authorize" : "edit"}
+              permissionType="edit"
               isOpen
             />
           ) : null}
@@ -1158,10 +1337,14 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
  */
 function defaultsFor(process) {
   const machineIds = process.machines.map((m) => m.machine_id);
+  const ids = process.multi_jc ? machineIds : machineIds.slice(0, 1);
+  const machine_status = {};
+  for (const id of ids) machine_status[id] = "pending";
   return {
     process_id: process.process_id,
-    machine_ids: process.multi_jc ? machineIds : machineIds.slice(0, 1),
+    machine_ids: ids,
     rm_item_dcodes: process.rm_items.map((r) => r.rm_item_dcode), // all RM, priority order as saved
+    machine_status,
   };
 }
 
@@ -1194,11 +1377,6 @@ const CountBadge = ({ children }) => (
   <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 uppercase">{children}</span>
 );
 
-const ApprovalBadge = ({ approved }) => (
-  <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${approved ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
-    {approved ? "● Authorized" : "○ Pending"}
-  </span>
-);
 
 /** HN006 (293,080) · HN006TW (75,930) as chips */
 function ItemChips({ items }) {
@@ -1216,32 +1394,33 @@ function ItemChips({ items }) {
 
 /* ───────────── Process plan table (IMS style: one row per stage) ───────────── */
 
-const TH = "px-2 py-1.5 text-[10px] font-bold uppercase text-slate-700 bg-slate-100 border-b border-r border-slate-200 align-middle text-left";
-const TD = "px-2 py-1.5 border-b border-r border-slate-100 align-top";
+const TH = JOB_CARD_PLAN_TH;
+const TD = JOB_CARD_PLAN_TD;
 
-function PlanTable({ children }) {
+function PlanTable({ children, showMachineStatus = false }) {
+  const colWidths = jobCardPlanColgroupWidths(showMachineStatus);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[1100px] border-collapse text-left">
+      <table className={`w-full table-fixed border-collapse text-left ${jobCardPlanTableMinWidthClass(showMachineStatus)}`}>
+        <colgroup>
+          {colWidths.map((width, i) => (
+            <col key={i} style={{ width }} />
+          ))}
+        </colgroup>
         <thead>
           <tr>
-            <th className={`${TH} w-14 text-center`}>Stage</th>
-            <th className={`${TH} w-[14%]`}>Process</th>
-            <th className={`${TH} w-[16%]`}>M/C</th>
-            <th className={`${TH} w-[16%]`}>RM</th>
-            <th className={`${TH} w-28 text-right`} title="(gweight × Total Qty) + extra % — same as RM Store">RM Required</th>
-            <th className={`${TH} w-28 text-right`} title="RM stock available (KG)">RM Available</th>
-            <th className={`${TH} w-16 text-center`}>Tooling</th>
-            {/* dont tis commnet remove because this is use in future purpose */}
-            {/* Est. time — one line per machine, straight from the backend */}
-            {/* <th className={TH}>M/C</th> */}
-            {/* <th className={`${TH} text-right`}>Qty</th> */}
-            {/* <th className={`${TH} text-right`}>Speed</th> */}
-            {/* <th className={`${TH} text-right`}>Setup</th>
-            <th className={`${TH} text-right`}>Run</th>
-            <th className={`${TH} text-right`}>Total</th>
-            <th className={`${TH} text-right border-r-0`}>Shifts</th>
-             */}
+            <th className={`${TH} text-center`}>Stage</th>
+            <th className={TH}>Process</th>
+            <th className={TH}>M/C</th>
+            <th className={TH}>RM</th>
+            <th className={`${TH} text-right`} title="(gweight × Total Qty) + extra % — same as RM Store">
+              RM Required
+            </th>
+            <th className={`${TH} text-right`} title="RM stock available (KG)">
+              RM Available
+            </th>
+            <th className={`${TH} text-center`}>Tooling</th>
+            {showMachineStatus ? <th className={TH}>Status</th> : null}
             <th className={`${TH} text-right`}>Time Required</th>
             <th className={`${TH} text-right border-r-0`}>Shift Required</th>
           </tr>
@@ -1252,21 +1431,21 @@ function PlanTable({ children }) {
   );
 }
 
-/** RM-wire stages: show RM Required (KG). Else —. */
-function IssueQtyCell({ show, issueQty }) {
+/** RM-wire stages: show RM Required (KG). Else empty label (— edit, -- view). */
+function IssueQtyCell({ show, issueQty, empty = "—" }) {
   const kg = Number(issueQty);
   const hasKg = Number.isFinite(kg) && kg > 0;
   return (
     <td className={`${TD} ${IMS_TABLE_CELL_TEXT} text-right tabular-nums text-[11px] font-semibold text-slate-800`}>
-      {show && hasKg ? kg.toLocaleString(undefined, { maximumFractionDigits: 3 }) : "—"}
+      {show && hasKg ? kg.toLocaleString(undefined, { maximumFractionDigits: 3 }) : empty}
     </td>
   );
 }
 
 /** RM Available (KG) — issuable store qty for selected RM (Issue Request pool). */
-function RmAvailableCell({ show, availableQty, requiredQty, loading }) {
+function RmAvailableCell({ show, availableQty, requiredQty, loading, empty = "—" }) {
   if (!show) {
-    return <td className={`${TD} ${IMS_TABLE_CELL_TEXT} text-right text-[11px] text-slate-400`}>—</td>;
+    return <td className={`${TD} ${IMS_TABLE_CELL_TEXT} text-right text-[11px] text-slate-400`}>{empty}</td>;
   }
   if (loading) {
     return (
@@ -1406,6 +1585,7 @@ const StageNo = ({ no }) => (
   </td>
 );
 
+/** Edit / create — process has tooling flag (Yes / No). */
 const ToolingCell = ({ on }) => (
   <td className={`${TD} text-center`}>
     {on ? (
@@ -1416,8 +1596,106 @@ const ToolingCell = ({ on }) => (
   </td>
 );
 
+function ViewRmCell({ hasRm, label }) {
+  return (
+    <td className={`${TD} ${IMS_TABLE_CELL_TEXT} text-[11px] ${hasRm ? "text-slate-800" : "text-slate-400"}`}>
+      {hasRm ? label || "—" : JOB_CARD_PLAN_RM_EMPTY_VIEW}
+    </td>
+  );
+}
+
+/** View only — tooling column when process.tooling; job-card tooling decision (not Yes/No on flag). */
+function ViewToolingCell({ processHasTooling, toolingApproved }) {
+  if (!processHasTooling) {
+    return (
+      <td className={`${TD} text-center text-[11px] text-slate-400`}>{JOB_CARD_PLAN_RM_EMPTY_VIEW}</td>
+    );
+  }
+  if (toolingApproved === true) {
+    return (
+      <td className={`${TD} text-center`}>
+        <span className="px-1.5 py-0.5 text-[9px] font-black uppercase border bg-emerald-50 text-emerald-700 border-emerald-100">Approved</span>
+      </td>
+    );
+  }
+  if (toolingApproved === false) {
+    return (
+      <td className={`${TD} text-center`}>
+        <span className="px-1.5 py-0.5 text-[9px] font-black uppercase border bg-rose-50 text-rose-700 border-rose-100">Rejected</span>
+      </td>
+    );
+  }
+  return (
+    <td className={`${TD} text-center`}>
+      <span className="px-1.5 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-100">Pending</span>
+    </td>
+  );
+}
+
+/**
+ * Status column — one control per selected machine (machine-level).
+ * Multi M/C: short name + status stacked; single M/C: status only.
+ */
+function MachineStatusCell({
+  machines = [],
+  machineIds = [],
+  machineStatus = {},
+  onChange,
+  disabled = false,
+  readOnly = false,
+}) {
+  const ids = (machineIds || []).map(Number).filter(Boolean);
+  const byId = new Map((machines || []).map((m) => [Number(m.machine_id), m]));
+
+  if (!ids.length) {
+    return <td className={`${TD} text-[11px] text-slate-400`}>—</td>;
+  }
+
+  const setOne = (mid, st) => {
+    if (!onChange) return;
+    onChange({ ...(machineStatus || {}), [mid]: st });
+  };
+
+  return (
+    <td className={TD}>
+      <div className="flex flex-col gap-1">
+        {ids.map((mid) => {
+          const m = byId.get(mid);
+          const name = m?.machine_name || m?.macname || m?.name || m?.macno || `M/C ${mid}`;
+          const status = machineStatus?.[mid] || m?.status || "pending";
+          return (
+            <div key={mid} className="flex items-center gap-1.5 min-w-0">
+              {ids.length > 1 ? (
+                <span className="w-10 shrink-0 truncate text-[9px] font-bold uppercase text-slate-500" title={name}>
+                  {name}
+                </span>
+              ) : null}
+              {readOnly || !onChange ? (
+                <span className={`shrink-0 border px-1.5 py-0.5 text-[9px] font-black uppercase ${PROCESS_STATUS_BADGE[status] || ""}`}>
+                  {PROCESS_STATUS_LABELS[status] || status}
+                </span>
+              ) : (
+                <select
+                  value={status}
+                  disabled={disabled}
+                  className={`${OK_INPUT} min-w-0 flex-1 text-[10px]`}
+                  onChange={(e) => setOne(mid, e.target.value)}
+                >
+                  {PROCESS_STATUS_VALUES.map((s) => (
+                    <option key={s} value={s}>{PROCESS_STATUS_LABELS[s] || s}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </td>
+  );
+}
+
 /** New / Edit body: loading / empty / editable table. RM Available from estimate (backend). */
-function PlanBody({ stages, picks, disabled, onPick, estimate, estimateLoading, issueQty }) {
+function PlanBody({ stages, picks, disabled, onPick, estimate, estimateLoading, issueQty, showMachineStatus = false }) {
   if (stages === undefined) {
     return (
       <div className="px-4 py-6 flex items-center justify-center gap-2 text-[11px] text-slate-500">
@@ -1429,7 +1707,7 @@ function PlanBody({ stages, picks, disabled, onPick, estimate, estimateLoading, 
     return <p className="px-4 py-4 text-[11px] text-amber-700">No prime process saved for this item in Engineering → Prime Process Master.</p>;
   }
   return (
-    <PlanTable>
+    <PlanTable showMachineStatus={showMachineStatus}>
       {stages.map((s) => (
         <StageRow
           key={s.stage_no}
@@ -1440,6 +1718,7 @@ function PlanBody({ stages, picks, disabled, onPick, estimate, estimateLoading, 
           estimate={estimate}
           estimateLoading={estimateLoading}
           issueQty={issueQty}
+          showMachineStatus={showMachineStatus}
         />
       ))}
     </PlanTable>
@@ -1447,29 +1726,39 @@ function PlanBody({ stages, picks, disabled, onPick, estimate, estimateLoading, 
 }
 
 /** View / Approve — saved process_plan, read only. Tooling comes live from the prime process (`stages`). */
-function SavedPlanTable({ plan, stages, estimate, estimateLoading = false, issueQty }) {
+function SavedPlanTable({ plan, stages, estimate, estimateLoading = false, issueQty, showMachineStatus = false, toolingApproved = null }) {
   if (!plan?.length) return <p className="px-4 py-4 text-[11px] text-slate-500">No process plan saved.</p>;
   const processOf = (step) =>
     (stages || []).find((s) => s.stage_no === step.stage_no)?.processes.find((p) => p.process_id === step.process_id);
   return (
-    <PlanTable>
+    <PlanTable showMachineStatus={showMachineStatus}>
       {plan.map((step) => {
         const process = processOf(step);
-        const hasRmWire = Boolean(process?.rm_wire) || (step.rm_items || []).length > 0;
+        const hasRmWire = Boolean(process?.rm_wire);
+        const parsed = parseProcessPlan([step])[0] || step;
         return (
           <tr key={step.stage_no}>
             <StageNo no={step.stage_no} />
             <td className={`${TD} ${IMS_TABLE_CELL_TEXT} text-slate-800 font-semibold`}>{step.process_name || "—"}</td>
             <td className={`${TD} ${IMS_TABLE_CELL_TEXT}`}>{machinesText(step) || "—"}</td>
-            <td className={`${TD} ${IMS_TABLE_CELL_TEXT}`}>{rmText(step) || (hasRmWire ? "—" : "No RM")}</td>
-            <IssueQtyCell show={hasRmWire} issueQty={issueQty} />
+            <ViewRmCell hasRm={hasRmWire} label={rmText(step)} />
+            <IssueQtyCell show={hasRmWire} issueQty={issueQty} empty={JOB_CARD_PLAN_RM_EMPTY_VIEW} />
             <RmAvailableCell
               show={hasRmWire}
               availableQty={estimate?.rm_available_by_stage?.[step.stage_no] ?? estimate?.rm_available_by_stage?.[String(step.stage_no)]}
               requiredQty={issueQty}
               loading={estimateLoading}
+              empty={JOB_CARD_PLAN_RM_EMPTY_VIEW}
             />
-            <ToolingCell on={process?.tooling} />
+            <ViewToolingCell processHasTooling={Boolean(process?.tooling)} toolingApproved={toolingApproved} />
+            {showMachineStatus ? (
+              <MachineStatusCell
+                machines={parsed.machines}
+                machineIds={(parsed.machines || []).map((m) => m.machine_id)}
+                machineStatus={Object.fromEntries((parsed.machines || []).map((m) => [m.machine_id, m.status || "pending"]))}
+                readOnly
+              />
+            ) : null}
             <TimeShiftCells estimate={estimate} stageNo={step.stage_no} loading={estimateLoading} />
           </tr>
         );
@@ -1478,15 +1767,18 @@ function SavedPlanTable({ plan, stages, estimate, estimateLoading = false, issue
   );
 }
 
-function StageRow({ stage, pick, disabled, onChange, estimate, estimateLoading, issueQty }) {
+function StageRow({ stage, pick, disabled, onChange, estimate, estimateLoading, issueQty, showMachineStatus = false }) {
   const process = stage.processes.find((p) => p.process_id === pick.process_id);
   const processOptions = stage.processes.map((p) => ({ id: p.process_id, label: p.process_name }));
   const machineOptions = (process?.machines || []).map((m) => ({
     id: m.machine_id,
-    label: m.number ? `${m.macname || m.name} (${m.number})` : (m.macname || m.name),
+    label: m.macno ? `${m.macname || m.name} (${m.macno})` : (m.macname || m.name),
   }));
   const rmOptions = (process?.rm_items || []).map((r) => ({ id: r.rm_item_dcode, label: r.rm_item_code }));
   const hasRm = Boolean(process?.rm_wire);
+  const selectedMachines = (process?.machines || []).filter((m) =>
+    (pick.machine_ids || []).map(Number).includes(Number(m.machine_id))
+  );
 
   return (
     <tr>
@@ -1494,7 +1786,7 @@ function StageRow({ stage, pick, disabled, onChange, estimate, estimateLoading, 
       <td className={TD}>
         <ListSelect label="Process" options={processOptions} value={pick.process_id} disabled={disabled} onChange={(id) => {
           const next = stage.processes.find((p) => p.process_id === id);
-          onChange(next ? defaultsFor(next) : { process_id: null, machine_ids: [], rm_item_dcodes: [] });
+          onChange(next ? defaultsFor(next) : { process_id: null, machine_ids: [], rm_item_dcodes: [], machine_status: {} });
         }} />
       </td>
       <td className={TD}>
@@ -1523,7 +1815,7 @@ function StageRow({ stage, pick, disabled, onChange, estimate, estimateLoading, 
             onChange={(v) => onChange({ rm_item_dcodes: Array.isArray(v) ? v : v == null ? [] : [v] })}
           />
         ) : (
-          <span className="text-[11px] text-slate-400">No RM</span>
+          <span className="text-[11px] text-slate-400">{JOB_CARD_PLAN_RM_EMPTY_EDIT}</span>
         )}
       </td>
       <IssueQtyCell show={hasRm} issueQty={issueQty} />
@@ -1534,6 +1826,15 @@ function StageRow({ stage, pick, disabled, onChange, estimate, estimateLoading, 
         loading={estimateLoading}
       />
       <ToolingCell on={process?.tooling} />
+      {showMachineStatus ? (
+        <MachineStatusCell
+          machines={selectedMachines}
+          machineIds={pick.machine_ids}
+          machineStatus={pick.machine_status}
+          disabled={disabled}
+          onChange={(machine_status) => onChange({ machine_status })}
+        />
+      ) : null}
       <TimeShiftCells estimate={estimate} stageNo={stage.stage_no} loading={estimateLoading} />
     </tr>
   );

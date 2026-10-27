@@ -32,8 +32,17 @@ Body: `{ "requestedData", "filter?" }` · Client: `ims/lib/services/ims.service.
 **RM Store**
 - `mrn_rm` — MRN, sticker / ensure MRN
 - `mrn_rm_old` — SA Old, sticker MRN resolve
-- `item` `{type:rm}`, `prdprimitem`, `prdrunjc` — `production/erpItems.js`
+- `item` `{type:rm}`, `prdprimitem`, `prdrunjc` — `rmstore/modules/production/utils/erpItems.js` (running JC master / FG overlay)
 - `invfnote` — RM Rejection bills (acc_name + item match)
+
+**Production — Maintain Job Card (ERP sync + reads)**
+- **`mjcnew`** — add / update / delete Job Card on ERP — **single file:** `backend/src/apps/production/modules/job-card/jobCardErp.js` (`ERP_REQUESTED_DATA`, `mjcnewFilter`); calls via `core/lib/services/erpSync.js` → `ims.service.js`
+- **`fyid`** — FY resolve on New JC — same `jobCardErp.js` (`resolveFyidForJobCard`); list also `master/master.controller.js`
+- **`prdrunjc`** — read-only max jobcardno with `mjcnew` in `nextJobcardno`; running JC list still `rmstore/.../erpItems.js`
+
+**Engineering (ERP sync)**
+- **`mstproc`** — Process Master CRUD — `engineering/modules/process-master/controllers/processMaster.controller.js`; seed pull `migrations/v5.2.0/seedErpMasters.js`
+- **`mstmac`** — Machine Master CRUD — `engineering/modules/machine-master/controllers/machineMaster.controller.js`; seed pull same migration
 
 **Dashboard**
 - `erp_mssql`, `hrms_mssql` — raw SQL query
@@ -85,8 +94,14 @@ Body: `{ "requestedData", "filter?" }` · Client: `ims/lib/services/ims.service.
 | RM            | `mrn/mrn.controller.js` | `mrn_rm` | — / `m.mrndt…` / `m.mrnno…` |
 | RM            | SA Old | `mrn_rm_old` | FY `m.mrndt…` |
 | RM            | sticker / ensure MRN | `mrn_rm` | — |
-| RM            | `production/erpItems.js` | `item` `{type:rm}`, `prdprimitem`, `prdrunjc` | |
+| RM            | `rmstore/modules/production/utils/erpItems.js` | `item` `{type:rm}`, `prdprimitem`, `prdrunjc` | — or item `{ type:"rm" }` |
 | RM            | `rm-rejection/…` | `invfnote` | bill helper + pending match |
+| Production    | `production/modules/job-card/jobCardErp.js` | **`mjcnew`** | `{ type:"add"\|"update"\|"delete", … }` — see examples |
+| Production    | same | **`fyid`** | — (list) for `resolveFyidForJobCard` |
+| Production    | same | **`mjcnew`**, **`prdrunjc`** | — (list only) for `nextJobcardno` max |
+| Engineering   | `process-master/processMaster.controller.js` | **`mstproc`** | `{ type:"add"\|"update"\|"delete", proccode, procname }` |
+| Engineering   | `machine-master/machineMaster.controller.js` | **`mstmac`** | add/update/delete machine fields |
+| Engineering   | `migrations/v5.2.0/seedErpMasters.js` | **`mstproc`**, **`mstmac`** | — (pull into empty eng_* tables) |
 | IMS           | `audit/auditBoxSnapshot.js` | `custcode` | — |
 | Dash          | queryExecutor / hybrid | `erp_mssql` / `hrms_mssql` | SQL |
 | Dash          | dashboard.controller | `dashboard_tables` / `hrms_dashboard_tables` | — |
@@ -229,7 +244,7 @@ No filter → default **7 days**.
 { "requestedData": "invfnote" }
 ```
 
-### Purchase / Production
+### Purchase / Production (masters)
 
 ```json
 { "requestedData": "item" }
@@ -237,6 +252,100 @@ No filter → default **7 days**.
 { "requestedData": "cust" }
 ```
 App keeps group **BOP** (Purchase) / **Production** only. Shortage uses maps (`item`+`cust`).
+
+### Maintain Job Card — `mjcnew` (ERP sync)
+
+Filter keys are **lowercase**. Payload builder: `jobCardErp.js` → `mjcnewFilter`.  
+Trigger: `jobCard.controller.js` after DB save/delete (`erpSynced` in JSON response).
+
+**add** — first save with process plan (create or update when plan was empty):
+
+```json
+{
+  "requestedData": "mjcnew",
+  "filter": {
+    "type": "add",
+    "jobcardno": 14211,
+    "jcseriescode": 30,
+    "pjobcardno": "JC-14211",
+    "jobcarddt": "2026-04-02T00:00:00.000Z",
+    "fyid": 12,
+    "planqty": 500,
+    "itemdcode": 17831,
+    "maccode": 101,
+    "acc_code": 2479
+  }
+}
+```
+
+**update** — `planqty` change only (create re-save or Register update):
+
+```json
+{
+  "requestedData": "mjcnew",
+  "filter": {
+    "type": "update",
+    "jobcardno": 14211,
+    "fyid": 12,
+    "jcseriescode": 30,
+    "planqty": 600
+  }
+}
+```
+
+**delete** — before app DB hard delete (when `jobcardno` + `fyid` + `itemdcode` on card; stub-only skip ERP). Not app `docno`:
+
+```json
+{
+  "requestedData": "mjcnew",
+  "filter": {
+    "type": "delete",
+    "jobcardno": 14211,
+    "itemdcode": 17831,
+    "fyid": 12,
+    "jcseriescode": 30
+  }
+}
+```
+
+Read-only (no `type` in filter):
+
+```json
+{ "requestedData": "fyid" }
+{ "requestedData": "mjcnew" }
+{ "requestedData": "prdrunjc" }
+```
+
+Constants (change only in `jobCardErp.js`): `jcseriescode` **30**, default `acc_code` **2479**.
+
+### App REST — Maintain Job Card (not imsdata)
+
+Express mount: **`POST /api/production/job-card/<action>`**  
+Routes file: `backend/src/apps/production/modules/job-card/routes/jobCard.route.js`  
+Handlers: `.../controllers/jobCard.controller.js`  
+Frontend paths: `frontend/src/apps/production/lib/config/endpoints.js` · client `modules/job-card/jobCard.js`
+
+| POST action | Handler | Permission |
+|-------------|---------|------------|
+| `/register`, `/register-helper` | `getJobCardRegister` | view / helper |
+| `/pending`, `/pending-shortage` | pending lists | view |
+| `/get`, `/get-helper` | `getJobCardById` | view / helper |
+| `/prime-process`, `/estimate-production` | prime / estimate | view |
+| `/suggest-erp-no` | `getSuggestedErpJobcardno` | Super Admin |
+| `/create` | `createJobCard` | add |
+| `/update`, `/update-helper`, `/approve` | `updateJobCardById` | edit / authorize |
+| `/delete` | `deleteJobCardById` | delete |
+
+### Engineering — `mstproc` / `mstmac`
+
+```json
+{ "requestedData": "mstproc" }
+{ "requestedData": "mstproc", "filter": { "type": "add", "proccode": 10, "procname": "MILLING" } }
+{ "requestedData": "mstproc", "filter": { "type": "update", "proccode": 10, "procname": "MILLING" } }
+{ "requestedData": "mstproc", "filter": { "type": "delete", "proccode": 10, "procname": "MILLING" } }
+{ "requestedData": "mstmac" }
+{ "requestedData": "mstmac", "filter": { "type": "add", "maccode": 1, "macname": "CNC-1", "macno": "CNC-1", "macproccode": 10, "cavity": null, "maccycletime": 60 } }
+```
 
 ### HRMS — imsdata
 

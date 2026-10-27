@@ -98,6 +98,18 @@ LEFT JOIN ims_tray_master t ON t.box_uid = b.box_uid
 
 Not changed: Stock Adjustment, QC Hold, Audit, Box CRUD, Forwarding Note form.
 
+## Tray QR (v5.2.0)
+
+| | |
+|--|--|
+| Print size | 50×25 mm — `ims/lib/config/trayQrPrintSize.config.js` |
+| Print helper | `ims/lib/helpers/trayQrLabel.js` |
+| Public URL | `resolveTrayQrPayload` — `tray_code` + primary `id` (`core/lib/utils/qr/publicQrUrl.js`) |
+| Scan (UI) | `resolveTrayScanCode` in `ims/lib/helpers/qrScan.js` |
+| Scan (Manage Tray API) | `tray/utils/trayScanParse.js` → `normalizeTrayScanCode` |
+
+Re-print labels after upgrade so QR includes `id`. See [5.2.0.md](../../../../5.2.0.md).
+
 ## Files
 
 | Work | File |

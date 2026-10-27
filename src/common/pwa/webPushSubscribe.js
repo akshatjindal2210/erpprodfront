@@ -9,6 +9,7 @@ const DEVICE_ID_KEY = "jfl_push_device_id";
 const PUSH_SYNC_KEY = "jfl_push_last_sync";
 const PUSH_LINK_USER_KEY = "jfl_push_linked_user";
 const PUSH_API_BASE_KEY = "jfl_push_api_base_sent";
+const PUSH_VAPID_KEY = "jfl_push_vapid_public";
 
 export function getDeviceDisplayName() {
   if (typeof navigator === "undefined") return "Unknown device";
@@ -86,12 +87,29 @@ async function getPushRegistration() {
   const publicKey = await fetchVapidPublicKey();
   if (!publicKey) throw new Error("Push notifications are not configured on the server");
 
+  // Drop browser subscription if missing/mismatched VAPID fingerprint (FCM returns HTTP 403 otherwise).
+  let storedVapid = null;
+  try {
+    storedVapid = localStorage.getItem(PUSH_VAPID_KEY);
+  } catch {}
+  if (sub && storedVapid !== publicKey) {
+    try {
+      await sub.unsubscribe();
+    } catch {}
+    sub = null;
+  }
+
   if (!sub) {
     sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(publicKey),
     });
   }
+
+  try {
+    localStorage.setItem(PUSH_VAPID_KEY, publicKey);
+  } catch {}
+
   return sub;
 }
 
@@ -136,8 +154,13 @@ export async function linkPushSubscriptionToUser({ userId } = {}) {
 
   let subscription = null;
   try {
-    const reg = await navigator.serviceWorker.ready;
-    subscription = await reg.pushManager.getSubscription();
+    // Prefer getPushRegistration so VAPID mismatch is repaired before LINK re-saves the endpoint.
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      subscription = await getPushRegistration();
+    } else {
+      const reg = await navigator.serviceWorker.ready;
+      subscription = await reg.pushManager.getSubscription();
+    }
   } catch {
     /* no subscription yet */
   }

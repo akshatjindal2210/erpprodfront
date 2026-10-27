@@ -9,7 +9,7 @@ import { APP_TYPE_LABELS } from "@/config/moduleAppRegistry";
 import Drawer from "@/ui/primitives/Drawer";
 import SearchableSelect from "@/ui/common/forms/SearchableSelect";
 import { FormLabel, OK_INPUT, ERR_INPUT, OK_TEXTAREA, ERR_TEXTAREA } from "@/ui/common/Constants";
-import { TRIGGER_EVENT_OPTIONS, TRIGGER_EVENT_LABELS, WHATSAPP_OPTIONS, SYSTEM_VARIABLES, DEFAULT_MODULE_NOTIFY_SUBJECT, DEFAULT_MODULE_NOTIFY_MESSAGE, AUDIENCE_DIM_OPTIONS, normalizeAudience, audienceHasAny, roleLabel, createEmptyAudience } from "./moduleTemplateConfig";
+import { TRIGGER_EVENT_OPTIONS, TRIGGER_EVENT_LABELS, WHATSAPP_OPTIONS, SYSTEM_VARIABLES, DEFAULT_MODULE_NOTIFY_SUBJECT, DEFAULT_MODULE_NOTIFY_MESSAGE, AUDIENCE_DIM_OPTIONS, normalizeAudience, audienceHasAny, roleLabel, createEmptyAudience, CONDITION_OPERATOR_OPTIONS, CONDITION_LOGIC_OPTIONS, emptyCondition } from "./moduleTemplateConfig";
 
 const ALL_ID = "*";
 const FIELD_ORDER = ["module_id", "name", "trigger_events", "audience", "channels", "message"];
@@ -24,6 +24,8 @@ const EMPTY_FORM = {
   message: DEFAULT_MODULE_NOTIFY_MESSAGE,
   trigger_events: [],
   audience: createEmptyAudience(),
+  conditions: [],
+  condition_logic: "AND",
   pwa_enabled: true,
   email_enabled: false,
   send_via: "none",
@@ -34,9 +36,9 @@ function sortAz(rows) {
   return [...rows].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
 }
 
-function makeStaticServices(rows, allLabel) {
-  const sorted = sortAz(rows);
-  const list = allLabel ? [{ id: ALL_ID, name: allLabel }, ...sorted] : sorted;
+function makeStaticServices(rows, allLabel, { preserveOrder = false } = {}) {
+  const ordered = preserveOrder ? [...rows] : sortAz(rows);
+  const list = allLabel ? [{ id: ALL_ID, name: allLabel }, ...ordered] : ordered;
   const byId = new Map(list.map((r) => [String(r.id), r]));
 
   return {
@@ -45,7 +47,11 @@ function makeStaticServices(rows, allLabel) {
       let filtered;
       if (!q) filtered = list;
       else {
-        const rest = sorted.filter((r) => String(r.name).toLowerCase().includes(q));
+        const rest = ordered.filter((r) => {
+          const name = String(r.name || "").toLowerCase();
+          const id = String(r.id || "").toLowerCase();
+          return name.includes(q) || id.includes(q);
+        });
         const allHit = allLabel && String(allLabel).toLowerCase().includes(q);
         filtered = allHit ? [{ id: ALL_ID, name: allLabel }, ...rest] : rest;
       }
@@ -54,6 +60,32 @@ function makeStaticServices(rows, allLabel) {
     },
     getByIdService: async (id) => byId.get(String(id)) ?? null,
   };
+}
+
+/** Same SearchableSelect UX as IMS / audience pickers (search + portal list). */
+function StaticSearchSelect({value, onChange, rows, placeholder, disabled, allowFreeText = false, preserveOrder = false, className = ""}) {
+  const { fetchService, getByIdService } = useMemo(
+    () => makeStaticServices(rows, null, { preserveOrder }),
+    [rows, preserveOrder]
+  );
+
+  return (
+    <SearchableSelect
+      value={value || null}
+      onChange={(id) => onChange(id ?? "")}
+      fetchService={fetchService}
+      getByIdService={getByIdService}
+      dataKey="id"
+      labelKey="name"
+      placeholder={placeholder}
+      disabled={disabled}
+      allowFreeText={allowFreeText}
+      preserveApiOrder={preserveOrder}
+      heightClass="h-[38px]"
+      className={className}
+      emptyMessage="No matching options"
+    />
+  );
 }
 
 function selectValue(dim) {
@@ -116,6 +148,8 @@ export default function NotificationTemplateModal({ slot, options, onClose, onSu
         message: ex.message ?? "",
         trigger_events: Array.isArray(ex.trigger_events) ? ex.trigger_events.slice(0, 1) : [],
         audience: normalizeAudience(ex.audience),
+        conditions: Array.isArray(ex.conditions) ? ex.conditions : [],
+        condition_logic: ex.condition_logic === "OR" ? "OR" : "AND",
         pwa_enabled: ex.pwa_enabled !== false,
         email_enabled: !!ex.email_enabled,
         send_via: ex.send_via ?? "none",
@@ -125,6 +159,7 @@ export default function NotificationTemplateModal({ slot, options, onClose, onSu
       setForm({
         ...EMPTY_FORM,
         audience: createEmptyAudience(),
+        conditions: [],
         module_id: slot?.moduleId ?? "",
         trigger_events: slot?.presetEvents ?? [],
       });
@@ -156,6 +191,34 @@ export default function NotificationTemplateModal({ slot, options, onClose, onSu
     if (!selectedModuleName) return [];
     return options?.record_variables_by_module?.[selectedModuleName] ?? [];
   }, [selectedModuleName, options]);
+
+  const conditionFieldRows = useMemo(() => {
+    const seen = new Set();
+    const rows = [];
+    const add = (id, name) => {
+      const key = String(id || "").trim();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      rows.push({ id: key, name: name || key });
+    };
+    for (const h of recordVariables) {
+      const key = h?.key || h;
+      const label = h?.label ? String(h.label).trim() : "";
+      add(key, label && label !== key ? `${key} · ${label}` : key);
+    }
+    for (const key of ["status", "department", "department_id"]) add(key, key);
+    return rows;
+  }, [recordVariables]);
+
+  const conditionOperatorRows = useMemo(
+    () => CONDITION_OPERATOR_OPTIONS.map((o) => ({ id: o.value, name: o.label })),
+    []
+  );
+
+  const conditionLogicRows = useMemo(
+    () => CONDITION_LOGIC_OPTIONS.map((o) => ({ id: o.value, name: o.label })),
+    []
+  );
 
   const dimRows = useMemo(() => {
     const o = options ?? {};
@@ -240,6 +303,8 @@ export default function NotificationTemplateModal({ slot, options, onClose, onSu
         subject: form.subject.trim(),
         message: form.message.trim(),
         audience: normalizeAudience(form.audience),
+        conditions: (form.conditions || []).filter((c) => String(c.field || "").trim()),
+        condition_logic: form.condition_logic === "OR" ? "OR" : "AND",
       };
       if (slot.isEdit) {
         await notificationTemplateService.update(slot.id, payload);
@@ -436,6 +501,106 @@ export default function NotificationTemplateModal({ slot, options, onClose, onSu
               <AlertCircle size={10} /> {errors.audience}
             </p>
           )}
+        </div>
+
+        <div className="h-px bg-slate-100" />
+
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(260px,300px)] md:items-end md:gap-4">
+            <div className="min-w-0">
+              <FormLabel>Conditions (optional)</FormLabel>
+              <p className="text-[10px] text-slate-400 mt-0.5 leading-snug ml-1">
+                Empty = always send. Use for multiple templates on the same trigger.
+              </p>
+            </div>
+            <div className="min-w-0 w-full">
+              <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400 mb-1 md:sr-only">
+                Match logic
+              </p>
+              <StaticSearchSelect
+                value={form.condition_logic}
+                onChange={(v) => set({ condition_logic: v || "AND" })}
+                rows={conditionLogicRows}
+                placeholder="Match logic…"
+                disabled={disabled}
+                preserveOrder
+              />
+            </div>
+          </div>
+
+          {(form.conditions || []).map((c, idx) => (
+            <div
+              key={idx}
+              className="rounded-lg border border-slate-200 bg-slate-50/50 p-2.5 grid grid-cols-1 gap-2 min-[480px]:grid-cols-3"
+            >
+              <div className="min-w-0 space-y-1">
+                <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Field</p>
+                <StaticSearchSelect
+                  value={c.field}
+                  onChange={(field) => {
+                    const next = [...form.conditions];
+                    next[idx] = { ...next[idx], field };
+                    set({ conditions: next });
+                  }}
+                  rows={conditionFieldRows}
+                  placeholder="Search field…"
+                  disabled={disabled}
+                  allowFreeText
+                />
+              </div>
+
+              <div className="min-w-0 space-y-1">
+                <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Operator</p>
+                <StaticSearchSelect
+                  value={c.operator}
+                  onChange={(operator) => {
+                    const next = [...form.conditions];
+                    next[idx] = { ...next[idx], operator: operator || "equals" };
+                    set({ conditions: next });
+                  }}
+                  rows={conditionOperatorRows}
+                  placeholder="Operator…"
+                  disabled={disabled}
+                  preserveOrder
+                />
+              </div>
+
+              <div className="min-w-0 space-y-1">
+                <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Value</p>
+                <div className="flex gap-2 items-center">
+                  <input
+                    className={`${OK_INPUT} ${FIELD_INPUT} min-w-0 flex-1 w-full`}
+                    value={Array.isArray(c.value) ? c.value.join(", ") : c.value ?? ""}
+                    disabled={disabled}
+                    placeholder="Value"
+                    onChange={(e) => {
+                      const next = [...form.conditions];
+                      next[idx] = { ...next[idx], value: e.target.value };
+                      set({ conditions: next });
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    aria-label="Remove condition"
+                    className="shrink-0 h-[38px] w-[38px] inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50"
+                    onClick={() => set({ conditions: form.conditions.filter((_, i) => i !== idx) })}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => set({ conditions: [...(form.conditions || []), emptyCondition()] })}
+            className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800"
+          >
+            <Plus size={12} /> Add condition
+          </button>
         </div>
 
         <div className="h-px bg-slate-100" />

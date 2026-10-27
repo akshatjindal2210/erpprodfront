@@ -213,6 +213,8 @@ const MODULE_LABELS = {
   production_master: "Product Master",
   production_shortage: "Shortage",
   production_job_card: "Maintain Job Card",
+  production_planning: "Production Planning",
+  production_entry: "Production Entry",
   production_tooling: "Tooling",
   production_activity_logs: "Activity Logs",
   rm_mrn_portal: "MRN Portal",
@@ -412,6 +414,8 @@ const PRODUCTION_MODULE_ROUTES = {
   production_master: PRODUCTION_ROUTES.PRODUCTION_MASTER,
   production_shortage: PRODUCTION_ROUTES.PRODUCTION_SHORTAGE,
   production_job_card: PRODUCTION_ROUTES.PRODUCTION_JOB_CARD,
+  production_planning: PRODUCTION_ROUTES.PRODUCTION_JOB_CARD_BOARD,
+  production_entry: PRODUCTION_ROUTES.PRODUCTION_ENTRY,
   production_tooling: PRODUCTION_ROUTES.PRODUCTION_TOOLING,
   production_activity_logs: PRODUCTION_ROUTES.PRODUCTION_ACTIVITY_LOGS,
 };

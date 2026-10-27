@@ -56,6 +56,7 @@ export const ENDPOINTS = {
 
   TRAYS: {
     TYPES: "/trays/types",
+    QR_PAYLOADS: "/trays/qr-payloads",
     VIEWS: "/trays/helper",
     LIST: "/trays/list",
     CREATE: "/trays/create",

@@ -4,8 +4,7 @@ import { ROUTES as HRMS_ROUTES } from "@/apps/hrms/lib/utils/routes";
 import { ROUTES as PURCHASE_ROUTES } from "@/apps/purchase/lib/utils/routes";
 import { ROUTES as PRODUCTION_ROUTES } from "@/apps/production/lib/utils/routes";
 import { ROUTES as ENGINEERING_ROUTES } from "@/apps/engineering/lib/utils/routes";
-import { FileText, Activity, Shield, Clock, History, Zap, ClipboardCheck, ShieldCheck, ShieldX, LogOut, BarChart3, CheckSquare, Recycle, LayoutDashboard, ListTodo, AlertTriangle, Truck, Boxes, ClipboardList, FileSearch, Layers, Warehouse, UserCheck, ListCheck, Briefcase, Award, Video, PencilRuler, Package, Users, CalendarCheck, ScrollText, ShoppingCart, Factory, GitBranch, Cpu, Wrench } from "lucide-react";
-// go-live: also import LayoutGrid, CalendarDays for job-card-board / calendar below
+import { FileText, Activity, Shield, Clock, History, Zap, ClipboardCheck, ShieldCheck, ShieldX, LogOut, BarChart3, CheckSquare, Recycle, LayoutDashboard, ListTodo, AlertTriangle, Truck, Boxes, ClipboardList, ClipboardPen, FileSearch, Layers, Warehouse, UserCheck, ListCheck, Briefcase, Award, Video, PencilRuler, Package, Users, CalendarCheck, ScrollText, ShoppingCart, Factory, GitBranch, Cpu, Wrench, LayoutGrid, CalendarDays } from "lucide-react";
 import { getShellAppFromPathname } from "@/config/appsRegistry";
 
 /** Permission-filtered; Home / role-only links when no module. */
@@ -84,9 +83,9 @@ const PRODUCTION = [
   { id: "shortage", label: "Shortage", icon: <AlertTriangle size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_SHORTAGE, module: "production_shortage" },
   { id: "tooling", label: "Tooling", icon: <Wrench size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_TOOLING, module: "production_tooling" },
   { id: "job-card", label: "Maintain Job Card", icon: <ClipboardList size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_JOB_CARD, module: "production_job_card" },
-  // TODO go-live: uncomment Board / Calendar
-  // { id: "job-card-board", label: "Job Card Board", icon: <LayoutGrid size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_JOB_CARD_BOARD, module: "production_job_card" },
-  // { id: "job-card-calendar", label: "Job Card Calendar", icon: <CalendarDays size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_JOB_CARD_CALENDAR, module: "production_job_card" },
+  { id: "job-card-board", label: "Job Card Board", icon: <LayoutGrid size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_JOB_CARD_BOARD, module: "production_planning" },
+  { id: "job-card-calendar", label: "Job Card Calendar", icon: <CalendarDays size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_JOB_CARD_CALENDAR, module: "production_planning" },
+  { id: "production-entry", label: "Production Entry", icon: <ClipboardPen size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_ENTRY, module: "production_entry" },
   { id: "logs", label: "Activity Logs", icon: <History size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_ACTIVITY_LOGS, module: "production_activity_logs" },
 ];
 

@@ -21,16 +21,16 @@ import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_PRIMARY, 
 
 const ATTACH_ACCEPT = uploadAccept("eng_machine_master");
 
-const FIELD_ORDER = ["name", "number", "process_id", "speed", "duration_value", "setup_time_value"];
+const FIELD_ORDER = ["macname", "macno", "macproccode", "cavity", "maccycletime_value", "setup_time_value"];
 const FIELD_INPUT_CLASS = "min-h-9 h-9 sm:h-[38px] text-sm sm:text-[11px] rounded-lg border-slate-200 text-slate-900 placeholder:text-slate-500 placeholder:opacity-100";
 
 const INITIAL_FORM = {
-  name: "",
-  number: "",
-  process_id: null,
-  speed: "",
-  duration_value: 60,
-  duration_unit: "sec",
+  macname: "",
+  macno: "",
+  macproccode: null,
+  cavity: "",
+  maccycletime_value: 60,
+  maccycletime_unit: "sec",
   setup_time_value: 0,
   setup_time_unit: "sec",
   make: "",
@@ -40,7 +40,7 @@ const INITIAL_FORM = {
 };
 
 /** Time fields: stored in seconds (DB), edited as value + unit (sec / min / hour). field → default seconds */
-const TIME_FIELDS = { duration: 60, setup_time: 0 };
+const TIME_FIELDS = { maccycletime: 60, setup_time: 0 };
 
 /** Seconds → `{ <field>_value, <field>_unit }` in the biggest whole unit. */
 function secondsToDisplay(seconds, field) {
@@ -136,16 +136,16 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
         return;
       }
 
-      if (editData?.id && (isEdit || isApprove)) {
+      if (editData?.maccode && (isEdit || isApprove)) {
         try {
-          const res = await machineMasterService.getById(editData.id);
+          const res = await machineMasterService.getById(editData.maccode);
           const row = res?.data || editData;
           if (cancelled) return;
           setForm({
-            name: row.name || "",
-            number: row.number || "",
-            process_id: row.process_id || null,
-            speed: row.speed ?? "",
+            macname: row.macname || "",
+            macno: row.macno || "",
+            macproccode: row.macproccode || null,
+            cavity: row.cavity ?? "",
             ...timeFormValues(row),
             make: row.make || "",
             model: row.model || "",
@@ -157,10 +157,10 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
           if (cancelled) return;
           setForm({
             ...INITIAL_FORM,
-            name: editData.name || "",
-            number: editData.number || "",
-            process_id: editData.process_id || null,
-            speed: editData.speed ?? "",
+            macname: editData.macname || "",
+            macno: editData.macno || "",
+            macproccode: editData.macproccode || null,
+            cavity: editData.cavity ?? "",
             ...timeFormValues(editData),
             make: editData.make || "",
             model: editData.model || "",
@@ -173,10 +173,10 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
         // clone
         setForm({
           ...INITIAL_FORM,
-          name: editData.name || "",
-          number: "",
-          process_id: editData.process_id || null,
-          speed: editData.speed ?? "",
+          macname: editData.macname || "",
+          macno: "",
+          macproccode: editData.macproccode || null,
+          cavity: editData.cavity ?? "",
           ...timeFormValues(editData),
           make: editData.make || "",
           model: editData.model || "",
@@ -198,20 +198,20 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [open, editData?.id, isApprove, mode]);
+  }, [open, editData?.maccode, isApprove, mode]);
 
   const handleChange = (k, value) => {
-    const next = k === "name" || k === "number" ? String(value ?? "").toUpperCase() : value;
+    const next = k === "macname" || k === "macno" ? String(value ?? "").toUpperCase() : value;
     setForm((prev) => ({ ...prev, [k]: next }));
     if (errors[k]) setErrors((prev) => ({ ...prev, [k]: "" }));
   };
 
   const validate = () => {
     const e = {};
-    if (!form.name?.trim()) e.name = "Name is required";
-    if (!form.number?.trim()) e.number = "Number is required";
-    if (!form.process_id) e.process_id = "Process is required";
-    if (form.duration_value === "" || Number(form.duration_value) < 0) e.duration_value = "Enter valid duration";
+    if (!form.macname?.trim()) e.macname = "Name is required";
+    if (!form.macno?.trim()) e.macno = "Number is required";
+    if (!form.macproccode) e.macproccode = "Process is required";
+    if (form.maccycletime_value === "" || Number(form.maccycletime_value) < 0) e.maccycletime_value = "Enter valid duration";
     if (form.setup_time_value !== "" && Number(form.setup_time_value) < 0) e.setup_time_value = "Enter valid setup time";
     return e;
   };
@@ -234,12 +234,12 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
       else if (isEdit && editData?.approved) finalApproved = false;
 
       const fd = new FormData();
-      fd.append("name", form.name.trim().toUpperCase());
-      fd.append("number", form.number.trim().toUpperCase());
-      fd.append("process_id", String(form.process_id));
-      if (form.speed !== "" && form.speed != null) fd.append("speed", String(form.speed));
-      fd.append("duration_value", String(form.duration_value));
-      fd.append("duration_unit", form.duration_unit);
+      fd.append("macname", form.macname.trim().toUpperCase());
+      fd.append("macno", form.macno.trim().toUpperCase());
+      fd.append("macproccode", String(form.macproccode));
+      if (form.cavity !== "" && form.cavity != null) fd.append("cavity", String(form.cavity));
+      fd.append("maccycletime_value", String(form.maccycletime_value));
+      fd.append("maccycletime_unit", form.maccycletime_unit);
       fd.append("setup_time_value", String(form.setup_time_value === "" ? 0 : form.setup_time_value));
       fd.append("setup_time_unit", form.setup_time_unit);
       if (form.make) fd.append("make", form.make);
@@ -252,7 +252,7 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
       newFiles.forEach((file) => fd.append("attachments", file));
       const isUpdate = isEdit || isApprove;
       const response = isUpdate
-        ? await machineMasterService.update(editData.id, fd)
+        ? await machineMasterService.update(editData.maccode, fd)
         : await machineMasterService.create(fd);
 
       toast.success(response?.message || "Successfully saved");
@@ -328,22 +328,22 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">
             <FormLabel required>Name</FormLabel>
-            <input data-field="name" value={form.name} onChange={(e) => handleChange("name", e.target.value)} className={`${errors.name ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`} />
-            {errors.name && <p className="text-[9px] text-rose-500 font-bold flex items-center gap-1"><AlertCircle size={10} />{errors.name}</p>}
+            <input data-field="macname" value={form.macname} onChange={(e) => handleChange("macname", e.target.value)} className={`${errors.macname ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`} />
+            {errors.macname && <p className="text-[9px] text-rose-500 font-bold flex items-center gap-1"><AlertCircle size={10} />{errors.macname}</p>}
           </div>
           <div className="space-y-1">
             <FormLabel required>Number</FormLabel>
-            <input data-field="number" value={form.number} onChange={(e) => handleChange("number", e.target.value)} className={`${errors.number ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`} />
-            {errors.number && <p className="text-[9px] text-rose-500 font-bold flex items-center gap-1"><AlertCircle size={10} />{errors.number}</p>}
+            <input data-field="macno" value={form.macno} onChange={(e) => handleChange("macno", e.target.value)} className={`${errors.macno ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS}`} />
+            {errors.macno && <p className="text-[9px] text-rose-500 font-bold flex items-center gap-1"><AlertCircle size={10} />{errors.macno}</p>}
           </div>
 
-          <div className="space-y-1" data-field="process_id">
+          <div className="space-y-1" data-field="macproccode">
             <SearchableSelect
               label="Process"
               required
               placeholder="Select process..."
-              value={form.process_id}
-              onChange={(id) => handleChange("process_id", id || null)}
+              value={form.macproccode}
+              onChange={(id) => handleChange("macproccode", id || null)}
               preserveApiOrder
               fetchService={(params) =>
                 processMasterService.getViews({
@@ -355,24 +355,31 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
               getByIdService={async (id) => {
                 const res = await processMasterService.getViewById(id, helperPerms(MODULE, sopPermissionType));
                 const row = res?.data;
-                return row ? { id: row.id, name: row.name, label: row.name, path_label: row.path_label || row.name } : null;
+                return row
+                  ? {
+                      proccode: row.proccode,
+                      procname: row.procname,
+                      label: row.procname,
+                      path_label: row.path_label || row.procname,
+                    }
+                  : null;
               }}
-              dataKey="id"
-              labelKey="name"
+              dataKey="proccode"
+              labelKey="procname"
               subLabelKey="path_label"
               labelOnlyDisplay
             />
-            {errors.process_id && <p className="text-[9px] text-rose-500 font-bold flex items-center gap-1"><AlertCircle size={10} />{errors.process_id}</p>}
+            {errors.macproccode && <p className="text-[9px] text-rose-500 font-bold flex items-center gap-1"><AlertCircle size={10} />{errors.macproccode}</p>}
           </div>
 
           <div className="space-y-1">
             <FormLabel>Speed</FormLabel>
             <input
-              data-field="speed"
+              data-field="cavity"
               type="text"
               inputMode="decimal"
-              value={form.speed}
-              onChange={(e) => handleChange("speed", e.target.value)}
+              value={form.cavity}
+              onChange={(e) => handleChange("cavity", e.target.value)}
               placeholder="e.g. 10"
               className={`${OK_INPUT} ${FIELD_INPUT_CLASS}`}
             />
@@ -380,7 +387,7 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
 
           <div className="space-y-1">
             <FormLabel required>Duration</FormLabel>
-            <TimeInput field="duration" form={form} errors={errors} onChange={handleChange} placeholder="60" />
+            <TimeInput field="maccycletime" form={form} errors={errors} onChange={handleChange} placeholder="60" />
           </div>
 
           <div className="space-y-1">

@@ -22,6 +22,7 @@ const VIEWS = [
   { id: "history", label: "Sent History" },
 ];
 
+
 const LOG_STATUS = {
   sent: { label: "Sent", className: "bg-amber-50 text-amber-800" },
   failed: { label: "Failed", className: "bg-rose-50 text-rose-700" },
@@ -162,6 +163,11 @@ function TemplatesView({ options }) {
       <div className="flex flex-col py-1 min-w-0">
         <span className="font-semibold text-slate-800 text-[11px]">{v}</span>
         {row.subject ? <span className="text-[10px] text-slate-400 truncate">{row.subject}</span> : null}
+        {(row.conditions || []).length ? (
+          <span className="text-[9px] font-bold text-indigo-600 uppercase tracking-wider mt-0.5">
+            {(row.conditions || []).length} condition{(row.conditions || []).length === 1 ? "" : "s"} · {row.condition_logic || "AND"}
+          </span>
+        ) : null}
       </div>
     ), { width: "220px", wrap: true }],
     ["Trigger On", null, (v, row) => <EventBadges events={row.trigger_events} />, { width: "170px" }],

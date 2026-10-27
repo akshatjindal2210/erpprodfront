@@ -14,29 +14,35 @@ import { auditPair } from "@/platform/utils/list/auditListUi";
 import { formatShortageMonthDate, typeBadgeClass, weightKgTitle } from "@/apps/production/modules/shortage/shortageColumns";
 import { shortageService } from "@/apps/production/lib/services/shortage";
 import { FormLabel, FORM_LABEL_CLASS } from "@/ui/common/Constants";
+import { JOB_CARD_PRIME_DETAIL_GRID } from "@/apps/production/modules/job-card/jobCardUi.config";
 import { IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
 
 const PAGE_CHUNK = 100; // IMS style: show 100 rows, load 100 more on scroll
 
 export const PRIME_STATUS_OPTIONS = [
   { value: "pending", label: "Pending" },
-  { value: "approved", label: "Approved" },
+  { value: "accepted", label: "Accepted" },
   { value: "rejected", label: "Rejected" },
 ];
 
-/** Tooling → Register only (Pending tab is its own surface). */
+/** Tooling → Register filter (Pending tab is its own surface). */
 export const TOOLING_FILTER_OPTIONS = [
   { value: "all", label: "All" },
-  { value: "yes", label: "Approved" },
-  { value: "no", label: "Rejected" },
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
 ];
 
 const BADGE = {
   pending: { label: "Pending", cls: "bg-amber-50 text-amber-600 border-amber-100" },
-  approved: { label: "Approved", cls: "bg-emerald-50 text-emerald-600 border-emerald-100" },
+  accepted: { label: "Accepted", cls: "bg-emerald-50 text-emerald-600 border-emerald-100" },
   rejected: { label: "Rejected", cls: "bg-rose-50 text-rose-600 border-rose-100" },
 };
-const TOOLING_BADGE = { pending: BADGE.pending, yes: BADGE.approved, no: BADGE.rejected };
+/** Tooling queue — not shortage Accept/Reject labels. */
+const TOOLING_BADGE = {
+  pending: BADGE.pending,
+  yes: { label: "Yes", cls: "bg-emerald-50 text-emerald-600 border-emerald-100" },
+  no: { label: "No", cls: "bg-slate-100 text-slate-700 border-slate-200" },
+};
 const toolingText = (v) => TOOLING_BADGE[v]?.label || "—";
 
 /* ───────────── columns ───────────── */
@@ -55,7 +61,7 @@ function text(cls) {
   };
 }
 const num = (v) => <span className="font-black text-slate-800 text-[11px] tabular-nums">{Number(v ?? 0).toLocaleString()}</span>;
-const remarkCol = ["Approval Remark", "approval_remark", text("text-slate-600"), { width: "200px" }];
+const remarkCol = ["Accept Remark", "accepted_remark", text("text-slate-600"), { width: "200px" }];
 const toolingRemarkCol = ["Tooling Remark", "tooling_remark", text("text-slate-600"), { width: "200px" }];
 
 /** Yes / No badge (RM, Tooling); null = no prime process saved. */
@@ -163,14 +169,18 @@ function ShortageItemChips({ item }) {
 export const toolingAsYesNo = (v) => (v === "yes" ? true : v === "no" ? false : null);
 
 /**
- * One row per prime item. `pendingTip` set → pending rows show "Not Approved" with that tooltip.
+ * One row per prime item. `pendingTip` set → pending rows show "Pending" with that tooltip.
  * `jobCard` → order Prime Item, Total Qty, Items (Qty), RM, Tooling, … (Maintain Job Card).
  */
 function buildHeaders({ expandedId, onToggleExpand, showRemark, showTooling = true, showRm = false, pendingTip, jobCard, toolingModule = false }) {
   const badgeOf = (row) =>
     row.status === "pending" && pendingTip
-      ? { label: "Not Approved", cls: "bg-slate-100 text-slate-500 border-slate-200", tip: pendingTip }
+      ? { label: "Pending", cls: BADGE.pending.cls, tip: pendingTip }
       : BADGE[row.status] || BADGE.pending;
+
+  const jobCardNo = ["Job Card No", "job_card_no", (v) => (
+    <span className={v ? "font-mono text-indigo-600 font-bold text-[11px]" : "text-slate-400 text-[10px]"}>{v || "—"}</span>
+  ), { width: "120px" }];
 
   const [expand, prime, desc, items, qty, weight, status] = [
     ["", null, (_, row) => (
@@ -210,7 +220,7 @@ function buildHeaders({ expandedId, onToggleExpand, showRemark, showTooling = tr
     return yesNo(v);
   }, { width: "90px", align: "center", sortable: false, copyValue: (row) => yesNoText(row.rm) }];
   const toolingJobCard = ["Tooling", "tooling", (v, row) => {
-    if (row.status !== "approved") {
+    if (row.status !== "accepted") {
       return <span className="text-slate-400 text-[10px]" title="Approve shortage first">—</span>;
     }
     if (v === "yes") return yesNo(true);
@@ -224,17 +234,27 @@ function buildHeaders({ expandedId, onToggleExpand, showRemark, showTooling = tr
     }
     return <span className="text-slate-400 text-[10px]" title="No job card yet">—</span>;
   }, { width: "90px", align: "center", sortable: false, copyValue: (row) => {
-    if (row.status !== "approved") return "—";
+    if (row.status !== "accepted") return "—";
     if (row.tooling === "yes") return "Yes";
     if (row.tooling === "no") return "No";
     if (row.tooling === "pending") return "Pending";
     return "—";
   } }];
   const toolingShortage = ["Tooling", "tooling", (v, row) => {
+    if (row.status && row.status !== "accepted") {
+      return (
+        <span className="text-slate-400 text-[10px]" title="Tooling applies after shortage is accepted">
+          —
+        </span>
+      );
+    }
     const b = TOOLING_BADGE[v];
-    if (!b) return <span className="text-slate-400" title="Tooling starts after the shortage is approved">—</span>;
+    if (!b) return <span className="text-slate-400" title="Tooling starts after the shortage is accepted">—</span>;
     return <span title={row.tooling_remark || ""} className={`px-2 py-0.5 text-[9px] font-black uppercase border ${b.cls}`}>{b.label}</span>;
-  }, { width: "110px", align: "center", sortable: false, copyValue: (row) => toolingText(row.tooling) }];
+  }, { width: "110px", align: "center", sortable: false, copyValue: (row) => {
+    if (row.status && row.status !== "accepted") return "—";
+    return toolingText(row.tooling);
+  } }];
 
   if (toolingModule) {
     const headers = [prime, qty, weight];
@@ -246,7 +266,7 @@ function buildHeaders({ expandedId, onToggleExpand, showRemark, showTooling = tr
   }
 
   const headers = jobCard
-    ? [prime, desc, items, qty, weight, rmJobCard, toolingJobCard, status]
+    ? [jobCardNo, prime, desc, items, qty, weight, rmJobCard, toolingJobCard, status]
     : showRm
       ? [expand, prime, desc, rm, qty, weight, status]
       : [expand, prime, desc, qty, weight, status];
@@ -274,9 +294,10 @@ const CHILD_HEADERS = [
 ];
 
 const searchParts = (row) => [
+  row.job_card_no,
   row.prime_item_code,
   row.prime_item_desc,
-  row.approval_remark,
+  row.accepted_remark,
   row.tooling_remark,
   ...(row.item_codes || []),
 ];
@@ -378,10 +399,10 @@ export function usePrimeItemList({ load, refreshKey, status = "all", tooling = "
         ? rows.filter((r) => r.tooling === tooling)
         : rows
       : tooling !== "all"
-        ? rows.filter((r) => r.status === "approved" && r.tooling === tooling)
+        ? rows.filter((r) => r.status === "accepted" && r.tooling === tooling)
         : status === "all"
           ? rows
-          : rows.filter((r) => r.status === status);
+          : rows.filter((r) => r.status === (status === "approved" ? "accepted" : status));
     if (deferredSearch.trim()) {
       data = applyClientSearch(data, deferredSearch, {
         getParts: toolingModule ? toolingSearchParts : searchParts,
@@ -502,7 +523,7 @@ const DRAWER_DETAIL_LABEL =
 
 function DrawerDetailField({ label, value, wide = false }) {
   return (
-    <div className={wide ? "min-w-0 col-span-2" : "min-w-0"}>
+    <div className={wide ? "min-w-0 w-full" : "min-w-0"}>
       <p className={DRAWER_DETAIL_LABEL}>{label}</p>
       <span className={`${IMS_TABLE_CELL_TEXT} text-[12px] text-slate-800 break-words leading-snug block`}>{value ?? "—"}</span>
     </div>
@@ -539,22 +560,22 @@ function jobCardProcessYesNo(flag) {
 /** Prime item details block (both drawers). `compact` = Tooling · `jobCard` = New / View / Edit (includes G Weight). */
 export function PrimeItemSummary({ item, extra = null, compact = false, jobCard = false }) {
   if (jobCard) {
-    // One 4-col grid so Job Card No / Doc Date / Status align with Item Code row
     return (
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-3 py-2 sm:grid-cols-4">
-        {extra}
-        {extra ? <div className="hidden min-w-0 sm:block" aria-hidden /> : null}
-        <DrawerDetailField label="Item Code" value={<span className="font-bold uppercase text-slate-900">{item.prime_item_code || "—"}</span>} />
-        <DrawerDetailField label="Item Description" value={item.prime_item_desc || "—"} />
-        <DrawerDetailField
-          label="G Weight"
-          value={
-            <span className={`${IMS_TABLE_CELL_NUMBER} font-bold`}>
-              {item.gweight != null && Number(item.gweight) > 0 ? Number(item.gweight).toLocaleString(undefined, { maximumFractionDigits: 6 }) : "—"}
-            </span>
-          }
-        />
-        <DrawerDetailField label="Shortage Qty" value={<span className={`${IMS_TABLE_CELL_NUMBER} font-bold`}>{Number(item.total_qty ?? item.qty ?? 0).toLocaleString()}</span>} />
+      <div className="space-y-2 px-3 py-2.5">
+        <div className={JOB_CARD_PRIME_DETAIL_GRID}>
+          {extra}
+          <DrawerDetailField label="Item Code" value={<span className="font-bold uppercase text-slate-900">{item.prime_item_code || "—"}</span>} />
+          <DrawerDetailField label="Item Description" value={item.prime_item_desc || "—"} />
+          <DrawerDetailField
+            label="Weight"
+            value={
+              <span className={`${IMS_TABLE_CELL_NUMBER} font-bold`}>
+                {item.gweight != null && Number(item.gweight) > 0 ? Number(item.gweight).toLocaleString(undefined, { maximumFractionDigits: 6 }) : "—"}
+              </span>
+            }
+          />
+          <DrawerDetailField label="Shortage Qty" value={<span className={`${IMS_TABLE_CELL_NUMBER} font-bold`}>{Number(item.total_qty ?? item.qty ?? 0).toLocaleString()}</span>} />
+        </div>
         <DrawerDetailField label="Item-wise Qty" value={<ShortageItemChips item={item} />} wide />
         {/* This is Futture point so dont delete */}
         {/* <DrawerDetailField label="Total" value={<span className={`${IMS_TABLE_CELL_NUMBER} font-bold`}>{weightText(item.total_weight_kg, item.weight_missing)}</span>} />

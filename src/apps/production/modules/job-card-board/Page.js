@@ -2,33 +2,33 @@
 
 /**
  * Job Card Board + Calendar (authorized cards only).
- * Board = machines · Calendar = day × shift (week / month / 2 months).
+ * Board = machine columns · Calendar = CL Task Report matrix (Process → Machine × Date → Shift).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { DndContext, DragOverlay, PointerSensor, TouchSensor, KeyboardSensor, closestCorners, useSensor, useSensors, useDroppable, useDraggable } from "@dnd-kit/core";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { DndContext, DragOverlay, PointerSensor, TouchSensor, KeyboardSensor, closestCorners, useSensor, useSensors, useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { LayoutGrid, CalendarDays, RefreshCw, ZoomIn, ZoomOut, Maximize2, Minimize2, Loader2, ChevronLeft, ChevronRight, GripVertical, Play, Pause, Square } from "lucide-react";
+import { LayoutGrid, CalendarDays, RefreshCw, ZoomIn, ZoomOut, Maximize2, Minimize2, Loader2, ChevronLeft, ChevronRight, GripVertical, Play, Pause, Square, Inbox, AlertCircle } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
-import { ROUTES } from "@/apps/production/lib/utils/routes";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/ui/common/list/ListPageToolbar";
-import { ListPageAddButton } from "@/ui/common/list/listPageCrud";
-import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
-import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
-import { UNASSIGNED, SHIFTS, RANGE_MODES, WEEKDAYS, STATUS_OPTS, fetchBoard, fetchCalendar, updateJobCardStatus, updateJobCardPosition, updateJobCardSchedule, machineBusyStatus, startOfWeek,
-  startOfMonth, weekDays, monthGrid, rangeDateKeys, rangeLabel, stepAnchor, toDateKey, addMonths } from "@/apps/production/modules/job-card-board/board";
+import EmptyState from "@/ui/common/table/EmptyState";
+import { UNASSIGNED, RANGE_MODES, STATUS_OPTS, PLANNING_MODULE, SHIFTS_PER_DAY, isValidShift, updateJobCardStatus, updateJobCardPosition, updateJobCardSchedule, machineBusyStatus, startOfWeek,
+  startOfMonth, rangeDateKeys, rangeLabel, stepAnchor, toDateKey, collectProcessOptions, cardMatchesProcessFilter, cardMatchesMachineFilter, machineIdsForProcesses, resolveBoardColumnId } from "@/apps/production/modules/job-card-board/board";
 import JobCardViewDrawer from "@/apps/production/modules/job-card-board/ViewDrawer";
+import JobCardReportCalendar, { parseCalSlot } from "@/apps/production/modules/job-card-board/JobCardReportCalendar";
+import ProductionFilters, { useProductionFilterIds } from "@/apps/production/modules/job-card-board/ProductionFilters";
+import { useJobCardBoard } from "@/apps/production/modules/job-card-board/useJobCardBoard";
+import { useJobCardBoardRealtime } from "@/apps/production/modules/job-card-board/useJobCardBoardRealtime";
 
-const MODULE = "production_job_card";
+const MODULE = PLANNING_MODULE;
 const ZOOM_KEY = "production.jobCardBoard.zoom";
 const RANGE_KEY = "production.jobCardBoard.calRange";
-const COL_W = 280;
-const DAY_W = 248;
+const MODE_KEY = "production.jobCardBoard.mode"; // comfort | quick
+const COL_W = { comfort: 288, quick: 240 };
 const btn = `${LIST_PAGE_ACTION_CLASS} px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center`;
 const modeBtn = (on) => `${LIST_PAGE_ACTION_CLASS} px-3 border flex items-center justify-center ${on ? "border-indigo-400 bg-indigo-50 text-indigo-700" : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"}`;
 
@@ -49,29 +49,20 @@ const STATUS_BAR = {
 const MACHINE_DOT = { running: "bg-emerald-500", idle: "bg-slate-400", down: "bg-rose-500" };
 const ACTIONS = [
   { key: "start", label: "Start", status: "Running", Icon: Play, cls: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100" },
-  { key: "pause", label: "Pause", status: "Hold", Icon: Pause, cls: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100" },
-  { key: "close", label: "Close", status: "Complete", Icon: Square, cls: "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100" },
+  { key: "hold", label: "Hold", status: "Hold", Icon: Pause, cls: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100" },
+  { key: "complete", label: "Complete", status: "Complete", Icon: Square, cls: "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100" },
 ];
 
 function canAction(status, key) {
   if (status === "Complete") return false;
   if (key === "start") return status !== "Running";
-  if (key === "pause") return status === "Running";
-  return status !== "Complete";
+  if (key === "hold") return status === "Running";
+  if (key === "complete") return status !== "Complete";
+  return false;
 }
 
 function colId(m) {
   return m == null || m === "" ? UNASSIGNED : String(m);
-}
-
-function slotId(date, shift) {
-  return `slot:${date}:${shift}`;
-}
-
-function parseSlot(id) {
-  if (!String(id).startsWith("slot:")) return null;
-  const [, date, shift] = String(id).split(":");
-  return { date, shift: Number(shift) };
 }
 
 function moveCard(cards, cardId, toMachineId, newIndex) {
@@ -86,20 +77,50 @@ function moveCard(cards, cardId, toMachineId, newIndex) {
   return [...without.filter((c) => !ids.has(String(c.id))), ...moved];
 }
 
-function DetailRow({ label, value, mono = false }) {
-  if (!value) return null;
+function DetailRow({ label, value, mono = false, empty = false }) {
+  if (!empty && (value == null || value === "")) return null;
+  const text = value == null || value === "" ? "—" : value;
   return (
     <div className="flex items-baseline gap-1.5 text-[10px] leading-snug">
-      <span className="w-10 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-400">{label}</span>
-      <span className={`min-w-0 flex-1 break-words font-semibold text-slate-700 ${mono ? "font-mono text-indigo-700" : ""}`} title={value}>
-        {value}
+      <span className="w-11 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-400">{label}</span>
+      <span className={`min-w-0 flex-1 break-words font-semibold text-slate-700 ${mono ? "font-mono text-indigo-700" : ""}`} title={text}>
+        {text}
       </span>
     </div>
   );
 }
 
-/** Board card summary (compact). */
+/** Advance calendar by N production shifts (SHIFTS_PER_DAY from jobCard.config). Date only. */
+function estimateDateFromShifts(startDate, shiftNo, shiftCount) {
+  const n = Math.max(0, Math.floor(Number(shiftCount) || 0));
+  const perDay = Math.max(1, SHIFTS_PER_DAY);
+  if (!startDate || !n) return null;
+  const startShift = isValidShift(shiftNo) ? Number(shiftNo) : 1;
+  const endIndex = startShift - 1 + n - 1;
+  const dayOffset = Math.floor(endIndex / perDay);
+  const d = new Date(`${startDate}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + dayOffset);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function cardEstimateLabel(card) {
+  if (card.estimate_date) return card.estimate_date;
+  return estimateDateFromShifts(card.date, card.shift, card.est_shifts);
+}
+
+/** Board card body: JC · item · Planning · qty · start + stage-1 machine shifts required · est. */
 function CardBody({ card, dense }) {
+  const qtyLabel = Number(card.qty || 0).toLocaleString();
+  const nShifts = Number(card.est_shifts);
+  const shiftsReq = Number.isFinite(nShifts) && nShifts > 0 ? `${nShifts} shift${nShifts === 1 ? "" : "s"}` : null;
+  // Start date + Stage 1 machine-level shifts required (e.g. 2026-10-23 · 8 shifts)
+  const startLabel = [card.date || null, shiftsReq].filter(Boolean).join(" · ") || null;
+  const estLabel = cardEstimateLabel(card);
+
   if (dense) {
     return (
       <>
@@ -110,8 +131,10 @@ function CardBody({ card, dense }) {
           ) : null}
         </div>
         <p className="mt-0.5 truncate text-[9px] font-bold uppercase text-slate-800">{card.prime_item_code || "—"}</p>
-        <p className="truncate text-[8px] font-semibold text-slate-500" title={[card.process, card.machine, card.qty].filter(Boolean).join(" · ")}>
-          {[card.process, card.machine].filter(Boolean).join(" · ") || "—"} · {Number(card.qty || 0).toLocaleString()}
+        {card.title ? <p className="truncate text-[8px] font-medium text-slate-500">{card.title}</p> : null}
+        <p className="mt-0.5 truncate text-[8px] font-semibold text-slate-600" title={`Qty ${qtyLabel} · Start ${startLabel || "—"}`}>
+          {qtyLabel}
+          {startLabel ? ` · ${startLabel}` : ""}
         </p>
       </>
     );
@@ -127,37 +150,36 @@ function CardBody({ card, dense }) {
       <p className="mt-1 truncate text-[11px] font-bold uppercase text-slate-800">{card.prime_item_code || "—"}</p>
       {card.title ? <p className="mt-0.5 line-clamp-2 text-[10px] font-medium leading-snug text-slate-600">{card.title}</p> : null}
       <div className="mt-2 space-y-1 border-t border-slate-100 pt-1.5">
-        <DetailRow label="Proc" value={card.process} />
-        <DetailRow label="Mach" value={card.machine || "—"} />
-        <DetailRow label="Qty" value={Number(card.qty || 0).toLocaleString()} mono />
-        {card.date ? <DetailRow label="Date" value={`${card.date}${card.shift ? ` · S${card.shift}` : ""}`} /> : null}
+        <DetailRow label="Qty" value={qtyLabel} mono />
+        <DetailRow label="Start" value={startLabel} empty />
+        <DetailRow label="Est" value={estLabel} empty />
       </div>
     </>
   );
 }
 
-function BoardCard({ card, canEdit, busyId, onOpen, onAction }) {
+function BoardCard({ card, canEdit, busyId, onOpen, onAction, dense }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: String(card.id), disabled: !canEdit });
   const busy = busyId === String(card.id);
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.35 : 1 }}
-      className="group relative border border-slate-200 bg-white p-2.5 pl-3.5 hover:border-indigo-300"
+      className={`group relative border border-slate-200 bg-white hover:border-indigo-300 ${dense ? "p-1.5 pl-2.5" : "p-2.5 pl-3.5"}`}
       {...attributes}
     >
       <div className={`absolute inset-y-0 left-0 w-1 ${STATUS_BAR[card.status] || "bg-slate-300"}`} />
       <div className="flex gap-1.5">
         {canEdit ? (
           <button type="button" className="mt-0.5 cursor-grab touch-none text-slate-300 hover:text-slate-500" {...listeners}>
-            <GripVertical size={14} />
+            <GripVertical size={dense ? 12 : 14} />
           </button>
         ) : null}
         <div className="min-w-0 flex-1">
           <button type="button" className="w-full text-left" onClick={() => onOpen(card)}>
-            <CardBody card={card} />
+            <CardBody card={card} dense={dense} />
           </button>
-          <div className={`mt-2 grid grid-cols-3 gap-1 ${busy ? "pointer-events-none opacity-60" : ""}`}>
+          <div className={`${dense ? "mt-1.5" : "mt-2"} grid grid-cols-3 gap-1 ${busy ? "pointer-events-none opacity-60" : ""}`}>
             {ACTIONS.map(({ key, label, status, Icon, cls }) => {
               const enabled = canEdit && canAction(card.status, key);
               return (
@@ -165,13 +187,13 @@ function BoardCard({ card, canEdit, busyId, onOpen, onAction }) {
                   key={key}
                   type="button"
                   disabled={!enabled || busy}
-                  className={`inline-flex items-center justify-center gap-0.5 border px-1 py-1 text-[9px] font-black uppercase tracking-wide disabled:opacity-40 ${cls}`}
+                  className={`inline-flex items-center justify-center gap-0.5 border px-1 py-1 font-black uppercase tracking-wide disabled:opacity-40 ${dense ? "text-[8px]" : "text-[9px]"} ${cls}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (enabled) onAction?.(card, status, label);
                   }}
                 >
-                  <Icon size={10} />
+                  <Icon size={dense ? 9 : 10} />
                   {label}
                 </button>
               );
@@ -183,56 +205,33 @@ function BoardCard({ card, canEdit, busyId, onOpen, onAction }) {
   );
 }
 
-function CalCard({ card, canEdit, onOpen, dense }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: String(card.id), disabled: !canEdit, data: { card } });
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.35 : 1 }}
-      className={`group relative border border-slate-200 bg-white shadow-sm hover:border-indigo-400 hover:shadow ${dense ? "p-1.5 pl-2.5" : "p-2.5 pl-3.5"}`}
-      {...attributes}
-    >
-      <div className={`absolute inset-y-0 left-0 w-1 ${STATUS_BAR[card.status] || "bg-slate-300"}`} />
-      <div className="flex gap-1">
-        {canEdit ? (
-          <button type="button" className="mt-0.5 cursor-grab touch-none text-slate-300 hover:text-slate-500" {...listeners}>
-            <GripVertical size={dense ? 11 : 13} />
-          </button>
-        ) : null}
-        <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpen(card)}>
-          <CardBody card={card} dense={dense} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function MachineCol({ id, title, code, status, cards, canEdit, busyId, onOpen, onAction }) {
+function MachineCol({ id, title, code, status, cards, canEdit, busyId, onOpen, onAction, dense }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col-${id}` });
+  const w = dense ? COL_W.quick : COL_W.comfort;
   return (
-    <div className={`flex shrink-0 flex-col border bg-slate-50 ${isOver ? "border-indigo-400" : "border-slate-300"}`} style={{ width: COL_W, minWidth: COL_W }}>
-      <div className="border-b border-slate-200 bg-white px-2.5 py-2">
+    <div className={`flex shrink-0 flex-col border bg-slate-50 ${isOver ? "border-indigo-400" : "border-slate-300"}`} style={{ width: w, minWidth: w }}>
+      <div className={`border-b border-slate-200 bg-white ${dense ? "px-2 py-1.5" : "px-2.5 py-2"}`}>
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               {status ? <span className={`h-2 w-2 rounded-full ${MACHINE_DOT[status] || MACHINE_DOT.idle}`} /> : null}
-              <span className="truncate text-[11px] font-bold uppercase text-slate-800">{title}</span>
+              <span className={`truncate font-bold uppercase text-slate-800 ${dense ? "text-[10px]" : "text-[11px]"}`}>{title}</span>
             </div>
             {code ? (
-              <p className="mt-0.5 font-mono text-[10px] font-bold text-indigo-600">
+              <p className={`mt-0.5 font-mono font-bold text-indigo-600 ${dense ? "text-[9px]" : "text-[10px]"}`}>
                 {code} <span className="font-semibold uppercase text-slate-500">· {status}</span>
               </p>
             ) : null}
           </div>
-          <span className="border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-black text-slate-600">{cards.length}</span>
+          <span className={`border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-black text-slate-600 ${dense ? "text-[9px]" : "text-[10px]"}`}>{cards.length}</span>
         </div>
       </div>
-      <div ref={setNodeRef} className={`flex flex-1 flex-col gap-2 p-2 ${isOver ? "bg-indigo-50/40" : ""}`} style={{ minHeight: 120 }}>
+      <div ref={setNodeRef} className={`flex flex-1 flex-col p-2 ${dense ? "gap-1.5" : "gap-2"} ${isOver ? "bg-indigo-50/40" : ""}`} style={{ minHeight: dense ? 96 : 120 }}>
         <SortableContext items={cards.map((c) => String(c.id))} strategy={verticalListSortingStrategy}>
           {cards.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center border border-dashed border-slate-200 bg-white py-8 text-[11px] font-semibold text-slate-400">—</div>
+            <div className={`flex flex-1 items-center justify-center border border-dashed border-slate-200 bg-white font-semibold text-slate-400 ${dense ? "py-6 text-[10px]" : "py-8 text-[11px]"}`}>—</div>
           ) : (
-            cards.map((card) => <BoardCard key={card.id} card={card} canEdit={canEdit} busyId={busyId} onOpen={onOpen} onAction={onAction} />)
+            cards.map((card) => <BoardCard key={card.id} card={card} canEdit={canEdit} busyId={busyId} onOpen={onOpen} onAction={onAction} dense={dense} />)
           )}
         </SortableContext>
       </div>
@@ -240,131 +239,23 @@ function MachineCol({ id, title, code, status, cards, canEdit, busyId, onOpen, o
   );
 }
 
-function ShiftLane({ dateKey, shift, label, cards, canEdit, onOpen, dense }) {
-  const { setNodeRef, isOver } = useDroppable({ id: slotId(dateKey, shift), disabled: !dateKey });
-  const hasCards = cards.length > 0;
-  return (
-    <div
-      ref={setNodeRef}
-      className={`flex flex-col gap-1.5 border-t border-slate-200 ${dense ? "p-1" : "p-2"} ${
-        isOver ? "bg-indigo-50" : hasCards ? "bg-white" : "bg-slate-50/60"
-      } ${dense ? (hasCards ? "min-h-[64px]" : "min-h-[36px]") : hasCards ? "min-h-[120px] flex-1" : "min-h-[44px]"}`}
-    >
-      <div className="flex items-center justify-between gap-1">
-        <span className={`font-black uppercase tracking-wide text-slate-500 ${dense ? "text-[8px]" : "text-[10px]"}`}>{dense ? `S${shift}` : label}</span>
-        <span className={`tabular-nums font-black ${hasCards ? "text-indigo-600" : "text-slate-300"} ${dense ? "text-[8px]" : "text-[10px]"}`}>{cards.length}</span>
-      </div>
-      {hasCards ? (
-        <div className="flex flex-col gap-1.5">
-          {cards.map((c) => (
-            <CalCard key={c.id} card={c} canEdit={canEdit} onOpen={onOpen} dense={dense} />
-          ))}
-        </div>
-      ) : (
-        <div
-          className={`flex items-center justify-center border border-dashed font-semibold ${
-            isOver ? "border-indigo-400 bg-white text-indigo-600" : "border-slate-200 text-slate-300"
-          } ${dense ? "py-1 text-[8px]" : "py-2 text-[10px]"}`}
-        >
-          {isOver ? "Drop" : "—"}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function WeekCol({ day, cards, canEdit, todayKey, onOpen }) {
-  const isToday = day.key === todayKey;
-  return (
-    <div className={`flex shrink-0 flex-col border bg-slate-50 ${isToday ? "border-indigo-400 shadow-sm" : "border-slate-300"}`} style={{ width: DAY_W, minWidth: DAY_W }}>
-      <div className={`border-b px-3 py-2.5 ${isToday ? "border-indigo-200 bg-indigo-50" : "border-slate-200 bg-white"}`}>
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <span className={`text-[10px] font-black uppercase tracking-wider ${isToday ? "text-indigo-700" : "text-slate-500"}`}>{day.label}</span>
-            <div className="mt-0.5 flex items-baseline gap-1.5">
-              <span className={`text-[20px] font-black tabular-nums leading-none ${isToday ? "text-indigo-800" : "text-slate-800"}`}>{day.dayNum}</span>
-              <span className="text-[11px] font-semibold text-slate-400">{day.month}</span>
-            </div>
-          </div>
-          <span className={`border px-2 py-0.5 text-[11px] font-black tabular-nums ${isToday ? "border-indigo-200 bg-white text-indigo-700" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
-            {cards.length}
-          </span>
-        </div>
-      </div>
-      <div className="flex flex-1 flex-col">
-        {SHIFTS.map((s) => (
-          <ShiftLane key={s.id} dateKey={day.key} shift={s.id} label={s.label} cards={cards.filter((c) => Number(c.shift) === s.id)} canEdit={canEdit} onOpen={onOpen} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MonthGrid({ grid, cardsByDate, canEdit, todayKey, onOpen }) {
-  return (
-    <div className="min-w-[960px] border border-slate-300 bg-white">
-      <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
-        <span className="text-[12px] font-bold uppercase tracking-wide text-slate-800">{grid.title}</span>
-      </div>
-      <div className="grid grid-cols-7 border-b border-slate-200">
-        {WEEKDAYS.map((lab) => (
-          <div key={lab} className="border-r border-slate-200 px-2 py-1.5 text-center text-[10px] font-black uppercase text-slate-500 last:border-r-0">
-            {lab}
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-7">
-        {grid.weeks.flatMap((week, wi) =>
-          week.map((day) => (
-            <div
-              key={`${grid.monthKey}-${wi}-${day.key}`}
-              className={`flex min-h-[128px] flex-col border border-slate-200 ${!day.inMonth ? "bg-slate-50/80" : day.key === todayKey ? "bg-indigo-50/40" : "bg-white"}`}
-            >
-              <div className={`flex items-center justify-between border-b px-1.5 py-1 ${day.key === todayKey ? "border-indigo-200" : "border-slate-100"}`}>
-                <span className={`inline-flex h-5 min-w-[1.25rem] items-center justify-center px-1 text-[11px] font-black tabular-nums ${!day.inMonth ? "text-slate-300" : day.key === todayKey ? "bg-indigo-600 text-white" : "text-slate-700"}`}>
-                  {day.dayNum}
-                </span>
-              </div>
-              {day.inMonth
-                ? SHIFTS.map((s) => (
-                    <ShiftLane
-                      key={s.id}
-                      dateKey={day.key}
-                      shift={s.id}
-                      label={s.label}
-                      cards={(cardsByDate.get(day.key) || []).filter((c) => Number(c.shift) === s.id)}
-                      canEdit={canEdit}
-                      onOpen={onOpen}
-                      dense
-                    />
-                  ))
-                : null}
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function JobCardBoardPage({ initialView = "board" }) {
-  const router = useRouter();
   const canAccess = useCanAccess();
   const canView = canAccess(MODULE, "view").allowed;
   const canEdit = canAccess(MODULE, "edit").allowed;
 
-  const [view, setView] = useState(initialView === "calendar" ? "calendar" : "board");
-  const [machines, setMachines] = useState([]);
-  const [cards, setCards] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const { machines, setMachines, cards, setCards, loading, error, load, isBoard } = useJobCardBoard(initialView);
+  useJobCardBoardRealtime({ enabled: canView });
+  const { processIds, machineIds, shiftIds, statusFromUrl } = useProductionFilterIds();
+
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [machineFilter, setMachineFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(statusFromUrl || "all");
   const [range, setRange] = useState("week");
   const [anchor, setAnchor] = useState(() => startOfWeek(new Date()));
+  const [mode, setMode] = useState("comfort"); // comfort | quick
   const [zoom, setZoom] = useState(1);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const dense = mode === "quick";
   const [activeId, setActiveId] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [viewCard, setViewCard] = useState(null);
@@ -377,40 +268,22 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const todayKey = toDateKey(new Date());
-  const isBoard = view === "board";
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      if (view === "board") {
-        const data = await fetchBoard();
-        setMachines(data.machines || []);
-        setCards(data.cards || []);
-      } else {
-        const data = await fetchCalendar();
-        setMachines([]);
-        setCards(data.cards || []);
-      }
-    } catch (e) {
-      setError(e?.message || "Failed to load.");
-    } finally {
-      setLoading(false);
-    }
-  }, [view]);
+  useEffect(() => {
+    setStatusFilter(statusFromUrl || "all");
+  }, [statusFromUrl]);
 
   useEffect(() => {
-    load();
     try {
       const z = Number(localStorage.getItem(ZOOM_KEY));
       if (z >= 0.5 && z <= 1.5) setZoom(z);
       const r = localStorage.getItem(RANGE_KEY);
       if (r === "week" || r === "month" || r === "2months") setRange(r);
+      const m = localStorage.getItem(MODE_KEY);
+      if (m === "comfort" || m === "quick") setMode(m);
     } catch {
       /* ignore */
     }
-  }, [load]);
+  }, []);
 
   useEffect(() => {
     const onFs = () => setIsFullScreen(document.fullscreenElement === boardRef.current);
@@ -436,18 +309,23 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [loading]);
-
-  function setViewMode(next) {
-    setView(next);
-    router.replace(next === "calendar" ? `${ROUTES.PRODUCTION_JOB_CARD_BOARD}?view=calendar` : ROUTES.PRODUCTION_JOB_CARD_BOARD);
-  }
+  }, [loading, isBoard]);
 
   function setZoomPersist(next) {
     const z = Math.min(1.5, Math.max(0.5, Math.round(next * 10) / 10));
     setZoom(z);
     try {
       localStorage.setItem(ZOOM_KEY, String(z));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function setModePersist(next) {
+    if (next !== "comfort" && next !== "quick") return;
+    setMode(next);
+    try {
+      localStorage.setItem(MODE_KEY, next);
     } catch {
       /* ignore */
     }
@@ -464,31 +342,62 @@ export default function JobCardBoardPage({ initialView = "board" }) {
   }
 
   const q = search.trim().toLowerCase();
-  const weekCols = useMemo(() => (range === "week" ? weekDays(startOfWeek(anchor)) : []), [anchor, range]);
-  const monthGrids = useMemo(() => {
-    if (isBoard || range === "week") return [];
-    const first = startOfMonth(anchor);
-    return range === "month" ? [monthGrid(first)] : [monthGrid(first), monthGrid(addMonths(first, 1))];
-  }, [anchor, range, isBoard]);
-  const visibleKeys = useMemo(() => new Set(isBoard ? [] : rangeDateKeys(anchor, range)), [anchor, range, isBoard]);
+  const calendarDateKeys = useMemo(
+    () => (isBoard ? [] : rangeDateKeys(anchor, range).sort()),
+    [anchor, range, isBoard]
+  );
+  const visibleKeys = useMemo(() => new Set(calendarDateKeys), [calendarDateKeys]);
+
+  const processOptions = useMemo(() => collectProcessOptions(cards), [cards]);
+  const machineOptions = useMemo(() => {
+    const list = [
+      { label: "Unassigned", value: UNASSIGNED },
+      ...machines.map((m) => ({ label: `${m.code} — ${m.name}`, value: String(m.id) })),
+    ];
+    // Calendar: still offer machines seen on cards
+    if (!isBoard) {
+      const seen = new Set(list.map((o) => o.value));
+      for (const c of cards) {
+        if (c.machine_id == null) continue;
+        const id = String(c.machine_id);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        list.push({ label: c.machine || `Machine ${id}`, value: id });
+      }
+    }
+    return list;
+  }, [machines, cards, isBoard]);
 
   const visible = cards.filter((c) => {
     if (!isBoard && (!c.date || !visibleKeys.has(c.date))) return false;
     if (statusFilter !== "all" && c.status !== statusFilter) return false;
-    if (isBoard && machineFilter !== "all" && colId(c.machine_id) !== machineFilter) return false;
+    if (!cardMatchesProcessFilter(c, processIds)) return false;
+    if (!cardMatchesMachineFilter(c, machineIds, { fromPlan: isBoard })) return false;
+    if (!isBoard && shiftIds.length) {
+      if (shiftIds.length === 1 && shiftIds[0] === "__none__") return false;
+      if (!shiftIds.includes(String(c.shift))) return false;
+    }
     if (!q) return true;
     return [c.job_card_no, c.prime_item_code, c.title, c.process, c.machine, c.status].join(" ").toLowerCase().includes(q);
   });
 
-  const cardsByDate = useMemo(() => {
-    const map = new Map();
-    for (const c of visible) {
-      if (!c.date) continue;
-      if (!map.has(c.date)) map.set(c.date, []);
-      map.get(c.date).push(c);
+  /** Board columns allowed by Process ∩ Machine filters. */
+  const boardColIdSet = useMemo(() => {
+    if (!isBoard) return null;
+    const noneMachine = machineIds.length === 1 && machineIds[0] === "__none__";
+    const noneProcess = processIds.length === 1 && processIds[0] === "__none__";
+    if (noneMachine || noneProcess) return new Set();
+
+    let allowed = null;
+    const fromProcess = machineIdsForProcesses(cards, processIds);
+    if (fromProcess) allowed = fromProcess;
+
+    if (machineIds.length) {
+      const mid = new Set(machineIds.map(String));
+      allowed = allowed ? new Set([...allowed].filter((id) => mid.has(id))) : mid;
     }
-    return map;
-  }, [visible]);
+    return allowed; // null = all columns
+  }, [isBoard, cards, processIds, machineIds]);
 
   const columns = isBoard
     ? [
@@ -497,16 +406,29 @@ export default function JobCardBoardPage({ initialView = "board" }) {
           title: "Unassigned",
           code: "",
           status: null,
-          cards: visible.filter((c) => colId(c.machine_id) === UNASSIGNED).sort((a, b) => a.position - b.position),
         },
         ...machines.map((m) => ({
           id: String(m.id),
           title: m.name,
           code: m.code,
           status: m.status,
-          cards: visible.filter((c) => colId(c.machine_id) === String(m.id)).sort((a, b) => a.position - b.position),
         })),
       ]
+        .filter((col) => {
+          if (!boardColIdSet) {
+            if (col.id === UNASSIGNED) {
+              return visible.some((c) => resolveBoardColumnId(c, null) === UNASSIGNED);
+            }
+            return true;
+          }
+          return boardColIdSet.has(String(col.id));
+        })
+        .map((col) => ({
+          ...col,
+          cards: visible
+            .filter((c) => resolveBoardColumnId(c, boardColIdSet) === String(col.id))
+            .sort((a, b) => a.position - b.position),
+        }))
     : [];
 
   const openCard = (c) => setViewCard(c);
@@ -558,12 +480,12 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     const cardId = String(event.active.id);
     const moving = cards.find((c) => String(c.id) === cardId);
     if (!moving) return;
-    let target = parseSlot(String(event.over.id));
+    let target = parseCalSlot(String(event.over.id));
     if (!target) {
       const overCard = cards.find((c) => String(c.id) === String(event.over.id));
       if (overCard?.date) target = { date: overCard.date, shift: Number(overCard.shift) || 1 };
     }
-    if (!target?.date || ![1, 2, 3].includes(target.shift)) return;
+    if (!target?.date || !isValidShift(target.shift)) return;
     if (moving.date === target.date && Number(moving.shift) === target.shift) return;
     const prev = cards;
     setCards((list) => list.map((c) => (String(c.id) === cardId ? { ...c, date: target.date, shift: target.shift } : c)));
@@ -598,11 +520,10 @@ export default function JobCardBoardPage({ initialView = "board" }) {
   }
 
   if (!canView) {
-    return <div className="p-8 text-sm text-slate-500">You do not have permission to view Maintain Job Card.</div>;
+    return <div className="p-8 text-sm text-slate-500">You do not have permission to view Production Planning.</div>;
   }
 
   const activeCard = cards.find((c) => String(c.id) === String(activeId));
-  const emptyAuth = !loading && !error && cards.length === 0;
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
@@ -621,10 +542,6 @@ export default function JobCardBoardPage({ initialView = "board" }) {
             }
             actions={
               <>
-                <ListPageAddButton module={MODULE} label="New" onClick={() => router.push(`${ROUTES.PRODUCTION_JOB_CARD}?tab=pending`)} />
-                <div className="mx-0.5 hidden h-6 w-px bg-slate-300 sm:block" />
-                <button type="button" className={modeBtn(isBoard)} onClick={() => setViewMode("board")}>Board</button>
-                <button type="button" className={modeBtn(!isBoard)} onClick={() => setViewMode("calendar")}>Calendar</button>
                 {!isBoard ? (
                   <>
                     <div className="mx-0.5 hidden h-6 w-px bg-slate-300 sm:block" />
@@ -643,10 +560,17 @@ export default function JobCardBoardPage({ initialView = "board" }) {
                     <button type="button" className={btn} onClick={() => setAnchor((a) => stepAnchor(a, range, 1))}><ChevronRight size={14} /></button>
                   </>
                 ) : null}
-                <div className="mx-0.5 hidden h-6 w-px bg-slate-300 sm:block" />
-                <button type="button" className={btn} onClick={() => setZoomPersist(zoom - 0.1)}><ZoomOut size={14} /></button>
-                <span className="min-w-[2.5rem] text-center text-[11px] font-bold tabular-nums text-slate-600">{Math.round(zoom * 100)}%</span>
-                <button type="button" className={btn} onClick={() => setZoomPersist(zoom + 0.1)}><ZoomIn size={14} /></button>
+                {isBoard ? (
+                  <>
+                    <div className="mx-0.5 hidden h-6 w-px bg-slate-300 sm:block" />
+                    <button type="button" className={modeBtn(mode === "comfort")} onClick={() => setModePersist("comfort")}>Comfort</button>
+                    <button type="button" className={modeBtn(mode === "quick")} onClick={() => setModePersist("quick")}>Quick</button>
+                    <div className="mx-0.5 hidden h-6 w-px bg-slate-300 sm:block" />
+                    <button type="button" className={btn} onClick={() => setZoomPersist(zoom - 0.1)}><ZoomOut size={14} /></button>
+                    <span className="min-w-[2.5rem] text-center text-[11px] font-bold tabular-nums text-slate-600">{Math.round(zoom * 100)}%</span>
+                    <button type="button" className={btn} onClick={() => setZoomPersist(zoom + 0.1)}><ZoomIn size={14} /></button>
+                  </>
+                ) : null}
                 <button type="button" className={btn} onClick={() => (isFullScreen ? document.exitFullscreen?.() : boardRef.current?.requestFullscreen?.())}>
                   {isFullScreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
                 </button>
@@ -658,54 +582,20 @@ export default function JobCardBoardPage({ initialView = "board" }) {
           />
         </ListPageToolbar>
 
-        <ListPageFilterStrip>
-          <DateRangeFilter
-            showDate={false}
-            instantClientExtras
-            showSearchButton={false}
-            applyOnSearchEnter={false}
-            searchVariant="quick"
-            searchValue={search}
-            onSearchChange={setSearch}
-            searchPlaceholder="Search job card, item, process…"
-            searchLabel={isBoard ? "Search Board" : "Search Calendar"}
-            extraFilters={[
-              {
-                label: "Status",
-                key: "status",
-                value: statusFilter,
-                options: [{ label: "All", value: "all" }, ...STATUS_OPTS.map((s) => ({ label: s, value: s }))],
-                preserveOrder: true,
-              },
-              ...(isBoard
-                ? [
-                    {
-                      label: "Machine",
-                      key: "machine",
-                      value: machineFilter,
-                      options: [
-                        { label: "All", value: "all" },
-                        { label: "Unassigned", value: UNASSIGNED },
-                        ...machines.map((m) => ({ label: `${m.code} — ${m.name}`, value: String(m.id) })),
-                      ],
-                      preserveOrder: true,
-                    },
-                  ]
-                : []),
-            ]}
-            onApply={(data) => {
-              setStatusFilter(data.status || "all");
-              if (isBoard) setMachineFilter(data.machine || "all");
-            }}
-            onReset={() => {
-              setSearch("");
-              setStatusFilter("all");
-              setMachineFilter("all");
-            }}
-          />
-        </ListPageFilterStrip>
+        <ProductionFilters
+          processOptions={processOptions}
+          machineOptions={machineOptions}
+          search={search}
+          onSearchChange={setSearch}
+          searchLabel={isBoard ? "Search Board" : "Search Calendar"}
+          searchPlaceholder={isBoard ? "Search job card, item, process…" : "Search JC no, item, machine…"}
+          statusFilter={statusFilter}
+          statusOptions={[{ label: "All", value: "all" }, ...STATUS_OPTS.map((s) => ({ label: s, value: s }))]}
+          onStatusChange={setStatusFilter}
+          showShiftFilter={!isBoard}
+        />
 
-        <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-auto bg-white">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
           {loading ? (
             <div className="absolute inset-0 z-[90] flex items-center justify-center bg-white/85">
               <div className="flex flex-col items-center gap-2 rounded-xl border border-slate-200 bg-white px-8 py-6 shadow-lg">
@@ -716,20 +606,39 @@ export default function JobCardBoardPage({ initialView = "board" }) {
           ) : null}
 
           {!loading && error ? (
-            <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8">
-              <p className="text-[12px] font-bold text-rose-600">{error}</p>
-              <button type="button" className={btn} onClick={load}>Try again</button>
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
+              <EmptyState
+                isTable={false}
+                icon={AlertCircle}
+                message="Could not load job cards"
+                subMessage={`${error} — use Try again to reload.`}
+              />
+              <button type="button" className={`${btn} -mt-8`} onClick={load}>
+                <RefreshCw size={12} className="mr-1.5" />
+                Try again
+              </button>
             </div>
           ) : null}
 
-          {emptyAuth ? (
-            <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8 text-center">
-              <p className="text-[12px] font-bold text-slate-600">No authorized job cards</p>
-              <button type="button" className={btn} onClick={() => router.push(ROUTES.PRODUCTION_JOB_CARD)}>Maintain Job Card</button>
-            </div>
+          {!loading && !error && isBoard && machines.length === 0 && cards.length === 0 ? (
+            <EmptyState
+              isTable={false}
+              icon={Inbox}
+              message="No authorized job cards"
+              subMessage="Authorize a job card in Maintain Job Card, then it will appear here."
+            />
           ) : null}
 
-          {!loading && !error && cards.length > 0 ? (
+          {!loading && !error && !isBoard && cards.length === 0 ? (
+            <EmptyState
+              isTable={false}
+              icon={Inbox}
+              message="No authorized job cards"
+              subMessage="Authorize a job card in Maintain Job Card, then it will appear here."
+            />
+          ) : null}
+
+          {!loading && !error && (isBoard ? machines.length > 0 || cards.length > 0 : cards.length > 0 && calendarDateKeys.length > 0) ? (
             <DndContext
               sensors={sensors}
               collisionDetection={closestCorners}
@@ -737,33 +646,42 @@ export default function JobCardBoardPage({ initialView = "board" }) {
               onDragCancel={() => setActiveId(null)}
               onDragEnd={isBoard ? onBoardDragEnd : onCalDragEnd}
             >
-              <div className="origin-top-left p-3" style={{ transform: `scale(${zoom})`, width: `${100 / zoom}%` }}>
-                {isBoard ? (
-                  <div className="flex gap-3" style={{ width: "max-content" }}>
-                    {columns.map((col) => (
-                      <MachineCol key={col.id} {...col} canEdit={canEdit} busyId={busyId} onOpen={openCard} onAction={onBoardAction} />
-                    ))}
+              {isBoard ? (
+                <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+                  <div className="origin-top-left" style={{ transform: `scale(${zoom})`, width: `${100 / zoom}%`, height: `${100 / zoom}%` }}>
+                    <div className="flex gap-3 p-3" style={{ width: "max-content" }}>
+                      {columns.map((col) => (
+                        <MachineCol key={col.id} {...col} canEdit={canEdit} busyId={busyId} onOpen={openCard} onAction={onBoardAction} dense={dense} />
+                      ))}
+                    </div>
                   </div>
-                ) : range === "week" ? (
-                  <div className="flex gap-3" style={{ width: "max-content" }}>
-                    {weekCols.map((day) => (
-                      <WeekCol key={day.key} day={day} cards={cardsByDate.get(day.key) || []} canEdit={canEdit} todayKey={todayKey} onOpen={openCard} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-4" style={{ width: "max-content", minWidth: "100%" }}>
-                    {monthGrids.map((grid) => (
-                      <MonthGrid key={grid.monthKey} grid={grid} cardsByDate={cardsByDate} canEdit={canEdit} todayKey={todayKey} onOpen={openCard} />
-                    ))}
-                  </div>
-                )}
-              </div>
-              <DragOverlay>
+                </div>
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <JobCardReportCalendar
+                    dateKeys={calendarDateKeys}
+                    cards={visible}
+                    machines={machines}
+                    processIds={processIds}
+                    machineIds={machineIds}
+                    processOptions={processOptions}
+                    canEdit={canEdit}
+                    onOpen={openCard}
+                  />
+                </div>
+              )}
+              <DragOverlay dropAnimation={null}>
                 {activeCard ? (
-                  <div className="w-[220px] border border-indigo-400 bg-white p-2.5 shadow-md">
-                    <span className="font-mono text-[11px] font-bold text-indigo-600">{activeCard.job_card_no}</span>
-                    <p className="text-[11px] font-bold text-slate-800">{activeCard.prime_item_code}</p>
-                  </div>
+                  isBoard ? (
+                    <div className="w-[220px] border border-indigo-400 bg-white p-2.5 shadow-md">
+                      <span className="font-mono text-[11px] font-bold text-indigo-600">{activeCard.job_card_no}</span>
+                      <p className="text-[11px] font-bold text-slate-800">{activeCard.prime_item_code}</p>
+                    </div>
+                  ) : (
+                    <div className="flex h-5 min-w-[4.5rem] items-center rounded-sm border border-indigo-400 bg-indigo-50 px-1.5 shadow-md">
+                      <span className="font-mono text-[9px] font-bold tabular-nums text-indigo-800">{activeCard.job_card_no}</span>
+                    </div>
+                  )
                 ) : null}
               </DragOverlay>
             </DndContext>

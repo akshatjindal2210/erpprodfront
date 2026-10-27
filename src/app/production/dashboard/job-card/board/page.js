@@ -1,9 +1,7 @@
-import JobCardBoardPage from "@/apps/production/modules/job-card-board/Page";
+import { redirect } from "next/navigation";
+import { ROUTES } from "@/apps/production/lib/utils/routes";
 
-export const metadata = {
-  title: "Job Card Board",
-};
-
+/** Legacy path — Board moved under Production Planning. */
 export default function Page() {
-  return <JobCardBoardPage initialView="board" />;
+  redirect(ROUTES.PRODUCTION_JOB_CARD_BOARD);
 }

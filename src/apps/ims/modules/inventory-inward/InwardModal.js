@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { Check, Loader2, QrCode, MapPin, Package, Plus, X, Trash2, MessageSquare, CheckCircle2, XCircle, Search, ScanLine, Camera, Locate, Layers } from "lucide-react";
 import { inventoryInwardService } from "@/apps/ims/lib/services/inventoryInward";
 import { locationService }        from "@/apps/ims/lib/services/location";
-import { extractLocationNo, detectQrType, extractBoxCode, parseStickerScan, parseTrayScan, normalizeScanInput, boxNoUidDisplayLabel, locationNoDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
+import { extractLocationNo, detectQrType, extractBoxCode, parseStickerScan, parseTrayScan, normalizeScanInput, resolveTrayScanCode, boxNoUidDisplayLabel, locationNoDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
 import { useHtml5QrScanner }      from "@/platform/hooks/scan/useHtml5QrScanner";
 import QrScannerOverlay           from "@/ui/common/scan/QrScannerOverlay";
 import Drawer                     from "@/ui/primitives/Drawer";
@@ -844,9 +844,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
   };
 
   const tryAddTray = async (li, val, source = "manual") => {
-    const normalizedRaw = normalizeScanInput(val);
-    const { code, id } = parseTrayScan(normalizedRaw);
-    const trayKey = String(code || id || "").trim();
+    const trayKey = resolveTrayScanCode(val);
     if (!trayKey) {
       showScanToast("error", "generic-invalid-tray", "Scan a tray after you add a location.", 2000);
       return;
@@ -949,7 +947,8 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
       showScanToast("error", "generic-scan-step2", SCAN_SNACK_MSG.REJECTED);
       return;
     }
-    if (detectedType === "tray" || /^(FG|RM)\d+$/i.test(parseTrayScan(normalizedRaw).code)) {
+    const trayScan = parseTrayScan(normalizedRaw);
+    if (detectedType === "tray" || /^(FG|RM)\d+$/i.test(trayScan.code) || trayScan.id) {
       await tryAddTray(li, normalizedRaw, source);
       return;
     }
@@ -1223,7 +1222,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
 
     if (locIdx !== null && detectQrType(decodedText) === "tray") {
       const now = Date.now();
-      const trayKey = parseTrayScan(decodedText).code || parseTrayScan(decodedText).id || decodedText;
+      const trayKey = resolveTrayScanCode(decodedText) || decodedText;
       const scanKey = `tray:${String(trayKey).toLowerCase()}`;
       if (
         scanKey === lastScanRef.current.key &&

@@ -1,4 +1,4 @@
-import { UserPlus, Globe, Video, SlidersHorizontal, Briefcase, Award, LayoutDashboard, PencilRuler, Bell } from "lucide-react";
+import { UserPlus, Globe, Video, SlidersHorizontal, Briefcase, Award, LayoutDashboard, PencilRuler, Bell, Clock } from "lucide-react";
 import { ROUTES } from "@/apps/settings/configuration/utils/routes";
 
 /** Global settings sidebar — super admin (users, modules, training, app config). */
@@ -39,6 +39,14 @@ export const SETTINGS_NAV_REGISTRY = [
     icon: <Award size={16} />,
     href: ROUTES.SETTINGS_DESIGNATIONS,
     module: "designations",
+  },
+  {
+    id: "shifts",
+    name: "Shifts",
+    icon: <Clock size={16} />,
+    href: ROUTES.SETTINGS_SHIFTS,
+    module: null,
+    roles: ["super_admin", "super admin"],
   },
   {
     id: "modules",

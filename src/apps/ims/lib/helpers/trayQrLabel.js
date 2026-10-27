@@ -1,32 +1,75 @@
-import { buildLocationLabelDataUrlFromSvg, buildLocationLabelDataUrlsForRows, printLocationLabelDataUrls } from "@/apps/ims/lib/helpers/locationQrLabel";
+/** Tray QR — IMS 50×25 mm label (not RM Store location sticker). */
+import {
+  buildLocationLabelDataUrlsForRows,
+  printLocationLabelDataUrls,
+} from "@/apps/ims/lib/helpers/locationQrLabel";
+import { trayQrLabelSizeText } from "@/apps/ims/lib/config/trayQrPrintSize.config";
 import { isTrayPrintable, sortTraysAsc } from "@/apps/ims/lib/helpers/trayHelper";
+import { trayService } from "@/apps/ims/lib/services/tray";
 
-function asLocationShape(tray) {
-  return {
-    location_id: tray?.id ?? null,
-    location_no: tray?.code || "",
-    rack_no: tray?.code || "",
-    shelf_no: "",
-  };
+export function trayLabelSizeText() {
+  return trayQrLabelSizeText();
 }
 
-export function getTrayQrValue(row) {
-  return String(row?.code || "").trim().toUpperCase();
+function trayLabelLines(tray) {
+  const type = String(tray?.type ?? "").trim().toUpperCase();
+  if (!type) return null;
+  const serialRaw = tray?.serial_number;
+  if (serialRaw != null && String(serialRaw).trim() !== "") {
+    const n = Number(serialRaw);
+    const serial = Number.isFinite(n) ? String(Math.trunc(n)).padStart(3, "0") : String(serialRaw).trim();
+    return [type, serial];
+  }
+  const code = String(tray?.code || "").trim().toUpperCase();
+  if (code.startsWith(type)) {
+    const rest = code.slice(type.length).trim();
+    if (rest) return [type, rest];
+  }
+  return null;
 }
 
-export async function buildTrayLabelDataUrlFromSvg(svgElement, tray) {
-  return buildLocationLabelDataUrlFromSvg(svgElement, asLocationShape(tray));
+async function trayQrPayloadMap(rows) {
+  const list = (Array.isArray(rows) ? rows : []).filter(
+    (t) => Number(t?.id) > 0 || String(t?.code || "").trim()
+  );
+  if (!list.length) return {};
+  try {
+    const res = await trayService.getQrPayloads(list);
+    return res?.data?.payloads ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function trayQrValue(tray, payloads) {
+  const code = String(tray?.code || "").trim().toUpperCase();
+  if (tray?.qr_value) return String(tray.qr_value).trim();
+  if (code && payloads[code]) return String(payloads[code]).trim();
+  const id = Number(tray?.id);
+  if (id > 0 && payloads[String(id)]) return String(payloads[String(id)]).trim();
+  return code;
 }
 
 export async function buildTrayLabelDataUrlsForRows(rows = []) {
-  return buildLocationLabelDataUrlsForRows((rows || []).map(asLocationShape));
+  const payloads = await trayQrPayloadMap(rows);
+  const shaped = rows.map((tray) => {
+    const code = String(tray?.code || "").trim().toUpperCase();
+    const lines = trayLabelLines(tray);
+    return {
+      location_id: tray?.id ?? null,
+      location_no: code,
+      qr_value: trayQrValue(tray, payloads),
+      ...(lines ? { label_lines: lines } : {}),
+    };
+  });
+  return buildLocationLabelDataUrlsForRows(shaped);
 }
 
 export function printTrayLabelDataUrls(dataUrls = []) {
   return printLocationLabelDataUrls(dataUrls);
 }
 
-export function downloadTrayLabelDataUrl(row, dataUrl) {
+function downloadTrayLabelDataUrl(row, dataUrl) {
   const code = String(row?.code || row?.id || "label").trim();
   const link = document.createElement("a");
   link.download = `TRAY_${code}.png`;
@@ -34,27 +77,14 @@ export function downloadTrayLabelDataUrl(row, dataUrl) {
   link.click();
 }
 
-const CHUNK_SIZE = 100;
-
-function chunkRows(rows, size) {
-  const chunks = [];
-  for (let i = 0; i < rows.length; i += size) chunks.push(rows.slice(i, i + size));
-  return chunks;
-}
-
-/** Bulk print or download tray QR labels — approved + active only, ASC print order. */
 export async function runTrayLabelBulkExport(mode, rows = []) {
   const list = sortTraysAsc((Array.isArray(rows) ? rows : []).filter(isTrayPrintable));
-  if (!list.length) {
-    return { ok: false, reason: "empty" };
-  }
+  if (!list.length) return { ok: false, reason: "empty" };
 
-  const chunks = chunkRows(list, CHUNK_SIZE);
   const urls = [];
-  for (const chunk of chunks) {
-    const part = await buildTrayLabelDataUrlsForRows(chunk);
-    urls.push(...part);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let i = 0; i < list.length; i += 100) {
+    urls.push(...(await buildTrayLabelDataUrlsForRows(list.slice(i, i + 100))));
+    await new Promise((r) => setTimeout(r, 0));
   }
 
   if (mode === "print") {
@@ -64,7 +94,7 @@ export async function runTrayLabelBulkExport(mode, rows = []) {
 
   for (let i = 0; i < list.length; i++) {
     downloadTrayLabelDataUrl(list[i], urls[i]);
-    if (i < list.length - 1) await new Promise((resolve) => setTimeout(resolve, 120));
+    if (i < list.length - 1) await new Promise((r) => setTimeout(r, 120));
   }
   return { ok: true, count: list.length };
 }

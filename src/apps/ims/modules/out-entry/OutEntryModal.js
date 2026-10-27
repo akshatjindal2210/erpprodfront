@@ -22,7 +22,7 @@ import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettin
 import { isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import LaserScanField from "@/ui/common/scan/LaserScanField";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
-import { detectQrType, parseBoxScanRaw, parseStickerScan, parseTrayScan, boxNoUidDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
+import { detectQrType, parseBoxScanRaw, parseStickerScan, parseTrayScan, resolveTrayScanCode, boxNoUidDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
 import { prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
 import { createScanBatchQueue } from "@/apps/ims/lib/helpers/scanBatchQueue";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
@@ -1662,8 +1662,7 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
   const tryAddTray = useCallback(
     async (rawScanValue) => {
-      const { code, id } = parseTrayScan(rawScanValue);
-      const trayKey = String(code || id || "").trim();
+      const trayKey = resolveTrayScanCode(rawScanValue);
       if (!trayKey) {
         showScanToast("error", "invalid-tray", "Scan a tray QR code.", 2000);
         return;

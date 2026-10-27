@@ -28,7 +28,7 @@ export const asList = (val) => (Array.isArray(val) ? val : []);
 
 export const mapOptions = (ids, rows, existing, idKey, labelKey, fallbackLabelFn) => {
   const existingMap = new Map(existing.map((item) => [String(item[idKey]), item]));
-  const rowsMap = new Map(asList(rows).map((row) => [String(row?.id), row]));
+  const rowsMap = new Map(asList(rows).map((row) => [String(row?.proccode ?? row?.maccode ?? row?.id), row]));
   return asList(ids).map((id) => {
     const key = String(id);
     return (
@@ -108,12 +108,17 @@ export function stagesFromJson(processJson, itemRm = null) {
   return itemRm ? stampItemRmOnStages(mapped, itemRm) : mapped;
 }
 
+/** Process Master "Machine" (inhouse) ON → machines required; OFF → skip (FG / Prime only). */
+function needsMachines(p) {
+  return p?.inhouse !== false;
+}
+
 /** First problem in the stages (toast text), else null. */
 export function validateStages(stages) {
   if (!asList(stages).length) return "Add at least one stage.";
   for (const [sIdx, stage] of stages.entries()) {
     if (!stage.processes.length) return `Select at least one process in Stage ${sIdx + 1}.`;
-    const missing = stage.processes.find((p) => !p.machines.length);
+    const missing = stage.processes.find((p) => needsMachines(p) && !asList(p.machines).length);
     if (missing) return `Select at least one machine for ${missing.process_name} (Stage ${sIdx + 1}).`;
   }
   return null;
@@ -128,7 +133,8 @@ export function buildProcessPayload(stages, itemDcode) {
         process_id: p.process_id,
         process_name: p.process_name,
         process_order: pIdx + 1,
-        machines: p.machines,
+        // Machine OFF in Process Master → empty (same as RM wire OFF → no RM)
+        machines: needsMachines(p) ? asList(p.machines) : [],
         // Respect user unselect — do not re-inject Item RM Master defaults on save
         rm_items: p.rm_wire === false ? [] : asList(p.rm_items),
       })),
@@ -180,13 +186,13 @@ export default function ProcessStagesBlock({
       prev.map((stage, idx) => {
         if (idx !== sIdx) return stage;
         const currentMap = new Map(stage.processes.map((p) => [String(p.process_id), p]));
-        const newRowsMap = new Map(asList(rows).map((r) => [String(r?.id), r]));
+        const newRowsMap = new Map(asList(rows).map((r) => [String(r?.proccode ?? r?.id), r]));
         const validIds = asList(selectedIds);
         const updatedProcesses = validIds.map((id) => {
           const idStr = String(id);
           const existing = currentMap.get(idStr);
           const row = newRowsMap.get(idStr);
-          const name = row?.name || existing?.process_name || `Process ${id}`;
+          const name = row?.procname || row?.name || existing?.process_name || `Process ${id}`;
           if (existing) {
             return { ...existing, process_name: name };
           }
@@ -233,7 +239,7 @@ export default function ProcessStagesBlock({
 
   /** Disable processes used in another stage of this block; keep current stage selections enabled. */
   const isProcessBlocked = (sIdx, item) => {
-    const id = String(item?.id);
+    const id = String(item?.proccode ?? item?.id);
     if (stages[sIdx]?.processIds?.some((x) => String(x) === id)) return false;
     for (let i = 0; i < stages.length; i++) {
       if (i === sIdx) continue;
@@ -298,8 +304,8 @@ export default function ProcessStagesBlock({
                   const res = await processMasterService.getViewById(id, perms);
                   return res?.data ?? null;
                 }}
-                dataKey="id"
-                labelKey="name"
+                dataKey="proccode"
+                labelKey="procname"
                 subLabelKey="path_label"
                 showDuplicateSubLabel
                 labelOnlyDisplay
@@ -410,6 +416,7 @@ function ProcessRow({
   const rmValue = asList(proc.rm_items).map((r) => r.rm_item_dcode);
   // App config `prime_item_rm_wire_selectable`: true → RM dropdown; false/null → read-only defaults.
   const rmOff = proc.rm_wire === false; // Process Master "RM wire" is OFF
+  const machineOff = proc.inhouse === false; // Process Master "Machine" is OFF → FG / Prime only
   const canSelectRm = rmSelectable === true && !readOnly && !rmOff;
   const rmDisplay = rmOff ? [] : asList(proc.rm_items).length ? normalizeRmItems(proc.rm_items) : normalizeRmItems(defaultRm);
 
@@ -429,34 +436,37 @@ function ProcessRow({
         )}
       </div>
 
+      {/* Machine OFF in Process Master → empty cell (no box), same as RM wire OFF. */}
       <div className="relative z-10 min-w-0 w-full">
-        <SearchableSelect
-          multiple
-          showTags
-          maxVisibleTags={6}
-          heightClass="h-auto min-h-8"
-          disabled={readOnly}
-          preserveApiOrder
-          usePortal
-          value={proc.machines.map((m) => m.machine_id)}
-          placeholder="Machines…"
-          onChange={onUpdateMachines}
-          fetchService={(params) =>
-            machineMasterService.getViews({ ...params, ...perms, filters: { process_id: proc.process_id } })
-          }
-          getByIdService={async (id) => {
-            const res = await machineMasterService.getViewById(id, perms);
-            const row = res?.data ?? res ?? null;
-            if (row) return row;
-            const local = asList(proc.machines).find((m) => String(m.machine_id) === String(id));
-            return local
-              ? { id, label: local.machine_label || `Machine ${id}`, name: local.machine_label }
-              : null;
-          }}
-          dataKey="id"
-          labelKey="label"
-          labelOnlyDisplay
-        />
+        {machineOff ? null : (
+          <SearchableSelect
+            multiple
+            showTags
+            maxVisibleTags={6}
+            heightClass="h-auto min-h-8"
+            disabled={readOnly}
+            preserveApiOrder
+            usePortal
+            value={proc.machines.map((m) => m.machine_id)}
+            placeholder="Machines…"
+            onChange={onUpdateMachines}
+            fetchService={(params) =>
+              machineMasterService.getViews({ ...params, ...perms, filters: { macproccode: proc.process_id } })
+            }
+            getByIdService={async (id) => {
+              const res = await machineMasterService.getViewById(id, perms);
+              const row = res?.data ?? res ?? null;
+              if (row) return row;
+              const local = asList(proc.machines).find((m) => String(m.machine_id) === String(id));
+              return local
+                ? { maccode: id, label: local.machine_label || `Machine ${id}`, name: local.machine_label }
+                : null;
+            }}
+            dataKey="maccode"
+            labelKey="label"
+            labelOnlyDisplay
+          />
+        )}
       </div>
 
       {/* RM wire OFF in Process Master → empty cell (no box). */}

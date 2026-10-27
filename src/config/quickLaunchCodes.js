@@ -99,9 +99,9 @@ export const QUICK_LAUNCH_CODES = [
   { code: "PRS", label: "Production Shortage",        route: ROUTES.PRODUCTION_SHORTAGE,     module: "production_shortage",       app: "production" },
   { code: "PRT", label: "Production Tooling",         route: ROUTES.PRODUCTION_TOOLING,      module: "production_tooling",        app: "production" },
   { code: "PRJ", label: "Maintain Job Card",          route: ROUTES.PRODUCTION_JOB_CARD,     module: "production_job_card",       app: "production" },
-  // TODO go-live: uncomment Board / Calendar shortcuts
-  // { code: "PRB", label: "Job Card Board",             route: ROUTES.PRODUCTION_JOB_CARD_BOARD, module: "production_job_card",     app: "production" },
-  // { code: "PRC", label: "Job Card Calendar",          route: ROUTES.PRODUCTION_JOB_CARD_CALENDAR, module: "production_job_card",  app: "production" },
+  { code: "PRB", label: "Job Card Board",             route: ROUTES.PRODUCTION_JOB_CARD_BOARD, module: "production_planning",     app: "production" },
+  { code: "PRC", label: "Job Card Calendar",          route: ROUTES.PRODUCTION_JOB_CARD_CALENDAR, module: "production_planning",  app: "production" },
+  { code: "PRE", label: "Production Entry",           route: ROUTES.PRODUCTION_ENTRY,        module: "production_entry",          app: "production" },
   { code: "PRL", label: "Production Activity Logs",   route: ROUTES.PRODUCTION_ACTIVITY_LOGS,module: "production_activity_logs",  app: "production" },
 
   // ── Engineering (E…) ────────────────────────────────────────────
@@ -130,6 +130,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "US",  label: "User Management",            route: ROUTES.SETTINGS_USERS,          module: "users",                     app: "core" },
   { code: "DP",  label: "Departments",                route: ROUTES.SETTINGS_DEPARTMENTS,    module: "departments",               app: "core" },
   { code: "DG",  label: "Designations",               route: ROUTES.SETTINGS_DESIGNATIONS,   module: "designations",              app: "core" },
+  { code: "SH",  label: "Shifts",                     route: ROUTES.SETTINGS_SHIFTS,         module: "shifts",                    app: "core" },
   { code: "MD",  label: "System Module",              route: ROUTES.SETTINGS_MODULES,        module: "modules",                   app: "core" },
   { code: "TV",  label: "Training & SOPs",            route: ROUTES.SETTINGS_TRAINING,       module: "training_videos",           app: "core" },
   { code: "NT",  label: "Notifications",              route: ROUTES.SETTINGS_NOTIFICATIONS,  module: null,                        app: "core" },

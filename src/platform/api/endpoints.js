@@ -49,6 +49,14 @@ export const CORE_ENDPOINTS = {
     DELETE: `${CORE_API}/auth/designations/delete`,
     HELPER: `${CORE_API}/auth/designations/helper`,
   },
+  SHIFTS: {
+    LIST: `${CORE_API}/auth/shifts/list`,
+    GET: `${CORE_API}/auth/shifts/get`,
+    CREATE: `${CORE_API}/auth/shifts/create`,
+    UPDATE: `${CORE_API}/auth/shifts/update`,
+    TOGGLE_STATUS: `${CORE_API}/auth/shifts/toggle-status`,
+    DELETE: `${CORE_API}/auth/shifts/delete`,
+  },
   ATTRIBUTES: {
     LIST: `${CORE_API}/auth/attributes/list`,
     GET: `${CORE_API}/auth/attributes/get`,

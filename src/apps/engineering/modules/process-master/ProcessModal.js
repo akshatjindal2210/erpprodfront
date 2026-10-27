@@ -13,15 +13,9 @@ import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment"
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { ERR_INPUT, OK_INPUT, FormLabel } from "@/ui/common/Constants";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
-import {
-  IMS_DRAWER_FOOTER_WRAP,
-  IMS_DRAWER_BTN_CANCEL,
-  IMS_DRAWER_BTN_PRIMARY,
-  IMS_DRAWER_BTN_KEEP_PENDING,
-  IMS_DRAWER_BTN_APPROVE,
-} from "@/apps/ims/lib/helpers/masterListUi";
+import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_PRIMARY, IMS_DRAWER_BTN_KEEP_PENDING, IMS_DRAWER_BTN_APPROVE } from "@/apps/ims/lib/helpers/masterListUi";
 
-const FIELD_ORDER = ["name", "parent_id", "stage", "pattern"];
+const FIELD_ORDER = ["procname", "parent_id", "stage", "pattern"];
 const FIELD_INPUT_CLASS =
   "min-h-9 h-9 sm:h-[38px] text-sm sm:text-[11px] rounded-lg border-slate-200 text-slate-900 placeholder:text-slate-500 placeholder:opacity-100";
 
@@ -29,18 +23,18 @@ const IMS_APPROVAL_TOGGLE =
   "w-10 h-5.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-emerald-400";
 
 const FLAG_FIELDS = [
-  { key: "multi_jc", label: "Multiple job card" },
   { key: "rm_wire", label: "RM wire" },
   { key: "tooling", label: "Tooling" },
   { key: "fg", label: "FG" },
   { key: "prime", label: "Prime" },
   { key: "rework", label: "Rework" },
-  { key: "inhouse", label: "Inhouse" },
+  { key: "inhouse", label: "Machine" },
+  { key: "multi_jc", label: "Multiple Machine" },
   { key: "jobwork", label: "Jobwork" },
 ];
 
 const INITIAL_FORM = {
-  name: "",
+  procname: "",
   parent_id: null,
   stage: "MID",
   multi_jc: false,
@@ -95,7 +89,7 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
 
   const isEdit = mode === "edit";
   const isApprove = mode === "approve";
-  const isClone = mode === "add" && editData?.id != null;
+  const isClone = mode === "add" && editData?.proccode != null;
   const sopPermissionType = isApprove ? "authorize" : isEdit ? "edit" : "add";
   // New and Clone both create a record → same Approval Status toggle
   const showApproval = canApprove && mode === "add";
@@ -108,7 +102,7 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
   const sopAckRef = useRef(null);
   const formRef = useRef(null);
 
-  const editId = editData?.id ?? null;
+  const editId = editData?.proccode ?? null;
   const helperBody = useMemo(() => helperPerms(MODULE, sopPermissionType), [MODULE, sopPermissionType]);
 
   useEffect(() => {
@@ -116,7 +110,7 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
     if (open) {
       if (editData && (isEdit || isApprove || isClone)) {
         setForm({
-          name: isClone ? `${editData.name || ""}`.trim() : editData.name || "",
+          procname: isClone ? `${editData.procname || ""}`.trim() : editData.procname || "",
           parent_id: editData.parent_id || null,
           stage: editData.stage || "MID",
           multi_jc: !!editData.multi_jc,
@@ -177,7 +171,7 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
 
   const validate = () => {
     const e = {};
-    if (!form.name?.trim()) e.name = "Name is required";
+    if (!form.procname?.trim()) e.procname = "Name is required";
     if (!isValidRegex(form.pattern)) e.pattern = "Invalid regular expression";
     return e;
   };
@@ -200,7 +194,7 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
       else if (isEdit && editData?.approved) finalApproved = false;
 
       const payload = {
-        name: form.name.trim(),
+        procname: form.procname.trim(),
         parent_id: form.parent_id || null,
         stage: form.stage || "MID",
         multi_jc: !!form.multi_jc,
@@ -217,7 +211,7 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
 
       const isUpdate = isEdit || isApprove;
       const response = isUpdate
-        ? await processMasterService.update(editData.id, payload)
+        ? await processMasterService.update(editData.proccode, payload)
         : await processMasterService.create(payload);
 
       toast.success(response?.message || "Successfully saved");
@@ -296,18 +290,18 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="space-y-1 md:col-span-2" data-field="name">
+          <div className="space-y-1 md:col-span-2" data-field="procname">
             <FormLabel required>Name</FormLabel>
             <input
-              value={form.name}
-              onChange={(e) => handleChange("name", e.target.value)}
-              className={`${errors.name ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS} w-full`}
+              value={form.procname}
+              onChange={(e) => handleChange("procname", e.target.value)}
+              className={`${errors.procname ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS} w-full`}
               placeholder="e.g. Turning, Assembly"
             />
-            {errors.name && (
+            {errors.procname && (
               <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold">
                 <AlertCircle size={10} />
-                {errors.name}
+                {errors.procname}
               </p>
             )}
           </div>
@@ -323,7 +317,7 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
                 processMasterService.getViews({
                   ...params,
                   ...helperBody,
-                  exclude_id: isEdit || isApprove ? editData?.id : undefined,
+                  exclude_id: isEdit || isApprove ? editData?.proccode : undefined,
                   filters: { approved: true },
                 })
               }
@@ -332,15 +326,15 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
                 const row = res?.data;
                 return row
                   ? {
-                      id: row.id,
-                      name: row.name,
-                      label: row.name,
-                      path_label: row.path_label || row.name,
+                      proccode: row.proccode,
+                      procname: row.procname,
+                      label: row.procname,
+                      path_label: row.path_label || row.procname,
                     }
                   : null;
               }}
-              dataKey="id"
-              labelKey="name"
+              dataKey="proccode"
+              labelKey="procname"
               subLabelKey="path_label"
               labelOnlyDisplay
               usePortal={false}

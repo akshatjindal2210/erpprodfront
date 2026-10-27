@@ -17,4 +17,6 @@ export const ROUTES = {
   DESIGNATIONS: "/settings/designations",
   SETTINGS_NOTIFICATIONS: "/settings/notifications",
   NOTIFICATIONS: "/settings/notifications",
+  SETTINGS_SHIFTS: "/settings/shifts",
+  SHIFTS: "/settings/shifts",
 };

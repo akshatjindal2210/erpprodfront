@@ -27,6 +27,19 @@ const cache = {
   dailyProd: null
 };
 
+const FY_LIST_LS = "imsFinancialYearList";
+let fyListInflight = null;
+
+function readFyListFromStorage() {
+  if (typeof window === "undefined") return null;
+  try {
+    const rows = JSON.parse(localStorage.getItem(FY_LIST_LS) || "null");
+    return Array.isArray(rows) && rows.length ? rows : null;
+  } catch {
+    return null;
+  }
+}
+
 const DAILY_PROD_LIST_SLICE_TTL_MS = 60_000;
 /** @type {Map<string, { at: number, data: unknown[], total: number }>} */
 const dailyProdListSliceCache = new Map();
@@ -514,6 +527,23 @@ export const masterService = {
     return promise;
   },
 
-  getFinancialYears: () => api(ENDPOINTS.MASTER.FINANCIAL_YEARS, { method: "POST" }),
+  getFinancialYears: () => {
+    const cached = readFyListFromStorage();
+    if (cached) return Promise.resolve({ success: true, data: cached });
+    if (fyListInflight) return fyListInflight;
+    fyListInflight = api(ENDPOINTS.MASTER.FINANCIAL_YEARS, { method: "POST" })
+      .then((res) => {
+        if (res?.success && res.data?.length) {
+          localStorage.setItem(FY_LIST_LS, JSON.stringify(res.data));
+        }
+        fyListInflight = null;
+        return res;
+      })
+      .catch((e) => {
+        fyListInflight = null;
+        throw e;
+      });
+    return fyListInflight;
+  },
 };
 

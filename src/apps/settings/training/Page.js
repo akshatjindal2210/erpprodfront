@@ -17,6 +17,7 @@ import ViewToggle from "@/ui/primitives/ViewToggle";
 import VideoModal from "./VideoModal";
 import SopModal from "./SopModal";
 import NotificationTemplateModal from "@/apps/settings/notifications/NotificationTemplateModal";
+import NotifyTemplateListModal from "./NotifyTemplateListModal";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
 import AppListFooter, { appListFooterFromClientFilter } from "@/ui/common/list/listPageFooter";
@@ -162,6 +163,8 @@ export default function TrainingPage() {
   const [notifyTemplates, setNotifyTemplates] = useState([]);
   const [notifyOptions, setNotifyOptions] = useState(null);
   const [selectedNotifySlot, setSelectedNotifySlot] = useState(null);
+  /** When set, show multi-template list for module + trigger (then Add / Edit opens form). */
+  const [notifyListSlot, setNotifyListSlot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
 
@@ -311,29 +314,55 @@ export default function TrainingPage() {
       });
   }, [notifyOptions]);
 
-  /** Same UX as SOP / training video: click cell → open add or edit drawer directly. */
+  const openNotifyForm = useCallback(
+    ({ mod, event, existing = null, viewOnly = false }) => {
+      ensureNotifyOptions();
+      if (existing) {
+        setSelectedNotifySlot({
+          isEdit: true,
+          id: existing.id,
+          existingData: existing,
+          moduleId: mod.id,
+          modLabel: mod.label || mod.name,
+          presetEvents: [event],
+          lockModule: true,
+          lockEvents: true,
+          canDelete: canDeleteTraining,
+          viewOnly,
+        });
+        return;
+      }
+      setSelectedNotifySlot({
+        isEdit: false,
+        moduleId: mod.id,
+        modLabel: mod.label || mod.name,
+        presetEvents: [event],
+        lockModule: true,
+        lockEvents: true,
+        canDelete: canDeleteTraining,
+        viewOnly: false,
+      });
+    },
+    [ensureNotifyOptions, canDeleteTraining]
+  );
+
+  /** Notify cell: 0 templates → add form; 1+ → list so multiple templates are visible. */
   const handleNotifyClick = (mod, perm) => {
     const existingList = getNotify(mod.id, perm);
-    const existing = existingList[0] ?? null;
     const event = PERM_TO_EVENT[perm];
     if (!event) return;
 
-    if (existing) {
+    if (existingList.length > 0) {
       if (!canEditTraining && !canViewTraining) {
         toast.error("You do not have permission to view this notification template.");
         return;
       }
       ensureNotifyOptions();
-      setSelectedNotifySlot({
-        isEdit: true,
-        id: existing.id,
-        existingData: existing,
-        moduleId: mod.id,
+      setNotifyListSlot({
+        mod,
+        perm,
+        event,
         modLabel: mod.label || mod.name,
-        lockModule: true,
-        lockEvents: true,
-        canDelete: canDeleteTraining,
-        viewOnly: !canEditTraining && canViewTraining,
       });
       return;
     }
@@ -342,18 +371,17 @@ export default function TrainingPage() {
       toast.error("You do not have permission to add notification templates.");
       return;
     }
-    ensureNotifyOptions();
-    setSelectedNotifySlot({
-      isEdit: false,
-      moduleId: mod.id,
-      modLabel: mod.label || mod.name,
-      presetEvents: [event],
-      lockModule: true,
-      lockEvents: true,
-      canDelete: canDeleteTraining,
-      viewOnly: false,
-    });
+    openNotifyForm({ mod, event });
   };
+
+  const reloadNotifyTemplates = useCallback(async () => {
+    try {
+      const res = await notificationTemplateService.getAll({ page: 1, limit: 5000 });
+      setNotifyTemplates(res.data || []);
+    } catch (err) {
+      toast.error(err?.message || "Failed to reload notification templates");
+    }
+  }, []);
 
   const sopCellDisabled = useCallback(
     (modId, perm) => {
@@ -668,6 +696,30 @@ export default function TrainingPage() {
           }}
         />
       )}
+      {notifyListSlot && !selectedNotifySlot && (
+        <NotifyTemplateListModal
+          slot={notifyListSlot}
+          templates={getNotify(notifyListSlot.mod.id, notifyListSlot.perm)}
+          options={notifyOptions}
+          canAdd={canAddTraining}
+          canEdit={canEditTraining}
+          canDelete={canDeleteTraining}
+          viewOnly={!canEditTraining && canViewTraining}
+          onClose={() => setNotifyListSlot(null)}
+          onAdd={() => openNotifyForm({ mod: notifyListSlot.mod, event: notifyListSlot.event })}
+          onEdit={(row) =>
+            openNotifyForm({
+              mod: notifyListSlot.mod,
+              event: notifyListSlot.event,
+              existing: row,
+              viewOnly: !canEditTraining && canViewTraining,
+            })
+          }
+          onDeleted={async () => {
+            await reloadNotifyTemplates();
+          }}
+        />
+      )}
       {selectedNotifySlot && (
         <NotificationTemplateModal
           slot={selectedNotifySlot}
@@ -675,13 +727,10 @@ export default function TrainingPage() {
           onClose={() => setSelectedNotifySlot(null)}
           onSuccess={async () => {
             setSelectedNotifySlot(null);
-            try {
-              const res = await notificationTemplateService.getAll({ page: 1, limit: 5000 });
-              setNotifyTemplates(res.data || []);
-            } catch (err) {
-              toast.error(err?.message || "Failed to reload notification templates");
-            }
+            await reloadNotifyTemplates();
+            // Keep list open when managing multiple templates for this cell
           }}
+          stackLevel={notifyListSlot ? 1 : 0}
         />
       )}
     </div>

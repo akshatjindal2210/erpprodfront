@@ -1,6 +1,8 @@
-/** IMS-style 50×25 mm machine label — tune sizes only here. */
-const LABEL_W_MM = 50;
-const LABEL_H_MM = 25;
+import { QR_LABEL_PRINT, buildQrLabelPrintDocumentHtml, qrLabelPrintCssMm } from "@/platform/config/qrLabelPrintSize.config";
+
+/** Machine label layout — paper mm → platform/config/qrLabelPrintSize.config.js */
+const LABEL_W_MM = QR_LABEL_PRINT.locationAndMachineMm.widthMm;
+const LABEL_H_MM = QR_LABEL_PRINT.locationAndMachineMm.heightMm;
 const PX_PER_MM = 12;
 const CONTENT_W_RATIO = 0.92;
 const CONTENT_H_RATIO = 0.82;
@@ -11,12 +13,12 @@ const INNER_GAP_Y = 6;
 const QR_SOURCE_PX = 256;
 
 export function getMachineDisplayNo(data) {
-  return String(data?.number || "").trim() || "—";
+  return String(data?.macno || "").trim() || "—";
 }
 
 /** Encoded QR string — prefer API `qr_value` (public URL), else plain machine number. */
 export function getMachineQrValue(data) {
-  return String(data?.qr_value || data?.number || "")
+  return String(data?.qr_value || data?.macno || "")
     .toString()
     .trim();
 }
@@ -105,51 +107,17 @@ export function buildMachineLabelDataUrlFromSvg(svgElement, data) {
 /** @returns {boolean} false if the browser blocked the print pop-up */
 export function printMachineLabelDataUrls(dataUrls) {
   if (!dataUrls?.length) return false;
-  const pages = dataUrls
-    .map((url) => `<div class="label-page"><div class="label"><img src="${url}" alt=""></div></div>`)
-    .join("");
   const printWin = window.open("", "", "width=500,height=600");
   if (!printWin) return false;
-  printWin.document.write(`
-    <html>
-      <head>
-        <style>
-          @page { size: 50mm 25mm; margin: 0; }
-          html, body { margin: 0; padding: 0; background: #fff; }
-          .label-page {
-            width: 50mm;
-            height: 25mm;
-            page-break-after: always;
-            overflow: hidden;
-          }
-          .label-page:last-child { page-break-after: auto; }
-          .label {
-            width: 50mm;
-            height: 25mm;
-            display: block;
-            box-sizing: border-box;
-          }
-          .label img {
-            width: 100%;
-            height: 100%;
-            display: block;
-            object-fit: fill;
-            image-rendering: -webkit-optimize-contrast;
-            image-rendering: crisp-edges;
-          }
-        </style>
-      </head>
-      <body onload="setTimeout(() => { window.print(); window.close(); }, 250)">
-        ${pages}
-      </body>
-    </html>
-  `);
+  printWin.document.write(
+    buildQrLabelPrintDocumentHtml(dataUrls, qrLabelPrintCssMm(QR_LABEL_PRINT.locationAndMachineMm))
+  );
   printWin.document.close();
   return true;
 }
 
 export function downloadMachineLabelDataUrl(data, dataUrl) {
-  const slug = String(data?.number || data?.id || "label").replace(/[^\w.-]+/g, "_");
+  const slug = String(data?.macno || data?.maccode || "label").replace(/[^\w.-]+/g, "_");
   const link = document.createElement("a");
   link.download = `MACHINE_${slug}.png`;
   link.href = dataUrl;

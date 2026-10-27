@@ -10,7 +10,7 @@ function missingHelperPage(method) {
   });
 }
 
-/** Keep helper order as API returned (id ASC). */
+/** Keep helper order as API returned (proccode ASC). */
 function keepApiOrder(res) {
   const list = Array.isArray(res?.data) ? res.data : [];
   return { data: list, total: res?.total ?? list.length };
@@ -18,11 +18,11 @@ function keepApiOrder(res) {
 
 export const processMasterService = {
   getAll: (params) => api(ENDPOINTS.PROCESS_MASTER.LIST, { method: "POST", body: params }),
-  getById: (id) => api(ENDPOINTS.PROCESS_MASTER.GET, { method: "POST", body: { id } }),
+  getById: (proccode) => api(ENDPOINTS.PROCESS_MASTER.GET, { method: "POST", body: { proccode } }),
   create: (data) => api(ENDPOINTS.PROCESS_MASTER.CREATE, { method: "POST", body: data }),
-  update: (id, data) => api(ENDPOINTS.PROCESS_MASTER.UPDATE, { method: "POST", body: { id, ...data } }),
-  delete: (id) => api(ENDPOINTS.PROCESS_MASTER.DELETE, { method: "POST", body: { id } }),
-  /** Dropdown helper — requires permission_module + permission_action from the calling page. Sorted by id ASC. */
+  update: (proccode, data) => api(ENDPOINTS.PROCESS_MASTER.UPDATE, { method: "POST", body: { proccode, ...data } }),
+  delete: (proccode) => api(ENDPOINTS.PROCESS_MASTER.DELETE, { method: "POST", body: { proccode } }),
+  /** Dropdown helper — requires permission_module + permission_action from the calling page. Sorted by proccode ASC. */
   getViews: (params = {}) => {
     const { permission_module, permission_action = "view", ...rest } = params;
     if (!permission_module) return missingHelperPage("getViews");
@@ -32,12 +32,12 @@ export const processMasterService = {
     }).then(keepApiOrder);
   },
   /** Resolve one process for SearchableSelect via helper (no eng_process_master.view needed). */
-  getViewById: async (id, perms = {}) => {
+  getViewById: async (proccode, perms = {}) => {
     const { permission_module, permission_action = "view" } = perms;
     if (!permission_module) return missingHelperPage("getViewById");
     const res = await api(ENDPOINTS.PROCESS_MASTER.HELPER, {
       method: "POST",
-      body: { permission_module, permission_action, id },
+      body: { permission_module, permission_action, proccode },
     });
     const row = Array.isArray(res?.data) ? res.data[0] : null;
     return row ? { success: true, data: row } : { success: false, data: null };

@@ -6,7 +6,7 @@ import { toast } from "react-toastify";
 import Drawer from "@/ui/primitives/Drawer";
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { isTrayPrintable, sortTraysAsc } from "@/apps/ims/lib/helpers/trayHelper";
-import { runTrayLabelBulkExport } from "@/apps/ims/lib/helpers/trayQrLabel";
+import { runTrayLabelBulkExport, trayLabelSizeText } from "@/apps/ims/lib/helpers/trayQrLabel";
 
 export default function TrayBulkQRDrawer({
   isOpen,
@@ -81,7 +81,7 @@ export default function TrayBulkQRDrawer({
       isOpen={isOpen}
       onClose={onClose}
       title="Bulk QR labels"
-      description="Active authorized trays"
+      description={`Active authorized trays · ${trayLabelSizeText()}`}
       maxWidth="max-w-lg"
       stackLevel={stackLevel}
       bodyScrollable={false}

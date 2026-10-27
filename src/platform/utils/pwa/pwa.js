@@ -13,11 +13,14 @@ export function isPwaStandalone() {
 
 export function isIosDevice() {
   if (typeof navigator === "undefined") return false;
-  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+  // Classic iPhone/iPad UA, or iPad/iPhone “Request Desktop Website” (reports as MacIntel + touch)
+  if (/iphone|ipad|ipod/i.test(navigator.userAgent)) return true;
+  return navigator.platform === "MacIntel" && Number(navigator.maxTouchPoints || 0) > 1;
 }
 
 export function isMobileDevice() {
   if (typeof navigator === "undefined") return false;
+  if (isIosDevice()) return true;
   return /android|iphone|ipad|ipod|mobi|mini|tablet/i.test(navigator.userAgent.toLowerCase());
 }
 

@@ -32,10 +32,11 @@ export function sumShownTimeSeconds(estimate) {
   return total;
 }
 
-/** "100 pcs / 1m" — machine speed per cycle duration (Machine Master). */
+/** Machine cavity (was speed) per cycle duration (Machine Master). */
 export function speedText(m) {
-  if (!m.duration) return "—";
-  return `${Number(m.speed || 1).toLocaleString()} pcs / ${formatProductionDuration(m.duration)}`;
+  if (!m.maccycletime) return "—";
+  const cavity = m.cavity != null && String(m.cavity).trim() !== "" ? String(m.cavity).trim() : "—";
+  return `${cavity} / ${formatProductionDuration(m.maccycletime)}`;
 }
 
 export function useJobCardProductionEstimate({ itemDcode, qty, stages, picks, active = true }) {

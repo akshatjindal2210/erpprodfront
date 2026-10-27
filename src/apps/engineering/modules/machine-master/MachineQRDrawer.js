@@ -30,7 +30,7 @@ export default function MachineQRDrawer({ isOpen, onClose, machineId }) {
       .then((res) => {
         if (cancelled) return;
         const row = res?.data ?? res;
-        if (!row?.qr_value && !row?.number) {
+        if (!row?.qr_value && !row?.macno) {
           toast.error("Could not load machine QR.");
           return;
         }
@@ -124,7 +124,7 @@ export default function MachineQRDrawer({ isOpen, onClose, machineId }) {
                   M/C-NO: {displayNo}
                 </h2>
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-1">
-                  {data?.name || "—"}
+                  {data?.macname || "—"}
                 </p>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.3em] mt-1">
                   Scan for full details
@@ -150,8 +150,8 @@ export default function MachineQRDrawer({ isOpen, onClose, machineId }) {
                 <Cpu size={12} />
                 <span className="text-[10px] font-bold uppercase tracking-wider">Name</span>
               </div>
-              <p className="text-sm font-bold text-slate-800 uppercase truncate" title={data.name}>
-                {data.name || "—"}
+              <p className="text-sm font-bold text-slate-800 uppercase truncate" title={data.macname}>
+                {data.macname || "—"}
               </p>
             </div>
             <div className="p-3 bg-white border border-slate-100 rounded-2xl shadow-sm col-span-2">

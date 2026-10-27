@@ -37,7 +37,7 @@ function formatDuration(seconds) {
 export default function MachineMasterPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, handleViewMode] = useViewMode();
-  const [params, setParams] = useState({ pageSize: 1000, status: "all", sortKey: "id", sortDir: "desc" });
+  const [params, setParams] = useState({ pageSize: 1000, status: "all", sortKey: "maccode", sortDir: "desc" });
   const [tempSearch, setTempSearch] = useState("");
   const [allRows, setAllRows] = useState([]);
   const [displayLimit, setDisplayLimit] = useState(100);
@@ -53,7 +53,7 @@ export default function MachineMasterPage() {
     setLoading(true);
     try {
       const base = {
-        sortBy: params.sortKey || "id",
+        sortBy: params.sortKey || "maccode",
         order: params.sortDir.toUpperCase(),
         filters: {
           ...(params.status !== "all" && { approved: params.status === "approved" }),
@@ -86,15 +86,15 @@ export default function MachineMasterPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
-  const selectedRecord = useMemo(() => filteredRows.find((u) => u.id === selected), [filteredRows, selected]);
-  const getSelectedRow = useCallback(() => filteredRows.find((u) => u.id === selected), [filteredRows, selected]);
+  const selectedRecord = useMemo(() => filteredRows.find((u) => u.maccode === selected), [filteredRows, selected]);
+  const getSelectedRow = useCallback(() => filteredRows.find((u) => u.maccode === selected), [filteredRows, selected]);
 
   const openPrintModal = useCallback(() => {
     if (!selected || !selectedRecord?.approved) {
       toast.info("Select an authorized machine to print QR.");
       return;
     }
-    setQrMachineId(selectedRecord.id);
+    setQrMachineId(selectedRecord.maccode);
     setQrModalOpen(true);
   }, [selected, selectedRecord]);
 
@@ -115,7 +115,7 @@ export default function MachineMasterPage() {
       else toast.info("Select a pending row to open approve (Ctrl+A).");
     }, [selectedRecord]),
     onPrint: useCallback((row) => {
-      setQrMachineId(row.id);
+      setQrMachineId(row.maccode);
       setQrModalOpen(true);
     }, []),
     canPrintSelection: useCallback(
@@ -130,17 +130,17 @@ export default function MachineMasterPage() {
   });
 
   const HEADERS = [
-    ["Number", "number", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px] uppercase">{v || "—"}</span>, { fixed: true, width: "110px", copyValue: (row) => row.number || "—" }],
-    ["Name", "macname", (v, row) => <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{v || row?.name || "—"}</span>, { width: "160px", copyValue: (row) => row.macname || row.name || "—" }],
+    ["Number", "macno", (v) => <span className="font-mono text-indigo-600 font-bold text-[10px] uppercase">{v || "—"}</span>, { fixed: true, width: "110px", copyValue: (row) => row.macno || "—" }],
+    ["Name", "macname", (v) => <span className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{v || "—"}</span>, { width: "160px", copyValue: (row) => row.macname || "—" }],
     ["Process", "process_name", (v) => (
       <span className="text-[10px] font-bold text-slate-600 uppercase whitespace-normal break-words leading-snug" title={v}>{v || "—"}</span>
     ), { width: "160px", wrap: true, copyValue: (row) => row.process_name || "—" }],
-    ["Speed", "speed", (v) => (
+    ["Speed", "cavity", (v) => (
       <span className="font-black text-slate-700 text-[11px]">{v != null && String(v).trim() !== "" ? String(v) : "—"}</span>
     ), { width: "80px", align: "center" }],
-    ["Duration", "duration", (v) => (
+    ["Duration", "maccycletime", (v) => (
       <span className="font-black text-slate-700 text-[11px]">{formatDuration(v)}</span>
-    ), { width: "100px", align: "center", copyValue: (row) => formatDuration(row.duration) }],
+    ), { width: "100px", align: "center", copyValue: (row) => formatDuration(row.maccycletime) }],
     ["Setup Time", "setup_time", (v) => (
       <span className="font-black text-slate-700 text-[11px]">{formatDuration(v)}</span>
     ), { width: "100px", align: "center", copyValue: (row) => formatDuration(row.setup_time) }],
@@ -234,7 +234,7 @@ export default function MachineMasterPage() {
             showDate={false}
             extraFilters={extraFilters}
             onApply={(data) => setParams((p) => ({ ...p, status: data.approvedStatus || p.status }))}
-            onReset={() => { setTempSearch(""); setParams({ pageSize: 1000, status: "all", sortKey: "id", sortDir: "desc" }); }}
+            onReset={() => { setTempSearch(""); setParams({ pageSize: 1000, status: "all", sortKey: "maccode", sortDir: "desc" }); }}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
             searchPlaceholder="Search number, name, process..."
@@ -252,7 +252,7 @@ export default function MachineMasterPage() {
               setParams((p) => ({ ...p, sortKey: key, sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc" }));
             }}
             selectedId={selected} onSelect={setSelected}
-            getRowId={(item) => item.id}
+            getRowId={(item) => item.maccode}
             onLoadMore={() => { if (!loading && items.length < totalItems) setDisplayLimit((n) => n + 100); }}
             hasMore={items.length < totalItems}
             totalItems={totalItems}
@@ -265,7 +265,7 @@ export default function MachineMasterPage() {
           noun="Machines"
           selected={selected}
           selectedRecord={selectedRecord}
-          selectionLabel={(row) => row?.number || row?.name || "—"}
+          selectionLabel={(row) => row?.macno || row?.macname || "—"}
           onClearSelection={() => setSelected(null)}
         />
       </div>
@@ -285,8 +285,8 @@ export default function MachineMasterPage() {
           onSuccess={() => { fetchRows(); setSelected(null); }}
           service={machineMasterService}
           entityLabel="Machine"
-          idKey="id"
-          titleKey="number"
+          idKey="maccode"
+          titleKey="macno"
           moduleSlug={MODULE}
         />
       )}

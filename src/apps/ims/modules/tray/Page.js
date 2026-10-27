@@ -23,7 +23,7 @@ import TrayBatchDrawer from "./TrayBatchDrawer";
 import TrayBulkQRDrawer from "./TrayBulkQRDrawer";
 import { trayService } from "@/apps/ims/lib/services/tray";
 import { getBatchNonDeletedCount, getBatchPendingCount, isTrayPrintable, sortTraysAsc } from "@/apps/ims/lib/helpers/trayHelper";
-import { runTrayLabelBulkExport } from "@/apps/ims/lib/helpers/trayQrLabel";
+import { runTrayLabelBulkExport, trayLabelSizeText } from "@/apps/ims/lib/helpers/trayQrLabel";
 
 const batchStatusBadge = (row) => {
   const approved = row?.approved === true || row?.approved === 1 || String(row?.approved).toLowerCase() === "true";
@@ -569,8 +569,8 @@ export default function TrayPage() {
                 <ActionButton module="tray_master" action="delete" variant="danger" label="Delete" icon={Trash2} disabled={!selectedBatch || !getBatchNonDeletedCount(selectedBatch) || Number(selectedBatch.in_use_count) > 0}
                 title={Number(selectedBatch?.in_use_count) > 0 ? "Cannot delete. A tray in this batch is already in use." : undefined} onClick={() => setDeleteBatchItem(selectedBatch)} className={IMS_BTN} />
                 <div className="hidden sm:block w-px h-6 bg-slate-300 mx-1" />
-                <PrintActionButton module="tray_master" variant="outline" label="Print QR" icon={Printer} disabled={!selectedBatch || !batchFullyAuthorized || printBusy} onClick={() => void handleBatchPrintQr()} title="Print all QR labels in selected batch (Ctrl+Alt+P)" className={IMS_OUT} />
-                <ActionButton module="tray_master" action="view" variant="outline" label="Bulk QR" icon={Layers} onClick={() => void openBulkQr()} title="Select multiple trays — print or download QR labels" className={IMS_OUT} />
+                <PrintActionButton module="tray_master" variant="outline" label="Print QR" icon={Printer} disabled={!selectedBatch || !batchFullyAuthorized || printBusy} onClick={() => void handleBatchPrintQr()} title={`Print all QR labels in selected batch (${trayLabelSizeText()}) (Ctrl+Alt+P)`} className={IMS_OUT} />
+                <ActionButton module="tray_master" action="view" variant="outline" label="Bulk QR" icon={Layers} onClick={() => void openBulkQr()} title={`Select multiple trays — print or download QR labels (${trayLabelSizeText()})`} className={IMS_OUT} />
                 <button type="button" onClick={() => fetchTrays()} className="h-9 px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 rounded-none flex items-center justify-center gap-2 text-[11px] font-bold uppercase transition-all shadow-none">
                   <RefreshCcw size={14} className={loading ? "animate-spin" : ""} />
                   <span className="hidden xs:inline">Refresh</span>

@@ -166,3 +166,22 @@ export const EVENT_BADGE_TONE = {
   delete: "bg-rose-50 text-rose-700 border-rose-200",
   approve: "bg-violet-50 text-violet-700 border-violet-200",
 };
+
+/** Optional conditions on a template (empty = always send). */
+export const CONDITION_OPERATOR_OPTIONS = [
+  { value: "equals", label: "Equals" },
+  { value: "not_equals", label: "Not equals" },
+  { value: "in", label: "In (comma-separated)" },
+  { value: "contains", label: "Contains" },
+  { value: "greater_than", label: "Greater than" },
+  { value: "less_than", label: "Less than" },
+];
+
+export const CONDITION_LOGIC_OPTIONS = [
+  { value: "AND", label: "AND — all must match" },
+  { value: "OR", label: "OR — any match" },
+];
+
+export function emptyCondition() {
+  return { field: "", operator: "equals", value: "" };
+}

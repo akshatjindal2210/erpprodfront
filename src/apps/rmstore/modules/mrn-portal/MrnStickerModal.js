@@ -39,6 +39,7 @@ import { formatDocDate } from "@/platform/utils/core/utilHelper";
 import FilePreviewLink from "@/ui/common/system/FilePreviewLink";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import { uploadAccept, uploadUrl } from "@/lib/documents";
+import { QR_LABEL_PRINT } from "@/platform/config/qrLabelPrintSize.config";
 
 const ACCEPT = uploadAccept("rm_mrn_portal");
 
@@ -75,9 +76,9 @@ function isDetailApproved(detail) {
   return detail?.sticker_approved !== false;
 }
 
-/** Sticker / sticker-stand size — change these two; keep in sync with coilStickerDesign.js */
-const RM_STICKER_WIDTH_MM = 65;
-const RM_STICKER_HEIGHT_MM = 85;
+/** Sticker preview — print mm from platform config; HTML print also backend coilStickerDesign.js */
+const RM_STICKER_WIDTH_MM = QR_LABEL_PRINT.rmCoilStickerMm.widthMm;
+const RM_STICKER_HEIGHT_MM = QR_LABEL_PRINT.rmCoilStickerMm.heightMm;
 const STICKER_PREVIEW_W_PX = (RM_STICKER_WIDTH_MM / 25.4) * 96;
 const STICKER_PREVIEW_H_PX = (RM_STICKER_HEIGHT_MM / 25.4) * 96;
 

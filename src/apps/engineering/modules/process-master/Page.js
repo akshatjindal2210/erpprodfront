@@ -23,7 +23,7 @@ import { applyClientSearch, fetchAllListPages, sortRowsByKey } from "@/ui/common
 import { ENG_MODULES } from "@/apps/engineering/lib/config/modules";
 
 const MODULE = ENG_MODULES.PROCESS_MASTER;
-const DEFAULT_PARAMS = { pageSize: 1000, status: "all", sortKey: "id", sortDir: "desc" };
+const DEFAULT_PARAMS = { pageSize: 1000, status: "all", sortKey: "proccode", sortDir: "desc" };
 
 /** "A > B > C" → parent path "A > B" (empty for a master). */
 const parentPath = (row) => String(row.path_label || "").split(" > ").slice(0, -1).join(" > ");
@@ -60,7 +60,7 @@ export default function ProcessMasterPage() {
     setLoading(true);
     try {
       const base = {
-        sortBy: params.sortKey || "id",
+        sortBy: params.sortKey || "proccode",
         order: params.sortDir.toUpperCase(),
         filters: {
           ...(params.status !== "all" && { approved: params.status === "approved" }),
@@ -93,8 +93,8 @@ export default function ProcessMasterPage() {
 
   const items = useMemo(() => filteredRows.slice(0, displayLimit), [filteredRows, displayLimit]);
   const totalItems = filteredRows.length;
-  const selectedRecord = useMemo(() => filteredRows.find((u) => u.id === selected), [filteredRows, selected]);
-  const getSelectedRow = useCallback(() => filteredRows.find((u) => u.id === selected), [filteredRows, selected]);
+  const selectedRecord = useMemo(() => filteredRows.find((u) => u.proccode === selected), [filteredRows, selected]);
+  const getSelectedRow = useCallback(() => filteredRows.find((u) => u.proccode === selected), [filteredRows, selected]);
 
   const { openNewModal, openEditModal, tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
@@ -117,7 +117,7 @@ export default function ProcessMasterPage() {
   });
 
   const HEADERS = [
-    ["Process", "name", (v, row) => {
+    ["Process", "procname", (v, row) => {
       const under = parentPath(row);
       return (
         <div className="flex flex-col leading-tight py-1">
@@ -125,7 +125,7 @@ export default function ProcessMasterPage() {
           {under && <span className="text-[9px] text-slate-400 whitespace-normal break-words">{under}</span>}
         </div>
       );
-    }, { fixed: true, width: "260px", wrap: true, copyValue: (row) => row.path_label || row.name || "—" }],
+    }, { fixed: true, width: "260px", wrap: true, copyValue: (row) => row.path_label || row.procname || "—" }],
     ["Level", "depth", (v, row) => (
       <span className="font-bold text-indigo-600 uppercase text-[10px] tracking-tight">
         {Number(v) > 0 ? `L${v}` : "Master"}
@@ -252,7 +252,7 @@ export default function ProcessMasterPage() {
               setParams((p) => ({ ...p, sortKey: key, sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc" }));
             }}
             selectedId={selected} onSelect={setSelected}
-            getRowId={(item) => item.id}
+            getRowId={(item) => item.proccode}
             onLoadMore={() => { if (!loading && items.length < totalItems) setDisplayLimit((n) => n + 100); }}
             hasMore={items.length < totalItems}
             totalItems={totalItems}
@@ -265,7 +265,7 @@ export default function ProcessMasterPage() {
           noun="Processes"
           selected={selected}
           selectedRecord={selectedRecord}
-          selectionLabel={(row) => row?.path_label || row?.name || "—"}
+          selectionLabel={(row) => row?.path_label || row?.procname || "—"}
           onClearSelection={() => setSelected(null)}
         />
       </div>
@@ -280,8 +280,8 @@ export default function ProcessMasterPage() {
           onSuccess={() => { fetchRows(); setSelected(null); }}
           service={processMasterService}
           entityLabel="Process"
-          idKey="id"
-          titleKey="name"
+          idKey="proccode"
+          titleKey="procname"
           moduleSlug={MODULE}
         />
       )}

@@ -28,7 +28,7 @@ const ROW_TONE = {
   pending: "[&_td]:bg-amber-50/40",
   status: {
     pending: "[&_td]:bg-amber-50/70",
-    approved: "[&_td]:bg-emerald-50/30",
+    accepted: "[&_td]:bg-emerald-50/30",
     rejected: "[&_td]:bg-rose-50/30",
   },
 };
@@ -83,8 +83,8 @@ const PrimeItemTab = forwardRef(function PrimeItemTab({ refreshKey = 0, active =
     ? "Could not load prime items"
     : status === "pending"
       ? "No pending prime items"
-      : status === "approved"
-        ? "No approved prime items"
+      : status === "accepted"
+        ? "No accepted prime items"
         : status === "rejected"
           ? "No rejected prime items"
           : "No prime items";
@@ -97,7 +97,6 @@ const PrimeItemTab = forwardRef(function PrimeItemTab({ refreshKey = 0, active =
           extraFilters={[
             { label: "Status", key: "primeStatus", value: status, options: PRIME_STATUS_OPTIONS, preserveOrder: true },
           ]}
-          quickSearchOnly={status === "pending"}
           applyOnSearchEnter={false}
           searchVariant="quick"
           onApply={applyFilters}
@@ -173,7 +172,6 @@ function ActionDrawer({ mode, item, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   if (!item) return null;
 
-  const remarkMissing = isDecide && !remark.trim();
   const close = () => !saving && onClose();
   const saveClass = type === "reject" ? BTN_REJECT : type ? IMS_DRAWER_BTN_APPROVE : `${IMS_DRAWER_BTN_APPROVE} opacity-50`;
 
@@ -181,10 +179,9 @@ function ActionDrawer({ mode, item, onClose, onSaved }) {
     if (saving) return;
     if (isDecide) {
       if (!type) return toast.error("Please select Accept or Reject.");
-      if (remarkMissing) return toast.error("Please enter remark.");
       setSaving(true);
       try {
-        const res = await TYPES[type].call([item.prime_key], remark.trim());
+        const res = await TYPES[type].call([item.prime_key], remark.trim() || undefined);
         if (res?.success === false) throw new Error(res?.message);
         toast.success(res?.message || "Done.");
         onSaved();
@@ -224,7 +221,7 @@ function ActionDrawer({ mode, item, onClose, onSaved }) {
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={saving || (isDecide && (!type || remarkMissing))}
+            disabled={saving || (isDecide && !type)}
             title="Ctrl+S"
             className={isDecide ? saveClass : IMS_DRAWER_BTN_AMBER}
           >
@@ -277,7 +274,6 @@ function ActionDrawer({ mode, item, onClose, onSaved }) {
             label="Remarks"
             labelIcon={<MessageSquareQuote size={12} className="text-indigo-500" />}
             rows={3}
-            required={isDecide}
             value={remark}
             onChange={(e) => setRemark(e.target.value)}
             placeholder="Optional notes"

@@ -149,6 +149,7 @@ export default function PermissionGuard({ children }) {
       currentPath === normalizePath(ROUTES.SETTINGS_DASHBOARD) ||
       currentPath === normalizePath(ROUTES.SETTINGS_DASHBOARD_BUILDER) ||
       currentPath === normalizePath(ROUTES.SETTINGS_NOTIFICATIONS) ||
+      currentPath === normalizePath(ROUTES.SETTINGS_SHIFTS) ||
       currentPath === normalizePath(ROUTES.DASHBOARD_BUILDER);
     return { authorized: isOpenDashboard, noAccessAtAll: false };
   }, [currentPath, hasPermissionOnly, allowedModules, role]);

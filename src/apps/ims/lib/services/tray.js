@@ -4,6 +4,16 @@ import { imsApiViews } from "@/apps/ims/lib/helpers/sortDropdownResponse";
 
 export const trayService = {
   getTypes: () => api(ENDPOINTS.TRAYS.TYPES, { method: "POST", body: {} }),
+  getQrPayloads: (trays) =>
+    api(ENDPOINTS.TRAYS.QR_PAYLOADS, {
+      method: "POST",
+      body: {
+        trays: (Array.isArray(trays) ? trays : []).map((t) => ({
+          id: t?.id ?? t?.tray_id ?? null,
+          code: String(t?.code ?? "").trim().toUpperCase(),
+        })),
+      },
+    }),
   getViews: (params) => imsApiViews(ENDPOINTS.TRAYS.VIEWS, params, "code"),
   getAll: (params) => api(ENDPOINTS.TRAYS.LIST, { method: "POST", body: params }),
   create: (data) => api(ENDPOINTS.TRAYS.CREATE, { method: "POST", body: data }),

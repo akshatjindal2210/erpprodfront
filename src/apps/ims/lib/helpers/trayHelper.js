@@ -1,4 +1,4 @@
-import { parseTrayScan } from "@/apps/ims/lib/helpers/qrScan";
+import { resolveTrayScanCode } from "@/apps/ims/lib/helpers/qrScan";
 import { normalizeTrayViewRow, pickTrayFromViewsResponse } from "@/apps/ims/lib/helpers/trayViewsLookup";
 import { trayService } from "@/apps/ims/lib/services/tray";
 import { helperPerms } from "@/apps/ims/lib/helpers/helperPerms";
@@ -92,9 +92,13 @@ export function getBatchNonDeletedCount(batch, trays = []) {
 }
 
 export async function fetchTrayByScan(rawScan, pageModule, action = "view") {
-  const { code, id } = parseTrayScan(rawScan);
-  if (!code && !id) return null;
-  const res = await trayService.getViews({ ...(id ? { id } : {}), ...(code ? { code } : {}), ...helperPerms(pageModule, action) });
+  const key = resolveTrayScanCode(rawScan);
+  if (!key) return null;
+  const isId = /^\d+$/.test(key);
+  const res = await trayService.getViews({
+    ...(isId ? { id: key } : { code: key }),
+    ...helperPerms(pageModule, action),
+  });
   return normalizeTrayViewRow(pickTrayFromViewsResponse(res));
 }
 

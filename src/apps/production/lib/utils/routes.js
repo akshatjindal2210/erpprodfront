@@ -6,7 +6,8 @@ export const ROUTES = {
   PRODUCTION_SHORTAGE: `${PRODUCTION}/shortage`,
   PRODUCTION_TOOLING: `${PRODUCTION}/tooling`,
   PRODUCTION_JOB_CARD: `${PRODUCTION}/job-card`,
-  PRODUCTION_JOB_CARD_BOARD: `${PRODUCTION}/job-card/board`,
-  PRODUCTION_JOB_CARD_CALENDAR: `${PRODUCTION}/job-card/calendar`,
+  PRODUCTION_JOB_CARD_BOARD: `${PRODUCTION}/production-planning/board`,
+  PRODUCTION_JOB_CARD_CALENDAR: `${PRODUCTION}/production-planning/calendar`,
+  PRODUCTION_ENTRY: `${PRODUCTION}/production-entry`,
   PRODUCTION_ACTIVITY_LOGS: `${PRODUCTION}/logs`,
 };

@@ -3,6 +3,8 @@
  * Keep behavior aligned across Inward, Override, and similar flows.
  */
 
+import { resolveInAppScanValue } from "@/platform/utils/global/publicQrScanValue";
+
 /** Strip scanner control chars / BOM; first line only (HID often appends CR/LF). */
 export function normalizeScanInput(rawValue) {
   return String(rawValue ?? "")
@@ -167,9 +169,14 @@ export function scanBufferLooksIncomplete(rawValue) {
   // Wait until a known query key exists, then enforce min value lengths
   // so HID/BT pauses do not commit a one-character UID.
   if (/^https?:\/\//i.test(s) || s.includes("://")) {
-    if (!/[?&](box_no_uid|id|box_uid|fuid|coil_no_uid|qc|location_no|uid|kind)=/i.test(s)) {
+    if (!/[?&](box_no_uid|id|box_uid|fuid|coil_no_uid|qc|location_no|uid|kind|tray_code|tray)=/i.test(s)) {
       return true;
     }
+  }
+
+  if (/[?&]tray_code=/i.test(s)) {
+    const m = s.match(/[?&]tray_code=([^&#\s]*)/i);
+    if (!m?.[1] || m[1].length < 3) return true;
   }
 
   if (/[?&]box_no_uid=/i.test(s)) {
@@ -202,56 +209,65 @@ export function scanBufferLooksIncomplete(rawValue) {
 
 const TRAY_CODE_RE = /^(FG|RM)\d+$/i;
 
-/** Tray label QR encodes tray code (e.g. FG12, RM5). */
-export function extractTrayCode(rawValue) {
+function trayQueryParam(trimmed, name) {
+  const m = trimmed.match(new RegExp(`[?&]${name}=([^&#\\s]+)`, "i"));
+  if (!m?.[1]) return "";
+  try {
+    return decodeURIComponent(m[1].replace(/\+/g, " ")).trim();
+  } catch {
+    return m[1].trim();
+  }
+}
+
+/** Align with backend `trayScanParse.js` → `normalizeTrayScanCode`. */
+export function parseTrayScan(rawValue) {
   const trimmed = normalizeScanInput(rawValue);
-  if (!trimmed) return null;
+  if (!trimmed) return { code: "", id: "" };
+
+  const hasTray = /[?&](?:tray_code|tray)=/i.test(trimmed);
+  const isBoxUrl =
+    /[?&]box_no_uid=/i.test(trimmed) || /[?&]fuid=/i.test(trimmed) || /[?&]coil_no_uid=/i.test(trimmed);
+  if (hasTray && !isBoxUrl) {
+    const id = trayQueryParam(trimmed, "id");
+    const code = (trayQueryParam(trimmed, "tray_code") || trayQueryParam(trimmed, "tray")).toUpperCase();
+    if (id && /^\d+$/.test(id)) return { code, id };
+    if (code) return { code, id: "" };
+  }
 
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed?.code != null && String(parsed.code).trim() !== "") {
-        return String(parsed.code).trim().toUpperCase();
-      }
-      if (parsed?.tray_id != null && String(parsed.tray_id).trim() !== "") {
-        return String(parsed.tray_id).trim();
-      }
-      const locNo = parsed?.location_no != null ? String(parsed.location_no).trim().toUpperCase() : "";
-      if (TRAY_CODE_RE.test(locNo)) return locNo;
-      if (parsed?.id != null && String(parsed.id).trim() !== "") {
-        return String(parsed.id).trim();
-      }
+      const p = JSON.parse(trimmed);
+      const id = /^\d+$/.test(String(p?.id ?? "").trim())
+        ? String(p.id).trim()
+        : /^\d+$/.test(String(p?.tray_id ?? "").trim())
+          ? String(p.tray_id).trim()
+          : "";
+      const code = p?.code != null && String(p.code).trim() !== "" ? String(p.code).trim().toUpperCase() : "";
+      if (id || code) return { code, id };
     } catch {
-      // continue
+      /* continue */
     }
   }
 
-  const qp = trimmed.match(/[?&](?:tray|tray_code|code)=([^&#\s]+)/i);
-  if (qp?.[1]) {
-    try {
-      return decodeURIComponent(qp[1].replace(/\+/g, " ")).trim().toUpperCase();
-    } catch {
-      return qp[1].trim().toUpperCase();
-    }
-  }
-
-  const codeMatch = trimmed.match(/\btray[_\s]*(?:code|id)\s*[:=-]?\s*([A-Za-z0-9_-]+)\b/i);
-  if (codeMatch?.[1]) return codeMatch[1].trim().toUpperCase();
-
-  if (/^https?:\/\//i.test(trimmed) || trimmed.includes("://")) return null;
+  if (/^https?:\/\//i.test(trimmed) || trimmed.includes("://")) return { code: "", id: "" };
 
   const upper = trimmed.toUpperCase();
-  if (TRAY_CODE_RE.test(upper)) return upper;
-  if (/^\d+$/.test(trimmed)) return trimmed;
-
-  return null;
+  if (TRAY_CODE_RE.test(upper)) return { code: upper, id: "" };
+  if (/^\d+$/.test(trimmed)) return { code: "", id: trimmed };
+  return { code: "", id: "" };
 }
 
-export function parseTrayScan(rawValue) {
-  const extracted = extractTrayCode(rawValue);
-  if (!extracted) return { code: "", id: "" };
-  if (/^\d+$/.test(extracted)) return { code: "", id: extracted };
-  return { code: extracted, id: "" };
+export function extractTrayCode(rawValue) {
+  const { code, id } = parseTrayScan(rawValue);
+  return code || id || null;
+}
+
+/** Tray scan — prefer primary DB `id`, then `tray_code`. */
+export function resolveTrayScanCode(rawInput) {
+  const n = normalizeScanInput(rawInput);
+  if (!n) return "";
+  const { code, id } = parseTrayScan(resolveInAppScanValue(n) || n);
+  return String(id || code || "").trim();
 }
 
 export function extractLocationNo(rawValue) {
@@ -301,6 +317,8 @@ export function detectQrType(rawValue) {
   if (/[?&]fuid=\d+/i.test(trimmed) && !/[?&](box_no_uid|box_uid)=/i.test(trimmed)) {
     return "fn";
   }
+
+  if (/[?&](tray_code|tray)=/i.test(trimmed)) return "tray";
 
   if (/[?&](box_no_uid|box_uid)=/i.test(trimmed) || /[?&]id=\d+/i.test(trimmed)) {
     return "box";

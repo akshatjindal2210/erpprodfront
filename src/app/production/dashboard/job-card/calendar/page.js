@@ -1,10 +1,7 @@
-import JobCardBoardPage from "@/apps/production/modules/job-card-board/Page";
+import { redirect } from "next/navigation";
+import { ROUTES } from "@/apps/production/lib/utils/routes";
 
-export const metadata = {
-  title: "Job Card Calendar",
-};
-
-/** Same module as Board — opens Calendar view. */
+/** Legacy path — Calendar moved under Production Planning. */
 export default function Page() {
-  return <JobCardBoardPage initialView="calendar" />;
+  redirect(ROUTES.PRODUCTION_JOB_CARD_CALENDAR);
 }

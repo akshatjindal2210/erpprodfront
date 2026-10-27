@@ -63,7 +63,7 @@ export function resolveInAppScanValue(rawValue) {
     /^https?:\/\//i.test(trimmed) ||
     trimmed.includes("://") ||
     /^[?&][a-z_]+=/i.test(trimmed) ||
-    /[?&](box_no_uid|coil_no_uid|qc|location_no|fuid|uid|kind|machine_no)=/i.test(trimmed);
+    /[?&](box_no_uid|coil_no_uid|qc|location_no|fuid|uid|kind|machine_no|tray_code|tray)=/i.test(trimmed);
   if (!isUrl) return trimmed;
 
   // QC public URL: `?qc=…` or legacy `?kind=qc&coil_no_uid=…`
@@ -93,6 +93,25 @@ export function resolveInAppScanValue(rawValue) {
 
   const locationNo = firstQueryMatch(trimmed, /[?&]location_no=([^&#\s]+)/i);
   if (locationNo) return locationNo.toUpperCase();
+
+  // IMS tray — short query (tray_code + primary id), like box sticker URLs
+  const trayCode =
+    firstQueryMatch(trimmed, /[?&]tray_code=([^&#\s]+)/i) ||
+    firstQueryMatch(trimmed, /[?&]tray=([^&#\s]+)/i);
+  const trayId = /[?&](?:tray_code|tray)=/i.test(trimmed)
+    ? firstQueryMatch(trimmed, /[?&]id=(\d+)/i)
+    : "";
+  if (trayCode || trayId) {
+    const parts = [];
+    if (trayCode) parts.push(`tray_code=${encodeURIComponent(trayCode.toUpperCase())}`);
+    if (trayId) parts.push(`id=${encodeURIComponent(trayId)}`);
+    return `?${parts.join("&")}`;
+  }
+
+  if (!/[?&](box_no_uid|coil_no_uid|fuid|id|box_uid)=/i.test(trimmed)) {
+    const genericCode = firstQueryMatch(trimmed, /[?&]code=([^&#\s]+)/i);
+    if (genericCode && /^(FG|RM)\d+$/i.test(genericCode)) return genericCode.toUpperCase();
+  }
 
   // Engineering machine — plain machine number
   const machineNo = firstQueryMatch(trimmed, /[?&]machine_no=([^&#\s]+)/i);

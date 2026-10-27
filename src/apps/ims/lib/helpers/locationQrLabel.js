@@ -1,12 +1,13 @@
 import React from "react";
 import QRCode from "react-qr-code";
+import { QR_LABEL_PRINT, buildQrLabelPrintDocumentHtml, qrLabelPrintCssMm } from "@/platform/config/qrLabelPrintSize.config";
 
-const LABEL_W_MM = 50;
-const LABEL_H_MM = 25;
+const LABEL_W_MM = QR_LABEL_PRINT.locationAndMachineMm.widthMm;
+const LABEL_H_MM = QR_LABEL_PRINT.locationAndMachineMm.heightMm;
 const PX_PER_MM = 12;
 
 /**
- * Label layout tuning (50×25 mm) — change ONLY here; Print QR + Bulk QR both use this file.
+ * IMS Location label layout — paper mm → qrLabelPrintSize.config.js; tuning below.
  * Bigger QR: raise QR_COLUMN_RATIO, CONTENT_H_RATIO; lower INNER_GAP_* / COL_GAP.
  * Smaller QR: lower QR_COLUMN_RATIO; more gap if needed.
  */
@@ -33,6 +34,79 @@ function requireLocationQrValue(data) {
   return value;
 }
 
+function getQrEncodeValue(data) {
+  const custom = String(data?.qr_value ?? "").trim();
+  if (custom) return custom;
+  return requireLocationQrValue(data);
+}
+
+/** Two-line tray text (FG + serial) — lines close together, block centered vertically. */
+function drawCompactTrayTextBlock(ctx, lines, centerX, blockTop, blockH, maxWidth) {
+  const rows = (lines || []).map((s) => String(s ?? "").trim()).filter(Boolean);
+  if (!rows.length) return;
+  const LINE_GAP = 2;
+  const fontMin = 16;
+  const ref = rows.reduce((a, b) => (a.length >= b.length ? a : b), "");
+  let fontSize = 72;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  while (fontSize > fontMin) {
+    ctx.font = `900 ${fontSize}px Arial`;
+    const maxLineW = Math.max(...rows.map((line) => ctx.measureText(line).width));
+    const blockTextH = fontSize * rows.length + LINE_GAP * (rows.length - 1);
+    if (maxLineW <= maxWidth && blockTextH <= blockH) break;
+    fontSize -= 1;
+  }
+  ctx.fillStyle = "#000000";
+  const lineStep = fontSize + LINE_GAP;
+  const totalH = lineStep * rows.length - LINE_GAP;
+  const firstY = blockTop + Math.floor((blockH - totalH) / 2 + fontSize / 2);
+  rows.forEach((line, i) => {
+    ctx.fillText(line, centerX, firstY + i * lineStep);
+  });
+}
+
+/** Tray sticker on 50×25 mm — QR fills height, small gap, text tight (not location rack/shelf layout). */
+function drawTrayLabelOnCanvas(ctx, canvas, img, data) {
+  const marginPx = Math.round(1 * PX_PER_MM);
+  const gapPx = Math.round(1 * PX_PER_MM);
+  const baseWidth = LABEL_W_MM * PX_PER_MM;
+  const baseHeight = LABEL_H_MM * PX_PER_MM;
+  const innerW = baseWidth - marginPx * 2;
+  const innerH = baseHeight - marginPx * 2;
+
+  let qrSize = innerH;
+  let textW = innerW - qrSize - gapPx;
+  const minTextW = Math.floor(innerW * 0.32);
+  if (textW < minTextW) {
+    textW = minTextW;
+    qrSize = Math.max(48, innerW - textW - gapPx);
+  }
+
+  const qrX = marginPx;
+  const qrY = marginPx + Math.floor((innerH - qrSize) / 2);
+  const textX = marginPx + qrSize + gapPx;
+  const textCenterX = textX + Math.floor(textW / 2);
+
+  canvas.width = baseWidth;
+  canvas.height = baseHeight;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, baseWidth, baseHeight);
+  ctx.drawImage(img, qrX, qrY, qrSize, qrSize);
+
+  const trayLines = Array.isArray(data?.label_lines) ? data.label_lines.slice(0, 2) : [];
+  if (trayLines.length >= 2) {
+    drawCompactTrayTextBlock(ctx, trayLines, textCenterX, marginPx, innerH, textW);
+  } else {
+    const fallback = String(data?.location_no || "").trim().toUpperCase();
+    if (fallback) {
+      drawCompactTrayTextBlock(ctx, [fallback], textCenterX, marginPx, innerH, textW);
+    }
+  }
+}
+
 export function getLocationDisplayNo(data) {
   return (
     data?.location_no ||
@@ -42,6 +116,12 @@ export function getLocationDisplayNo(data) {
 }
 
 function drawLabelOnCanvas(ctx, canvas, img, data) {
+  const trayLines = Array.isArray(data?.label_lines) ? data.label_lines : null;
+  if (trayLines?.length >= 2) {
+    drawTrayLabelOnCanvas(ctx, canvas, img, data);
+    return;
+  }
+
   const scale = 1;
   const baseWidth = LABEL_W_MM * PX_PER_MM;
   const baseHeight = LABEL_H_MM * PX_PER_MM;
@@ -89,6 +169,7 @@ function drawLabelOnCanvas(ctx, canvas, img, data) {
   ctx.fillText(rackShelf, textCenterX, textCenterY);
 }
 
+
 /** Build label PNG from a rendered QR <svg> element (single drawer preview). */
 export function buildLocationLabelDataUrlFromSvg(svgElement, data) {
   requireLocationQrValue(data);
@@ -120,7 +201,7 @@ export function buildLocationLabelDataUrlFromSvg(svgElement, data) {
 /** Build label PNG for one location row (bulk — no DOM ref). */
 export async function buildLocationLabelDataUrlFromRow(data) {
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const qrValue = requireLocationQrValue(data);
+  const qrValue = getQrEncodeValue(data);
   const svgMarkup = renderToStaticMarkup(
     React.createElement(QRCode, { value: qrValue, size: QR_SOURCE_PX, level: "H" })
   );
@@ -159,48 +240,11 @@ export async function buildLocationLabelDataUrlsForRows(rows) {
 /** @returns {boolean} false if the browser blocked the print pop-up */
 export function printLocationLabelDataUrls(dataUrls) {
   if (!dataUrls?.length) return false;
-  const pages = dataUrls
-    .map(
-      (url) =>
-        `<div class="label-page"><div class="label"><img src="${url}" alt=""></div></div>`
-    )
-    .join("");
   const printWin = window.open("", "", "width=500,height=600");
   if (!printWin) return false;
-  printWin.document.write(`
-    <html>
-      <head>
-        <style>
-          @page { size: 50mm 25mm; margin: 0; }
-          html, body { margin: 0; padding: 0; background: #fff; }
-          .label-page {
-            width: 50mm;
-            height: 25mm;
-            page-break-after: always;
-            overflow: hidden;
-          }
-          .label-page:last-child { page-break-after: auto; }
-          .label {
-            width: 50mm;
-            height: 25mm;
-            display: block;
-            box-sizing: border-box;
-          }
-          .label img {
-            width: 100%;
-            height: 100%;
-            display: block;
-            object-fit: fill;
-            image-rendering: -webkit-optimize-contrast;
-            image-rendering: crisp-edges;
-          }
-        </style>
-      </head>
-      <body onload="setTimeout(() => { window.print(); window.close(); }, 250)">
-        ${pages}
-      </body>
-    </html>
-  `);
+  printWin.document.write(
+    buildQrLabelPrintDocumentHtml(dataUrls, qrLabelPrintCssMm(QR_LABEL_PRINT.locationAndMachineMm))
+  );
   printWin.document.close();
   return true;
 }

@@ -4,6 +4,7 @@ import RmstoreAppConfigForm from "../components/RmstoreAppConfigForm";
 import TaskAppConfigForm from "../components/TaskAppConfigForm";
 import HrmsAppConfigForm from "../components/HrmsAppConfigForm";
 import EngineeringAppConfigForm from "../components/EngineeringAppConfigForm";
+import ProductionAppConfigForm from "../components/ProductionAppConfigForm";
 import ShortcutConfigForm from "../components/ShortcutConfigForm";
 
 /** appId → settings form panel. New app: registry + component map here. */
@@ -13,6 +14,7 @@ export const APP_CONFIG_PANELS = {
   rmstore: RmstoreAppConfigForm,
   hrms: HrmsAppConfigForm,
   engineering: EngineeringAppConfigForm,
+  production: ProductionAppConfigForm,
   task: TaskAppConfigForm,
   shortcut: ShortcutConfigForm,
 };
