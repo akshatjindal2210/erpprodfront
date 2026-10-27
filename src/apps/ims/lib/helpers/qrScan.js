@@ -209,6 +209,16 @@ export function scanBufferLooksIncomplete(rawValue) {
 
 const TRAY_CODE_RE = /^(FG|RM)\d+$/i;
 
+function normalizeTrayLookupCode(code) {
+  const c = String(code ?? "").trim().toUpperCase();
+  if (!c) return c;
+  const m = /^(FG|RM)(\d+)$/.exec(c);
+  if (!m) return c;
+  const n = parseInt(m[2], 10);
+  if (!Number.isFinite(n)) return c;
+  return `${m[1]}${String(n).padStart(3, "0")}`;
+}
+
 function trayQueryParam(trimmed, name) {
   const m = trimmed.match(new RegExp(`[?&]${name}=([^&#\\s]+)`, "i"));
   if (!m?.[1]) return "";
@@ -229,7 +239,8 @@ export function parseTrayScan(rawValue) {
     /[?&]box_no_uid=/i.test(trimmed) || /[?&]fuid=/i.test(trimmed) || /[?&]coil_no_uid=/i.test(trimmed);
   if (hasTray && !isBoxUrl) {
     const id = trayQueryParam(trimmed, "id");
-    const code = (trayQueryParam(trimmed, "tray_code") || trayQueryParam(trimmed, "tray")).toUpperCase();
+    const codeRaw = (trayQueryParam(trimmed, "tray_code") || trayQueryParam(trimmed, "tray")).toUpperCase();
+    const code = codeRaw ? normalizeTrayLookupCode(codeRaw) : "";
     if (id && /^\d+$/.test(id)) return { code, id };
     if (code) return { code, id: "" };
   }
@@ -242,7 +253,10 @@ export function parseTrayScan(rawValue) {
         : /^\d+$/.test(String(p?.tray_id ?? "").trim())
           ? String(p.tray_id).trim()
           : "";
-      const code = p?.code != null && String(p.code).trim() !== "" ? String(p.code).trim().toUpperCase() : "";
+      const code =
+        p?.code != null && String(p.code).trim() !== ""
+          ? normalizeTrayLookupCode(String(p.code).trim())
+          : "";
       if (id || code) return { code, id };
     } catch {
       /* continue */
@@ -252,7 +266,7 @@ export function parseTrayScan(rawValue) {
   if (/^https?:\/\//i.test(trimmed) || trimmed.includes("://")) return { code: "", id: "" };
 
   const upper = trimmed.toUpperCase();
-  if (TRAY_CODE_RE.test(upper)) return { code: upper, id: "" };
+  if (TRAY_CODE_RE.test(upper)) return { code: normalizeTrayLookupCode(upper), id: "" };
   if (/^\d+$/.test(trimmed)) return { code: "", id: trimmed };
   return { code: "", id: "" };
 }
