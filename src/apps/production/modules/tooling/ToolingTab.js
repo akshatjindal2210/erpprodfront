@@ -177,15 +177,13 @@ function ToolingActionDrawer({ item, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   if (!item) return null;
 
-  const remarkMissing = !remark.trim();
   const close = () => !saving && onClose();
 
   const submit = async () => {
     if (saving) return;
-    if (remarkMissing) return toast.error("Please enter remark.");
     setSaving(true);
     try {
-      const res = await toolingService.save(item.prime_key, true, remark.trim());
+      const res = await toolingService.save(item.prime_key, true, remark.trim() || undefined);
       if (res?.success === false) throw new Error(res?.message);
       toast.success(res?.message || "Done.");
       onSaved();
@@ -212,7 +210,7 @@ function ToolingActionDrawer({ item, onClose, onSaved }) {
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={saving || remarkMissing}
+            disabled={saving}
             title="Ctrl+S"
             className={IMS_DRAWER_BTN_APPROVE}
           >
@@ -237,7 +235,6 @@ function ToolingActionDrawer({ item, onClose, onSaved }) {
             label="Remarks"
             labelIcon={<MessageSquareQuote size={12} className="text-indigo-500" />}
             rows={3}
-            required
             value={remark}
             onChange={(e) => setRemark(e.target.value)}
             placeholder="Optional notes"

@@ -4,6 +4,8 @@ Cross-app **internal helper API** catalog (paths, allowlists, caller pages): [..
 
 | Note | Topic |
 |------|--------|
+| [v5.2.1.md](./v5.2.1.md) | **Production** `prod_jc` / `prod_plan` · JC + Plan API · **IMS Tray** `tray_code`+`id` QR · Box/Inward timer cleanup |
+| [v5.2.0.md](./v5.2.0.md) | **IMS Tray QR** · Documents soft-deactivate · Process Plan RM/Time · Tooling on JC · Board View · Web Push 403 |
 | [v5.1.0.md](./v5.1.0.md) | **IMS FN** · **Inventory Audit** · **RM Store SA** · **Production** Prime Item · **Maintain Job Card** · **Job Card Board** · **Engineering** RM wire rule |
 | [v5.0.0.md](./v5.0.0.md) | **Engineering** Process / Machine / Prime · **Documents** IDs · UUID uploads · **Part D (14 Oct)** Machine QR · Eng shortcuts/icon · IMS Store In vs QC Area · RM Coil QC Pending · RM Rejection supplier |
 | [v4.4.8.md](./v4.4.8.md) | **IMS** OEM Tray · **HRMS** OT Approval empty dates + Pending default · Status All/A–Z · no future date |

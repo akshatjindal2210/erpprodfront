@@ -2,19 +2,19 @@
 
 /** View job card details on Board / Calendar (same place — no page redirect). */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import Drawer from "@/ui/primitives/Drawer";
 import { jobCardService } from "@/apps/production/lib/services/jobCard";
 import { helperPerms } from "@/apps/engineering/lib/helpers/helperPerms";
-import { PLANNING_MODULE } from "@/apps/production/modules/job-card-board/board";
+import { PLANNING_MODULE, resolveJobCardDocno } from "@/apps/production/modules/job-card-board/board";
 import { DrawerSection, DrawerDetailField, PrimeItemSummary } from "@/apps/production/modules/shortage/primeItem";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import { IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
 import { formatDocDate } from "@/platform/utils/core/utilHelper";
-import { formatProductionDuration, displayDurationSeconds, sumShownTimeSeconds } from "@/apps/production/modules/job-card/jobCardProductionEstimate";
+import { formatProductionDuration, displayDurationSeconds, sumShownTimeSeconds } from "@/apps/production/modules/jc/jobCardProductionEstimate";
 import {
   JC_BOARD_PLAN_COL,
   JC_BOARD_PLAN_TABLE_MIN_W,
@@ -173,18 +173,27 @@ function PlanTable({ plan = [], estimate }) {
 export default function JobCardViewDrawer({ card, onClose }) {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState(null);
+  // Parent often passes inline onClose={() => ...} — keep out of effect deps to avoid getById spam.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     let cancelled = false;
+    const jcDocno = resolveJobCardDocno(card);
+    if (!jcDocno) {
+      toast.error("Job card not found.");
+      onCloseRef.current?.();
+      return undefined;
+    }
     (async () => {
       setLoading(true);
       try {
-        const res = await jobCardService.getById(card.docno, helperPerms(PLANNING_MODULE, "view"));
+        const res = await jobCardService.getById(jcDocno, helperPerms(PLANNING_MODULE, "view"));
         if (!cancelled) setDetail(res?.data || null);
       } catch (err) {
         if (!cancelled) {
           toast.error(err?.message || "Failed to load job card.");
-          onClose();
+          onCloseRef.current?.();
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -193,7 +202,7 @@ export default function JobCardViewDrawer({ card, onClose }) {
     return () => {
       cancelled = true;
     };
-  }, [card.docno]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [card?.docno, card?.job_card_docno]);
 
   const no = detail?.job_card_no || card.job_card_no || "Job Card";
   const scheduleShift = detail?.schedule_shift ?? card.shift;

@@ -17,8 +17,8 @@ export async function fetchMaintainJobcardToolingRequired() {
   }
 }
 
-export function toolingBlocksMaintainJobCardSave({ toolingRequired, toolingStatus }) {
-  if (!toolingRequired) return null;
+export function toolingBlocksMaintainJobCardSave({ toolingRequired, toolingStatus, processTooling }) {
+  if (!toolingRequired || !processTooling) return null;
   if (toolingStatus === "yes" || toolingStatus === true) return null;
   if (toolingStatus === "no" || toolingStatus === false) {
     return "Tooling is No — set Tooling to Yes in Production → Tooling before saving the process plan.";

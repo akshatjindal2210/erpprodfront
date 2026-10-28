@@ -141,8 +141,15 @@ export default function ShiftsPage() {
     [
       "End Time",
       "end_time",
-      (v) => <span className="text-xs text-slate-600 tabular-nums">{formatShiftTime(v)}</span>,
-      { width: "120px" },
+      (v, row) => (
+        <span className="text-xs text-slate-600 tabular-nums">
+          {formatShiftTime(v)}
+          {row?.ends_next_day ? (
+            <span className="ml-1 text-[9px] font-bold uppercase text-indigo-600">+1 day</span>
+          ) : null}
+        </span>
+      ),
+      { width: "140px" },
     ],
     [
       "Status",

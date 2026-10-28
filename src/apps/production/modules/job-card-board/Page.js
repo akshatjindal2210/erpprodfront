@@ -16,8 +16,9 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/ui/common/list/ListPageToolbar";
 import EmptyState from "@/ui/common/table/EmptyState";
-import { UNASSIGNED, RANGE_MODES, STATUS_OPTS, PLANNING_MODULE, SHIFTS_PER_DAY, isValidShift, updateJobCardStatus, updateJobCardPosition, updateJobCardSchedule, machineBusyStatus, startOfWeek,
-  startOfMonth, rangeDateKeys, rangeLabel, stepAnchor, toDateKey, collectProcessOptions, cardMatchesProcessFilter, cardMatchesMachineFilter, machineIdsForProcesses, resolveBoardColumnId } from "@/apps/production/modules/job-card-board/board";
+import { UNASSIGNED, RANGE_MODES, STATUS_FILTER_OPTIONS, PLANNING_MODULE, SHIFTS_PER_DAY, isValidShift, updateJobCardStatus, updateJobCardPosition, updateJobCardSchedule, machineBusyStatus, startOfWeek,
+  startOfMonth, rangeDateKeys, rangeLabel, stepAnchor, toDateKey, collectProcessOptions, cardMatchesProcessFilter, cardMatchesMachineFilter, machineIdsForProcesses, resolveBoardColumnId, resolveJobCardDocno } from "@/apps/production/modules/job-card-board/board";
+import { setPlanLineStatus } from "@/apps/production/modules/plan/planTable";
 import JobCardViewDrawer from "@/apps/production/modules/job-card-board/ViewDrawer";
 import JobCardReportCalendar, { parseCalSlot } from "@/apps/production/modules/job-card-board/JobCardReportCalendar";
 import ProductionFilters, { useProductionFilterIds } from "@/apps/production/modules/job-card-board/ProductionFilters";
@@ -467,7 +468,7 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     setCards(moveCard(cards, cardId, toCol, newIndex));
     if (toCol === fromCol) return; // reorder inside a column — nothing to save
     try {
-      await updateJobCardPosition(cardId, toCol === UNASSIGNED ? null : toCol, moving.machine_id);
+      await updateJobCardPosition(moving, toCol === UNASSIGNED ? null : toCol, moving.machine_id);
     } catch (e) {
       setCards(prev);
       toast.error(e?.message || "Move failed — reverted.");
@@ -490,7 +491,7 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     const prev = cards;
     setCards((list) => list.map((c) => (String(c.id) === cardId ? { ...c, date: target.date, shift: target.shift } : c)));
     try {
-      await updateJobCardSchedule(moving.docno || moving.id, target.date, target.shift);
+      await updateJobCardSchedule(moving, target.date, target.shift);
       toast.success(`${moving.job_card_no} → ${target.date} · Shift ${target.shift}`);
     } catch (e) {
       setCards(prev);
@@ -500,6 +501,8 @@ export default function JobCardBoardPage({ initialView = "board" }) {
 
   async function onBoardAction(card, status, label) {
     if (!canEdit || busyId) return;
+    const jcDocno = resolveJobCardDocno(card);
+    if (!jcDocno) return toast.error("Job card not found.");
     const id = String(card.id);
     const prevCards = cards;
     const prevMachines = machines;
@@ -507,9 +510,15 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     setBusyId(id);
     setCards(nextCards);
     setMachines((ms) => ms.map((m) => ({ ...m, status: machineBusyStatus(m.id, nextCards) })));
+    const statusApi = { Running: "running", Hold: "hold", Complete: "complete" }[status];
     try {
-      await updateJobCardStatus(card.docno || card.id, status);
+      if (statusApi && card.processId != null) {
+        await setPlanLineStatus(jcDocno, card.processId, card.machine_id, statusApi);
+      } else {
+        await updateJobCardStatus(jcDocno, status);
+      }
       toast.success(`${card.job_card_no}: ${label}`);
+      await load();
     } catch (e) {
       setCards(prevCards);
       setMachines(prevMachines);
@@ -590,7 +599,7 @@ export default function JobCardBoardPage({ initialView = "board" }) {
           searchLabel={isBoard ? "Search Board" : "Search Calendar"}
           searchPlaceholder={isBoard ? "Search job card, item, process…" : "Search JC no, item, machine…"}
           statusFilter={statusFilter}
-          statusOptions={[{ label: "All", value: "all" }, ...STATUS_OPTS.map((s) => ({ label: s, value: s }))]}
+          statusOptions={STATUS_FILTER_OPTIONS}
           onStatusChange={setStatusFilter}
           showShiftFilter={!isBoard}
         />

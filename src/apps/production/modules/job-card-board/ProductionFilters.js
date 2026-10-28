@@ -46,12 +46,19 @@ function idsToCheckbox(ids, options) {
 
 export function useProductionFilterIds() {
   const searchParams = useSearchParams();
-  return {
-    processIds: parseCsvIds(searchParams.get("process")),
-    machineIds: parseCsvIds(searchParams.get("machine")),
-    shiftIds: parseCsvIds(searchParams.get("shift")),
-    statusFromUrl: searchParams.get("status") || "all",
-  };
+  const process = searchParams.get("process") || "";
+  const machine = searchParams.get("machine") || "";
+  const shift = searchParams.get("shift") || "";
+  const statusFromUrl = searchParams.get("status") || "all";
+  return useMemo(
+    () => ({
+      processIds: parseCsvIds(process),
+      machineIds: parseCsvIds(machine),
+      shiftIds: parseCsvIds(shift),
+      statusFromUrl,
+    }),
+    [process, machine, shift, statusFromUrl]
+  );
 }
 
 /**

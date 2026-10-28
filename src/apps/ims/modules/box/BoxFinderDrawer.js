@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Loader2, ScanLine, CameraOff, MapPin, Info, Package, User, QrCode } from "lucide-react";
+import { Loader2, ScanLine, CameraOff, Info, Package, User, QrCode } from "lucide-react";
 import Drawer from "@/ui/primitives/Drawer";
 import Snackbar from "@/ui/primitives/Snackbar";
 import { locationService } from "@/apps/ims/lib/services/location";
@@ -18,6 +18,7 @@ import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/de
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import { FinderQcHoldBanner, getFinderBoxCardShellClass, getFinderBoxIconShellClass, getFinderBoxLabelClass, getFinderBoxMetaClass, getFinderBoxTitleClass } from "@/apps/ims/modules/box/finderBoxVisuals";
 import { getBoxStockZone } from "@/apps/ims/modules/box/boxTableVisuals";
+import { getBoxTrayContext } from "@/apps/ims/lib/finder/boxFinderContext";
 import BoxFinderDetailsSection from "./BoxFinderDetailsSection";
 
 const SNACK_DUR = { short: 3200, med: 4000, long: 5200 };
@@ -55,19 +56,6 @@ function parseBoxSku(box) {
   return { customer, itemCode, itemDesc };
 }
 
-function parseLocationSku(loc) {
-  if (!loc) return { customer: null, itemCode: null, itemDesc: null };
-  const customer = loc.acc_name != null && String(loc.acc_name).trim() !== "" ? String(loc.acc_name).trim() : null;
-  const itemCode =
-    loc.item_code != null && String(loc.item_code).trim() !== ""
-      ? String(loc.item_code).trim()
-      : loc.item_dcode != null && String(loc.item_dcode).trim() !== ""
-        ? String(loc.item_dcode).trim()
-        : null;
-  const itemDesc = loc.item_desc != null && String(loc.item_desc).trim() !== "" ? String(loc.item_desc).trim() : null;
-  return { customer, itemCode, itemDesc };
-}
-
 function IconLabeledRow({ icon: Icon, label, children, iconClass = "text-slate-400" }) {
   return (
     <div className="flex items-start gap-2.5">
@@ -100,39 +88,21 @@ function BoxSkuBlock({ box }) {
   );
 }
 
-function LocationRackDetail({ loc }) {
-  const { customer, itemCode, itemDesc } = parseLocationSku(loc);
-  const noCust = !customer;
-  const noItem = !itemCode && !itemDesc;
-  if (noCust && noItem && !loc.location_description) {
-    return (
-      <p className="text-[11px] text-slate-500 px-0.5">
-        This rack has no fixed customer or item — any box can be stored here.
-      </p>
-    );
-  }
+/** Tray code + type — same layout as Rack / Shelf; hidden when no linked tray. */
+function FinderTrayCard({ box }) {
+  const { trayCode, trayType } = getBoxTrayContext(box);
+  if (!trayCode) return null;
+  const typeLabel = trayType ? String(trayType).trim().toUpperCase() : "—";
   return (
-    <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
-      <IconLabeledRow icon={User} label="Customer" iconClass="text-slate-400">
-        <span className="break-words">{customer || "—"}</span>
-      </IconLabeledRow>
-      <IconLabeledRow icon={Package} label="Item code" iconClass="text-slate-400">
-        <span className="font-mono">{itemCode || "—"}</span>
-      </IconLabeledRow>
-      <IconLabeledRow icon={Info} label="Item description" iconClass="text-slate-400">
-        <span className="font-normal">{itemDesc || "—"}</span>
-      </IconLabeledRow>
-      {loc.location_description ? (
-        <div className="flex items-start gap-2.5 pt-2 border-t border-slate-50">
-          <div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 text-slate-400">
-            <MapPin size={16} strokeWidth={1.75} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-medium text-slate-500 mb-0.5">Extra note</p>
-            <p className="text-xs text-slate-600 leading-relaxed italic line-clamp-4">{loc.location_description}</p>
-          </div>
-        </div>
-      ) : null}
+    <div className="grid grid-cols-2 gap-3">
+      <div className="bg-sky-50 p-4 rounded-2xl border border-sky-100">
+        <p className="text-[11px] text-sky-600 font-medium mb-1">Tray code</p>
+        <p className="text-2xl font-bold text-sky-900 font-mono leading-tight break-all">{trayCode}</p>
+      </div>
+      <div className="bg-sky-50 p-4 rounded-2xl border border-sky-100">
+        <p className="text-[11px] text-sky-600 font-medium mb-1">Tray type</p>
+        <p className="text-2xl font-bold text-sky-900 font-mono leading-tight">{typeLabel}</p>
+      </div>
     </div>
   );
 }
@@ -195,8 +165,10 @@ export default function BoxFinderDrawer({ open, onClose, initialBoxCode = null }
 
       const locationId = box.location_id;
       if (!locationId) {
-        showScanToast("warning", "no-location-assigned", "This box has no saved place yet.");
-        if (!silent) void playScanSuccessBeep();
+        if (!silent) {
+          showScanToast("warning", "no-location-assigned", "This box has no store rack yet.");
+          void playScanSuccessBeep();
+        }
         return;
       }
 
@@ -286,7 +258,6 @@ export default function BoxFinderDrawer({ open, onClose, initialBoxCode = null }
         isOpen={open}
         onClose={handleClose}
         title="Box Finder"
-        description="Scan box QR to see location and customer"
         maxWidth="max-w-md"
       >
         <div className="space-y-5 pb-6">
@@ -368,10 +339,11 @@ export default function BoxFinderDrawer({ open, onClose, initialBoxCode = null }
                 </div>
               </div>
 
+              <FinderTrayCard box={boxData} />
+
               {getBoxStockZone(boxData) === "dispatched" ? (
                 <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
                   <p className="text-xs font-semibold text-blue-900">Dispatched Details</p>
-                  {/* <p className="text-[11px] text-blue-800 mt-0.5 leading-snug">Store location is not shown. Customer and other details are below.</p> */}
                   <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
                     <div className="min-w-0">
                       <dt className="text-[9px] font-bold uppercase text-blue-500">Outward UID</dt>
@@ -403,37 +375,23 @@ export default function BoxFinderDrawer({ open, onClose, initialBoxCode = null }
                   </dl>
                 </div>
               ) : locationData ? (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                    <p className="text-xs font-semibold text-slate-800">Current location</p>
-                    <p className="text-[11px] text-slate-600 mt-0.5 leading-snug">Where this box is stored now.</p>
+                <div className="space-y-3">
+                  <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                    <p className="text-[11px] text-emerald-600 font-medium mb-1">Storage code</p>
+                    <p className="text-2xl font-bold text-emerald-900 leading-none font-mono tracking-tight">
+                      {formatLocationNo(locationData)}
+                    </p>
                   </div>
-
-                  <div className="flex items-center gap-2 px-1">
-                    <MapPin size={14} className="text-emerald-600" />
-                    <span className="text-xs font-medium text-slate-600">Box is here</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3">
-                    <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm shadow-emerald-50/50">
-                      <p className="text-[11px] text-emerald-600 font-medium mb-1">Storage code</p>
-                      <p className="text-2xl font-bold text-emerald-900 leading-none font-mono tracking-tight">
-                        {formatLocationNo(locationData)}
-                      </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                      <p className="text-[11px] text-emerald-600 font-medium mb-1">Rack</p>
+                      <p className="text-2xl font-bold text-emerald-900 font-mono">{locationData.rack_no || "—"}</p>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm shadow-emerald-50/50">
-                        <p className="text-[11px] text-emerald-600 font-medium mb-1">Rack</p>
-                        <p className="text-2xl font-bold text-emerald-900 leading-none font-mono">{locationData.rack_no || "—"}</p>
-                      </div>
-                      <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 shadow-sm shadow-emerald-50/50">
-                        <p className="text-[11px] text-emerald-600 font-medium mb-1">Shelf</p>
-                        <p className="text-2xl font-bold text-emerald-900 leading-none font-mono">{locationData.shelf_no || "—"}</p>
-                      </div>
+                    <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                      <p className="text-[11px] text-emerald-600 font-medium mb-1">Shelf</p>
+                      <p className="text-2xl font-bold text-emerald-900 font-mono">{locationData.shelf_no || "—"}</p>
                     </div>
                   </div>
-
-                  <LocationRackDetail loc={locationData} />
                 </div>
               ) : (
                 <div className="py-10 text-center bg-amber-50 rounded-2xl border border-dashed border-amber-200">

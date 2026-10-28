@@ -373,20 +373,20 @@ export default function MachineModal({ open, onClose, onSuccess, editData, mode 
           </div>
 
           <div className="space-y-1">
-            <FormLabel>Speed</FormLabel>
+            <FormLabel>Speed (cavity)</FormLabel>
             <input
               data-field="cavity"
               type="text"
               inputMode="decimal"
               value={form.cavity}
               onChange={(e) => handleChange("cavity", e.target.value)}
-              placeholder="e.g. 10"
+              placeholder="e.g. 25"
               className={`${OK_INPUT} ${FIELD_INPUT_CLASS}`}
             />
           </div>
 
           <div className="space-y-1">
-            <FormLabel required>Duration</FormLabel>
+            <FormLabel required>Duration (cycle time)</FormLabel>
             <TimeInput field="maccycletime" form={form} errors={errors} onChange={handleChange} placeholder="60" />
           </div>
 

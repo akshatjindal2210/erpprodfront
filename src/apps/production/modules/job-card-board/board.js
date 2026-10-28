@@ -1,12 +1,12 @@
 /**
- * Job Card Board + Calendar — authorized cards only (Maintain Job Card → Approve).
- * approved = gate · status = Pending|Planning|Running|Hold|Complete
+ * Job Card Board + Calendar — rows from prod_plan (synced on authorized JC).
  */
 import { jobCardService } from "@/apps/production/lib/services/jobCard";
+import { fetchPlanLines } from "@/apps/production/modules/plan/planTable";
 import { machineMasterService } from "@/apps/engineering/lib/services/machineMaster";
 import { helperPerms } from "@/apps/engineering/lib/helpers/helperPerms";
 import { processStatusRows } from "@/apps/production/lib/constants/processStatus";
-import { SHIFTS, SHIFT_HOURS, SHIFTS_PER_DAY, isValidShift } from "@/apps/production/modules/job-card/jobCard.config";
+import { SHIFTS, SHIFT_HOURS, SHIFTS_PER_DAY, isValidShift } from "@/apps/production/modules/jc/jobCard.config";
 
 export const UNASSIGNED = "unassigned";
 /** Board / Calendar permission module (not Maintain Job Card). */
@@ -19,10 +19,21 @@ export const RANGE_MODES = [
 ];
 export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export const STATUS_OPTS = ["Pending", "Planning", "Running", "Hold", "Complete"];
+/** Stable filter options for Board / Plan toolbar (avoid new array each render). */
+export const STATUS_FILTER_OPTIONS = [
+  { label: "All", value: "all" },
+  ...STATUS_OPTS.map((s) => ({ label: s, value: s })),
+];
 
 const MOD = PLANNING_MODULE;
 const VIEW = () => helperPerms(MOD, "view");
 const EDIT = () => helperPerms(MOD, "edit");
+
+/** prod_jc.docno from a board/calendar card (never prod_plan line id). */
+export function resolveJobCardDocno(card) {
+  const n = Number(card?.docno ?? card?.job_card_docno);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 export function toDateKey(v) {
   if (!v) return null;
@@ -145,61 +156,13 @@ function stageMachines(stage) {
     .filter((m) => m.id);
 }
 
-function isAuthorized(row) {
-  const ok = row?.approved === true || row?.approved === 1 || row?.approved === "true";
-  return ok && parsePlan(row).length > 0;
-}
-
-function toCard(row) {
-  const plan = parsePlan(row);
-  const stage = firstStage(plan);
-  const macs = stageMachines(stage);
-  // Same as ViewDrawer: first stage process + that stage's machine_name only (not all stages)
-  const machine = (stage?.machines || [])
-    .map((m) => m.machine_name || m.macname || m.name)
-    .filter(Boolean)
-    .join(", ") || null;
-  const processRows = processStatusRows(plan);
-  return {
-    id: String(row.docno),
-    docno: Number(row.docno),
-    job_card_no: row.job_card_no || row.pjobcardno || `JC-${row.docno}`,
-    prime_item_code: row.prime_item_code || null,
-    title: row.prime_item_desc || row.remarks || null,
-    process: stage?.process_name || null,
-    machine,
-    machines: macs.map((m) => m.name),
-    machine_id: macs[0]?.id ?? null,
-    qty: Number(row.qty) || 0,
-    status: row.status || "Pending",
-    date: toDateKey(row.jobcarddt || row.job_date || row.doc_dt),
-    shift: isValidShift(row.schedule_shift) ? Number(row.schedule_shift) : 1,
-    /**
-     * Shifts required — Stage 1 machine-level (board column), else stage 1 total, else job total.
-     * Shown on Start as "N shifts".
-     */
-    est_shifts: (() => {
-      const macId = macs[0]?.id;
-      const byMac = row.stage1_machine_shifts;
-      if (macId != null && byMac && byMac[macId] != null) return Number(byMac[macId]) || null;
-      if (macId != null && byMac && byMac[String(macId)] != null) return Number(byMac[String(macId)]) || null;
-      const s1 = Number(row.stage1_shifts);
-      if (Number.isFinite(s1) && s1 > 0) return s1;
-      return Number(row.production_time?.shifts ?? row.est_shifts) || null;
-    })(),
-    estimate_date: toDateKey(row.estimate_date) || null,
-    position: 0,
-    approved: Boolean(row.approved),
-    stages: plan.length,
-    process_plan: plan,
-    process_ids: processRows.map((p) => p.processId),
-  };
-}
-
 /** Unique process options from board cards (for ProductionFilters). */
 export function collectProcessOptions(cards = []) {
   const map = new Map();
   for (const c of cards) {
+    if (c.processId != null && c.process) {
+      map.set(c.processId, { label: c.process, value: String(c.processId) });
+    }
     for (const p of processStatusRows(c.process_plan)) {
       if (!map.has(p.processId)) map.set(p.processId, { label: p.processName, value: String(p.processId) });
     }
@@ -283,11 +246,6 @@ export function machineBusyStatus(machineId, cards) {
   return "idle";
 }
 
-async function loadAuthorizedCards() {
-  const res = await jobCardService.getRegister({ approved: true, ...VIEW() });
-  return (Array.isArray(res?.data) ? res.data : []).filter(isAuthorized).map(toCard);
-}
-
 async function loadMachines() {
   const res = await machineMasterService.getViews({ ...VIEW(), page: 1, limit: 1000 });
   return (res?.data || [])
@@ -295,9 +253,9 @@ async function loadMachines() {
     .filter((m) => m.id);
 }
 
-/** Board: machine columns + authorized cards. */
+/** Board: machine columns + prod_plan lines. */
 export async function fetchBoard() {
-  const [cards, machineList] = await Promise.all([loadAuthorizedCards(), loadMachines()]);
+  const [cards, machineList] = await Promise.all([fetchPlanLines(), loadMachines()]);
   const byId = new Map(machineList.map((m) => [m.id, { ...m }]));
   for (const c of cards) {
     for (const m of stageMachines(firstStage(c.process_plan))) {
@@ -319,21 +277,21 @@ export async function fetchBoard() {
   return { machines, cards: positioned };
 }
 
-/** Calendar: same authorized cards (+ machines for shared filters). */
+/** Calendar: prod_plan lines (+ machines for shared filters). */
 export async function fetchCalendar() {
-  const [cards, machineList] = await Promise.all([loadAuthorizedCards(), loadMachines()]);
+  const [cards, machineList] = await Promise.all([fetchPlanLines(), loadMachines()]);
   return { cards, machines: machineList };
 }
 
 export async function updateJobCardStatus(jobCardId, status) {
-  const docno = Number(jobCardId);
+  const docno = typeof jobCardId === "object" ? resolveJobCardDocno(jobCardId) : Number(jobCardId);
   if (!docno) throw new Error("Invalid job card.");
   if (!["Running", "Hold", "Complete"].includes(status)) throw new Error("Invalid status.");
   await jobCardService.update(docno, { status, ...EDIT() });
 }
 
 export async function updateJobCardSchedule(jobCardId, dateKey, shift) {
-  const docno = Number(jobCardId);
+  const docno = typeof jobCardId === "object" ? resolveJobCardDocno(jobCardId) : Number(jobCardId);
   const day = toDateKey(dateKey);
   const schedule_shift = Number(shift);
   if (!docno || !day || !isValidShift(schedule_shift)) throw new Error("Invalid schedule.");
@@ -342,7 +300,7 @@ export async function updateJobCardSchedule(jobCardId, dateKey, shift) {
 
 /** Drag on board → first stage: swap the source machine for the target (other multi-JC machines stay). Keeps authorization. */
 export async function updateJobCardPosition(jobCardId, toMachineId, fromMachineId = null) {
-  const docno = Number(jobCardId);
+  const docno = typeof jobCardId === "object" ? resolveJobCardDocno(jobCardId) : Number(jobCardId);
   if (!docno) throw new Error("Invalid job card.");
   const card = (await jobCardService.getById(docno, VIEW()))?.data;
   if (!card) throw new Error("Job card not found.");

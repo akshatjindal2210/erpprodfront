@@ -14,7 +14,7 @@ import { auditPair } from "@/platform/utils/list/auditListUi";
 import { formatShortageMonthDate, typeBadgeClass, weightKgTitle } from "@/apps/production/modules/shortage/shortageColumns";
 import { shortageService } from "@/apps/production/lib/services/shortage";
 import { FormLabel, FORM_LABEL_CLASS } from "@/ui/common/Constants";
-import { JOB_CARD_PRIME_DETAIL_GRID } from "@/apps/production/modules/job-card/jobCardUi.config";
+import { JOB_CARD_PRIME_DETAIL_GRID } from "@/apps/production/modules/jc/jobCardUi.config";
 import { IMS_TABLE_CELL_NUMBER, IMS_TABLE_CELL_TEXT } from "@/ui/common/list/listPageShellClasses";
 
 const PAGE_CHUNK = 100; // IMS style: show 100 rows, load 100 more on scroll
@@ -38,12 +38,22 @@ const BADGE = {
   rejected: { label: "Rejected", cls: "bg-rose-50 text-rose-600 border-rose-100" },
 };
 /** Tooling queue — not shortage Accept/Reject labels. */
-const TOOLING_BADGE = {
+export const TOOLING_BADGE = {
   pending: BADGE.pending,
   yes: { label: "Yes", cls: "bg-emerald-50 text-emerald-600 border-emerald-100" },
   no: { label: "No", cls: "bg-slate-100 text-slate-700 border-slate-200" },
 };
 const toolingText = (v) => TOOLING_BADGE[v]?.label || "—";
+
+/** Same labels as Production → Tooling (pending / yes / no) for process-plan table. */
+export function jobCardPlanToolingKey({ tooling_approved, tooling } = {}) {
+  if (tooling_approved === true) return "yes";
+  if (tooling_approved === false) return "no";
+  const t = String(tooling ?? "").toLowerCase();
+  if (t === "yes") return "yes";
+  if (t === "no") return "no";
+  return "pending";
+}
 
 /* ───────────── columns ───────────── */
 

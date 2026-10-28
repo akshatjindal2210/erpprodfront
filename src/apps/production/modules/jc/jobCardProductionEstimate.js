@@ -32,7 +32,7 @@ export function sumShownTimeSeconds(estimate) {
   return total;
 }
 
-/** Machine cavity (was speed) per cycle duration (Machine Master). */
+/** Speed (cavity) / cycle time — Machine Master columns. */
 export function speedText(m) {
   if (!m.maccycletime) return "—";
   const cavity = m.cavity != null && String(m.cavity).trim() !== "" ? String(m.cavity).trim() : "—";

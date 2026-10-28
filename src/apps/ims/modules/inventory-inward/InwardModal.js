@@ -5,7 +5,8 @@ import { flushSync } from "react-dom";
 import { Check, Loader2, QrCode, MapPin, Package, Plus, X, Trash2, MessageSquare, CheckCircle2, XCircle, Search, ScanLine, Camera, Locate, Layers } from "lucide-react";
 import { inventoryInwardService } from "@/apps/ims/lib/services/inventoryInward";
 import { locationService }        from "@/apps/ims/lib/services/location";
-import { extractLocationNo, detectQrType, extractBoxCode, parseStickerScan, parseTrayScan, normalizeScanInput, resolveTrayScanCode, boxNoUidDisplayLabel, locationNoDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
+import { extractLocationNo, detectQrType, extractBoxCode, parseStickerScan, normalizeScanInput, resolveTrayScanCode, boxNoUidDisplayLabel, locationNoDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
+import { parseTrayScanForApi } from "@/apps/ims/lib/helpers/trayHelper";
 import { useHtml5QrScanner }      from "@/platform/hooks/scan/useHtml5QrScanner";
 import QrScannerOverlay           from "@/ui/common/scan/QrScannerOverlay";
 import Drawer                     from "@/ui/primitives/Drawer";
@@ -844,9 +845,9 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
   };
 
   const tryAddTray = async (li, val, source = "manual") => {
-    const trayKey = resolveTrayScanCode(val);
-    if (!trayKey) {
-      showScanToast("error", "generic-invalid-tray", "Scan a tray after you add a location.", 2000);
+    const { normalizedRaw, lookupKey: trayKey, preview: trayPreview, valid } = parseTrayScanForApi(val);
+    if (!valid) {
+      showScanToast("error", "generic-invalid-tray", "Scan a tray QR or tray code (e.g. FG006), not a box sticker.", 2400);
       return;
     }
 
@@ -858,7 +859,7 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
       return;
     }
 
-    const scanLockKey = `${li}:tray:${trayKey.toLowerCase()}`;
+    const scanLockKey = `${li}:tray:${String(trayKey || trayPreview.code || trayPreview.id || normalizedRaw).toLowerCase()}`;
     if (source === "scanner" && inFlightScanRef.current.has(scanLockKey)) return;
     if (source === "scanner") inFlightScanRef.current.add(scanLockKey);
 
@@ -941,19 +942,18 @@ export default function InwardModal({ open, onClose, onSuccess, editData, mode =
   };
 
   const tryAddBox = async (li, val, source = "manual") => {
-    const normalizedRaw = normalizeScanInput(val);
+    const { normalizedRaw, inApp, preview: trayScan } = parseTrayScanForApi(val);
     const detectedType = detectQrType(normalizedRaw);
     if (detectedType === "location") {
       showScanToast("error", "generic-scan-step2", SCAN_SNACK_MSG.REJECTED);
       return;
     }
-    const trayScan = parseTrayScan(normalizedRaw);
     if (detectedType === "tray" || /^(FG|RM)\d+$/i.test(trayScan.code) || trayScan.id) {
       await tryAddTray(li, normalizedRaw, source);
       return;
     }
 
-    const { box_no_uid: scanNoUid, box_uid: scanUid } = parseStickerScan(normalizedRaw);
+    const { box_no_uid: scanNoUid, box_uid: scanUid } = parseStickerScan(inApp);
     const candidate = scanNoUid || scanUid || extractBoxCode(normalizedRaw);
     if (!candidate) {
       showScanToast("error", "generic-invalid-sticker", SCAN_SNACK_MSG.REJECTED);

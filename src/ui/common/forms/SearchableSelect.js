@@ -913,8 +913,10 @@ export default function SearchableSelect({ value, onChange, fetchService, getByI
           </div>
         ) : items.length === 0 && !(multiple && showAllOption) && !(pinSelectedAtTop && selectedCount > 0) ? (
           <li className="p-8 text-center text-slate-400 text-xs flex flex-col gap-2">
-            <span>{searchText.trim() ? "No results found" : (apiMessage || emptyMessage)}</span>
-            {!searchText.trim() && apiMessage && <span className="text-xs text-slate-500 font-normal leading-relaxed">{apiMessage}</span>}
+            <span>{searchText.trim() ? "No results found" : emptyMessage}</span>
+            {!searchText.trim() && apiMessage ? (
+              <span className="text-xs text-slate-500 font-normal leading-relaxed max-w-sm mx-auto">{apiMessage}</span>
+            ) : null}
           </li>
         ) : (
           <>

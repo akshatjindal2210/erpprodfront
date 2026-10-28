@@ -1,4 +1,5 @@
-import { resolveTrayScanCode } from "@/apps/ims/lib/helpers/qrScan";
+import { normalizeScanInput, parseTrayScan, resolveTrayScanCode } from "@/apps/ims/lib/helpers/qrScan";
+import { resolveInAppScanValue } from "@/platform/utils/global/publicQrScanValue";
 import { normalizeTrayViewRow, pickTrayFromViewsResponse } from "@/apps/ims/lib/helpers/trayViewsLookup";
 import { trayService } from "@/apps/ims/lib/services/tray";
 import { helperPerms } from "@/apps/ims/lib/helpers/helperPerms";
@@ -89,6 +90,19 @@ export function getBatchNonDeletedCount(batch, trays = []) {
   const total = Number(batch?.tray_count || trays.length || 0);
   if (total > 0) return Math.max(0, total - deleted);
   return trays.filter((row) => !isTrayDeleted(row)).length;
+}
+
+/**
+ * Tray QR / laser scan — aligned with backend `normalizeTrayScanCode` (trayScanParse.js).
+ * Send `normalizedRaw` to APIs; use `lookupKey` for UI locks / labels.
+ */
+export function parseTrayScanForApi(rawScan) {
+  const normalizedRaw = normalizeScanInput(rawScan);
+  const inApp = resolveInAppScanValue(normalizedRaw) || normalizedRaw;
+  const lookupKey = resolveTrayScanCode(normalizedRaw);
+  const preview = parseTrayScan(inApp);
+  const valid = !!(lookupKey || preview.id || preview.code);
+  return { normalizedRaw, inApp, lookupKey, preview, valid };
 }
 
 export async function fetchTrayByScan(rawScan, pageModule, action = "view") {

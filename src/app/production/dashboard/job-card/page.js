@@ -1,4 +1,4 @@
-import JobCardPage from "@/apps/production/modules/job-card/Page";
+import JobCardPage from "@/apps/production/modules/jc/Page";
 
 export const metadata = {
   title: "Maintain Job Card",

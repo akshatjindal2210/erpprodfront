@@ -11,7 +11,7 @@ import LaserScanField from "@/ui/common/scan/LaserScanField";
 import ScanEnterInput from "@/ui/common/scan/ScanEnterInput";
 import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import { manageTrayService } from "@/apps/ims/lib/services/manageTray";
-import { resolveTrayScanCode } from "@/apps/ims/lib/helpers/qrScan";
+import { parseTrayScanForApi } from "@/apps/ims/lib/helpers/trayHelper";
 import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import { getScanInputPlaceholder, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
@@ -63,13 +63,13 @@ export default function ManageTrayReceiveModal({ open, onClose, onSuccess, embed
 
   const processScan = useCallback(
     async (rawInput) => {
-      const trayKey = resolveTrayScanCode(rawInput);
-      if (!trayKey || scanBusyRef.current || saving) return;
+      const { normalizedRaw, lookupKey: trayKey, valid } = parseTrayScanForApi(rawInput);
+      if (!valid || scanBusyRef.current || saving) return;
       scanBusyRef.current = true;
       setScanning(true);
       setTray(null);
       try {
-        const res = await manageTrayService.previewReceive(trayKey);
+        const res = await manageTrayService.previewReceive(normalizedRaw);
         if (res?.success === false) throw new Error(res?.message || "Scan failed.");
         const data = res?.data;
         if (!data?.tray_code) throw new Error("Tray not found.");

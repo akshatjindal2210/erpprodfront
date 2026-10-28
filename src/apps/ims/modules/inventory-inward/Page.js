@@ -31,6 +31,7 @@ import { useAppliedListSearch } from "@/ui/common/list/useAppliedListSearch";
 import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
 import { pipeMetaRenderers } from "@/apps/ims/lib/helpers/pipeMetaDisplay";
 import { isManageTraySourceBlocked } from "@/apps/ims/lib/helpers/manageTrayHelper";
+import { normalizeStoreInSource, STORE_IN_SOURCE } from "@/apps/ims/lib/helpers/storeInSource";
 
 const PAGE_TABS = {
   STORE_IN: "store_in",
@@ -441,11 +442,18 @@ export default function InwardPage() {
   );
 
   const packingSourceCell = (v) => {
-    const s = String(v || "PACKING ENTRY").toUpperCase();
-    if (s === "MANAGE TRAY") {
+    const s = normalizeStoreInSource(v) || STORE_IN_SOURCE.PACKING_ENTRY;
+    if (s === STORE_IN_SOURCE.TRAY_PENDING) {
       return (
         <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-rose-50 text-rose-700 border-rose-200">
-          ● MANAGE TRAY
+          ● TRAY PENDING
+        </span>
+      );
+    }
+    if (s === STORE_IN_SOURCE.TRAY_LINKED) {
+      return (
+        <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-sky-50 text-sky-800 border-sky-200">
+          ● TRAY LINKED
         </span>
       );
     }
@@ -456,7 +464,7 @@ export default function InwardPage() {
         </span>
       );
     }
-    if (s === "QC HOLD") {
+    if (s === STORE_IN_SOURCE.QC_HOLD) {
       return (
         <span className="px-2 py-0.5 text-[9px] font-black uppercase border bg-violet-50 text-violet-700 border-violet-200">
           ● QC HOLD

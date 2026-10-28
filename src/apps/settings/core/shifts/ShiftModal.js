@@ -15,6 +15,7 @@ export default function ShiftModal({ open, onClose, onSuccess, editData }) {
     code: "",
     start_time: "",
     end_time: "",
+    ends_next_day: false,
   });
 
   useEffect(() => {
@@ -23,9 +24,10 @@ export default function ShiftModal({ open, onClose, onSuccess, editData }) {
         code: editData.code || "",
         start_time: shiftTimeToInputValue(editData.start_time),
         end_time: shiftTimeToInputValue(editData.end_time),
+        ends_next_day: !!editData.ends_next_day,
       });
     } else {
-      setFormData({ code: "", start_time: "", end_time: "" });
+      setFormData({ code: "", start_time: "", end_time: "", ends_next_day: false });
     }
   }, [editData, open]);
 
@@ -39,6 +41,9 @@ export default function ShiftModal({ open, onClose, onSuccess, editData }) {
     if (!formData.end_time) return toast.error("End time required");
     if (formData.start_time === formData.end_time) {
       return toast.error("Times cannot be same");
+    }
+    if (!formData.ends_next_day && formData.start_time >= formData.end_time) {
+      return toast.error("Invalid shift times");
     }
 
     setLoading(true);
@@ -127,6 +132,15 @@ export default function ShiftModal({ open, onClose, onSuccess, editData }) {
                 />
               </div>
             </div>
+            <label className="flex items-center gap-2 text-[11px] text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!formData.ends_next_day}
+                onChange={(e) => setFormData({ ...formData, ends_next_day: e.target.checked })}
+                className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+              />
+              Ends next day (crosses midnight)
+            </label>
           </div>
 
           <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3">

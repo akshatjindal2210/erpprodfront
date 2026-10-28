@@ -22,7 +22,8 @@ import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettin
 import { isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
 import LaserScanField from "@/ui/common/scan/LaserScanField";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
-import { detectQrType, parseBoxScanRaw, parseStickerScan, parseTrayScan, resolveTrayScanCode, boxNoUidDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
+import { detectQrType, parseBoxScanRaw, parseStickerScan, boxNoUidDisplayLabel } from "@/apps/ims/lib/helpers/qrScan";
+import { parseTrayScanForApi } from "@/apps/ims/lib/helpers/trayHelper";
 import { prepareQrScanSession } from "@/platform/utils/global/scanFeedback";
 import { createScanBatchQueue } from "@/apps/ims/lib/helpers/scanBatchQueue";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
@@ -1458,7 +1459,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     (rawScanValue, options = {}) => {
       const viaTray = options.viaTray === true;
       const qrType = detectQrType(rawScanValue);
-      if (!viaTray && qrType === "tray") {
+      const trayPreview = parseTrayScanForApi(rawScanValue).preview;
+      if (!viaTray && (qrType === "tray" || /^(FG|RM)\d+$/i.test(trayPreview.code) || trayPreview.id)) {
         void tryAddTrayRef.current(rawScanValue);
         return;
       }
@@ -1550,7 +1552,8 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
     (rawScanValue, options = {}) => {
       const viaTray = options.viaTray === true;
       const qrType = detectQrType(rawScanValue);
-      if (!viaTray && qrType === "tray") {
+      const trayPreview = parseTrayScanForApi(rawScanValue).preview;
+      if (!viaTray && (qrType === "tray" || /^(FG|RM)\d+$/i.test(trayPreview.code) || trayPreview.id)) {
         void tryAddTrayRef.current(rawScanValue);
         return;
       }
@@ -1662,13 +1665,13 @@ export default function OutEntryModal({ open, onClose, onSuccess, editData, mode
 
   const tryAddTray = useCallback(
     async (rawScanValue) => {
-      const trayKey = resolveTrayScanCode(rawScanValue);
-      if (!trayKey) {
-        showScanToast("error", "invalid-tray", "Scan a tray QR code.", 2000);
+      const { normalizedRaw, lookupKey: trayKey, valid } = parseTrayScanForApi(rawScanValue);
+      if (!valid) {
+        showScanToast("error", "invalid-tray", "Scan a tray QR or tray code (e.g. FG006), not a box sticker.", 2400);
         return;
       }
       try {
-        const res = await outEntryService.batchScanTray({ code: trayKey });
+        const res = await outEntryService.batchScanTray({ code: normalizedRaw });
         if (res?.success === false) throw new Error(res?.message || "Tray scan failed");
         const boxes = Array.isArray(res?.data?.boxes) ? res.data.boxes : [];
         const trayCode = String(res?.data?.tray_code || trayKey).trim();

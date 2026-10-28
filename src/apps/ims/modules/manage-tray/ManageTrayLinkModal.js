@@ -12,7 +12,8 @@ import QrScannerOverlay from "@/ui/common/scan/QrScannerOverlay";
 import { SCAN_SNACK_MSG } from "@/ui/common/Constants";
 import { manageTrayService } from "@/apps/ims/lib/services/manageTray";
 import { manageTrayLinkProgress } from "@/apps/ims/lib/helpers/manageTrayHelper";
-import { boxNoUidDisplayLabel, normalizeScanInput, resolveTrayScanCode } from "@/apps/ims/lib/helpers/qrScan";
+import { boxNoUidDisplayLabel, normalizeScanInput } from "@/apps/ims/lib/helpers/qrScan";
+import { parseTrayScanForApi } from "@/apps/ims/lib/helpers/trayHelper";
 import { useDeviceScanSettings } from "@/platform/hooks/scan/useDeviceScanSettings";
 import { useHtml5QrScanner } from "@/platform/hooks/scan/useHtml5QrScanner";
 import { blurActiveElement, isLaserScanEnabled } from "@/platform/utils/device/deviceScanSettings";
@@ -140,12 +141,12 @@ export default function ManageTrayLinkModal({ open, onClose, onSuccess, record, 
           return;
         }
 
-        const trayKey = resolveTrayScanCode(rawInput);
-        if (!trayKey) {
+        const { normalizedRaw, lookupKey: trayKey, valid } = parseTrayScanForApi(rawInput);
+        if (!valid) {
           showScanToast("error", "mt-tray-invalid", "Invalid tray scan.", 2000);
           return;
         }
-        const res = await manageTrayService.scanTray(record.packing_number || record.id, trayKey);
+        const res = await manageTrayService.scanTray(record.packing_number || record.id, normalizedRaw);
         if (res?.success === false) throw new Error(res?.message || "Tray scan failed.");
         const tray = res?.data;
         if (!tray?.tray_code) throw new Error("Tray not found.");

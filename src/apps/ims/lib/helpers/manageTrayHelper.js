@@ -1,5 +1,7 @@
-export const isManageTraySourceBlocked = (row) =>
-  String(row?.source || "").trim().toUpperCase() === "MANAGE TRAY";
+import { isStoreInTrayPendingSource } from "@/apps/ims/lib/helpers/storeInSource";
+
+/** Store In blocked until OEM-tray packing is registered in Manage Tray. */
+export const isManageTraySourceBlocked = (row) => isStoreInTrayPendingSource(row);
 
 export function isManageTrayApproved(row) {
   return row?.approved === true || row?.approved === "true" || row?.approved === 1;

@@ -1,11 +1,9 @@
 import { formatDateTime, formatDocDate } from "@/platform/utils/core/utilHelper";
-import { fetchAllListPages } from "@/ui/common/list/clientListSearch";
 import { getBoxStickerEntries } from "@/apps/ims/lib/utils/boxTransactionStickerEntries";
 import { getBoxTxTypeBadgeClass, resolveBoxTxTypeLabel } from "@/apps/ims/lib/utils/boxTransactionVisuals";
 import { boxTransactionLogService } from "@/apps/ims/lib/services/boxTransactionLog";
 import { docNoFromStandardBoxNoUid } from "@/apps/ims/lib/stickerUidHelpers";
 import { getBoxStockZone } from "@/apps/ims/modules/box/boxTableVisuals";
-
 const TX_SKIP = new Set([
   "count", "total_qty", "qty", "per_box_qty", "box_kind", "standard_count", "loose_count",
   "box_no_uids", "box_uids", "box_sticker_entries", "is_loose_flags", "packing_numbers", "action",
@@ -52,7 +50,7 @@ export function buildBoxDetailRows(box) {
   const dispatchCustomer = box?.forward_note_customer_name ?? box?.acc_name ?? null;
 
   if (!box) return [];
-  return [
+  const rows = [
     ["Box Sticker No", box.box_no_uid],
     ["Internal UID", box.box_uid],
     ["Packing No", box.packing_number],
@@ -75,6 +73,8 @@ export function buildBoxDetailRows(box) {
   ]
     .filter(([, value]) => hasDetailValue(value))
     .map(([label, value]) => ({ label, value: fmt(value) }));
+
+  return rows;
 }
 
 function buildTxEvent(row, typeLabels, focusUid) {
@@ -111,20 +111,16 @@ export async function fetchBoxFinderData(box) {
   const details = buildBoxDetailRows(box);
   if (!key) return { details, events: [] };
 
-  let typeLabels = {};
-  const { data } = await fetchAllListPages(async (page, limit) => {
-    const res = await boxTransactionLogService.getAll({
-      page,
-      limit,
-      filters: { journey: key },
-      sortBy: "created_at",
-      order: "DESC",
-    });
-    if (page === 1 && res?.typeLabels) typeLabels = res.typeLabels;
-    return res;
-  }, 500, 10000);
+  const res = await boxTransactionLogService.getAll({
+    page: 1,
+    limit: 200,
+    filters: { journey: key },
+    sortBy: "created_at",
+    order: "DESC",
+  });
+  const typeLabels = res?.typeLabels ?? {};
 
-  const events = (data ?? [])
+  const events = (res?.data ?? [])
     .map((row) => buildTxEvent(row, typeLabels, key))
     .sort((a, b) => {
       const ta = a?.at ? new Date(a.at).getTime() : 0;

@@ -32,14 +32,14 @@ import { formatDocDate } from "@/platform/utils/core/utilHelper";
 import { auditHeaders, auditPair } from "@/platform/utils/list/auditListUi";
 import { applyClientSearch, sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { selectUser } from "@/platform/store/slices/authSlice";
-import { DrawerSection, DrawerDetailField, PrimeItemSummary, usePrimeItemList } from "@/apps/production/modules/shortage/primeItem";
+import { DrawerSection, DrawerDetailField, PrimeItemSummary, usePrimeItemList, TOOLING_BADGE, jobCardPlanToolingKey } from "@/apps/production/modules/shortage/primeItem";
 import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_PRIMARY, IMS_DRAWER_BTN_APPROVE } from "@/apps/ims/lib/helpers/masterListUi";
 import RmStoreDrawerFooter from "@/apps/rmstore/lib/helpers/RmStoreDrawerFooter";
 import ModuleSopAcknowledgment from "@/ui/common/system/ModuleSopAcknowledgment";
 import FormTextarea from "@/ui/common/forms/FormTextarea";
-import { formatProductionDuration, displayDurationSeconds, sumShownTimeSeconds, useJobCardProductionEstimate } from "@/apps/production/modules/job-card/jobCardProductionEstimate";
-import JobCardActivityDrawer from "@/apps/production/modules/job-card/JobCardActivityDrawer";
-import { JOB_CARD_DRAWER_MAX_WIDTH, JOB_CARD_PLAN_RM_EMPTY_EDIT, JOB_CARD_PLAN_RM_EMPTY_VIEW, JOB_CARD_PLAN_TH, JOB_CARD_PLAN_TD, jobCardPlanColgroupWidths, jobCardPlanTableMinWidthClass } from "@/apps/production/modules/job-card/jobCardUi.config";
+import { formatProductionDuration, displayDurationSeconds, sumShownTimeSeconds, useJobCardProductionEstimate } from "@/apps/production/modules/jc/jobCardProductionEstimate";
+import JobCardActivityDrawer from "@/apps/production/modules/jc/JobCardActivityDrawer";
+import { JOB_CARD_DRAWER_MAX_WIDTH, JOB_CARD_PLAN_RM_EMPTY_EDIT, JOB_CARD_PLAN_RM_EMPTY_VIEW, JOB_CARD_PLAN_TH, JOB_CARD_PLAN_TD, jobCardPlanColgroupWidths, jobCardPlanTableMinWidthClass } from "@/apps/production/modules/jc/jobCardUi.config";
 import { PROCESS_STATUS_VALUES, PROCESS_STATUS_LABELS, PROCESS_STATUS_BADGE, ProcessStatusChips, machineStatusRows, parseProcessPlan } from "@/apps/production/lib/constants/processStatus";
 import { fetchMaintainJobcardToolingRequired, toolingBlocksMaintainJobCardSave } from "@/apps/production/lib/helpers/maintainJobCardToolingConfig";
 /**
@@ -203,10 +203,8 @@ export default function JobCardPage() {
     setTab(id);
     setOpened((o) => ({ ...o, [id]: true }));
     if (id === "pending") setSelectedCard(null);
-    if (id === "register") {
-      setShortageSelected(null);
-      reloadKey("register");
-    }
+    // Don't reload Register on every tab focus — Refresh button / mutations bump keys.register.
+    if (id === "register") setShortageSelected(null);
   };
 
   // Open from Job Card Board: ?docno=1&mode=view|edit  or  ?tab=pending
@@ -888,7 +886,11 @@ function CreateDrawer({ item, onClose, onSaved }) {
 
   const close = () => !saving && onClose();
 
-  const toolingBlock = toolingBlocksMaintainJobCardSave({ toolingRequired, toolingStatus: item?.tooling });
+  const toolingBlock = toolingBlocksMaintainJobCardSave({
+    toolingRequired,
+    toolingStatus: item?.tooling,
+    processTooling: item?.process_tooling,
+  });
 
   const submit = async () => {
     if (saving) return;
@@ -989,6 +991,7 @@ function CreateDrawer({ item, onClose, onSaved }) {
             estimateLoading={estimateLoading}
             issueQty={item.total_weight_kg}
             showMachineStatus={showMachineStatus}
+            tooling={item?.tooling}
           />
         </DrawerSection>
 
@@ -1128,7 +1131,8 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
 
   const toolingBlock = toolingBlocksMaintainJobCardSave({
     toolingRequired,
-    toolingStatus: detail?.tooling_approved ?? card?.tooling_approved,
+    toolingStatus: detail?.tooling ?? detail?.tooling_approved ?? card?.tooling_approved,
+    processTooling: detail?.process_tooling ?? card?.process_tooling,
   });
 
   const submit = async () => {
@@ -1281,7 +1285,8 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
                 estimateLoading={estimateLoading && !estimate?.valid}
                 issueQty={detail.total_weight_kg}
                 showMachineStatus={showMachineStatus}
-                toolingApproved={detail.tooling_approved}
+                tooling_approved={detail.tooling_approved}
+                tooling={detail.tooling}
               />
             ) : (
               <PlanBody
@@ -1293,6 +1298,8 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
                 estimateLoading={estimateLoading}
                 issueQty={detail.total_weight_kg}
                 showMachineStatus={showMachineStatus}
+                tooling_approved={detail.tooling_approved}
+                tooling={detail.tooling}
               />
             )}
           </DrawerSection>
@@ -1585,49 +1592,24 @@ const StageNo = ({ no }) => (
   </td>
 );
 
-/** Edit / create — process has tooling flag (Yes / No). */
-const ToolingCell = ({ on }) => (
-  <td className={`${TD} text-center`}>
-    {on ? (
-      <span className="px-1.5 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-100">Yes</span>
-    ) : (
-      <span className="text-[11px] font-semibold text-slate-500">No</span>
-    )}
-  </td>
-);
+/** Process.tooling → prime/JC tooling status (Pending / Yes / No, same as Tooling module); else —. */
+function PlanToolingStatusCell({ processHasTooling, tooling_approved, tooling }) {
+  if (!processHasTooling) {
+    return <td className={`${TD} text-center text-[11px] text-slate-400`}>{JOB_CARD_PLAN_RM_EMPTY_VIEW}</td>;
+  }
+  const key = jobCardPlanToolingKey({ tooling_approved, tooling });
+  const b = TOOLING_BADGE[key] || TOOLING_BADGE.pending;
+  return (
+    <td className={`${TD} text-center`}>
+      <span className={`px-1.5 py-0.5 text-[9px] font-black uppercase border ${b.cls}`}>{b.label}</span>
+    </td>
+  );
+}
 
 function ViewRmCell({ hasRm, label }) {
   return (
     <td className={`${TD} ${IMS_TABLE_CELL_TEXT} text-[11px] ${hasRm ? "text-slate-800" : "text-slate-400"}`}>
       {hasRm ? label || "—" : JOB_CARD_PLAN_RM_EMPTY_VIEW}
-    </td>
-  );
-}
-
-/** View only — tooling column when process.tooling; job-card tooling decision (not Yes/No on flag). */
-function ViewToolingCell({ processHasTooling, toolingApproved }) {
-  if (!processHasTooling) {
-    return (
-      <td className={`${TD} text-center text-[11px] text-slate-400`}>{JOB_CARD_PLAN_RM_EMPTY_VIEW}</td>
-    );
-  }
-  if (toolingApproved === true) {
-    return (
-      <td className={`${TD} text-center`}>
-        <span className="px-1.5 py-0.5 text-[9px] font-black uppercase border bg-emerald-50 text-emerald-700 border-emerald-100">Approved</span>
-      </td>
-    );
-  }
-  if (toolingApproved === false) {
-    return (
-      <td className={`${TD} text-center`}>
-        <span className="px-1.5 py-0.5 text-[9px] font-black uppercase border bg-rose-50 text-rose-700 border-rose-100">Rejected</span>
-      </td>
-    );
-  }
-  return (
-    <td className={`${TD} text-center`}>
-      <span className="px-1.5 py-0.5 text-[9px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-100">Pending</span>
     </td>
   );
 }
@@ -1695,7 +1677,7 @@ function MachineStatusCell({
 }
 
 /** New / Edit body: loading / empty / editable table. RM Available from estimate (backend). */
-function PlanBody({ stages, picks, disabled, onPick, estimate, estimateLoading, issueQty, showMachineStatus = false }) {
+function PlanBody({ stages, picks, disabled, onPick, estimate, estimateLoading, issueQty, showMachineStatus = false, tooling_approved, tooling }) {
   if (stages === undefined) {
     return (
       <div className="px-4 py-6 flex items-center justify-center gap-2 text-[11px] text-slate-500">
@@ -1719,6 +1701,8 @@ function PlanBody({ stages, picks, disabled, onPick, estimate, estimateLoading, 
           estimateLoading={estimateLoading}
           issueQty={issueQty}
           showMachineStatus={showMachineStatus}
+          tooling_approved={tooling_approved}
+          tooling={tooling}
         />
       ))}
     </PlanTable>
@@ -1726,7 +1710,7 @@ function PlanBody({ stages, picks, disabled, onPick, estimate, estimateLoading, 
 }
 
 /** View / Approve — saved process_plan, read only. Tooling comes live from the prime process (`stages`). */
-function SavedPlanTable({ plan, stages, estimate, estimateLoading = false, issueQty, showMachineStatus = false, toolingApproved = null }) {
+function SavedPlanTable({ plan, stages, estimate, estimateLoading = false, issueQty, showMachineStatus = false, tooling_approved, tooling }) {
   if (!plan?.length) return <p className="px-4 py-4 text-[11px] text-slate-500">No process plan saved.</p>;
   const processOf = (step) =>
     (stages || []).find((s) => s.stage_no === step.stage_no)?.processes.find((p) => p.process_id === step.process_id);
@@ -1735,6 +1719,7 @@ function SavedPlanTable({ plan, stages, estimate, estimateLoading = false, issue
       {plan.map((step) => {
         const process = processOf(step);
         const hasRmWire = Boolean(process?.rm_wire);
+        const processHasTooling = Boolean(process?.tooling ?? step.tooling);
         const parsed = parseProcessPlan([step])[0] || step;
         return (
           <tr key={step.stage_no}>
@@ -1750,7 +1735,7 @@ function SavedPlanTable({ plan, stages, estimate, estimateLoading = false, issue
               loading={estimateLoading}
               empty={JOB_CARD_PLAN_RM_EMPTY_VIEW}
             />
-            <ViewToolingCell processHasTooling={Boolean(process?.tooling)} toolingApproved={toolingApproved} />
+            <PlanToolingStatusCell processHasTooling={processHasTooling} tooling_approved={tooling_approved} tooling={tooling} />
             {showMachineStatus ? (
               <MachineStatusCell
                 machines={parsed.machines}
@@ -1767,7 +1752,7 @@ function SavedPlanTable({ plan, stages, estimate, estimateLoading = false, issue
   );
 }
 
-function StageRow({ stage, pick, disabled, onChange, estimate, estimateLoading, issueQty, showMachineStatus = false }) {
+function StageRow({ stage, pick, disabled, onChange, estimate, estimateLoading, issueQty, showMachineStatus = false, tooling_approved, tooling }) {
   const process = stage.processes.find((p) => p.process_id === pick.process_id);
   const processOptions = stage.processes.map((p) => ({ id: p.process_id, label: p.process_name }));
   const machineOptions = (process?.machines || []).map((m) => ({
@@ -1825,7 +1810,11 @@ function StageRow({ stage, pick, disabled, onChange, estimate, estimateLoading, 
         requiredQty={issueQty}
         loading={estimateLoading}
       />
-      <ToolingCell on={process?.tooling} />
+      <PlanToolingStatusCell
+        processHasTooling={Boolean(process?.tooling)}
+        tooling_approved={tooling_approved}
+        tooling={tooling}
+      />
       {showMachineStatus ? (
         <MachineStatusCell
           machines={selectedMachines}

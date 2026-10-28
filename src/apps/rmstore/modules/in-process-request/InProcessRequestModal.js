@@ -208,6 +208,7 @@ function mapCoilRow(c, extras = {}) {
       remaining_qty: remaining,
       consumed_qty: Math.max(0, shopQty - remaining),
       item_code: c.item_code,
+      item_dcode: c.item_dcode ?? c.itemdcode ?? null,
       item_desc: c.item_desc,
       heat_no: c.heat_no,
       mrn_uid: c.mrn_uid,
@@ -248,6 +249,7 @@ function mapCoilRow(c, extras = {}) {
       remaining_qty: remaining,
       partial_qty: partialDefault,
       item_code: c.item_code,
+      item_dcode: c.item_dcode ?? c.itemdcode ?? null,
       item_desc: c.item_desc,
       heat_no: c.heat_no,
       mrn_uid: c.mrn_uid,
@@ -280,6 +282,7 @@ function mapCoilRow(c, extras = {}) {
     remaining_qty: remaining,
     consumed_qty: Math.max(0, original - remaining),
     item_code: c.item_code,
+    item_dcode: c.item_dcode ?? c.itemdcode ?? null,
     item_desc: c.item_desc,
     heat_no: c.heat_no,
     mrn_uid: c.mrn_uid,
@@ -734,16 +737,27 @@ export default function InProcessRequestModal({
       const coil = coilsRef.current?.[0];
       const searchKey = String(params.search || "").trim();
       const sourceJc = String(coil?.source_pjobcardno || coil?.pjobcardno || "").trim();
-      const listCacheKey = `${String(coil?.coil_no_uid || "").trim().toLowerCase()}|${searchKey.toUpperCase()}|${rmSelectionMode}`;
+      const rmCode = String(coil?.item_code || "").trim();
+      const page = Math.max(1, Number(params.page) || 1);
+      const limit = Math.max(1, Number(params.limit) || 50);
+
+      // Avoid caching an empty list when coil wire is not ready yet.
+      if (!rmCode) {
+        return { success: true, data: [], total: 0, page, limit };
+      }
+
+      const listCacheKey = `${String(coil?.coil_no_uid || "").trim().toLowerCase()}|${rmCode.toUpperCase()}|${searchKey.toUpperCase()}|${rmSelectionMode}`;
 
       let rows;
+      let apiMessage;
       const listCached = reassignJcFilteredListCacheRef.current;
       if (listCached?.key === listCacheKey) {
         rows = listCached.rows;
+        apiMessage = listCached.message;
       } else {
         const res = await inProcessRequestService.reassignJobCards({
           ...helperPerms,
-          rm_item_code: String(coil?.item_code || "").trim(),
+          rm_item_code: rmCode,
           rm_item_dcode: coil?.item_dcode ?? coil?.itemdcode ?? null,
           source_pjobcardno: sourceJc,
           exclude_pjobcardno: sourceJc,
@@ -752,11 +766,10 @@ export default function InProcessRequestModal({
           limit: REASSIGN_JC_FETCH_LIMIT,
         });
         rows = Array.isArray(res?.data) ? res.data : [];
-        reassignJcFilteredListCacheRef.current = { key: listCacheKey, rows };
+        apiMessage = res?.message || undefined;
+        reassignJcFilteredListCacheRef.current = { key: listCacheKey, rows, message: apiMessage };
       }
 
-      const page = Math.max(1, Number(params.page) || 1);
-      const limit = Math.max(1, Number(params.limit) || 50);
       const start = (page - 1) * limit;
       const pageRows = rows.slice(start, start + limit);
 
@@ -766,6 +779,7 @@ export default function InProcessRequestModal({
         total: rows.length,
         page,
         limit,
+        message: rows.length === 0 ? apiMessage : undefined,
       };
     },
     [helperPerms, rmSelectionMode]

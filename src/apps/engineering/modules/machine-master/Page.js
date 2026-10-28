@@ -135,10 +135,10 @@ export default function MachineMasterPage() {
     ["Process", "process_name", (v) => (
       <span className="text-[10px] font-bold text-slate-600 uppercase whitespace-normal break-words leading-snug" title={v}>{v || "—"}</span>
     ), { width: "160px", wrap: true, copyValue: (row) => row.process_name || "—" }],
-    ["Speed", "cavity", (v) => (
+    ["Speed (cavity)", "cavity", (v) => (
       <span className="font-black text-slate-700 text-[11px]">{v != null && String(v).trim() !== "" ? String(v) : "—"}</span>
-    ), { width: "80px", align: "center" }],
-    ["Duration", "maccycletime", (v) => (
+    ), { width: "100px", align: "center" }],
+    ["Duration (cycle time)", "maccycletime", (v) => (
       <span className="font-black text-slate-700 text-[11px]">{formatDuration(v)}</span>
     ), { width: "100px", align: "center", copyValue: (row) => formatDuration(row.maccycletime) }],
     ["Setup Time", "setup_time", (v) => (

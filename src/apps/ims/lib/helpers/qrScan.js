@@ -246,6 +246,13 @@ export function parseTrayScan(rawValue) {
   }
 
   if (!isBoxUrl) {
+    const genericCode = trayQueryParam(trimmed, "code").toUpperCase();
+    if (genericCode && TRAY_CODE_RE.test(genericCode)) {
+      return { code: normalizeTrayLookupCode(genericCode), id: "" };
+    }
+  }
+
+  if (!isBoxUrl) {
     const loneTrayId = trayQueryParam(trimmed, "id");
     if (loneTrayId && /^\d+$/.test(loneTrayId) && /[?&]id=/i.test(trimmed)) {
       return { code: "", id: loneTrayId };
@@ -270,7 +277,15 @@ export function parseTrayScan(rawValue) {
     }
   }
 
-  if (/^https?:\/\//i.test(trimmed) || trimmed.includes("://")) return { code: "", id: "" };
+  if (/^https?:\/\//i.test(trimmed) || trimmed.includes("://") || /[?&]id=/i.test(trimmed)) {
+    if (!isBoxUrl) {
+      const urlId = trayQueryParam(trimmed, "id");
+      const urlCode = trayQueryParam(trimmed, "tray_code") || trayQueryParam(trimmed, "tray");
+      if (urlId && /^\d+$/.test(urlId)) return { code: urlCode ? normalizeTrayLookupCode(urlCode) : "", id: urlId };
+      if (urlCode) return { code: normalizeTrayLookupCode(urlCode), id: "" };
+    }
+    if (/^https?:\/\//i.test(trimmed) || trimmed.includes("://")) return { code: "", id: "" };
+  }
 
   const upper = trimmed.toUpperCase();
   if (TRAY_CODE_RE.test(upper)) return { code: normalizeTrayLookupCode(upper), id: "" };

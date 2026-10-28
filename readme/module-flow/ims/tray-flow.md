@@ -108,7 +108,7 @@ Not changed: Stock Adjustment, QC Hold, Audit, Box CRUD, Forwarding Note form.
 | Scan (UI) | `resolveTrayScanCode` in `ims/lib/helpers/qrScan.js` |
 | Scan (Manage Tray API) | `tray/utils/trayScanParse.js` → `normalizeTrayScanCode` |
 
-Re-print labels after upgrade so QR includes `id`. See [5.2.0.md](../../../../5.2.0.md).
+Re-print labels after upgrade so QR includes `id`. See [v5.2.0.md](../../version-notes/v5.2.0.md).
 
 ## Files
 

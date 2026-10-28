@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap, Package, AlertTriangle, History, ClipboardList, Wrench, LayoutGrid, CalendarDays, Factory, ClipboardPen } from "lucide-react";
+import { Zap, Package, AlertTriangle, History, ClipboardList, Wrench, LayoutGrid, CalendarDays, Factory, ClipboardPen, Table2 } from "lucide-react";
 import { ROUTES } from "@/apps/production/lib/utils/routes";
 
 export const PRODUCTION_NAV_REGISTRY = [
@@ -23,8 +23,9 @@ export const PRODUCTION_NAV_REGISTRY = [
     icon: <Factory size={16} />,
     module: "production_planning",
     subItems: [
-      { id: "job-card-board", name: "Job Card Board", icon: <LayoutGrid size={14} />, href: ROUTES.PRODUCTION_JOB_CARD_BOARD, module: "production_planning" },
-      { id: "job-card-calendar", name: "Job Card Calendar", icon: <CalendarDays size={14} />, href: ROUTES.PRODUCTION_JOB_CARD_CALENDAR, module: "production_planning" },
+      { id: "job-card-board", name: "Card Board", icon: <LayoutGrid size={14} />, href: ROUTES.PRODUCTION_JOB_CARD_BOARD, module: "production_planning" },
+      { id: "job-card-calendar", name: "Card Calendar", icon: <CalendarDays size={14} />, href: ROUTES.PRODUCTION_JOB_CARD_CALENDAR, module: "production_planning" },
+      { id: "planning-table", name: "Table View", icon: <Table2 size={14} />, href: ROUTES.PRODUCTION_PLANNING_TABLE, module: "production_planning" },
     ],
   },
   { id: "production-entry", name: "Production Entry", icon: <ClipboardPen size={16} />, href: ROUTES.PRODUCTION_ENTRY, module: "production_entry" },
