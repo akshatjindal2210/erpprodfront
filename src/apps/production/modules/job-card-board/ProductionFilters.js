@@ -62,8 +62,9 @@ export function useProductionFilterIds() {
 }
 
 /**
- * Shared filters for Board & Calendar.
+ * Shared filters for Board, Calendar, Planning Table.
  * URL: ?process=1,2&machine=3,4&status=Running&shift=1,2
+ * Planning Table: showDate + min/max = IMS From/To (Search applies → parent refetches).
  */
 export default function ProductionFilters({
   processOptions = [],
@@ -77,6 +78,14 @@ export default function ProductionFilters({
   onStatusChange,
   /** Calendar only — show Shift multi-select */
   showShiftFilter = false,
+  /** Planning Table — plan start From/To (IMS server filter) */
+  showDate = false,
+  fromDate = "",
+  toDate = "",
+  minDate = "",
+  maxDate = "",
+  onDateChange,
+  onDateReset,
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -121,6 +130,7 @@ export default function ProductionFilters({
         value: statusFilter,
         options: statusOptions,
         preserveOrder: true,
+        variant: "quick",
         className: "md:min-w-[9rem] md:max-w-[11rem]",
       });
     }
@@ -221,6 +231,7 @@ export default function ProductionFilters({
         clear: () => writeParams(processIds, machineIds, statusFilter, []),
       });
     }
+    // Date stays in From/To only (IMS) — do not chip it under Active.
     if (search.trim()) {
       chips.push({
         key: "search",
@@ -243,13 +254,29 @@ export default function ProductionFilters({
     writeParams,
   ]);
 
+  const clearAll = () => {
+    onSearchChange?.("");
+    onStatusChange?.("all");
+    writeParams([], [], "all", []);
+    if (showDate) {
+      if (onDateReset) onDateReset();
+      else onDateChange?.("", "");
+    }
+  };
+
   return (
     <div className="border-b border-slate-200 bg-white">
       <ListPageFilterStrip>
         <DateRangeFilter
-          showDate={false}
-          instantClientExtras
-          showSearchButton={false}
+          showDate={showDate}
+          fromDate={showDate ? fromDate : ""}
+          toDate={showDate ? toDate : ""}
+          minDate={showDate ? minDate || undefined : undefined}
+          maxDate={showDate ? maxDate || undefined : undefined}
+          instantClientExtras={!showDate}
+          applyExtrasOnChange={showDate}
+          /* Dates: Search button hits API. Typed search = quick (indigo) on loaded rows. */
+          showSearchButton={showDate}
           applyOnSearchEnter={false}
           searchVariant="quick"
           searchValue={search}
@@ -260,6 +287,9 @@ export default function ProductionFilters({
           onApply={(data) => {
             const nextStatus = data.status || "all";
             onStatusChange?.(nextStatus);
+            if (showDate) {
+              onDateChange?.(String(data.fromDate || "").slice(0, 10), String(data.toDate || "").slice(0, 10));
+            }
             writeParams(
               checkboxToIds(data.processIncludes ?? processValue, processOptions),
               checkboxToIds(data.machineIncludes ?? machineValue, machineOptions),
@@ -267,11 +297,7 @@ export default function ProductionFilters({
               showShiftFilter ? checkboxToIds(data.shiftIncludes ?? shiftValue, shiftOptions) : []
             );
           }}
-          onReset={() => {
-            onSearchChange?.("");
-            onStatusChange?.("all");
-            writeParams([], [], "all", []);
-          }}
+          onReset={clearAll}
         />
       </ListPageFilterStrip>
 
@@ -293,11 +319,7 @@ export default function ProductionFilters({
           <button
             type="button"
             className="ml-auto text-[9px] font-bold uppercase tracking-wide text-slate-500 hover:text-rose-600"
-            onClick={() => {
-              onSearchChange?.("");
-              onStatusChange?.("all");
-              writeParams([], [], "all", []);
-            }}
+            onClick={clearAll}
           >
             Clear all
           </button>

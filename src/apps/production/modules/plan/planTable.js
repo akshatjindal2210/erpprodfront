@@ -1,8 +1,7 @@
 import { planService } from "@/apps/production/lib/services/plan";
-import { jobCardService } from "@/apps/production/lib/services/jobCard";
 import { machineMasterService } from "@/apps/engineering/lib/services/machineMaster";
-import { PROCESS_STATUS_LABELS } from "@/apps/production/lib/constants/processStatus";
-import { SHIFTS, isValidShift } from "@/apps/production/modules/jc/jobCard.config";
+import { PROCESS_STATUS_LABELS, parseProcessPlan } from "@/apps/production/lib/constants/processStatus";
+import { isValidShift } from "@/apps/production/modules/jc/jobCard.config";
 import { helperPerms } from "@/apps/engineering/lib/helpers/helperPerms";
 
 const PLANNING_MODULE = "production_planning";
@@ -23,6 +22,7 @@ export function mapPlanRowToBoardCard(r) {
   const shift = isValidShift(r.plan_shift) ? Number(r.plan_shift) : 1;
   const processName = r.process_name || String(proccode);
   const machineName = r.machine_name || "—";
+  const jcPlan = parseProcessPlan(r.process_plan);
   const miniPlan = [
     {
       stage_no: r.stage_no,
@@ -51,12 +51,13 @@ export function mapPlanRowToBoardCard(r) {
     status: PROCESS_STATUS_LABELS[statusKey] || "Pending",
     date: planStart,
     shift,
-    est_shifts: null,
+    est_shifts: Number(r.est_shifts) > 0 ? Number(r.est_shifts) : null,
     estimate_date: r.plan_end ? String(r.plan_end).slice(0, 10) : null,
     position: 0,
     approved: true,
     stages: 1,
-    process_plan: miniPlan,
+    /** Full JC plan — allowed machines per process for board DnD */
+    process_plan: jcPlan.length ? jcPlan : miniPlan,
     process_ids: [proccode],
     processId: proccode,
   };
@@ -71,9 +72,12 @@ export async function fetchPlanLines() {
 function mapRow(r) {
   const statusKey = String(r.status || "pending").toLowerCase();
   const day = r.plan_start ? String(r.plan_start).slice(0, 10) : "";
-  const sh = isValidShift(r.plan_shift) ? SHIFTS.find((x) => x.id === Number(r.plan_shift))?.short : "";
+  const end = r.plan_end ? String(r.plan_end).slice(0, 10) : "";
   return {
+    /** prod_plan.docno — Edit / Delete target */
     id: String(r.docno),
+    plan_docno: Number(r.docno),
+    /** prod_jc.docno — view / history only */
     docno: Number(r.job_card_docno),
     job_card_no: r.pjobcardno || "—",
     prime_item_code: r.prime_item_code || null,
@@ -83,8 +87,10 @@ function mapRow(r) {
     machineId: r.maccode != null ? Number(r.maccode) : null,
     machine: r.machine_name || "—",
     qty: Number(r.qty) || 0,
-    planStart: day ? (sh ? `${day} ${sh}` : day) : "—",
-    planEnd: r.plan_end ? String(r.plan_end).slice(0, 10) : "—",
+    plan_start: day || "",
+    plan_end: end || "",
+    planStart: day || "—",
+    planEnd: end || "—",
     actStart: dt(r.actual_start),
     actEnd: dt(r.actual_end),
     status: PROCESS_STATUS_LABELS[statusKey] || statusKey,
@@ -92,9 +98,16 @@ function mapRow(r) {
   };
 }
 
-export async function fetchPlanTable() {
+/** @param {{ from_date?: string, to_date?: string }} [dateFilters] — IMS plan_start range (Table View). */
+export async function fetchPlanTable(dateFilters = {}) {
+  const from_date = String(dateFilters.from_date || dateFilters.fromDate || "").slice(0, 10);
+  const to_date = String(dateFilters.to_date || dateFilters.toDate || "").slice(0, 10);
+  const body = {
+    ...(from_date ? { from_date } : {}),
+    ...(to_date ? { to_date } : {}),
+  };
   const [res, macRes] = await Promise.all([
-    planService.getTable(),
+    planService.getTable(body),
     machineMasterService.getViews({ ...perms("view"), page: 1, limit: 1000 }),
   ]);
   return {
@@ -103,35 +116,7 @@ export async function fetchPlanTable() {
   };
 }
 
-export async function setPlanLineStatus(docno, processId, machineId, status) {
-  const card = (await jobCardService.getById(docno, perms("view")))?.data;
-  if (!card?.process_plan) return;
-  const st = String(status).toLowerCase();
-  const cardSt = { running: "Running", hold: "Hold", complete: "Complete" }[st];
-  let plan = card.process_plan;
-  if (typeof plan === "string") {
-    try {
-      plan = JSON.parse(plan);
-    } catch {
-      plan = [];
-    }
-  }
-  const picks = (Array.isArray(plan) ? plan : []).map((s) => {
-    const base = {
-      stage_no: s.stage_no,
-      process_id: s.process_id,
-      machine_ids: (s.machines || []).map((m) => m.machine_id),
-      rm_item_dcodes: (s.rm_items || []).map((r) => r.rm_item_dcode),
-    };
-    if (Number(s.process_id) !== Number(processId)) return base;
-    const mids = (s.machines || []).map((m) => Number(m.machine_id)).filter(Boolean);
-    if (machineId != null && Number.isFinite(Number(machineId))) {
-      return { ...base, machine_status: { [String(machineId)]: st } };
-    }
-    if (mids.length) {
-      return { ...base, machine_status: Object.fromEntries(mids.map((id) => [String(id), st])) };
-    }
-    return { ...base, machine_status: { 0: st } };
-  });
-  await jobCardService.update(docno, { process_plan: picks, ...(cardSt ? { status: cardSt } : {}), ...perms("edit") });
+/** @deprecated Board uses updatePlanLineStatus — prod_plan only. */
+export async function setPlanLineStatus(planLineDocno, _processId, _machineId, status) {
+  await planService.update(planLineDocno, { status: String(status || "").toLowerCase() });
 }

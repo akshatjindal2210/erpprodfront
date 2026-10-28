@@ -44,8 +44,8 @@ import { PROCESS_STATUS_VALUES, PROCESS_STATUS_LABELS, PROCESS_STATUS_BADGE, Pro
 import { fetchMaintainJobcardToolingRequired, toolingBlocksMaintainJobCardSave } from "@/apps/production/lib/helpers/maintainJobCardToolingConfig";
 /**
  * Production → Maintain Job Card — 2 tabs.
- *   Pending Shortage — Accept → New (create drawer) until JC saved · then Edit / View / Delete (job_card_no or plan)
- *   Register         — all job cards → Edit / View / Delete (no separate Authorize — status Pending/Planning/…)
+ *   Pending Shortage — Accept → New until job_card_no set · then Edit / View / Delete
+ *   Register         — no job_card_no → New · has job_card_no → Edit / View / Delete
  */
 
 const MODULE = "production_job_card";
@@ -129,9 +129,13 @@ const registerHeaders = (isSa) => REGISTER_HEADERS.filter((h) => isSa || !h[3]?.
 
 const registerRowClassName = (row) => (row.status === "Pending" ? "[&_td]:bg-amber-50/70" : "");
 
-/** Accept creates stub (docno only). User “saved” JC when number or process plan exists. */
+/** Accept creates stub (docno only). Entry is New until job card no is assigned; then Edit. */
+function hasJobCardNo(row) {
+  return Boolean(String(row?.job_card_no || "").trim());
+}
+
 function shortageRowHasSavedJobCard(row) {
-  return Boolean(row?.job_card_no || row?.jc_has_plan);
+  return hasJobCardNo(row);
 }
 
 function cardFromShortageRow(row) {
@@ -230,6 +234,7 @@ export default function JobCardPage() {
   const onPending = tab === "pending";
   const onRegister = tab === "register";
   const pendingCard = cardFromShortageRow(shortageSelected);
+  const registerHasJobCardNo = hasJobCardNo(selectedCard);
   const canShortageApproveSelected = Boolean(shortageSelected?.status === "pending" && !shortageSelected?.job_card_no);
 
   return (
@@ -298,10 +303,19 @@ export default function JobCardPage() {
 
                 {onRegister ? (
                   <>
+                    <ListPageAddButton
+                      module={MODULE}
+                      disabled={!selectedCard || registerHasJobCardNo}
+                      onClick={() => {
+                        if (!selectedCard) return toast.info("Select a job card first.");
+                        if (registerHasJobCardNo) return toast.info("Job card already assigned — use Edit.");
+                        openCard(selectedCard, "new");
+                      }}
+                    />
                     <ListPageEditButton
                       module={MODULE}
                       icon={Edit3}
-                      disabled={!selectedCard}
+                      disabled={!selectedCard || !registerHasJobCardNo}
                       record={selectedCard}
                       onClick={() => openCard(selectedCard, "edit")}
                     />
@@ -735,7 +749,11 @@ function RegisterTab({ refreshKey, active, viewMode, onDataChange, selectedCard,
     modalOpen: !active,
     selectedId: selectedCard?.docno ?? null,
     getSelectedRow: () => selectedCard,
+    openAdd: () => selectedCard && onOpenCard(selectedCard, "new"),
+    canOpenNew: () => Boolean(selectedCard && !hasJobCardNo(selectedCard)),
+    newBlockedMessage: "Select a row without a job card no first.",
     openEdit: (row) => onOpenCard(row, "edit"),
+    canEditSelection: () => hasJobCardNo(selectedCard),
     openDelete: (row) => onDeleteCard(row),
     canDeleteSelection: () => Boolean(selectedCard),
   });
@@ -1015,9 +1033,11 @@ function CreateDrawer({ item, onClose, onSaved }) {
 /* ───────────── View / Edit Job Card drawer (IMS style) ───────────── */
 
 function JobCardDrawer({ card, mode, onClose, onSaved }) {
-  const showMachineStatus = isProductionSuperAdmin(useSelector(selectUser));
+  const isSa = isProductionSuperAdmin(useSelector(selectUser));
+  const showMachineStatus = isSa;
   const sopAckRef = useRef(null);
   const isView = mode === "view";
+  const isNewEntry = mode === "new";
   const readOnly = isView;
   const [saving, setSaving] = useState(false);
   const [activeSubmit, setActiveSubmit] = useState(null);
@@ -1029,8 +1049,11 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
   const [stages, setStages] = useState(undefined);
   const [picks, setPicks] = useState({});
   const [toolingRequired, setToolingRequired] = useState(false);
+  const [erpJobcardno, setErpJobcardno] = useState("");
+  const [erpNoLoading, setErpNoLoading] = useState(false);
 
   const primeCode = detail?.prime_item_code || card?.prime_item_code;
+  const showAsNew = isNewEntry || (!isView && !hasJobCardNo(detail || card));
 
   useEffect(() => {
     let cancelled = false;
@@ -1091,6 +1114,28 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
     };
   }, [card.docno]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Register → New: show suggested Job Card No (SA can edit; others see value). */
+  useEffect(() => {
+    if (readOnly || !showAsNew || loading) return;
+    if (hasJobCardNo(detail)) return;
+    let cancelled = false;
+    setErpNoLoading(true);
+    jobCardService
+      .suggestErpJobcardno()
+      .then((res) => {
+        if (cancelled) return;
+        const n = res?.data?.jobcardno;
+        if (Number.isFinite(Number(n)) && Number(n) > 0) setErpJobcardno(String(n));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setErpNoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [readOnly, showAsNew, loading, detail?.job_card_no]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const setPick = (stageNo, patch) => {
     setPicks((prev) => {
       const cur = prev[stageNo] || {};
@@ -1144,6 +1189,18 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
     setActiveSubmit("save");
     try {
       const body = { status, remarks, job_date: jobDate || undefined };
+      if (showAsNew && isSa) {
+        const manualNo = String(erpJobcardno ?? "").trim();
+        if (manualNo) {
+          const n = Number(manualNo);
+          if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
+            setSaving(false);
+            setActiveSubmit(null);
+            return toast.error("Job Card No must be a whole number.");
+          }
+          body.jobcardno = n;
+        }
+      }
       if (stages?.length) {
         body.process_plan = stages.map((s) => {
           const pick = picks[s.stage_no] || {};
@@ -1195,8 +1252,14 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
       isOpen
       onClose={close}
       onSubmit={isView ? close : () => void submit()}
-      title={isView ? `View ${cardNo}` : `Edit ${cardNo}`}
-      description={detail?.prime_item_code ? `Prime item ${detail.prime_item_code}` : undefined}
+      title={isView ? `View ${cardNo}` : showAsNew ? "New Job Card" : `Edit ${cardNo}`}
+      description={
+        showAsNew
+          ? "Prime item → process · machine · RM per stage"
+          : detail?.prime_item_code
+            ? `Prime item ${detail.prime_item_code}`
+            : undefined
+      }
       maxWidth={JOB_CARD_DRAWER_MAX_WIDTH}
       footer={footer}
     >
@@ -1233,7 +1296,23 @@ function JobCardDrawer({ card, mode, onClose, onSaved }) {
                 <>
                   <DrawerDetailField
                     label="Job Card No"
-                    value={<span className="font-mono font-bold text-indigo-700">{detail.job_card_no}</span>}
+                    value={
+                      showAsNew && !readOnly && isSa ? (
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={erpJobcardno}
+                          onChange={(e) => setErpJobcardno(e.target.value)}
+                          disabled={saving || erpNoLoading}
+                          className={`${OK_INPUT} w-full`}
+                        />
+                      ) : (
+                        <span className="font-mono font-bold text-indigo-700">
+                          {detail.job_card_no || (showAsNew && erpJobcardno ? erpJobcardno : "—")}
+                        </span>
+                      )
+                    }
                   />
                   <DrawerDetailField
                     label="Doc Date"

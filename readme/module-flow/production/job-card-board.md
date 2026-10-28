@@ -15,7 +15,9 @@ One page with two views: **Board** (machines) and **Calendar** (day × shift). O
 
 - Columns: **Unassigned** + one per Machine Master (first-stage primary machine).
 - Drag between machines → updates first-stage `machine_ids` (`machine_move` soft op — keeps authorization).
-- **Start / Pause / Close** → status `Running` / `Hold` / `Complete` (soft op — keeps authorization).
+- **FIFO per machine column:** only the first open card can **Start**; cards below stay locked until above is **Complete** (or **Hold**, then next may Start). While **Running**, column drag is locked.
+- Drag reorder (no Running) → queue order + cascading `plan_start` / `plan_end` from each card’s `est_shifts`.
+- **Start / Hold / Complete** → status `Running` / `Hold` / `Complete` (soft op — keeps authorization).
 - Card click → **ViewDrawer** on the same page (no redirect).
 
 ### Calendar

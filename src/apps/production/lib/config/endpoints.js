@@ -44,5 +44,8 @@ export const ENDPOINTS = {
   },
   PLAN: {
     TABLE: "/production/plan/table",
+    GET: "/production/plan/get",
+    UPDATE: "/production/plan/update",
+    DELETE: "/production/plan/delete",
   },
 };

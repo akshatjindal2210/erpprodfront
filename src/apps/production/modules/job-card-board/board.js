@@ -1,7 +1,7 @@
 /**
  * Job Card Board + Calendar — rows from prod_plan (synced on authorized JC).
  */
-import { jobCardService } from "@/apps/production/lib/services/jobCard";
+import { planService } from "@/apps/production/lib/services/plan";
 import { fetchPlanLines } from "@/apps/production/modules/plan/planTable";
 import { machineMasterService } from "@/apps/engineering/lib/services/machineMaster";
 import { helperPerms } from "@/apps/engineering/lib/helpers/helperPerms";
@@ -27,9 +27,14 @@ export const STATUS_FILTER_OPTIONS = [
 
 const MOD = PLANNING_MODULE;
 const VIEW = () => helperPerms(MOD, "view");
-const EDIT = () => helperPerms(MOD, "edit");
 
-/** prod_jc.docno from a board/calendar card (never prod_plan line id). */
+/** prod_plan.docno from a board/calendar card. */
+export function resolvePlanLineDocno(card) {
+  const n = Number(card?.planLineDocno ?? card?.id);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** prod_jc.docno (history / rare JC links only — Planning writes use plan line). */
 export function resolveJobCardDocno(card) {
   const n = Number(card?.docno ?? card?.job_card_docno);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -246,23 +251,227 @@ export function machineBusyStatus(machineId, cards) {
   return "idle";
 }
 
+/** Board column order: Running always top, then Hold, queue, Complete last. */
+const BOARD_STATUS_RANK = { Running: 0, Hold: 1, Pending: 2, Planning: 2, Complete: 9 };
+
+export function sortBoardColumn(cards = []) {
+  return [...cards].sort((a, b) => {
+    const ra = BOARD_STATUS_RANK[a.status] ?? 5;
+    const rb = BOARD_STATUS_RANK[b.status] ?? 5;
+    if (ra !== rb) return ra - rb;
+    const pa = Number(a.position);
+    const pb = Number(b.position);
+    if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
+    return String(a.date || "").localeCompare(String(b.date || ""));
+  });
+}
+
+/** Cards in one machine column, top → bottom (Running pinned to top). */
+export function columnQueue(cards = [], machineId) {
+  const key = machineId == null || machineId === "" || machineId === UNASSIGNED ? UNASSIGNED : String(machineId);
+  return sortBoardColumn(
+    cards.filter((c) => {
+      const id = c.machine_id == null || c.machine_id === "" ? UNASSIGNED : String(c.machine_id);
+      return id === key;
+    })
+  );
+}
+
+/** First shift slot after a job that used `shiftCount` shifts from (startDate, startShift). */
+export function nextSlotAfter(startDate, startShift, shiftCount) {
+  const n = Math.max(0, Math.floor(Number(shiftCount) || 0));
+  const perDay = Math.max(1, SHIFTS_PER_DAY);
+  if (!startDate) return null;
+  const s0 = isValidShift(startShift) ? Number(startShift) : 1;
+  const nextIndex = s0 - 1 + Math.max(n, 1);
+  const dayOffset = Math.floor(nextIndex / perDay);
+  const shift = (nextIndex % perDay) + 1;
+  const d = new Date(`${startDate}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + dayOffset);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return { date: `${y}-${m}-${day}`, shift };
+}
+
+function estimateEndDate(startDate, startShift, shiftCount) {
+  const n = Math.max(0, Math.floor(Number(shiftCount) || 0));
+  const perDay = Math.max(1, SHIFTS_PER_DAY);
+  if (!startDate || !n) return startDate || null;
+  const s0 = isValidShift(startShift) ? Number(startShift) : 1;
+  const endIndex = s0 - 1 + n - 1;
+  const dayOffset = Math.floor(endIndex / perDay);
+  const d = new Date(`${startDate}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + dayOffset);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * FIFO board rules (per machine column):
+ * - At most one Running
+ * - Start only if nothing Running, and every card above is Complete or Hold
+ * - Hold only while Running
+ * - Complete while Running or Hold
+ */
+export function canFifoAction(card, columnCards, key) {
+  if (!card || card.status === "Complete") return false;
+  const ordered = sortBoardColumn(columnCards || []);
+  const running = ordered.find((c) => c.status === "Running");
+
+  if (key === "hold") return card.status === "Running";
+  if (key === "complete") return card.status === "Running" || card.status === "Hold";
+
+  if (key === "start") {
+    if (card.status === "Running") return false;
+    if (running) return false;
+    for (const c of ordered) {
+      if (String(c.id) === String(card.id)) return true;
+      if (c.status === "Complete" || c.status === "Hold") continue;
+      return false; // Pending / Planning still above — FIFO
+    }
+    return false;
+  }
+  return false;
+}
+
+export function columnHasRunning(columnCards = []) {
+  return columnCards.some((c) => c.status === "Running");
+}
+
+/**
+ * After drag reorder (nothing Running): anchor = previous column head start slot;
+ * each card gets that window in order, then the next starts after est_shifts.
+ */
+export function cascadeColumnSchedules(orderedCards = [], anchor = {}) {
+  if (!orderedCards.length) return [];
+  let date = anchor.date || orderedCards[0].date || toDateKey(new Date());
+  let shift = isValidShift(anchor.shift) ? Number(anchor.shift) : isValidShift(orderedCards[0].shift) ? Number(orderedCards[0].shift) : 1;
+  const out = [];
+  for (const card of orderedCards) {
+    const est = Math.max(1, Math.floor(Number(card.est_shifts) || 1));
+    const estimate_date = estimateEndDate(date, shift, est);
+    out.push({
+      ...card,
+      date,
+      shift,
+      estimate_date,
+      est_shifts: Number(card.est_shifts) > 0 ? Number(card.est_shifts) : est,
+    });
+    const next = nextSlotAfter(date, shift, est);
+    if (!next) break;
+    date = next.date;
+    shift = next.shift;
+  }
+  return out;
+}
+
 async function loadMachines() {
   const res = await machineMasterService.getViews({ ...VIEW(), page: 1, limit: 1000 });
   return (res?.data || [])
-    .map((m) => ({ id: Number(m.maccode), code: m.macno || String(m.maccode), name: m.macname || m.label || `Machine ${m.maccode}` }))
+    .map((m) => ({
+      id: Number(m.maccode),
+      code: m.macno || String(m.maccode),
+      name: m.macname || m.label || `Machine ${m.maccode}`,
+      /** Process this machine belongs to (macproccode) — board DnD only within same process. */
+      processId: m.macproccode != null ? Number(m.macproccode) : null,
+    }))
     .filter((m) => m.id);
+}
+
+/** Machine ids allowed for this plan line's process (JC plan ∪ master macproccode). */
+export function allowedMachineIdsForCard(card, machines = []) {
+  const processId = Number(card?.processId);
+  if (!Number.isFinite(processId) || processId <= 0) return new Set();
+  const ids = new Set();
+  const plan = Array.isArray(card?.process_plan) ? card.process_plan : [];
+  for (const stage of plan) {
+    if (Number(stage?.process_id) !== processId) continue;
+    for (const m of stage?.machines || []) {
+      if (m?.machine_id != null) ids.add(String(m.machine_id));
+    }
+  }
+  for (const m of machines) {
+    if (Number(m.processId) === processId) ids.add(String(m.id));
+  }
+  return ids;
+}
+
+/** Packing → Packing M/C only; Rolling → Rolling M/C only (incl. PACK→PACK-C1). */
+export function canMoveCardToMachine(card, toMachineId, machines = []) {
+  if (toMachineId == null || toMachineId === "" || toMachineId === UNASSIGNED) return false;
+  return allowedMachineIdsForCard(card, machines).has(String(toMachineId));
+}
+
+/** JC-selected machine for this process, else first master machine of that process. */
+export function preferredMachineIdForCard(card, machines = []) {
+  const processId = Number(card?.processId);
+  const plan = Array.isArray(card?.process_plan) ? card.process_plan : [];
+  const stage = plan.find((s) => Number(s?.process_id) === processId);
+  const fromJc = (stage?.machines || []).map((m) => Number(m.machine_id)).filter((id) => id > 0);
+  if (fromJc.length) return fromJc[0];
+  const m = machines.find((x) => Number(x.processId) === processId);
+  return m?.id ?? null;
+}
+
+/**
+ * Only heal when card is clearly on another process's machine
+ * (e.g. Rolling sitting on PACK). Same-process alts like PACK-C1 stay.
+ */
+export function healCardMachineMismatch(card, machines = []) {
+  const processId = Number(card?.processId);
+  const curId = card?.machine_id;
+  if (!Number.isFinite(processId) || processId <= 0) return { card, changed: false };
+  if (curId == null || curId === "" || curId === UNASSIGNED) return { card, changed: false };
+
+  const curMac = machines.find((x) => Number(x.id) === Number(curId));
+  const curProc = curMac != null ? Number(curMac.processId) : NaN;
+  if (Number.isFinite(curProc) && curProc === processId) return { card, changed: false };
+  if (canMoveCardToMachine(card, curId, machines)) return { card, changed: false };
+
+  const mid = preferredMachineIdForCard(card, machines);
+  if (mid == null || Number(mid) === Number(curId)) return { card, changed: false };
+  const mac = machines.find((x) => Number(x.id) === Number(mid));
+  return {
+    card: {
+      ...card,
+      machine_id: Number(mid),
+      machine: mac?.name || card.machine,
+      machines: mac?.name ? [mac.name] : card.machines,
+    },
+    changed: true,
+  };
 }
 
 /** Board: machine columns + prod_plan lines. */
 export async function fetchBoard() {
-  const [cards, machineList] = await Promise.all([fetchPlanLines(), loadMachines()]);
+  const [rawCards, machineList] = await Promise.all([fetchPlanLines(), loadMachines()]);
   const byId = new Map(machineList.map((m) => [m.id, { ...m }]));
-  for (const c of cards) {
+  for (const c of rawCards) {
     for (const m of stageMachines(firstStage(c.process_plan))) {
-      if (!byId.has(m.id)) byId.set(m.id, { id: m.id, code: String(m.id), name: m.name });
+      if (!byId.has(m.id)) byId.set(m.id, { id: m.id, code: String(m.id), name: m.name, processId: null });
     }
   }
-  const machines = [...byId.values()]
+  const machineListFull = [...byId.values()];
+
+  const healedWrites = [];
+  const cards = rawCards.map((raw) => {
+    const { card, changed } = healCardMachineMismatch(raw, machineListFull);
+    if (changed) healedWrites.push(card);
+    return card;
+  });
+
+  if (healedWrites.length) {
+    await Promise.all(
+      healedWrites.map((c) => updatePlanLineMachine(c, c.machine_id).catch(() => null))
+    );
+  }
+
+  const machines = machineListFull
     .sort((a, b) => String(a.code).localeCompare(String(b.code), undefined, { numeric: true }))
     .map((m) => ({ ...m, status: machineBusyStatus(m.id, cards) }));
 
@@ -283,46 +492,45 @@ export async function fetchCalendar() {
   return { cards, machines: machineList };
 }
 
-export async function updateJobCardStatus(jobCardId, status) {
-  const docno = typeof jobCardId === "object" ? resolveJobCardDocno(jobCardId) : Number(jobCardId);
-  if (!docno) throw new Error("Invalid job card.");
-  if (!["Running", "Hold", "Complete"].includes(status)) throw new Error("Invalid status.");
-  await jobCardService.update(docno, { status, ...EDIT() });
+/** Start / Hold / Complete → prod_plan.status (+ actual_start / actual_end on backend). */
+export async function updatePlanLineStatus(cardOrId, status) {
+  const docno = typeof cardOrId === "object" ? resolvePlanLineDocno(cardOrId) : Number(cardOrId);
+  const st = String(status || "").toLowerCase();
+  if (!docno) throw new Error("Invalid plan line.");
+  if (!["running", "hold", "complete", "pending", "planning"].includes(st)) throw new Error("Invalid status.");
+  await planService.update(docno, { status: st });
 }
 
-export async function updateJobCardSchedule(jobCardId, dateKey, shift) {
-  const docno = typeof jobCardId === "object" ? resolveJobCardDocno(jobCardId) : Number(jobCardId);
+/** Calendar / reorder → prod_plan.plan_start (and plan_end when provided). */
+export async function updatePlanLineSchedule(cardOrId, dateKey, planEnd = undefined) {
+  const docno = typeof cardOrId === "object" ? resolvePlanLineDocno(cardOrId) : Number(cardOrId);
   const day = toDateKey(dateKey);
-  const schedule_shift = Number(shift);
-  if (!docno || !day || !isValidShift(schedule_shift)) throw new Error("Invalid schedule.");
-  await jobCardService.update(docno, { jobcarddt: day, schedule_shift, ...EDIT() });
+  if (!docno || !day) throw new Error("Invalid schedule.");
+  const body = { plan_start: day };
+  if (planEnd != null) body.plan_end = toDateKey(planEnd) || planEnd;
+  await planService.update(docno, body);
 }
 
-/** Drag on board → first stage: swap the source machine for the target (other multi-JC machines stay). Keeps authorization. */
-export async function updateJobCardPosition(jobCardId, toMachineId, fromMachineId = null) {
-  const docno = typeof jobCardId === "object" ? resolveJobCardDocno(jobCardId) : Number(jobCardId);
-  if (!docno) throw new Error("Invalid job card.");
-  const card = (await jobCardService.getById(docno, VIEW()))?.data;
-  if (!card) throw new Error("Job card not found.");
-  const plan = parsePlan(card);
-  if (!plan.length) throw new Error("Save a process plan on Maintain Job Card first.");
-  const first = firstStage(plan);
-  const firstNo = Number(first.stage_no);
-  const targetId = toMachineId == null || toMachineId === UNASSIGNED ? null : Number(toMachineId);
-  const picks = plan.map((s) => {
-    const rm_item_dcodes = (s.rm_items || []).map((r) => Number(r.rm_item_dcode)).filter(Boolean);
-    const currentIds = (s.machines || []).map((m) => Number(m.machine_id)).filter(Boolean);
-    return {
-      stage_no: s.stage_no,
-      process_id: s.process_id,
-      machine_ids:
-        Number(s.stage_no) !== firstNo
-          ? currentIds
-          : currentIds.includes(Number(fromMachineId))
-            ? [...new Set(currentIds.map((id) => (id === Number(fromMachineId) ? targetId : id)))]
-            : [targetId],
-      rm_item_dcodes,
-    };
-  });
-  await jobCardService.update(docno, { process_plan: picks, machine_move: true, ...EDIT() });
+/** Board column drag → prod_plan.maccode only. */
+export async function updatePlanLineMachine(cardOrId, toMachineId) {
+  const docno = typeof cardOrId === "object" ? resolvePlanLineDocno(cardOrId) : Number(cardOrId);
+  if (!docno) throw new Error("Invalid plan line.");
+  const maccode = toMachineId == null || toMachineId === UNASSIGNED ? null : Number(toMachineId);
+  await planService.update(docno, { maccode });
+}
+
+/** @deprecated — use updatePlanLineStatus */
+export async function updateJobCardStatus(cardOrId, status) {
+  const map = { Running: "running", Hold: "hold", Complete: "complete" };
+  await updatePlanLineStatus(cardOrId, map[status] || status);
+}
+
+/** @deprecated — use updatePlanLineSchedule */
+export async function updateJobCardSchedule(cardOrId, dateKey) {
+  await updatePlanLineSchedule(cardOrId, dateKey);
+}
+
+/** @deprecated — use updatePlanLineMachine */
+export async function updateJobCardPosition(cardOrId, toMachineId) {
+  await updatePlanLineMachine(cardOrId, toMachineId);
 }

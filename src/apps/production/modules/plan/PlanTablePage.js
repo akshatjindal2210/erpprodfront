@@ -1,40 +1,42 @@
 "use client";
 
+/**
+ * Production Planning → Table View — listing / row control (CRUD without Create).
+ * Create comes from Authorize / Board; here: View / Edit / Delete selected plan line only.
+ * Shop-floor Start / Hold / Complete stays on Job Card Board.
+ */
+
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Table2, RefreshCw, Play, Pause, Square, Loader2 } from "lucide-react";
+import dayjs from "dayjs";
+import { Table2, RefreshCw, Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { useViewMode } from "@/platform/hooks/list/useViewMode";
+import { useListPageExport } from "@/platform/hooks/list/useListPageExport";
+import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
+import { useViewDateFilterDefaults } from "@/ui/common/list/dateFilterDefaults";
 import { sortRowsByKey } from "@/ui/common/list/clientListSearch";
 import { IMS_LIST_PAGE_SHELL, IMS_TABLE_CELL_TEXT, IMS_TABLE_CELL_NUMBER, LIST_PAGE_TABLE_AREA_CLASS } from "@/ui/common/list/listPageShellClasses";
 import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/ui/common/list/ListPageToolbar";
+import { ListPageEditButton, ListPageViewButton, ListPageDeleteButton } from "@/ui/common/list/listPageCrud";
+import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
 import AppListFooter from "@/ui/common/list/listPageFooter";
 import DataTable from "@/ui/primitives/DataTable";
+import DeleteModal from "@/ui/common/modals/DeleteModal";
 import ProductionFilters, { FILTER_NONE, useProductionFilterIds } from "@/apps/production/modules/job-card-board/ProductionFilters";
-import JobCardViewDrawer from "@/apps/production/modules/job-card-board/ViewDrawer";
+import PlanLineDrawer from "@/apps/production/modules/plan/PlanLineDrawer";
 import { PLANNING_MODULE, STATUS_FILTER_OPTIONS } from "@/apps/production/modules/job-card-board/board";
-import { fetchPlanTable, setPlanLineStatus } from "@/apps/production/modules/plan/planTable";
+import { fetchPlanTable } from "@/apps/production/modules/plan/planTable";
+import { planService } from "@/apps/production/lib/services/plan";
 import { PROCESS_STATUS_BADGE } from "@/apps/production/lib/constants/processStatus";
-import { useListDrawerHotkeys } from "@/platform/hooks/list/useListDrawerHotkeys";
 
 const MODULE = PLANNING_MODULE;
 const PAGE_CHUNK = 100;
 const btn = `${LIST_PAGE_ACTION_CLASS} px-3 border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 flex items-center justify-center`;
 
-const LINE_ACTIONS = [
-  { key: "start", label: "Start", api: "running", Icon: Play, cls: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100" },
-  { key: "hold", label: "Hold", api: "hold", Icon: Pause, cls: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100" },
-  { key: "complete", label: "Done", api: "complete", Icon: Square, cls: "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100" },
-];
-
-function canLineAction(statusKey, key) {
-  const st = String(statusKey || "pending").toLowerCase();
-  if (st === "complete") return false;
-  if (key === "start") return st !== "running";
-  if (key === "hold") return st === "running";
-  if (key === "complete") return st !== "complete";
-  return false;
-}
+/** false = IMS (To = aaj). true = To = aaj + 1 month. */
+const TO_PLUS_1_MONTH = true;
 
 function rowMatchesFilters(row, { processIds, machineIds, statusFromUrl, search }) {
   if (processIds.length) {
@@ -49,7 +51,7 @@ function rowMatchesFilters(row, { processIds, machineIds, statusFromUrl, search 
   if (statusFromUrl && statusFromUrl !== "all" && row.status !== statusFromUrl) return false;
   const q = String(search || "").trim().toLowerCase();
   if (q) {
-    const hay = [row.job_card_no, row.machine, row.process].filter(Boolean).join(" ").toLowerCase();
+    const hay = [row.job_card_no, row.machine, row.process, row.prime_item_code].filter(Boolean).join(" ").toLowerCase();
     if (!hay.includes(q)) return false;
   }
   return true;
@@ -64,63 +66,64 @@ function textCell(v) {
   );
 }
 
-function PlanRowActions({ row, busyId, onAction }) {
-  return (
-    <div className="flex flex-wrap justify-end gap-1">
-      {LINE_ACTIONS.map(({ key, label, api, Icon, cls }) =>
-        canLineAction(row.statusKey, key) ? (
-          <button
-            key={key}
-            type="button"
-            disabled={Boolean(busyId)}
-            className={`h-7 px-2 border text-[9px] font-bold uppercase inline-flex items-center gap-1 ${cls} disabled:opacity-50`}
-            onClick={(e) => {
-              e.stopPropagation();
-              void onAction(row, api, label);
-            }}
-          >
-            <Icon size={12} />
-            {label}
-          </button>
-        ) : null
-      )}
-    </div>
-  );
-}
-
 export default function PlanTablePage() {
   const canAccess = useCanAccess();
-  const canView = canAccess(MODULE, "view").allowed;
-  const canEdit = canAccess(MODULE, "edit").allowed;
+  const viewAccess = useMemo(() => canAccess(MODULE, "view"), [canAccess]);
+  const canView = viewAccess.allowed;
+  const imsDates = useViewDateFilterDefaults(viewAccess);
+  // const dateFilterDefaults = useViewDateFilterDefaults(viewAccess);
+  const dateFilterDefaults = useMemo(() => {
+    if (!TO_PLUS_1_MONTH) return imsDates;
+    const to = dayjs().add(1, "month").format("YYYY-MM-DD");
+    return { ...imsDates, to, maxDate: to };
+  }, [imsDates]);
   const { processIds, machineIds, statusFromUrl } = useProductionFilterIds();
 
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(statusFromUrl || "all");
+  const [fromDate, setFromDate] = useState(dateFilterDefaults.from);
+  const [toDate, setToDate] = useState(dateFilterDefaults.to);
+  const [filterKey, setFilterKey] = useState(0);
   const [machines, setMachines] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [busyId, setBusyId] = useState(null);
-  const [viewCard, setViewCard] = useState(null);
+  const [lineDrawer, setLineDrawer] = useState(null); // { row, mode: view|edit }
+  const [deleteRow, setDeleteRow] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [sort, setSort] = useState({ sortKey: "job_card_no", sortDir: "asc" });
+  const [sort, setSort] = useState({ sortKey: "plan_start", sortDir: "desc" });
   const [limit, setLimit] = useState(PAGE_CHUNK);
+  const [viewMode, handleViewMode] = useViewMode();
+
+  useEffect(() => {
+    if (!dateFilterDefaults.from && !dateFilterDefaults.to) return;
+    setFromDate(dateFilterDefaults.from);
+    setToDate(dateFilterDefaults.to);
+  }, [dateFilterDefaults.from, dateFilterDefaults.to]);
+
+  const resetFilters = useCallback(() => {
+    setFromDate(dateFilterDefaults.from || "");
+    setToDate(dateFilterDefaults.to || "");
+    setSearch("");
+    setStatusFilter("all");
+    setLimit(PAGE_CHUNK);
+    setFilterKey((k) => k + 1);
+  }, [dateFilterDefaults.from, dateFilterDefaults.to]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const data = await fetchPlanTable();
+      const data = await fetchPlanTable({ from_date: fromDate, to_date: toDate });
       setRows(data.rows || []);
       setMachines(data.machines || []);
-      // selected is a row id string (DataTable onSelect), not a row object
       setSelected((cur) => (cur && (data.rows || []).some((r) => r.id === cur) ? cur : null));
     } catch (e) {
       setError(e?.message || "Failed to load.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fromDate, toDate]);
 
   useEffect(() => {
     if (canView) void load();
@@ -147,28 +150,18 @@ export default function PlanTablePage() {
   );
 
   const filteredRows = useMemo(() => {
-    const data = rows.filter((r) => rowMatchesFilters(r, { processIds, machineIds, statusFromUrl: statusFilter, search }));
+    const data = rows.filter((r) =>
+      rowMatchesFilters(r, {
+        processIds,
+        machineIds,
+        statusFromUrl: statusFilter,
+        search,
+      })
+    );
     return sortRowsByKey(data, sort.sortKey, sort.sortDir);
   }, [rows, processIds, machineIds, statusFilter, search, sort]);
 
   const visibleRows = useMemo(() => filteredRows.slice(0, limit), [filteredRows, limit]);
-
-  const onLineAction = useCallback(
-    async (row, apiStatus, label) => {
-      if (!canEdit || busyId) return;
-      setBusyId(row.id);
-      try {
-        await setPlanLineStatus(row.docno, row.processId, row.machineId, apiStatus);
-        toast.success(`${row.job_card_no}: ${label}`);
-        await load();
-      } catch (e) {
-        toast.error(e?.message || `${label} failed.`);
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [canEdit, busyId, load]
-  );
 
   const headers = useMemo(
     () => [
@@ -178,14 +171,18 @@ export default function PlanTablePage() {
         (v) => <span className={`${IMS_TABLE_CELL_TEXT} font-mono font-bold text-indigo-700`}>{v || "—"}</span>,
         { width: "110px", fixed: true },
       ],
+      [
+        "Prime Item",
+        "prime_item_code",
+        (v) => <span className={`${IMS_TABLE_CELL_TEXT} font-bold uppercase`}>{v || "—"}</span>,
+        { width: "110px" },
+      ],
       ["Machine", "machine", textCell, { width: "120px" }],
       ["Process", "process", textCell, { width: "130px" }],
       [
         "Stage",
         "stage",
-        (v) => (
-          <span className={`${IMS_TABLE_CELL_NUMBER} text-center block`}>{v != null ? String(v) : "—"}</span>
-        ),
+        (v) => <span className={`${IMS_TABLE_CELL_NUMBER} text-center block`}>{v != null ? String(v) : "—"}</span>,
         { width: "64px", align: "center" },
       ],
       [
@@ -194,9 +191,9 @@ export default function PlanTablePage() {
         (v) => <span className={`${IMS_TABLE_CELL_NUMBER} text-right block`}>{Number(v ?? 0).toLocaleString()}</span>,
         { width: "96px", align: "right", copyValue: (row) => String(row.qty ?? 0) },
       ],
-      ["Plan Start", "planStart", textCell, { width: "130px" }],
+      ["Plan Start", "plan_start", (_, row) => textCell(row.planStart), { width: "130px", copyValue: (row) => row.plan_start || "—" }],
       ["Actual Start", "actStart", textCell, { width: "130px" }],
-      ["Plan End", "planEnd", textCell, { width: "110px" }],
+      ["Plan End", "plan_end", (_, row) => textCell(row.planEnd), { width: "110px", copyValue: (row) => row.plan_end || "—" }],
       ["Actual End", "actEnd", textCell, { width: "130px" }],
       [
         "Status",
@@ -212,46 +209,47 @@ export default function PlanTablePage() {
         ),
         { width: "100px", align: "center", copyValue: (row) => row.status || "—" },
       ],
-      ...(canEdit
-        ? [
-            [
-              "Actions",
-              "actions",
-              (_, row) => <PlanRowActions row={row} busyId={busyId} onAction={onLineAction} />,
-              { width: "148px", sortable: false, excludeCopy: true, fixed: "right", align: "right" },
-            ],
-          ]
-        : []),
     ],
-    [canEdit, busyId, onLineAction]
+    []
   );
 
-  // Drawer loads JC once — do not prefetch getById here (avoids double fetch).
-  const openView = useCallback((row) => {
-    if (!row?.docno) {
-      toast.error("Job card not found.");
-      return;
-    }
-    setViewCard({
-      docno: row.docno,
-      job_card_docno: row.docno,
-      job_card_no: row.job_card_no,
-      prime_item_code: row.prime_item_code,
-    });
-  }, []);
+  const { exporting, handleExport, exportDisabled } = useListPageExport({
+    moduleName: "Planning Table",
+    rows: filteredRows,
+    headers,
+  });
 
   const selectedRow = useMemo(
     () => (selected ? filteredRows.find((r) => r.id === selected) || rows.find((r) => r.id === selected) || null : null),
     [selected, filteredRows, rows]
   );
 
+  const openView = useCallback((row) => {
+    if (!row) return toast.info("Select a plan line first.");
+    setLineDrawer({ row, mode: "view" });
+  }, []);
+
+  const openEdit = useCallback((row) => {
+    if (!row) return toast.info("Select a plan line first.");
+    setLineDrawer({ row, mode: "edit" });
+  }, []);
+
+  const openDelete = useCallback((row) => {
+    if (!row) return toast.info("Select a plan line first.");
+    setDeleteRow(row);
+  }, []);
+
+  const modalOpen = Boolean(lineDrawer || deleteRow);
+
   const { tableHotkeyProps } = useListDrawerHotkeys({
     module: MODULE,
-    modalOpen: Boolean(viewCard),
+    modalOpen,
     selectedId: selected,
     getSelectedRow: () => selectedRow,
-    openEdit: (row) => void openView(row),
+    openEdit: (row) => openEdit(row),
     canEditSelection: () => Boolean(selectedRow),
+    openDelete: (row) => openDelete(row),
+    canDeleteSelection: () => Boolean(selectedRow),
   });
 
   const resetFiltersView = () => setLimit(PAGE_CHUNK);
@@ -262,7 +260,35 @@ export default function PlanTablePage() {
 
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
-      {viewCard ? <JobCardViewDrawer card={viewCard} onClose={() => setViewCard(null)} /> : null}
+      {lineDrawer ? (
+        <PlanLineDrawer
+          key={`${lineDrawer.row.id}-${lineDrawer.mode}`}
+          row={lineDrawer.row}
+          mode={lineDrawer.mode}
+          onClose={() => setLineDrawer(null)}
+          onSaved={() => {
+            setLineDrawer(null);
+            void load();
+          }}
+        />
+      ) : null}
+      {deleteRow ? (
+        <DeleteModal
+          item={deleteRow}
+          onClose={() => setDeleteRow(null)}
+          onSuccess={() => {
+            setDeleteRow(null);
+            setSelected(null);
+            void load();
+          }}
+          service={planService}
+          entityLabel="Plan line"
+          idKey="plan_docno"
+          titleKey="job_card_no"
+          moduleSlug={MODULE}
+          warningMessage="Removes this process/machine line from Board, Calendar, and Table. Job card itself is kept."
+        />
+      ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-none border border-slate-300 bg-white shadow-sm">
         <ListPageToolbar>
@@ -279,14 +305,44 @@ export default function PlanTablePage() {
               </div>
             }
             actions={
-              <button type="button" className={btn} onClick={() => void load()} disabled={loading} title="Refresh">
-                {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-              </button>
+              <>
+                <ListPageViewButton
+                  module={MODULE}
+                  disabled={!selectedRow}
+                  record={selectedRow}
+                  onClick={() => openView(selectedRow)}
+                />
+                <ListPageEditButton
+                  module={MODULE}
+                  disabled={!selectedRow}
+                  record={selectedRow}
+                  onClick={() => openEdit(selectedRow)}
+                />
+                <ListPageDeleteButton
+                  module={MODULE}
+                  disabled={!selectedRow}
+                  onClick={() => openDelete(selectedRow)}
+                />
+                <div className="hidden sm:block w-px h-6 bg-slate-300 mx-0.5 shrink-0" />
+                <button type="button" className={btn} onClick={() => void load()} disabled={loading} title="Refresh" aria-label="Refresh">
+                  {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                </button>
+              </>
+            }
+            viewToggle={
+              <ListPageExportToggle
+                viewMode={viewMode}
+                setMode={handleViewMode}
+                exporting={exporting}
+                disabled={exportDisabled}
+                onExport={handleExport}
+              />
             }
           />
         </ListPageToolbar>
 
         <ProductionFilters
+          key={filterKey}
           processOptions={processOptions}
           machineOptions={machineOptions}
           search={search}
@@ -294,14 +350,25 @@ export default function PlanTablePage() {
             setSearch(v);
             resetFiltersView();
           }}
-          searchLabel="Search Plan"
-          searchPlaceholder="Job card, machine, process…"
+          searchLabel="Quick Search"
+          searchPlaceholder="Job card, prime item, machine, process…"
           statusFilter={statusFilter}
           statusOptions={STATUS_FILTER_OPTIONS}
           onStatusChange={(v) => {
             setStatusFilter(v);
             resetFiltersView();
           }}
+          showDate
+          fromDate={fromDate}
+          toDate={toDate}
+          minDate={dateFilterDefaults.minDate}
+          maxDate={dateFilterDefaults.maxDate}
+          onDateChange={(from, to) => {
+            setFromDate(from || "");
+            setToDate(to || "");
+            resetFiltersView();
+          }}
+          onDateReset={resetFilters}
         />
 
         <div className={LIST_PAGE_TABLE_AREA_CLASS}>
@@ -309,6 +376,7 @@ export default function PlanTablePage() {
             headers={headers}
             data={visibleRows}
             loading={loading}
+            viewMode={viewMode}
             allowCopy
             showSelection
             {...tableHotkeyProps}
@@ -318,20 +386,23 @@ export default function PlanTablePage() {
               setLimit(PAGE_CHUNK);
               setSort((p) => ({
                 sortKey: key,
-                sortDir: p.sortKey === key && p.sortDir === "asc" ? "desc" : "asc",
+                sortDir: p.sortKey === key && p.sortDir === "desc" ? "asc" : "desc",
               }));
             }}
             getRowId={(row) => row.id}
             selectedId={selected}
             onSelect={(id) => setSelected(id)}
-            onRowDoubleClick={(row) => void openView(row)}
+            onRowDoubleClick={(row) => openView(row)}
             onLoadMore={() => setLimit((n) => n + PAGE_CHUNK)}
             hasMore={visibleRows.length < filteredRows.length}
             totalItems={filteredRows.length}
+            cardConfig={{ titleKey: "job_card_no", badgeIndices: [10], detailIndices: [1, 2, 3] }}
             emptyIcon={Table2}
             emptyMessage={error ? "Could not load planning table" : "No plan lines"}
             emptySubMessage={
-              error ? `${error} — refresh to retry.` : "Authorize job cards with a process plan, or relax filters."
+              error
+                ? `${error} — refresh to retry.`
+                : "Authorize job cards with a process plan, or relax filters. Edit updates this plan line only."
             }
           />
         </div>

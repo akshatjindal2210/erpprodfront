@@ -16,9 +16,9 @@ import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/ui/common/list/ListPageToolbar";
 import EmptyState from "@/ui/common/table/EmptyState";
-import { UNASSIGNED, RANGE_MODES, STATUS_FILTER_OPTIONS, PLANNING_MODULE, SHIFTS_PER_DAY, isValidShift, updateJobCardStatus, updateJobCardPosition, updateJobCardSchedule, machineBusyStatus, startOfWeek,
-  startOfMonth, rangeDateKeys, rangeLabel, stepAnchor, toDateKey, collectProcessOptions, cardMatchesProcessFilter, cardMatchesMachineFilter, machineIdsForProcesses, resolveBoardColumnId, resolveJobCardDocno } from "@/apps/production/modules/job-card-board/board";
-import { setPlanLineStatus } from "@/apps/production/modules/plan/planTable";
+import { UNASSIGNED, RANGE_MODES, STATUS_FILTER_OPTIONS, PLANNING_MODULE, SHIFTS_PER_DAY, isValidShift, updatePlanLineStatus, updatePlanLineMachine, updatePlanLineSchedule, machineBusyStatus, startOfWeek,
+  startOfMonth, rangeDateKeys, rangeLabel, stepAnchor, toDateKey, collectProcessOptions, cardMatchesProcessFilter, cardMatchesMachineFilter, machineIdsForProcesses, resolveBoardColumnId, resolvePlanLineDocno,
+  columnQueue, canFifoAction, columnHasRunning, cascadeColumnSchedules, sortBoardColumn, canMoveCardToMachine } from "@/apps/production/modules/job-card-board/board";
 import JobCardViewDrawer from "@/apps/production/modules/job-card-board/ViewDrawer";
 import JobCardReportCalendar, { parseCalSlot } from "@/apps/production/modules/job-card-board/JobCardReportCalendar";
 import ProductionFilters, { useProductionFilterIds } from "@/apps/production/modules/job-card-board/ProductionFilters";
@@ -54,12 +54,8 @@ const ACTIONS = [
   { key: "complete", label: "Complete", status: "Complete", Icon: Square, cls: "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100" },
 ];
 
-function canAction(status, key) {
-  if (status === "Complete") return false;
-  if (key === "start") return status !== "Running";
-  if (key === "hold") return status === "Running";
-  if (key === "complete") return status !== "Complete";
-  return false;
+function canAction(card, columnCards, key) {
+  return canFifoAction(card, columnCards, key);
 }
 
 function colId(m) {
@@ -109,8 +105,10 @@ function estimateDateFromShifts(startDate, shiftNo, shiftCount) {
 }
 
 function cardEstimateLabel(card) {
-  if (card.estimate_date) return card.estimate_date;
-  return estimateDateFromShifts(card.date, card.shift, card.est_shifts);
+  // Prefer machine est_shifts (column machine) over stored plan_end (was whole-JC).
+  const fromShifts = estimateDateFromShifts(card.date, card.shift, card.est_shifts);
+  if (fromShifts) return fromShifts;
+  return card.estimate_date || null;
 }
 
 /** Board card body: JC · item · Planning · qty · start + stage-1 machine shifts required · est. */
@@ -159,8 +157,11 @@ function CardBody({ card, dense }) {
   );
 }
 
-function BoardCard({ card, canEdit, busyId, onOpen, onAction, dense }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: String(card.id), disabled: !canEdit });
+function BoardCard({ card, columnCards, canEdit, dragLocked, busyId, onOpen, onAction, dense }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: String(card.id),
+    disabled: !canEdit || dragLocked,
+  });
   const busy = busyId === String(card.id);
   return (
     <div
@@ -171,7 +172,7 @@ function BoardCard({ card, canEdit, busyId, onOpen, onAction, dense }) {
     >
       <div className={`absolute inset-y-0 left-0 w-1 ${STATUS_BAR[card.status] || "bg-slate-300"}`} />
       <div className="flex gap-1.5">
-        {canEdit ? (
+        {canEdit && !dragLocked ? (
           <button type="button" className="mt-0.5 cursor-grab touch-none text-slate-300 hover:text-slate-500" {...listeners}>
             <GripVertical size={dense ? 12 : 14} />
           </button>
@@ -182,12 +183,17 @@ function BoardCard({ card, canEdit, busyId, onOpen, onAction, dense }) {
           </button>
           <div className={`${dense ? "mt-1.5" : "mt-2"} grid grid-cols-3 gap-1 ${busy ? "pointer-events-none opacity-60" : ""}`}>
             {ACTIONS.map(({ key, label, status, Icon, cls }) => {
-              const enabled = canEdit && canAction(card.status, key);
+              const enabled = canEdit && canAction(card, columnCards, key);
               return (
                 <button
                   key={key}
                   type="button"
                   disabled={!enabled || busy}
+                  title={
+                    !enabled && key === "start"
+                      ? "FIFO: complete or hold cards above first"
+                      : undefined
+                  }
                   className={`inline-flex items-center justify-center gap-0.5 border px-1 py-1 font-black uppercase tracking-wide disabled:opacity-40 ${dense ? "text-[8px]" : "text-[9px]"} ${cls}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -232,7 +238,20 @@ function MachineCol({ id, title, code, status, cards, canEdit, busyId, onOpen, o
           {cards.length === 0 ? (
             <div className={`flex flex-1 items-center justify-center border border-dashed border-slate-200 bg-white font-semibold text-slate-400 ${dense ? "py-6 text-[10px]" : "py-8 text-[11px]"}`}>—</div>
           ) : (
-            cards.map((card) => <BoardCard key={card.id} card={card} canEdit={canEdit} busyId={busyId} onOpen={onOpen} onAction={onAction} dense={dense} />)
+            cards.map((card) => (
+              <BoardCard
+                key={card.id}
+                card={card}
+                columnCards={cards}
+                canEdit={canEdit}
+                /* Running stays put; Pending below can still drag to another machine */
+                dragLocked={card.status === "Running"}
+                busyId={busyId}
+                onOpen={onOpen}
+                onAction={onAction}
+                dense={dense}
+              />
+            ))
           )}
         </SortableContext>
       </div>
@@ -371,6 +390,8 @@ export default function JobCardBoardPage({ initialView = "board" }) {
 
   const visible = cards.filter((c) => {
     if (!isBoard && (!c.date || !visibleKeys.has(c.date))) return false;
+    // Board active queue — hide Complete (Status → Complete se dekh sakte ho)
+    if (isBoard && c.status === "Complete" && statusFilter !== "Complete") return false;
     if (statusFilter !== "all" && c.status !== statusFilter) return false;
     if (!cardMatchesProcessFilter(c, processIds)) return false;
     if (!cardMatchesMachineFilter(c, machineIds, { fromPlan: isBoard })) return false;
@@ -426,9 +447,9 @@ export default function JobCardBoardPage({ initialView = "board" }) {
         })
         .map((col) => ({
           ...col,
-          cards: visible
-            .filter((c) => resolveBoardColumnId(c, boardColIdSet) === String(col.id))
-            .sort((a, b) => a.position - b.position),
+          cards: sortBoardColumn(
+            visible.filter((c) => resolveBoardColumnId(c, boardColIdSet) === String(col.id))
+          ),
         }))
     : [];
 
@@ -464,11 +485,65 @@ export default function JobCardBoardPage({ initialView = "board" }) {
       toast.info("A job card needs a machine — drop it on a machine column.");
       return;
     }
+
+    const fromQueue = columnQueue(cards, fromCol === UNASSIGNED ? null : fromCol);
+    const toQueueBefore = columnQueue(cards, toCol === UNASSIGNED ? null : toCol);
+    const sameCol = fromCol === toCol;
+
+    // Same column: cannot reorder while something is Running (Pending cannot jump above it).
+    if (sameCol && columnHasRunning(fromQueue)) {
+      toast.info("FIFO: hold or complete the Running job before reordering this column.");
+      return;
+    }
+
+    // Cross-machine: only machines of this card's process (Packing↔PACK/PACK-C1, not Rolling M/C).
+    if (!sameCol && toCol !== UNASSIGNED && !canMoveCardToMachine(moving, toCol, machines)) {
+      toast.info(
+        moving.process
+          ? `${moving.process} can only move to ${moving.process} machines.`
+          : "This card can only move to machines of its process."
+      );
+      return;
+    }
+
+    // Other machine OK: if target has Running, land below it (never above).
+    if (!sameCol && columnHasRunning(toQueueBefore)) {
+      const runningCount = toQueueBefore.filter((c) => c.status === "Running").length;
+      newIndex = Math.max(newIndex, runningCount);
+    }
+
     const prev = cards;
-    setCards(moveCard(cards, cardId, toCol, newIndex));
-    if (toCol === fromCol) return; // reorder inside a column — nothing to save
+    const toAnchor = (toCol === fromCol ? fromQueue : toQueueBefore)[0] || moving;
+    const fromAnchor = fromQueue[0] || moving;
+    let nextCards = moveCard(cards, cardId, toCol, newIndex);
+
+    const toOrdered = columnQueue(nextCards, toCol === UNASSIGNED ? null : toCol);
+    const toCascaded = cascadeColumnSchedules(toOrdered, { date: toAnchor?.date, shift: toAnchor?.shift });
+    const fromCascaded =
+      toCol === fromCol
+        ? []
+        : cascadeColumnSchedules(columnQueue(nextCards, fromCol === UNASSIGNED ? null : fromCol), {
+            date: fromAnchor?.date,
+            shift: fromAnchor?.shift,
+          });
+    const byId = new Map([...toCascaded, ...fromCascaded].map((c) => [String(c.id), c]));
+    nextCards = nextCards.map((c) => byId.get(String(c.id)) || c);
+    setCards(nextCards);
+
     try {
-      await updateJobCardPosition(moving, toCol === UNASSIGNED ? null : toCol, moving.machine_id);
+      if (toCol !== fromCol) {
+        await updatePlanLineMachine(moving, toCol === UNASSIGNED ? null : toCol);
+      }
+      // Persist FIFO order on prod_plan only (plan_start / plan_end).
+      const scheduleWrites = [...toCascaded, ...fromCascaded].filter((c) => {
+        const before = cards.find((x) => String(x.id) === String(c.id));
+        return !before || before.date !== c.date || before.estimate_date !== c.estimate_date;
+      });
+      for (const c of scheduleWrites) {
+        await updatePlanLineSchedule(c, c.date, c.estimate_date);
+      }
+      if (scheduleWrites.length) toast.success("Queue order updated — schedules cascaded.");
+      if (scheduleWrites.length || toCol !== fromCol) await load();
     } catch (e) {
       setCards(prev);
       toast.error(e?.message || "Move failed — reverted.");
@@ -491,8 +566,9 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     const prev = cards;
     setCards((list) => list.map((c) => (String(c.id) === cardId ? { ...c, date: target.date, shift: target.shift } : c)));
     try {
-      await updateJobCardSchedule(moving, target.date, target.shift);
-      toast.success(`${moving.job_card_no} → ${target.date} · Shift ${target.shift}`);
+      await updatePlanLineSchedule(moving, target.date);
+      toast.success(`${moving.job_card_no} → ${target.date}`);
+      await load();
     } catch (e) {
       setCards(prev);
       toast.error(e?.message || "Schedule move failed — reverted.");
@@ -501,8 +577,17 @@ export default function JobCardBoardPage({ initialView = "board" }) {
 
   async function onBoardAction(card, status, label) {
     if (!canEdit || busyId) return;
-    const jcDocno = resolveJobCardDocno(card);
-    if (!jcDocno) return toast.error("Job card not found.");
+    const planDocno = resolvePlanLineDocno(card);
+    if (!planDocno) return toast.error("Plan line not found.");
+    const queue = columnQueue(cards, card.machine_id);
+    const actionKey = status === "Running" ? "start" : status === "Hold" ? "hold" : status === "Complete" ? "complete" : null;
+    if (!actionKey || !canFifoAction(card, queue, actionKey)) {
+      return toast.info(
+        status === "Running"
+          ? "FIFO: only the first open job can Start (complete or hold cards above first)."
+          : "Action not allowed for this job right now."
+      );
+    }
     const id = String(card.id);
     const prevCards = cards;
     const prevMachines = machines;
@@ -512,11 +597,7 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     setMachines((ms) => ms.map((m) => ({ ...m, status: machineBusyStatus(m.id, nextCards) })));
     const statusApi = { Running: "running", Hold: "hold", Complete: "complete" }[status];
     try {
-      if (statusApi && card.processId != null) {
-        await setPlanLineStatus(jcDocno, card.processId, card.machine_id, statusApi);
-      } else {
-        await updateJobCardStatus(jcDocno, status);
-      }
+      await updatePlanLineStatus(card, statusApi);
       toast.success(`${card.job_card_no}: ${label}`);
       await load();
     } catch (e) {
