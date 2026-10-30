@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Pencil, Trash2, Bell, Loader2, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, Bell, Loader2, Check, Copy } from "lucide-react";
 import { toast } from "react-toastify";
 import { useState } from "react";
 import Drawer from "@/ui/primitives/Drawer";
@@ -23,12 +23,29 @@ export default function NotifyTemplateListModal({
   onAdd,
   onEdit,
   onDeleted,
+  onCloned,
 }) {
   const [busyId, setBusyId] = useState(null);
+  const showClone = canAdd && !viewOnly;
   if (!slot) return null;
 
   const eventLabel = TRIGGER_EVENT_LABELS[slot.event] || slot.event;
   const headerDesc = [slot.modLabel, eventLabel].filter(Boolean).join(" · ");
+
+  const handleClone = async (row, e) => {
+    e?.stopPropagation?.();
+    if (!showClone) return;
+    setBusyId(row.id);
+    try {
+      await notificationTemplateService.clone(row.id);
+      toast.success("Template cloned");
+      onCloned?.();
+    } catch (err) {
+      toast.error(err?.message || "Failed to clone template");
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const handleDelete = async (row, e) => {
     e?.stopPropagation?.();
@@ -166,6 +183,17 @@ export default function NotifyTemplateListModal({
                     </div>
 
                     <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      {showClone && (
+                        <button
+                          type="button"
+                          title="Clone"
+                          disabled={busyId === row.id}
+                          onClick={(e) => handleClone(row, e)}
+                          className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl border border-transparent hover:border-indigo-100 transition-colors disabled:opacity-50"
+                        >
+                          {busyId === row.id ? <Loader2 size={16} className="animate-spin" /> : <Copy size={16} />}
+                        </button>
+                      )}
                       {(canEdit || viewOnly) && (
                         <button
                           type="button"

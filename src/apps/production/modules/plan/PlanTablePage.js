@@ -286,7 +286,7 @@ export default function PlanTablePage() {
           idKey="plan_docno"
           titleKey="job_card_no"
           moduleSlug={MODULE}
-          warningMessage="Removes this process/machine line from Board, Calendar, and Table. Job card itself is kept."
+          warningMessage="Removes this plan line. If status is Complete, the previous stage reopens as Pending on the Board and this machine is removed from the job card plan. Calendar manpower is not changed."
         />
       ) : null}
 

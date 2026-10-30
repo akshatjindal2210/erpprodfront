@@ -1,7 +1,6 @@
 import { planService } from "@/apps/production/lib/services/plan";
 import { machineMasterService } from "@/apps/engineering/lib/services/machineMaster";
 import { PROCESS_STATUS_LABELS, parseProcessPlan } from "@/apps/production/lib/constants/processStatus";
-import { isValidShift } from "@/apps/production/modules/jc/jobCard.config";
 import { helperPerms } from "@/apps/engineering/lib/helpers/helperPerms";
 
 const PLANNING_MODULE = "production_planning";
@@ -13,13 +12,19 @@ function dt(v) {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
+/** Positive number from API estimate fields only */
+function estNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** Board / Calendar card from one prod_plan row. */
 export function mapPlanRowToBoardCard(r) {
   const statusKey = String(r.status || "pending").toLowerCase();
   const proccode = Number(r.proccode);
   const maccode = r.maccode != null ? Number(r.maccode) : null;
   const planStart = r.plan_start ? String(r.plan_start).slice(0, 10) : null;
-  const shift = isValidShift(r.plan_shift) ? Number(r.plan_shift) : 1;
+  const shift = 1;
   const processName = r.process_name || String(proccode);
   const machineName = r.machine_name || "—";
   const jcPlan = parseProcessPlan(r.process_plan);
@@ -44,14 +49,24 @@ export function mapPlanRowToBoardCard(r) {
     prime_item_dcode: r.prime_item_dcode ?? r.itemdcode ?? null,
     title: processName,
     process: processName,
+    process_deptname: r.process_deptname ? String(r.process_deptname).trim() : null,
     machine: machineName,
     machines: maccode != null ? [machineName] : [],
     machine_id: maccode,
-    qty: Number(r.qty) || 0,
+    /** From API planLineEstimate — do not recalculate on frontend */
+    est_error: r.est_error ? String(r.est_error) : null,
+    qty_total: Number(r.plan_qty ?? r.qty) || 0,
+    qty_multi_mc: !!r.multi_jc_split,
+    qty: Number(r.line_qty ?? r.qty) || 0,
     status: PROCESS_STATUS_LABELS[statusKey] || "Pending",
     date: planStart,
     shift,
-    est_shifts: Number(r.est_shifts) > 0 ? Number(r.est_shifts) : null,
+    /** prod_jc.jobcarddt — calendar: no occupy before this date on the machine */
+    jobcarddt: r.jobcarddt ? String(r.jobcarddt).slice(0, 10) : null,
+    est_shifts: estNum(r.est_shifts),
+    est_hours: estNum(r.est_hours),
+    est_setup_seconds: estNum(r.est_setup_seconds),
+    est_run_seconds: estNum(r.est_run_seconds),
     estimate_date: r.plan_end ? String(r.plan_end).slice(0, 10) : null,
     position: 0,
     approved: true,
@@ -86,7 +101,8 @@ function mapRow(r) {
     process: r.process_name || String(r.proccode),
     machineId: r.maccode != null ? Number(r.maccode) : null,
     machine: r.machine_name || "—",
-    qty: Number(r.qty) || 0,
+    qty: Number(r.line_qty ?? r.qty) || 0,
+    qty_total: Number(r.plan_qty ?? r.qty) || 0,
     plan_start: day || "",
     plan_end: end || "",
     planStart: day || "—",
@@ -114,9 +130,4 @@ export async function fetchPlanTable(dateFilters = {}) {
     rows: (res?.data || []).map(mapRow),
     machines: (macRes?.data || []).map((m) => ({ id: Number(m.maccode), name: m.macname || m.label })).filter((m) => m.id),
   };
-}
-
-/** @deprecated Board uses updatePlanLineStatus — prod_plan only. */
-export async function setPlanLineStatus(planLineDocno, _processId, _machineId, status) {
-  await planService.update(planLineDocno, { status: String(status || "").toLowerCase() });
 }

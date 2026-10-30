@@ -47,5 +47,11 @@ export const ENDPOINTS = {
     GET: "/production/plan/get",
     UPDATE: "/production/plan/update",
     DELETE: "/production/plan/delete",
+    SHIFTS: "/production/plan/shifts",
+    SHIFT_OP_GET: "/production/plan/shift-op/get",
+    SHIFT_OP_SAVE: "/production/plan/shift-op/save",
+    SHIFT_OP_UPDATE: "/production/plan/shift-op/update",
+    SHIFT_OP_DELETE: "/production/plan/shift-op/delete",
+    EMPLOYEES_HELPER: "/production/plan/employees/helper",
   },
 };

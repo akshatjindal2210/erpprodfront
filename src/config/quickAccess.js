@@ -86,6 +86,7 @@ const PRODUCTION = [
   { id: "job-card-board", label: "Job Card Board", icon: <LayoutGrid size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_JOB_CARD_BOARD, module: "production_planning" },
   { id: "job-card-calendar", label: "Job Card Calendar", icon: <CalendarDays size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_JOB_CARD_CALENDAR, module: "production_planning" },
   { id: "production-entry", label: "Production Entry", icon: <ClipboardPen size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_ENTRY, module: "production_entry" },
+  { id: "manpower", label: "Manpower", icon: <Users size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_MANPOWER, module: "production_manpower" },
   { id: "logs", label: "Activity Logs", icon: <History size={13} />, path: PRODUCTION_ROUTES.PRODUCTION_ACTIVITY_LOGS, module: "production_activity_logs" },
 ];
 

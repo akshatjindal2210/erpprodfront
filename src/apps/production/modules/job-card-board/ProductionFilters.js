@@ -5,7 +5,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { X } from "lucide-react";
 import DateRangeFilter from "@/ui/common/date/DateRangeFilter";
 import ListPageFilterStrip from "@/ui/common/list/ListPageFilterStrip";
-import { SHIFTS } from "@/apps/production/modules/job-card-board/board";
 
 /** URL sentinel: every checkbox unchecked (show nothing). All selected → omit param. */
 export const FILTER_NONE = "__none__";
@@ -78,6 +77,8 @@ export default function ProductionFilters({
   onStatusChange,
   /** Calendar only — show Shift multi-select */
   showShiftFilter = false,
+  /** Settings → Shifts codes (empty = hide shift filter). */
+  shifts = [],
   /** Planning Table — plan start From/To (IMS server filter) */
   showDate = false,
   fromDate = "",
@@ -96,8 +97,12 @@ export default function ProductionFilters({
   const shiftIds = useMemo(() => parseCsvIds(searchParams.get("shift")), [searchParams]);
 
   const shiftOptions = useMemo(
-    () => SHIFTS.map((s) => ({ label: s.label, value: String(s.id) })),
-    []
+    () =>
+      (Array.isArray(shifts) ? shifts : []).map((s) => ({
+        label: s.code || s.label || s.short || String(s.id),
+        value: String(s.id),
+      })),
+    [shifts]
   );
 
   const processValue = useMemo(() => idsToCheckbox(processIds, processOptions), [processIds, processOptions]);
@@ -158,7 +163,7 @@ export default function ProductionFilters({
         className: "md:min-w-[12rem] md:max-w-[16rem]",
       });
     }
-    if (showShiftFilter) {
+    if (showShiftFilter && shiftOptions.length) {
       list.push({
         type: "checkboxGroup",
         key: "shiftIncludes",

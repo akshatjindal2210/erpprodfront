@@ -26,7 +26,8 @@ export const processMasterService = {
   getViews: (params = {}) => {
     const { permission_module, permission_action = "view", ...rest } = params;
     if (!permission_module) return missingHelperPage("getViews");
-    return api(ENDPOINTS.PROCESS_MASTER.HELPER, {
+    const connectivityOn = rest.filters?.connectivity === true || rest.filters?.connectivity === "true" || rest.filters?.connectivity === "1";
+    return api(`${ENDPOINTS.PROCESS_MASTER.HELPER}${connectivityOn ? "?connectivity=true" : ""}`, {
       method: "POST",
       body: { permission_module, permission_action, ...rest },
     }).then(keepApiOrder);
@@ -41,5 +42,16 @@ export const processMasterService = {
     });
     const row = Array.isArray(res?.data) ? res.data[0] : null;
     return row ? { success: true, data: row } : { success: false, data: null };
+  },
+  /** Distinct ERP employee departments (deptname) for Process Master picker. */
+  getDepartments: (params = {}) => api(ENDPOINTS.PROCESS_MASTER.DEPARTMENTS, { method: "POST", body: params }),
+  getDepartmentByName: async (deptname) => {
+    const name = String(deptname ?? "").trim();
+    if (!name) return null;
+    const res = await api(ENDPOINTS.PROCESS_MASTER.DEPARTMENTS, {
+      method: "POST",
+      body: { id: name, deptname: name },
+    });
+    return res?.data ?? null;
   },
 };

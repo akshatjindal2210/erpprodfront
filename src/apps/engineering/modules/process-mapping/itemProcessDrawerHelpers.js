@@ -135,8 +135,8 @@ export function ItemProcessDrawerFooter({ isView, isApprove, isEdit, canApprove,
   );
 }
 
-export async function persistItemProcessPlan({ service, editData, isEdit, isApprove, itemDcode, stages, statusOverride, draftApproved, wasAuthorized, canApprove }) {
-  const invalid = validateStages(stages);
+export async function persistItemProcessPlan({ service, editData, isEdit, isApprove, itemDcode, stages, connectingProcessId, statusOverride, draftApproved, wasAuthorized, canApprove }) {
+  const invalid = validateStages(stages) || (connectingProcessId !== undefined && !Number(connectingProcessId) ? "Select a connecting stage." : null);
   if (invalid) {
     const err = new Error(invalid);
     err.isValidation = true;
@@ -146,7 +146,9 @@ export async function persistItemProcessPlan({ service, editData, isEdit, isAppr
   if (statusOverride !== null) finalApproved = statusOverride;
   else if (isEdit && wasAuthorized) finalApproved = false;
 
-  const body = { item_dcode: itemDcode, process: buildProcessPayload(stages, itemDcode) };
+  const process = buildProcessPayload(stages, itemDcode);
+  if (connectingProcessId !== undefined) process.connecting_process_id = connectingProcessId || null;
+  const body = { item_dcode: itemDcode, process };
   const isUpdate = isEdit || isApprove;
   const res = isUpdate ? await service.update(editData.id, body) : await service.create(body);
   const id = Number(isUpdate ? editData.id : res?.data?.id);

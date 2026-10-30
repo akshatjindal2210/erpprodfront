@@ -5,7 +5,7 @@
  * Board = machine columns · Calendar = CL Task Report matrix (Process → Machine × Date → Shift).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DndContext, DragOverlay, PointerSensor, TouchSensor, KeyboardSensor, closestCorners, useSensor, useSensors, useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -13,17 +13,20 @@ import { LayoutGrid, CalendarDays, RefreshCw, ZoomIn, ZoomOut, Maximize2, Minimi
 import { toast } from "react-toastify";
 
 import { useCanAccess } from "@/platform/hooks/auth/useCanAccess";
+import { formatDocDate } from "@/platform/utils/core/utilHelper";
 import { IMS_LIST_PAGE_SHELL } from "@/ui/common/list/listPageShellClasses";
 import { ListPageToolbar, ListPageToolbarLayout, LIST_PAGE_ACTION_CLASS } from "@/ui/common/list/ListPageToolbar";
 import EmptyState from "@/ui/common/table/EmptyState";
-import { UNASSIGNED, RANGE_MODES, STATUS_FILTER_OPTIONS, PLANNING_MODULE, SHIFTS_PER_DAY, isValidShift, updatePlanLineStatus, updatePlanLineMachine, updatePlanLineSchedule, machineBusyStatus, startOfWeek,
+import { UNASSIGNED, RANGE_MODES, STATUS_FILTER_OPTIONS, PLANNING_MODULE, isValidShift, updatePlanLineStatus, updatePlanLineMachine, updatePlanLineSchedule, machineBusyStatus, startOfWeek,
   startOfMonth, rangeDateKeys, rangeLabel, stepAnchor, toDateKey, collectProcessOptions, cardMatchesProcessFilter, cardMatchesMachineFilter, machineIdsForProcesses, resolveBoardColumnId, resolvePlanLineDocno,
-  columnQueue, canFifoAction, columnHasRunning, cascadeColumnSchedules, sortBoardColumn, canMoveCardToMachine } from "@/apps/production/modules/job-card-board/board";
+  columnQueue, canFifoAction, columnHasRunning, cascadeColumnSchedules, sortBoardColumn, canMoveCardToMachine, attributeFifoJcToOccupied, SHIFT_HOURS, resolveCardShiftStats } from "@/apps/production/modules/job-card-board/board";
 import JobCardViewDrawer from "@/apps/production/modules/job-card-board/ViewDrawer";
-import JobCardReportCalendar, { parseCalSlot } from "@/apps/production/modules/job-card-board/JobCardReportCalendar";
+import ShiftOpDrawer from "@/apps/production/modules/job-card-board/ShiftOpDrawer";
+import JobCardReportCalendar, { parseCalSlot, SummaryStrip, buildProcessMachineRows } from "@/apps/production/modules/job-card-board/JobCardReportCalendar";
 import ProductionFilters, { useProductionFilterIds } from "@/apps/production/modules/job-card-board/ProductionFilters";
 import { useJobCardBoard } from "@/apps/production/modules/job-card-board/useJobCardBoard";
 import { useJobCardBoardRealtime } from "@/apps/production/modules/job-card-board/useJobCardBoardRealtime";
+import { planService } from "@/apps/production/lib/services/plan";
 
 const MODULE = PLANNING_MODULE;
 const ZOOM_KEY = "production.jobCardBoard.zoom";
@@ -67,7 +70,8 @@ function moveCard(cards, cardId, toMachineId, newIndex) {
   if (!moving) return cards;
   const machine_id = toMachineId === UNASSIGNED || toMachineId == null ? null : Number(toMachineId) || toMachineId;
   const without = cards.filter((c) => String(c.id) !== String(cardId));
-  const inCol = without.filter((c) => colId(c.machine_id) === colId(machine_id)).sort((a, b) => a.position - b.position);
+  /** Same order as column UI (sortBoardColumn) — not raw position alone. */
+  const inCol = sortBoardColumn(without.filter((c) => colId(c.machine_id) === colId(machine_id)));
   inCol.splice(Math.max(0, Math.min(newIndex, inCol.length)), 0, { ...moving, machine_id });
   const moved = inCol.map((c, i) => ({ ...c, machine_id, position: i }));
   const ids = new Set(moved.map((c) => String(c.id)));
@@ -87,12 +91,12 @@ function DetailRow({ label, value, mono = false, empty = false }) {
   );
 }
 
-/** Advance calendar by N production shifts (SHIFTS_PER_DAY from jobCard.config). Date only. */
-function estimateDateFromShifts(startDate, shiftNo, shiftCount) {
+/** Advance calendar by N production shifts (shiftsPerDay = Settings count). Date only. */
+function estimateDateFromShifts(startDate, shiftNo, shiftCount, shiftsPerDay = 1) {
   const n = Math.max(0, Math.floor(Number(shiftCount) || 0));
-  const perDay = Math.max(1, SHIFTS_PER_DAY);
+  const perDay = Math.max(1, Number(shiftsPerDay) || 1);
   if (!startDate || !n) return null;
-  const startShift = isValidShift(shiftNo) ? Number(shiftNo) : 1;
+  const startShift = isValidShift(shiftNo, perDay) ? Number(shiftNo) : 1;
   const endIndex = startShift - 1 + n - 1;
   const dayOffset = Math.floor(endIndex / perDay);
   const d = new Date(`${startDate}T12:00:00`);
@@ -104,60 +108,81 @@ function estimateDateFromShifts(startDate, shiftNo, shiftCount) {
   return `${y}-${m}-${day}`;
 }
 
-function cardEstimateLabel(card) {
+function cardEstimateLabel(card, shiftsPerDay = 1) {
   // Prefer machine est_shifts (column machine) over stored plan_end (was whole-JC).
-  const fromShifts = estimateDateFromShifts(card.date, card.shift, card.est_shifts);
+  const fromShifts = estimateDateFromShifts(card.date, card.shift, card.est_shifts, shiftsPerDay);
   if (fromShifts) return fromShifts;
   return card.estimate_date || null;
 }
 
-/** Board card body: JC · item · Planning · qty · start + stage-1 machine shifts required · est. */
-function CardBody({ card, dense }) {
-  const qtyLabel = Number(card.qty || 0).toLocaleString();
-  const nShifts = Number(card.est_shifts);
-  const shiftsReq = Number.isFinite(nShifts) && nShifts > 0 ? `${nShifts} shift${nShifts === 1 ? "" : "s"}` : null;
-  // Start date + Stage 1 machine-level shifts required (e.g. 2026-10-23 · 8 shifts)
-  const startLabel = [card.date || null, shiftsReq].filter(Boolean).join(" · ") || null;
-  const estLabel = cardEstimateLabel(card);
+function cardQtyLabel(card) {
+  const line = Number(card.qty) || 0;
+  const total = Number(card.qty_total ?? card.qty) || 0;
+  if (card.qty_multi_mc && total > line) {
+    return `${line.toLocaleString()} / ${total.toLocaleString()}`;
+  }
+  return line.toLocaleString();
+}
+
+/** Board card body: JC (item) · qty , shifts (hours) · start · est. */
+function CardBody({ card, dense, shiftsPerDay = 1, hoursPerShift = SHIFT_HOURS }) {
+  const qtyLabel = cardQtyLabel(card);
+  const qtyTitle =
+    card.qty_multi_mc && Number(card.qty_total) > Number(card.qty)
+      ? `This machine share · JC total ${Number(card.qty_total).toLocaleString()}`
+      : undefined;
+  const item = String(card.prime_item_code || "").trim();
+  const { shifts: nShifts, hours: shiftHrs } = resolveCardShiftStats(card, hoursPerShift);
+  const shiftPart = nShifts > 0 ? `${nShifts} shift${nShifts === 1 ? "" : "s"} (${shiftHrs}h)` : null;
+  const qtyShiftLine = shiftPart ? `${qtyLabel} , ${shiftPart}` : qtyLabel;
+  const estLabel = cardEstimateLabel(card, shiftsPerDay);
 
   if (dense) {
     return (
       <>
         <div className="flex items-center justify-between gap-1">
-          <span className="font-mono text-[9px] font-bold text-indigo-600">{card.job_card_no}</span>
+          <p className="min-w-0 truncate font-mono text-[9px] font-bold text-indigo-600">
+            {card.job_card_no}
+            {item ? <span className="font-bold uppercase text-slate-800"> ({item})</span> : null}
+          </p>
           {card.status ? (
-            <span className={`border px-1 py-0.5 text-[7px] font-black uppercase ${STATUS_BADGE[card.status] || ""}`}>{card.status}</span>
+            <span className={`shrink-0 border px-1 py-0.5 text-[7px] font-black uppercase ${STATUS_BADGE[card.status] || ""}`}>{card.status}</span>
           ) : null}
         </div>
-        <p className="mt-0.5 truncate text-[9px] font-bold uppercase text-slate-800">{card.prime_item_code || "—"}</p>
         {card.title ? <p className="truncate text-[8px] font-medium text-slate-500">{card.title}</p> : null}
-        <p className="mt-0.5 truncate text-[8px] font-semibold text-slate-600" title={`Qty ${qtyLabel} · Start ${startLabel || "—"}`}>
-          {qtyLabel}
-          {startLabel ? ` · ${startLabel}` : ""}
+        <p className="mt-0.5 truncate text-[8px] font-semibold tabular-nums text-slate-700" title={qtyTitle || qtyShiftLine}>
+          {qtyShiftLine}
         </p>
+        {card.date ? (
+          <p className="truncate text-[8px] font-medium text-slate-500">
+            {formatDocDate(card.date) || "—"}
+            {estLabel ? ` → ${formatDocDate(estLabel) || "—"}` : ""}
+          </p>
+        ) : null}
       </>
     );
   }
   return (
     <>
       <div className="flex items-center justify-between gap-1">
-        <span className="font-mono text-[11px] font-bold text-indigo-600">{card.job_card_no}</span>
+        <p className="min-w-0 truncate font-mono text-[11px] font-bold text-indigo-600">
+          {card.job_card_no}
+          {item ? <span className="font-bold uppercase text-slate-800"> ({item})</span> : null}
+        </p>
         {card.status ? (
-          <span className={`border px-1.5 py-0.5 text-[9px] font-black uppercase ${STATUS_BADGE[card.status] || ""}`}>{card.status}</span>
+          <span className={`shrink-0 border px-1.5 py-0.5 text-[9px] font-black uppercase ${STATUS_BADGE[card.status] || ""}`}>{card.status}</span>
         ) : null}
       </div>
-      <p className="mt-1 truncate text-[11px] font-bold uppercase text-slate-800">{card.prime_item_code || "—"}</p>
-      {card.title ? <p className="mt-0.5 line-clamp-2 text-[10px] font-medium leading-snug text-slate-600">{card.title}</p> : null}
       <div className="mt-2 space-y-1 border-t border-slate-100 pt-1.5">
-        <DetailRow label="Qty" value={qtyLabel} mono />
-        <DetailRow label="Start" value={startLabel} empty />
-        <DetailRow label="Est" value={estLabel} empty />
+        <DetailRow label="Qty" value={qtyShiftLine} mono />
+        <DetailRow label="Pl. Dt" value={formatDocDate(card.date)} empty />
+        <DetailRow label="Est. Dt" value={formatDocDate(estLabel)} empty />
       </div>
     </>
   );
 }
 
-function BoardCard({ card, columnCards, canEdit, dragLocked, busyId, onOpen, onAction, dense }) {
+function BoardCard({ card, columnCards, canEdit, dragLocked, busyId, onOpen, onAction, dense, shiftsPerDay = 1, hoursPerShift = SHIFT_HOURS }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: String(card.id),
     disabled: !canEdit || dragLocked,
@@ -179,7 +204,7 @@ function BoardCard({ card, columnCards, canEdit, dragLocked, busyId, onOpen, onA
         ) : null}
         <div className="min-w-0 flex-1">
           <button type="button" className="w-full text-left" onClick={() => onOpen(card)}>
-            <CardBody card={card} dense={dense} />
+            <CardBody card={card} dense={dense} shiftsPerDay={shiftsPerDay} hoursPerShift={hoursPerShift} />
           </button>
           <div className={`${dense ? "mt-1.5" : "mt-2"} grid grid-cols-3 gap-1 ${busy ? "pointer-events-none opacity-60" : ""}`}>
             {ACTIONS.map(({ key, label, status, Icon, cls }) => {
@@ -191,7 +216,9 @@ function BoardCard({ card, columnCards, canEdit, dragLocked, busyId, onOpen, onA
                   disabled={!enabled || busy}
                   title={
                     !enabled && key === "start"
-                      ? "FIFO: complete or hold cards above first"
+                      ? card.status === "Hold"
+                        ? "Another job is Running — Hold/Complete it first"
+                        : "FIFO: complete jobs above first, or resume Hold"
                       : undefined
                   }
                   className={`inline-flex items-center justify-center gap-0.5 border px-1 py-1 font-black uppercase tracking-wide disabled:opacity-40 ${dense ? "text-[8px]" : "text-[9px]"} ${cls}`}
@@ -212,9 +239,22 @@ function BoardCard({ card, columnCards, canEdit, dragLocked, busyId, onOpen, onA
   );
 }
 
-function MachineCol({ id, title, code, status, cards, canEdit, busyId, onOpen, onAction, dense }) {
+/** Column header: JC count · sum(shifts) · (hours). */
+function machineColTotals(cards = [], hoursPerShift = SHIFT_HOURS) {
+  let shifts = 0;
+  let hours = 0;
+  for (const c of cards) {
+    const s = resolveCardShiftStats(c, hoursPerShift);
+    shifts += s.shifts;
+    hours += s.hours;
+  }
+  return { jc: cards.length, shifts, hours: Math.round(hours * 10) / 10 };
+}
+
+function MachineCol({ id, title, code, status, cards, canEdit, busyId, onOpen, onAction, dense, shiftsPerDay = 1, hoursPerShift = SHIFT_HOURS }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col-${id}` });
   const w = dense ? COL_W.quick : COL_W.comfort;
+  const tot = machineColTotals(cards, hoursPerShift);
   return (
     <div className={`flex shrink-0 flex-col border bg-slate-50 ${isOver ? "border-indigo-400" : "border-slate-300"}`} style={{ width: w, minWidth: w }}>
       <div className={`border-b border-slate-200 bg-white ${dense ? "px-2 py-1.5" : "px-2.5 py-2"}`}>
@@ -230,7 +270,14 @@ function MachineCol({ id, title, code, status, cards, canEdit, busyId, onOpen, o
               </p>
             ) : null}
           </div>
-          <span className={`border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-black text-slate-600 ${dense ? "text-[9px]" : "text-[10px]"}`}>{cards.length}</span>
+          <span
+            className={`shrink-0 border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-black tabular-nums text-slate-700 ${dense ? "text-[9px]" : "text-[10px]"}`}
+            title={`${tot.jc} JC · ${tot.shifts} shifts · ${tot.hours}h`}
+          >
+            {tot.jc} JC
+            <span className="font-bold text-slate-500"> · {tot.shifts}</span>
+            <span className="font-semibold text-slate-500"> ({tot.hours}h)</span>
+          </span>
         </div>
       </div>
       <div ref={setNodeRef} className={`flex flex-1 flex-col p-2 ${dense ? "gap-1.5" : "gap-2"} ${isOver ? "bg-indigo-50/40" : ""}`} style={{ minHeight: dense ? 96 : 120 }}>
@@ -250,6 +297,8 @@ function MachineCol({ id, title, code, status, cards, canEdit, busyId, onOpen, o
                 onOpen={onOpen}
                 onAction={onAction}
                 dense={dense}
+                shiftsPerDay={shiftsPerDay}
+                hoursPerShift={hoursPerShift}
               />
             ))
           )}
@@ -262,11 +311,13 @@ function MachineCol({ id, title, code, status, cards, canEdit, busyId, onOpen, o
 export default function JobCardBoardPage({ initialView = "board" }) {
   const canAccess = useCanAccess();
   const canView = canAccess(MODULE, "view").allowed;
+  const canAdd = canAccess(MODULE, "add").allowed;
   const canEdit = canAccess(MODULE, "edit").allowed;
+  const canDelete = canAccess(MODULE, "delete").allowed;
 
   const { machines, setMachines, cards, setCards, loading, error, load, isBoard } = useJobCardBoard(initialView);
   useJobCardBoardRealtime({ enabled: canView });
-  const { processIds, machineIds, shiftIds, statusFromUrl } = useProductionFilterIds();
+  const { processIds, machineIds, statusFromUrl } = useProductionFilterIds();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(statusFromUrl || "all");
@@ -279,8 +330,84 @@ export default function JobCardBoardPage({ initialView = "board" }) {
   const [activeId, setActiveId] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [viewCard, setViewCard] = useState(null);
+  const [planSlot, setPlanSlot] = useState(null);
+  /** Settings → Shifts (codes + count for est. math). */
+  const [calShifts, setCalShifts] = useState([]);
+  /** Calendar manpower map: `${maccode}:${date}:${shift}` → emp/hrs (JC attached live). */
+  const [occupiedMap, setOccupiedMap] = useState(() => new Map());
+  const shiftsPerDay = Math.max(1, calShifts.length);
+  const hoursPerShift = useMemo(() => {
+    if (!calShifts.length) return SHIFT_HOURS;
+    const sum = calShifts.reduce((a, s) => a + (Number(s.hours) > 0 ? Number(s.hours) : SHIFT_HOURS), 0);
+    return Math.round((sum / calShifts.length) * 10) / 10;
+  }, [calShifts]);
+
+  const liveOccupiedMap = useMemo(
+    () => attributeFifoJcToOccupied(occupiedMap, cards, calShifts),
+    [occupiedMap, cards, calShifts]
+  );
   const boardRef = useRef(null);
   const scrollRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await planService.getShifts();
+        if (!cancelled) setCalShifts(Array.isArray(res?.data) ? res.data : []);
+      } catch {
+        if (!cancelled) setCalShifts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const reloadOccupancy = useCallback(async (from, to) => {
+    if (!from || !to) {
+      setOccupiedMap(new Map());
+      return;
+    }
+    try {
+      const res = await planService.getShiftOp({ from_date: from, to_date: to });
+      const rows = Array.isArray(res?.data) ? res.data : [];
+      const next = new Map();
+      for (const r of rows) {
+        /** Compact: m d s i e n h q — JC attached live from board FIFO. */
+        const mac = r.m ?? r.maccode;
+        const d = String(r.d || r.plan_date || r.pdate || "").slice(0, 10);
+        const shiftNo = Number(r.s ?? r.shift_no ?? r.shift);
+        if (!d || mac == null || !Number.isFinite(shiftNo)) continue;
+        const hrsRaw = r.h ?? r.hours_used ?? r.hrs;
+        const qtyRaw = Number(r.q ?? r.est_qty ?? r.qty);
+        const seg = {
+          pjobcardno: "",
+          emp_name: r.n || r.emp_name || r.ename || "",
+          emp_code: r.e || r.emp_code || r.emp || "",
+          hours: hrsRaw != null && Number(hrsRaw) > 0 ? Number(hrsRaw) : null,
+          qty: Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : null,
+          id: Number(r.i ?? r.id) || null,
+        };
+        const key = `${mac}:${d}:${shiftNo}`;
+        const cur = next.get(key);
+        if (cur?.segments) {
+          cur.segments.push(seg);
+        } else {
+          next.set(key, {
+            pjobcardno: "",
+            emp_name: seg.emp_name,
+            emp_code: seg.emp_code,
+            hours: seg.hours,
+            segments: [seg],
+          });
+        }
+      }
+      setOccupiedMap(next);
+    } catch {
+      setOccupiedMap(new Map());
+    }
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -353,6 +480,7 @@ export default function JobCardBoardPage({ initialView = "board" }) {
 
   function setRangePersist(next) {
     setRange(next);
+    /** Week / month / 2 months — jump to current period so today is in range. */
     setAnchor(next === "week" ? startOfWeek(new Date()) : startOfMonth(new Date()));
     try {
       localStorage.setItem(RANGE_KEY, next);
@@ -362,18 +490,56 @@ export default function JobCardBoardPage({ initialView = "board" }) {
   }
 
   const q = search.trim().toLowerCase();
-  const calendarDateKeys = useMemo(
-    () => (isBoard ? [] : rangeDateKeys(anchor, range).sort()),
-    [anchor, range, isBoard]
+  // Week = full week · Month = full month · 2mo = full span (scroll pins today; past left-scroll).
+  const calendarDateKeys = useMemo(() => {
+    if (isBoard) return [];
+    return [...rangeDateKeys(anchor, range)].sort();
+  }, [anchor, range, isBoard]);
+  const occupancyFrom = calendarDateKeys[0];
+  const occupancyTo = calendarDateKeys[calendarDateKeys.length - 1];
+
+  const onRemoveCalSeg = useCallback(
+    async ({ machineKey, date, shift, id, jc }) => {
+      if (!canDelete) return;
+      if (!window.confirm(`Remove ${jc || "plan"} from this shift?`)) return;
+      try {
+        const res = await planService.deleteShiftOp({
+          maccode: machineKey,
+          date,
+          shift,
+          id,
+        });
+        if (res?.success === false) throw new Error(res?.message || "Remove failed");
+        // toast.success(res?.message || "Plan removed");   // Commnet IN future wll chnange
+        if (occupancyFrom && occupancyTo) {
+          await reloadOccupancy(occupancyFrom, occupancyTo);
+        }
+        load();
+      } catch (err) {
+        toast.error(err?.message || "Failed to remove");
+      }
+    },
+    [canDelete, occupancyFrom, occupancyTo, reloadOccupancy, load]
   );
-  const visibleKeys = useMemo(() => new Set(calendarDateKeys), [calendarDateKeys]);
+
+  useEffect(() => {
+    if (isBoard || !occupancyFrom || !occupancyTo) {
+      setOccupiedMap(new Map());
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      await reloadOccupancy(occupancyFrom, occupancyTo);
+      if (cancelled) return;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isBoard, occupancyFrom, occupancyTo, reloadOccupancy]);
 
   const processOptions = useMemo(() => collectProcessOptions(cards), [cards]);
   const machineOptions = useMemo(() => {
-    const list = [
-      { label: "Unassigned", value: UNASSIGNED },
-      ...machines.map((m) => ({ label: `${m.code} — ${m.name}`, value: String(m.id) })),
-    ];
+    const list = machines.map((m) => ({ label: `${m.code} — ${m.name}`, value: String(m.id) }));
     // Calendar: still offer machines seen on cards
     if (!isBoard) {
       const seen = new Set(list.map((o) => o.value));
@@ -389,19 +555,22 @@ export default function JobCardBoardPage({ initialView = "board" }) {
   }, [machines, cards, isBoard]);
 
   const visible = cards.filter((c) => {
-    if (!isBoard && (!c.date || !visibleKeys.has(c.date))) return false;
-    // Board active queue — hide Complete (Status → Complete se dekh sakte ho)
-    if (isBoard && c.status === "Complete" && statusFilter !== "Complete") return false;
+    // Machine load = all JCs on M/C (same as board) — do not drop by calendar month/date
+    if (c.status === "Complete" && statusFilter !== "Complete") return false;
     if (statusFilter !== "all" && c.status !== statusFilter) return false;
     if (!cardMatchesProcessFilter(c, processIds)) return false;
-    if (!cardMatchesMachineFilter(c, machineIds, { fromPlan: isBoard })) return false;
-    if (!isBoard && shiftIds.length) {
-      if (shiftIds.length === 1 && shiftIds[0] === "__none__") return false;
-      if (!shiftIds.includes(String(c.shift))) return false;
-    }
+    if (!cardMatchesMachineFilter(c, machineIds)) return false;
     if (!q) return true;
     return [c.job_card_no, c.prime_item_code, c.title, c.process, c.machine, c.status].join(" ").toLowerCase().includes(q);
   });
+
+  const calSummaryGroups = useMemo(
+    () =>
+      isBoard
+        ? []
+        : buildProcessMachineRows(visible, machines, { processIds, machineIds, processOptions }),
+    [isBoard, visible, machines, processIds, machineIds, processOptions]
+  );
 
   /** Board columns allowed by Process ∩ Machine filters. */
   const boardColIdSet = useMemo(() => {
@@ -422,29 +591,14 @@ export default function JobCardBoardPage({ initialView = "board" }) {
   }, [isBoard, cards, processIds, machineIds]);
 
   const columns = isBoard
-    ? [
-        {
-          id: UNASSIGNED,
-          title: "Unassigned",
-          code: "",
-          status: null,
-        },
-        ...machines.map((m) => ({
+    ? machines
+        .map((m) => ({
           id: String(m.id),
           title: m.name,
           code: m.code,
           status: m.status,
-        })),
-      ]
-        .filter((col) => {
-          if (!boardColIdSet) {
-            if (col.id === UNASSIGNED) {
-              return visible.some((c) => resolveBoardColumnId(c, null) === UNASSIGNED);
-            }
-            return true;
-          }
-          return boardColIdSet.has(String(col.id));
-        })
+        }))
+        .filter((col) => !boardColIdSet || boardColIdSet.has(String(col.id)))
         .map((col) => ({
           ...col,
           cards: sortBoardColumn(
@@ -490,9 +644,9 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     const toQueueBefore = columnQueue(cards, toCol === UNASSIGNED ? null : toCol);
     const sameCol = fromCol === toCol;
 
-    // Same column: cannot reorder while something is Running (Pending cannot jump above it).
+    // Same column: cannot reorder while Running (Hold first, then drag bottom → top).
     if (sameCol && columnHasRunning(fromQueue)) {
-      toast.info("FIFO: hold or complete the Running job before reordering this column.");
+      toast.info("Put the Running job on Hold (or Complete), then drag to reorder.");
       return;
     }
 
@@ -513,19 +667,24 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     }
 
     const prev = cards;
-    const toAnchor = (toCol === fromCol ? fromQueue : toQueueBefore)[0] || moving;
+    /** Keep column's previous head start; cascade whole queue in new drag order. */
+    const queueAnchor = {
+      date: (sameCol ? fromQueue : toQueueBefore)[0]?.date || moving.date,
+      shift: (sameCol ? fromQueue : toQueueBefore)[0]?.shift || moving.shift,
+    };
     const fromAnchor = fromQueue[0] || moving;
     let nextCards = moveCard(cards, cardId, toCol, newIndex);
 
     const toOrdered = columnQueue(nextCards, toCol === UNASSIGNED ? null : toCol);
-    const toCascaded = cascadeColumnSchedules(toOrdered, { date: toAnchor?.date, shift: toAnchor?.shift });
+    const toCascaded = cascadeColumnSchedules(toOrdered, queueAnchor, shiftsPerDay);
     const fromCascaded =
       toCol === fromCol
         ? []
-        : cascadeColumnSchedules(columnQueue(nextCards, fromCol === UNASSIGNED ? null : fromCol), {
-            date: fromAnchor?.date,
-            shift: fromAnchor?.shift,
-          });
+        : cascadeColumnSchedules(
+            columnQueue(nextCards, fromCol === UNASSIGNED ? null : fromCol),
+            { date: fromAnchor?.date, shift: fromAnchor?.shift },
+            shiftsPerDay
+          );
     const byId = new Map([...toCascaded, ...fromCascaded].map((c) => [String(c.id), c]));
     nextCards = nextCards.map((c) => byId.get(String(c.id)) || c);
     setCards(nextCards);
@@ -542,7 +701,8 @@ export default function JobCardBoardPage({ initialView = "board" }) {
       for (const c of scheduleWrites) {
         await updatePlanLineSchedule(c, c.date, c.estimate_date);
       }
-      if (scheduleWrites.length) toast.success("Queue order updated — schedules cascaded.");
+      // if (scheduleWrites.length) toast.success("Queue order updated — schedules cascaded.");   // Commnet IN future wll chnange
+      // Reload so board positions rebuild from plan_start ASC (Pending stays on top).
       if (scheduleWrites.length || toCol !== fromCol) await load();
     } catch (e) {
       setCards(prev);
@@ -561,13 +721,21 @@ export default function JobCardBoardPage({ initialView = "board" }) {
       const overCard = cards.find((c) => String(c.id) === String(event.over.id));
       if (overCard?.date) target = { date: overCard.date, shift: Number(overCard.shift) || 1 };
     }
-    if (!target?.date || !isValidShift(target.shift)) return;
+    if (!target?.date || !isValidShift(target.shift, shiftsPerDay)) return;
     if (moving.date === target.date && Number(moving.shift) === target.shift) return;
+    const jcDt = moving.jobcarddt ? String(moving.jobcarddt).slice(0, 10) : null;
+    if (jcDt && target.date < jcDt) {
+      return toast.info(`Cannot schedule before job card date (${jcDt}).`);
+    }
     const prev = cards;
     setCards((list) => list.map((c) => (String(c.id) === cardId ? { ...c, date: target.date, shift: target.shift } : c)));
     try {
-      await updatePlanLineSchedule(moving, target.date);
-      toast.success(`${moving.job_card_no} → ${target.date}`);
+      const estEnd = cardEstimateLabel(
+        { ...moving, date: target.date, shift: target.shift },
+        shiftsPerDay
+      );
+      await updatePlanLineSchedule(moving, target.date, estEnd || undefined);
+      // toast.success(`${moving.job_card_no} → ${target.date}`);   // Commnet IN future wll chnange
       await load();
     } catch (e) {
       setCards(prev);
@@ -584,7 +752,9 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     if (!actionKey || !canFifoAction(card, queue, actionKey)) {
       return toast.info(
         status === "Running"
-          ? "FIFO: only the first open job can Start (complete or hold cards above first)."
+          ? card.status === "Hold"
+            ? "Another job is already Running on this machine."
+            : "FIFO: complete jobs above first (or resume a Hold on this machine)."
           : "Action not allowed for this job right now."
       );
     }
@@ -598,7 +768,7 @@ export default function JobCardBoardPage({ initialView = "board" }) {
     const statusApi = { Running: "running", Hold: "hold", Complete: "complete" }[status];
     try {
       await updatePlanLineStatus(card, statusApi);
-      toast.success(`${card.job_card_no}: ${label}`);
+      // toast.success(`${card.job_card_no}: ${label}`);    // Commnet IN future wll chnange
       await load();
     } catch (e) {
       setCards(prevCards);
@@ -618,6 +788,26 @@ export default function JobCardBoardPage({ initialView = "board" }) {
   return (
     <div className={IMS_LIST_PAGE_SHELL}>
       {viewCard ? <JobCardViewDrawer card={viewCard} onClose={() => setViewCard(null)} /> : null}
+      {planSlot ? (
+        <ShiftOpDrawer
+          slot={planSlot}
+          /** All board cards — drawer lists every JC on this machine (not only week-visible). */
+          cards={cards}
+          shifts={calShifts}
+          dateKeys={calendarDateKeys}
+          occupiedMap={liveOccupiedMap}
+          canAdd={canAdd && !planSlot?.viewOnly}
+          canEdit={canEdit && !planSlot?.viewOnly}
+          canDelete={canDelete && !planSlot?.viewOnly}
+          onClose={() => setPlanSlot(null)}
+          onSaved={() => {
+            if (occupancyFrom && occupancyTo) {
+              reloadOccupancy(occupancyFrom, occupancyTo);
+            }
+            load();
+          }}
+        />
+      ) : null}
       <div
         ref={boardRef}
         className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-none border border-slate-300 bg-white shadow-sm ${isFullScreen ? "h-screen w-screen" : ""}`}
@@ -672,6 +862,10 @@ export default function JobCardBoardPage({ initialView = "board" }) {
           />
         </ListPageToolbar>
 
+        {!isBoard ? (
+          <SummaryStrip cards={visible} groups={calSummaryGroups} occupiedMap={liveOccupiedMap} />
+        ) : null}
+
         <ProductionFilters
           processOptions={processOptions}
           machineOptions={machineOptions}
@@ -683,6 +877,7 @@ export default function JobCardBoardPage({ initialView = "board" }) {
           statusOptions={STATUS_FILTER_OPTIONS}
           onStatusChange={setStatusFilter}
           showShiftFilter={!isBoard}
+          shifts={calShifts}
         />
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
@@ -741,7 +936,7 @@ export default function JobCardBoardPage({ initialView = "board" }) {
                   <div className="origin-top-left" style={{ transform: `scale(${zoom})`, width: `${100 / zoom}%`, height: `${100 / zoom}%` }}>
                     <div className="flex gap-3 p-3" style={{ width: "max-content" }}>
                       {columns.map((col) => (
-                        <MachineCol key={col.id} {...col} canEdit={canEdit} busyId={busyId} onOpen={openCard} onAction={onBoardAction} dense={dense} />
+                        <MachineCol key={col.id} {...col} canEdit={canEdit} busyId={busyId} onOpen={openCard} onAction={onBoardAction} dense={dense} shiftsPerDay={shiftsPerDay} hoursPerShift={hoursPerShift} />
                       ))}
                     </div>
                   </div>
@@ -755,8 +950,13 @@ export default function JobCardBoardPage({ initialView = "board" }) {
                     processIds={processIds}
                     machineIds={machineIds}
                     processOptions={processOptions}
+                    canAdd={canAdd}
                     canEdit={canEdit}
-                    onOpen={openCard}
+                    onPlanSlot={setPlanSlot}
+                    onRemoveSeg={canDelete ? onRemoveCalSeg : undefined}
+                    occupiedMap={liveOccupiedMap}
+                    shifts={calShifts}
+                    keepStartVisible={false}
                   />
                 </div>
               )}

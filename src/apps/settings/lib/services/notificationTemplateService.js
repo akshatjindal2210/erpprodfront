@@ -19,4 +19,7 @@ export const notificationTemplateService = {
           ? { audience: audienceOrType }
           : { recipient_type: audienceOrType, recipient_refs },
     }),
+  getFieldValues: (module_id, field) =>
+    api(N.FIELD_VALUES, { method: "POST", body: { module_id, field } }),
+  clone: (id) => api(N.CLONE, { method: "POST", body: { id } }),
 };

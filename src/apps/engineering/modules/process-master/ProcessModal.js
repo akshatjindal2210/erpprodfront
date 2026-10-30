@@ -15,7 +15,7 @@ import { ERR_INPUT, OK_INPUT, FormLabel } from "@/ui/common/Constants";
 import { focusFirstError } from "@/platform/utils/form/formFocus";
 import { IMS_DRAWER_FOOTER_WRAP, IMS_DRAWER_BTN_CANCEL, IMS_DRAWER_BTN_PRIMARY, IMS_DRAWER_BTN_KEEP_PENDING, IMS_DRAWER_BTN_APPROVE } from "@/apps/ims/lib/helpers/masterListUi";
 
-const FIELD_ORDER = ["procname", "parent_id", "stage", "pattern"];
+const FIELD_ORDER = ["procname", "parent_id", "stage", "deptname"];
 const FIELD_INPUT_CLASS =
   "min-h-9 h-9 sm:h-[38px] text-sm sm:text-[11px] rounded-lg border-slate-200 text-slate-900 placeholder:text-slate-500 placeholder:opacity-100";
 
@@ -31,6 +31,7 @@ const FLAG_FIELDS = [
   { key: "inhouse", label: "Machine" },
   { key: "multi_jc", label: "Multiple Machine" },
   { key: "jobwork", label: "Jobwork" },
+  { key: "connectivity", label: "Connectivity" },
 ];
 
 const INITIAL_FORM = {
@@ -45,20 +46,10 @@ const INITIAL_FORM = {
   rework: false,
   inhouse: false,
   jobwork: false,
-  pattern: "",
+  connectivity: false,
+  deptname: "",
   approved: false,
 };
-
-function isValidRegex(text) {
-  if (!text?.trim()) return true;
-  try {
-    // eslint-disable-next-line no-new
-    new RegExp(text.trim());
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function levelLabel(depth) {
   const d = Number(depth);
@@ -121,7 +112,8 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
           rework: !!editData.rework,
           inhouse: !!editData.inhouse,
           jobwork: !!editData.jobwork,
-          pattern: editData.pattern || "",
+          connectivity: !!editData.connectivity,
+          deptname: editData.deptname || editData.pattern || "",
           approved: isApprove ? (editData.approved ?? false) : false,
         });
         setLevelHint(levelLabel(editData.depth));
@@ -172,7 +164,6 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
   const validate = () => {
     const e = {};
     if (!form.procname?.trim()) e.procname = "Name is required";
-    if (!isValidRegex(form.pattern)) e.pattern = "Invalid regular expression";
     return e;
   };
 
@@ -205,7 +196,8 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
         rework: !!form.rework,
         inhouse: !!form.inhouse,
         jobwork: !!form.jobwork,
-        pattern: form.pattern?.trim() || null,
+        connectivity: !!form.connectivity,
+        deptname: form.deptname?.trim() || null,
         approved: finalApproved,
       };
 
@@ -358,21 +350,20 @@ export default function ProcessModal({ open, onClose, onSuccess, editData, mode 
             </select>
           </div>
 
-          <div className="space-y-1">
-            <FormLabel>Pattern (regex)</FormLabel>
-            <input
-              data-field="pattern"
-              value={form.pattern}
-              onChange={(e) => handleChange("pattern", e.target.value)}
-              className={`${errors.pattern ? ERR_INPUT : OK_INPUT} ${FIELD_INPUT_CLASS} w-full font-mono`}
-              placeholder="Optional"
+          <div className="space-y-1" data-field="deptname">
+            <SearchableSelect
+              label="Department (optional)"
+              placeholder="Pick employee department from HRMS"
+              value={form.deptname || null}
+              onChange={(id) => handleChange("deptname", id || "")}
+              preserveApiOrder
+              fetchService={(params) => processMasterService.getDepartments(params)}
+              getByIdService={(id) => processMasterService.getDepartmentByName(id)}
+              dataKey="id"
+              labelKey="deptname"
+              labelOnlyDisplay
+              usePortal={false}
             />
-            {errors.pattern && (
-              <p className="text-[9px] text-rose-500 mt-1 flex items-center gap-1 font-bold">
-                <AlertCircle size={10} />
-                {errors.pattern}
-              </p>
-            )}
           </div>
         </div>
 

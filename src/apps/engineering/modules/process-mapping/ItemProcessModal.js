@@ -81,6 +81,8 @@ export default function ItemProcessModal({ kind, open, onClose, onSuccess, editD
   const [primeStages, setPrimeStages] = useState([]);
   const [defaultRm, setDefaultRm] = useState([]);
   const [stages, setStages] = useState([]);
+  const [connectingProcessId, setConnectingProcessId] = useState(null);
+  const [connectingName, setConnectingName] = useState("");
   const [rmSelectable, setRmSelectable] = useState(null);
   const [loading, setLoading] = useState(false);
   const [activeSubmit, setActiveSubmit] = useState(null);
@@ -93,8 +95,10 @@ export default function ItemProcessModal({ kind, open, onClose, onSuccess, editD
       setPrimeItemCode(row?.prime_item_code || null);
       setPrimeStages(asList(row?.[c.primeKey]?.stages).length ? stagesFromJson(row[c.primeKey], rm) : []);
       setStages(asList(row?.[c.planKey]?.stages).length ? stagesFromJson(row[c.planKey], rm) : [createNewStage()]);
+      setConnectingName(row?.[c.primeKey]?.connecting_process_name || "");
     } else {
       setStages(asList(row?.[c.planKey]?.stages).length ? stagesFromJson(row[c.planKey], rm) : []);
+      setConnectingProcessId(row?.[c.planKey]?.connecting_process_id || null);
     }
   };
 
@@ -112,6 +116,8 @@ export default function ItemProcessModal({ kind, open, onClose, onSuccess, editD
       setPrimeItemCode(null);
       setPrimeStages([]);
       setStages([]);
+      setConnectingProcessId(null);
+      setConnectingName("");
       setDraftApproved(false);
       return;
     }
@@ -127,6 +133,8 @@ export default function ItemProcessModal({ kind, open, onClose, onSuccess, editD
     setPrimeItemCode(null);
     setPrimeStages([]);
     setStages(itemDcode ? [createNewStage()] : []);
+    setConnectingProcessId(null);
+    setConnectingName("");
     if (!itemDcode) return;
     let alive = true;
     (async () => {
@@ -139,6 +147,7 @@ export default function ItemProcessModal({ kind, open, onClose, onSuccess, editD
         if (isFg) applyRow(row);
         else if (asList(row[c.planKey]?.stages).length) {
           setStages(stagesFromJson(row[c.planKey], rm));
+          setConnectingProcessId(row[c.planKey]?.connecting_process_id || null);
           toast.info(c.existsToast);
         } else {
           setStages((prev) => stampItemRmOnStages(prev, rm));
@@ -165,6 +174,7 @@ export default function ItemProcessModal({ kind, open, onClose, onSuccess, editD
         isApprove,
         itemDcode,
         stages,
+        ...(isFg ? {} : { connectingProcessId }),
         statusOverride,
         draftApproved,
         wasAuthorized: editData?.is_approved === true,
@@ -217,7 +227,7 @@ export default function ItemProcessModal({ kind, open, onClose, onSuccess, editD
             <ProcessItemHeader label={c.itemLabel} itemCode={editData?.item_code} itemDesc={editData?.item_desc} accent={c.accent} />
             {isFg ? (
               <>
-                <ProcessMappingView title={primeTitle} stages={primeStages} defaultRm={defaultRm} accent="indigo" emptyHint="No prime process mapped yet." />
+                <ProcessMappingView title={primeTitle} stages={primeStages} defaultRm={defaultRm} accent="indigo" emptyHint="No prime process mapped yet." connectingName={connectingName} />
                 <div className="flex justify-center py-1 text-slate-400"><ArrowDown size={16} strokeWidth={2.25} /></div>
                 <ProcessMappingView title="Finish process" stages={stages} defaultRm={defaultRm} accent="emerald" emptyHint="No finish process saved." />
               </>
@@ -247,7 +257,7 @@ export default function ItemProcessModal({ kind, open, onClose, onSuccess, editD
             {itemDcode && (
               <>
                 {isFg ? (
-                  <ProcessMappingView title={`${primeTitle} (locked)`} stages={primeStages} defaultRm={defaultRm} accent="indigo" emptyHint="No prime process mapped yet." />
+                  <ProcessMappingView title={`${primeTitle} (locked)`} stages={primeStages} defaultRm={defaultRm} accent="indigo" emptyHint="No prime process mapped yet." connectingName={connectingName} />
                 ) : null}
                 <div className="space-y-1">
                   <p className={`text-[10px] font-black uppercase tracking-wide ${isFg ? "text-emerald-700" : "text-indigo-700"}`}>
@@ -263,6 +273,7 @@ export default function ItemProcessModal({ kind, open, onClose, onSuccess, editD
                     accent={c.accent}
                     processSelectMode="tags"
                     processFilters={c.processFilters}
+                    {...(isFg ? {} : { connectingId: connectingProcessId, onConnectingChange: setConnectingProcessId })}
                   />
                 </div>
               </>

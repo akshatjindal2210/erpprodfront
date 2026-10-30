@@ -128,40 +128,45 @@ export default function ShiftsPage() {
 
   const headers = [
     [
-      "Shift Code",
+      "Code",
       "code",
-      (v) => <span className="font-bold text-slate-800 uppercase text-xs font-mono tracking-wide">{v}</span>,
+      (v) => <span className="font-mono text-xs font-bold uppercase tracking-wide text-slate-800">{v}</span>,
     ],
     [
-      "Start Time",
+      "Start",
       "start_time",
-      (v) => <span className="text-xs text-slate-600 tabular-nums">{formatShiftTime(v)}</span>,
+      (v) => <span className="text-xs tabular-nums text-slate-600">{formatShiftTime(v)}</span>,
+      { width: "110px" },
+    ],
+    [
+      "End",
+      "end_time",
+      (v, row) => (
+        <span className="text-xs tabular-nums text-slate-600">
+          {formatShiftTime(v)}
+          {row?.overnight ? <span className="ml-1 text-[9px] font-bold uppercase text-indigo-600">+1</span> : null}
+        </span>
+      ),
       { width: "120px" },
     ],
     [
-      "End Time",
-      "end_time",
+      "Hours",
+      "hours",
       (v, row) => (
-        <span className="text-xs text-slate-600 tabular-nums">
-          {formatShiftTime(v)}
-          {row?.ends_next_day ? (
-            <span className="ml-1 text-[9px] font-bold uppercase text-indigo-600">+1 day</span>
-          ) : null}
+        <span className="text-xs font-bold tabular-nums text-slate-700">
+          {v != null ? `${v}h` : "—"}
+          {row?.lunch ? <span className="ml-1 text-[9px] font-bold text-slate-400">L</span> : null}
         </span>
       ),
-      { width: "140px" },
+      { width: "80px" },
     ],
     [
       "Status",
       "is_active",
       (v, row) => (
-        <StatusToggle
-          active={!!v}
-          disabled={busyId === row.id}
-          onToggle={() => handleToggle(row)}
-        />
+        <StatusToggle active={!!v} disabled={busyId === row.id} onToggle={() => handleToggle(row)} />
       ),
-      { align: "center", width: "140px" },
+      { align: "center", width: "120px" },
     ],
   ];
 

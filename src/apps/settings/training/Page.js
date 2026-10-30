@@ -718,6 +718,9 @@ export default function TrainingPage() {
           onDeleted={async () => {
             await reloadNotifyTemplates();
           }}
+          onCloned={async () => {
+            await reloadNotifyTemplates();
+          }}
         />
       )}
       {selectedNotifySlot && (

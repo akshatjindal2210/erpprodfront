@@ -3,6 +3,7 @@
 import { useMemo, useRef, useEffect, useState, useCallback } from "react";
 import { Loader2 } from "lucide-react";
 import { buildDateColumns, weekdayLong, isWeekendYmd, istYmd, toYmdClient } from "@/apps/task/lib/services/reportApi";
+import { formatDocDate } from "@/platform/utils/core/utilHelper";
 import { isSundayYmd, shouldShowTaskDayCell } from "@/apps/task/lib/helpers/clTaskRecurrenceHelper";
 
 /** Compact stack — more rows visible */
@@ -15,13 +16,6 @@ const ROW_H = 26;
 const GROUP_H = 28;
 const SECTION_H = 18;
 const HEADER_H = 56;
-
-/** YYYY-MM-DD → DD/MM/YYYY */
-function formatDmy(ymd) {
-  const s = toYmdClient(ymd);
-  if (!s || s.length < 10) return s || "—";
-  return `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
-}
 
 const SECTION_ORDER = ["open", "daily", "weekly", "monthly", "yearly", "other"];
 const SECTION_LABEL = {
@@ -550,7 +544,7 @@ export default function ReportBookingCalendar({
                   {dateCols.map((ymd) => {
                     const weekend = isWeekendYmd(ymd);
                     const isToday = ymd === today;
-                    const dmy = formatDmy(ymd);
+                    const dmy = formatDocDate(ymd) || "—";
                     return (
                       <div
                         key={`dn-${ymd}`}

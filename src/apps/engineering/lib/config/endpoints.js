@@ -8,6 +8,7 @@ export const ENDPOINTS = {
     UPDATE: `${BASE}/process-master/update`,
     DELETE: `${BASE}/process-master/delete`,
     HELPER: `${BASE}/process-master/helper`,
+    DEPARTMENTS: `${BASE}/process-master/departments`,
   },
   MACHINE_MASTER: {
     LIST: `${BASE}/machine-master/list`,

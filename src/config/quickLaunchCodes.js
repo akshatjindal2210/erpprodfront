@@ -102,6 +102,7 @@ export const QUICK_LAUNCH_CODES = [
   { code: "PRB", label: "Job Card Board",             route: ROUTES.PRODUCTION_JOB_CARD_BOARD, module: "production_planning",     app: "production" },
   { code: "PRC", label: "Job Card Calendar",          route: ROUTES.PRODUCTION_JOB_CARD_CALENDAR, module: "production_planning",  app: "production" },
   { code: "PRE", label: "Production Entry",           route: ROUTES.PRODUCTION_ENTRY,        module: "production_entry",          app: "production" },
+  { code: "MPW", label: "Manpower",                   route: ROUTES.PRODUCTION_MANPOWER,     module: "production_manpower",       app: "production" },
   { code: "PRL", label: "Production Activity Logs",   route: ROUTES.PRODUCTION_ACTIVITY_LOGS,module: "production_activity_logs",  app: "production" },
 
   // ── Engineering (E…) ────────────────────────────────────────────

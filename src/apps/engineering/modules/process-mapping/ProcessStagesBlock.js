@@ -162,6 +162,8 @@ export default function ProcessStagesBlock({
   processSelectMode = "tags",
   /** Extra helper filters — e.g. `{ prime: true }` or `{ fg: true }`. */
   processFilters = null,
+  connectingId = null,
+  onConnectingChange = null,
 }) {
   const setStages = (next) => onChange(typeof next === "function" ? next(stages) : next);
 
@@ -394,6 +396,41 @@ export default function ProcessStagesBlock({
           <Plus size={12} /> Add Stage
         </button>
       )}
+
+      {typeof onConnectingChange === "function" && stages.some((s) => asList(s.processes).length > 0) ? (
+        <div className={`overflow-visible rounded-md border bg-white ${accentBorder}`}>
+          <div className="space-y-1 px-2.5 py-2">
+            <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
+              Connecting Stage<span className="text-rose-500"> *</span>
+            </p>
+            <SearchableSelect
+              heightClass={SELECT_H}
+              disabled={readOnly}
+              preserveApiOrder
+              usePortal
+              value={connectingId}
+              placeholder="Pick a process…"
+              onChange={(id) => onConnectingChange(id || null)}
+              fetchService={(params) =>
+                processMasterService.getViews({
+                  ...params,
+                  ...perms,
+                  filters: { approved: true, connectivity: true },
+                })
+              }
+              getByIdService={async (id) => {
+                const res = await processMasterService.getViewById(id, perms);
+                return res?.data ?? null;
+              }}
+              dataKey="proccode"
+              labelKey="procname"
+              subLabelKey="path_label"
+              showDuplicateSubLabel
+              labelOnlyDisplay
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

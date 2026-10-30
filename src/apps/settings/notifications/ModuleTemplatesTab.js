@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { RefreshCcw, RefreshCw, Plus, BellRing, Pencil, Trash2, Search } from "lucide-react";
+import { RefreshCcw, RefreshCw, Plus, BellRing, Pencil, Trash2, Search, Copy, Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
 import { notificationTemplateService } from "@/apps/settings/lib/services/notificationTemplateService";
 import { applyClientSearch, sortRowsByKey } from "@/platform/utils/list/listSearch";
@@ -152,6 +152,19 @@ function TemplatesView({ options }) {
     }
   };
 
+  const handleClone = async (row) => {
+    setBusyId(row.id);
+    try {
+      await notificationTemplateService.clone(row.id);
+      toast.success("Template cloned");
+      await fetchData();
+    } catch (err) {
+      toast.error(err?.message || "Failed to clone template");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const HEADERS = [
     ["Module", "module_label", (v, row) => (
       <div className="flex flex-col py-1">
@@ -188,6 +201,9 @@ function TemplatesView({ options }) {
     ), { align: "center", width: "90px" }],
     ["Actions", null, (v, row) => (
       <div className="flex items-center justify-center gap-1">
+        <button type="button" title="Clone" disabled={busyId === row.id} onClick={(e) => { e.stopPropagation(); handleClone(row); }} className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-200 disabled:opacity-50">
+          {busyId === row.id ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />}
+        </button>
         <button type="button" title="Edit" onClick={(e) => { e.stopPropagation(); openEdit(row); }} className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 border border-transparent hover:border-indigo-200">
           <Pencil size={13} />
         </button>
@@ -195,7 +211,7 @@ function TemplatesView({ options }) {
           <Trash2 size={13} />
         </button>
       </div>
-    ), { align: "center", width: "90px" }],
+    ), { align: "center", width: "110px" }],
   ];
 
   return (

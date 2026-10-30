@@ -413,6 +413,8 @@ export function usePrimeItemList({ load, refreshKey, status = "all", tooling = "
         : status === "all"
           ? rows
           : rows.filter((r) => r.status === (status === "approved" ? "accepted" : status));
+    // Pending: no pjobcardno · has pjobcardno → Register
+    if (jobCard) data = data.filter((r) => !String(r.job_card_no || r.pjobcardno || "").trim());
     if (deferredSearch.trim()) {
       data = applyClientSearch(data, deferredSearch, {
         getParts: toolingModule ? toolingSearchParts : searchParts,
@@ -420,7 +422,7 @@ export function usePrimeItemList({ load, refreshKey, status = "all", tooling = "
       });
     }
     return sortRowsByKey(data, sort.sortKey, sort.sortDir);
-  }, [rows, status, tooling, toolingModule, deferredSearch, sort]);
+  }, [rows, status, tooling, toolingModule, jobCard, deferredSearch, sort]);
 
   const visibleRows = useMemo(() => filteredRows.slice(0, limit), [filteredRows, limit]);
   const selectedRow = useMemo(() => rows.find((r) => r.id === selected) || null, [rows, selected]);

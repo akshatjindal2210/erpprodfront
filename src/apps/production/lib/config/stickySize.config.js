@@ -5,22 +5,25 @@
 
 export const STICKY_SIZE = {
   /** Left # column (px). */
-  snoWidthPx: 32,
+  snoWidthPx: 36,
   /** Process / machine label column (px) — user-resizable between min and max. */
-  labelWidthPx: { default: 176, min: 120, max: 420 },
+  labelWidthPx: { default: 200, min: 140, max: 400 },
   /** Sticky top header band (px). */
   headerHeightPx: 56,
-  /** Body row height (px). */
-  rowHeightPx: 26,
+  /** Body row height (px) — 1 JC; multi adds rowStackBandPx per extra JC. */
+  rowHeightPx: 92,
+  /** Extra height per additional JC stacked in the same slot. */
+  rowStackBandPx: 44,
   /** Process group header row (px). */
-  groupHeightPx: 28,
+  groupHeightPx: 24,
   /** Horizontal scroll — one shift cell (px) by breakpoint. */
-  shiftCellWidthPx: { desktop: 78, tablet: 58, mobile: 48 },
+  shiftCellWidthPx: { desktop: 148, tablet: 120, mobile: 100 },
   zIndex: {
     stickyHeader: 20,
     stickyCorner: 30,
     stickyBodyLeft: 10,
     labelResizeHandle: 40,
+    cellHover: 50,
   },
   labelResizeHandleWidthClass: "w-1.5",
 };

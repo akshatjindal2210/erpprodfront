@@ -100,6 +100,43 @@ function fromSelectIds(ids) {
   return { all: false, ids: specifics };
 }
 
+/** Value: DISTINCT options from API when field is set; user can still type a custom value. */
+function ConditionValueSelect({ moduleId, field, value, onChange, disabled }) {
+  const [rows, setRows] = useState([]);
+  const fieldTrim = String(field || "").trim();
+
+  useEffect(() => {
+    if (!moduleId || !fieldTrim) return undefined;
+    let cancelled = false;
+    notificationTemplateService
+      .getFieldValues(moduleId, fieldTrim)
+      .then((res) => {
+        if (cancelled) return;
+        const list = Array.isArray(res?.data) ? res.data : [];
+        setRows(list.map((v) => ({ id: String(v), name: String(v) })));
+      })
+      .catch(() => {
+        if (!cancelled) setRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [moduleId, fieldTrim]);
+
+  const display = Array.isArray(value) ? value.join(", ") : value ?? "";
+
+  return (
+    <StaticSearchSelect
+      value={display}
+      onChange={(v) => onChange(v ?? "")}
+      rows={rows}
+      placeholder="Select or type value…"
+      disabled={disabled || !fieldTrim}
+      allowFreeText
+    />
+  );
+}
+
 function AudienceDropdown({ label, rows, allLabel, dim, onChange, disabled }) {
   const { fetchService, getByIdService } = useMemo(
     () => makeStaticServices(rows, allLabel),
@@ -539,7 +576,7 @@ export default function NotificationTemplateModal({ slot, options, onClose, onSu
                   value={c.field}
                   onChange={(field) => {
                     const next = [...form.conditions];
-                    next[idx] = { ...next[idx], field };
+                    next[idx] = { ...next[idx], field, value: "" };
                     set({ conditions: next });
                   }}
                   rows={conditionFieldRows}
@@ -568,17 +605,20 @@ export default function NotificationTemplateModal({ slot, options, onClose, onSu
               <div className="min-w-0 space-y-1">
                 <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Value</p>
                 <div className="flex gap-2 items-center">
-                  <input
-                    className={`${OK_INPUT} ${FIELD_INPUT} min-w-0 flex-1 w-full`}
-                    value={Array.isArray(c.value) ? c.value.join(", ") : c.value ?? ""}
-                    disabled={disabled}
-                    placeholder="Value"
-                    onChange={(e) => {
-                      const next = [...form.conditions];
-                      next[idx] = { ...next[idx], value: e.target.value };
-                      set({ conditions: next });
-                    }}
-                  />
+                  <div className="min-w-0 flex-1">
+                    <ConditionValueSelect
+                      key={`${form.module_id}-${c.field}-${idx}`}
+                      moduleId={form.module_id}
+                      field={c.field}
+                      value={c.value}
+                      disabled={disabled}
+                      onChange={(val) => {
+                        const next = [...form.conditions];
+                        next[idx] = { ...next[idx], value: val };
+                        set({ conditions: next });
+                      }}
+                    />
+                  </div>
                   <button
                     type="button"
                     disabled={disabled}

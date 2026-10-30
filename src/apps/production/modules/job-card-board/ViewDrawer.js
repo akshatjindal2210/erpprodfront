@@ -1,6 +1,6 @@
 "use client";
 
-/** View one prod_plan line on Board / Calendar (joins from /plan/get — not prod_jc edit). */
+/** View one prod_plan line on Board (read-only). Operator mapping = Card Calendar only. */
 
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -23,6 +23,13 @@ function when(v) {
   if (!v) return "—";
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+}
+
+function qtyLabel(d) {
+  const line = Number(d?.line_qty ?? d?.qty) || 0;
+  const total = Number(d?.plan_qty ?? d?.qty) || 0;
+  if (d?.multi_jc_split && total > line) return `${line.toLocaleString()} / ${total.toLocaleString()}`;
+  return line.toLocaleString();
 }
 
 export default function JobCardViewDrawer({ card, onClose }) {
@@ -90,19 +97,19 @@ export default function JobCardViewDrawer({ card, onClose }) {
               <DrawerDetailField label="Process" value={detail.process_name || detail.proccode || "—"} />
               <DrawerDetailField label="Machine" value={detail.machine_name || detail.maccode || "—"} />
               <DrawerDetailField label="Stage" value={detail.stage_no != null ? String(detail.stage_no) : "—"} />
-              <DrawerDetailField label="Qty" value={Number(detail.qty || 0).toLocaleString()} />
-              <DrawerDetailField
-                label="Status"
+              <DrawerDetailField label="Qty" value={qtyLabel(detail)} />
+              <DrawerDetailField label="Status"
                 value={
                   <span className={`border px-2 py-0.5 text-[9px] font-black uppercase ${PROCESS_STATUS_BADGE[statusKey] || ""}`}>
                     {PROCESS_STATUS_LABELS[statusKey] || statusKey}
                   </span>
                 }
               />
-              <DrawerDetailField
-                label="Est. Shifts"
-                value={detail.est_shifts != null ? String(detail.est_shifts) : "—"}
-              />
+              <DrawerDetailField label="Est. Shifts" value={detail.est_shifts != null ? String(detail.est_shifts) : "—"} />
+              <DrawerDetailField label="Est. Hours" value={detail.est_hours != null ? String(detail.est_hours) : "—"} />
+              {detail.est_error ? (
+                <DrawerDetailField label="Est. Note" value={<span className="text-amber-700 text-xs">{detail.est_error}</span>} />
+              ) : null}
             </div>
           </DrawerSection>
 

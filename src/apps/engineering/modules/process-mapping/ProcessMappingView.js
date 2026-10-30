@@ -12,6 +12,7 @@ export default function ProcessMappingView({
   accent = "indigo",
   emptyHint = "No mapping yet.",
   title = null,
+  connectingName,
 }) {
   const list = asList(stages).filter((st) => asList(st.processes).length > 0);
   const isEmerald = accent === "emerald";
@@ -88,6 +89,11 @@ export default function ProcessMappingView({
           </div>
         </div>
       ))}
+      {connectingName !== undefined ? (
+        <p className="text-[11px] font-semibold text-slate-700">
+          Connecting Stage: <span className="font-bold">{connectingName || "-"}</span>
+        </p>
+      ) : null}
     </div>
   );
 }

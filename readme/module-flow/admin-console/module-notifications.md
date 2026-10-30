@@ -8,6 +8,7 @@ Module alerts are **not** fired from `accessControl` or deleted hooks. They run 
 | **Route** | `/settings/notifications` (super_admin) |
 | **Disable** | `MODULE_NOTIFY_FROM_ACTIVITY = false` at top of `moduleNotify.service.js` |
 | **Deep doc (templates vars)** | Repo root `msg-template.md` |
+| **Release (clone + field-values)** | [v5.2.3.md](../../version-notes/v5.2.3.md) |
 
 ---
 
@@ -92,8 +93,9 @@ Push statuses: **sent**, **failed**, **received**, **read** (no `skipped` on pus
 | `backend/.../templates/moduleNotify.service.js` | **Main:** config, `scheduleNotifyFromActivity`, `dispatchModuleEvent`, audience, template vars, PWA/WA/email delivery |
 | `backend/.../templates/notificationTemplate.model.js` | Template CRUD; `findActiveTemplatesByModuleId` |
 | `backend/.../templates/notificationTemplateLog.model.js` | Batch insert module template delivery logs |
-| `backend/.../templates/notificationTemplate.controller.js` | Admin API; uses `resolveAudience`, cache invalidation |
-| `backend/.../templates/moduleRecordFieldsFromDb.js` | Record field hints for `{{variables}}` from `moduleTableMap` |
+| `backend/.../templates/notificationTemplate.controller.js` | Admin API; `clone`, `field-values`, CRUD; uses `resolveAudience`, cache invalidation |
+| `backend/.../templates/moduleRecordFieldsFromDb.js` | Record field hints + `distinctValuesForModuleField` (condition value DISTINCT) |
+| `backend/.../templates/notificationConditions.js` | Template condition normalize + evaluate at dispatch |
 | `backend/.../inbox/inboxNotify.service.js` | `saveInboxAlert`, socket emit |
 | `backend/.../push/webPush.service.js` | VAPID push; `inbox_single` log mode for module only |
 | `backend/.../lib/config/notifications/inboxConfig.js` | App/trigger labels; `INBOX_DELIVERY_RECIPIENT_LABEL` |
@@ -111,8 +113,10 @@ Push statuses: **sent**, **failed**, **received**, **read** (no `skipped` on pus
 | File | Role |
 |------|------|
 | `frontend/.../notifications/Page.js` | Tabs: task templates, Send Message, **Logs**, **Module Templates** |
-| `frontend/.../notifications/ModuleTemplatesTab.js` | List / CRUD entry |
-| `frontend/.../notifications/NotificationTemplateModal.js` | Add/edit template, audience, triggers, variables |
+| `frontend/.../notifications/ModuleTemplatesTab.js` | List / CRUD / **Clone** |
+| `frontend/.../notifications/NotificationTemplateModal.js` | Add/edit template, audience, triggers, **conditions**, variables |
+| `frontend/.../training/NotifyTemplateListModal.js` | Training grid multi-template list + **Clone** |
+| `frontend/.../lib/services/notificationTemplateService.js` | `clone`, `getFieldValues`, template CRUD |
 | `frontend/.../notifications/moduleTemplateConfig.js` | Trigger options, audience helpers, `SYSTEM_VARIABLES`, defaults |
 | `frontend/.../notifications/NotificationLogViewModal.js` | Log detail + timeline |
 | `frontend/src/common/pwa/task/TaskBellMenu.js` | Bell count / list |

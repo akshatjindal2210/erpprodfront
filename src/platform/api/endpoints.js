@@ -113,6 +113,8 @@ export const CORE_ENDPOINTS = {
     LOGS: `${CORE_API}/notification-templates/logs`,
     OPTIONS: `${CORE_API}/notification-templates/options`,
     RECIPIENTS_PREVIEW: `${CORE_API}/notification-templates/recipients-preview`,
+    FIELD_VALUES: `${CORE_API}/notification-templates/field-values`,
+    CLONE: `${CORE_API}/notification-templates/clone`,
   },
   // USER_PREFERENCES: `${CORE_API}/user-preferences`,
   APP_CONFIG: {

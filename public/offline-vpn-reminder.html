@@ -177,7 +177,10 @@
         return attempt(0);
       }
 
+      var busy = false;
       function tryConnect() {
+        if (busy) return;
+        busy = true;
         statusEl.hidden = true;
         retryBtn.textContent = checkingLabel;
         retryBtn.disabled = true;
@@ -190,6 +193,7 @@
               window.location.replace(returnUrl);
             });
           }
+          busy = false;
           retryBtn.disabled = false;
           retryBtn.textContent = tryAgainLabel;
           statusEl.hidden = false;
@@ -198,6 +202,7 @@
       }
 
       retryBtn.addEventListener("click", tryConnect);
+      window.addEventListener("online", tryConnect);
     })();
   </script>
 </body>

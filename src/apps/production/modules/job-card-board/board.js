@@ -6,12 +6,12 @@ import { fetchPlanLines } from "@/apps/production/modules/plan/planTable";
 import { machineMasterService } from "@/apps/engineering/lib/services/machineMaster";
 import { helperPerms } from "@/apps/engineering/lib/helpers/helperPerms";
 import { processStatusRows } from "@/apps/production/lib/constants/processStatus";
-import { SHIFTS, SHIFT_HOURS, SHIFTS_PER_DAY, isValidShift } from "@/apps/production/modules/jc/jobCard.config";
+import { SHIFT_HOURS, isValidShift } from "@/apps/production/modules/jc/jobCard.config";
 
 export const UNASSIGNED = "unassigned";
 /** Board / Calendar permission module (not Maintain Job Card). */
 export const PLANNING_MODULE = "production_planning";
-export { SHIFTS, SHIFT_HOURS, SHIFTS_PER_DAY, isValidShift };
+export { SHIFT_HOURS, isValidShift };
 export const RANGE_MODES = [
   { id: "week", label: "Week" },
   { id: "month", label: "Month" },
@@ -186,26 +186,15 @@ export function cardMatchesProcessFilter(card, processIds = []) {
 }
 
 /**
- * Card matches machine multi-filter (empty = all; `__none__` = none).
- * @param {{ fromPlan?: boolean }} opts — board: also match process_plan machines so TP filter still finds the card.
+ * Card matches machine filter by scheduled machine_id only (empty = all).
+ * Do not match process_plan machines — that parked PACK cards under NF-1 when filtered.
  */
-export function cardMatchesMachineFilter(card, machineIds = [], opts = {}) {
+export function cardMatchesMachineFilter(card, machineIds = []) {
   if (!machineIds.length) return true;
   if (machineIds.length === 1 && machineIds[0] === "__none__") return false;
   const ids = new Set(machineIds.map(String));
-  if (card?.machine_id == null) {
-    if (ids.has(UNASSIGNED)) return true;
-  } else if (ids.has(String(card.machine_id))) {
-    return true;
-  }
-  if (!opts.fromPlan) return false;
-  const plan = Array.isArray(card?.process_plan) ? card.process_plan : [];
-  for (const stage of plan) {
-    for (const m of stage?.machines || []) {
-      if (m?.machine_id != null && ids.has(String(m.machine_id))) return true;
-    }
-  }
-  return false;
+  if (card?.machine_id == null || card?.machine_id === "") return ids.has(UNASSIGNED);
+  return ids.has(String(card.machine_id));
 }
 
 /** Machines linked to selected processes (from cards' process_plan). */
@@ -226,22 +215,14 @@ export function machineIdsForProcesses(cards = [], processIds = []) {
 }
 
 /**
- * Which board column a card belongs in.
- * Prefer scheduled machine_id; if that column is filtered out, use first visible plan machine.
- * @param {Set<string>|null} visibleColIds — null = no machine/process column filter
+ * Which board column a card belongs in — always scheduled machine_id.
+ * If that column is filtered out, return null (do not reassign to another M/C).
+ * @param {Set<string>|null} visibleColIds — null = no column filter
  */
 export function resolveBoardColumnId(card, visibleColIds = null) {
   const primary = card?.machine_id == null || card?.machine_id === "" ? UNASSIGNED : String(card.machine_id);
   if (!visibleColIds) return primary;
-  if (visibleColIds.has(primary)) return primary;
-  const plan = Array.isArray(card?.process_plan) ? card.process_plan : [];
-  for (const stage of plan) {
-    for (const m of stage?.machines || []) {
-      const id = m?.machine_id != null ? String(m.machine_id) : null;
-      if (id && visibleColIds.has(id)) return id;
-    }
-  }
-  return null;
+  return visibleColIds.has(primary) ? primary : null;
 }
 
 export function machineBusyStatus(machineId, cards) {
@@ -251,8 +232,14 @@ export function machineBusyStatus(machineId, cards) {
   return "idle";
 }
 
-/** Board column order: Running always top, then Hold, queue, Complete last. */
-const BOARD_STATUS_RANK = { Running: 0, Hold: 1, Pending: 2, Planning: 2, Complete: 9 };
+/**
+ * Board column order:
+ * - Running always top
+ * - Complete always last
+ * - Hold / Pending / Planning share the queue — drag `position` first, then plan_start ASC
+ *   (earliest schedule = top after cascade, so Pending dragged to top stays on reload).
+ */
+const BOARD_STATUS_RANK = { Running: 0, Hold: 2, Pending: 2, Planning: 2, Complete: 9 };
 
 export function sortBoardColumn(cards = []) {
   return [...cards].sort((a, b) => {
@@ -262,7 +249,10 @@ export function sortBoardColumn(cards = []) {
     const pa = Number(a.position);
     const pb = Number(b.position);
     if (Number.isFinite(pa) && Number.isFinite(pb) && pa !== pb) return pa - pb;
-    return String(a.date || "").localeCompare(String(b.date || ""));
+    const da = String(a.date || "").slice(0, 10);
+    const db = String(b.date || "").slice(0, 10);
+    if (da !== db) return da.localeCompare(db);
+    return String(a.job_card_no || "").localeCompare(String(b.job_card_no || ""));
   });
 }
 
@@ -277,12 +267,119 @@ export function columnQueue(cards = [], machineId) {
   );
 }
 
+/** Est. hours a JC still needs on the calendar (setup+run, else est_shifts × SHIFT_HOURS). */
+export function jcNeedHours(card) {
+  const setup = Math.max(0, Number(card?.est_setup_seconds) || 0);
+  const run = Math.max(0, Number(card?.est_run_seconds) || 0);
+  if (setup + run > 0) return (setup + run) / 3600;
+  const sh = Math.max(0, Math.floor(Number(card?.est_shifts) || 0));
+  return sh * SHIFT_HOURS;
+}
+
+/** Shifts + hours — backend API first; fallback for old/partial rows. */
+export function resolveCardShiftStats(card, hoursPerShift = SHIFT_HOURS) {
+  const shifts = Number(card?.est_shifts);
+  const hours = Number(card?.est_hours);
+  if (shifts > 0 && hours > 0) return { shifts, hours };
+  const need = jcNeedHours(card);
+  const per = Number(hoursPerShift) > 0 ? Number(hoursPerShift) : SHIFT_HOURS;
+  return {
+    shifts: shifts > 0 ? shifts : Math.max(1, Math.ceil(need / per)),
+    hours: hours > 0 ? hours : Math.round(need * 10) / 10,
+  };
+}
+
+/**
+ * Manpower rows have no JC — attach live board FIFO JC by consuming hours
+ * chronologically per machine (first column JC, then next when need is filled).
+ */
+export function attributeFifoJcToOccupied(occupiedMap, cards = [], shiftList = []) {
+  if (!occupiedMap?.size) return occupiedMap || new Map();
+  const shiftHrsOf = (n) => {
+    const s = (shiftList || []).find((x) => Number(x.id) === Number(n));
+    return Number(s?.hours) > 0 ? Number(s.hours) : SHIFT_HOURS;
+  };
+  const out = new Map();
+  occupiedMap.forEach((v, key) => {
+    const segs = Array.isArray(v?.segments) && v.segments.length ? v.segments : [v];
+    out.set(key, {
+      ...v,
+      pjobcardno: "",
+      segments: segs.map((s) => ({ ...s, pjobcardno: "" })),
+    });
+  });
+
+  const macs = new Set();
+  out.forEach((_, key) => {
+    const mac = String(key).split(":")[0];
+    if (mac) macs.add(mac);
+  });
+
+  for (const mac of macs) {
+    const slots = [];
+    out.forEach((v, key) => {
+      if (!String(key).startsWith(`${mac}:`)) return;
+      const parts = String(key).split(":");
+      const date = parts[1];
+      const shift = Number(parts[2]);
+      const full = shiftHrsOf(shift);
+      (v.segments || []).forEach((seg) => {
+        const hrs = Number(seg.hours) > 0 ? Number(seg.hours) : full;
+        slots.push({ seg, date, shift, hrs, parent: v });
+      });
+    });
+    slots.sort(
+      (a, b) =>
+        String(a.date).localeCompare(String(b.date)) ||
+        a.shift - b.shift ||
+        (Number(a.seg.id) || 0) - (Number(b.seg.id) || 0)
+    );
+
+    const queue = columnQueue(cards, mac);
+    let qi = 0;
+    let remain = 0;
+    const arm = () => {
+      while (qi < queue.length) {
+        const c = queue[qi];
+        const done = String(c?.status || "").toLowerCase() === "complete";
+        const needH = jcNeedHours(c);
+        const needS = Math.max(0, Math.floor(Number(c?.est_shifts) || 0));
+        const need = needH > 0 ? needH : needS > 0 ? needS * SHIFT_HOURS : 0;
+        if (done || !(need > 0)) {
+          qi += 1;
+          continue;
+        }
+        remain = need;
+        break;
+      }
+    };
+    arm();
+
+    for (const slot of slots) {
+      while (qi < queue.length && !(remain > 0.05)) {
+        qi += 1;
+        arm();
+      }
+      const card = queue[qi] || null;
+      if (!card || !(remain > 0.05)) {
+        slot.seg.pjobcardno = "";
+        continue;
+      }
+      const jc = String(card.job_card_no || "").trim();
+      slot.seg.pjobcardno = jc;
+      if (!slot.parent.pjobcardno) slot.parent.pjobcardno = jc;
+      remain = Math.max(0, Math.round((remain - slot.hrs) * 100) / 100);
+    }
+  }
+  return out;
+}
+
 /** First shift slot after a job that used `shiftCount` shifts from (startDate, startShift). */
-export function nextSlotAfter(startDate, startShift, shiftCount) {
+export function nextSlotAfter(startDate, startShift, shiftCount, shiftsPerDay = 1) {
   const n = Math.max(0, Math.floor(Number(shiftCount) || 0));
-  const perDay = Math.max(1, SHIFTS_PER_DAY);
+  const perDay = Math.max(1, Number(shiftsPerDay) || 1);
   if (!startDate) return null;
-  const s0 = isValidShift(startShift) ? Number(startShift) : 1;
+  const s0 = isValidShift(startShift, perDay) ? Number(startShift) : 1;
   const nextIndex = s0 - 1 + Math.max(n, 1);
   const dayOffset = Math.floor(nextIndex / perDay);
   const shift = (nextIndex % perDay) + 1;
@@ -295,11 +392,11 @@ export function nextSlotAfter(startDate, startShift, shiftCount) {
   return { date: `${y}-${m}-${day}`, shift };
 }
 
-function estimateEndDate(startDate, startShift, shiftCount) {
+function estimateEndDate(startDate, startShift, shiftCount, shiftsPerDay = 1) {
   const n = Math.max(0, Math.floor(Number(shiftCount) || 0));
-  const perDay = Math.max(1, SHIFTS_PER_DAY);
+  const perDay = Math.max(1, Number(shiftsPerDay) || 1);
   if (!startDate || !n) return startDate || null;
-  const s0 = isValidShift(startShift) ? Number(startShift) : 1;
+  const s0 = isValidShift(startShift, perDay) ? Number(startShift) : 1;
   const endIndex = s0 - 1 + n - 1;
   const dayOffset = Math.floor(endIndex / perDay);
   const d = new Date(`${startDate}T12:00:00`);
@@ -314,7 +411,8 @@ function estimateEndDate(startDate, startShift, shiftCount) {
 /**
  * FIFO board rules (per machine column):
  * - At most one Running
- * - Start only if nothing Running, and every card above is Complete or Hold
+ * - Hold → Start always allowed when nothing Running (resume)
+ * - Pending/Planning → Start only if every card above is Complete (FIFO)
  * - Hold only while Running
  * - Complete while Running or Hold
  */
@@ -329,10 +427,13 @@ export function canFifoAction(card, columnCards, key) {
   if (key === "start") {
     if (card.status === "Running") return false;
     if (running) return false;
+    // Resume: Hold can Start whenever the machine is free
+    if (card.status === "Hold") return true;
+    // New start: only after all cards above are Complete
     for (const c of ordered) {
       if (String(c.id) === String(card.id)) return true;
-      if (c.status === "Complete" || c.status === "Hold") continue;
-      return false; // Pending / Planning still above — FIFO
+      if (c.status === "Complete") continue;
+      return false; // Hold / Pending / Planning still above — FIFO
     }
     return false;
   }
@@ -347,14 +448,19 @@ export function columnHasRunning(columnCards = []) {
  * After drag reorder (nothing Running): anchor = previous column head start slot;
  * each card gets that window in order, then the next starts after est_shifts.
  */
-export function cascadeColumnSchedules(orderedCards = [], anchor = {}) {
+export function cascadeColumnSchedules(orderedCards = [], anchor = {}, shiftsPerDay = 1) {
+  const perDay = Math.max(1, Number(shiftsPerDay) || 1);
   if (!orderedCards.length) return [];
   let date = anchor.date || orderedCards[0].date || toDateKey(new Date());
-  let shift = isValidShift(anchor.shift) ? Number(anchor.shift) : isValidShift(orderedCards[0].shift) ? Number(orderedCards[0].shift) : 1;
+  let shift = isValidShift(anchor.shift, perDay)
+    ? Number(anchor.shift)
+    : isValidShift(orderedCards[0].shift, perDay)
+      ? Number(orderedCards[0].shift)
+      : 1;
   const out = [];
   for (const card of orderedCards) {
     const est = Math.max(1, Math.floor(Number(card.est_shifts) || 1));
-    const estimate_date = estimateEndDate(date, shift, est);
+    const estimate_date = estimateEndDate(date, shift, est, perDay);
     out.push({
       ...card,
       date,
@@ -362,7 +468,7 @@ export function cascadeColumnSchedules(orderedCards = [], anchor = {}) {
       estimate_date,
       est_shifts: Number(card.est_shifts) > 0 ? Number(card.est_shifts) : est,
     });
-    const next = nextSlotAfter(date, shift, est);
+    const next = nextSlotAfter(date, shift, est, perDay);
     if (!next) break;
     date = next.date;
     shift = next.shift;
@@ -481,15 +587,47 @@ export async function fetchBoard() {
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key).push(c);
   }
+  /** Position from FIFO board order (status + plan_start ASC) — not API DESC dump. */
   const positioned = [];
-  for (const list of grouped.values()) list.forEach((c, i) => positioned.push({ ...c, position: i }));
+  for (const list of grouped.values()) {
+    sortBoardColumn(list.map((c) => ({ ...c, position: Number.NaN }))).forEach((c, i) => {
+      positioned.push({ ...c, position: i });
+    });
+  }
   return { machines, cards: positioned };
 }
 
-/** Calendar: prod_plan lines (+ machines for shared filters). */
+/** Calendar: prod_plan lines (+ full machine list like Board — for filter + idle rows). */
 export async function fetchCalendar() {
   const [cards, machineList] = await Promise.all([fetchPlanLines(), loadMachines()]);
-  return { cards, machines: machineList };
+  const byId = new Map(machineList.map((m) => [m.id, { ...m }]));
+  for (const c of cards) {
+    const plan = Array.isArray(c.process_plan) ? c.process_plan : [];
+    for (const stage of plan) {
+      for (const m of stageMachines(stage)) {
+        if (!byId.has(m.id)) {
+          byId.set(m.id, {
+            id: m.id,
+            code: String(m.id),
+            name: m.name,
+            processId: stage?.process_id != null ? Number(stage.process_id) : null,
+          });
+        }
+      }
+    }
+    if (c.machine_id != null && c.machine_id !== "" && !byId.has(Number(c.machine_id))) {
+      byId.set(Number(c.machine_id), {
+        id: Number(c.machine_id),
+        code: String(c.machine_id),
+        name: c.machine || `Machine ${c.machine_id}`,
+        processId: c.processId != null ? Number(c.processId) : null,
+      });
+    }
+  }
+  const machines = [...byId.values()].sort((a, b) =>
+    String(a.code).localeCompare(String(b.code), undefined, { numeric: true })
+  );
+  return { cards, machines };
 }
 
 /** Start / Hold / Complete → prod_plan.status (+ actual_start / actual_end on backend). */
@@ -517,20 +655,4 @@ export async function updatePlanLineMachine(cardOrId, toMachineId) {
   if (!docno) throw new Error("Invalid plan line.");
   const maccode = toMachineId == null || toMachineId === UNASSIGNED ? null : Number(toMachineId);
   await planService.update(docno, { maccode });
-}
-
-/** @deprecated — use updatePlanLineStatus */
-export async function updateJobCardStatus(cardOrId, status) {
-  const map = { Running: "running", Hold: "hold", Complete: "complete" };
-  await updatePlanLineStatus(cardOrId, map[status] || status);
-}
-
-/** @deprecated — use updatePlanLineSchedule */
-export async function updateJobCardSchedule(cardOrId, dateKey) {
-  await updatePlanLineSchedule(cardOrId, dateKey);
-}
-
-/** @deprecated — use updatePlanLineMachine */
-export async function updateJobCardPosition(cardOrId, toMachineId) {
-  await updatePlanLineMachine(cardOrId, toMachineId);
 }

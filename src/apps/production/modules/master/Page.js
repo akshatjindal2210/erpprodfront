@@ -3,7 +3,6 @@
 import { useState, useCallback } from "react";
 import { Package, Eye } from "lucide-react";
 import { masterService } from "@/apps/production/lib/services/master";
-import { PRODUCTION_GROUP_NAME } from "@/apps/production/lib/config/groupFilter";
 import { useViewMode } from "@/platform/hooks/list/useViewMode";
 import DataTable from "@/ui/primitives/DataTable";
 import ListPageExportToggle from "@/ui/common/list/ListPageExportToggle";
@@ -21,27 +20,15 @@ import { MasterRefreshButton } from "@/apps/production/lib/helpers/masterListUi"
 import { imsSelectionLabel } from "@/apps/ims/lib/imsSelectionLabel";
 import { PRODUCT_MASTER_HEADERS, PRODUCT_CARD_CONFIG, productRowKey, productSearchParts } from "./productColumns";
 
-function rowGroupName(row) {
-  return String(row?.grpname ?? row?.Grpname ?? "").trim();
-}
-
 export default function ProductMasterPage() {
-  const lockedGroup = PRODUCTION_GROUP_NAME;
   const [viewMode, handleViewMode] = useViewMode();
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // Backend loads ERP item type "prd"
   const loadData = useCallback(async () => {
     const body = await masterService.getItems();
     return body.data ?? [];
   }, []);
-
-  const preFilter = useCallback(
-    (rows) => {
-      const needle = lockedGroup.toLowerCase();
-      return rows.filter((row) => rowGroupName(row).toLowerCase() === needle);
-    },
-    [lockedGroup]
-  );
 
   const {
     loading,
@@ -63,7 +50,6 @@ export default function ProductMasterPage() {
     errorMessage: "Failed to load items",
     getSearchParts: productSearchParts,
     getRowKey: productRowKey,
-    preFilter,
   });
 
   const { exporting, handleExport, exportDisabled } = useListPageExport({

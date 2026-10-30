@@ -70,9 +70,7 @@ Body: `{ "requestedData", "filter?" }` · Client: `ims/lib/services/ims.service.
 | IMS           | same | `fyid` | — or `{ fyid: 1 }` |
 | IMS           | same | `pack` | default 7 days, or `dailyprod.docdt…` |
 | IMS           | same | `pack` | FY+doc via `fetchPackRowsForFinancialYearDoc` |
-| IMS           | `createGroupMasterControllers.js` | `item` | — or `{ type:"fg" }` |
-| Purchase      | master → group **BOP** | `item` | same helper |
-| Production    | master → group **Production** | `item` | same helper |
+| Purchase / Production Product Master | `itemMasterHandlers.js` | `item` | Purchase `bop` · Production `prd` |
 | IMS           | `packing-entry/dailyProdList.js` | `pack` | 7-day default or date SQL |
 | IMS           | `packing-entry/packingEntryCustomers.js` | `custcode`,`item` | — |
 | IMS           | `packing-entry/backfillDailyprodStickerSnapshot.js` | `pack` | date filter |
@@ -127,8 +125,11 @@ IMS (many screens), RM store-location/erpItems, Purchase/Production shortage.
 
 ```json
 { "requestedData": "item" }
-{ "requestedData": "item", "filter": { "type": "fg" } }
-{ "requestedData": "item", "filter": { "type": "rm" } }
+{ "requestedData": "item", "filter": { "type": "fg" } }   // Finish 
+{ "requestedData": "item", "filter": { "type": "rm" } }   // RM Wire / Prime Item
+{ "requestedData": "item", "filter": { "type": "prd" } }  // Production
+{ "requestedData": "item", "filter": { "type": "bop" } }  // Purchase
+{ "requestedData": "prdprimitem", }  // RM Store Production Item
 { "requestedData": "cust" }
 { "requestedData": "custcode" }
 { "requestedData": "userlist" }

@@ -44,8 +44,8 @@ import { PROCESS_STATUS_VALUES, PROCESS_STATUS_LABELS, PROCESS_STATUS_BADGE, Pro
 import { fetchMaintainJobcardToolingRequired, toolingBlocksMaintainJobCardSave } from "@/apps/production/lib/helpers/maintainJobCardToolingConfig";
 /**
  * Production → Maintain Job Card — 2 tabs.
- *   Pending Shortage — Accept → New until job_card_no set · then Edit / View / Delete
- *   Register         — no job_card_no → New · has job_card_no → Edit / View / Delete
+ *   Pending Shortage — Accept → New (rows with JC already created are hidden)
+ *   Register         — created job cards → Edit / View / Delete
  */
 
 const MODULE = "production_job_card";
@@ -546,7 +546,7 @@ function ShortageTab({ refreshKey, active, viewMode, onDataChange, onSelectionCh
           getRowClassName={(row) => (row.status === "accepted" ? "" : "opacity-60 [&_td]:bg-slate-100 [&_td]:text-slate-500")}
           emptyIcon={ClipboardList}
           emptyMessage={list.error ? "Could not load pending shortage" : "No pending shortage"}
-          emptySubMessage={list.error ? `${list.error} — use the refresh button to try again.` : "No rows match the filter, or all accepted shortages already have a planned job card."}
+          emptySubMessage={list.error ? `${list.error} — use the refresh button to try again.` : "No rows match the filter, or accepted items already have a job card (see Register)."}
         />
       </div>
 

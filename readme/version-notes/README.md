@@ -4,6 +4,7 @@ Cross-app **internal helper API** catalog (paths, allowlists, caller pages): [..
 
 | Note | Topic |
 |------|--------|
+| [v5.2.3.md](./v5.2.3.md) | **Module notification templates** — Clone · Conditions value API (DISTINCT) · Training + Module Templates UI |
 | [v5.2.2.md](./v5.2.2.md) | **Production Planning** Board FIFO / process–M/C DnD · Planning Table · Est. time file map · Complete hide |
 | [v5.2.1.md](./v5.2.1.md) | **Production** `prod_jc` / `prod_plan` · JC + Plan API · **IMS Tray** `tray_code`+`id` QR · Box/Inward timer cleanup |
 | [v5.2.0.md](./v5.2.0.md) | **IMS Tray QR** · Documents soft-deactivate · Process Plan RM/Time · Tooling on JC · Board View · Web Push 403 |

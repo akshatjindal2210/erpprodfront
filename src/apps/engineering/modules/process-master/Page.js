@@ -154,9 +154,12 @@ export default function ProcessMasterPage() {
         </div>
       );
     }, { width: "220px", wrap: true, sortable: false, copyValue: flagsCopyText }],
-    ["Pattern", "pattern", (v) => (
-      <span className="text-[10px] font-mono text-slate-500 truncate block" title={v || ""}>{v || "—"}</span>
-    ), { width: "140px" }],
+    ["Connectivity", "connectivity", (v) => (
+      <span className={`text-[10px] font-bold uppercase ${v ? "text-emerald-700" : "text-slate-400"}`}>{v ? "Yes" : "No"}</span>
+    ), { width: "110px", align: "center" }],
+    ["Department", "deptname", (v) => (
+      <span className="text-[10px] text-slate-600 truncate block" title={v || ""}>{v || "—"}</span>
+    ), { width: "160px" }],
     ["Status", "approved", (v) => (
       <span className={`px-2 py-0.5 text-[9px] font-black uppercase border ${v ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-600 border-amber-100"}`}>
         {v ? "● AUTHORIZED" : "○ PENDING"}
@@ -237,7 +240,7 @@ export default function ProcessMasterPage() {
             onReset={() => { setTempSearch(""); setParams(DEFAULT_PARAMS); }}
             searchValue={tempSearch}
             onSearchChange={setTempSearch}
-            searchPlaceholder="Search name, parent, pattern..."
+            searchPlaceholder="Search name, parent, department..."
             searchLabel="Search Database"
           />
         </ListPageFilterStrip>

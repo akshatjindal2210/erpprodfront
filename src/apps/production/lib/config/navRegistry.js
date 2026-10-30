@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap, Package, AlertTriangle, History, ClipboardList, Wrench, LayoutGrid, CalendarDays, Factory, ClipboardPen, Table2 } from "lucide-react";
+import { Zap, Package, AlertTriangle, History, ClipboardList, Wrench, LayoutGrid, CalendarDays, Factory, ClipboardPen, Table2, Users } from "lucide-react";
 import { ROUTES } from "@/apps/production/lib/utils/routes";
 
 export const PRODUCTION_NAV_REGISTRY = [
@@ -29,6 +29,7 @@ export const PRODUCTION_NAV_REGISTRY = [
     ],
   },
   { id: "production-entry", name: "Production Entry", icon: <ClipboardPen size={16} />, href: ROUTES.PRODUCTION_ENTRY, module: "production_entry" },
+  { id: "manpower", name: "Manpower", icon: <Users size={16} />, href: ROUTES.PRODUCTION_MANPOWER, module: "production_manpower" },
   {
     id: "production-logs-group",
     name: "Logs",

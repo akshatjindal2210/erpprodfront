@@ -111,6 +111,7 @@ export const MODULES = {
     { name: "production_job_card", label: "Maintain Job Card" },
     { name: "production_planning", label: "Production Planning" },
     { name: "production_entry", label: "Production Entry" },
+    { name: "production_manpower", label: "Manpower" },
     { name: "production_tooling", label: "Tooling" },
     { name: "production_activity_logs", label: "Activity Logs" },
   ],
